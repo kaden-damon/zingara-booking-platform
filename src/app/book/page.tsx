@@ -44,6 +44,23 @@ type PromoCode = {
   value: number;
 };
 
+const calendarWeekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const calendarMonths = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+const guestOptions = Array.from({ length: 21 }, (_, index) => index + 1);
+
 const bookingAddons: BookingAddon[] = [
   {
     id: "vip-champagne",
@@ -219,12 +236,78 @@ function getDiscountAmount(
   return Math.min(promoCode.value, subtotal);
 }
 
+function getMonthKey(dateValue: string) {
+  const [year = "2026", month = "01"] = dateValue.split("-");
+
+  return `${year}-${month.padStart(2, "0")}`;
+}
+
+function getMonthParts(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+
+  return {
+    monthIndex: month - 1,
+    year,
+  };
+}
+
+function getCalendarMonthLabel(monthKey: string) {
+  const { monthIndex, year } = getMonthParts(monthKey);
+
+  return `${calendarMonths[monthIndex] ?? "Show Month"} ${year}`;
+}
+
+function shiftMonth(monthKey: string, offset: number) {
+  const { monthIndex, year } = getMonthParts(monthKey);
+  const date = new Date(Date.UTC(year, monthIndex + offset, 1));
+
+  return `${date.getUTCFullYear()}-${String(
+    date.getUTCMonth() + 1,
+  ).padStart(2, "0")}`;
+}
+
+function getCalendarDays(monthKey: string) {
+  const { monthIndex, year } = getMonthParts(monthKey);
+  const firstDay = new Date(Date.UTC(year, monthIndex, 1));
+  const daysInMonth = new Date(
+    Date.UTC(year, monthIndex + 1, 0),
+  ).getUTCDate();
+  const leadingBlankDays = firstDay.getUTCDay();
+
+  return [
+    ...Array.from({ length: leadingBlankDays }, () => ""),
+    ...Array.from({ length: daysInMonth }, (_, index) => {
+      const day = index + 1;
+
+      return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(
+        day,
+      ).padStart(2, "0")}`;
+    }),
+  ];
+}
+
+function getDateDisplay(dateValue: string) {
+  if (!dateValue) {
+    return "Select a show date";
+  }
+
+  const [year, month, day] = dateValue.split("-");
+  const monthName = calendarMonths[Number(month) - 1] ?? month;
+
+  return `${monthName} ${Number(day)}, ${year}`;
+}
+
 export default function BookingPage() {
   const [shows, setShows] = useState<DemoShow[]>(defaultShows);
   const [venueSettings, setVenueSettings] = useState(
     defaultVenueSettings,
   );
   const [selectedShowId, setSelectedShowId] = useState("");
+  const [selectedShowDate, setSelectedShowDate] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(
+    getMonthKey(defaultShows[0]?.date ?? "2026-06-01"),
+  );
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [partySize, setPartySize] = useState(2);
   const [selectedZone, setSelectedZone] =
     useState<SeatingOption | null>(null);
@@ -304,6 +387,11 @@ export default function BookingPage() {
   const selectedShow = shows.find(
     (show) => show.id === selectedShowId,
   );
+  const showDateSet = new Set(shows.map((show) => show.date));
+  const calendarDays = getCalendarDays(calendarMonth);
+  const selectedDateShows = shows.filter(
+    (show) => show.date === selectedShowDate,
+  );
   const hasBookableSeatingOption =
     selectedShowId &&
     seatingZones.some((zone) =>
@@ -317,6 +405,49 @@ export default function BookingPage() {
   const canJoinWaitlist =
     Boolean(selectedShowId) && !hasBookableSeatingOption;
 
+  function resetBookingProgress() {
+    setSelectedZone(null);
+    setIsConfirmationOpen(false);
+    setBookingReference(null);
+    setAllocatedTableNumber(null);
+    setWaitlistReference(null);
+  }
+
+  function selectShowDate(dateValue: string) {
+    if (!showDateSet.has(dateValue)) {
+      return;
+    }
+
+    setSelectedShowDate(dateValue);
+    setSelectedShowId("");
+    setIsCalendarOpen(false);
+    resetBookingProgress();
+  }
+
+  function selectShowTime(showId: string) {
+    setSelectedShowId(showId);
+    resetBookingProgress();
+  }
+
+  function selectPartySize(nextPartySize: number) {
+    setPartySize(nextPartySize);
+    setIsConfirmationOpen(false);
+    setBookingReference(null);
+    setAllocatedTableNumber(null);
+    setWaitlistReference(null);
+    setSelectedZone((currentZone) =>
+      currentZone &&
+      !isAvailableForBooking(
+        currentZone,
+        nextPartySize,
+        selectedShowId,
+        tables,
+      )
+        ? null
+        : currentZone,
+    );
+  }
+
   useEffect(() => {
     function loadShowInventory() {
       const nextShows = getStoredDemoShows();
@@ -326,6 +457,11 @@ export default function BookingPage() {
       setShows(nextShows);
       setTables(nextTables);
       setVenueSettings(nextVenueSettings);
+      setCalendarMonth((currentMonth) =>
+        nextShows.some((show) => getMonthKey(show.date) === currentMonth)
+          ? currentMonth
+          : getMonthKey(nextShows[0]?.date ?? defaultShows[0].date),
+      );
     }
 
     const hydrationTimer = window.setTimeout(loadShowInventory, 0);
@@ -568,76 +704,209 @@ export default function BookingPage() {
         </p>
 
         <div className="space-y-10">
-          <div>
-            <label
-              htmlFor="show"
-              className="block mb-3 text-zinc-300 text-lg"
-            >
-              Select Show Date & Time
-            </label>
+          <div className="relative">
+            <p className="mb-3 text-lg text-zinc-300">
+              Select Show Date
+            </p>
 
-            <select
-              id="show"
-              value={selectedShowId}
-              onChange={(e) => {
-                setSelectedShowId(e.target.value);
-                setSelectedZone(null);
-                setIsConfirmationOpen(false);
-                setBookingReference(null);
-                setAllocatedTableNumber(null);
-                setWaitlistReference(null);
-              }}
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-2xl p-5 text-lg"
+            <button
+              type="button"
+              onClick={() =>
+                setIsCalendarOpen((currentValue) => !currentValue)
+              }
+              className="flex w-full flex-col rounded-2xl border border-[#8D7A2F]/45 bg-zinc-950 px-5 py-4 text-left shadow-2xl shadow-black/20 transition hover:border-[#D8C36A]/70 sm:flex-row sm:items-center sm:justify-between"
             >
-              <option value="">Choose a show</option>
-              {shows.map((show) => (
-                <option key={show.id} value={show.id}>
-                  {getShowLabel(show)}
-                </option>
-              ))}
-            </select>
+              <span>
+                <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                  Date
+                </span>
+                <span className="mt-1 block text-2xl font-bold text-white">
+                  {getDateDisplay(selectedShowDate)}
+                </span>
+              </span>
+              <span className="mt-4 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold uppercase tracking-[0.14em] text-zinc-300 sm:mt-0">
+                {isCalendarOpen ? "Close Calendar" : "Open Calendar"}
+              </span>
+            </button>
+
+            {isCalendarOpen && (
+              <div className="absolute left-0 right-0 z-40 mt-4 max-w-xl rounded-[2rem] border border-[#D8C36A]/35 bg-[#070505] p-5 shadow-2xl shadow-[#8D7A2F]/25">
+                <div className="mb-5 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCalendarMonth((currentMonth) =>
+                        shiftMonth(currentMonth, -1),
+                      )
+                    }
+                    className="grid h-10 w-10 place-items-center rounded-full border border-white/15 text-xl text-zinc-300 transition hover:border-[#D8C36A] hover:text-[#F2D66C]"
+                    aria-label="Previous month"
+                  >
+                    ‹
+                  </button>
+                  <p className="text-xl font-bold text-white">
+                    {getCalendarMonthLabel(calendarMonth)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCalendarMonth((currentMonth) =>
+                        shiftMonth(currentMonth, 1),
+                      )
+                    }
+                    className="grid h-10 w-10 place-items-center rounded-full border border-white/15 text-xl text-zinc-300 transition hover:border-[#D8C36A] hover:text-[#F2D66C]"
+                    aria-label="Next month"
+                  >
+                    ›
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-7 gap-2">
+                  {calendarWeekdays.map((weekday) => (
+                    <p
+                      key={weekday}
+                      className="text-center text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500"
+                    >
+                      {weekday}
+                    </p>
+                  ))}
+
+                  {calendarDays.map((dateValue, index) => {
+                    if (!dateValue) {
+                      return (
+                        <span
+                          key={`blank-${index}`}
+                          className="aspect-square rounded-2xl"
+                        />
+                      );
+                    }
+
+                    const day = Number(dateValue.split("-")[2]);
+                    const isAvailableDate = showDateSet.has(dateValue);
+                    const isSelectedDate =
+                      selectedShowDate === dateValue;
+
+                    return (
+                      <button
+                        key={dateValue}
+                        type="button"
+                        disabled={!isAvailableDate}
+                        onClick={() => selectShowDate(dateValue)}
+                        className={`aspect-square rounded-2xl border text-lg font-semibold transition ${
+                          isSelectedDate
+                            ? "border-white bg-[#D8C36A] text-black shadow-[0_0_28px_rgba(216,195,106,0.35)]"
+                            : isAvailableDate
+                            ? "border-[#D8C36A]/45 bg-[#1A1208] text-[#F2D66C] hover:scale-[1.03] hover:border-[#F2D66C]"
+                            : "cursor-not-allowed border-white/5 bg-zinc-900/60 text-zinc-700"
+                        }`}
+                      >
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                  <span className="inline-flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-[#D8C36A]" />
+                    Available
+                  </span>
+                  <span className="inline-flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+                    Unavailable
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
+
+          {selectedShowDate && (
+            <div>
+              <p className="mb-3 text-lg text-zinc-300">
+                Available Show Times
+              </p>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {selectedDateShows.map((show) => {
+                  const isSelectedTime = selectedShowId === show.id;
+
+                  return (
+                    <button
+                      key={show.id}
+                      type="button"
+                      onClick={() => selectShowTime(show.id)}
+                      className={`rounded-2xl border p-5 text-left transition ${
+                        isSelectedTime
+                          ? "border-white bg-[#D8C36A] text-black shadow-[0_0_28px_rgba(216,195,106,0.25)]"
+                          : "border-[#8D7A2F]/35 bg-zinc-950 text-white hover:border-[#D8C36A] hover:bg-[#171006]"
+                      }`}
+                    >
+                      <span className="block text-3xl font-bold">
+                        {show.time}
+                      </span>
+                      <span className="mt-2 block text-sm font-semibold uppercase tracking-[0.13em] opacity-75">
+                        {show.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {selectedShowId && (
             <>
 
           <div>
-            <label className="block mb-3 text-zinc-300 text-lg">
-              Party Size
-            </label>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-lg text-zinc-300">
+                  Party Size
+                </p>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Choose 1 to 21 guests. Seating rules update instantly.
+                </p>
+              </div>
 
-            <select
-              value={partySize}
-              onChange={(e) => {
-                const nextPartySize = Number(e.target.value);
+              <div className="inline-flex items-center rounded-full border border-[#8D7A2F]/35 bg-zinc-950 p-1">
+                <button
+                  type="button"
+                  onClick={() => selectPartySize(Math.max(1, partySize - 1))}
+                  className="grid h-10 w-10 place-items-center rounded-full text-xl text-zinc-300 transition hover:bg-white hover:text-black"
+                  aria-label="Decrease guests"
+                >
+                  −
+                </button>
+                <span className="min-w-24 px-4 text-center text-xl font-bold text-[#F2D66C]">
+                  {partySize} {partySize === 1 ? "Guest" : "Guests"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => selectPartySize(Math.min(21, partySize + 1))}
+                  className="grid h-10 w-10 place-items-center rounded-full text-xl text-zinc-300 transition hover:bg-white hover:text-black"
+                  aria-label="Increase guests"
+                >
+                  +
+                </button>
+              </div>
+            </div>
 
-                setPartySize(nextPartySize);
-                setIsConfirmationOpen(false);
-                setBookingReference(null);
-                setAllocatedTableNumber(null);
-                setWaitlistReference(null);
-                setSelectedZone((currentZone) =>
-                  currentZone &&
-                  !isAvailableForBooking(
-                    currentZone,
-                    nextPartySize,
-                    selectedShowId,
-                    tables,
-                  )
-                    ? null
-                    : currentZone,
-                );
-              }}
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-2xl p-5 text-lg"
-            >
-              <option value={2}>2 Guests</option>
-              <option value={4}>4 Guests</option>
-              <option value={6}>6 Guests</option>
-              <option value={8}>8 Guests</option>
-              <option value={10}>10 Guests</option>
-              <option value={12}>12 Guests</option>
-              <option value={16}>16 Guests</option>
-            </select>
+            <div className="grid grid-cols-7 gap-2 rounded-[2rem] border border-white/10 bg-zinc-950 p-3 sm:grid-cols-11">
+              {guestOptions.map((guestCount) => (
+                <button
+                  key={guestCount}
+                  type="button"
+                  onClick={() => selectPartySize(guestCount)}
+                  className={`aspect-square rounded-2xl border text-sm font-bold transition sm:text-base ${
+                    partySize === guestCount
+                      ? "border-white bg-[#D8C36A] text-black shadow-[0_0_24px_rgba(216,195,106,0.24)]"
+                      : "border-white/10 bg-black text-zinc-300 hover:border-[#D8C36A]/70 hover:text-white"
+                  }`}
+                >
+                  {guestCount}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>
