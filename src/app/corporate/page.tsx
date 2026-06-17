@@ -4,15 +4,14 @@ import { type FormEvent, useState } from "react";
 
 import { getTemplates } from "../../lib/supabase/communicationTemplates";
 import { syncCorporateRequestCommunications } from "../../lib/supabase/communications";
+import { createCorporateRequest } from "../../lib/supabase/corporateRequests";
 import {
   type CorporateRequest,
   type DemoBooking,
   createCommunicationRecord,
   getCommunicationTemplate,
-  getStoredCorporateRequests,
   renderCommunicationTemplate,
   seatingZones,
-  storeCorporateRequests,
 } from "../../lib/zingaraDemo";
 
 const occasionOptions = [
@@ -230,10 +229,7 @@ export default function CorporateBookingPage() {
           : [],
     };
 
-    storeCorporateRequests([
-      requestWithCommunication,
-      ...getStoredCorporateRequests(),
-    ]);
+    await createCorporateRequest(requestWithCommunication);
     void syncCorporateRequestCommunications(requestWithCommunication);
     setSubmissionStatus(
       requestType === "agent-contact"

@@ -36,6 +36,10 @@ import {
   saveCustomers,
   upsertCustomerFromInfo,
 } from "../../lib/supabase/customers";
+import {
+  getCorporateRequests,
+  saveCorporateRequests as persistCorporateRequests,
+} from "../../lib/supabase/corporateRequests";
 import { updatePayment } from "../../lib/supabase/payments";
 import {
   getShows,
@@ -82,7 +86,6 @@ import {
   getBetterFitTableSuggestion,
   getBookingTicketState,
   getCommunicationTemplate,
-  getStoredCorporateRequests,
   getShowLabel,
   getZoneById,
   getStoredDemoTables,
@@ -92,7 +95,6 @@ import {
   isValidBookingStatus,
   isValidSeatingZoneId,
   seatingZones,
-  storeCorporateRequests,
   storeDemoTables,
 } from "../../lib/zingaraDemo";
 
@@ -1317,7 +1319,7 @@ export default function AdminDashboardPage() {
     async function loadDemoData() {
       const nextShows = await getShows();
       const nextBookings = await getBookings();
-      const nextCorporateRequests = getStoredCorporateRequests();
+      const nextCorporateRequests = await getCorporateRequests();
       const nextCommunicationTemplates = await getTemplates();
       const nextCustomerCrm = await getCustomers();
       const nextVenueSettings = await getVenueSettings();
@@ -2062,7 +2064,9 @@ export default function AdminDashboardPage() {
 
   function saveCorporateRequests(nextRequests: CorporateRequest[]) {
     setCorporateRequests(nextRequests);
-    storeCorporateRequests(nextRequests);
+    void persistCorporateRequests(nextRequests).then((persistedRequests) => {
+      setCorporateRequests(persistedRequests);
+    });
     void Promise.all(
       nextRequests.map((request) =>
         syncCorporateRequestCommunications(request),
