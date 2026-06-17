@@ -17,6 +17,7 @@ import { createPayment } from "../../lib/supabase/payments";
 import { getShows } from "../../lib/supabase/shows";
 import { createTicket } from "../../lib/supabase/tickets";
 import { getVenueSettings } from "../../lib/supabase/venueSettings";
+import { createWaitlistEntry } from "../../lib/supabase/waitlist";
 import {
   type BookingAddon,
   type CommunicationRecord,
@@ -42,13 +43,11 @@ import {
   getCompactShowDateTime,
   getSouthAfricaShowTime,
   getStoredDemoTables,
-  getStoredDemoWaitlist,
   getTableAllocationDisplay,
   getTicketUrl,
   renderCommunicationTemplate,
   seatingZones,
   storeDemoTables,
-  storeDemoWaitlist,
 } from "../../lib/zingaraDemo";
 
 type SeatingOption = SeatingZone;
@@ -1061,9 +1060,7 @@ export default function BookingPage() {
       createdAt: new Date().toISOString(),
     };
 
-    const nextWaitlist = [entry, ...getStoredDemoWaitlist()];
-
-    storeDemoWaitlist(nextWaitlist);
+    void createWaitlistEntry(entry);
     setWaitlistReference(reference);
   }
 

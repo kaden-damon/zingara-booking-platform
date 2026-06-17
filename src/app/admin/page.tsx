@@ -41,11 +41,16 @@ import {
   getShows,
   replaceShows,
 } from "../../lib/supabase/shows";
+import { createTicketValidation } from "../../lib/supabase/ticketValidations";
 import { updateTicket } from "../../lib/supabase/tickets";
 import {
   getVenueSettings,
   saveVenueSettings as persistVenueSettings,
 } from "../../lib/supabase/venueSettings";
+import {
+  getWaitlistEntries,
+  saveWaitlistEntries,
+} from "../../lib/supabase/waitlist";
 import {
   type BookingStatus,
   type BookingSource,
@@ -81,7 +86,6 @@ import {
   getShowLabel,
   getZoneById,
   getStoredDemoTables,
-  getStoredDemoWaitlist,
   getSouthAfricaShowTime,
   getTicketUrl,
   renderCommunicationTemplate,
@@ -90,7 +94,6 @@ import {
   seatingZones,
   storeCorporateRequests,
   storeDemoTables,
-  storeDemoWaitlist,
 } from "../../lib/zingaraDemo";
 
 type NewTableForm = {
@@ -1318,7 +1321,7 @@ export default function AdminDashboardPage() {
       const nextCommunicationTemplates = await getTemplates();
       const nextCustomerCrm = await getCustomers();
       const nextVenueSettings = await getVenueSettings();
-      const nextWaitlist = getStoredDemoWaitlist();
+      const nextWaitlist = await getWaitlistEntries();
       const nextTables = getStoredDemoTables();
       const nextStaffAccounts = getStoredStaffAccounts();
 
@@ -2355,7 +2358,9 @@ export default function AdminDashboardPage() {
 
   function saveWaitlist(nextWaitlist: DemoWaitlistEntry[]) {
     setWaitlist(nextWaitlist);
-    storeDemoWaitlist(nextWaitlist);
+    void saveWaitlistEntries(nextWaitlist).then((persistedWaitlist) => {
+      setWaitlist(persistedWaitlist);
+    });
   }
 
   function saveCustomerCrmRecords(
@@ -3405,6 +3410,12 @@ export default function AdminDashboardPage() {
                 };
     const nextStatus =
       paymentStatus === "refunded" ? ("refunded" as const) : booking.status;
+    const paymentLifecycleNote =
+      paymentStatus === "fully-paid" || paymentStatus === "deposit-paid"
+        ? `Payment received: ${paymentStatusLabels[paymentStatus]}.`
+        : paymentStatus === "comp-vip"
+          ? "Comp booking marked by box office."
+          : undefined;
     const updatedBooking = {
       ...booking,
       ...paymentUpdates,
@@ -3419,6 +3430,15 @@ export default function AdminDashboardPage() {
               ),
               ...(booking.lifecycleHistory ?? []),
             ]
+          : paymentLifecycleNote
+            ? [
+                createLifecycleEvent(
+                  booking,
+                  nextStatus,
+                  paymentLifecycleNote,
+                ),
+                ...(booking.lifecycleHistory ?? []),
+              ]
           : booking.lifecycleHistory,
       refundNotes:
         paymentStatus === "refunded"
@@ -3842,6 +3862,13 @@ export default function AdminDashboardPage() {
           : currentBooking,
       ),
     );
+    void createTicketValidation({
+      booking: checkedInBooking,
+      code: checkedInBooking.ticketCode ?? checkedInBooking.reference,
+      deviceLabel: "Manual Check-In",
+      notes: "Manual check-in recorded.",
+      result: "checked_in",
+    });
     void sendZingaraBrowserNotification("check-in-confirmed");
   }
 
@@ -3877,6 +3904,26 @@ export default function AdminDashboardPage() {
     };
   }
 
+  function createValidationResultForState(state: TicketState | "Invalid") {
+    if (state === "Active") {
+      return "valid" as const;
+    }
+
+    if (state === "Checked In") {
+      return "already_used" as const;
+    }
+
+    if (state === "Cancelled") {
+      return "cancelled" as const;
+    }
+
+    if (state === "Refunded") {
+      return "refunded" as const;
+    }
+
+    return "invalid" as const;
+  }
+
   function validateTicketCodeValue(code: string) {
     const { booking, waitlistEntry } = findTicketRecord(code);
 
@@ -3891,9 +3938,20 @@ export default function AdminDashboardPage() {
           : state === "Cancelled"
             ? "Ticket is cancelled and cannot be checked in."
             : state === "Pending Payment"
-              ? "Ticket found, but payment is still pending."
+            ? "Ticket found, but payment is still pending."
               : "Ticket is valid for check-in.",
         state,
+      });
+      void createTicketValidation({
+        booking,
+        code,
+        deviceLabel: isScannerOpen ? "QR Scanner" : "Manual Validation",
+        notes: isDuplicateCheckIn
+          ? "Duplicate scan blocked."
+          : state === "Active"
+            ? "Ticket scanned and accepted for check-in."
+            : `Ticket scan rejected: ${state}.`,
+        result: createValidationResultForState(state),
       });
       return;
     }
@@ -3905,12 +3963,24 @@ export default function AdminDashboardPage() {
         state: "Waitlist",
         waitlistEntry,
       });
+      void createTicketValidation({
+        code,
+        deviceLabel: isScannerOpen ? "QR Scanner" : "Manual Validation",
+        notes: "Waitlist ticket rejected at entrance validation.",
+        result: "invalid",
+      });
       return;
     }
 
     setTicketValidationResult({
       message: "No booking or waitlist ticket matches this code.",
       state: "Invalid",
+    });
+    void createTicketValidation({
+      code,
+      deviceLabel: isScannerOpen ? "QR Scanner" : "Manual Validation",
+      notes: "Invalid ticket code scanned.",
+      result: "invalid",
     });
   }
 
@@ -4077,6 +4147,13 @@ export default function AdminDashboardPage() {
           : currentBooking,
       ),
     );
+    void createTicketValidation({
+      booking: checkedInBooking,
+      code: ticketValidationInput,
+      deviceLabel: "Entrance Check-In",
+      notes: "Ticket accepted and guest checked in.",
+      result: "checked_in",
+    });
     void sendZingaraBrowserNotification("check-in-confirmed");
     setTicketValidationResult({
       booking: checkedInBooking,
@@ -4143,6 +4220,13 @@ export default function AdminDashboardPage() {
           : currentBooking,
       ),
     );
+    void createTicketValidation({
+      booking: checkedInBooking,
+      code: ticketValidationInput,
+      deviceLabel: "Manager Override",
+      notes: "Manager override check-in recorded.",
+      result: "checked_in",
+    });
     void sendZingaraBrowserNotification("check-in-confirmed");
     setTicketValidationResult({
       booking: checkedInBooking,
@@ -9480,30 +9564,24 @@ export default function AdminDashboardPage() {
                     Guest Demand Queue
                   </h2>
 
-                  <label className="group relative block w-10 shrink-0 transition-all duration-300 focus-within:w-full sm:focus-within:w-80">
-                    <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-[#F2D66C] transition-all duration-300 group-focus-within:left-4 group-focus-within:translate-x-0">
-                      <svg
-                        aria-hidden="true"
-                        viewBox="0 0 24 24"
-                        className="h-5 w-5"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2.5"
-                      >
-                        <circle cx="11" cy="11" r="7" />
-                        <path d="m20 20-4.35-4.35" />
-                      </svg>
+                  <label className="flex min-w-[260px] flex-col gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Selected Show
                     </span>
-                    <input
-                      value={waitlistSearch}
-                      onChange={(event) =>
-                        setWaitlistSearch(event.target.value)
-                      }
-                      aria-label="Search waitlist"
-                      className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-0 text-sm text-transparent shadow-[0_0_18px_rgba(216,195,106,0.1)] transition-all duration-300 focus:border-[#D8C36A]/70 focus:pr-4 focus:text-white focus:outline-none"
-                    />
+                    <select
+                      value={selectedShowId}
+                      onChange={(event) => {
+                        setSelectedShowId(event.target.value);
+                        setWaitlistSearch("");
+                      }}
+                      className="rounded-full border border-[#D8C36A]/35 bg-black/45 px-5 py-3 text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition focus:border-[#D8C36A]/70"
+                    >
+                      {shows.map((show) => (
+                        <option key={show.id} value={show.id}>
+                          {getShowLabel(show)}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 </div>
                 <p className="mt-2 text-zinc-400">
@@ -9513,6 +9591,32 @@ export default function AdminDashboardPage() {
                   </span>{" "}
                   and convert them when a suitable table opens.
                 </p>
+                <label className="group relative mt-4 block w-full max-w-md">
+                  <span className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-[#F2D66C]">
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className="h-5 w-5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.5"
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m20 20-4.35-4.35" />
+                    </svg>
+                  </span>
+                  <input
+                    value={waitlistSearch}
+                    onChange={(event) =>
+                      setWaitlistSearch(event.target.value)
+                    }
+                    aria-label="Search selected show waitlist"
+                    placeholder="Search guests or references"
+                    className="h-11 w-full rounded-full border border-white/10 bg-black/45 pl-12 pr-4 text-sm text-white shadow-[0_0_18px_rgba(216,195,106,0.08)] transition placeholder:text-zinc-600 focus:border-[#D8C36A]/55 focus:outline-none"
+                  />
+                </label>
               </div>
             </div>
 

@@ -12,6 +12,10 @@ import {
   syncBookingCommunications,
 } from "./communications";
 import { getOrCreateCustomerIdFromInfo } from "./customers";
+import {
+  getLifecycleEventsForBooking,
+  syncBookingLifecycleEvents,
+} from "./lifecycleEvents";
 
 type SupabaseBookingStatus =
   | "cancelled"
@@ -304,6 +308,7 @@ async function toDemoBooking(row: SupabaseBookingRow): Promise<DemoBooking> {
     return {
       ...booking,
       communicationHistory: await getCommunicationsForBooking(booking),
+      lifecycleHistory: await getLifecycleEventsForBooking(booking),
     };
   }
 
@@ -344,6 +349,7 @@ async function toDemoBooking(row: SupabaseBookingRow): Promise<DemoBooking> {
   return {
     ...booking,
     communicationHistory: await getCommunicationsForBooking(booking),
+    lifecycleHistory: await getLifecycleEventsForBooking(booking),
   };
 }
 
@@ -401,6 +407,7 @@ async function persistBookingsToSupabase(bookings: DemoBooking[]) {
         }
 
         await syncBookingCommunications(booking);
+        await syncBookingLifecycleEvents(booking);
 
         return;
       }
@@ -425,6 +432,7 @@ async function persistBookingsToSupabase(bookings: DemoBooking[]) {
       }
 
       await syncBookingCommunications(booking);
+      await syncBookingLifecycleEvents(booking);
     }),
   );
 

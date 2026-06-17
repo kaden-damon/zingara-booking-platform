@@ -6,6 +6,7 @@ import ScannableQrCode from "../../components/ScannableQrCode";
 import { getBookings } from "../../../lib/supabase/bookings";
 import { getShows } from "../../../lib/supabase/shows";
 import { getVenueSettings } from "../../../lib/supabase/venueSettings";
+import { getWaitlistEntries } from "../../../lib/supabase/waitlist";
 import {
   type DemoBooking,
   type DemoShow,
@@ -19,7 +20,6 @@ import {
   getBookingTicketState,
   getCompactShowDateTime,
   getStoredVenueSettings,
-  getStoredDemoWaitlist,
   getTicketStateClasses,
   getTicketUrl,
 } from "../../../lib/zingaraDemo";
@@ -84,7 +84,7 @@ export default function LiveTicketClient({
       const nextBookings = await getBookings();
       const nextShows = await getShows();
       const nextVenueSettings = await getVenueSettings();
-      const nextWaitlist = getStoredDemoWaitlist();
+      const nextWaitlist = await getWaitlistEntries();
 
       if (!isMounted) {
         return;
