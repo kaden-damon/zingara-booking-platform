@@ -13,7 +13,9 @@ import { sendZingaraBrowserNotification } from "../../lib/browserNotifications";
 import { createBooking } from "../../lib/supabase/bookings";
 import { getTemplates } from "../../lib/supabase/communicationTemplates";
 import { upsertCustomerFromInfo } from "../../lib/supabase/customers";
+import { createPayment } from "../../lib/supabase/payments";
 import { getShows } from "../../lib/supabase/shows";
+import { createTicket } from "../../lib/supabase/tickets";
 import { getVenueSettings } from "../../lib/supabase/venueSettings";
 import {
   type BookingAddon,
@@ -1224,7 +1226,12 @@ export default function BookingPage() {
       customerInfo.name,
     );
 
-    void createBooking(bookingWithCommunication);
+    void createBooking(bookingWithCommunication).then(() =>
+      Promise.all([
+        createPayment(bookingWithCommunication),
+        createTicket(bookingWithCommunication),
+      ]),
+    );
     storeDemoTables(nextTables);
     void upsertCustomerFromInfo(customerInfo);
     setTables(nextTables);

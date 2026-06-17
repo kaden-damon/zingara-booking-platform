@@ -35,10 +35,12 @@ import {
   saveCustomers,
   upsertCustomerFromInfo,
 } from "../../lib/supabase/customers";
+import { updatePayment } from "../../lib/supabase/payments";
 import {
   getShows,
   replaceShows,
 } from "../../lib/supabase/shows";
+import { updateTicket } from "../../lib/supabase/tickets";
 import {
   getVenueSettings,
   saveVenueSettings as persistVenueSettings,
@@ -2042,6 +2044,12 @@ export default function AdminDashboardPage() {
     setBookings(nextBookings);
     void persistBookings(nextBookings).then((persistedBookings) => {
       setBookings(persistedBookings);
+      void Promise.all(
+        persistedBookings.flatMap((booking) => [
+          updatePayment(booking),
+          updateTicket(booking),
+        ]),
+      );
     });
     void Promise.all(
       nextBookings.map((booking) => upsertCustomerFromInfo(booking.customer)),

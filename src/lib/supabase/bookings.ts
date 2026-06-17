@@ -233,7 +233,20 @@ async function toSupabaseBooking(booking: DemoBooking) {
   const customerId = await getOrCreateCustomerIdFromInfo(booking.customer);
   const showId = await getSupabaseShowId(booking);
 
+  console.log("[Zingara Supabase Diagnostics] Booking relation mapping", {
+    bookingDate: booking.bookingDate,
+    bookingReference: booking.reference,
+    customerId,
+    showId,
+    sourceShowId: booking.showId,
+  });
+
   if (!customerId || !showId) {
+    console.log("[Zingara Supabase Diagnostics] toSupabaseBooking returned undefined", {
+      bookingReference: booking.reference,
+      customerId,
+      showId,
+    });
     console.error("[Zingara Supabase] Failed to map booking relations", {
       bookingDate: booking.bookingDate,
       bookingReference: booking.reference,
@@ -376,9 +389,21 @@ async function persistBookingsToSupabase(bookings: DemoBooking[]) {
         return;
       }
 
+      console.log("[Zingara Supabase Diagnostics] Creating booking row", {
+        bookingReference: booking.reference,
+        customerId: payload.customer_id,
+        payload,
+        showId: payload.show_id,
+      });
+
       const { error } = await supabase.from("bookings").insert(payload);
 
       if (error) {
+        console.error("[Zingara Supabase Diagnostics] Full booking insert error", {
+          bookingReference: booking.reference,
+          error,
+          payload,
+        });
         console.error("[Zingara Supabase] Failed to create booking", error);
       }
     }),
@@ -410,6 +435,27 @@ export async function getBooking(id: string) {
   return bookings.find(
     (booking) => booking.reference === id || booking.ticketCode === id,
   );
+}
+
+export async function getSupabaseBookingId(reference: string) {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    return undefined;
+  }
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("id")
+    .eq("booking_reference", reference)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Zingara Supabase] Failed to resolve booking id", error);
+    return undefined;
+  }
+
+  return (data as { id?: string } | null)?.id;
 }
 
 export async function createBooking(booking: DemoBooking) {
