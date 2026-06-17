@@ -23,6 +23,10 @@ import {
   sendZingaraBrowserNotification,
 } from "../../lib/browserNotifications";
 import {
+  getBookings,
+  saveBookings as persistBookings,
+} from "../../lib/supabase/bookings";
+import {
   getTemplates,
   saveTemplates,
 } from "../../lib/supabase/communicationTemplates";
@@ -73,7 +77,6 @@ import {
   getStoredCorporateRequests,
   getShowLabel,
   getZoneById,
-  getStoredDemoBookings,
   getStoredDemoTables,
   getStoredDemoWaitlist,
   getSouthAfricaShowTime,
@@ -82,7 +85,6 @@ import {
   isValidBookingStatus,
   isValidSeatingZoneId,
   seatingZones,
-  storeDemoBookings,
   storeCorporateRequests,
   storeDemoTables,
   storeDemoWaitlist,
@@ -1308,7 +1310,7 @@ export default function AdminDashboardPage() {
 
     async function loadDemoData() {
       const nextShows = await getShows();
-      const nextBookings = getStoredDemoBookings();
+      const nextBookings = await getBookings();
       const nextCorporateRequests = getStoredCorporateRequests();
       const nextCommunicationTemplates = await getTemplates();
       const nextCustomerCrm = await getCustomers();
@@ -2038,7 +2040,9 @@ export default function AdminDashboardPage() {
 
   function saveBookings(nextBookings: DemoBooking[]) {
     setBookings(nextBookings);
-    storeDemoBookings(nextBookings);
+    void persistBookings(nextBookings).then((persistedBookings) => {
+      setBookings(persistedBookings);
+    });
     void Promise.all(
       nextBookings.map((booking) => upsertCustomerFromInfo(booking.customer)),
     );

@@ -10,6 +10,7 @@ import QRCode from "qrcode";
 
 import ScannableQrCode from "../components/ScannableQrCode";
 import { sendZingaraBrowserNotification } from "../../lib/browserNotifications";
+import { createBooking } from "../../lib/supabase/bookings";
 import { getTemplates } from "../../lib/supabase/communicationTemplates";
 import { upsertCustomerFromInfo } from "../../lib/supabase/customers";
 import { getShows } from "../../lib/supabase/shows";
@@ -38,14 +39,12 @@ import {
   getCommunicationTemplate,
   getCompactShowDateTime,
   getSouthAfricaShowTime,
-  getStoredDemoBookings,
   getStoredDemoTables,
   getStoredDemoWaitlist,
   getTableAllocationDisplay,
   getTicketUrl,
   renderCommunicationTemplate,
   seatingZones,
-  storeDemoBookings,
   storeDemoTables,
   storeDemoWaitlist,
 } from "../../lib/zingaraDemo";
@@ -1214,13 +1213,10 @@ export default function BookingPage() {
       (record): record is CommunicationRecord =>
         record !== undefined,
     );
-    const nextBookings = [
-      {
-        ...booking,
-        communicationHistory,
-      },
-      ...getStoredDemoBookings(),
-    ];
+    const bookingWithCommunication = {
+      ...booking,
+      communicationHistory,
+    };
     const nextTables = applyTableAllocation(
       tables,
       tableAllocation,
@@ -1228,7 +1224,7 @@ export default function BookingPage() {
       customerInfo.name,
     );
 
-    storeDemoBookings(nextBookings);
+    void createBooking(bookingWithCommunication);
     storeDemoTables(nextTables);
     void upsertCustomerFromInfo(customerInfo);
     setTables(nextTables);

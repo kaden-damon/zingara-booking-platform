@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import ScannableQrCode from "../../components/ScannableQrCode";
+import { getBookings } from "../../../lib/supabase/bookings";
 import { getShows } from "../../../lib/supabase/shows";
 import { getVenueSettings } from "../../../lib/supabase/venueSettings";
 import {
@@ -17,7 +18,6 @@ import {
   defaultShows,
   getBookingTicketState,
   getCompactShowDateTime,
-  getStoredDemoBookings,
   getStoredVenueSettings,
   getStoredDemoWaitlist,
   getTicketStateClasses,
@@ -81,7 +81,7 @@ export default function LiveTicketClient({
     let isMounted = true;
 
     async function loadTicketData() {
-      const nextBookings = getStoredDemoBookings();
+      const nextBookings = await getBookings();
       const nextShows = await getShows();
       const nextVenueSettings = await getVenueSettings();
       const nextWaitlist = getStoredDemoWaitlist();

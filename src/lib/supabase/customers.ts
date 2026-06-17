@@ -160,6 +160,44 @@ async function findSupabaseCustomer(input: CustomerWriteInput) {
   });
 }
 
+export async function getOrCreateCustomerIdFromInfo(
+  customer: CustomerInfo,
+  extras: Omit<CustomerWriteInput, "email" | "mobile" | "name"> = {},
+) {
+  const input = {
+    ...extras,
+    email: customer.email,
+    mobile: customer.phone,
+    name: customer.name,
+  };
+  const existingCustomer = await findSupabaseCustomer(input);
+
+  if (existingCustomer) {
+    await upsertCustomer(input);
+
+    return existingCustomer.id;
+  }
+
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    return undefined;
+  }
+
+  const { data, error } = await supabase
+    .from("customers")
+    .insert(toCustomerPayload(input))
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Zingara Supabase] Failed to create booking customer", error);
+    return undefined;
+  }
+
+  return (data as { id?: string } | null)?.id;
+}
+
 async function persistCustomersToSupabase(records: DemoCustomerCrmRecord[]) {
   const supabase = getSupabaseClient();
 
