@@ -7,6 +7,10 @@ import {
   storeDemoBookings,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
+import {
+  getCommunicationsForBooking,
+  syncBookingCommunications,
+} from "./communications";
 import { getOrCreateCustomerIdFromInfo } from "./customers";
 
 type SupabaseBookingStatus =
@@ -288,7 +292,7 @@ async function toDemoBooking(row: SupabaseBookingRow): Promise<DemoBooking> {
   const metadataBooking = parseBookingNotes(row.notes);
 
   if (metadataBooking) {
-    return {
+    const booking = {
       ...metadataBooking,
       amountPaid: row.amount_paid,
       balanceDue: row.balance_outstanding,
@@ -296,9 +300,14 @@ async function toDemoBooking(row: SupabaseBookingRow): Promise<DemoBooking> {
       status: toDemoBookingStatus(row.booking_status),
       totalPrice: row.total_amount,
     };
+
+    return {
+      ...booking,
+      communicationHistory: await getCommunicationsForBooking(booking),
+    };
   }
 
-  return {
+  const booking: DemoBooking = {
     addons: [],
     addonsTotal: row.addons_total,
     amountPaid: row.amount_paid,
@@ -330,6 +339,11 @@ async function toDemoBooking(row: SupabaseBookingRow): Promise<DemoBooking> {
     totalPrice: row.total_amount,
     zoneId: "middle-ring",
     zoneTitle: row.section ?? "Middle Ring",
+  };
+
+  return {
+    ...booking,
+    communicationHistory: await getCommunicationsForBooking(booking),
   };
 }
 
@@ -386,6 +400,8 @@ async function persistBookingsToSupabase(bookings: DemoBooking[]) {
           console.error("[Zingara Supabase] Failed to update booking", error);
         }
 
+        await syncBookingCommunications(booking);
+
         return;
       }
 
@@ -405,7 +421,10 @@ async function persistBookingsToSupabase(bookings: DemoBooking[]) {
           payload,
         });
         console.error("[Zingara Supabase] Failed to create booking", error);
+        return;
       }
+
+      await syncBookingCommunications(booking);
     }),
   );
 

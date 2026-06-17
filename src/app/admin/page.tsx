@@ -30,6 +30,7 @@ import {
   getTemplates,
   saveTemplates,
 } from "../../lib/supabase/communicationTemplates";
+import { syncCorporateRequestCommunications } from "../../lib/supabase/communications";
 import {
   getCustomers,
   saveCustomers,
@@ -2059,6 +2060,11 @@ export default function AdminDashboardPage() {
   function saveCorporateRequests(nextRequests: CorporateRequest[]) {
     setCorporateRequests(nextRequests);
     storeCorporateRequests(nextRequests);
+    void Promise.all(
+      nextRequests.map((request) =>
+        syncCorporateRequestCommunications(request),
+      ),
+    );
   }
 
   function updateCorporateRequestStatus(

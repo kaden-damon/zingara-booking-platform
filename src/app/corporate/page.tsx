@@ -3,6 +3,7 @@
 import { type FormEvent, useState } from "react";
 
 import { getTemplates } from "../../lib/supabase/communicationTemplates";
+import { syncCorporateRequestCommunications } from "../../lib/supabase/communications";
 import {
   type CorporateRequest,
   type DemoBooking,
@@ -233,6 +234,7 @@ export default function CorporateBookingPage() {
       requestWithCommunication,
       ...getStoredCorporateRequests(),
     ]);
+    void syncCorporateRequestCommunications(requestWithCommunication);
     setSubmissionStatus(
       requestType === "agent-contact"
         ? "Agent contact request received."
