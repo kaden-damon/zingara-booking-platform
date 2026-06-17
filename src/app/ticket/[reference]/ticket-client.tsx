@@ -2,32 +2,58 @@
 
 import { useEffect, useState } from "react";
 
+import ScannableQrCode from "../../components/ScannableQrCode";
+import { getShows } from "../../../lib/supabase/shows";
+import { getVenueSettings } from "../../../lib/supabase/venueSettings";
 import {
   type DemoBooking,
   type DemoShow,
   type DemoVenueSettings,
   type DemoWaitlistEntry,
+  type PaymentStatus,
   type TicketState,
   createTicketCode,
   defaultVenueSettings,
   defaultShows,
   getBookingTicketState,
-  getShowLabel,
+  getCompactShowDateTime,
   getStoredDemoBookings,
-  getStoredDemoShows,
   getStoredVenueSettings,
   getStoredDemoWaitlist,
   getTicketStateClasses,
+  getTicketUrl,
 } from "../../../lib/zingaraDemo";
 
 type LiveTicketClientProps = {
   reference: string;
 };
 
-function getQrCell(code: string, index: number) {
-  const charCode = code.charCodeAt(index % code.length) + index * 29;
+const paymentStatusLabels: Record<PaymentStatus, string> = {
+  "comp-vip": "Comp/VIP",
+  "deposit-paid": "Deposit Paid",
+  "fully-paid": "Fully Paid",
+  "pending-payment": "Pending Payment",
+  refunded: "Refunded",
+};
 
-  return charCode % 4 !== 0;
+function getPaymentStatus(booking: DemoBooking): PaymentStatus {
+  if (booking.paymentStatus) {
+    return booking.paymentStatus;
+  }
+
+  if (booking.status === "refunded") {
+    return "refunded";
+  }
+
+  if ((booking.amountPaid ?? 0) >= booking.totalPrice) {
+    return "fully-paid";
+  }
+
+  if ((booking.amountPaid ?? 0) > 0) {
+    return "deposit-paid";
+  }
+
+  return "pending-payment";
 }
 
 function getTicketState(
@@ -52,11 +78,17 @@ export default function LiveTicketClient({
   const venueConfig = venueSettings;
 
   useEffect(() => {
-    function loadTicketData() {
+    let isMounted = true;
+
+    async function loadTicketData() {
       const nextBookings = getStoredDemoBookings();
-      const nextShows = getStoredDemoShows();
-      const nextVenueSettings = getStoredVenueSettings();
+      const nextShows = await getShows();
+      const nextVenueSettings = await getVenueSettings();
       const nextWaitlist = getStoredDemoWaitlist();
+
+      if (!isMounted) {
+        return;
+      }
 
       setBookings(nextBookings);
       setShows(nextShows);
@@ -91,6 +123,7 @@ export default function LiveTicketClient({
     );
 
     return () => {
+      isMounted = false;
       window.clearTimeout(hydrationTimer);
       window.clearInterval(refreshTimer);
       window.removeEventListener("storage", loadTicketData);
@@ -135,15 +168,46 @@ export default function LiveTicketClient({
     : waitlistEntry
       ? createTicketCode(waitlistEntry.id)
       : createTicketCode(reference);
+  const paymentStatus = booking
+    ? getPaymentStatus(booking)
+    : undefined;
 
   return (
     <main className="min-h-screen bg-black px-5 py-10 text-white">
+      <header className="mx-auto mb-6 flex max-w-3xl justify-start">
+        <nav
+          aria-label="Live ticket navigation"
+          className="flex items-center"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (window.history.length > 1) {
+                window.history.back();
+                return;
+              }
+
+              window.location.assign("/admin");
+            }}
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#D8C36A]/40 bg-[#D8C36A]/10 px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#F3E5A0] transition hover:border-[#F3E5A0] hover:bg-[#D8C36A]/20"
+          >
+            Back
+          </button>
+        </nav>
+      </header>
       <section className="mx-auto max-w-3xl overflow-hidden rounded-[2rem] border border-[#D8C36A]/40 bg-[radial-gradient(circle_at_top,#2B1D0B_0%,#101010_48%,#050505_100%)] shadow-2xl shadow-[#8D7A2F]/15">
         <div className="border-b border-[#D8C36A]/25 px-6 py-6 sm:px-8">
           <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#D8C36A]">
             {venueConfig.ticketBranding.accentText ||
               venueConfig.venueName}
           </p>
+          <div
+            aria-label={venueConfig.brandTitle}
+            className="mb-4 h-16 w-44 bg-contain bg-left bg-no-repeat"
+            style={{
+              backgroundImage: `url("${venueConfig.ticketBranding.ticketLogoUrl || venueConfig.logoUrl}")`,
+            }}
+          />
           <h1 className="mt-2 text-4xl font-bold sm:text-5xl">
             Live Digital Ticket
           </h1>
@@ -212,7 +276,7 @@ export default function LiveTicketClient({
                   </p>
                   <p className="mt-2 font-semibold">
                     {booking
-                      ? getShowLabel(show)
+                      ? getCompactShowDateTime(show)
                       : waitlistEntry
                         ? waitlistEntry.showId
                         : "Unassigned show"}
@@ -226,14 +290,6 @@ export default function LiveTicketClient({
                     {booking?.zoneTitle ??
                       waitlistEntry?.desiredZoneTitle ??
                       "Waitlist"}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    Table
-                  </p>
-                  <p className="mt-2 font-semibold">
-                    {booking?.tableNumber ?? "Pending allocation"}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
@@ -254,6 +310,18 @@ export default function LiveTicketClient({
                       : "Awaiting check-in"}
                   </p>
                 </div>
+                {booking && (
+                  <div className="rounded-2xl border border-white/10 bg-black/35 p-5 sm:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Payment Status
+                    </p>
+                    <p className="mt-2 font-semibold">
+                      {paymentStatus
+                        ? paymentStatusLabels[paymentStatus]
+                        : "Pending Payment"}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {booking && (
@@ -272,20 +340,13 @@ export default function LiveTicketClient({
               )}
             </div>
 
-            <div className="rounded-[1.5rem] border border-[#D8C36A]/45 bg-white p-4 shadow-[0_0_50px_rgba(216,195,106,0.2)]">
-              <div className="grid grid-cols-11 gap-1">
-                {Array.from({ length: 121 }).map((_, index) => (
-                  <span
-                    key={index}
-                    className={`h-4 w-4 ${
-                      getQrCell(ticketCode, index)
-                        ? "bg-black"
-                        : "bg-white"
-                    }`}
-                  />
-                ))}
-              </div>
-              <p className="mt-4 break-all text-center font-mono text-xs text-black">
+            <div className="flex flex-col items-center">
+              <ScannableQrCode
+                value={getTicketUrl(booking?.reference ?? reference)}
+                label="Scannable live ticket QR code"
+                logoUrl={venueConfig.faviconUrl}
+              />
+              <p className="mt-4 break-all text-center font-mono text-xs text-zinc-400">
                 {ticketCode}
               </p>
             </div>

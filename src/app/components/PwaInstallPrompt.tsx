@@ -39,6 +39,7 @@ export default function PwaInstallPrompt() {
   const [showIOSHint, setShowIOSHint] = useState(false);
 
   useEffect(() => {
+    let handleControllerChange: (() => void) | null = null;
     const installStateTimer = window.setTimeout(() => {
       const installState = getInstallState();
 
@@ -48,12 +49,54 @@ export default function PwaInstallPrompt() {
     }, 0);
 
     if ("serviceWorker" in navigator) {
+      let refreshingForNewWorker = false;
+
+      handleControllerChange = () => {
+        if (refreshingForNewWorker) {
+          return;
+        }
+
+        refreshingForNewWorker = true;
+
+        if (
+          !window.sessionStorage.getItem(
+            "zingara-service-worker-refresh",
+          )
+        ) {
+          window.sessionStorage.setItem(
+            "zingara-service-worker-refresh",
+            "true",
+          );
+          window.location.reload();
+        }
+      };
+
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        handleControllerChange,
+      );
+
       navigator.serviceWorker
         .register("/sw.js", {
           scope: "/",
           updateViaCache: "none",
         })
         .then((registration) => {
+          void registration.update();
+          registration.waiting?.postMessage({
+            type: "ZINGARA_SKIP_WAITING",
+          });
+          registration.addEventListener("updatefound", () => {
+            const nextWorker = registration.installing;
+
+            nextWorker?.addEventListener("statechange", () => {
+              if (nextWorker.state === "installed") {
+                nextWorker.postMessage({
+                  type: "ZINGARA_SKIP_WAITING",
+                });
+              }
+            });
+          });
           window.dispatchEvent(
             new CustomEvent("zingara-pwa-ready", {
               detail: {
@@ -91,6 +134,12 @@ export default function PwaInstallPrompt() {
         handleBeforeInstallPrompt,
       );
       window.removeEventListener("appinstalled", handleAppInstalled);
+      if (handleControllerChange && "serviceWorker" in navigator) {
+        navigator.serviceWorker.removeEventListener(
+          "controllerchange",
+          handleControllerChange,
+        );
+      }
       window.clearTimeout(installStateTimer);
     };
   }, []);
@@ -110,8 +159,8 @@ export default function PwaInstallPrompt() {
   }
 
   return (
-    <aside className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-md rounded-2xl border border-[#D8C36A]/35 bg-black/90 p-4 text-white shadow-2xl shadow-[#8D7A2F]/20 backdrop-blur">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <aside className="pointer-events-none fixed inset-x-4 bottom-4 z-50 mx-auto max-w-md text-white">
+      <div className="pointer-events-none flex flex-col gap-3 rounded-2xl border border-[#D8C36A]/35 bg-black/95 p-4 shadow-2xl shadow-[#8D7A2F]/20 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
             Zingara App
@@ -131,7 +180,7 @@ export default function PwaInstallPrompt() {
             <button
               type="button"
               onClick={installApp}
-              className="rounded-full bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C]"
+              className="pointer-events-auto rounded-full bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C]"
             >
               Install
             </button>
@@ -142,7 +191,7 @@ export default function PwaInstallPrompt() {
               setInstallPrompt(null);
               setShowIOSHint(false);
             }}
-            className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
+            className="pointer-events-auto rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
           >
             Later
           </button>

@@ -1,13 +1,8 @@
-const CACHE_NAME = "zingara-pwa-shell-v2";
-const APP_SHELL_URLS = ["/", "/book", "/admin"];
+const CACHE_PREFIX = "zingara-";
+const CACHE_NAME = "zingara-pwa-runtime-v4";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL_URLS))
-      .then(() => self.skipWaiting()),
-  );
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
@@ -17,7 +12,9 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key !== CACHE_NAME)
+            .filter(
+              (key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME,
+            )
             .map((key) => caches.delete(key)),
         ),
       )
@@ -25,84 +22,8 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-self.addEventListener("fetch", (event) => {
-  const { request } = event;
-
-  if (request.method !== "GET") {
-    return;
-  }
-
-  if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const responseCopy = response.clone();
-
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseCopy);
-          });
-
-          return response;
-        })
-        .catch(() =>
-          caches.match(request).then((cachedResponse) => {
-            return (
-              cachedResponse ||
-              caches.match("/book") ||
-              caches.match("/") ||
-              Response.error()
-            );
-          }),
-        ),
-    );
-    return;
-  }
-
-  if (["script", "style", "worker"].includes(request.destination)) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const responseCopy = response.clone();
-
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, responseCopy);
-            });
-          }
-
-          return response;
-        })
-        .catch(() => caches.match(request).then((cachedResponse) => {
-          return cachedResponse || Response.error();
-        })),
-    );
-    return;
-  }
-
-  event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-
-      return fetch(request).then((response) => {
-        if (
-          response.ok &&
-          ["style", "script", "image", "font"].includes(
-            request.destination,
-          )
-        ) {
-          const responseCopy = response.clone();
-
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseCopy);
-          });
-        }
-
-        return response;
-      });
-    }),
-  );
+self.addEventListener("fetch", () => {
+  return;
 });
 
 self.addEventListener("message", (event) => {
@@ -111,7 +32,30 @@ self.addEventListener("message", (event) => {
   }
 });
 
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  event.waitUntil(
+    self.clients
+      .matchAll({
+        includeUncontrolled: true,
+        type: "window",
+      })
+      .then((clients) => {
+        const appClient = clients.find((client) =>
+          client.url.includes(self.location.origin),
+        );
+
+        if (appClient) {
+          return appClient.focus();
+        }
+
+        return self.clients.openWindow("/book");
+      }),
+  );
+});
+
 self.__ZINGARA_PUSH_FOUNDATION__ = {
   ready: true,
-  version: "future-push-v1",
+  version: "future-push-v2",
 };
