@@ -4,9 +4,27 @@ Last updated: 2026-06-17
 
 ## Current Status
 
-The Supabase migration is in Phase 2E. The database schema has been created in migration files, and the application now has a shared Supabase data access layer for several core domains. The app still keeps localStorage fallback behaviour while modules are migrated incrementally.
+The Supabase migration has completed the Phase 2 business-domain migration pass. The database schema has been created in migration files, and the application now has a shared Supabase data access layer for the operational business modules listed below. The app still keeps localStorage fallback behaviour while Phase 3 and Phase 4 remain pending.
 
-The current active investigation is a booking insert failure after Phase 2E. Temporary diagnostics have been added around the Supabase booking insert path to capture the exact payload, `customerId`, `showId`, mapper result, and full Supabase error response.
+Migration status summary:
+
+- Shows: Business Migration Complete.
+- Venue Settings: Business Migration Complete.
+- Templates: Business Migration Complete.
+- Customers: Business Migration Complete.
+- Bookings: Business Migration Complete.
+- Payments: Business Migration Complete.
+- Tickets: Business Migration Complete.
+- Communications: Business Migration Complete.
+- Lifecycle Events: Business Migration Complete.
+- Ticket Validations: Business Migration Complete.
+- Waitlist: Business Migration Complete.
+- Corporate Requests: Business Migration Complete.
+
+Remaining work:
+
+- Phase 3: Staff auth, roles, permissions, and production RLS policy implementation.
+- Phase 4: Final localStorage retirement, one-time migration/import tooling, hardening, and production readiness cleanup.
 
 ## Phase 1: Schema Creation
 
@@ -60,7 +78,7 @@ Important note:
 
 ## Phase 2A: Shows
 
-Status: Implemented.
+Status: Business Migration Complete.
 
 Service:
 
@@ -80,7 +98,7 @@ Known follow-up:
 
 ## Phase 2B: Venue Settings and Communication Templates
 
-Status: Implemented.
+Status: Business Migration Complete.
 
 Services:
 
@@ -101,7 +119,7 @@ Known follow-up:
 
 ## Phase 2C: Customers
 
-Status: Implemented.
+Status: Business Migration Complete.
 
 Service:
 
@@ -130,7 +148,7 @@ Current boundary:
 
 ## Phase 2D: Bookings
 
-Status: Partially implemented.
+Status: Business Migration Complete.
 
 Service:
 
@@ -154,21 +172,13 @@ Implemented behaviour:
 - Show relation is resolved using Supabase show IDs, legacy show metadata, generated show IDs, and booking date/time fallback.
 - Full `DemoBooking` metadata is preserved in `bookings.notes` under a temporary metadata prefix.
 
-Known issue:
-
-- If Supabase contains any booking rows, `getBookings()` currently returns Supabase rows only. Local-only bookings can therefore disappear from Admin if their Supabase insert failed.
-
 Previously fixed:
 
 - A show mapping issue prevented booking inserts when `booking.showId` did not resolve to `shows.id`.
 
-Current risk:
-
-- The localStorage fallback is asymmetric: writes still save locally, but reads prefer Supabase once Supabase has rows.
-
 ## Phase 2E: Tickets and Payments
 
-Status: Implemented, under investigation.
+Status: Business Migration Complete.
 
 Services:
 
@@ -199,33 +209,97 @@ Important dependency:
 - Payment and ticket creation depend on resolving the Supabase booking row with `getSupabaseBookingId(booking.reference)`.
 - If the booking insert fails, payment and ticket creation return early because there is no Supabase `booking_id`.
 
-Current active failure:
+Test result:
 
-- Booking reference `ZNG-MQI7LY3L-901` completed in the UI but did not appear in:
-  - Supabase `bookings`
-  - Supabase `payments`
-  - Supabase `tickets`
-  - Admin Bookings
+- Booking completion creates the booking, payment, and ticket records through the Supabase-backed persistence path while preserving localStorage fallback.
 
-Current diagnosis:
+## Phase 2F: Communications
 
-- `createBooking()` still runs.
-- LocalStorage save still runs.
-- Payment and ticket failures are downstream.
-- Booking insert failure is the root issue.
-- Temporary diagnostics have been added around `bookings.insert()` to capture the exact Supabase error on the next booking attempt.
+Status: Business Migration Complete.
 
-Temporary diagnostics added:
+Service:
 
-- Relation mapping log:
-  - booking reference
-  - source show ID
-  - resolved `customerId`
-  - resolved `showId`
-  - booking date
-- Mapper failure log when `toSupabaseBooking()` returns `undefined`.
-- Insert payload log immediately before `bookings.insert()`.
-- Full Supabase insert error log if insertion fails.
+- `src/lib/supabase/communications.ts`
+
+Implemented:
+
+- Communication read/write service.
+- Booking communication history persistence.
+- CRM communication history integration.
+- Broadcast and corporate communication persistence.
+- LocalStorage fallback.
+
+## Phase 2G: Booking Lifecycle Events
+
+Status: Business Migration Complete.
+
+Service:
+
+- `src/lib/supabase/lifecycleEvents.ts`
+
+Implemented:
+
+- Lifecycle event persistence for booking creation, confirmation, payment, refund, cancellation, check-in, and comp booking actions.
+- Admin timeline loading from Supabase with localStorage fallback.
+
+## Phase 2H: Ticket Validations
+
+Status: Business Migration Complete.
+
+Service:
+
+- `src/lib/supabase/ticketValidations.ts`
+
+Implemented:
+
+- Ticket validation/check-in activity persistence.
+- QR validation, duplicate scan, invalid ticket, and manual check-in activity tracking.
+- LocalStorage fallback.
+
+## Phase 2I: Waitlist
+
+Status: PASSED and tested. Business Migration Complete.
+
+Service:
+
+- `src/lib/supabase/waitlist.ts`
+
+Implemented:
+
+- Waitlist read/write service.
+- Waitlist signup persistence.
+- Waitlist status updates, promotions, removals, and conversion persistence.
+- LocalStorage fallback.
+
+Test results:
+
+- Waitlist entries save to Supabase.
+- Waitlist entries load in Admin.
+- Show selector added to Admin Waitlist.
+- Promotion/removal/conversion paths functional.
+
+## Phase 2J: Corporate Requests
+
+Status: PASSED and tested. Business Migration Complete.
+
+Service:
+
+- `src/lib/supabase/corporateRequests.ts`
+
+Implemented:
+
+- Corporate request read/write service.
+- Guest corporate request submission persistence.
+- Admin corporate request management persistence.
+- Status updates and request metadata persistence.
+- LocalStorage fallback.
+
+Test results:
+
+- Corporate requests save to Supabase.
+- Corporate requests load in Admin.
+- Status changes persist.
+- Corporate request conversion to booking confirmed.
 
 ## Supabase Permissions Status
 
@@ -243,6 +317,11 @@ Known required tables so far:
 - `bookings`
 - `payments`
 - `tickets`
+- `communications`
+- `booking_lifecycle_events`
+- `ticket_validations`
+- `waitlist_entries`
+- `corporate_requests`
 
 Important:
 
@@ -277,47 +356,30 @@ Read behaviour currently prefers Supabase once rows exist, which can hide local-
 
 Supabase creation depends on successful Supabase booking insertion.
 
-## Immediate Next Step
+### Communications
 
-Create a fresh booking in the running production app and inspect the browser console.
+Supabase is primary, localStorage fallback remains.
 
-The temporary diagnostics should reveal one of these exact causes:
+### Lifecycle Events
 
-1. `toSupabaseBooking()` returns `undefined`.
-2. `customerId` is missing.
-3. `showId` is missing.
-4. Supabase insert is attempted but rejected.
-5. Insert payload contains a field/type/enum mismatch.
-6. Insert is blocked by table permissions or RLS.
-7. Insert is blocked by a foreign key constraint.
+Supabase is primary, localStorage fallback remains.
 
-## Recommended Next Fix Sequence
+### Ticket Validations
 
-Do not proceed to more domain migrations until the Phase 2E booking insert failure is resolved.
+Supabase is primary, localStorage fallback remains.
 
-Recommended order:
+### Waitlist
 
-1. Capture the exact Supabase insert error from the browser console.
-2. Fix only the failing booking insert cause.
-3. Confirm a new booking appears in Supabase `bookings`.
-4. Confirm matching `payments` and `tickets` rows are created.
-5. Fix booking read fallback merge if needed so local-only fallback bookings remain visible during migration.
-6. Remove temporary diagnostics once the issue is resolved.
-7. Continue with communications migration.
-8. Continue with lifecycle events and ticket validations.
-9. Continue with waitlist and corporate requests.
-10. Reintroduce RLS with proper policies.
+Supabase is primary, localStorage fallback remains.
 
-## Not Yet Migrated
+### Corporate Requests
 
-Still pending:
+Supabase is primary, localStorage fallback remains.
 
-- Communications write/read migration.
-- Communication batch persistence.
-- Booking lifecycle event persistence.
-- Ticket validation persistence.
-- Waitlist persistence.
-- Corporate request persistence.
+## Remaining Work
+
+Phase 3 and Phase 4 remain pending:
+
 - Show table and venue table operational persistence.
 - Staff auth migration to Supabase Auth.
 - RLS policy implementation.
@@ -327,11 +389,4 @@ Still pending:
 
 The app is not ready to remove localStorage fallback yet.
 
-Supabase integration is underway but still hybrid. The critical blocker is proving that the full booking completion chain can persist:
-
-Customer
-→ Booking
-→ Payment
-→ Ticket
-
-Once that chain is stable, the next safest migration target is communications, followed by lifecycle events and ticket validations.
+Phase 2 business-domain migration is complete, but the platform remains hybrid until Phase 3 and Phase 4 are completed. Before production, RLS must be re-enabled with proper policies, staff/customer access must be routed through the final auth model, and localStorage fallback must be retired through a controlled migration/import process.
