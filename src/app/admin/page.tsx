@@ -27,6 +27,11 @@ import {
   saveTemplates,
 } from "../../lib/supabase/communicationTemplates";
 import {
+  getCustomers,
+  saveCustomers,
+  upsertCustomerFromInfo,
+} from "../../lib/supabase/customers";
+import {
   getShows,
   replaceShows,
 } from "../../lib/supabase/shows";
@@ -66,7 +71,6 @@ import {
   getBookingTicketState,
   getCommunicationTemplate,
   getStoredCorporateRequests,
-  getStoredDemoCustomerCrm,
   getShowLabel,
   getZoneById,
   getStoredDemoBookings,
@@ -79,7 +83,6 @@ import {
   isValidSeatingZoneId,
   seatingZones,
   storeDemoBookings,
-  storeDemoCustomerCrm,
   storeCorporateRequests,
   storeDemoTables,
   storeDemoWaitlist,
@@ -1308,7 +1311,7 @@ export default function AdminDashboardPage() {
       const nextBookings = getStoredDemoBookings();
       const nextCorporateRequests = getStoredCorporateRequests();
       const nextCommunicationTemplates = await getTemplates();
-      const nextCustomerCrm = getStoredDemoCustomerCrm();
+      const nextCustomerCrm = await getCustomers();
       const nextVenueSettings = await getVenueSettings();
       const nextWaitlist = getStoredDemoWaitlist();
       const nextTables = getStoredDemoTables();
@@ -2036,6 +2039,9 @@ export default function AdminDashboardPage() {
   function saveBookings(nextBookings: DemoBooking[]) {
     setBookings(nextBookings);
     storeDemoBookings(nextBookings);
+    void Promise.all(
+      nextBookings.map((booking) => upsertCustomerFromInfo(booking.customer)),
+    );
   }
 
   function saveCorporateRequests(nextRequests: CorporateRequest[]) {
@@ -2338,7 +2344,9 @@ export default function AdminDashboardPage() {
     nextRecords: DemoCustomerCrmRecord[],
   ) {
     setCustomerCrmRecords(nextRecords);
-    storeDemoCustomerCrm(nextRecords);
+    void saveCustomers(nextRecords).then((persistedRecords) => {
+      setCustomerCrmRecords(persistedRecords);
+    });
   }
 
   function saveCommunicationTemplates(

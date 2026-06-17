@@ -11,6 +11,7 @@ import QRCode from "qrcode";
 import ScannableQrCode from "../components/ScannableQrCode";
 import { sendZingaraBrowserNotification } from "../../lib/browserNotifications";
 import { getTemplates } from "../../lib/supabase/communicationTemplates";
+import { upsertCustomerFromInfo } from "../../lib/supabase/customers";
 import { getShows } from "../../lib/supabase/shows";
 import { getVenueSettings } from "../../lib/supabase/venueSettings";
 import {
@@ -1229,6 +1230,7 @@ export default function BookingPage() {
 
     storeDemoBookings(nextBookings);
     storeDemoTables(nextTables);
+    void upsertCustomerFromInfo(customerInfo);
     setTables(nextTables);
     setAllocatedTableNumber(allocatedTable.tableNumber);
     setBookingReference(reference);
