@@ -4,7 +4,7 @@ import {
   getStoredVenueSettings,
   storeVenueSettings,
 } from "@/lib/zingaraDemo";
-import { getSupabaseClient } from "./client";
+import { fetchSupabaseApi } from "./apiClient";
 
 type SupabaseVenueSettingsRow = {
   branding: Record<string, unknown> | null;
@@ -58,52 +58,34 @@ function toSupabaseVenueSettings(settings: DemoVenueSettings) {
 }
 
 export async function getVenueSettings() {
-  const supabase = getSupabaseClient();
   const fallbackSettings = getStoredVenueSettings();
 
-  if (!supabase) {
-    return fallbackSettings;
-  }
+  try {
+    const payload = await fetchSupabaseApi<{
+      settings: DemoVenueSettings | null;
+    }>("/api/admin/venue-settings");
 
-  const { data, error } = await supabase
-    .from("venue_settings")
-    .select("id,venue_key,name,settings,branding,operational_config,updated_at")
-    .eq("venue_key", getVenueKey(fallbackSettings))
-    .maybeSingle();
-
-  if (error) {
+    return payload.settings ?? fallbackSettings;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to load venue settings", error);
     return fallbackSettings;
   }
-
-  if (!data) {
-    await persistVenueSettingsToSupabase(fallbackSettings);
-
-    return fallbackSettings;
-  }
-
-  return toVenueSettings(data as SupabaseVenueSettingsRow);
 }
 
 async function persistVenueSettingsToSupabase(settings: DemoVenueSettings) {
-  const supabase = getSupabaseClient();
-
-  if (!supabase) {
-    return settings;
-  }
-
-  const { error } = await supabase
-    .from("venue_settings")
-    .upsert(toSupabaseVenueSettings(settings), {
-      onConflict: "venue_key",
+  try {
+    const payload = await fetchSupabaseApi<{
+      settings: DemoVenueSettings | null;
+    }>("/api/admin/venue-settings", {
+      body: { settings },
+      method: "PUT",
     });
 
-  if (error) {
+    return payload.settings ?? settings;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to persist venue settings", error);
     return settings;
   }
-
-  return settings;
 }
 
 export async function saveVenueSettings(settings: DemoVenueSettings) {

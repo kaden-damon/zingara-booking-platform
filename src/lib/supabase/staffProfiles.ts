@@ -7,7 +7,7 @@ import {
   rolePermissions,
 } from "@/lib/zingaraAccess";
 import { defaultVenueSettings } from "@/lib/zingaraDemo";
-import { getSupabaseClient } from "./client";
+import { fetchSupabaseApi } from "./apiClient";
 
 type RoleRow = {
   description: string | null;
@@ -104,129 +104,43 @@ const permissionLabels: Record<Permission, string> = {
 };
 
 async function getRoles() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      roles: Array<{ id: string; name: string }>;
+    }>("/api/admin/roles");
 
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("roles")
-    .select("id,name,description,role_permissions(permissions(key))")
-    .order("name", { ascending: true });
-
-  if (error) {
+    return payload.roles.map((role) => ({
+      description: null,
+      id: role.id,
+      name: role.name,
+    })) as RoleRow[];
+  } catch (error) {
     console.error("[Zingara Supabase Auth] Failed to load roles", error);
     return null;
   }
-
-  return (data ?? []) as RoleRow[];
 }
 
 async function ensureDefaultPermissions() {
-  const supabase = getSupabaseClient();
+  await ensureDefaultRoles();
 
-  if (!supabase) {
-    return [];
-  }
-
-  const permissionRows = Object.entries(permissionLabels).map(
-    ([key, description]) => ({
-      description,
-      key,
-    }),
-  );
-
-  const { error } = await supabase
-    .from("permissions")
-    .upsert(permissionRows, { onConflict: "key" });
-
-  if (error) {
-    console.error(
-      "[Zingara Supabase Auth] Failed to seed permissions",
-      error,
-    );
-  }
-
-  const { data, error: loadError } = await supabase
-    .from("permissions")
-    .select("id,key");
-
-  if (loadError) {
-    console.error(
-      "[Zingara Supabase Auth] Failed to load permissions",
-      loadError,
-    );
-    return [];
-  }
-
-  return (data ?? []) as Array<{ id: string; key: Permission }>;
+  return [];
 }
 
 export async function ensureDefaultRoles() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      roles: Array<{ id: string; name: string }>;
+    }>("/api/admin/roles");
 
-  if (!supabase) {
+    return payload.roles.map((role) => ({
+      description: null,
+      id: role.id,
+      name: role.name,
+    })) as RoleRow[];
+  } catch (error) {
+    console.error("[Zingara Supabase Auth] Failed to seed roles", error);
     return null;
   }
-
-  let roles = await getRoles();
-
-  if (!roles) {
-    return null;
-  }
-
-  if (roles.length === 0) {
-    const { error } = await supabase.from("roles").insert(
-      defaultRoleSeeds.map((seed) => ({
-        description: seed.description,
-        name: getRoleName(seed.role),
-      })),
-    );
-
-    if (error) {
-      console.error("[Zingara Supabase Auth] Failed to seed roles", error);
-      return roles;
-    }
-
-    roles = (await getRoles()) ?? [];
-  }
-
-  const permissions = await ensureDefaultPermissions();
-  const permissionsByKey = new Map(
-    permissions.map((permission) => [permission.key, permission.id]),
-  );
-  const rolePermissionsRows = roles.flatMap((role) => {
-    const adminRole = getAdminRoleFromName(role.name);
-
-    return (rolePermissions[adminRole] ?? []).flatMap((permission) => {
-      const permissionId = permissionsByKey.get(permission);
-
-      return permissionId
-        ? [
-            {
-              permission_id: permissionId,
-              role_id: role.id,
-            },
-          ]
-        : [];
-    });
-  });
-
-  if (rolePermissionsRows.length > 0) {
-    const { error } = await supabase
-      .from("role_permissions")
-      .upsert(rolePermissionsRows, { onConflict: "role_id,permission_id" });
-
-    if (error) {
-      console.error(
-        "[Zingara Supabase Auth] Failed to seed role permissions",
-        error,
-      );
-    }
-  }
-
-  return (await getRoles()) ?? roles;
 }
 
 async function getRoleId(role: AdminRole) {
@@ -258,72 +172,63 @@ function toStaffSession(row: StaffProfileRow): StaffSession | null {
 }
 
 async function getStaffProfileByUserId(userId: string) {
-  const supabase = getSupabaseClient();
+  const payload = await fetchSupabaseApi<{
+    profiles: Array<{
+      active: boolean;
+      email: string;
+      id: string;
+      name: string;
+      role: AdminRole;
+      roleId: string | null;
+      userId: string;
+      venueScope: string[];
+    }>;
+  }>("/api/admin/staff");
+  const profile = payload.profiles.find(
+    (currentProfile) => currentProfile.userId === userId,
+  );
 
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("staff_profiles")
-    .select(
-      "id,user_id,full_name,email,role_id,active,venue_scope,roles(id,name,description,role_permissions(permissions(key)))",
-    )
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) {
-    console.error(
-      "[Zingara Supabase Auth] Failed to load staff profile",
-      error,
-    );
-    return null;
-  }
-
-  return data as StaffProfileRow | null;
+  return profile
+    ? {
+        active: profile.active,
+        email: profile.email,
+        full_name: profile.name,
+        id: profile.id,
+        role_id: profile.roleId,
+        roles: {
+          description: null,
+          id: profile.roleId ?? "",
+          name: getRoleName(profile.role),
+        },
+        user_id: profile.userId,
+        venue_scope: profile.venueScope,
+      }
+    : null;
 }
 
 export async function getOrCreateStaffProfileSession(
   user: User,
   fallback?: StaffProfileFallback,
 ) {
-  const supabase = getSupabaseClient();
-
-  if (!supabase || !user.email) {
+  if (!user.email) {
     return null;
   }
 
-  await ensureDefaultRoles();
+  try {
+    const params = new URLSearchParams({
+      mode: "session",
+    });
 
-  const existingProfile = await getStaffProfileByUserId(user.id);
+    if (fallback) {
+      params.set("fallback", JSON.stringify(fallback));
+    }
 
-  if (existingProfile) {
-    return toStaffSession(existingProfile);
-  }
+    const payload = await fetchSupabaseApi<{
+      session: StaffSession | null;
+    }>(`/api/admin/staff?${params.toString()}`);
 
-  const role = fallback?.role ?? "venue-manager";
-  const roleId = await getRoleId(role);
-  const name =
-    fallback?.name ??
-    (typeof user.user_metadata?.name === "string"
-      ? user.user_metadata.name
-      : user.email);
-  const venueId =
-    fallback?.venueId ??
-    (typeof user.user_metadata?.venueId === "string"
-      ? user.user_metadata.venueId
-      : defaultVenueSettings.venueId);
-
-  const { error } = await supabase.from("staff_profiles").insert({
-    active: fallback?.active ?? true,
-    email: user.email,
-    full_name: name,
-    role_id: roleId ?? null,
-    user_id: user.id,
-    venue_scope: [venueId],
-  });
-
-  if (error) {
+    return payload.session;
+  } catch (error) {
     console.error(
       "[Zingara Supabase Auth] Failed to create staff profile",
       error,
@@ -340,32 +245,21 @@ export async function getOrCreateStaffProfileSession(
         }
       : null;
   }
-
-  const createdProfile = await getStaffProfileByUserId(user.id);
-
-  return createdProfile ? toStaffSession(createdProfile) : null;
 }
 
 export async function assignStaffRoleByEmail(
   email: string,
   role: AdminRole,
 ) {
-  const supabase = getSupabaseClient();
-  const roleId = await getRoleId(role);
-
-  if (!supabase || !roleId) {
-    return;
-  }
-
-  const { error } = await supabase
-    .from("staff_profiles")
-    .update({
-      role_id: roleId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("email", email.trim().toLowerCase());
-
-  if (error) {
+  try {
+    await fetchSupabaseApi("/api/admin/staff", {
+      body: {
+        email,
+        role,
+      },
+      method: "PATCH",
+    });
+  } catch (error) {
     console.error(
       "[Zingara Supabase Auth] Failed to assign staff role",
       error,

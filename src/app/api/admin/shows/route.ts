@@ -1,9 +1,12 @@
 import {
   type DemoShow,
-  getStoredDemoShows,
-  storeDemoShows,
 } from "@/lib/zingaraDemo";
-import { fetchSupabaseApi } from "./apiClient";
+import {
+  getServiceClient,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
+
+export const dynamic = "force-dynamic";
 
 type SupabaseShowRow = {
   created_at?: string;
@@ -138,64 +141,95 @@ function toSupabaseShow(show: DemoShow): SupabaseShowWrite {
   };
 }
 
-export async function getShows() {
+async function loadShowRows() {
+  const serviceClient = getServiceClient();
+
+  if (!serviceClient) {
+    throw new Error("Supabase service role is not configured.");
+  }
+
+  const { data, error } = await serviceClient
+    .from("shows")
+    .select("id,name,description,date,time,venue,status,notes,created_at,updated_at")
+    .order("date", { ascending: true })
+    .order("time", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as SupabaseShowRow[];
+}
+
+export async function GET() {
   try {
-    const payload = await fetchSupabaseApi<{ shows: DemoShow[] }>(
-      "/api/admin/shows",
-    );
+    const shows = (await loadShowRows()).map(toDemoShow);
 
-    if (!payload.shows || payload.shows.length === 0) {
-      return getStoredDemoShows();
-    }
-
-    return payload.shows;
+    return Response.json({ shows });
   } catch (error) {
-    console.error("[Zingara Supabase] Failed to load shows", error);
-    return getStoredDemoShows();
+    console.error("[Zingara API] Failed to load shows", error);
+
+    return Response.json({ error: "Shows could not be loaded." }, { status: 500 });
   }
 }
 
-export async function createShow(show: DemoShow) {
-  return replaceShows([...getStoredDemoShows(), show]);
-}
+export async function PUT(request: Request) {
+  const auth = await requireActiveStaff(request);
 
-export async function updateShow(show: DemoShow) {
-  return replaceShows(
-    getStoredDemoShows().map((currentShow) =>
-      currentShow.id === show.id ? show : currentShow,
-    ),
-  );
-}
-
-export async function archiveShow(showId: string) {
-  return replaceShows(
-    getStoredDemoShows().map((show) =>
-      show.id === showId
-        ? {
-            ...show,
-            archivedAt: new Date().toISOString(),
-            operationalStatus: "inactive",
-          }
-        : show,
-    ),
-  );
-}
-
-export async function replaceShows(shows: DemoShow[]) {
-  storeDemoShows(shows);
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
+  }
 
   try {
-    const payload = await fetchSupabaseApi<{ shows: DemoShow[] }>(
-      "/api/admin/shows",
-      {
-        body: { shows },
-        method: "PUT",
-      },
+    const body = (await request.json()) as { shows?: DemoShow[] };
+    const shows = body.shows ?? [];
+    const existingRows = await loadShowRows();
+    const existingRowsByDemoId = new Map(
+      existingRows.map((row) => [parseShowNotes(row.notes).legacyId || row.id, row]),
+    );
+    const nextShowIds = new Set(shows.map((show) => show.id));
+
+    await Promise.all(
+      shows.map((show) => {
+        const existingRow = existingRowsByDemoId.get(show.id);
+
+        if (existingRow) {
+          return auth.serviceClient
+            .from("shows")
+            .update(toSupabaseShow(show))
+            .eq("id", existingRow.id);
+        }
+
+        return auth.serviceClient.from("shows").insert(toSupabaseShow(show));
+      }),
     );
 
-    return payload.shows ?? shows;
+    const removedRows = existingRows.filter((row) => {
+      const demoId = parseShowNotes(row.notes).legacyId || row.id;
+
+      return !nextShowIds.has(demoId);
+    });
+
+    if (removedRows.length > 0) {
+      const { error } = await auth.serviceClient
+        .from("shows")
+        .delete()
+        .in(
+          "id",
+          removedRows.map((row) => row.id),
+        );
+
+      if (error) {
+        throw error;
+      }
+    }
+
+    const persistedShows = (await loadShowRows()).map(toDemoShow);
+
+    return Response.json({ shows: persistedShows });
   } catch (error) {
-    console.error("[Zingara Supabase] Failed to persist shows", error);
-    return shows;
+    console.error("[Zingara API] Failed to persist shows", error);
+
+    return Response.json({ error: "Shows could not be saved." }, { status: 500 });
   }
 }

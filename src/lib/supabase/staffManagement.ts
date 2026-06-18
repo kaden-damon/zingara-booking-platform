@@ -2,8 +2,7 @@ import {
   type AdminRole,
   adminRoleLabels,
 } from "@/lib/zingaraAccess";
-import { getSupabaseClient } from "./client";
-import { ensureDefaultRoles } from "./staffProfiles";
+import { fetchSupabaseApi } from "./apiClient";
 
 export type StaffManagementRole = {
   id: string;
@@ -80,67 +79,67 @@ function toStaffManagementProfile(
 }
 
 async function getRoleRows() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      roles: StaffManagementRole[];
+    }>("/api/admin/roles");
 
-  if (!supabase) {
-    return [];
-  }
-
-  await ensureDefaultRoles();
-
-  const { data, error } = await supabase
-    .from("roles")
-    .select("id,name")
-    .order("name", { ascending: true });
-
-  if (error) {
+    return (payload.roles ?? []).map((role) => ({
+      id: role.id,
+      name: role.name,
+    }));
+  } catch (error) {
     console.error("[Zingara Supabase Staff] Failed to load roles", error);
     return [];
   }
-
-  return (data ?? []) as RoleRow[];
 }
 
 async function getRoleId(role: AdminRole) {
-  const roleRows = await getRoleRows();
-  const roleName = getRoleName(role);
+  try {
+    const payload = await fetchSupabaseApi<{
+      roleId?: string;
+    }>("/api/admin/roles", {
+      body: {
+        action: "resolve-role-id",
+        role,
+      },
+      method: "POST",
+    });
 
-  return roleRows.find(
-    (row) => row.name.trim().toLowerCase() === roleName.toLowerCase(),
-  )?.id;
+    return payload.roleId;
+  } catch (error) {
+    console.error("[Zingara Supabase Staff] Failed to resolve role", error);
+    return undefined;
+  }
 }
 
 export async function getStaffRoles() {
-  const roleRows = await getRoleRows();
+  try {
+    const payload = await fetchSupabaseApi<{
+      roles: StaffManagementRole[];
+    }>("/api/admin/roles");
 
-  return roleRows.map(toStaffManagementRole);
+    return payload.roles ?? [];
+  } catch (error) {
+    console.error("[Zingara Supabase Staff] Failed to load staff roles", error);
+    return [];
+  }
 }
 
 export async function getStaffProfiles() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      profiles: StaffManagementProfile[];
+    }>("/api/admin/staff");
 
-  if (!supabase) {
-    return [];
-  }
-
-  await ensureDefaultRoles();
-
-  const { data, error } = await supabase
-    .from("staff_profiles")
-    .select("id,user_id,full_name,email,role_id,active,venue_scope,roles(id,name)")
-    .order("full_name", { ascending: true });
-
-  if (error) {
+    return payload.profiles ?? [];
+  } catch (error) {
     console.error(
       "[Zingara Supabase Staff] Failed to load staff profiles",
       error,
     );
     return [];
   }
-
-  return ((data ?? []) as unknown as StaffProfileRow[]).map(
-    toStaffManagementProfile,
-  );
 }
 
 export async function getStaffProfile(id: string) {
@@ -152,77 +151,64 @@ export async function getStaffProfile(id: string) {
 }
 
 export async function updateStaffRole(id: string, role: AdminRole) {
-  const supabase = getSupabaseClient();
-  const roleId = await getRoleId(role);
+  try {
+    const payload = await fetchSupabaseApi<{
+      profile?: StaffManagementProfile;
+    }>("/api/admin/staff", {
+      body: {
+        id,
+        role,
+      },
+      method: "PATCH",
+    });
 
-  if (!supabase || !roleId) {
-    return undefined;
-  }
-
-  const { error } = await supabase
-    .from("staff_profiles")
-    .update({
-      role_id: roleId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-
-  if (error) {
+    return payload.profile;
+  } catch (error) {
     console.error(
       "[Zingara Supabase Staff] Failed to update staff role",
       error,
     );
     return undefined;
   }
-
-  return getStaffProfile(id);
 }
 
 export async function updateStaffActive(id: string, active: boolean) {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      profile?: StaffManagementProfile;
+    }>("/api/admin/staff", {
+      body: {
+        active,
+        id,
+      },
+      method: "PATCH",
+    });
 
-  if (!supabase) {
-    return undefined;
-  }
-
-  const { error } = await supabase
-    .from("staff_profiles")
-    .update({
-      active,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-
-  if (error) {
+    return payload.profile;
+  } catch (error) {
     console.error(
       "[Zingara Supabase Staff] Failed to update staff active state",
       error,
     );
     return undefined;
   }
-
-  return getStaffProfile(id);
 }
 
 export async function deleteStaffProfile(id: string) {
-  const supabase = getSupabaseClient();
+  try {
+    await fetchSupabaseApi<{ success: boolean }>(
+      `/api/admin/staff?id=${encodeURIComponent(id)}`,
+      {
+        method: "DELETE",
+      },
+    );
 
-  if (!supabase) {
-    return false;
-  }
-
-  const { error } = await supabase
-    .from("staff_profiles")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
+    return true;
+  } catch (error) {
     console.error(
       "[Zingara Supabase Staff] Failed to delete staff profile",
       error,
     );
     return false;
   }
-
-  return true;
 }

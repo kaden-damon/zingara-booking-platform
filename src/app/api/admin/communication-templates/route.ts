@@ -3,10 +3,13 @@ import {
   type CommunicationTemplate,
   type CommunicationTrigger,
   defaultCommunicationTemplates,
-  getStoredCommunicationTemplates,
-  storeCommunicationTemplates,
 } from "@/lib/zingaraDemo";
-import { fetchSupabaseApi } from "./apiClient";
+import {
+  getServiceClient,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
+
+export const dynamic = "force-dynamic";
 
 type SupabaseCommunicationType =
   | "booking_confirmation"
@@ -186,79 +189,107 @@ function toSupabaseTemplate(template: CommunicationTemplate) {
   };
 }
 
-export async function getTemplates() {
-  const fallbackTemplates = getStoredCommunicationTemplates();
+async function loadTemplates(includeInactive = false) {
+  const serviceClient = getServiceClient();
 
+  if (!serviceClient) {
+    throw new Error("Supabase service role is not configured.");
+  }
+
+  let query = serviceClient
+    .from("communication_templates")
+    .select("id,type,channel,name,subject,body,active,updated_at")
+    .order("name", { ascending: true });
+
+  if (!includeInactive) {
+    query = query.eq("active", true);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as SupabaseCommunicationTemplateRow[];
+}
+
+async function persistTemplates(
+  serviceClient: NonNullable<ReturnType<typeof getServiceClient>>,
+  templates: CommunicationTemplate[],
+) {
+  const existingRows = await loadTemplates(true);
+
+  await Promise.all(
+    templates.map((template) => {
+      const templatePayload = toSupabaseTemplate(template);
+      const existingRow = existingRows.find(
+        (row) =>
+          row.name === template.name &&
+          row.channel === templatePayload.channel,
+      );
+
+      if (existingRow) {
+        return serviceClient
+          .from("communication_templates")
+          .update(templatePayload)
+          .eq("id", existingRow.id);
+      }
+
+      return serviceClient.from("communication_templates").insert(templatePayload);
+    }),
+  );
+}
+
+export async function GET() {
   try {
-    const payload = await fetchSupabaseApi<{
-      templates: CommunicationTemplate[];
-    }>("/api/admin/communication-templates");
+    const serviceClient = getServiceClient();
+    let rows = await loadTemplates();
 
-    if (!payload.templates || payload.templates.length === 0) {
-      return fallbackTemplates;
+    if (rows.length === 0 && serviceClient) {
+      await persistTemplates(serviceClient, defaultCommunicationTemplates);
+      rows = await loadTemplates();
     }
 
-    return payload.templates;
-  } catch (error) {
-    console.error("[Zingara Supabase] Failed to load communication templates", error);
-    return fallbackTemplates;
-  }
-}
+    const templates = mergeMissingDefaultTemplates(rows.map(toCommunicationTemplate));
 
-async function persistTemplatesToSupabase(templates: CommunicationTemplate[]) {
-  try {
-    const payload = await fetchSupabaseApi<{
-      templates: CommunicationTemplate[];
-    }>("/api/admin/communication-templates", {
-      body: { templates },
-      method: "PUT",
-    });
-
-    return payload.templates ?? templates;
+    return Response.json({ templates });
   } catch (error) {
-    console.error(
-      "[Zingara Supabase] Failed to load communication templates for persistence",
-      error,
+    console.error("[Zingara API] Failed to load communication templates", error);
+
+    return Response.json(
+      { error: "Communication templates could not be loaded." },
+      { status: 500 },
     );
-    return templates;
   }
 }
 
-export async function saveTemplates(templates: CommunicationTemplate[]) {
-  storeCommunicationTemplates(templates);
+export async function PUT(request: Request) {
+  const auth = await requireActiveStaff(request);
 
-  return persistTemplatesToSupabase(templates);
-}
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
+  }
 
-export async function saveTemplate(template: CommunicationTemplate) {
-  const templates = getStoredCommunicationTemplates();
-  const nextTemplates = templates.some(
-    (currentTemplate) => currentTemplate.id === template.id,
-  )
-    ? templates.map((currentTemplate) =>
-        currentTemplate.id === template.id ? template : currentTemplate,
-      )
-    : [template, ...templates];
+  try {
+    const body = (await request.json()) as {
+      templates?: CommunicationTemplate[];
+    };
+    const templates = body.templates ?? [];
 
-  return saveTemplates(nextTemplates);
-}
+    await persistTemplates(auth.serviceClient, templates);
 
-export async function updateTemplate(
-  templateId: string,
-  updates: Partial<
-    Pick<CommunicationTemplate, "body" | "channel" | "subject">
-  >,
-) {
-  const templates = getStoredCommunicationTemplates();
-  const nextTemplates = templates.map((template) =>
-    template.id === templateId
-      ? {
-          ...template,
-          ...updates,
-          updatedAt: new Date().toISOString(),
-        }
-      : template,
-  );
+    const rows = await loadTemplates();
 
-  return saveTemplates(nextTemplates);
+    return Response.json({
+      templates: mergeMissingDefaultTemplates(rows.map(toCommunicationTemplate)),
+    });
+  } catch (error) {
+    console.error("[Zingara API] Failed to save communication templates", error);
+
+    return Response.json(
+      { error: "Communication templates could not be saved." },
+      { status: 500 },
+    );
+  }
 }
