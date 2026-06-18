@@ -52,6 +52,14 @@ import {
   getOrCreateStaffProfileSession,
 } from "../../lib/supabase/staffProfiles";
 import {
+  type StaffManagementProfile,
+  type StaffManagementRole,
+  getStaffProfiles,
+  getStaffRoles,
+  updateStaffActive,
+  updateStaffRole,
+} from "../../lib/supabase/staffManagement";
+import {
   getShows,
   replaceShows,
 } from "../../lib/supabase/shows";
@@ -423,7 +431,7 @@ type AdminTab =
 type BookingViewMode = "grid" | "list";
 type FloorZoneFilter = SeatingZoneId | "all";
 type OperationsTab = "floor" | "check-in" | "waitlist";
-type SettingsTab = "users" | "venue" | "workflows";
+type SettingsTab = "users" | "staff" | "venue" | "workflows";
 type DashboardWidgetId =
   | "tonight"
   | "guest-ops"
@@ -487,6 +495,7 @@ const showOperationalStatusLabels: Record<
 };
 const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "users", label: "Users" },
+  { id: "staff", label: "Staff" },
   { id: "venue", label: "Venue Configuration" },
   { id: "workflows", label: "Automated Workflows" },
 ];
@@ -1233,6 +1242,14 @@ export default function AdminDashboardPage() {
   const [loginError, setLoginError] = useState("");
   const [staffAccounts, setStaffAccounts] =
     useState<DemoStaffAccount[]>(demoStaffAccounts);
+  const [staffProfiles, setStaffProfiles] = useState<
+    StaffManagementProfile[]
+  >([]);
+  const [staffRoles, setStaffRoles] = useState<StaffManagementRole[]>(
+    [],
+  );
+  const [staffManagementStatus, setStaffManagementStatus] =
+    useState("");
   const [editingStaffId, setEditingStaffId] = useState<string | null>(
     null,
   );
@@ -1320,6 +1337,8 @@ export default function AdminDashboardPage() {
       const nextStaffAccounts = getStoredStaffAccounts();
       const nextAdminSession =
         await getSupabaseAdminSession(nextStaffAccounts);
+      const nextStaffProfiles = await getStaffProfiles();
+      const nextStaffRoles = await getStaffRoles();
 
       console.log("[Zingara show management] show reloaded", {
         showCount: nextShows.length,
@@ -1366,6 +1385,8 @@ export default function AdminDashboardPage() {
       setWaitlist(nextWaitlist);
       setTables(nextTables);
       setStaffAccounts(nextStaffAccounts);
+      setStaffProfiles(nextStaffProfiles);
+      setStaffRoles(nextStaffRoles);
     }
 
     const hydrationTimer = window.setTimeout(loadDemoData, 0);
@@ -1936,6 +1957,45 @@ export default function AdminDashboardPage() {
 
       setCurrentStaff(nextSession);
     }
+  }
+
+  async function refreshStaffManagement() {
+    const [nextProfiles, nextRoles] = await Promise.all([
+      getStaffProfiles(),
+      getStaffRoles(),
+    ]);
+
+    setStaffProfiles(nextProfiles);
+    setStaffRoles(nextRoles);
+  }
+
+  async function changeStaffProfileRole(
+    profile: StaffManagementProfile,
+    role: AdminRole,
+  ) {
+    if (currentStaff?.role !== "super-admin") {
+      return;
+    }
+
+    setStaffManagementStatus("");
+    await updateStaffRole(profile.id, role);
+    await refreshStaffManagement();
+    setStaffManagementStatus("Staff role updated.");
+  }
+
+  async function toggleStaffProfileActive(
+    profile: StaffManagementProfile,
+  ) {
+    if (currentStaff?.role !== "super-admin") {
+      return;
+    }
+
+    setStaffManagementStatus("");
+    await updateStaffActive(profile.id, !profile.active);
+    await refreshStaffManagement();
+    setStaffManagementStatus(
+      profile.active ? "Staff profile deactivated." : "Staff profile activated.",
+    );
   }
 
   function resetUserForm(role: AdminRole = "box-office") {
@@ -7033,6 +7093,123 @@ export default function AdminDashboardPage() {
             )}
           </div>
         </section>
+        )}
+
+        {activeAdminTab === "settings" &&
+          activeSettingsTab === "staff" &&
+          canManageSettings && (
+          <section className="mb-10 rounded-2xl border border-white/10 bg-zinc-950 p-6 shadow-2xl shadow-black/25">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
+                  Supabase Staff
+                </p>
+                <h2 className="text-2xl font-bold">
+                  Staff
+                </h2>
+                <p className="mt-2 max-w-3xl text-zinc-400">
+                  Manage authenticated staff profiles, assigned roles,
+                  active states, and venue scope.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void refreshStaffManagement()}
+                className="w-fit rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+              >
+                Refresh Staff
+              </button>
+            </div>
+
+            {staffManagementStatus && (
+              <p className="mt-5 rounded-2xl border border-emerald-300/25 bg-emerald-950/25 px-4 py-3 text-sm text-emerald-100">
+                {staffManagementStatus}
+              </p>
+            )}
+
+            <div className="mt-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
+              {staffProfiles.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-black/35 p-5 text-sm text-zinc-400">
+                  No Supabase staff profiles have been created yet.
+                </div>
+              ) : (
+                staffProfiles.map((profile) => (
+                  <article
+                    key={profile.id}
+                    className="rounded-2xl border border-white/10 bg-black/35 p-4"
+                  >
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="truncate text-lg font-bold">
+                            {profile.name}
+                          </h3>
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[0.58rem] font-semibold uppercase tracking-[0.12em] ${
+                              profile.active
+                                ? "border-emerald-300/40 bg-emerald-950/25 text-emerald-200"
+                                : "border-zinc-600 bg-zinc-900 text-zinc-500"
+                            }`}
+                          >
+                            {profile.active ? "Active" : "Inactive"}
+                          </span>
+                        </div>
+                        <p className="mt-1 truncate text-xs text-zinc-400">
+                          {profile.email}
+                        </p>
+                        <p className="mt-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                          {adminRoleLabels[profile.role] ?? "Staff"}
+                        </p>
+                        <p className="mt-2 text-xs text-zinc-500">
+                          Venue Scope:{" "}
+                          {profile.venueScope.length > 0
+                            ? profile.venueScope.join(", ")
+                            : "All venues"}
+                        </p>
+                      </div>
+
+                      {currentStaff.role === "super-admin" && (
+                        <div className="flex shrink-0 flex-col gap-2 sm:min-w-48">
+                          <select
+                            value={profile.role}
+                            onChange={(event) =>
+                              void changeStaffProfileRole(
+                                profile,
+                                event.target.value as AdminRole,
+                              )
+                            }
+                            className="rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-white"
+                          >
+                            {(staffRoles.length > 0
+                              ? staffRoles
+                              : userManagementRoles.map((role) => ({
+                                  id: role,
+                                  name: adminRoleLabels[role],
+                                  role,
+                                }))
+                            ).map((role) => (
+                              <option key={role.id} value={role.role}>
+                                {role.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void toggleStaffProfileActive(profile)
+                            }
+                            className="rounded-full border border-white/15 px-3 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                          >
+                            {profile.active ? "Deactivate" : "Activate"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
         )}
 
         {activeAdminTab === "settings" &&
