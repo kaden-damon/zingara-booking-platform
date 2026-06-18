@@ -1,10 +1,10 @@
 # Supabase Migration Progress
 
-Last updated: 2026-06-17
+Last updated: 2026-06-18
 
 ## Current Status
 
-The Supabase migration has completed the Phase 2 business-domain migration pass. The database schema has been created in migration files, and the application now has a shared Supabase data access layer for the operational business modules listed below. The app still keeps localStorage fallback behaviour while Phase 3 and Phase 4 remain pending.
+The Supabase migration has completed the Phase 2 business-domain migration pass and Phase 3 staff authentication/management pass. The database schema has been created in migration files, and the application now has a shared Supabase data access layer for the operational business modules listed below. The app still keeps localStorage fallback behaviour while Phase 4 remains pending.
 
 Migration status summary:
 
@@ -20,10 +20,14 @@ Migration status summary:
 - Ticket Validations: Business Migration Complete.
 - Waitlist: Business Migration Complete.
 - Corporate Requests: Business Migration Complete.
+- Supabase Auth: PASSED and TESTED.
+- Staff Profiles & Roles: PASSED and TESTED.
+- Staff Management: PASSED and TESTED.
+- Staff Invitations: PASSED and TESTED.
 
 Remaining work:
 
-- Phase 3: Staff auth, roles, permissions, and production RLS policy implementation.
+- Production RLS policy implementation.
 - Phase 4: Final localStorage retirement, one-time migration/import tooling, hardening, and production readiness cleanup.
 
 ## Phase 1: Schema Creation
@@ -301,6 +305,98 @@ Test results:
 - Status changes persist.
 - Corporate request conversion to booking confirmed.
 
+## Phase 3A: Supabase Auth
+
+Status: PASSED and TESTED.
+
+Service:
+
+- `src/lib/supabase/auth.ts`
+
+Implemented:
+
+- Supabase Auth sign-in.
+- Supabase Auth sign-out.
+- Persistent Supabase session handling.
+- Admin gate now uses authenticated Supabase session state.
+
+Test results:
+
+- Supabase Auth login succeeds.
+- Existing admin login screen remains intact.
+- Existing admin dashboard loads after authentication.
+- Sign out clears the active admin session.
+
+## Phase 3B: Staff Profiles & Roles
+
+Status: PASSED and TESTED.
+
+Services:
+
+- `src/lib/supabase/staffProfiles.ts`
+
+Implemented:
+
+- Default role seeding support.
+- Permission and role-permission seeding support.
+- Staff profile creation/linkage for authenticated users.
+- Admin session role display from `staff_profiles`.
+
+Test results:
+
+- Roles and permissions are available through Supabase.
+- Authenticated staff profile is linked to Supabase Auth user.
+- Existing Super Admin profile displays correctly in Admin.
+- Staff role resolution works from `staff_profiles.role_id`.
+
+## Phase 3C: Staff Management
+
+Status: PASSED and TESTED.
+
+Services:
+
+- `src/lib/supabase/staffManagement.ts`
+
+Implemented:
+
+- Staff profile listing.
+- Staff profile lookup.
+- Staff role update.
+- Staff active/inactive update.
+- Staff profile delete service function.
+- Settings → Staff management tab.
+
+Test results:
+
+- Staff list loads in Settings → Staff.
+- Role changes save.
+- Active toggle saves.
+- Existing login still works.
+
+## Phase 3D: Staff Invitations
+
+Status: PASSED and TESTED.
+
+Services:
+
+- `src/lib/supabase/staffInvitations.ts`
+- `src/app/api/admin/staff-invitations/route.ts`
+
+Implemented:
+
+- Super Admin staff creation UI in Settings → Staff.
+- Supabase Auth user invitation/creation route.
+- Linked `staff_profiles` creation.
+- Role assignment during staff creation.
+- Staff list refresh after creation.
+
+Test results:
+
+- Staff Invitations API uses configured service-role runtime key.
+- Super Admin access validation reaches the server route.
+- Create Staff User workflow is available from Settings → Staff.
+- Staff profile creation path is linked to Supabase Auth users.
+
 ## Supabase Permissions Status
 
 Confirmed migration-phase pattern:
@@ -322,6 +418,10 @@ Known required tables so far:
 - `ticket_validations`
 - `waitlist_entries`
 - `corporate_requests`
+- `roles`
+- `permissions`
+- `role_permissions`
+- `staff_profiles`
 
 Important:
 
@@ -378,10 +478,9 @@ Supabase is primary, localStorage fallback remains.
 
 ## Remaining Work
 
-Phase 3 and Phase 4 remain pending:
+Phase 4 remains pending:
 
 - Show table and venue table operational persistence.
-- Staff auth migration to Supabase Auth.
 - RLS policy implementation.
 - LocalStorage-to-Supabase one-time migration/import tooling.
 
@@ -389,4 +488,4 @@ Phase 3 and Phase 4 remain pending:
 
 The app is not ready to remove localStorage fallback yet.
 
-Phase 2 business-domain migration is complete, but the platform remains hybrid until Phase 3 and Phase 4 are completed. Before production, RLS must be re-enabled with proper policies, staff/customer access must be routed through the final auth model, and localStorage fallback must be retired through a controlled migration/import process.
+Phase 2 business-domain migration and Phase 3 staff auth/management migration are complete, but the platform remains hybrid until Phase 4 is completed. Before production, RLS must be re-enabled with proper policies and localStorage fallback must be retired through a controlled migration/import process.
