@@ -4,11 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import {
+  adminAuthChangedEvent,
+  getAdminAuthSession,
+  signOutAdmin,
+} from "../../lib/supabase/auth";
 import { getVenueSettings } from "../../lib/supabase/venueSettings";
 import { defaultVenueSettings } from "../../lib/zingaraDemo";
-
-const adminSessionStorageKey = "zingara-demo-admin-session";
-const adminSessionChangedEvent = "zingara-admin-session-changed";
 
 const navigationItems = [
   {
@@ -118,25 +120,30 @@ export default function ZingaraHeader() {
   }, []);
 
   useEffect(() => {
-    function loadAdminSession() {
-      setIsAdminLoggedIn(
-        Boolean(window.localStorage.getItem(adminSessionStorageKey)),
-      );
+    let isMounted = true;
+
+    async function loadAdminSession() {
+      const adminSession = await getAdminAuthSession();
+
+      if (isMounted) {
+        setIsAdminLoggedIn(Boolean(adminSession));
+      }
     }
 
     const hydrationTimer = window.setTimeout(loadAdminSession, 0);
 
     window.addEventListener("storage", loadAdminSession);
     window.addEventListener(
-      adminSessionChangedEvent,
+      adminAuthChangedEvent,
       loadAdminSession,
     );
 
     return () => {
+      isMounted = false;
       window.clearTimeout(hydrationTimer);
       window.removeEventListener("storage", loadAdminSession);
       window.removeEventListener(
-        adminSessionChangedEvent,
+        adminAuthChangedEvent,
         loadAdminSession,
       );
     };
@@ -171,9 +178,9 @@ export default function ZingaraHeader() {
     return null;
   }
 
-  function logoutFromNavigation() {
-    window.localStorage.removeItem(adminSessionStorageKey);
-    window.dispatchEvent(new Event(adminSessionChangedEvent));
+  async function logoutFromNavigation() {
+    await signOutAdmin();
+    window.dispatchEvent(new Event(adminAuthChangedEvent));
     setIsAdminLoggedIn(false);
     setIsMenuOpen(false);
     window.location.href = "/book";

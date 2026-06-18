@@ -27,6 +27,12 @@ import {
   saveBookings as persistBookings,
 } from "../../lib/supabase/bookings";
 import {
+  adminAuthChangedEvent,
+  getAdminAuthSession,
+  signInAdmin,
+  signOutAdmin,
+} from "../../lib/supabase/auth";
+import {
   getTemplates,
   saveTemplates,
 } from "../../lib/supabase/communicationTemplates";
@@ -41,6 +47,10 @@ import {
   saveCorporateRequests as persistCorporateRequests,
 } from "../../lib/supabase/corporateRequests";
 import { updatePayment } from "../../lib/supabase/payments";
+import {
+  assignStaffRoleByEmail,
+  getOrCreateStaffProfileSession,
+} from "../../lib/supabase/staffProfiles";
 import {
   getShows,
   replaceShows,
@@ -218,8 +228,6 @@ type CustomerProfile = {
   waitlistEntries: DemoWaitlistEntry[];
 };
 
-const adminSessionStorageKey = "zingara-demo-admin-session";
-const adminSessionChangedEvent = "zingara-admin-session-changed";
 const demoStaffAccountsStorageKey = "zingara-demo-staff-accounts";
 
 const demoStaffAccounts: DemoStaffAccount[] = [
@@ -1083,52 +1091,36 @@ function getStoredStaffAccounts() {
   }
 }
 
-function getStoredAdminSession() {
-  if (typeof window === "undefined") {
+async function getSupabaseAdminSession(
+  staffAccounts: DemoStaffAccount[],
+) {
+  const authSession = await getAdminAuthSession();
+
+  if (!authSession?.user.email) {
     return null;
   }
 
-  try {
-    const storedSession = window.localStorage.getItem(
-      adminSessionStorageKey,
-    );
+  const userEmail = authSession.user.email.trim().toLowerCase();
+  const matchingAccount = staffAccounts.find(
+    (account) =>
+      account.active &&
+      account.email.trim().toLowerCase() === userEmail,
+  );
 
-    if (!storedSession) {
-      return null;
-    }
-
-    const session = JSON.parse(storedSession) as AdminSession;
-    const matchingAccount = getStoredStaffAccounts().find(
-      (account) => account.username === session.username,
-    );
-
-    if (matchingAccount?.active) {
-      return {
-        email: matchingAccount.email,
-        id: matchingAccount.id,
-        name: matchingAccount.name,
-        permissions: matchingAccount.permissions,
-        role: matchingAccount.role,
-        username: matchingAccount.username,
-        venueId: matchingAccount.venueId,
-      };
-    }
-
-    if (!session.role || !adminRoleLabels[session.role]) {
-      return null;
-    }
-
-    return {
-      email: session.email,
-      id: session.id ?? session.username,
-      name: session.name || session.username || "Staff Member",
-      role: session.role,
-      username: session.username || session.email || session.id,
-      venueId: session.venueId || defaultVenueSettings.venueId,
-    };
-  } catch {
-    return null;
-  }
+  return getOrCreateStaffProfileSession(
+    authSession.user,
+    matchingAccount
+      ? {
+          active: matchingAccount.active,
+          email: matchingAccount.email,
+          name: matchingAccount.name,
+          permissions: matchingAccount.permissions,
+          role: matchingAccount.role,
+          username: matchingAccount.username,
+          venueId: matchingAccount.venueId,
+        }
+      : undefined,
+  );
 }
 
 export default function AdminDashboardPage() {
@@ -1326,6 +1318,8 @@ export default function AdminDashboardPage() {
       const nextWaitlist = await getWaitlistEntries();
       const nextTables = getStoredDemoTables();
       const nextStaffAccounts = getStoredStaffAccounts();
+      const nextAdminSession =
+        await getSupabaseAdminSession(nextStaffAccounts);
 
       console.log("[Zingara show management] show reloaded", {
         showCount: nextShows.length,
@@ -1352,7 +1346,7 @@ export default function AdminDashboardPage() {
       }
 
       setHasHydrated(true);
-      setCurrentStaff(getStoredAdminSession());
+      setCurrentStaff(nextAdminSession);
       setShows(nextShows);
       setSelectedShowId((currentShowId) =>
         nextShows.some((show) => show.id === currentShowId)
@@ -1385,6 +1379,7 @@ export default function AdminDashboardPage() {
       "zingara-demo-corporate-requests-updated",
       loadDemoData,
     );
+    window.addEventListener(adminAuthChangedEvent, loadDemoData);
     window.addEventListener(
       "zingara-demo-shows-updated",
       loadDemoData,
@@ -1421,6 +1416,7 @@ export default function AdminDashboardPage() {
         "zingara-demo-corporate-requests-updated",
         loadDemoData,
       );
+      window.removeEventListener(adminAuthChangedEvent, loadDemoData);
       window.removeEventListener(
         "zingara-demo-shows-updated",
         loadDemoData,
@@ -1538,35 +1534,38 @@ export default function AdminDashboardPage() {
   const canViewStaffOperations = canCheckInGuests;
   const venueConfig = venueSettings;
 
-  function login(event: FormEvent<HTMLFormElement>) {
+  async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    const loginIdentifier = loginForm.username.trim();
     const account = staffAccounts.find(
       (staffAccount) =>
-        staffAccount.username === loginForm.username.trim() &&
-        staffAccount.password === loginForm.password,
+        staffAccount.username === loginIdentifier ||
+        staffAccount.email.toLowerCase() === loginIdentifier.toLowerCase(),
     );
+    const authEmail = account?.email ?? loginIdentifier;
 
-    if (!account || !account.active) {
-      setLoginError("Invalid demo credentials.");
+    if (account && !account.active) {
+      setLoginError("This staff account is inactive.");
       return;
     }
 
-    const nextSession: AdminSession = {
-      email: account.email,
-      id: account.id,
-      name: account.name,
-      permissions: account.permissions,
-      role: account.role,
-      username: account.username,
-      venueId: account.venueId,
-    };
+    const result = await signInAdmin(authEmail, loginForm.password);
 
-    window.localStorage.setItem(
-      adminSessionStorageKey,
-      JSON.stringify(nextSession),
-    );
-    window.dispatchEvent(new Event(adminSessionChangedEvent));
+    if (!result.user) {
+      setLoginError(result.error || "Invalid admin credentials.");
+      return;
+    }
+
+    const nextSession = await getSupabaseAdminSession(staffAccounts);
+
+    if (!nextSession) {
+      await signOutAdmin();
+      setLoginError("No active staff profile is linked to this user.");
+      return;
+    }
+
+    window.dispatchEvent(new Event(adminAuthChangedEvent));
     setCurrentStaff(nextSession);
     setLoginError("");
     setLoginForm({
@@ -1575,9 +1574,9 @@ export default function AdminDashboardPage() {
     });
   }
 
-  function logout() {
-    window.localStorage.removeItem(adminSessionStorageKey);
-    window.dispatchEvent(new Event(adminSessionChangedEvent));
+  async function logout() {
+    await signOutAdmin();
+    window.dispatchEvent(new Event(adminAuthChangedEvent));
     setCurrentStaff(null);
   }
 
@@ -1907,6 +1906,18 @@ export default function AdminDashboardPage() {
       demoStaffAccountsStorageKey,
       JSON.stringify(nextAccounts),
     );
+    void Promise.all(
+      nextAccounts.map((account) =>
+        assignStaffRoleByEmail(
+          createZingaraUserEmail(
+            account.name,
+            account.username,
+            account.email,
+          ),
+          account.role,
+        ),
+      ),
+    );
 
     const updatedCurrentStaff = nextAccounts.find(
       (account) => account.id === currentStaff?.id,
@@ -1924,10 +1935,6 @@ export default function AdminDashboardPage() {
       };
 
       setCurrentStaff(nextSession);
-      window.localStorage.setItem(
-        adminSessionStorageKey,
-        JSON.stringify(nextSession),
-      );
     }
   }
 
