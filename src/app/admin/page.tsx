@@ -55,10 +55,13 @@ import {
   type StaffManagementProfile,
   type StaffManagementRole,
   getStaffProfiles,
-  getStaffRoles,
   updateStaffActive,
   updateStaffRole,
 } from "../../lib/supabase/staffManagement";
+import {
+  createStaffUser,
+  getAvailableRoles,
+} from "../../lib/supabase/staffInvitations";
 import {
   getShows,
   replaceShows,
@@ -156,6 +159,12 @@ type UserForm = {
   permissions: Permission[];
   role: AdminRole;
   username: string;
+};
+type StaffInviteForm = {
+  email: string;
+  fullName: string;
+  role: AdminRole;
+  venueScope: string;
 };
 type SplitMergeReview = {
   booking?: DemoBooking;
@@ -1250,6 +1259,14 @@ export default function AdminDashboardPage() {
   );
   const [staffManagementStatus, setStaffManagementStatus] =
     useState("");
+  const [isStaffInviteOpen, setIsStaffInviteOpen] = useState(false);
+  const [staffInviteForm, setStaffInviteForm] =
+    useState<StaffInviteForm>({
+      email: "",
+      fullName: "",
+      role: "venue-manager",
+      venueScope: defaultVenueSettings.venueId,
+    });
   const [editingStaffId, setEditingStaffId] = useState<string | null>(
     null,
   );
@@ -1338,7 +1355,7 @@ export default function AdminDashboardPage() {
       const nextAdminSession =
         await getSupabaseAdminSession(nextStaffAccounts);
       const nextStaffProfiles = await getStaffProfiles();
-      const nextStaffRoles = await getStaffRoles();
+      const nextStaffRoles = await getAvailableRoles();
 
       console.log("[Zingara show management] show reloaded", {
         showCount: nextShows.length,
@@ -1962,7 +1979,7 @@ export default function AdminDashboardPage() {
   async function refreshStaffManagement() {
     const [nextProfiles, nextRoles] = await Promise.all([
       getStaffProfiles(),
-      getStaffRoles(),
+      getAvailableRoles(),
     ]);
 
     setStaffProfiles(nextProfiles);
@@ -1996,6 +2013,42 @@ export default function AdminDashboardPage() {
     setStaffManagementStatus(
       profile.active ? "Staff profile deactivated." : "Staff profile activated.",
     );
+  }
+
+  async function submitStaffInvitation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (currentStaff?.role !== "super-admin") {
+      return;
+    }
+
+    const venueScope = staffInviteForm.venueScope
+      .split(",")
+      .map((scope) => scope.trim())
+      .filter(Boolean);
+
+    setStaffManagementStatus("");
+    const result = await createStaffUser({
+      email: staffInviteForm.email,
+      fullName: staffInviteForm.fullName,
+      role: staffInviteForm.role,
+      venueScope,
+    });
+
+    if (result.error) {
+      setStaffManagementStatus(result.error);
+      return;
+    }
+
+    await refreshStaffManagement();
+    setStaffInviteForm({
+      email: "",
+      fullName: "",
+      role: "venue-manager",
+      venueScope: currentStaff.venueId,
+    });
+    setIsStaffInviteOpen(false);
+    setStaffManagementStatus("Staff user created.");
   }
 
   function resetUserForm(role: AdminRole = "box-office") {
@@ -7112,19 +7165,116 @@ export default function AdminDashboardPage() {
                   active states, and venue scope.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => void refreshStaffManagement()}
-                className="w-fit rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
-              >
-                Refresh Staff
-              </button>
+              <div className="flex flex-wrap gap-2">
+                {currentStaff.role === "super-admin" && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setIsStaffInviteOpen((currentValue) => !currentValue)
+                    }
+                    className="w-fit rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]"
+                  >
+                    Create Staff User
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void refreshStaffManagement()}
+                  className="w-fit rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                >
+                  Refresh Staff
+                </button>
+              </div>
             </div>
 
             {staffManagementStatus && (
               <p className="mt-5 rounded-2xl border border-emerald-300/25 bg-emerald-950/25 px-4 py-3 text-sm text-emerald-100">
                 {staffManagementStatus}
               </p>
+            )}
+
+            {currentStaff.role === "super-admin" && isStaffInviteOpen && (
+              <form
+                onSubmit={submitStaffInvitation}
+                className="mt-5 rounded-2xl border border-[#D8C36A]/25 bg-black/35 p-5"
+              >
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
+                  <input
+                    required
+                    value={staffInviteForm.fullName}
+                    onChange={(event) =>
+                      setStaffInviteForm((form) => ({
+                        ...form,
+                        fullName: event.target.value,
+                      }))
+                    }
+                    placeholder="Full Name"
+                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm"
+                  />
+                  <input
+                    required
+                    type="email"
+                    value={staffInviteForm.email}
+                    onChange={(event) =>
+                      setStaffInviteForm((form) => ({
+                        ...form,
+                        email: event.target.value,
+                      }))
+                    }
+                    placeholder="Email"
+                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm"
+                  />
+                  <select
+                    value={staffInviteForm.role}
+                    onChange={(event) =>
+                      setStaffInviteForm((form) => ({
+                        ...form,
+                        role: event.target.value as AdminRole,
+                      }))
+                    }
+                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm"
+                  >
+                    {(staffRoles.length > 0
+                      ? staffRoles
+                      : userManagementRoles.map((role) => ({
+                          id: role,
+                          name: adminRoleLabels[role],
+                          role,
+                        }))
+                    ).map((role) => (
+                      <option key={role.id} value={role.role}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={staffInviteForm.venueScope}
+                    onChange={(event) =>
+                      setStaffInviteForm((form) => ({
+                        ...form,
+                        venueScope: event.target.value,
+                      }))
+                    }
+                    placeholder="Venue Scope"
+                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm"
+                  />
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="submit"
+                    className="rounded-full bg-[#D8C36A] px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]"
+                  >
+                    Create Staff User
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsStaffInviteOpen(false)}
+                    className="rounded-full border border-white/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             )}
 
             <div className="mt-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
