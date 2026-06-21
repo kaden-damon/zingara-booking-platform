@@ -4,7 +4,7 @@ Last updated: 2026-06-21
 
 ## Current Status
 
-The Supabase migration is complete through Phase 4. The database schema has been created in migration files, business data has been migrated behind Supabase-backed services, staff authentication and management are Supabase-backed, and the core booking domain is protected behind service-role server routes with RLS hardening complete.
+The Supabase migration is complete through Phase 4. The database schema has been created in migration files, business data has been migrated behind Supabase-backed services, staff authentication and management are Supabase-backed, and all platform tables are protected behind service-role server routes with RLS hardening complete.
 
 Migration status summary:
 
@@ -12,6 +12,7 @@ Migration status summary:
 - Phase 2: Complete.
 - Phase 3: Complete.
 - Phase 4: Complete.
+- Phase 5: Not Started.
 - Shows: Business Migration Complete.
 - Venue Settings: Business Migration Complete.
 - Templates: Business Migration Complete.
@@ -30,6 +31,7 @@ Migration status summary:
 - Staff Invitations: PASSED and TESTED.
 - Admin Configuration Security: PASSED and TESTED.
 - Booking Domain Security: PASSED and TESTED.
+- Operational Domain Security: PASSED and TESTED.
 
 Overall phase status:
 
@@ -37,6 +39,7 @@ Overall phase status:
 - Phase 2 ✅ Complete
 - Phase 3 ✅ Complete
 - Phase 4 ✅ Complete
+- Phase 5 ⏳ Not Started
 
 ## Phase 1: Schema Creation
 
@@ -526,14 +529,83 @@ Verification notes:
 - Admin reads verified.
 - Validation verified.
 
+## Phase 4E1: Waitlist Route Migration
+
+Status: PASSED and TESTED.
+
+Implemented:
+
+- Waitlist table access moved behind server routes.
+- Public waitlist signup now routes through `/api/waitlist`.
+- Admin waitlist reads and status updates now route through `/api/admin/waitlist`.
+
+Verification notes:
+
+- Waitlist routes migrated.
+- Service-role access granted.
+- Waitlist create verified.
+- Waitlist promote verified.
+- Waitlist remove verified.
+- `waitlist_entries` RLS enabled.
+
+## Phase 4E2: Corporate Request Route Migration
+
+Status: PASSED and TESTED.
+
+Implemented:
+
+- Corporate request table access moved behind server routes.
+- Public corporate request submission now routes through `/api/corporate-requests`.
+- Admin corporate request reads, updates, archive, delete, and conversion metadata now route through `/api/admin/corporate-requests`.
+
+Verification notes:
+
+- Corporate request routes migrated.
+- Service-role access granted.
+- Corporate request create verified.
+- Status update verified.
+- Archive verified.
+- Delete verified.
+- `corporate_requests` RLS enabled.
+
+## Phase 4E3: Venue Table Security
+
+Status: PASSED and TESTED.
+
+Protected tables:
+
+- `venue_tables`
+- `show_tables`
+
+Verification notes:
+
+- `venue_tables` secured.
+- `show_tables` secured.
+- RLS enabled.
+- Browser access revoked.
+
+## Phase 4E4: Communication Batch Security
+
+Status: PASSED and TESTED.
+
+Protected table:
+
+- `communication_batches`
+
+Verification notes:
+
+- `communication_batches` secured.
+- RLS enabled.
+- Browser access revoked.
+
 ## Supabase Permissions Status
 
 Final security pattern:
 
-- Admin configuration and core booking-domain tables are accessed through server routes.
+- Admin configuration, booking-domain, and operational-domain tables are accessed through server routes where runtime access is required.
 - Service-role routes own protected reads and writes.
 - Browser-side direct access has been revoked for hardened tables.
-- RLS is enabled for protected admin configuration and booking-domain tables.
+- RLS is enabled for protected admin configuration, booking-domain, and operational-domain tables.
 
 Completed protected areas:
 
@@ -551,6 +623,11 @@ Completed protected areas:
 - `communications`
 - `booking_lifecycle_events`
 - `ticket_validations`
+- `waitlist_entries`
+- `corporate_requests`
+- `venue_tables`
+- `show_tables`
+- `communication_batches`
 
 ## Current Data Flow
 
@@ -608,6 +685,8 @@ Remaining work is limited to backlog and future production polish items listed b
 
 ## SUPABASE MIGRATION COMPLETE
 
+## SECURITY MIGRATION COMPLETE
+
 Completed:
 
 - Business Migration
@@ -616,7 +695,10 @@ Completed:
 - Staff Invitations
 - Admin Configuration Security
 - Booking Domain Security
+- Operational Domain Security
 - RLS Hardening
+
+All platform tables secured.
 
 Backlog:
 
