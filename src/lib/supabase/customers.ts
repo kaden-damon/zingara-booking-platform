@@ -5,6 +5,7 @@ import {
   storeDemoCustomerCrm,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
+import { fetchSupabaseApi } from "./apiClient";
 
 type CustomerPreferences = {
   customerKey?: string;
@@ -116,25 +117,16 @@ function getCustomerInputFromCrmRecord(
 }
 
 async function getSupabaseCustomers() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{ rows: SupabaseCustomerRow[] }>(
+      "/api/admin/customers",
+    );
 
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("customers")
-    .select(
-      "id,first_name,surname,email,mobile,vip_status,preferences,relationship_notes,dietary_requirements,created_at,updated_at",
-    )
-    .order("updated_at", { ascending: false });
-
-  if (error) {
+    return payload.rows ?? [];
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to load customers", error);
     return null;
   }
-
-  return (data ?? []) as SupabaseCustomerRow[];
 }
 
 async function findSupabaseCustomer(input: CustomerWriteInput) {

@@ -3,6 +3,7 @@ import {
   type PaymentStatus,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
+import { fetchSupabaseApi } from "./apiClient";
 import { getSupabaseBookingId } from "./bookings";
 
 type SupabasePaymentStatus =
@@ -100,23 +101,16 @@ function toPaymentPayload(booking: DemoBooking, bookingId: string) {
 }
 
 async function getPaymentRows() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{ rows: SupabasePaymentRow[] }>(
+      "/api/admin/payments",
+    );
 
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("payments")
-    .select("id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at")
-    .order("created_at", { ascending: false });
-
-  if (error) {
+    return payload.rows ?? [];
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to load payments", error);
     return null;
   }
-
-  return (data ?? []) as SupabasePaymentRow[];
 }
 
 export async function getPayments() {

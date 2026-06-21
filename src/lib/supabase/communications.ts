@@ -8,6 +8,7 @@ import {
   getStoredDemoBookings,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
+import { fetchSupabaseApi } from "./apiClient";
 import { getOrCreateCustomerIdFromInfo } from "./customers";
 
 type SupabaseCommunicationChannel =
@@ -180,49 +181,32 @@ function toCommunicationRecord(
 }
 
 async function getBookingRelation(reference: string) {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      rows: SupabaseBookingRelationRow[];
+    }>(`/api/admin/bookings?reference=${encodeURIComponent(reference)}`);
 
-  if (!supabase) {
-    return undefined;
-  }
-
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("id,customer_id,show_id")
-    .eq("booking_reference", reference)
-    .maybeSingle();
-
-  if (error) {
+    return payload.rows[0] ?? null;
+  } catch (error) {
     console.error(
       "[Zingara Supabase] Failed to resolve communication booking",
       error,
     );
     return undefined;
   }
-
-  return data as SupabaseBookingRelationRow | null;
 }
 
 async function getCommunicationRows() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      rows: SupabaseCommunicationRow[];
+    }>("/api/admin/communications");
 
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("communications")
-    .select(
-      "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
-    )
-    .order("sent_at", { ascending: false });
-
-  if (error) {
+    return payload.rows ?? [];
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to load communications", error);
     return null;
   }
-
-  return (data ?? []) as SupabaseCommunicationRow[];
 }
 
 async function getCommunicationPayload(
@@ -303,33 +287,20 @@ export async function getCommunication(id: string) {
 }
 
 export async function getCommunicationsForBooking(booking: DemoBooking) {
-  const supabase = getSupabaseClient();
   const bookingRelation = await getBookingRelation(booking.reference);
 
-  if (!supabase || !bookingRelation) {
+  if (!bookingRelation) {
     return booking.communicationHistory ?? [];
   }
 
-  const { data, error } = await supabase
-    .from("communications")
-    .select(
-      "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
-    )
-    .eq("booking_id", bookingRelation.id)
-    .order("sent_at", { ascending: false });
+  const rows = await getCommunicationRows();
 
-  if (error) {
-    console.error(
-      "[Zingara Supabase] Failed to load booking communications",
-      error,
-    );
+  if (!rows) {
     return booking.communicationHistory ?? [];
   }
 
-  const supabaseCommunications = ((data ?? []) as SupabaseCommunicationRow[]).map(
-    toCommunicationRecord,
-  );
-  const supabaseRows = (data ?? []) as SupabaseCommunicationRow[];
+  const supabaseRows = rows.filter((row) => row.booking_id === bookingRelation.id);
+  const supabaseCommunications = supabaseRows.map(toCommunicationRecord);
 
   return [
     ...supabaseCommunications,

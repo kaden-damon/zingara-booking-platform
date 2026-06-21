@@ -7,6 +7,7 @@ import {
   storeDemoBookings,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
+import { fetchSupabaseApi } from "./apiClient";
 import {
   getCommunicationsForBooking,
   syncBookingCommunications,
@@ -354,25 +355,16 @@ async function toDemoBooking(row: SupabaseBookingRow): Promise<DemoBooking> {
 }
 
 async function getSupabaseBookings() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{ rows: SupabaseBookingRow[] }>(
+      "/api/admin/bookings",
+    );
 
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("bookings")
-    .select(
-      "id,customer_id,show_id,table_id,booking_reference,booking_source,company_name,guest_count,booking_status,payment_status,section,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,created_at,updated_at",
-    )
-    .order("created_at", { ascending: false });
-
-  if (error) {
+    return payload.rows ?? [];
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to load bookings", error);
     return null;
   }
-
-  return (data ?? []) as SupabaseBookingRow[];
 }
 
 async function persistBookingsToSupabase(bookings: DemoBooking[]) {
@@ -465,24 +457,16 @@ export async function getBooking(id: string) {
 }
 
 export async function getSupabaseBookingId(reference: string) {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{ rows: SupabaseBookingRow[] }>(
+      `/api/admin/bookings?reference=${encodeURIComponent(reference)}`,
+    );
 
-  if (!supabase) {
-    return undefined;
-  }
-
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("id")
-    .eq("booking_reference", reference)
-    .maybeSingle();
-
-  if (error) {
+    return payload.rows[0]?.id;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to resolve booking id", error);
     return undefined;
   }
-
-  return (data as { id?: string } | null)?.id;
 }
 
 export async function createBooking(booking: DemoBooking) {

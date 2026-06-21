@@ -3,6 +3,7 @@ import {
   createTicketCode,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
+import { fetchSupabaseApi } from "./apiClient";
 import { getSupabaseBookingId } from "./bookings";
 
 type SupabaseValidationResult =
@@ -96,25 +97,19 @@ function toTicketValidationRecord(
 }
 
 async function getTicketRows() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{ rows: SupabaseTicketRow[] }>(
+      "/api/admin/tickets",
+    );
 
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("tickets")
-    .select("id,booking_id,ticket_code");
-
-  if (error) {
+    return payload.rows ?? [];
+  } catch (error) {
     console.error(
       "[Zingara Supabase] Failed to load validation tickets",
       error,
     );
     return null;
   }
-
-  return (data ?? []) as SupabaseTicketRow[];
 }
 
 async function getTicketForBooking(booking: DemoBooking) {
@@ -130,25 +125,16 @@ async function getTicketForBooking(booking: DemoBooking) {
 }
 
 async function getTicketValidationRows() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      rows: SupabaseTicketValidationRow[];
+    }>("/api/admin/ticket-validations");
 
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("ticket_validations")
-    .select(
-      "id,ticket_id,booking_id,result,device_label,notes,validated_at",
-    )
-    .order("validated_at", { ascending: false });
-
-  if (error) {
+    return payload.rows ?? [];
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to load ticket validations", error);
     return null;
   }
-
-  return (data ?? []) as SupabaseTicketValidationRow[];
 }
 
 export async function getTicketValidations() {

@@ -5,6 +5,7 @@ import {
   getTicketUrl,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
+import { fetchSupabaseApi } from "./apiClient";
 import { getBookings, getSupabaseBookingId } from "./bookings";
 
 type SupabaseTicketStatus =
@@ -63,23 +64,16 @@ function toTicketPayload(booking: DemoBooking, bookingId: string) {
 }
 
 async function getTicketRows() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{ rows: SupabaseTicketRow[] }>(
+      "/api/admin/tickets",
+    );
 
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("tickets")
-    .select("id,booking_id,ticket_code,ticket_url,qr_payload,ticket_status,issued_at,updated_at")
-    .order("issued_at", { ascending: false });
-
-  if (error) {
+    return payload.rows ?? [];
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to load tickets", error);
     return null;
   }
-
-  return (data ?? []) as SupabaseTicketRow[];
 }
 
 export async function getTickets() {

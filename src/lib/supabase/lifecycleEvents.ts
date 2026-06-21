@@ -5,6 +5,7 @@ import {
   getStoredDemoBookings,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
+import { fetchSupabaseApi } from "./apiClient";
 
 type SupabaseBookingStatus =
   | "cancelled"
@@ -112,49 +113,32 @@ function isSameLifecycleEvent(
 }
 
 async function getBookingRelation(reference: string) {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      rows: SupabaseBookingRelationRow[];
+    }>(`/api/admin/bookings?reference=${encodeURIComponent(reference)}`);
 
-  if (!supabase) {
-    return undefined;
-  }
-
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("id")
-    .eq("booking_reference", reference)
-    .maybeSingle();
-
-  if (error) {
+    return payload.rows[0] ?? null;
+  } catch (error) {
     console.error(
       "[Zingara Supabase] Failed to resolve lifecycle booking",
       error,
     );
     return undefined;
   }
-
-  return data as SupabaseBookingRelationRow | null;
 }
 
 async function getLifecycleEventRows() {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      rows: SupabaseLifecycleEventRow[];
+    }>("/api/admin/booking-lifecycle-events");
 
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("booking_lifecycle_events")
-    .select(
-      "id,booking_id,from_status,to_status,note,reason,changed_by,created_at",
-    )
-    .order("created_at", { ascending: false });
-
-  if (error) {
+    return payload.rows ?? [];
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to load lifecycle events", error);
     return null;
   }
-
-  return (data ?? []) as SupabaseLifecycleEventRow[];
 }
 
 export async function getLifecycleEvents() {
@@ -172,30 +156,19 @@ export async function getLifecycleEvents() {
 }
 
 export async function getLifecycleEventsForBooking(booking: DemoBooking) {
-  const supabase = getSupabaseClient();
   const bookingRelation = await getBookingRelation(booking.reference);
 
-  if (!supabase || !bookingRelation) {
+  if (!bookingRelation) {
     return booking.lifecycleHistory ?? [];
   }
 
-  const { data, error } = await supabase
-    .from("booking_lifecycle_events")
-    .select(
-      "id,booking_id,from_status,to_status,note,reason,changed_by,created_at",
-    )
-    .eq("booking_id", bookingRelation.id)
-    .order("created_at", { ascending: false });
+  const rows = await getLifecycleEventRows();
 
-  if (error) {
-    console.error(
-      "[Zingara Supabase] Failed to load booking lifecycle events",
-      error,
-    );
+  if (!rows) {
     return booking.lifecycleHistory ?? [];
   }
 
-  const supabaseRows = (data ?? []) as SupabaseLifecycleEventRow[];
+  const supabaseRows = rows.filter((row) => row.booking_id === bookingRelation.id);
   const supabaseEvents = supabaseRows.map(toLifecycleEvent);
 
   return [
