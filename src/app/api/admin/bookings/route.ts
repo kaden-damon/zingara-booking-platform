@@ -36,3 +36,68 @@ export async function GET(request: Request) {
 
   return Response.json({ rows: data ?? [] });
 }
+
+function getRouteClient() {
+  return getServiceClient();
+}
+
+async function runBookingTransaction(request: Request) {
+  const response = await fetch(new URL("/api/bookings", request.url), {
+    body: JSON.stringify(await request.json()),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  return Response.json(payload, { status: response.status });
+}
+
+export async function POST(request: Request) {
+  return runBookingTransaction(request);
+}
+
+export async function PATCH(request: Request) {
+  return runBookingTransaction(request);
+}
+
+export async function DELETE(request: Request) {
+  const supabase = getRouteClient();
+
+  if (!supabase) {
+    return Response.json(
+      { error: "Supabase service role is not configured." },
+      { status: 500 },
+    );
+  }
+
+  const url = new URL(request.url);
+  const body = (await request.json().catch(() => ({}))) as {
+    reference?: string;
+  };
+  const reference = body.reference ?? url.searchParams.get("reference");
+
+  if (!reference) {
+    return Response.json(
+      { error: "Booking reference is required." },
+      { status: 400 },
+    );
+  }
+
+  const { error } = await supabase
+    .from("bookings")
+    .delete()
+    .eq("booking_reference", reference);
+
+  if (error) {
+    console.error("[Zingara API] Failed to delete booking", error);
+
+    return Response.json(
+      { error: "Booking could not be deleted." },
+      { status: 500 },
+    );
+  }
+
+  return Response.json({ ok: true });
+}

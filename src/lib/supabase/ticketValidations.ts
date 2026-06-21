@@ -172,37 +172,30 @@ export async function createTicketValidation({
     ticketCode: booking?.ticketCode ?? (booking ? createTicketCode(booking.reference) : undefined),
     validatedAt,
   };
-  const supabase = getSupabaseClient();
-
-  if (!supabase || !booking) {
+  if (!booking) {
     return storeLocalTicketValidation(fallbackValidation);
   }
 
-  const ticket = await getTicketForBooking(booking);
+  try {
+    const payload = await fetchSupabaseApi<{
+      row: SupabaseTicketValidationRow | null;
+    }>("/api/admin/tickets/validate", {
+      body: {
+        booking,
+        code,
+        deviceLabel,
+        notes,
+        result,
+        validatedAt,
+      },
+      method: "POST",
+    });
 
-  if (!ticket) {
-    return storeLocalTicketValidation(fallbackValidation);
-  }
-
-  const { data, error } = await supabase
-    .from("ticket_validations")
-    .insert({
-      booking_id: ticket.booking_id,
-      device_label: deviceLabel,
-      notes: notes ?? null,
-      result,
-      ticket_id: ticket.id,
-      validated_at: validatedAt,
-    })
-    .select("id,ticket_id,booking_id,result,device_label,notes,validated_at")
-    .maybeSingle();
-
-  if (error) {
+    return payload.row
+      ? toTicketValidationRecord(payload.row as SupabaseTicketValidationRow)
+      : fallbackValidation;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to create ticket validation", error);
     return storeLocalTicketValidation(fallbackValidation);
   }
-
-  return data
-    ? toTicketValidationRecord(data as SupabaseTicketValidationRow)
-    : fallbackValidation;
 }

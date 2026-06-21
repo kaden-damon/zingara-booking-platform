@@ -124,53 +124,35 @@ export async function getPayment(reference: string) {
 }
 
 export async function createPayment(booking: DemoBooking) {
-  const supabase = getSupabaseClient();
-  const bookingId = await getSupabaseBookingId(booking.reference);
+  try {
+    const payload = await fetchSupabaseApi<{ row: SupabasePaymentRow | null }>(
+      "/api/admin/payments",
+      {
+        body: { booking },
+        method: "POST",
+      },
+    );
 
-  if (!supabase || !bookingId) {
-    return undefined;
-  }
-
-  const { data, error } = await supabase
-    .from("payments")
-    .insert(toPaymentPayload(booking, bookingId))
-    .select("id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at")
-    .maybeSingle();
-
-  if (error) {
+    return payload.row;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to create payment", error);
     return undefined;
   }
-
-  return data as SupabasePaymentRow | null;
 }
 
 export async function updatePayment(booking: DemoBooking) {
-  const supabase = getSupabaseClient();
-  const bookingId = await getSupabaseBookingId(booking.reference);
+  try {
+    const payload = await fetchSupabaseApi<{ row: SupabasePaymentRow | null }>(
+      "/api/admin/payments",
+      {
+        body: { booking },
+        method: "PATCH",
+      },
+    );
 
-  if (!supabase || !bookingId) {
+    return payload.row;
+  } catch (error) {
+    console.error("[Zingara Supabase] Failed to update payment", error);
     return undefined;
   }
-
-  const existingPayment = await getPayment(booking.reference);
-  const payload = toPaymentPayload(booking, bookingId);
-
-  if (existingPayment) {
-    const { data, error } = await supabase
-      .from("payments")
-      .update(payload)
-      .eq("id", existingPayment.id)
-      .select("id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at")
-      .maybeSingle();
-
-    if (error) {
-      console.error("[Zingara Supabase] Failed to update payment", error);
-      return undefined;
-    }
-
-    return data as SupabasePaymentRow | null;
-  }
-
-  return createPayment(booking);
 }

@@ -113,54 +113,35 @@ export async function getTicket(code: string) {
 }
 
 export async function createTicket(booking: DemoBooking) {
-  const supabase = getSupabaseClient();
-  const bookingId = await getSupabaseBookingId(booking.reference);
+  try {
+    const payload = await fetchSupabaseApi<{ row: SupabaseTicketRow | null }>(
+      "/api/admin/tickets",
+      {
+        body: { booking },
+        method: "POST",
+      },
+    );
 
-  if (!supabase || !bookingId) {
-    return undefined;
-  }
-
-  const payload = toTicketPayload(booking, bookingId);
-  const { data, error } = await supabase
-    .from("tickets")
-    .insert(payload)
-    .select("id,booking_id,ticket_code,ticket_url,qr_payload,ticket_status,issued_at,updated_at")
-    .maybeSingle();
-
-  if (error) {
+    return payload.row;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to create ticket", error);
     return undefined;
   }
-
-  return data as SupabaseTicketRow | null;
 }
 
 export async function updateTicket(booking: DemoBooking) {
-  const supabase = getSupabaseClient();
-  const bookingId = await getSupabaseBookingId(booking.reference);
+  try {
+    const payload = await fetchSupabaseApi<{ row: SupabaseTicketRow | null }>(
+      "/api/admin/tickets",
+      {
+        body: { booking },
+        method: "PATCH",
+      },
+    );
 
-  if (!supabase || !bookingId) {
+    return payload.row;
+  } catch (error) {
+    console.error("[Zingara Supabase] Failed to update ticket", error);
     return undefined;
   }
-
-  const payload = toTicketPayload(booking, bookingId);
-  const existingTicket = await getTicket(payload.ticket_code);
-
-  if (existingTicket && existingTicket.id !== booking.reference) {
-    const { data, error } = await supabase
-      .from("tickets")
-      .update(payload)
-      .eq("id", existingTicket.id)
-      .select("id,booking_id,ticket_code,ticket_url,qr_payload,ticket_status,issued_at,updated_at")
-      .maybeSingle();
-
-    if (error) {
-      console.error("[Zingara Supabase] Failed to update ticket", error);
-      return undefined;
-    }
-
-    return data as SupabaseTicketRow | null;
-  }
-
-  return createTicket(booking);
 }

@@ -190,30 +190,24 @@ export async function createLifecycleEvent(
   booking: DemoBooking,
   event: BookingLifecycleEvent,
 ) {
-  const supabase = getSupabaseClient();
-  const bookingRelation = await getBookingRelation(booking.reference);
+  try {
+    const payload = await fetchSupabaseApi<{
+      row: SupabaseLifecycleEventRow | null;
+    }>("/api/admin/booking-lifecycle-events", {
+      body: {
+        booking,
+        event,
+      },
+      method: "POST",
+    });
 
-  if (!supabase || !bookingRelation) {
-    return event;
-  }
-
-  const payload = toLifecyclePayload(event, bookingRelation.id);
-  const { data, error } = await supabase
-    .from("booking_lifecycle_events")
-    .insert(payload)
-    .select(
-      "id,booking_id,from_status,to_status,note,reason,changed_by,created_at",
-    )
-    .maybeSingle();
-
-  if (error) {
+    return payload.row
+      ? toLifecycleEvent(payload.row as SupabaseLifecycleEventRow)
+      : event;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to create lifecycle event", error);
     return event;
   }
-
-  return data
-    ? toLifecycleEvent(data as SupabaseLifecycleEventRow)
-    : event;
 }
 
 export async function syncBookingLifecycleEvents(booking: DemoBooking) {

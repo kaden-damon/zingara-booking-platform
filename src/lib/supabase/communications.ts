@@ -325,59 +325,50 @@ export async function createCommunication(
   record: CommunicationRecord,
   context: CommunicationContext = {},
 ) {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      row: SupabaseCommunicationRow | null;
+    }>("/api/admin/communications", {
+      body: {
+        booking: context.booking,
+        corporateRequest: context.corporateRequest,
+        record,
+      },
+      method: "POST",
+    });
 
-  if (!supabase) {
-    return record;
-  }
-
-  const payload = await getCommunicationPayload(record, context);
-  const { data, error } = await supabase
-    .from("communications")
-    .insert(payload)
-    .select(
-      "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
-    )
-    .maybeSingle();
-
-  if (error) {
+    return payload.row
+      ? toCommunicationRecord(payload.row as SupabaseCommunicationRow)
+      : record;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to create communication", error);
     return record;
   }
-
-  return data
-    ? toCommunicationRecord(data as SupabaseCommunicationRow)
-    : record;
 }
 
 export async function updateCommunication(
   record: CommunicationRecord,
   context: CommunicationContext = {},
 ) {
-  const supabase = getSupabaseClient();
+  try {
+    const payload = await fetchSupabaseApi<{
+      row: SupabaseCommunicationRow | null;
+    }>("/api/admin/communications", {
+      body: {
+        booking: context.booking,
+        corporateRequest: context.corporateRequest,
+        record,
+      },
+      method: "PATCH",
+    });
 
-  if (!supabase) {
-    return record;
-  }
-
-  const payload = await getCommunicationPayload(record, context);
-  const { data, error } = await supabase
-    .from("communications")
-    .update(payload)
-    .eq("id", record.id)
-    .select(
-      "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
-    )
-    .maybeSingle();
-
-  if (error) {
+    return payload.row
+      ? toCommunicationRecord(payload.row as SupabaseCommunicationRow)
+      : record;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to update communication", error);
     return record;
   }
-
-  return data
-    ? toCommunicationRecord(data as SupabaseCommunicationRow)
-    : record;
 }
 
 export async function syncBookingCommunications(booking: DemoBooking) {

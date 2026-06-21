@@ -368,63 +368,16 @@ async function getSupabaseBookings() {
 }
 
 async function persistBookingsToSupabase(bookings: DemoBooking[]) {
-  const supabase = getSupabaseClient();
-
-  if (!supabase) {
-    return bookings;
-  }
-
-  const existingRows = (await getSupabaseBookings()) ?? [];
-
   await Promise.all(
     bookings.map(async (booking) => {
-      const payload = await toSupabaseBooking(booking);
-
-      if (!payload) {
-        return;
-      }
-
-      const existingRow = existingRows.find(
-        (row) => row.booking_reference === booking.reference,
-      );
-
-      if (existingRow) {
-        const { error } = await supabase
-          .from("bookings")
-          .update(payload)
-          .eq("id", existingRow.id);
-
-        if (error) {
-          console.error("[Zingara Supabase] Failed to update booking", error);
-        }
-
-        await syncBookingCommunications(booking);
-        await syncBookingLifecycleEvents(booking);
-
-        return;
-      }
-
-      console.log("[Zingara Supabase Diagnostics] Creating booking row", {
-        bookingReference: booking.reference,
-        customerId: payload.customer_id,
-        payload,
-        showId: payload.show_id,
-      });
-
-      const { error } = await supabase.from("bookings").insert(payload);
-
-      if (error) {
-        console.error("[Zingara Supabase Diagnostics] Full booking insert error", {
-          bookingReference: booking.reference,
-          error,
-          payload,
+      try {
+        await fetchSupabaseApi("/api/admin/bookings", {
+          body: { booking },
+          method: "PATCH",
         });
-        console.error("[Zingara Supabase] Failed to create booking", error);
-        return;
+      } catch (error) {
+        console.error("[Zingara Supabase] Failed to persist booking", error);
       }
-
-      await syncBookingCommunications(booking);
-      await syncBookingLifecycleEvents(booking);
     }),
   );
 
@@ -470,10 +423,23 @@ export async function getSupabaseBookingId(reference: string) {
 }
 
 export async function createBooking(booking: DemoBooking) {
-  const nextBookings = [booking, ...getStoredDemoBookings()];
+  const nextBookings = [
+    booking,
+    ...getStoredDemoBookings().filter(
+      (currentBooking) => currentBooking.reference !== booking.reference,
+    ),
+  ];
 
   storeDemoBookings(nextBookings);
-  await persistBookingsToSupabase(nextBookings);
+
+  try {
+    await fetchSupabaseApi("/api/bookings", {
+      body: { booking },
+      method: "POST",
+    });
+  } catch (error) {
+    console.error("[Zingara Supabase] Failed to create booking transaction", error);
+  }
 
   return booking;
 }
@@ -484,28 +450,33 @@ export async function updateBooking(booking: DemoBooking) {
   );
 
   storeDemoBookings(nextBookings);
-  await persistBookingsToSupabase(nextBookings);
+
+  try {
+    await fetchSupabaseApi("/api/admin/bookings", {
+      body: { booking },
+      method: "PATCH",
+    });
+  } catch (error) {
+    console.error("[Zingara Supabase] Failed to update booking", error);
+  }
 
   return booking;
 }
 
 export async function deleteBooking(id: string) {
-  const supabase = getSupabaseClient();
   const nextBookings = getStoredDemoBookings().filter(
     (booking) => booking.reference !== id,
   );
 
   storeDemoBookings(nextBookings);
 
-  if (supabase) {
-    const { error } = await supabase
-      .from("bookings")
-      .delete()
-      .eq("booking_reference", id);
-
-    if (error) {
-      console.error("[Zingara Supabase] Failed to delete booking", error);
-    }
+  try {
+    await fetchSupabaseApi("/api/admin/bookings", {
+      body: { reference: id },
+      method: "DELETE",
+    });
+  } catch (error) {
+    console.error("[Zingara Supabase] Failed to delete booking", error);
   }
 
   return nextBookings;
@@ -513,7 +484,19 @@ export async function deleteBooking(id: string) {
 
 export async function saveBookings(bookings: DemoBooking[]) {
   storeDemoBookings(bookings);
-  await persistBookingsToSupabase(bookings);
+
+  await Promise.all(
+    bookings.map(async (booking) => {
+      try {
+        await fetchSupabaseApi("/api/admin/bookings", {
+          body: { booking },
+          method: "PATCH",
+        });
+      } catch (error) {
+        console.error("[Zingara Supabase] Failed to save booking", error);
+      }
+    }),
+  );
 
   return getBookings();
 }

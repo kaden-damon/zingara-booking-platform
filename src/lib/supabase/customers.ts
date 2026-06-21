@@ -4,7 +4,6 @@ import {
   getStoredDemoCustomerCrm,
   storeDemoCustomerCrm,
 } from "@/lib/zingaraDemo";
-import { getSupabaseClient } from "./client";
 import { fetchSupabaseApi } from "./apiClient";
 
 type CustomerPreferences = {
@@ -162,41 +161,24 @@ export async function getOrCreateCustomerIdFromInfo(
     mobile: customer.phone,
     name: customer.name,
   };
-  const existingCustomer = await findSupabaseCustomer(input);
 
-  if (existingCustomer) {
-    await upsertCustomer(input);
+  try {
+    const payload = await fetchSupabaseApi<{ row: SupabaseCustomerRow | null }>(
+      "/api/admin/customers",
+      {
+        body: { input },
+        method: "POST",
+      },
+    );
 
-    return existingCustomer.id;
-  }
-
-  const supabase = getSupabaseClient();
-
-  if (!supabase) {
-    return undefined;
-  }
-
-  const { data, error } = await supabase
-    .from("customers")
-    .insert(toCustomerPayload(input))
-    .select("id")
-    .maybeSingle();
-
-  if (error) {
+    return payload.row?.id;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to create booking customer", error);
     return undefined;
   }
-
-  return (data as { id?: string } | null)?.id;
 }
 
 async function persistCustomersToSupabase(records: DemoCustomerCrmRecord[]) {
-  const supabase = getSupabaseClient();
-
-  if (!supabase) {
-    return records;
-  }
-
   await Promise.all(records.map((record) => upsertCustomer(getCustomerInputFromCrmRecord(record))));
 
   return records;
@@ -239,114 +221,57 @@ export async function getCustomer(id: string) {
 }
 
 export async function createCustomer(input: CustomerWriteInput) {
-  const supabase = getSupabaseClient();
-  const payload = toCustomerPayload(input);
+  try {
+    const payload = await fetchSupabaseApi<{ row: SupabaseCustomerRow | null }>(
+      "/api/admin/customers",
+      {
+        body: { input },
+        method: "POST",
+      },
+    );
 
-  if (!supabase) {
-    return undefined;
-  }
-
-  const { data, error } = await supabase
-    .from("customers")
-    .insert(payload)
-    .select(
-      "id,first_name,surname,email,mobile,vip_status,preferences,relationship_notes,dietary_requirements,created_at,updated_at",
-    )
-    .maybeSingle();
-
-  if (error) {
+    return payload.row ? toCrmRecord(payload.row as SupabaseCustomerRow) : undefined;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to create customer", error);
     return undefined;
   }
-
-  return data ? toCrmRecord(data as SupabaseCustomerRow) : undefined;
 }
 
 export async function updateCustomer(
   id: string,
   input: CustomerWriteInput,
 ) {
-  const supabase = getSupabaseClient();
-  const payload = toCustomerPayload(input);
+  try {
+    const payload = await fetchSupabaseApi<{ row: SupabaseCustomerRow | null }>(
+      "/api/admin/customers",
+      {
+        body: { id, input },
+        method: "PATCH",
+      },
+    );
 
-  if (!supabase) {
-    return undefined;
-  }
-
-  const { data, error } = await supabase
-    .from("customers")
-    .update(payload)
-    .eq("id", id)
-    .select(
-      "id,first_name,surname,email,mobile,vip_status,preferences,relationship_notes,dietary_requirements,created_at,updated_at",
-    )
-    .maybeSingle();
-
-  if (error) {
+    return payload.row ? toCrmRecord(payload.row as SupabaseCustomerRow) : undefined;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to update customer", error);
     return undefined;
   }
-
-  return data ? toCrmRecord(data as SupabaseCustomerRow) : undefined;
 }
 
 export async function upsertCustomer(input: CustomerWriteInput) {
-  const supabase = getSupabaseClient();
-  const payload = toCustomerPayload(input);
+  try {
+    const payload = await fetchSupabaseApi<{ row: SupabaseCustomerRow | null }>(
+      "/api/admin/customers",
+      {
+        body: { input },
+        method: "POST",
+      },
+    );
 
-  if (!supabase) {
-    return undefined;
-  }
-
-  const existingCustomer = await findSupabaseCustomer(input);
-
-  if (existingCustomer) {
-    const mergedPayload = {
-      ...payload,
-      dietary_requirements:
-        payload.dietary_requirements ??
-        existingCustomer.dietary_requirements ??
-        null,
-      first_name: payload.first_name || existingCustomer.first_name,
-      relationship_notes:
-        payload.relationship_notes ||
-        existingCustomer.relationship_notes ||
-        "",
-      surname: payload.surname ?? existingCustomer.surname,
-      vip_status: payload.vip_status ?? existingCustomer.vip_status,
-    };
-
-    const { data, error } = await supabase
-      .from("customers")
-      .update(mergedPayload)
-      .eq("id", existingCustomer.id)
-      .select(
-        "id,first_name,surname,email,mobile,vip_status,preferences,relationship_notes,dietary_requirements,created_at,updated_at",
-      )
-      .maybeSingle();
-
-    if (error) {
-      console.error("[Zingara Supabase] Failed to upsert customer", error);
-      return undefined;
-    }
-
-    return data ? toCrmRecord(data as SupabaseCustomerRow) : undefined;
-  }
-
-  const { data, error } = await supabase
-    .from("customers")
-    .insert(payload)
-    .select(
-      "id,first_name,surname,email,mobile,vip_status,preferences,relationship_notes,dietary_requirements,created_at,updated_at",
-    )
-    .maybeSingle();
-
-  if (error) {
+    return payload.row ? toCrmRecord(payload.row as SupabaseCustomerRow) : undefined;
+  } catch (error) {
     console.error("[Zingara Supabase] Failed to upsert customer", error);
     return undefined;
   }
-
-  return data ? toCrmRecord(data as SupabaseCustomerRow) : undefined;
 }
 
 export async function upsertCustomerFromInfo(

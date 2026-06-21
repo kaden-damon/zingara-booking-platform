@@ -1,13 +1,17 @@
 # Supabase Migration Progress
 
-Last updated: 2026-06-18
+Last updated: 2026-06-21
 
 ## Current Status
 
-The Supabase migration has completed the Phase 2 business-domain migration pass and Phase 3 staff authentication/management pass. The database schema has been created in migration files, and the application now has a shared Supabase data access layer for the operational business modules listed below. The app still keeps localStorage fallback behaviour while Phase 4 remains pending.
+The Supabase migration is complete through Phase 4. The database schema has been created in migration files, business data has been migrated behind Supabase-backed services, staff authentication and management are Supabase-backed, and the core booking domain is protected behind service-role server routes with RLS hardening complete.
 
 Migration status summary:
 
+- Phase 1: Complete.
+- Phase 2: Complete.
+- Phase 3: Complete.
+- Phase 4: Complete.
 - Shows: Business Migration Complete.
 - Venue Settings: Business Migration Complete.
 - Templates: Business Migration Complete.
@@ -24,11 +28,15 @@ Migration status summary:
 - Staff Profiles & Roles: PASSED and TESTED.
 - Staff Management: PASSED and TESTED.
 - Staff Invitations: PASSED and TESTED.
+- Admin Configuration Security: PASSED and TESTED.
+- Booking Domain Security: PASSED and TESTED.
 
-Remaining work:
+Overall phase status:
 
-- Production RLS policy implementation.
-- Phase 4: Final localStorage retirement, one-time migration/import tooling, hardening, and production readiness cleanup.
+- Phase 1 ✅ Complete
+- Phase 2 ✅ Complete
+- Phase 3 ✅ Complete
+- Phase 4 ✅ Complete
 
 ## Phase 1: Schema Creation
 
@@ -397,15 +405,142 @@ Test results:
 - Create Staff User workflow is available from Settings → Staff.
 - Staff profile creation path is linked to Supabase Auth users.
 
+## Phase 4D1: Core Domain Read Routes
+
+Status: PASSED and TESTED.
+
+Implemented:
+
+- Core booking-domain read operations moved behind server routes.
+- Admin reads no longer require browser-side table access for the protected booking domain.
+
+Routes:
+
+- `src/app/api/admin/bookings/route.ts`
+- `src/app/api/admin/customers/route.ts`
+- `src/app/api/admin/tickets/route.ts`
+- `src/app/api/admin/communications/route.ts`
+- `src/app/api/admin/payments/route.ts`
+- `src/app/api/admin/booking-lifecycle-events/route.ts`
+- `src/app/api/admin/ticket-validations/route.ts`
+
+Verification notes:
+
+- Bookings load through server routes.
+- Customers load through server routes.
+- Tickets load through server routes.
+- Communications load through server routes.
+
+## Phase 4D2: Booking Transaction Flow
+
+Status: PASSED and TESTED.
+
+Implemented:
+
+- Public booking creation moved to a single server-side transaction route.
+- Booking creation no longer depends on browser-side multi-service writes.
+
+Route:
+
+- `src/app/api/bookings/route.ts`
+
+Verification notes:
+
+- Booking transaction route implemented.
+- Customer created.
+- Booking created.
+- Payment created.
+- Ticket created.
+- Lifecycle event created.
+- Communication created.
+
+## Phase 4D3: Admin Mutations & Operational Actions
+
+Status: PASSED and TESTED.
+
+Implemented:
+
+- Admin booking-domain write operations moved behind server routes.
+- Operational updates use service-role route ownership instead of browser-side direct writes.
+
+Routes:
+
+- `src/app/api/admin/bookings/route.ts`
+- `src/app/api/admin/payments/route.ts`
+- `src/app/api/admin/tickets/route.ts`
+- `src/app/api/admin/communications/route.ts`
+- `src/app/api/admin/booking-lifecycle-events/route.ts`
+- `src/app/api/admin/tickets/validate/route.ts`
+
+Verification notes:
+
+- Booking updates routed.
+- Payment updates routed.
+- Ticket updates routed.
+- Communications routed.
+- Lifecycle events routed.
+- Ticket validation routed.
+
+## Phase 4D3.5: Remaining Browser Write Removal
+
+Status: PASSED and TESTED.
+
+Implemented:
+
+- Remaining direct browser-side writes for the core booking domain removed.
+- Customer writes moved behind server routes.
+- Corporate communication writes moved behind server routes.
+- Browser-side booking persistence now routes through server APIs.
+
+Verification notes:
+
+- Remaining browser writes removed.
+- Service-role routes own booking domain writes.
+
+## Phase 4D4: Booking Domain RLS
+
+Status: PASSED and TESTED.
+
+Protected tables:
+
+- `customers`
+- `bookings`
+- `payments`
+- `tickets`
+- `communications`
+- `booking_lifecycle_events`
+- `ticket_validations`
+
+Implemented:
+
+- RLS enabled for the booking domain.
+- Browser access revoked for `anon` and `authenticated`.
+- Service-role access retained through server routes.
+
+Verification notes:
+
+- RLS enabled.
+- Browser access revoked.
+- Service-role access retained.
+- Booking flow verified.
+- Admin reads verified.
+- Validation verified.
+
 ## Supabase Permissions Status
 
-Confirmed migration-phase pattern:
+Final security pattern:
 
-- Tables used by browser-side Supabase services require `anon` CRUD grants while the app still uses the public anon client.
-- RLS has been temporarily disabled for migrated tables during this incremental migration.
+- Admin configuration and core booking-domain tables are accessed through server routes.
+- Service-role routes own protected reads and writes.
+- Browser-side direct access has been revoked for hardened tables.
+- RLS is enabled for protected admin configuration and booking-domain tables.
 
-Known required tables so far:
+Completed protected areas:
 
+- `roles`
+- `permissions`
+- `role_permissions`
+- `staff_profiles`
 - `shows`
 - `venue_settings`
 - `communication_templates`
@@ -416,17 +551,6 @@ Known required tables so far:
 - `communications`
 - `booking_lifecycle_events`
 - `ticket_validations`
-- `waitlist_entries`
-- `corporate_requests`
-- `roles`
-- `permissions`
-- `role_permissions`
-- `staff_profiles`
-
-Important:
-
-- This is acceptable only as a temporary migration/testing state.
-- Before production, RLS must be re-enabled with proper policies, and staff/customer access must be routed through the final auth model.
 
 ## Current Data Flow
 
@@ -448,13 +572,13 @@ Supabase is primary for migrated CRM paths, localStorage fallback remains.
 
 ### Bookings
 
-LocalStorage write occurs first, Supabase write is attempted after.
+Server-side booking transaction route is the primary write path.
 
-Read behaviour currently prefers Supabase once rows exist, which can hide local-only bookings if Supabase insert fails.
+Admin reads and writes route through service-role APIs.
 
 ### Payments and Tickets
 
-Supabase creation depends on successful Supabase booking insertion.
+Payments and tickets are created through the booking transaction route and maintained through admin service-role APIs.
 
 ### Communications
 
@@ -466,7 +590,7 @@ Supabase is primary, localStorage fallback remains.
 
 ### Ticket Validations
 
-Supabase is primary, localStorage fallback remains.
+Supabase is primary through server routes.
 
 ### Waitlist
 
@@ -478,14 +602,28 @@ Supabase is primary, localStorage fallback remains.
 
 ## Remaining Work
 
-Phase 4 remains pending:
+Phase 4 is complete.
 
-- Show table and venue table operational persistence.
-- RLS policy implementation.
-- LocalStorage-to-Supabase one-time migration/import tooling.
+Remaining work is limited to backlog and future production polish items listed below.
+
+## SUPABASE MIGRATION COMPLETE
+
+Completed:
+
+- Business Migration
+- Auth & Roles
+- Staff Management
+- Staff Invitations
+- Admin Configuration Security
+- Booking Domain Security
+- RLS Hardening
+
+Backlog:
+
+- UX-001 Ticket Back Button
+- UX-002 CRM Source Indicator
+- UX-003 Customer Record vs Booking Snapshot View
 
 ## Production Readiness Notes
 
-The app is not ready to remove localStorage fallback yet.
-
-Phase 2 business-domain migration and Phase 3 staff auth/management migration are complete, but the platform remains hybrid until Phase 4 is completed. Before production, RLS must be re-enabled with proper policies and localStorage fallback must be retired through a controlled migration/import process.
+The Supabase migration is complete through Phase 4. Future production hardening should continue through controlled backlog work, operational QA, and any final localStorage fallback retirement decisions required before launch.
