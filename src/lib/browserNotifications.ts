@@ -1,3 +1,5 @@
+import { fetchSupabaseApi } from "./supabase/apiClient";
+
 export type ZingaraNotificationTrigger =
   | "booking-cancelled"
   | "booking-confirmed"
@@ -22,6 +24,52 @@ export type BrowserNotificationDiagnostics = {
   navigatorStandalone: boolean;
   permission: NotificationPermissionResult;
   userAgent: string;
+};
+
+type PushRegistrationResult = {
+  ok: boolean;
+  permission: NotificationPermissionResult;
+  reason?: string;
+  subscriptionCount?: number;
+};
+
+type PushRegistrationOptions = {
+  bookingReference?: string;
+  customerEmail?: string;
+  customerName?: string;
+};
+
+type PushTestResult = {
+  failed?: number;
+  ok: boolean;
+  sent?: number;
+  subscriptionCount?: number;
+};
+
+export type StaffPushTrigger =
+  | "booking-cancelled"
+  | "guest-checked-in"
+  | "new-booking"
+  | "new-corporate-request"
+  | "operational-broadcast-sent"
+  | "payment-received"
+  | "waitlist-promotion";
+
+export type GuestPushTrigger =
+  | "payment-received"
+  | "reservation-cancelled"
+  | "reservation-confirmed"
+  | "reservation-pending-payment"
+  | "waitlist-promoted";
+
+export type StaffNotificationRecord = {
+  createdAt: string;
+  id: string;
+  message: string;
+  readBy: string[];
+  title: string;
+  trigger: StaffPushTrigger;
+  url?: string;
 };
 
 const notificationMessages: Record<
@@ -182,6 +230,215 @@ export async function requestBrowserNotificationPermission() {
     );
     return window.Notification.permission;
   }
+}
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = `${base64String}${padding}`
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let index = 0; index < rawData.length; index += 1) {
+    outputArray[index] = rawData.charCodeAt(index);
+  }
+
+  return outputArray;
+}
+
+async function getPushPublicKey() {
+  const response = await fetch("/api/push-subscriptions");
+
+  if (!response.ok) {
+    return "";
+  }
+
+  const payload = (await response.json()) as {
+    configured?: boolean;
+    publicKey?: string;
+  };
+
+  return payload.configured ? payload.publicKey ?? "" : "";
+}
+
+export async function registerZingaraPushSubscription(
+  options: PushRegistrationOptions = {},
+): Promise<PushRegistrationResult> {
+  const diagnostics = getBrowserNotificationDiagnostics();
+
+  console.info(
+    "[Zingara push] Subscription diagnostics:",
+    diagnostics,
+  );
+
+  if (!diagnostics.hasNotificationApi) {
+    return {
+      ok: false,
+      permission: "unsupported",
+      reason: "Notification API unsupported.",
+    };
+  }
+
+  if (!diagnostics.hasServiceWorker || !diagnostics.hasPushManager) {
+    return {
+      ok: false,
+      permission: getBrowserNotificationPermission(),
+      reason: "Service worker push is unsupported in this browser context.",
+    };
+  }
+
+  const permission = await requestBrowserNotificationPermission();
+
+  if (permission !== "granted") {
+    return {
+      ok: false,
+      permission,
+      reason: "Notification permission was not granted.",
+    };
+  }
+
+  const publicKey = await getPushPublicKey();
+
+  if (!publicKey) {
+    return {
+      ok: false,
+      permission,
+      reason: "Push notifications are not configured.",
+    };
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const existingSubscription =
+      await registration.pushManager.getSubscription();
+    const subscription =
+      existingSubscription ??
+      (await registration.pushManager.subscribe({
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+        userVisibleOnly: true,
+      }));
+    const payload = await fetchSupabaseApi<{
+      subscriptionCount?: number;
+    }>("/api/push-subscriptions", {
+      body: {
+        context: {
+          bookingReference: options.bookingReference,
+          customerEmail: options.customerEmail,
+          customerName: options.customerName,
+        },
+        diagnostics,
+        subscription: subscription.toJSON(),
+      },
+      method: "POST",
+    });
+
+    return {
+      ok: true,
+      permission,
+      subscriptionCount: payload.subscriptionCount,
+    };
+  } catch (error) {
+    console.error("[Zingara push] Subscription registration failed:", error);
+
+    return {
+      ok: false,
+      permission,
+      reason: "Push subscription registration failed.",
+    };
+  }
+}
+
+export async function sendZingaraGuestPushNotification(
+  trigger: GuestPushTrigger,
+  options: { bookingReference: string },
+) {
+  try {
+    return await fetchSupabaseApi<PushTestResult>("/api/guest-push", {
+      body: {
+        bookingReference: options.bookingReference,
+        trigger,
+      },
+      method: "POST",
+    });
+  } catch (error) {
+    console.error("[Zingara push] Guest push request failed:", error);
+    return {
+      ok: false,
+    };
+  }
+}
+
+export async function sendZingaraPushTestNotification(): Promise<PushTestResult> {
+  try {
+    return await fetchSupabaseApi<PushTestResult>("/api/admin/push-test", {
+      method: "POST",
+    });
+  } catch {
+    return {
+      ok: false,
+    };
+  }
+}
+
+export async function sendZingaraStaffPushNotification(
+  trigger: StaffPushTrigger,
+  options: Partial<{
+    body: string;
+    bookingReference: string;
+    corporateRequestId: string;
+    waitlistId: string;
+  }> = {},
+) {
+  try {
+    return await fetchSupabaseApi<PushTestResult>("/api/admin/staff-push", {
+      body: {
+        bookingReference: options.bookingReference,
+        body: options.body,
+        corporateRequestId: options.corporateRequestId,
+        trigger,
+        waitlistId: options.waitlistId,
+      },
+      method: "POST",
+    });
+  } catch (error) {
+    console.error("[Zingara push] Staff push request failed:", error);
+    return {
+      ok: false,
+    };
+  }
+}
+
+export async function getStaffNotifications() {
+  return fetchSupabaseApi<{
+    notifications: StaffNotificationRecord[];
+    userId?: string;
+  }>("/api/admin/notifications");
+}
+
+export async function markStaffNotificationRead(id: string) {
+  return fetchSupabaseApi<{
+    notifications: StaffNotificationRecord[];
+    userId?: string;
+  }>("/api/admin/notifications", {
+    body: {
+      action: "mark-read",
+      id,
+    },
+    method: "PATCH",
+  });
+}
+
+export async function markAllStaffNotificationsRead() {
+  return fetchSupabaseApi<{
+    notifications: StaffNotificationRecord[];
+    userId?: string;
+  }>("/api/admin/notifications", {
+    body: {
+      action: "mark-all-read",
+    },
+    method: "PATCH",
+  });
 }
 
 async function showSandboxNotification(title: string, body: string) {

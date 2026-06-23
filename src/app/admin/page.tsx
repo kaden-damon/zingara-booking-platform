@@ -20,7 +20,15 @@ import {
 import {
   getBrowserNotificationDiagnostics,
   getBrowserNotificationStatusLabel,
+  getStaffNotifications,
+  markAllStaffNotificationsRead,
+  markStaffNotificationRead,
+  registerZingaraPushSubscription,
   sendZingaraBrowserNotification,
+  sendZingaraGuestPushNotification,
+  sendZingaraStaffPushNotification,
+  sendZingaraPushTestNotification,
+  type StaffNotificationRecord,
 } from "../../lib/browserNotifications";
 import {
   getBookings,
@@ -48,13 +56,13 @@ import {
 } from "../../lib/supabase/corporateRequests";
 import { updatePayment } from "../../lib/supabase/payments";
 import {
-  assignStaffRoleByEmail,
   getOrCreateStaffProfileSession,
 } from "../../lib/supabase/staffProfiles";
 import {
   type StaffManagementProfile,
   type StaffManagementRole,
   getStaffProfiles,
+  deleteStaffProfile,
   updateStaffActive,
   updateStaffRole,
 } from "../../lib/supabase/staffManagement";
@@ -107,6 +115,7 @@ import {
   getBetterFitTableSuggestion,
   getBookingTicketState,
   getCommunicationTemplate,
+  getIncludedBookingFeeBreakdown,
   getShowLabel,
   getZoneById,
   getStoredDemoTables,
@@ -139,27 +148,7 @@ type ShowEditForm = {
   time: string;
   venueName: string;
 };
-type DemoStaffAccount = {
-  active: boolean;
-  email: string;
-  id: string;
-  name: string;
-  password: string;
-  permissions: Permission[];
-  role: AdminRole;
-  username: string;
-  venueId: string;
-};
 type AdminSession = StaffSession;
-type UserForm = {
-  active: boolean;
-  email: string;
-  name: string;
-  password: string;
-  permissions: Permission[];
-  role: AdminRole;
-  username: string;
-};
 type StaffInviteForm = {
   email: string;
   fullName: string;
@@ -245,55 +234,6 @@ type CustomerProfile = {
   waitlistEntries: DemoWaitlistEntry[];
 };
 
-const demoStaffAccountsStorageKey = "zingara-demo-staff-accounts";
-
-const demoStaffAccounts: DemoStaffAccount[] = [
-  {
-    active: true,
-    email: "tracy@zingara.co.za",
-    id: "staff-super-admin",
-    name: "Tracy Maltman",
-    password: "super-demo",
-    permissions: rolePermissions["super-admin"],
-    role: "super-admin",
-    username: "super",
-    venueId: "zingara-cape-town",
-  },
-  {
-    active: true,
-    email: "venue.manager@zingara.co.za",
-    id: "staff-venue-manager",
-    name: "Venue Manager",
-    password: "manager-demo",
-    permissions: rolePermissions["venue-manager"],
-    role: "venue-manager",
-    username: "manager",
-    venueId: "zingara-cape-town",
-  },
-  {
-    active: true,
-    email: "richard@zingara.co.za",
-    id: "staff-box-office",
-    name: "Richard Griffin",
-    password: "box-demo",
-    permissions: rolePermissions["box-office"],
-    role: "box-office",
-    username: "boxoffice",
-    venueId: "zingara-cape-town",
-  },
-  {
-    active: true,
-    email: "craig@zingara.co.za",
-    id: "staff-floor-manager",
-    name: "Craig Leo",
-    password: "floor-demo",
-    permissions: rolePermissions["floor-manager"],
-    role: "floor-manager",
-    username: "floor",
-    venueId: "zingara-cape-town",
-  },
-];
-
 const bookingStatuses: BookingStatus[] = [
   "new",
   "pending-payment",
@@ -336,6 +276,16 @@ const bookingStatusClasses: Record<BookingStatus, string> = {
   "checked-in":
     "border-sky-300/40 bg-sky-950/30 text-sky-200",
 };
+
+const cancellationReasons = [
+  "Guest unable to attend",
+  "Date no longer suitable",
+  "Pricing concern",
+  "Booked in error",
+  "Duplicate booking",
+  "Event cancelled",
+  "Other",
+] as const;
 
 const paymentStatusLabels: Record<PaymentStatus, string> = {
   "comp-vip": "Comp/VIP",
@@ -440,7 +390,7 @@ type AdminTab =
 type BookingViewMode = "grid" | "list";
 type FloorZoneFilter = SeatingZoneId | "all";
 type OperationsTab = "floor" | "check-in" | "waitlist";
-type SettingsTab = "users" | "staff" | "venue" | "workflows";
+type SettingsTab = "staff" | "venue" | "workflows";
 type DashboardWidgetId =
   | "tonight"
   | "guest-ops"
@@ -503,7 +453,6 @@ const showOperationalStatusLabels: Record<
   "venue-closure": "Venue Closure",
 };
 const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
-  { id: "users", label: "Users" },
   { id: "staff", label: "Staff" },
   { id: "venue", label: "Venue Configuration" },
   { id: "workflows", label: "Automated Workflows" },
@@ -999,6 +948,11 @@ function getCustomerKey(customer: {
 
 function getBookingFinancials(booking: DemoBooking) {
   const totalPrice = booking.totalPrice;
+  const addonsTotal = booking.addonsTotal ?? 0;
+  const subtotalPrice = booking.subtotalPrice ?? booking.totalPrice;
+  const ticketBreakdown = getIncludedBookingFeeBreakdown(
+    Math.max(subtotalPrice - addonsTotal, 0),
+  );
   const depositPercentage = booking.depositPercentage ?? 100;
   const depositAmount = Math.ceil(
     totalPrice * (depositPercentage / 100),
@@ -1017,15 +971,17 @@ function getBookingFinancials(booking: DemoBooking) {
       : booking.balanceDue ?? Math.max(totalPrice - amountPaid, 0);
 
   return {
-    addonsTotal: booking.addonsTotal ?? 0,
+    addonsTotal,
     amountPaid,
     balanceDue,
+    bookingFeeAmount: ticketBreakdown.bookingFee,
     depositAmount,
     discountAmount: booking.discountAmount ?? 0,
     paymentOption: booking.paymentOption ?? "full",
     paymentStatus,
     serviceFeeAmount: booking.serviceFeeAmount ?? 0,
-    subtotalPrice: booking.subtotalPrice ?? booking.totalPrice,
+    subtotalPrice,
+    ticketAmount: ticketBreakdown.ticketAmount,
     totalPrice,
   };
 }
@@ -1063,82 +1019,14 @@ function getBookingPaymentStatus(
   return "fully-paid";
 }
 
-function normalizeStaffAccount(account: DemoStaffAccount) {
-  const role = adminRoleLabels[account.role]
-    ? account.role
-    : "box-office";
-
-  return {
-    ...account,
-    active: account.active ?? true,
-    email: createZingaraUserEmail(
-      account.name,
-      account.username,
-      account.email,
-    ),
-    permissions: account.permissions ?? rolePermissions[role] ?? [],
-    role,
-  };
-}
-
-function getStoredStaffAccounts() {
-  if (typeof window === "undefined") {
-    return demoStaffAccounts;
-  }
-
-  try {
-    const storedAccounts = window.localStorage.getItem(
-      demoStaffAccountsStorageKey,
-    );
-
-    if (!storedAccounts) {
-      return demoStaffAccounts;
-    }
-
-    const parsedAccounts = JSON.parse(
-      storedAccounts,
-    ) as DemoStaffAccount[];
-
-    if (!Array.isArray(parsedAccounts)) {
-      return demoStaffAccounts;
-    }
-
-    return parsedAccounts.map(normalizeStaffAccount);
-  } catch {
-    return demoStaffAccounts;
-  }
-}
-
-async function getSupabaseAdminSession(
-  staffAccounts: DemoStaffAccount[],
-) {
+async function getSupabaseAdminSession() {
   const authSession = await getAdminAuthSession();
 
   if (!authSession?.user.email) {
     return null;
   }
 
-  const userEmail = authSession.user.email.trim().toLowerCase();
-  const matchingAccount = staffAccounts.find(
-    (account) =>
-      account.active &&
-      account.email.trim().toLowerCase() === userEmail,
-  );
-
-  return getOrCreateStaffProfileSession(
-    authSession.user,
-    matchingAccount
-      ? {
-          active: matchingAccount.active,
-          email: matchingAccount.email,
-          name: matchingAccount.name,
-          permissions: matchingAccount.permissions,
-          role: matchingAccount.role,
-          username: matchingAccount.username,
-          venueId: matchingAccount.venueId,
-        }
-      : undefined,
-  );
+  return getOrCreateStaffProfileSession(authSession.user);
 }
 
 export default function AdminDashboardPage() {
@@ -1202,11 +1090,18 @@ export default function AdminDashboardPage() {
   const [activeOperationsTab, setActiveOperationsTab] =
     useState<OperationsTab>("floor");
   const [activeSettingsTab, setActiveSettingsTab] =
-    useState<SettingsTab>("users");
+    useState<SettingsTab>("staff");
   const [notificationPermission, setNotificationPermission] =
     useState("unsupported");
   const [notificationTestStatus, setNotificationTestStatus] =
     useState("");
+  const [staffNotifications, setStaffNotifications] = useState<
+    StaffNotificationRecord[]
+  >([]);
+  const [notificationCentreUserId, setNotificationCentreUserId] =
+    useState("");
+  const [isNotificationCentreOpen, setIsNotificationCentreOpen] =
+    useState(false);
   const [templatePreviewVisible, setTemplatePreviewVisible] =
     useState(false);
   const [bookingViewMode, setBookingViewMode] =
@@ -1249,8 +1144,6 @@ export default function AdminDashboardPage() {
     username: "",
   });
   const [loginError, setLoginError] = useState("");
-  const [staffAccounts, setStaffAccounts] =
-    useState<DemoStaffAccount[]>(demoStaffAccounts);
   const [staffProfiles, setStaffProfiles] = useState<
     StaffManagementProfile[]
   >([]);
@@ -1267,18 +1160,9 @@ export default function AdminDashboardPage() {
       role: "venue-manager",
       venueScope: defaultVenueSettings.venueId,
     });
-  const [editingStaffId, setEditingStaffId] = useState<string | null>(
-    null,
-  );
-  const [userForm, setUserForm] = useState<UserForm>({
-    active: true,
-    email: "",
-    name: "",
-    password: "",
-    permissions: rolePermissions["box-office"],
-    role: "box-office",
-    username: "",
-  });
+  const [staffDeleteProfileId, setStaffDeleteProfileId] = useState("");
+  const [staffDeleteReplacementUserId, setStaffDeleteReplacementUserId] =
+    useState("");
   const [shows, setShows] = useState<DemoShow[]>(defaultShows);
   const [selectedShowId, setSelectedShowId] = useState(
     defaultShows[0]?.id ?? "",
@@ -1320,6 +1204,13 @@ export default function AdminDashboardPage() {
     useState<SplitMergeReview | null>(null);
   const [expandedBookingReference, setExpandedBookingReference] =
     useState("");
+  const [cancellingBookingReference, setCancellingBookingReference] =
+    useState("");
+  const [cancellationReason, setCancellationReason] = useState<
+    (typeof cancellationReasons)[number]
+  >(cancellationReasons[0]);
+  const [cancellationOtherReason, setCancellationOtherReason] =
+    useState("");
   const [tableCompatibilityWarnings, setTableCompatibilityWarnings] =
     useState<Record<string, string>>({});
   const [reportStatusFilter, setReportStatusFilter] =
@@ -1334,10 +1225,7 @@ export default function AdminDashboardPage() {
   const [legacyImportError, setLegacyImportError] = useState("");
   const [deleteCorporateRequestId, setDeleteCorporateRequestId] =
     useState("");
-  const [deleteCorporatePassword, setDeleteCorporatePassword] =
-    useState("");
-  const [deleteCorporateError, setDeleteCorporateError] =
-    useState("");
+  const handledAdminDeepLinkRef = useRef("");
 
   useEffect(() => {
     let isMounted = true;
@@ -1351,9 +1239,7 @@ export default function AdminDashboardPage() {
       const nextVenueSettings = await getVenueSettings();
       const nextWaitlist = await getWaitlistEntries();
       const nextTables = getStoredDemoTables();
-      const nextStaffAccounts = getStoredStaffAccounts();
-      const nextAdminSession =
-        await getSupabaseAdminSession(nextStaffAccounts);
+      const nextAdminSession = await getSupabaseAdminSession();
       const nextStaffProfiles = await getStaffProfiles();
       const nextStaffRoles = await getAvailableRoles();
 
@@ -1401,7 +1287,6 @@ export default function AdminDashboardPage() {
       setVenueSettings(nextVenueSettings);
       setWaitlist(nextWaitlist);
       setTables(nextTables);
-      setStaffAccounts(nextStaffAccounts);
       setStaffProfiles(nextStaffProfiles);
       setStaffRoles(nextStaffRoles);
     }
@@ -1484,6 +1369,89 @@ export default function AdminDashboardPage() {
   }, []);
 
   useEffect(() => {
+    if (!currentStaff) {
+      return;
+    }
+
+    function handleAdminDeepLink(rawUrl = window.location.href) {
+      const url = new URL(rawUrl, window.location.origin);
+      const bookingReference = url.searchParams.get("booking")?.trim();
+      const waitlistId = url.searchParams.get("waitlist")?.trim();
+      const corporateRequestId = url.searchParams.get("corporate")?.trim();
+      const section = url.searchParams.get("section")?.trim();
+      const deepLinkKey = `${bookingReference ?? ""}|${waitlistId ?? ""}|${corporateRequestId ?? ""}|${section ?? ""}`;
+
+      if (!deepLinkKey.replaceAll("|", "")) {
+        return;
+      }
+
+      if (handledAdminDeepLinkRef.current === deepLinkKey) {
+        return;
+      }
+
+      if (bookingReference) {
+        setActiveAdminTab("bookings");
+        setBookingSearch(bookingReference);
+        setBookingPage(1);
+        setExpandedBookingReference(bookingReference);
+      } else if (waitlistId) {
+        const linkedWaitlistEntry = waitlist.find(
+          (entry) => entry.id === waitlistId,
+        );
+
+        if (!linkedWaitlistEntry && waitlist.length === 0) {
+          return;
+        }
+
+        setActiveAdminTab("operations");
+        setActiveOperationsTab("waitlist");
+        setWaitlistSearch(waitlistId);
+
+        if (linkedWaitlistEntry) {
+          setSelectedShowId(linkedWaitlistEntry.showId);
+        }
+      } else if (corporateRequestId) {
+        setActiveAdminTab("corporate");
+        setOpenCorporateRequestId(corporateRequestId);
+      } else if (section === "bookings") {
+        setActiveAdminTab("bookings");
+      } else if (section === "waitlist") {
+        setActiveAdminTab("operations");
+        setActiveOperationsTab("waitlist");
+      } else if (section === "corporate") {
+        setActiveAdminTab("corporate");
+      }
+
+      handledAdminDeepLinkRef.current = deepLinkKey;
+    }
+
+    handleAdminDeepLink();
+
+    function handleServiceWorkerMessage(event: MessageEvent) {
+      if (event.data?.type !== "ZINGARA_NOTIFICATION_NAVIGATE") {
+        return;
+      }
+
+      const targetUrl =
+        typeof event.data.url === "string" ? event.data.url : "/admin";
+
+      handleAdminDeepLink(targetUrl);
+    }
+
+    navigator.serviceWorker?.addEventListener(
+      "message",
+      handleServiceWorkerMessage,
+    );
+
+    return () => {
+      navigator.serviceWorker?.removeEventListener(
+        "message",
+        handleServiceWorkerMessage,
+      );
+    };
+  }, [currentStaff, waitlist]);
+
+  useEffect(() => {
     function refreshNotificationPermission() {
       setNotificationPermission(getBrowserNotificationStatusLabel());
     }
@@ -1503,6 +1471,43 @@ export default function AdminDashboardPage() {
       );
     };
   }, []);
+
+  useEffect(() => {
+    if (!currentStaff) {
+      setStaffNotifications([]);
+      setNotificationCentreUserId("");
+      return;
+    }
+
+    let isActive = true;
+    const staffId = currentStaff.id;
+
+    async function loadNotifications() {
+      try {
+        const payload = await getStaffNotifications();
+
+        if (!isActive) {
+          return;
+        }
+
+        setStaffNotifications(payload.notifications ?? []);
+        setNotificationCentreUserId(payload.userId ?? staffId);
+      } catch {
+        // Notification centre should not block admin operations.
+      }
+    }
+
+    void loadNotifications();
+    const intervalId = window.setInterval(loadNotifications, 15000);
+
+    window.addEventListener("focus", loadNotifications);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", loadNotifications);
+    };
+  }, [currentStaff]);
 
   useEffect(() => {
     return () => {
@@ -1571,23 +1576,50 @@ export default function AdminDashboardPage() {
     canManageBookings || canCheckInGuests;
   const canViewStaffOperations = canCheckInGuests;
   const venueConfig = venueSettings;
+  const unreadNotificationCount = staffNotifications.filter(
+    (notification) =>
+      !notification.readBy?.includes(
+        notificationCentreUserId || currentStaff?.id || "",
+      ),
+  ).length;
+
+  async function refreshStaffNotifications() {
+    try {
+      const payload = await getStaffNotifications();
+
+      setStaffNotifications(payload.notifications ?? []);
+      setNotificationCentreUserId(payload.userId ?? currentStaff?.id ?? "");
+    } catch {
+      showWorkflowToast("⚠ Could not load notifications");
+    }
+  }
+
+  async function markNotificationRead(notificationId: string) {
+    try {
+      const payload = await markStaffNotificationRead(notificationId);
+
+      setStaffNotifications(payload.notifications ?? []);
+      setNotificationCentreUserId(payload.userId ?? currentStaff?.id ?? "");
+    } catch {
+      showWorkflowToast("⚠ Could not save");
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    try {
+      const payload = await markAllStaffNotificationsRead();
+
+      setStaffNotifications(payload.notifications ?? []);
+      setNotificationCentreUserId(payload.userId ?? currentStaff?.id ?? "");
+    } catch {
+      showWorkflowToast("⚠ Could not save");
+    }
+  }
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const loginIdentifier = loginForm.username.trim();
-    const account = staffAccounts.find(
-      (staffAccount) =>
-        staffAccount.username === loginIdentifier ||
-        staffAccount.email.toLowerCase() === loginIdentifier.toLowerCase(),
-    );
-    const authEmail = account?.email ?? loginIdentifier;
-
-    if (account && !account.active) {
-      setLoginError("This staff account is inactive.");
-      return;
-    }
-
+    const authEmail = loginForm.username.trim();
     const result = await signInAdmin(authEmail, loginForm.password);
 
     if (!result.user) {
@@ -1595,7 +1627,7 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    const nextSession = await getSupabaseAdminSession(staffAccounts);
+    const nextSession = await getSupabaseAdminSession();
 
     if (!nextSession) {
       await signOutAdmin();
@@ -1938,44 +1970,6 @@ export default function AdminDashboardPage() {
     closeShowEditor();
   }
 
-  function saveStaffAccounts(nextAccounts: DemoStaffAccount[]) {
-    setStaffAccounts(nextAccounts);
-    window.localStorage.setItem(
-      demoStaffAccountsStorageKey,
-      JSON.stringify(nextAccounts),
-    );
-    void Promise.all(
-      nextAccounts.map((account) =>
-        assignStaffRoleByEmail(
-          createZingaraUserEmail(
-            account.name,
-            account.username,
-            account.email,
-          ),
-          account.role,
-        ),
-      ),
-    );
-
-    const updatedCurrentStaff = nextAccounts.find(
-      (account) => account.id === currentStaff?.id,
-    );
-
-    if (updatedCurrentStaff?.active && currentStaff) {
-      const nextSession = {
-        email: updatedCurrentStaff.email,
-        id: updatedCurrentStaff.id,
-        name: updatedCurrentStaff.name,
-        permissions: updatedCurrentStaff.permissions,
-        role: updatedCurrentStaff.role,
-        username: updatedCurrentStaff.username,
-        venueId: updatedCurrentStaff.venueId,
-      };
-
-      setCurrentStaff(nextSession);
-    }
-  }
-
   async function refreshStaffManagement() {
     const [nextProfiles, nextRoles] = await Promise.all([
       getStaffProfiles(),
@@ -1995,9 +1989,15 @@ export default function AdminDashboardPage() {
     }
 
     setStaffManagementStatus("");
-    await updateStaffRole(profile.id, role);
+    const updatedProfile = await updateStaffRole(profile.id, role);
+    if (!updatedProfile) {
+      showWorkflowToast("⚠ Could not save");
+      setStaffManagementStatus("Staff role could not be updated.");
+      return;
+    }
     await refreshStaffManagement();
     setStaffManagementStatus("Staff role updated.");
+    showWorkflowToast("✓ Saved · Staff role updated");
   }
 
   async function toggleStaffProfileActive(
@@ -2008,10 +2008,20 @@ export default function AdminDashboardPage() {
     }
 
     setStaffManagementStatus("");
-    await updateStaffActive(profile.id, !profile.active);
+    const updatedProfile = await updateStaffActive(profile.id, !profile.active);
+    if (!updatedProfile) {
+      showWorkflowToast("⚠ Could not save");
+      setStaffManagementStatus("Staff profile could not be updated.");
+      return;
+    }
     await refreshStaffManagement();
     setStaffManagementStatus(
       profile.active ? "Staff profile deactivated." : "Staff profile activated.",
+    );
+    showWorkflowToast(
+      profile.active
+        ? "✓ Saved · Staff deactivated"
+        : "✓ Saved · Staff activated",
     );
   }
 
@@ -2037,6 +2047,7 @@ export default function AdminDashboardPage() {
 
     if (result.error) {
       setStaffManagementStatus(result.error);
+      showWorkflowToast("⚠ Could not save");
       return;
     }
 
@@ -2049,116 +2060,54 @@ export default function AdminDashboardPage() {
     });
     setIsStaffInviteOpen(false);
     setStaffManagementStatus("Staff user created.");
+    showWorkflowToast("✓ Saved · User created");
   }
 
-  function resetUserForm(role: AdminRole = "box-office") {
-    setUserForm({
-      active: true,
-      email: "",
-      name: "",
-      password: "",
-      permissions: rolePermissions[role] ?? [],
-      role,
-      username: "",
-    });
-    setEditingStaffId(null);
-  }
-
-  function openUserEditor(account?: DemoStaffAccount) {
-    if (account) {
-      setEditingStaffId(account.id);
-      setUserForm({
-        active: account.active,
-        email: account.email,
-        name: account.name,
-        password: account.password,
-        permissions: account.permissions,
-        role: account.role,
-        username: account.username,
-      });
-      return;
-    }
-
-    resetUserForm();
-  }
-
-  function saveUser(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  function openStaffDeleteModal(profile: StaffManagementProfile) {
     if (currentStaff?.role !== "super-admin") {
       return;
     }
 
-    const trimmedUsername = userForm.username.trim();
-    const trimmedName = userForm.name.trim();
-
-    if (!trimmedUsername || !trimmedName || !userForm.password.trim()) {
-      return;
-    }
-
-    const nextAccount: DemoStaffAccount = {
-      active: userForm.active,
-      email: createZingaraUserEmail(
-        trimmedName,
-        trimmedUsername,
-        userForm.email,
-      ),
-      id: editingStaffId ?? `staff-${trimmedUsername}-${Date.now()}`,
-      name: trimmedName,
-      password: userForm.password,
-      permissions: userForm.permissions,
-      role: userForm.role,
-      username: trimmedUsername,
-      venueId: currentStaff.venueId,
-    };
-
-    const nextAccounts = editingStaffId
-      ? staffAccounts.map((account) =>
-          account.id === editingStaffId ? nextAccount : account,
-        )
-      : [...staffAccounts, nextAccount];
-
-    saveStaffAccounts(nextAccounts);
-    resetUserForm();
-  }
-
-  function updateUserRole(role: AdminRole) {
-    setUserForm((currentForm) => ({
-      ...currentForm,
-      permissions: rolePermissions[role] ?? [],
-      role,
-    }));
-  }
-
-  function toggleUserPermission(permission: Permission) {
-    setUserForm((currentForm) => {
-      const permissionSet = new Set(currentForm.permissions);
-
-      if (permissionSet.has(permission)) {
-        permissionSet.delete(permission);
-      } else {
-        permissionSet.add(permission);
-      }
-
-      return {
-        ...currentForm,
-        permissions: Array.from(permissionSet),
-      };
-    });
-  }
-
-  function deactivateUser(account: DemoStaffAccount) {
-    if (currentStaff?.role !== "super-admin") {
-      return;
-    }
-
-    saveStaffAccounts(
-      staffAccounts.map((staffAccount) =>
-        staffAccount.id === account.id
-          ? { ...staffAccount, active: !staffAccount.active }
-          : staffAccount,
-      ),
+    setStaffDeleteProfileId(profile.id);
+    const replacement = staffProfiles.find(
+      (staffProfile) =>
+        staffProfile.id !== profile.id && staffProfile.active,
     );
+    setStaffDeleteReplacementUserId(replacement?.userId ?? "");
+    setStaffManagementStatus("");
+  }
+
+  function closeStaffDeleteModal() {
+    setStaffDeleteProfileId("");
+    setStaffDeleteReplacementUserId("");
+  }
+
+  async function confirmStaffDelete() {
+    if (currentStaff?.role !== "super-admin") {
+      return;
+    }
+
+    if (!staffDeleteProfileId || !staffDeleteReplacementUserId) {
+      setStaffManagementStatus("Select a replacement owner before deleting.");
+      showWorkflowToast("⚠ Could not save");
+      return;
+    }
+
+    const deleted = await deleteStaffProfile(
+      staffDeleteProfileId,
+      staffDeleteReplacementUserId,
+    );
+
+    if (!deleted) {
+      setStaffManagementStatus("Staff user could not be deleted.");
+      showWorkflowToast("⚠ Could not save");
+      return;
+    }
+
+    await refreshStaffManagement();
+    closeStaffDeleteModal();
+    setStaffManagementStatus("Staff user deleted.");
+    showWorkflowToast("✓ Saved · User deleted");
   }
 
   function saveTables(nextTables: DemoTable[]) {
@@ -2168,15 +2117,18 @@ export default function AdminDashboardPage() {
 
   function saveBookings(nextBookings: DemoBooking[]) {
     setBookings(nextBookings);
-    void persistBookings(nextBookings).then((persistedBookings) => {
-      setBookings(persistedBookings);
-      void Promise.all(
-        persistedBookings.flatMap((booking) => [
-          updatePayment(booking),
-          updateTicket(booking),
-        ]),
-      );
-    });
+    void persistBookings(nextBookings)
+      .then((persistedBookings) => {
+        setBookings(persistedBookings);
+        showWorkflowToast("✓ Saved · Booking updated");
+        void Promise.all(
+          persistedBookings.flatMap((booking) => [
+            updatePayment(booking),
+            updateTicket(booking),
+          ]),
+        );
+      })
+      .catch(() => showWorkflowToast("⚠ Could not save"));
     void Promise.all(
       nextBookings.map((booking) => upsertCustomerFromInfo(booking.customer)),
     );
@@ -2184,9 +2136,12 @@ export default function AdminDashboardPage() {
 
   function saveCorporateRequests(nextRequests: CorporateRequest[]) {
     setCorporateRequests(nextRequests);
-    void persistCorporateRequests(nextRequests).then((persistedRequests) => {
-      setCorporateRequests(persistedRequests);
-    });
+    void persistCorporateRequests(nextRequests)
+      .then((persistedRequests) => {
+        setCorporateRequests(persistedRequests);
+        showWorkflowToast("✓ Saved · Corporate request updated");
+      })
+      .catch(() => showWorkflowToast("⚠ Could not save"));
     void Promise.all(
       nextRequests.map((request) =>
         syncCorporateRequestCommunications(request),
@@ -2241,20 +2196,11 @@ export default function AdminDashboardPage() {
     }
 
     setDeleteCorporateRequestId(requestId);
-    setDeleteCorporatePassword("");
-    setDeleteCorporateError("");
   }
 
   function confirmDeleteCorporateRequest() {
-    const hasValidSuperAdminPassword = staffAccounts.some(
-      (account) =>
-        account.active &&
-        account.role === "super-admin" &&
-        account.password === deleteCorporatePassword,
-    );
-
-    if (!hasValidSuperAdminPassword) {
-      setDeleteCorporateError("Incorrect Super Admin password.");
+    if (currentStaff?.role !== "super-admin") {
+      showWorkflowToast("⚠ Could not save");
       return;
     }
 
@@ -2267,8 +2213,6 @@ export default function AdminDashboardPage() {
       setOpenCorporateRequestId("");
     }
     setDeleteCorporateRequestId("");
-    setDeleteCorporatePassword("");
-    setDeleteCorporateError("");
   }
 
   function getCorporateConversionShows(request: CorporateRequest) {
@@ -2482,34 +2426,46 @@ export default function AdminDashboardPage() {
 
   function saveWaitlist(nextWaitlist: DemoWaitlistEntry[]) {
     setWaitlist(nextWaitlist);
-    void saveWaitlistEntries(nextWaitlist).then((persistedWaitlist) => {
-      setWaitlist(persistedWaitlist);
-    });
+    void saveWaitlistEntries(nextWaitlist)
+      .then((persistedWaitlist) => {
+        setWaitlist(persistedWaitlist);
+        showWorkflowToast("✓ Saved · Waitlist updated");
+      })
+      .catch(() => showWorkflowToast("⚠ Could not save"));
   }
 
   function saveCustomerCrmRecords(
     nextRecords: DemoCustomerCrmRecord[],
   ) {
     setCustomerCrmRecords(nextRecords);
-    void saveCustomers(nextRecords).then((persistedRecords) => {
-      setCustomerCrmRecords(persistedRecords);
-    });
+    void saveCustomers(nextRecords)
+      .then((persistedRecords) => {
+        setCustomerCrmRecords(persistedRecords);
+        showWorkflowToast("✓ Saved · Customer updated");
+      })
+      .catch(() => showWorkflowToast("⚠ Could not save"));
   }
 
   function saveCommunicationTemplates(
     nextTemplates: CommunicationTemplate[],
   ) {
     setCommunicationTemplates(nextTemplates);
-    void saveTemplates(nextTemplates).then((persistedTemplates) => {
-      setCommunicationTemplates(persistedTemplates);
-    });
+    void saveTemplates(nextTemplates)
+      .then((persistedTemplates) => {
+        setCommunicationTemplates(persistedTemplates);
+        showWorkflowToast("✓ Saved · Template saved");
+      })
+      .catch(() => showWorkflowToast("⚠ Could not save"));
   }
 
   function saveVenueSettings(nextSettings: DemoVenueSettings) {
     setVenueSettings(nextSettings);
-    void persistVenueSettings(nextSettings).then((persistedSettings) => {
-      setVenueSettings(persistedSettings);
-    });
+    void persistVenueSettings(nextSettings)
+      .then((persistedSettings) => {
+        setVenueSettings(persistedSettings);
+        showWorkflowToast("✓ Saved · Venue settings saved");
+      })
+      .catch(() => showWorkflowToast("⚠ Could not save"));
   }
 
   function updateVenueSettings(
@@ -2614,18 +2570,23 @@ export default function AdminDashboardPage() {
       })),
     });
     setShows(nextShows);
-    void replaceShows(nextShows).then((persistedShows) => {
-      setShows(persistedShows);
-      console.log("[Zingara show management] show persisted", {
-        persistedShows: persistedShows.map((show) => ({
-          date: show.date,
-          id: show.id,
-          label: show.label,
-          status: show.operationalStatus ?? "active",
-          time: getSouthAfricaShowTime(show),
-        })),
+    void replaceShows(nextShows)
+      .then((persistedShows) => {
+        setShows(persistedShows);
+        showWorkflowToast("✓ Saved · Show updated");
+        console.log("[Zingara show management] show persisted", {
+          persistedShows: persistedShows.map((show) => ({
+            date: show.date,
+            id: show.id,
+            label: show.label,
+            status: show.operationalStatus ?? "active",
+            time: getSouthAfricaShowTime(show),
+          })),
+        });
+      })
+      .catch(() => {
+        showWorkflowToast("⚠ Could not save");
       });
-    });
   }
 
   function getBookingShow(booking: DemoBooking) {
@@ -3343,7 +3304,37 @@ export default function AdminDashboardPage() {
     };
   }
 
-  function cancelBooking(booking: DemoBooking) {
+  function getCancellationSummary() {
+    const trimmedOtherReason = cancellationOtherReason.trim();
+
+    if (cancellationReason === "Other") {
+      return trimmedOtherReason
+        ? `Other: ${trimmedOtherReason}`
+        : "Other";
+    }
+
+    return trimmedOtherReason
+      ? `${cancellationReason}: ${trimmedOtherReason}`
+      : cancellationReason;
+  }
+
+  function openCancellationModal(booking: DemoBooking) {
+    if (!canManageBookings) {
+      return;
+    }
+
+    setCancellingBookingReference(booking.reference);
+    setCancellationReason(cancellationReasons[0]);
+    setCancellationOtherReason("");
+  }
+
+  function closeCancellationModal() {
+    setCancellingBookingReference("");
+    setCancellationReason(cancellationReasons[0]);
+    setCancellationOtherReason("");
+  }
+
+  function cancelBooking(booking: DemoBooking, reason: string) {
     if (!canManageBookings) {
       return;
     }
@@ -3351,13 +3342,12 @@ export default function AdminDashboardPage() {
     releaseBookingTable(booking);
     const cancelledBooking = {
       ...booking,
-      cancellationReason:
-        booking.cancellationReason || "Cancelled by box office",
+      cancellationReason: reason,
       lifecycleHistory: [
         createLifecycleEvent(
           booking,
           "cancelled",
-          booking.cancellationReason || "Cancelled by box office",
+          `Cancellation reason: ${reason}`,
         ),
         ...(booking.lifecycleHistory ?? []),
       ],
@@ -3387,6 +3377,27 @@ export default function AdminDashboardPage() {
       ),
     );
     void sendZingaraBrowserNotification("booking-cancelled");
+    void sendZingaraStaffPushNotification("booking-cancelled", {
+      bookingReference: booking.reference,
+    });
+    void sendZingaraGuestPushNotification("reservation-cancelled", {
+      bookingReference: booking.reference,
+    });
+  }
+
+  function confirmBookingCancellation() {
+    const booking = bookings.find(
+      (currentBooking) =>
+        currentBooking.reference === cancellingBookingReference,
+    );
+
+    if (!booking) {
+      closeCancellationModal();
+      return;
+    }
+
+    cancelBooking(booking, getCancellationSummary());
+    closeCancellationModal();
   }
 
   function updateBookingStatus(
@@ -3402,7 +3413,7 @@ export default function AdminDashboardPage() {
     }
 
     if (status === "cancelled") {
-      cancelBooking(booking);
+      openCancellationModal(booking);
       return;
     }
 
@@ -3493,6 +3504,16 @@ export default function AdminDashboardPage() {
         ? "check-in-confirmed"
         : "booking-updated",
     );
+    if (status === "confirmed") {
+      void sendZingaraGuestPushNotification("reservation-confirmed", {
+        bookingReference: booking.reference,
+      });
+    }
+    if (status === "pending-payment") {
+      void sendZingaraGuestPushNotification("reservation-pending-payment", {
+        bookingReference: booking.reference,
+      });
+    }
   }
 
   function updateBookingPayment(
@@ -3603,6 +3624,14 @@ export default function AdminDashboardPage() {
       ),
     );
     void sendZingaraBrowserNotification("booking-updated");
+    if (paymentStatus === "fully-paid" || paymentStatus === "deposit-paid") {
+      void sendZingaraGuestPushNotification("payment-received", {
+        bookingReference: booking.reference,
+      });
+      void sendZingaraStaffPushNotification("payment-received", {
+        bookingReference: booking.reference,
+      });
+    }
   }
 
   function getReportBookings() {
@@ -3994,6 +4023,9 @@ export default function AdminDashboardPage() {
       result: "checked_in",
     });
     void sendZingaraBrowserNotification("check-in-confirmed");
+    void sendZingaraStaffPushNotification("guest-checked-in", {
+      bookingReference: booking.reference,
+    });
   }
 
   function findTicketRecord(code: string) {
@@ -4279,6 +4311,9 @@ export default function AdminDashboardPage() {
       result: "checked_in",
     });
     void sendZingaraBrowserNotification("check-in-confirmed");
+    void sendZingaraStaffPushNotification("guest-checked-in", {
+      bookingReference: freshBooking.reference,
+    });
     setTicketValidationResult({
       booking: checkedInBooking,
       message: "Guest checked in. Duplicate scans will now be blocked.",
@@ -4352,6 +4387,9 @@ export default function AdminDashboardPage() {
       result: "checked_in",
     });
     void sendZingaraBrowserNotification("check-in-confirmed");
+    void sendZingaraStaffPushNotification("guest-checked-in", {
+      bookingReference: freshBooking.reference,
+    });
     setTicketValidationResult({
       booking: checkedInBooking,
       message: "Manager override check-in recorded.",
@@ -4691,48 +4729,45 @@ export default function AdminDashboardPage() {
     void sendZingaraBrowserNotification("booking-updated", {
       body: "Operational update sent successfully.",
     });
+    void sendZingaraStaffPushNotification("operational-broadcast-sent");
   }
 
   async function sendTestBrowserNotification() {
     const diagnostics = getBrowserNotificationDiagnostics();
 
     console.info(
-      "[Zingara notifications] Preview button tapped. Diagnostics:",
+      "[Zingara push] Test button tapped. Diagnostics:",
       diagnostics,
     );
     setNotificationTestStatus("Requesting browser permission...");
 
-    const result = await sendZingaraBrowserNotification("test");
+    const registrationResult = await registerZingaraPushSubscription();
 
     setNotificationPermission(getBrowserNotificationStatusLabel());
 
+    if (!registrationResult.ok) {
+      setNotificationTestStatus(
+        registrationResult.reason ??
+          (registrationResult.permission === "denied"
+            ? "Notifications are blocked for this browser. Enable them in browser or PWA settings."
+            : "Notification permission was not granted yet."),
+      );
+      return;
+    }
+
+    setNotificationTestStatus("Push subscription saved. Sending notification...");
+
+    const result = await sendZingaraPushTestNotification();
+
     if (result.ok) {
       setNotificationTestStatus(
-        "Preview notification sent to this browser.",
-      );
-      return;
-    }
-
-    if (result.permission === "denied") {
-      setNotificationTestStatus(
-        "Notifications are blocked for this browser. Enable them in browser or PWA settings.",
-      );
-      return;
-    }
-
-    if (result.permission === "unsupported") {
-      setNotificationTestStatus(
-        diagnostics.isIOS && !diagnostics.isSecureContext
-          ? "iOS native notifications require the installed app to run from a secure HTTPS origin. Local network HTTP cannot request notification permission."
-          : diagnostics.isIOS && diagnostics.isStandalonePwa
-            ? "This installed iOS app was detected, but the Notification API is not available in this browser context."
-          : "This browser context does not support native notifications.",
+        `Test notification sent to ${result.sent ?? 1} subscription${(result.sent ?? 1) === 1 ? "" : "s"}.`,
       );
       return;
     }
 
     setNotificationTestStatus(
-      "Notification permission was not granted yet.",
+      "Push subscription was saved, but the test notification could not be delivered.",
     );
   }
 
@@ -4801,6 +4836,12 @@ export default function AdminDashboardPage() {
       ],
       promotedAt: new Date().toISOString(),
       status: "promoted",
+    });
+    void sendZingaraStaffPushNotification("waitlist-promotion", {
+      waitlistId: entry.id,
+    });
+    void sendZingaraGuestPushNotification("waitlist-promoted", {
+      bookingReference: entry.id,
     });
   }
 
@@ -6024,6 +6065,14 @@ export default function AdminDashboardPage() {
 
   return (
     <main className="relative isolate z-10 min-h-screen overflow-x-hidden bg-black px-3 py-8 text-white sm:px-6 sm:py-14 lg:py-16">
+      {workflowToast && (
+        <div
+          className="fixed bottom-6 right-6 z-[160] rounded-full border border-emerald-300/35 bg-emerald-950/90 px-5 py-3 text-sm font-semibold text-emerald-100 shadow-2xl shadow-emerald-950/30 backdrop-blur"
+          style={{ animation: "zingara-toast 2.8s ease both" }}
+        >
+          {workflowToast}
+        </div>
+      )}
       <div className="relative z-10 mx-auto max-w-7xl">
         <div className="mb-8 flex flex-col gap-5 border-b border-zinc-800 pb-6 lg:mb-12 lg:flex-row lg:items-end lg:justify-between lg:pb-8">
           <div>
@@ -6050,6 +6099,111 @@ export default function AdminDashboardPage() {
                 Scan Tickets
               </button>
             )}
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsNotificationCentreOpen(
+                    (currentState) => !currentState,
+                  );
+                  void refreshStaffNotifications();
+                }}
+                className="relative h-full min-h-[4.5rem] rounded-2xl border border-[#D8C36A]/30 bg-zinc-950 px-5 py-3 text-left transition hover:border-[#D8C36A]/60 sm:py-4"
+              >
+                <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                  Notifications
+                </span>
+                <span className="mt-2 block text-sm font-semibold text-white">
+                  {unreadNotificationCount} unread
+                </span>
+                {unreadNotificationCount > 0 && (
+                  <span className="absolute right-3 top-3 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#D8C36A] px-1.5 text-[0.65rem] font-bold text-black">
+                    {unreadNotificationCount}
+                  </span>
+                )}
+              </button>
+
+              {isNotificationCentreOpen && (
+                <section className="absolute right-0 top-[calc(100%+0.75rem)] z-[120] w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-[#D8C36A]/30 bg-zinc-950 text-white shadow-2xl shadow-black/60">
+                  <div className="flex items-center justify-between gap-3 border-b border-white/10 p-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                        Notification Centre
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {staffNotifications.length} total
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void markAllNotificationsRead()}
+                      disabled={unreadNotificationCount === 0}
+                      className="rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Mark All Read
+                    </button>
+                  </div>
+
+                  <div className="max-h-96 overflow-y-auto p-3">
+                    {staffNotifications.length === 0 ? (
+                      <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-zinc-400">
+                        No notifications yet.
+                      </p>
+                    ) : (
+                      staffNotifications.map((notification) => {
+                        const isUnread = !notification.readBy?.includes(
+                          notificationCentreUserId ||
+                            currentStaff?.id ||
+                            "",
+                        );
+
+                        return (
+                          <article
+                            key={notification.id}
+                            className={`mb-2 rounded-2xl border p-4 ${
+                              isUnread
+                                ? "border-[#D8C36A]/35 bg-[#D8C36A]/10"
+                                : "border-white/10 bg-black/30"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <h3 className="text-sm font-semibold text-white">
+                                  {notification.title}
+                                </h3>
+                                <p className="mt-1 text-sm leading-5 text-zinc-300">
+                                  {notification.message}
+                                </p>
+                                <p className="mt-2 text-xs text-zinc-500">
+                                  {new Date(
+                                    notification.createdAt,
+                                  ).toLocaleString()}
+                                </p>
+                              </div>
+                              {isUnread && (
+                                <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#D8C36A]" />
+                              )}
+                            </div>
+                            {isUnread && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void markNotificationRead(notification.id)
+                                }
+                                className="mt-3 rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-zinc-300 transition hover:bg-white hover:text-black"
+                              >
+                                Mark as Read
+                              </button>
+                            )}
+                          </article>
+                        );
+                      })
+                    )}
+                  </div>
+                </section>
+              )}
+            </div>
 
             <div className="rounded-2xl border border-[#D8C36A]/30 bg-zinc-950 px-4 py-3 sm:px-5 sm:py-4">
               <p className="text-sm font-semibold text-white">
@@ -6500,6 +6654,93 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
+        {cancellingBookingReference &&
+          (() => {
+            const cancellingBooking = bookings.find(
+              (booking) =>
+                booking.reference === cancellingBookingReference,
+            );
+            const requiresOtherReason = cancellationReason === "Other";
+
+            return (
+              <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
+                <section className="w-full max-w-xl rounded-[2rem] border border-red-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-red-200">
+                    Reason for cancellation
+                  </p>
+                  <h2 className="mt-3 text-2xl font-bold">
+                    {cancellingBooking?.customer.name ?? "Cancel Booking"}
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-zinc-400">
+                    Select the operational reason before cancelling{" "}
+                    {cancellingBooking?.reference ?? "this booking"}.
+                  </p>
+
+                  <div className="mt-5 grid gap-2">
+                    {cancellationReasons.map((reason) => (
+                      <label
+                        key={reason}
+                        className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                          cancellationReason === reason
+                            ? "border-[#D8C36A]/70 bg-[#D8C36A]/10 text-white"
+                            : "border-white/10 bg-black/30 text-zinc-300 hover:border-white/25"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="cancellation-reason"
+                          value={reason}
+                          checked={cancellationReason === reason}
+                          onChange={() => setCancellationReason(reason)}
+                          className="h-4 w-4 accent-[#D8C36A]"
+                        />
+                        {reason}
+                      </label>
+                    ))}
+                  </div>
+
+                  {requiresOtherReason && (
+                    <label className="mt-4 block">
+                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                        Other cancellation notes
+                      </span>
+                      <textarea
+                        value={cancellationOtherReason}
+                        onChange={(event) =>
+                          setCancellationOtherReason(event.target.value)
+                        }
+                        rows={3}
+                        className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-red-300/70"
+                        placeholder="Add the cancellation context."
+                      />
+                    </label>
+                  )}
+
+                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={closeCancellationModal}
+                      className="rounded-full border border-white/20 px-5 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmBookingCancellation}
+                      disabled={
+                        requiresOtherReason &&
+                        !cancellationOtherReason.trim()
+                      }
+                      className="rounded-full border border-red-300/45 bg-red-300 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Confirm Cancellation
+                    </button>
+                  </div>
+                </section>
+              </div>
+            );
+          })()}
+
         {deleteCorporateRequestId && (
           <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
             <section className="w-full max-w-lg rounded-[2rem] border border-red-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
@@ -6510,35 +6751,12 @@ export default function AdminDashboardPage() {
                 This action will permanently delete the request.
               </h2>
               <p className="mt-3 text-sm leading-6 text-zinc-400">
-                Enter the Super Admin password to confirm deletion.
+                Super Admin access is required to confirm deletion.
               </p>
-              <label className="mt-5 block">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  Super Admin Password
-                </span>
-                <input
-                  type="password"
-                  value={deleteCorporatePassword}
-                  onChange={(event) => {
-                    setDeleteCorporatePassword(event.target.value);
-                    setDeleteCorporateError("");
-                  }}
-                  className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-red-300/70"
-                />
-              </label>
-              {deleteCorporateError && (
-                <p className="mt-3 rounded-2xl border border-red-300/30 bg-red-950/30 px-4 py-3 text-sm font-semibold text-red-100">
-                  {deleteCorporateError}
-                </p>
-              )}
               <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                  onClick={() => {
-                    setDeleteCorporateRequestId("");
-                    setDeleteCorporatePassword("");
-                    setDeleteCorporateError("");
-                  }}
+                  onClick={() => setDeleteCorporateRequestId("")}
                   className="rounded-full border border-white/20 px-5 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
                 >
                   Cancel
@@ -6919,243 +7137,13 @@ export default function AdminDashboardPage() {
         )}
 
         {activeAdminTab === "settings" &&
-          activeSettingsTab === "users" &&
-          canManageSettings && (
-        <section className="mb-10 rounded-2xl border border-white/10 bg-zinc-950 p-6 shadow-2xl shadow-black/25">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
-                Access Control
-              </p>
-              <h2 className="text-2xl font-bold">
-                Users
-              </h2>
-              <p className="mt-2 max-w-3xl text-zinc-400">
-                Manage local demo users, roles, active states, and
-                operational permissions.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-[#D8C36A]/25 bg-black/40 px-5 py-4 text-sm">
-              <p className="font-semibold text-white">
-                {currentStaff.name}
-              </p>
-              <p className="mt-1 text-[#F2D66C]">
-                {adminRoleLabels[currentStaff.role] ?? "Staff"}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-start">
-            <div className="grid flex-1 grid-cols-1 gap-3 xl:grid-cols-2">
-              {staffAccounts.map((account) => (
-                <article
-                  key={account.id}
-                  className="rounded-2xl border border-white/10 bg-black/35 p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate text-lg font-bold">
-                          {account.name}
-                        </h3>
-                        <span
-                          className={`rounded-full border px-2 py-0.5 text-[0.58rem] font-semibold uppercase tracking-[0.12em] ${
-                            account.active
-                              ? "border-emerald-300/40 bg-emerald-950/25 text-emerald-200"
-                              : "border-zinc-600 bg-zinc-900 text-zinc-500"
-                          }`}
-                        >
-                          {account.active ? "Active" : "Inactive"}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-xs text-zinc-400">
-                        {createZingaraUserEmail(
-                          account.name,
-                          account.username,
-                          account.email,
-                        )}{" "}
-                        · @{account.username}
-                      </p>
-                      <p className="mt-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                        {adminRoleLabels[account.role] ?? "Staff"}
-                      </p>
-                    </div>
-                    {currentStaff.role === "super-admin" && (
-                      <button
-                        type="button"
-                        onClick={() => openUserEditor(account)}
-                        className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
-                      >
-                        Edit
-                      </button>
-                    )}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {account.permissions.map((permission) => (
-                      <span
-                        key={`${account.id}-${permission}`}
-                        title={permissionLabels[permission]}
-                        className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.08em] text-zinc-300"
-                      >
-                        <span className="text-[#F2D66C]">
-                          {permissionBadges[permission].short}
-                        </span>
-                        <span>{permissionBadges[permission].label}</span>
-                      </span>
-                    ))}
-                  </div>
-                  {currentStaff.role === "super-admin" && (
-                    <button
-                      type="button"
-                      onClick={() => deactivateUser(account)}
-                      className="mt-3 rounded-full border border-red-300/30 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-red-200 transition hover:bg-red-300 hover:text-black"
-                    >
-                      {account.active ? "Deactivate" : "Reactivate"}
-                    </button>
-                  )}
-                </article>
-              ))}
-            </div>
-
-            {currentStaff.role === "super-admin" && (
-              <form
-                onSubmit={saveUser}
-                className="w-full rounded-2xl border border-[#D8C36A]/25 bg-black/35 p-5 lg:max-w-md"
-              >
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                      User Editor
-                    </p>
-                    <h3 className="zingara-heading mt-1 text-2xl font-bold">
-                      {editingStaffId ? "Edit User" : "Create User"}
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => resetUserForm()}
-                    className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
-                  >
-                    New
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3">
-                  <input
-                    value={userForm.name}
-                    onChange={(event) =>
-                      setUserForm((form) => ({
-                        ...form,
-                        name: event.target.value,
-                      }))
-                    }
-                    placeholder="Full name"
-                    className="rounded-xl border border-white/10 bg-black px-4 py-3"
-                  />
-                  <input
-                    value={userForm.email}
-                    onChange={(event) =>
-                      setUserForm((form) => ({
-                        ...form,
-                        email: event.target.value,
-                      }))
-                    }
-                    placeholder="firstname.lastname@zingara.co.za"
-                    className="rounded-xl border border-white/10 bg-black px-4 py-3"
-                  />
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <input
-                      value={userForm.username}
-                      onChange={(event) =>
-                        setUserForm((form) => ({
-                          ...form,
-                          username: event.target.value,
-                        }))
-                      }
-                      placeholder="Username"
-                      className="rounded-xl border border-white/10 bg-black px-4 py-3"
-                    />
-                    <input
-                      value={userForm.password}
-                      onChange={(event) =>
-                        setUserForm((form) => ({
-                          ...form,
-                          password: event.target.value,
-                        }))
-                      }
-                      placeholder="Demo password"
-                      className="rounded-xl border border-white/10 bg-black px-4 py-3"
-                    />
-                  </div>
-                  <select
-                    value={userForm.role}
-                    onChange={(event) =>
-                      updateUserRole(event.target.value as AdminRole)
-                    }
-                    className="rounded-xl border border-white/10 bg-black px-4 py-3"
-                  >
-                    {userManagementRoles.map((role) => (
-                      <option key={role} value={role}>
-                        {adminRoleLabels[role]}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-zinc-300">
-                    <input
-                      type="checkbox"
-                      checked={userForm.active}
-                      onChange={(event) =>
-                        setUserForm((form) => ({
-                          ...form,
-                          active: event.target.checked,
-                        }))
-                      }
-                      className="h-4 w-4 accent-[#D8C36A]"
-                    />
-                    Active user
-                  </label>
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-1.5">
-                  {permissionOptions.map((permission) => (
-                    <label
-                      key={permission}
-                      className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-950 px-2.5 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-zinc-300"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={userForm.permissions.includes(permission)}
-                        onChange={() => toggleUserPermission(permission)}
-                        className="h-4 w-4 accent-[#D8C36A]"
-                      />
-                      <span className="text-[#F2D66C]">
-                        {permissionBadges[permission].short}
-                      </span>
-                      <span>{permissionBadges[permission].label}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <button
-                  type="submit"
-                  className="mt-5 w-full rounded-full bg-[#D8C36A] px-5 py-3 font-semibold text-black transition hover:bg-[#F2D66C]"
-                >
-                  {editingStaffId ? "Save User" : "Create User"}
-                </button>
-              </form>
-            )}
-          </div>
-        </section>
-        )}
-
-        {activeAdminTab === "settings" &&
           activeSettingsTab === "staff" &&
           canManageSettings && (
           <section className="mb-10 rounded-2xl border border-white/10 bg-zinc-950 p-6 shadow-2xl shadow-black/25">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
-                  Supabase Staff
+                  Staff
                 </p>
                 <h2 className="text-2xl font-bold">
                   Staff
@@ -7280,7 +7268,7 @@ export default function AdminDashboardPage() {
             <div className="mt-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
               {staffProfiles.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-black/35 p-5 text-sm text-zinc-400">
-                  No Supabase staff profiles have been created yet.
+                  No staff profiles have been created yet.
                 </div>
               ) : (
                 staffProfiles.map((profile) => (
@@ -7350,7 +7338,9 @@ export default function AdminDashboardPage() {
                             }
                             className="rounded-full border border-white/15 px-3 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
                           >
-                            {profile.active ? "Deactivate" : "Activate"}
+                            {profile.active
+                              ? "Deactivate User"
+                              : "Activate User"}
                           </button>
                         </div>
                       )}
@@ -9805,6 +9795,14 @@ export default function AdminDashboardPage() {
                                       {booking.zoneTitle} · Table{" "}
                                       {booking.tableNumber}
                                     </p>
+                                    {(booking.status ?? "confirmed") ===
+                                      "cancelled" &&
+                                      booking.cancellationReason && (
+                                        <p className="mt-2 rounded-xl border border-red-300/20 bg-red-950/20 px-3 py-2 text-xs font-semibold text-red-100">
+                                          Cancellation:{" "}
+                                          {booking.cancellationReason}
+                                        </p>
+                                      )}
                                   </div>
                                   <span
                                     className={`inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] ${
@@ -10223,15 +10221,6 @@ export default function AdminDashboardPage() {
               </div>
             )}
 
-            {workflowToast && (
-              <div
-                className="fixed bottom-6 right-6 z-[160] rounded-full border border-emerald-300/35 bg-emerald-950/90 px-5 py-3 text-sm font-semibold text-emerald-100 shadow-2xl shadow-emerald-950/30 backdrop-blur"
-                style={{ animation: "zingara-toast 2.8s ease both" }}
-              >
-                {workflowToast}
-              </div>
-            )}
-
             <div className="mb-5 rounded-2xl border border-[#D8C36A]/25 bg-black/35 p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -10259,7 +10248,7 @@ export default function AdminDashboardPage() {
                   onClick={sendTestBrowserNotification}
                   className="min-w-[220px] whitespace-nowrap rounded-full bg-[#D8C36A] px-5 py-3 text-center text-sm font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.18)] transition hover:bg-[#F2D66C]"
                 >
-                  Send Preview Notification
+                  Send Test Notification
                 </button>
               </div>
             </div>
@@ -12331,7 +12320,9 @@ export default function AdminDashboardPage() {
                               (booking.status ?? "confirmed") ===
                               "cancelled"
                             }
-                            onClick={() => cancelBooking(booking)}
+                            onClick={() =>
+                              openCancellationModal(booking)
+                            }
                             className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full border border-red-300/40 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-35 sm:px-4 sm:text-sm"
                           >
                             Cancel Booking
@@ -12384,7 +12375,11 @@ export default function AdminDashboardPage() {
                           <div className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5">
                     <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-zinc-400">
                       <p>
-                        Subtotal{" "}
+                        Ticket{" "}
+                        {formatCurrency(financials.ticketAmount)}
+                        {" · "}Booking Fee{" "}
+                        {formatCurrency(financials.bookingFeeAmount)}
+                        {" · "}Subtotal{" "}
                         {formatCurrency(financials.subtotalPrice)}
                         {" · "}Add-ons{" "}
                         {formatCurrency(financials.addonsTotal)}

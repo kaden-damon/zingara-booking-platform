@@ -3,6 +3,7 @@ import {
   loadCorporateRequests,
   persistCorporateRequests,
 } from "@/lib/supabase/corporateRequestsServer";
+import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 import { type CorporateRequest } from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
@@ -63,6 +64,10 @@ export async function POST(request: Request) {
       serviceClient,
       requests,
     );
+    void sendStaffPushNotification({
+      corporateRequestId: persistedRequests[0]?.id,
+      trigger: "new-corporate-request",
+    });
 
     return Response.json({ requests: persistedRequests });
   } catch (error) {

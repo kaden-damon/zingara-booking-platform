@@ -275,10 +275,102 @@ export async function DELETE(request: Request) {
 
   try {
     const url = new URL(request.url);
-    const id = url.searchParams.get("id");
+    const body = (await request.json().catch(() => ({}))) as {
+      id?: string;
+      replacementUserId?: string;
+    };
+    const id = body.id ?? url.searchParams.get("id");
+    const replacementUserId =
+      body.replacementUserId ?? url.searchParams.get("replacementUserId");
 
     if (!id) {
       return Response.json({ error: "Staff profile id is required." }, { status: 400 });
+    }
+
+    if (!replacementUserId) {
+      return Response.json(
+        { error: "Replacement owner is required." },
+        { status: 400 },
+      );
+    }
+
+    const { data: profile, error: profileError } = await auth.serviceClient
+      .from("staff_profiles")
+      .select("id,user_id")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    if (!profile?.user_id) {
+      return Response.json({ error: "Staff profile was not found." }, { status: 404 });
+    }
+
+    if (profile.user_id === auth.user?.id) {
+      return Response.json(
+        { error: "You cannot delete your own active staff profile." },
+        { status: 400 },
+      );
+    }
+
+    if (profile.user_id === replacementUserId) {
+      return Response.json(
+        { error: "Replacement owner must be a different staff user." },
+        { status: 400 },
+      );
+    }
+
+    const { data: replacementProfile, error: replacementError } =
+      await auth.serviceClient
+        .from("staff_profiles")
+        .select("id,user_id,active")
+        .eq("user_id", replacementUserId)
+        .maybeSingle();
+
+    if (replacementError) {
+      throw replacementError;
+    }
+
+    if (!replacementProfile?.active) {
+      return Response.json(
+        { error: "Replacement owner must be an active staff user." },
+        { status: 400 },
+      );
+    }
+
+    const transferOperations = [
+      auth.serviceClient
+        .from("communications")
+        .update({ created_by: replacementUserId })
+        .eq("created_by", profile.user_id),
+      auth.serviceClient
+        .from("communication_batches")
+        .update({ created_by: replacementUserId })
+        .eq("created_by", profile.user_id),
+      auth.serviceClient
+        .from("communication_templates")
+        .update({ created_by: replacementUserId })
+        .eq("created_by", profile.user_id),
+      auth.serviceClient
+        .from("communication_templates")
+        .update({ updated_by: replacementUserId })
+        .eq("updated_by", profile.user_id),
+      auth.serviceClient
+        .from("booking_lifecycle_events")
+        .update({ changed_by: replacementUserId })
+        .eq("changed_by", profile.user_id),
+      auth.serviceClient
+        .from("ticket_validations")
+        .update({ validated_by: replacementUserId })
+        .eq("validated_by", profile.user_id),
+    ];
+    const transferResults = await Promise.all(transferOperations);
+    const transferError = transferResults.find((result) => result.error)?.error;
+
+    if (transferError) {
+      throw transferError;
     }
 
     const { error } = await auth.serviceClient
@@ -288,6 +380,13 @@ export async function DELETE(request: Request) {
 
     if (error) {
       throw error;
+    }
+
+    const { error: deleteUserError } =
+      await auth.serviceClient.auth.admin.deleteUser(profile.user_id);
+
+    if (deleteUserError) {
+      throw deleteUserError;
     }
 
     return Response.json({ success: true });

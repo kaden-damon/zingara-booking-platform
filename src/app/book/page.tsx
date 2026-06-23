@@ -9,7 +9,11 @@ import {
 import QRCode from "qrcode";
 
 import ScannableQrCode from "../components/ScannableQrCode";
-import { sendZingaraBrowserNotification } from "../../lib/browserNotifications";
+import {
+  registerZingaraPushSubscription,
+  sendZingaraBrowserNotification,
+  sendZingaraGuestPushNotification,
+} from "../../lib/browserNotifications";
 import { createBooking } from "../../lib/supabase/bookings";
 import { getTemplates } from "../../lib/supabase/communicationTemplates";
 import { getShows } from "../../lib/supabase/shows";
@@ -39,6 +43,7 @@ import {
   getCommunicationTemplate,
   getCompactShowDateTime,
   getSouthAfricaShowTime,
+  getIncludedBookingFeeBreakdown,
   getStoredDemoTables,
   getTableAllocationDisplay,
   getTicketUrl,
@@ -53,6 +58,11 @@ type PromoCode = {
   description: string;
   discountType: PromoDiscountType;
   value: number;
+};
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
 const calendarWeekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -576,6 +586,33 @@ async function loadImageFromUrl(url: string) {
   }
 }
 
+function getBookingInstallState() {
+  if (typeof window === "undefined") {
+    return {
+      isAndroid: false,
+      isIOS: false,
+      isStandalone: false,
+    };
+  }
+
+  const navigatorWithStandalone = window.navigator as Navigator & {
+    standalone?: boolean;
+  };
+  const userAgent = window.navigator.userAgent;
+  const isIOS =
+    /iPad|iPhone|iPod/.test(userAgent) ||
+    (window.navigator.platform === "MacIntel" &&
+      window.navigator.maxTouchPoints > 1);
+
+  return {
+    isAndroid: /Android/i.test(userAgent),
+    isIOS,
+    isStandalone:
+      window.matchMedia("(display-mode: standalone)").matches ||
+      navigatorWithStandalone.standalone === true,
+  };
+}
+
 export default function BookingPage() {
   const [shows, setShows] = useState<DemoShow[]>([]);
   const [venueSettings, setVenueSettings] = useState(
@@ -620,6 +657,14 @@ export default function BookingPage() {
   const [allocatedTableNumber, setAllocatedTableNumber] =
     useState<string | null>(null);
   const [ticketDownloadStatus, setTicketDownloadStatus] = useState("");
+  const [installPrompt, setInstallPrompt] =
+    useState<BeforeInstallPromptEvent | null>(null);
+  const [isIOSDevice, setIsIOSDevice] = useState(false);
+  const [isAndroidDevice, setIsAndroidDevice] = useState(false);
+  const [isStandaloneApp, setIsStandaloneApp] = useState(false);
+  const [showTicketReadyPrompt, setShowTicketReadyPrompt] =
+    useState(true);
+  const [installPromptStatus, setInstallPromptStatus] = useState("");
   const [paymentOption, setPaymentOption] =
     useState<PaymentOption>("full");
   const [promoCodeInput, setPromoCodeInput] = useState("");
@@ -652,6 +697,8 @@ export default function BookingPage() {
   );
   const seatingSubtotal =
     selectedZone ? dynamicPricePerPerson * partySize : 0;
+  const includedBookingFeeBreakdown =
+    getIncludedBookingFeeBreakdown(seatingSubtotal);
   const subtotal = seatingSubtotal + addonsTotal;
   const appliedPromoCode = getPromoCode(promoCodeInput);
   const discountAmount = getDiscountAmount(
@@ -1006,6 +1053,39 @@ export default function BookingPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const installState = getBookingInstallState();
+
+    setIsIOSDevice(installState.isIOS);
+    setIsAndroidDevice(installState.isAndroid);
+    setIsStandaloneApp(installState.isStandalone);
+
+    function handleBeforeInstallPrompt(event: Event) {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    }
+
+    function handleAppInstalled() {
+      setInstallPrompt(null);
+      setIsStandaloneApp(true);
+      setInstallPromptStatus("App installed. Enable notifications next.");
+    }
+
+    window.addEventListener(
+      "beforeinstallprompt",
+      handleBeforeInstallPrompt,
+    );
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    return () => {
+      window.removeEventListener(
+        "beforeinstallprompt",
+        handleBeforeInstallPrompt,
+      );
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
   function handleContinueBooking() {
     if (
       !selectedZone ||
@@ -1036,7 +1116,7 @@ export default function BookingPage() {
     setAllocatedTableNumber(null);
   }
 
-  function handleJoinWaitlist() {
+  async function handleJoinWaitlist() {
     if (!selectedShowId || !selectedShow) {
       return;
     }
@@ -1057,11 +1137,16 @@ export default function BookingPage() {
       createdAt: new Date().toISOString(),
     };
 
-    void createWaitlistEntry(entry);
+    await createWaitlistEntry(entry);
+    void registerZingaraPushSubscription({
+      bookingReference: reference,
+      customerEmail: waitlistInfo.email,
+      customerName: waitlistInfo.name,
+    });
     setWaitlistReference(reference);
   }
 
-  function handleFakePayment() {
+  async function handleFakePayment() {
     if (
       !selectedZone ||
       !selectedShow ||
@@ -1220,12 +1305,80 @@ export default function BookingPage() {
       customerInfo.name,
     );
 
-    void createBooking(bookingWithCommunication);
+    await createBooking(bookingWithCommunication);
+    await registerZingaraPushSubscription({
+      bookingReference: reference,
+      customerEmail: customerInfo.email,
+      customerName: customerInfo.name,
+    });
+    if (booking.status === "confirmed") {
+      void sendZingaraGuestPushNotification("reservation-confirmed", {
+        bookingReference: reference,
+      });
+    } else {
+      void sendZingaraGuestPushNotification("reservation-pending-payment", {
+        bookingReference: reference,
+      });
+    }
+    if ((booking.amountPaid ?? 0) > 0) {
+      void sendZingaraGuestPushNotification("payment-received", {
+        bookingReference: reference,
+      });
+    }
     storeDemoTables(nextTables);
     setTables(nextTables);
     setAllocatedTableNumber(allocatedTable.tableNumber);
     setBookingReference(reference);
+    setShowTicketReadyPrompt(true);
+    setInstallPromptStatus("");
     void sendZingaraBrowserNotification("booking-confirmed");
+  }
+
+  async function installZingaraApp() {
+    if (isStandaloneApp) {
+      await enableTicketNotifications();
+      return;
+    }
+
+    if (!installPrompt) {
+      setInstallPromptStatus(
+        isIOSDevice
+          ? "Use Share, then Add to Home Screen to install."
+          : "Use your browser menu to install the app.",
+      );
+      return;
+    }
+
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+
+    setInstallPrompt(null);
+
+    if (choice.outcome === "accepted") {
+      setInstallPromptStatus("App installed. Enable notifications next.");
+      await enableTicketNotifications();
+    } else {
+      setInstallPromptStatus("You can install the app later from this ticket.");
+    }
+  }
+
+  async function enableTicketNotifications() {
+    if (!bookingReference) {
+      return;
+    }
+
+    setInstallPromptStatus("Enabling notifications...");
+    const result = await registerZingaraPushSubscription({
+      bookingReference,
+      customerEmail: customerInfo.email,
+      customerName: customerInfo.name,
+    });
+
+    setInstallPromptStatus(
+      result.ok
+        ? "Notifications enabled for this booking."
+        : result.reason ?? "Notifications could not be enabled.",
+    );
   }
 
   function getZoneAvailability(option: SeatingOption) {
@@ -1347,6 +1500,8 @@ export default function BookingPage() {
       ["Ticket Code", createTicketCode(bookingReference)],
       ["Seating", selectedZone.title],
       ["Guests", `${partySize}`],
+      ["Ticket", formatCurrency(includedBookingFeeBreakdown.ticketAmount)],
+      ["Booking Fee", formatCurrency(includedBookingFeeBreakdown.bookingFee)],
       ["Service Fee", formatCurrency(serviceFeeAmount)],
       ["Total Due", formatCurrency(total)],
       ["Payment", paymentOption === "deposit" ? "Deposit Paid" : "Paid"],
@@ -2501,8 +2656,20 @@ export default function BookingPage() {
 
                   <div className="mb-3 rounded-xl border border-white/10 bg-black/25 p-3 text-sm text-zinc-300 sm:mb-4 sm:rounded-2xl sm:p-4">
                     <div className="flex justify-between gap-4">
-                      <span>Seating</span>
-                      <span>{formatCurrency(seatingSubtotal)}</span>
+                      <span>Ticket</span>
+                      <span>
+                        {formatCurrency(
+                          includedBookingFeeBreakdown.ticketAmount,
+                        )}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex justify-between gap-4">
+                      <span>Booking Fee</span>
+                      <span>
+                        {formatCurrency(
+                          includedBookingFeeBreakdown.bookingFee,
+                        )}
+                      </span>
                     </div>
                     <div className="mt-2 flex justify-between gap-4">
                       <span>Add-Ons</span>
@@ -2773,8 +2940,20 @@ export default function BookingPage() {
 
               <div className="col-span-2 rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3 text-sm text-zinc-300 sm:rounded-2xl sm:p-4">
                 <div className="flex justify-between gap-4">
-                  <span>Seating Total</span>
-                  <span>{formatCurrency(seatingSubtotal)}</span>
+                  <span>Ticket</span>
+                  <span>
+                    {formatCurrency(
+                      includedBookingFeeBreakdown.ticketAmount,
+                    )}
+                  </span>
+                </div>
+                <div className="mt-2 flex justify-between gap-4">
+                  <span>Booking Fee</span>
+                  <span>
+                    {formatCurrency(
+                      includedBookingFeeBreakdown.bookingFee,
+                    )}
+                  </span>
                 </div>
                 <div className="mt-2 flex justify-between gap-4">
                   <span>Add-Ons</span>
@@ -2893,6 +3072,26 @@ export default function BookingPage() {
                       </div>
                       <div>
                         <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
+                          Ticket
+                        </p>
+                        <p className="mt-1 text-base font-bold sm:text-lg">
+                          {formatCurrency(
+                            includedBookingFeeBreakdown.ticketAmount,
+                          )}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
+                          Booking Fee
+                        </p>
+                        <p className="mt-1 text-base font-bold sm:text-lg">
+                          {formatCurrency(
+                            includedBookingFeeBreakdown.bookingFee,
+                          )}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
                           Paid Today
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
@@ -2959,6 +3158,22 @@ export default function BookingPage() {
                           )}
                           <p>
                             <span className="text-zinc-500">
+                              Ticket:
+                            </span>{" "}
+                            {formatCurrency(
+                              includedBookingFeeBreakdown.ticketAmount,
+                            )}
+                          </p>
+                          <p>
+                            <span className="text-zinc-500">
+                              Booking Fee:
+                            </span>{" "}
+                            {formatCurrency(
+                              includedBookingFeeBreakdown.bookingFee,
+                            )}
+                          </p>
+                          <p>
+                            <span className="text-zinc-500">
                               Paid:
                             </span>{" "}
                             {formatCurrency(amountDueNow)}
@@ -3006,6 +3221,66 @@ export default function BookingPage() {
                       )}
                     </div>
                   </div>
+
+                  {showTicketReadyPrompt && (
+                    <div className="rounded-[1.25rem] border border-[#D8C36A]/40 bg-[radial-gradient(circle_at_top,#241B0A_0%,#111111_48%,#050505_100%)] p-4 shadow-[0_0_36px_rgba(216,195,106,0.14)] sm:rounded-[1.5rem] sm:p-5">
+                      <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#F2D66C]">
+                        <span aria-hidden="true">🎟</span> Ticket Ready
+                      </p>
+                      <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
+                        Install the Zingara App to receive booking
+                        updates, get event reminders, and access your
+                        ticket instantly.
+                      </p>
+
+                      {isIOSDevice && !isStandaloneApp && (
+                        <div className="mt-4 rounded-2xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-300">
+                          <p className="font-semibold text-white">
+                            iPhone / iPad setup
+                          </p>
+                          <ol className="mt-2 space-y-1 text-zinc-400">
+                            <li>1. Tap Share</li>
+                            <li>2. Add to Home Screen</li>
+                            <li>3. Open the app</li>
+                            <li>4. Enable notifications</li>
+                          </ol>
+                        </div>
+                      )}
+
+                      {isAndroidDevice && !isStandaloneApp && (
+                        <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          {installPrompt
+                            ? "Native install prompt available"
+                            : "Use your browser menu if the install prompt is not shown"}
+                        </p>
+                      )}
+
+                      {installPromptStatus && (
+                        <p className="mt-3 text-sm font-semibold text-emerald-300">
+                          {installPromptStatus}
+                        </p>
+                      )}
+
+                      <div className="mt-4 flex flex-wrap gap-2 sm:gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void installZingaraApp()}
+                          className="rounded-full bg-[#D8C36A] px-4 py-2.5 text-xs font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.2)] transition hover:bg-[#F2D66C] sm:px-5 sm:py-3 sm:text-sm"
+                        >
+                          {isStandaloneApp
+                            ? "Enable Notifications"
+                            : "Install App"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowTicketReadyPrompt(false)}
+                          className="rounded-full border border-white/15 px-4 py-2.5 text-xs font-semibold text-zinc-300 transition hover:bg-white hover:text-black sm:px-5 sm:py-3 sm:text-sm"
+                        >
+                          Maybe Later
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -1,5 +1,9 @@
 import {
   type BookingStatus,
+  type BookingLifecycleEvent,
+  type CommunicationChannel,
+  type CommunicationRecord,
+  type CommunicationTrigger,
   type DemoBooking,
   type PaymentStatus,
   createTicketCode,
@@ -8,15 +12,7 @@ import {
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
 import { fetchSupabaseApi } from "./apiClient";
-import {
-  getCommunicationsForBooking,
-  syncBookingCommunications,
-} from "./communications";
 import { getOrCreateCustomerIdFromInfo } from "./customers";
-import {
-  getLifecycleEventsForBooking,
-  syncBookingLifecycleEvents,
-} from "./lifecycleEvents";
 
 type SupabaseBookingStatus =
   | "cancelled"
@@ -67,6 +63,56 @@ type SupabaseShowRow = {
   id: string;
   notes: string | null;
   time: string;
+};
+
+type SupabaseCommunicationChannel =
+  | "email"
+  | "internal_note"
+  | "push"
+  | "sms"
+  | "whatsapp";
+
+type SupabaseCommunicationType =
+  | "booking_confirmation"
+  | "complimentary_booking"
+  | "corporate_tentative_booking"
+  | "custom_message"
+  | "operational_broadcast"
+  | "payment_confirmation"
+  | "refund_notice"
+  | "reservation_confirmed"
+  | "reservation_pending"
+  | "show_reminder";
+
+type SupabaseCommunicationRow = {
+  batch_id: string | null;
+  booking_id: string | null;
+  channel: SupabaseCommunicationChannel;
+  created_at: string;
+  customer_id: string | null;
+  id: string;
+  message: string;
+  sent_at: string | null;
+  show_id: string | null;
+  status: string;
+  subject: string | null;
+  type: SupabaseCommunicationType;
+};
+
+type SupabaseLifecycleEventRow = {
+  booking_id: string;
+  changed_by: string | null;
+  created_at: string;
+  from_status: SupabaseBookingStatus | null;
+  id: string;
+  note: string | null;
+  reason: string | null;
+  to_status: SupabaseBookingStatus;
+};
+
+type SupabaseBookingAggregateRow = SupabaseBookingRow & {
+  communication_rows?: SupabaseCommunicationRow[];
+  lifecycle_event_rows?: SupabaseLifecycleEventRow[];
 };
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
@@ -142,6 +188,129 @@ function toDemoPaymentStatus(status: SupabasePaymentStatus): PaymentStatus {
   }
 
   return "pending-payment";
+}
+
+function toCommunicationTrigger(
+  type: SupabaseCommunicationType,
+): CommunicationTrigger {
+  if (type === "booking_confirmation") {
+    return "booking-confirmation";
+  }
+
+  if (type === "payment_confirmation") {
+    return "payment-confirmation";
+  }
+
+  if (type === "reservation_confirmed") {
+    return "reservation-confirmed";
+  }
+
+  if (type === "reservation_pending") {
+    return "reservation-pending";
+  }
+
+  if (type === "complimentary_booking") {
+    return "complimentary-booking";
+  }
+
+  if (type === "corporate_tentative_booking") {
+    return "corporate-tentative-booking";
+  }
+
+  if (type === "show_reminder") {
+    return "show-reminder";
+  }
+
+  if (type === "refund_notice") {
+    return "cancellation-refund";
+  }
+
+  if (type === "operational_broadcast") {
+    return "operational-broadcast";
+  }
+
+  return "custom-message";
+}
+
+function toSupabaseType(
+  trigger?: CommunicationTrigger,
+): SupabaseCommunicationType {
+  if (trigger === "booking-confirmation") {
+    return "booking_confirmation";
+  }
+
+  if (trigger === "payment-confirmation") {
+    return "payment_confirmation";
+  }
+
+  if (trigger === "reservation-confirmed") {
+    return "reservation_confirmed";
+  }
+
+  if (trigger === "reservation-pending") {
+    return "reservation_pending";
+  }
+
+  if (trigger === "complimentary-booking") {
+    return "complimentary_booking";
+  }
+
+  if (trigger === "corporate-tentative-booking") {
+    return "corporate_tentative_booking";
+  }
+
+  if (trigger === "show-reminder") {
+    return "show_reminder";
+  }
+
+  if (trigger === "cancellation-refund") {
+    return "refund_notice";
+  }
+
+  if (trigger === "operational-broadcast") {
+    return "operational_broadcast";
+  }
+
+  return "custom_message";
+}
+
+function toCommunicationChannel(
+  channel: SupabaseCommunicationChannel,
+): CommunicationChannel {
+  if (channel === "whatsapp" || channel === "internal_note") {
+    return "email";
+  }
+
+  return channel;
+}
+
+function toSupabaseChannel(channel: CommunicationChannel) {
+  return channel;
+}
+
+function toCommunicationRecord(
+  row: SupabaseCommunicationRow,
+): CommunicationRecord {
+  return {
+    channel: toCommunicationChannel(row.channel),
+    id: row.id,
+    message: row.message,
+    sentAt: row.sent_at ?? row.created_at,
+    subject: row.subject ?? undefined,
+    trigger: toCommunicationTrigger(row.type),
+  };
+}
+
+function toLifecycleEvent(row: SupabaseLifecycleEventRow): BookingLifecycleEvent {
+  return {
+    createdAt: row.created_at,
+    fromStatus: row.from_status
+      ? toDemoBookingStatus(row.from_status)
+      : undefined,
+    id: row.id,
+    note: row.note ?? row.reason ?? undefined,
+    toStatus: toDemoBookingStatus(row.to_status),
+  };
 }
 
 function parseShowNotes(notes: string | null) {
@@ -293,7 +462,58 @@ async function toSupabaseBooking(booking: DemoBooking) {
   };
 }
 
-async function toDemoBooking(row: SupabaseBookingRow): Promise<DemoBooking> {
+function mergeCommunicationHistory(
+  booking: DemoBooking,
+  rows: SupabaseCommunicationRow[] = [],
+) {
+  const supabaseCommunications = rows.map(toCommunicationRecord);
+
+  return [
+    ...supabaseCommunications,
+    ...(booking.communicationHistory ?? []).filter(
+      (communication) =>
+        !rows.some(
+          (row) =>
+            row.channel === toSupabaseChannel(communication.channel) &&
+            row.message === communication.message &&
+            row.sent_at === communication.sentAt &&
+            row.subject === (communication.subject ?? null) &&
+            row.type === toSupabaseType(communication.trigger),
+        ),
+    ),
+  ].sort(
+    (left, right) =>
+      new Date(right.sentAt).getTime() - new Date(left.sentAt).getTime(),
+  );
+}
+
+function mergeLifecycleHistory(
+  booking: DemoBooking,
+  rows: SupabaseLifecycleEventRow[] = [],
+) {
+  const supabaseEvents = rows.map(toLifecycleEvent);
+
+  return [
+    ...supabaseEvents,
+    ...(booking.lifecycleHistory ?? []).filter(
+      (event) =>
+        !rows.some(
+          (row) =>
+            row.created_at === event.createdAt &&
+            row.from_status ===
+              (event.fromStatus ? toSupabaseBookingStatus(event.fromStatus) : null) &&
+            row.note === (event.note ?? null) &&
+            row.to_status === toSupabaseBookingStatus(event.toStatus),
+        ),
+    ),
+  ].sort(
+    (left, right) =>
+      new Date(right.createdAt).getTime() -
+      new Date(left.createdAt).getTime(),
+  );
+}
+
+async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBooking> {
   const metadataBooking = parseBookingNotes(row.notes);
 
   if (metadataBooking) {
@@ -308,8 +528,11 @@ async function toDemoBooking(row: SupabaseBookingRow): Promise<DemoBooking> {
 
     return {
       ...booking,
-      communicationHistory: await getCommunicationsForBooking(booking),
-      lifecycleHistory: await getLifecycleEventsForBooking(booking),
+      communicationHistory: mergeCommunicationHistory(
+        booking,
+        row.communication_rows,
+      ),
+      lifecycleHistory: mergeLifecycleHistory(booking, row.lifecycle_event_rows),
     };
   }
 
@@ -349,14 +572,19 @@ async function toDemoBooking(row: SupabaseBookingRow): Promise<DemoBooking> {
 
   return {
     ...booking,
-    communicationHistory: await getCommunicationsForBooking(booking),
-    lifecycleHistory: await getLifecycleEventsForBooking(booking),
+    communicationHistory: mergeCommunicationHistory(
+      booking,
+      row.communication_rows,
+    ),
+    lifecycleHistory: mergeLifecycleHistory(booking, row.lifecycle_event_rows),
   };
 }
 
 async function getSupabaseBookings() {
   try {
-    const payload = await fetchSupabaseApi<{ rows: SupabaseBookingRow[] }>(
+    const payload = await fetchSupabaseApi<{
+      rows: SupabaseBookingAggregateRow[];
+    }>(
       "/api/admin/bookings",
     );
 

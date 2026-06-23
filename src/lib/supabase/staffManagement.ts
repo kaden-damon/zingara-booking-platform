@@ -194,14 +194,18 @@ export async function updateStaffActive(id: string, active: boolean) {
   }
 }
 
-export async function deleteStaffProfile(id: string) {
+export async function deleteStaffProfile(
+  id: string,
+  replacementUserId: string,
+) {
   try {
-    await fetchSupabaseApi<{ success: boolean }>(
-      `/api/admin/staff?id=${encodeURIComponent(id)}`,
-      {
-        method: "DELETE",
+    await fetchSupabaseApi<{ success: boolean }>("/api/admin/staff", {
+      body: {
+        id,
+        replacementUserId,
       },
-    );
+      method: "DELETE",
+    });
 
     return true;
   } catch (error) {

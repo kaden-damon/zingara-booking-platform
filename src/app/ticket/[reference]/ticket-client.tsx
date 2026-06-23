@@ -19,6 +19,7 @@ import {
   defaultShows,
   getBookingTicketState,
   getCompactShowDateTime,
+  getIncludedBookingFeeBreakdown,
   getStoredVenueSettings,
   getTicketStateClasses,
   getTicketUrl,
@@ -65,6 +66,10 @@ function getTicketState(
   }
 
   return booking ? getBookingTicketState(booking) : null;
+}
+
+function formatCurrency(amount: number) {
+  return `R${amount.toLocaleString()}`;
 }
 
 export default function LiveTicketClient({
@@ -168,6 +173,15 @@ export default function LiveTicketClient({
     : waitlistEntry
       ? createTicketCode(waitlistEntry.id)
       : createTicketCode(reference);
+  const includedBookingFeeBreakdown = booking
+    ? getIncludedBookingFeeBreakdown(
+        Math.max(
+          (booking.subtotalPrice ?? booking.totalPrice) -
+            (booking.addonsTotal ?? 0),
+          0,
+        ),
+      )
+    : null;
   const paymentStatus = booking
     ? getPaymentStatus(booking)
     : undefined;
@@ -330,8 +344,21 @@ export default function LiveTicketClient({
                     Payment & Wallet Sync Foundation
                   </p>
                   <p className="mt-2 text-sm text-zinc-400">
-                    Paid R{(booking.amountPaid ?? 0).toLocaleString()} ·
-                    Balance R{(booking.balanceDue ?? 0).toLocaleString()}
+                    {includedBookingFeeBreakdown && (
+                      <>
+                        Ticket{" "}
+                        {formatCurrency(
+                          includedBookingFeeBreakdown.ticketAmount,
+                        )}{" "}
+                        · Booking Fee{" "}
+                        {formatCurrency(
+                          includedBookingFeeBreakdown.bookingFee,
+                        )}{" "}
+                        ·{" "}
+                      </>
+                    )}
+                    Paid {formatCurrency(booking.amountPaid ?? 0)} ·
+                    Balance {formatCurrency(booking.balanceDue ?? 0)}
                   </p>
                   <p className="mt-3 text-xs text-zinc-500">
                     {venueConfig.ticketBranding.footerNote}

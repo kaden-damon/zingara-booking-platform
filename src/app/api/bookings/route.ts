@@ -12,6 +12,7 @@ import {
   getTicketUrl,
 } from "@/lib/zingaraDemo";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -809,6 +810,18 @@ export async function POST(request: Request) {
 
     await syncLifecycleEvents(supabase, booking, bookingId);
     await syncCommunications(supabase, booking, bookingId, customerId, showId);
+    console.info("[Zingara push diagnostics] New booking trigger queued", {
+      bookingReference: booking.reference,
+    });
+    void sendStaffPushNotification({
+      bookingReference: booking.reference,
+      trigger: "new-booking",
+    }).then((result) => {
+      console.info("[Zingara push diagnostics] New booking trigger completed", {
+        bookingReference: booking.reference,
+        result,
+      });
+    });
 
     return Response.json({
       bookingId,

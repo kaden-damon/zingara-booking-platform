@@ -17,6 +17,16 @@ export const defaultZingaraLandingLogoUrl =
   "/brand/zingara-logo-landing.svg";
 export const defaultZingaraLogoUrl = "/brand/zingara-activator.svg";
 export const defaultZingaraFaviconUrl = "/brand/wax-seal.png";
+export const includedBookingFeeAmount = 10;
+
+export function getIncludedBookingFeeBreakdown(ticketGrossAmount = 0) {
+  const bookingFee = ticketGrossAmount > 0 ? includedBookingFeeAmount : 0;
+
+  return {
+    bookingFee,
+    ticketAmount: Math.max(ticketGrossAmount - bookingFee, 0),
+  };
+}
 
 export type DemoVenueSettings = {
   brandTitle: string;

@@ -34,7 +34,80 @@ export async function GET(request: Request) {
     );
   }
 
-  return Response.json({ rows: data ?? [] });
+  const rows = data ?? [];
+  const bookingIds = rows
+    .map((booking) => booking.id)
+    .filter((id): id is string => Boolean(id));
+
+  if (bookingIds.length === 0) {
+    return Response.json({ rows });
+  }
+
+  const [
+    { data: communications, error: communicationsError },
+    { data: lifecycleEvents, error: lifecycleError },
+  ] = await Promise.all([
+    serviceClient
+      .from("communications")
+      .select(
+        "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
+      )
+      .in("booking_id", bookingIds)
+      .order("sent_at", { ascending: false }),
+    serviceClient
+      .from("booking_lifecycle_events")
+      .select("id,booking_id,from_status,to_status,note,reason,changed_by,created_at")
+      .in("booking_id", bookingIds)
+      .order("created_at", { ascending: false }),
+  ]);
+
+  if (communicationsError) {
+    console.error(
+      "[Zingara API] Failed to load booking communications aggregate",
+      communicationsError,
+    );
+  }
+
+  if (lifecycleError) {
+    console.error(
+      "[Zingara API] Failed to load booking lifecycle aggregate",
+      lifecycleError,
+    );
+  }
+
+  const communicationsByBookingId = new Map<string, unknown[]>();
+
+  for (const communication of communications ?? []) {
+    if (!communication.booking_id) {
+      continue;
+    }
+
+    communicationsByBookingId.set(communication.booking_id, [
+      ...(communicationsByBookingId.get(communication.booking_id) ?? []),
+      communication,
+    ]);
+  }
+
+  const lifecycleByBookingId = new Map<string, unknown[]>();
+
+  for (const lifecycleEvent of lifecycleEvents ?? []) {
+    if (!lifecycleEvent.booking_id) {
+      continue;
+    }
+
+    lifecycleByBookingId.set(lifecycleEvent.booking_id, [
+      ...(lifecycleByBookingId.get(lifecycleEvent.booking_id) ?? []),
+      lifecycleEvent,
+    ]);
+  }
+
+  return Response.json({
+    rows: rows.map((booking) => ({
+      ...booking,
+      communication_rows: communicationsByBookingId.get(booking.id) ?? [],
+      lifecycle_event_rows: lifecycleByBookingId.get(booking.id) ?? [],
+    })),
+  });
 }
 
 function getRouteClient() {
