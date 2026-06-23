@@ -5989,30 +5989,27 @@ export default function AdminDashboardPage() {
   if (!currentStaff) {
     return (
       <main className="relative isolate z-10 flex min-h-screen items-center justify-center bg-black px-4 py-10 text-white sm:px-6 sm:py-16">
-        <section className="relative z-10 w-full max-w-3xl rounded-[1.5rem] border border-[#8D7A2F]/40 bg-[radial-gradient(circle_at_top,#2A1A0D_0%,#101010_46%,#050505_100%)] p-5 shadow-2xl shadow-[#8D7A2F]/10 sm:rounded-[2rem] sm:p-8">
-          <p className="mb-3 text-sm font-semibold uppercase tracking-[0.28em] text-[#D8C36A]">
-            Staff Access
-          </p>
-          <h1 className="text-3xl font-bold sm:text-5xl">
-            Zingara Admin Login
-          </h1>
-          <p className="mt-3 text-zinc-400">
-            Staff access for venue operations.
-          </p>
+        <section className="relative z-10 w-full max-w-3xl rounded-[1.5rem] border border-[#8D7A2F]/40 bg-[radial-gradient(circle_at_top,#2A1A0D_0%,#101010_46%,#050505_100%)] p-5 text-center shadow-2xl shadow-[#8D7A2F]/10 sm:rounded-[2rem] sm:p-8">
           <div
             aria-label={venueConfig.brandTitle}
-            className="mt-5 h-16 w-44 bg-contain bg-left bg-no-repeat sm:mt-6 sm:h-20 sm:w-56"
+            className="mx-auto h-16 w-44 bg-contain bg-center bg-no-repeat sm:h-20 sm:w-56"
             style={{
               backgroundImage: `url("${venueConfig.logoUrl}")`,
             }}
           />
+          <h1 className="mt-6 text-3xl font-bold uppercase sm:text-5xl">
+            Admin Login
+          </h1>
+          <p className="mt-3 text-sm font-semibold uppercase tracking-[0.28em] text-[#D8C36A]">
+            Staff Access
+          </p>
 
           <form
             onSubmit={login}
-            className="mt-8 grid grid-cols-1 gap-4"
+            className="mt-8 grid grid-cols-1 gap-4 text-left"
           >
             <label>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+              <span className="mb-2 block text-center text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                 Username
               </span>
               <input
@@ -6023,12 +6020,12 @@ export default function AdminDashboardPage() {
                     username: event.target.value,
                   }))
                 }
-                className="w-full rounded-2xl border border-zinc-700 bg-black px-4 py-3 text-base sm:px-5 sm:py-4 sm:text-lg"
+                className="w-full rounded-full border border-zinc-700 bg-black px-4 py-3 text-base sm:px-5 sm:py-4 sm:text-lg"
               />
             </label>
 
             <label>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+              <span className="mb-2 block text-center text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                 Password
               </span>
               <input
@@ -6040,7 +6037,7 @@ export default function AdminDashboardPage() {
                     password: event.target.value,
                   }))
                 }
-                className="w-full rounded-2xl border border-zinc-700 bg-black px-4 py-3 text-base sm:px-5 sm:py-4 sm:text-lg"
+                className="w-full rounded-full border border-zinc-700 bg-black px-4 py-3 text-base sm:px-5 sm:py-4 sm:text-lg"
               />
             </label>
 
