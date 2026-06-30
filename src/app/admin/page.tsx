@@ -386,7 +386,8 @@ type AdminTab =
   | "operations"
   | "customers"
   | "analytics"
-  | "settings";
+  | "settings"
+  | "academy";
 type BookingViewMode = "grid" | "list";
 type FloorZoneFilter = SeatingZoneId | "all";
 type OperationsTab = "floor" | "check-in" | "waitlist";
@@ -414,7 +415,4154 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "customers", label: "Customers" },
   { id: "analytics", label: "Analytics" },
   { id: "settings", label: "Settings" },
+  { id: "academy", label: "🎓 Academy" },
 ];
+
+type AcademyArticle = {
+  category: string;
+  commonMistakes: string[];
+  difficulty: "advanced" | "beginner" | "intermediate";
+  howTo: string[];
+  id: string;
+  keywords: string[];
+  moduleId: string;
+  purpose: string;
+  relatedActions: AcademyActionId[];
+  related: string[];
+  tips: string[];
+  title: string;
+  whenToUse: string;
+};
+
+type AcademyModule = {
+  difficulty: AcademyArticle["difficulty"];
+  estimatedMinutes: number;
+  id: string;
+  title: string;
+};
+
+type AcademyActionId =
+  | "bookings"
+  | "crm"
+  | "waitlist"
+  | "communications"
+  | "tickets"
+  | "staff";
+type AcademySuggestion =
+  | {
+      articleId: string;
+      id: string;
+      label: string;
+      type: "Title";
+    }
+  | {
+      category: string;
+      id: string;
+      label: string;
+      type: "Category";
+    }
+  | {
+      id: string;
+      label: string;
+      type: "Keyword";
+    };
+type AcademyLearningPath = {
+  certification: string;
+  moduleIds: string[];
+  role: AdminRole;
+  title: string;
+};
+
+const academyStorageKeys = {
+  favourites: "zingara-academy-favourites",
+  read: "zingara-academy-read",
+  recent: "zingara-academy-recent",
+};
+
+const academyDifficultyLabels: Record<AcademyArticle["difficulty"], string> = {
+  advanced: "🔴 Advanced",
+  beginner: "🟢 Beginner",
+  intermediate: "🟡 Intermediate",
+};
+
+const academyActionLabels: Record<AcademyActionId, string> = {
+  bookings: "Open Bookings",
+  communications: "Open Communications",
+  crm: "Open CRM",
+  staff: "Open Staff",
+  tickets: "Open Tickets",
+  waitlist: "Open Waitlist",
+};
+
+const academyModules: AcademyModule[] = [
+  { difficulty: "beginner", estimatedMinutes: 30, id: "getting-started", title: "Getting Started" },
+  { difficulty: "beginner", estimatedMinutes: 35, id: "bookings", title: "Bookings" },
+  { difficulty: "intermediate", estimatedMinutes: 30, id: "corporate-bookings", title: "Corporate Bookings" },
+  { difficulty: "intermediate", estimatedMinutes: 25, id: "crm-guests", title: "CRM & Guests" },
+  { difficulty: "intermediate", estimatedMinutes: 20, id: "waitlist", title: "Waitlist" },
+  { difficulty: "advanced", estimatedMinutes: 30, id: "communications", title: "Communications" },
+  { difficulty: "intermediate", estimatedMinutes: 25, id: "tickets-check-in", title: "Tickets & Check-In" },
+  { difficulty: "advanced", estimatedMinutes: 35, id: "venue-operations", title: "Venue Operations" },
+  { difficulty: "advanced", estimatedMinutes: 25, id: "staff-permissions", title: "Staff & Permissions" },
+  { difficulty: "advanced", estimatedMinutes: 25, id: "settings", title: "Settings" },
+  { difficulty: "intermediate", estimatedMinutes: 25, id: "analytics-reporting", title: "Analytics & Reporting" },
+  { difficulty: "beginner", estimatedMinutes: 15, id: "faq", title: "Frequently Asked Questions" },
+];
+const allAcademyModuleIds = academyModules.map((module) => module.id);
+const academyLearningPaths: Record<AdminRole, AcademyLearningPath> = {
+  "box-office": {
+    certification: "Box Office Certification",
+    moduleIds: [
+      "getting-started",
+      "bookings",
+      "corporate-bookings",
+      "crm-guests",
+      "waitlist",
+      "communications",
+      "tickets-check-in",
+    ],
+    role: "box-office",
+    title: "Box Office Staff",
+  },
+  "box-office-staff": {
+    certification: "Box Office Certification",
+    moduleIds: [
+      "getting-started",
+      "bookings",
+      "corporate-bookings",
+      "crm-guests",
+      "waitlist",
+      "communications",
+      "tickets-check-in",
+    ],
+    role: "box-office-staff",
+    title: "Box Office Staff",
+  },
+  concierge: {
+    certification: "Venue Manager Certification",
+    moduleIds: [
+      "getting-started",
+      "venue-operations",
+      "bookings",
+      "communications",
+      "crm-guests",
+      "tickets-check-in",
+      "analytics-reporting",
+    ],
+    role: "concierge",
+    title: "Venue Manager",
+  },
+  finance: {
+    certification: "Super Admin Certification",
+    moduleIds: allAcademyModuleIds,
+    role: "finance",
+    title: "Super Admin",
+  },
+  "floor-manager": {
+    certification: "Floor Manager Certification",
+    moduleIds: [
+      "getting-started",
+      "tickets-check-in",
+      "venue-operations",
+      "crm-guests",
+    ],
+    role: "floor-manager",
+    title: "Floor Manager",
+  },
+  marketing: {
+    certification: "Venue Manager Certification",
+    moduleIds: [
+      "getting-started",
+      "communications",
+      "crm-guests",
+      "analytics-reporting",
+      "bookings",
+    ],
+    role: "marketing",
+    title: "Venue Manager",
+  },
+  "super-admin": {
+    certification: "Super Admin Certification",
+    moduleIds: allAcademyModuleIds,
+    role: "super-admin",
+    title: "Super Admin",
+  },
+  "venue-manager": {
+    certification: "Venue Manager Certification",
+    moduleIds: [
+      "getting-started",
+      "venue-operations",
+      "bookings",
+      "communications",
+      "crm-guests",
+      "tickets-check-in",
+      "analytics-reporting",
+    ],
+    role: "venue-manager",
+    title: "Venue Manager",
+  },
+};
+const academyCategories = academyModules.map((module) => module.title);
+
+const gettingStartedLessons: AcademyArticle[] = [
+  {
+    category: "Getting Started",
+    commonMistakes: [
+      "Using only one section of the platform and missing the connected guest history.",
+      "Skipping Academy lessons before working a live shift for the first time.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Start with this Getting Started module.",
+      "Read each lesson in order.",
+      "Use the related actions to open the live area being explained.",
+      "Mark lessons as complete as you become comfortable.",
+    ],
+    id: "welcome-to-zingara",
+    keywords: ["welcome", "onboarding", "platform", "academy"],
+    moduleId: "getting-started",
+    purpose: "Zingara is the booking and operations platform for The Royal Countess experience. It helps the team manage reservations, guest details, seating, tickets, communications, check-in, waitlists, corporate enquiries, and staff access from one place.",
+    relatedActions: ["bookings", "crm", "waitlist", "communications"],
+    related: ["Logging In", "Navigating the Platform", "Dashboard Overview"],
+    tips: [
+      "Think of the platform as the shared source of truth for the team.",
+      "Use Academy whenever you are unsure where to start or how a workflow should be handled.",
+    ],
+    title: "Welcome to Zingara",
+    whenToUse: "Use this lesson when you are new to the platform or need a quick orientation before service.",
+  },
+  {
+    category: "Getting Started",
+    commonMistakes: [
+      "Sharing login details with another staff member.",
+      "Leaving the admin area open on a shared device.",
+      "Continuing after a failed login without checking the email address.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the Admin Login page from the menu.",
+      "Enter your staff email address and password.",
+      "Select Enter Dashboard.",
+      "If you forget your password, use the reset process provided by your manager or Super Admin.",
+      "When you finish your shift, open the menu and select Logout.",
+    ],
+    id: "logging-in",
+    keywords: ["login", "staff access", "password", "sign out", "session"],
+    moduleId: "getting-started",
+    purpose: "Logging in gives each staff member secure access to the tools they are allowed to use. Your account also helps the team know who made important updates.",
+    relatedActions: ["staff"],
+    related: ["Understanding User Roles", "Navigating the Platform"],
+    tips: [
+      "Use your own account every time.",
+      "If the dashboard does not open, check your email and password before asking for help.",
+      "Log out before handing a device to another person.",
+    ],
+    title: "Logging In",
+    whenToUse: "Use this whenever you need to access the Admin area, reset access, or safely sign out.",
+  },
+  {
+    category: "Getting Started",
+    commonMistakes: [
+      "Assuming every staff member can see every section.",
+      "Giving a staff member more access than they need for their role.",
+      "Using a manager account for box office tasks.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Check the role shown for the staff member.",
+      "Use Super Admin for full platform control, staff setup, settings, and high-level management.",
+      "Use Venue Manager for daily operations, bookings, communications, CRM, tickets, reports, and venue workflows.",
+      "Use Box Office Staff for bookings, guests, waitlist, corporate requests, communications, and tickets.",
+      "Use Floor Manager for check-in, tickets, floor readiness, and guest arrival support.",
+    ],
+    id: "understanding-user-roles",
+    keywords: ["roles", "permissions", "super admin", "venue manager", "staff"],
+    moduleId: "getting-started",
+    purpose: "User roles keep the platform organised and secure. Each role gives staff the tools they need without exposing unnecessary settings or sensitive controls.",
+    relatedActions: ["staff"],
+    related: ["Logging In", "Navigating the Platform"],
+    tips: [
+      "When in doubt, choose the least access needed for the job.",
+      "Only Super Admins should manage staff access.",
+      "If someone cannot see a section they need, ask a Super Admin to review their role.",
+    ],
+    title: "Understanding User Roles",
+    whenToUse: "Use this during onboarding, when changing staff access, or when a team member cannot see a tool they expect.",
+  },
+  {
+    category: "Getting Started",
+    commonMistakes: [
+      "Using the wrong section for a guest request.",
+      "Forgetting that some sections may be hidden depending on your role.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Use Dashboard for the live overview, notifications, quick actions, and search.",
+      "Use Bookings to view, update, cancel, and open guest reservations.",
+      "Use Corporate for business and group enquiries.",
+      "Use CRM to view guest profiles, preferences, notes, spend, and history.",
+      "Use Waitlist for guests waiting for availability.",
+      "Use Communications for messages, reminders, broadcasts, and templates.",
+      "Use Tickets and Check-In for ticket lookup, scanning, and arrivals.",
+      "Use Venue for show, seating, table, and floor operations.",
+      "Use Staff and Settings for users, roles, venue configuration, and system setup.",
+      "Use Academy for training, refresher lessons, and workflow guidance.",
+    ],
+    id: "navigating-the-platform",
+    keywords: ["navigation", "tabs", "admin", "sections", "workflow"],
+    moduleId: "getting-started",
+    purpose: "The Admin area is divided into clear sections so staff can quickly reach the right workflow during service.",
+    relatedActions: ["bookings", "crm", "waitlist", "communications", "staff"],
+    related: ["Dashboard Overview", "Searching the Platform"],
+    tips: [
+      "Start with the guest question, then choose the matching section.",
+      "If a section is missing, it may not be part of your role.",
+      "Use Academy search if you know the task but not where it lives.",
+    ],
+    title: "Navigating the Platform",
+    whenToUse: "Use this when learning the Admin layout or when you are unsure where to complete a task.",
+  },
+  {
+    category: "Getting Started",
+    commonMistakes: [
+      "Skipping alerts at the start of a shift.",
+      "Using the dashboard as a report only, rather than a starting point for action.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Dashboard after logging in.",
+      "Review the first cards for the current operating picture.",
+      "Check the Notification Centre for new bookings, cancellations, check-ins, payments, and broadcasts.",
+      "Use Quick Actions to jump to common tasks.",
+      "Use search to find bookings, guests, requests, or Academy lessons.",
+    ],
+    id: "dashboard-overview",
+    keywords: ["dashboard", "alerts", "widgets", "tonight", "quick actions"],
+    moduleId: "getting-started",
+    purpose: "The Dashboard is the first place to look when you start work. It brings together live activity, important notifications, quick actions, and search.",
+    relatedActions: ["bookings", "waitlist", "communications"],
+    related: ["Welcome to Zingara", "Searching the Platform"],
+    tips: [
+      "Treat the dashboard as your daily command centre.",
+      "Check notifications before making changes elsewhere.",
+      "Use quick actions when time matters during service.",
+    ],
+    title: "Dashboard Overview",
+    whenToUse: "Use this at the beginning of every shift, during handover, and whenever you need a fast operational overview.",
+  },
+  {
+    category: "Getting Started",
+    commonMistakes: [
+      "Searching in the wrong section.",
+      "Leaving filters on and thinking a record is missing.",
+      "Using only a first name when a booking reference or email is available.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Search bookings by guest name, booking reference, email, phone, company name, or seating detail where available.",
+      "Search guests in CRM by name, email, phone number, or booking history.",
+      "Search corporate requests by company, contact person, email, or phone number.",
+      "Search Academy by lesson title, keyword, category, or article content.",
+      "Clear filters and try a second search term if the result does not appear.",
+    ],
+    id: "searching-the-platform",
+    keywords: ["search", "find", "reference", "guest", "filter"],
+    moduleId: "getting-started",
+    purpose: "Search helps staff find the right record quickly, especially during service when guests are waiting.",
+    relatedActions: ["bookings", "crm", "waitlist"],
+    related: ["Navigating the Platform", "Dashboard Overview"],
+    tips: [
+      "Booking references are usually the fastest search term.",
+      "For corporate requests, try both the company name and the contact name.",
+      "Always open the record and confirm the details before changing anything.",
+    ],
+    title: "Searching the Platform",
+    whenToUse: "Use this whenever you need to find a booking, guest profile, corporate request, waitlist entry, or Academy lesson.",
+  },
+];
+
+const bookingLessons: AcademyArticle[] = [
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Creating a booking before checking the guest count and preferred seating.",
+      "Skipping the confirmation screen before moving to the next guest.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Bookings or start from the public Book flow.",
+      "Select the show date and time.",
+      "Choose the guest count.",
+      "Select seating from the venue map and confirm the best-fit table.",
+      "Enter guest details, review the payment summary, and confirm the booking.",
+    ],
+    id: "creating-a-booking",
+    keywords: ["booking", "create", "reservation", "guest"],
+    moduleId: "bookings",
+    purpose: "Create a standard reservation for guests attending The Royal Countess experience.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Selecting a Show", "Choosing Seating", "Booking Confirmation"],
+    tips: [
+      "Confirm the spelling of the guest name and email before saving.",
+      "Use the booking summary to check totals before confirmation.",
+    ],
+    title: "Creating a Booking",
+    whenToUse: "Use this when a guest books online, by phone, or through the box office.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Selecting the wrong date because the calendar status was not checked.",
+      "Trying to book an inactive, sold out, blackout, or closed date.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Step 1 in the booking flow.",
+      "Use the calendar to choose the guest's preferred date.",
+      "Check the date status before continuing.",
+      "Select the available show time.",
+      "Continue only when the selected show is bookable.",
+    ],
+    id: "selecting-a-show",
+    keywords: ["show", "date", "calendar", "time", "status"],
+    moduleId: "bookings",
+    purpose: "Choose the correct show date and time before seating or pricing is calculated.",
+    relatedActions: ["bookings"],
+    related: ["Creating a Booking", "Booking Statuses"],
+    tips: [
+      "Special Event dates may still be bookable.",
+      "Inactive dates are hidden from the guest booking flow.",
+    ],
+    title: "Selecting a Show",
+    whenToUse: "Use this whenever a guest wants to book or move to a specific date.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Selecting a section without checking the best-fit table.",
+      "Assuming all sections can hold every party size.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Step 3 Seating Experience.",
+      "Select a section directly from the SVG venue map.",
+      "Review the seating modal for status, price, seats remaining, and best fit.",
+      "Select Seating only after confirming the section is suitable.",
+      "Continue to guest details once the selection is saved.",
+    ],
+    id: "choosing-seating",
+    keywords: ["seating", "section", "table", "best fit", "venue map"],
+    moduleId: "bookings",
+    purpose: "Help guests choose an available seating section and assign the best table fit.",
+    relatedActions: ["bookings"],
+    related: ["Creating a Booking", "Best Practice Tips"],
+    tips: [
+      "The best-fit engine prefers the smallest available table that fits the party.",
+      "If no table fits, choose another section or review availability.",
+    ],
+    title: "Choosing Seating",
+    whenToUse: "Use this when confirming where the guest will sit.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Entering a nickname instead of the lead guest's full name.",
+      "Leaving out dietary notes that operations need before service.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Enter the lead guest's full name.",
+      "Add the correct email address and phone number.",
+      "Capture notes, dietary requirements, access needs, or special preferences.",
+      "Check the details before continuing to payment.",
+    ],
+    id: "guest-details",
+    keywords: ["guest", "details", "name", "email", "phone", "notes"],
+    moduleId: "bookings",
+    purpose: "Capture the information needed to contact the guest and support service on the night.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Creating a Booking", "Viewing Booking History"],
+    tips: [
+      "Use the lead guest details, not the person taking the call unless they are attending.",
+      "Booking notes stay with that booking; relationship notes belong in CRM.",
+    ],
+    title: "Guest Details",
+    whenToUse: "Use this after seating is selected and before payment is confirmed.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Adding extras without confirming the guest wants them.",
+      "Forgetting that add-ons change the amount due.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Review the available add-ons in the payment summary.",
+      "Select only the extras requested by the guest.",
+      "Check the updated total before confirming payment.",
+      "Confirm the add-ons appear in the booking summary.",
+    ],
+    id: "add-ons-and-extras",
+    keywords: ["add-ons", "extras", "wine", "backstage", "package"],
+    moduleId: "bookings",
+    purpose: "Add optional extras to a booking while keeping the total clear for the guest.",
+    relatedActions: ["bookings"],
+    related: ["Payment Types", "Booking Confirmation"],
+    tips: [
+      "Read the final total back to phone guests before confirming.",
+      "If an add-on was selected by mistake, remove it before payment.",
+    ],
+    title: "Add-ons & Extras",
+    whenToUse: "Use this when a guest wants optional packages or extras.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Marking payment as complete before it is received.",
+      "Confusing deposit paid with fully paid.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Review the payment summary.",
+      "Choose the correct payment option: full payment, deposit, outstanding, complimentary, or pending where available.",
+      "Check service fee rules for parties of six or more.",
+      "Confirm the payment state shown on the booking.",
+    ],
+    id: "payment-types",
+    keywords: ["payment", "deposit", "paid", "outstanding", "complimentary"],
+    moduleId: "bookings",
+    purpose: "Record the correct payment state so finance, operations, and the guest see the same information.",
+    relatedActions: ["bookings"],
+    related: ["Add-ons & Extras", "Booking Statuses"],
+    tips: [
+      "Use Pending Payment when the booking is not financially complete.",
+      "Only use Fully Paid once the payment has been confirmed.",
+    ],
+    title: "Payment Types",
+    whenToUse: "Use this during checkout, payment updates, and booking review.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Leaving the confirmation screen before checking the ticket and reference.",
+      "Not confirming the guest email before the message is sent.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Review the final confirmation screen.",
+      "Check the booking reference, guest details, show date, seating, total, and payment state.",
+      "Confirm the QR ticket has been generated.",
+      "Use Open Live Ticket or Download Ticket if the guest needs access immediately.",
+    ],
+    id: "booking-confirmation",
+    keywords: ["confirmation", "reference", "ticket", "qr", "complete"],
+    moduleId: "bookings",
+    purpose: "Make sure a completed booking is saved, ticketed, and ready for guest communication.",
+    relatedActions: ["bookings", "tickets"],
+    related: ["Downloading Tickets", "Resending Tickets"],
+    tips: [
+      "The booking reference is the fastest way to find the booking later.",
+      "Confirm the ticket date and payment state before ending a guest call.",
+    ],
+    title: "Booking Confirmation",
+    whenToUse: "Use this after payment or confirmation is completed.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Editing a booking without telling the guest what changed.",
+      "Changing seating without checking table fit again.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the booking from the Bookings page.",
+      "Review the current details before making changes.",
+      "Update the required field only.",
+      "Save the change and check the booking details again.",
+      "Send or resend communication if the guest needs confirmation.",
+    ],
+    id: "editing-a-booking",
+    keywords: ["edit", "update", "change booking", "admin"],
+    moduleId: "bookings",
+    purpose: "Update an existing reservation while keeping the booking record accurate.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Viewing Booking History", "Resending Tickets"],
+    tips: [
+      "Make one clear change at a time.",
+      "Use booking history to understand what has already happened.",
+    ],
+    title: "Editing a Booking",
+    whenToUse: "Use this when a guest changes details, payment state, seating, or contact information.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Cancelling the wrong booking because the reference was not checked.",
+      "Cancelling without recording the reason.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the booking details.",
+      "Confirm the guest name, show date, and booking reference.",
+      "Choose Cancel Booking.",
+      "Select the cancellation reason and add notes if needed.",
+      "Confirm the booking status has changed to cancelled.",
+    ],
+    id: "cancelling-a-booking",
+    keywords: ["cancel", "cancellation", "booking status"],
+    moduleId: "bookings",
+    purpose: "Cancel a reservation safely while preserving the guest and booking history.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Cancellation Reasons", "Viewing Booking History"],
+    tips: [
+      "Always verify the booking reference before cancelling.",
+      "Use clear notes if the situation may need manager review.",
+    ],
+    title: "Cancelling a Booking",
+    whenToUse: "Use this when a guest no longer wants or can attend their reservation.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Choosing Other without adding useful notes.",
+      "Using the wrong reason because it is quicker.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Select the closest cancellation reason from the list.",
+      "Use Other only when none of the standard reasons fit.",
+      "Add a short note when more context is needed.",
+      "Save the cancellation and check that the reason appears in history.",
+    ],
+    id: "cancellation-reasons",
+    keywords: ["reason", "cancel", "notes", "history"],
+    moduleId: "bookings",
+    purpose: "Record why a booking was cancelled so reporting and guest history stay useful.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Cancelling a Booking", "Viewing Booking History"],
+    tips: [
+      "Keep notes factual and short.",
+      "Use the standard reason that best describes the guest's request.",
+    ],
+    title: "Cancellation Reasons",
+    whenToUse: "Use this whenever a booking cancellation is processed.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Resending a ticket to an outdated email address.",
+      "Resending without confirming the guest still needs the ticket.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking details.",
+      "Confirm the guest email address.",
+      "Choose the ticket resend action.",
+      "Check communication history to confirm the resend was recorded.",
+    ],
+    id: "resending-tickets",
+    keywords: ["resend", "ticket", "email", "qr"],
+    moduleId: "bookings",
+    purpose: "Send the guest another copy of their ticket when they cannot find the original.",
+    relatedActions: ["bookings", "tickets", "communications"],
+    related: ["Downloading Tickets", "Booking Confirmation"],
+    tips: [
+      "Confirm the email address before resending.",
+      "If the guest is at the door, use ticket lookup or check-in support as needed.",
+    ],
+    title: "Resending Tickets",
+    whenToUse: "Use this when a guest asks for their ticket again.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Downloading the ticket before checking the guest and date.",
+      "Sharing a ticket with the wrong guest.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking confirmation or booking details.",
+      "Check the guest name, show date, seating, and reference.",
+      "Select Download Ticket.",
+      "Share or print the PDF only after confirming it belongs to the correct guest.",
+    ],
+    id: "downloading-tickets",
+    keywords: ["download", "ticket", "pdf", "print"],
+    moduleId: "bookings",
+    purpose: "Create a PDF copy of the guest ticket for sharing, printing, or saving.",
+    relatedActions: ["bookings", "tickets"],
+    related: ["Resending Tickets", "Booking Confirmation"],
+    tips: [
+      "The QR code must remain clear and fully visible.",
+      "Use Open Live Ticket when the guest needs an on-screen version.",
+    ],
+    title: "Downloading Tickets",
+    whenToUse: "Use this when a guest needs a ticket file or printed copy.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Only checking the current booking and missing past guest context.",
+      "Ignoring communication history before messaging a guest.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking details or the guest's CRM profile.",
+      "Review booking history for previous visits and statuses.",
+      "Check communication history before sending a new message.",
+      "Use the history to understand payment, cancellation, check-in, or ticket activity.",
+    ],
+    id: "viewing-booking-history",
+    keywords: ["history", "crm", "timeline", "guest"],
+    moduleId: "bookings",
+    purpose: "Understand what has happened before taking action on a guest or booking.",
+    relatedActions: ["bookings", "crm", "communications"],
+    related: ["Editing a Booking", "Booking Statuses"],
+    tips: [
+      "History is especially useful for returning guests.",
+      "Check recent communication before sending another message.",
+    ],
+    title: "Viewing Booking History",
+    whenToUse: "Use this before making changes, contacting a guest, or handling a service query.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Confusing booking status with payment status.",
+      "Assuming a confirmed booking is fully paid.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking details.",
+      "Check the booking status for the reservation state.",
+      "Check the payment status separately.",
+      "Use status badges to understand whether the guest is confirmed, pending, cancelled, checked in, or otherwise flagged.",
+    ],
+    id: "booking-statuses",
+    keywords: ["status", "confirmed", "pending", "paid", "checked in"],
+    moduleId: "bookings",
+    purpose: "Read booking and payment states correctly so the team knows what action is needed.",
+    relatedActions: ["bookings"],
+    related: ["Payment Types", "Viewing Booking History"],
+    tips: [
+      "Booking status tells you where the reservation stands.",
+      "Payment status tells you what has been paid or is still outstanding.",
+    ],
+    title: "Booking Statuses",
+    whenToUse: "Use this whenever you review a reservation or answer a guest query.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Using the wrong show date.",
+      "Entering the wrong email address.",
+      "Forgetting add-ons, notes, or dietary requirements.",
+      "Changing a booking without checking the updated total.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Slow down at each step of the booking flow.",
+      "Read the summary before confirming.",
+      "Check guest contact details carefully.",
+      "Confirm seating, add-ons, payment state, and notes before saving.",
+    ],
+    id: "common-booking-mistakes",
+    keywords: ["mistakes", "errors", "avoid", "training"],
+    moduleId: "bookings",
+    purpose: "Help staff avoid the most common booking errors before they affect guests or operations.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Creating a Booking", "Best Practice Tips"],
+    tips: [
+      "Use the booking reference when confirming details.",
+      "Ask a manager if the guest request does not fit the standard flow.",
+    ],
+    title: "Common Booking Mistakes",
+    whenToUse: "Use this during training or after a booking error has been found.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Rushing because the flow feels familiar.",
+      "Skipping notes that another team member will need later.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Confirm the show date, guest count, seating, guest details, and payment state.",
+      "Use clear notes for anything operations should know.",
+      "Check history before making changes.",
+      "Send or resend communication when the guest needs written confirmation.",
+    ],
+    id: "best-practice-tips",
+    keywords: ["best practice", "tips", "quality", "process"],
+    moduleId: "bookings",
+    purpose: "Keep booking work consistent, accurate, and easy for the next team member to understand.",
+    relatedActions: ["bookings", "communications", "crm"],
+    related: ["Creating a Booking", "Common Booking Mistakes"],
+    tips: [
+      "Treat every booking as a guest-facing promise.",
+      "Good notes prevent confusion at check-in and during service.",
+      "When unsure, review the booking summary before saving.",
+    ],
+    title: "Best Practice Tips",
+    whenToUse: "Use this as a quick quality checklist for booking work.",
+  },
+];
+
+const corporateBookingLessons: AcademyArticle[] = [
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Treating a corporate enquiry like an instant standard booking.",
+      "Missing important company or contact details before follow-up.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Use Corporate Booking for business, group, and event enquiries.",
+      "Capture the company, contact person, date, guest count, seating preference, and notes.",
+      "Review the request in Admin under Corporate Requests.",
+      "Update the status as the enquiry moves through quote, acceptance, payment, and confirmation.",
+    ],
+    id: "corporate-booking-overview",
+    keywords: ["corporate", "overview", "enquiry", "group"],
+    moduleId: "corporate-bookings",
+    purpose: "Explain how corporate enquiries move from request to confirmed booking in the Zingara platform.",
+    relatedActions: ["bookings", "crm", "communications"],
+    related: ["Creating a Corporate Request", "Corporate Statuses"],
+    tips: [
+      "Corporate requests are managed separately until they are ready to become bookings.",
+      "Keep notes clear so managers can follow the enquiry without asking twice.",
+    ],
+    title: "Corporate Booking Overview",
+    whenToUse: "Use this when handling business, group, or event enquiries.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Submitting a request without contact details.",
+      "Leaving the guest count blank or using a rough guess without a note.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the Corporate Booking form.",
+      "Enter the group and event details.",
+      "Add dietary requirements, bar tab preference, add-ons, and notes.",
+      "Submit the request.",
+      "Confirm it appears in Admin under Corporate Requests.",
+    ],
+    id: "creating-a-corporate-request",
+    keywords: ["create", "corporate request", "form", "submit"],
+    moduleId: "corporate-bookings",
+    purpose: "Create a corporate request record so the enquiry can be tracked and followed up.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Capturing Company Details", "Managing Corporate Enquiries"],
+    tips: [
+      "If the guest only wants a call back, use Request Agent Contact.",
+      "Add notes for anything that affects quoting or availability.",
+    ],
+    title: "Creating a Corporate Request",
+    whenToUse: "Use this when a company or group asks about a private or corporate booking.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Using the company name as the contact person.",
+      "Missing the phone number needed for follow-up.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Enter the legal or trading company name.",
+      "Add the contact person's full name.",
+      "Capture their phone number and email address.",
+      "Add preferred and alternative dates where provided.",
+      "Confirm the guest count and seating preference before saving.",
+    ],
+    id: "capturing-company-details",
+    keywords: ["company", "contact", "email", "phone", "details"],
+    moduleId: "corporate-bookings",
+    purpose: "Capture the information staff need to identify the company and contact the right person.",
+    relatedActions: ["crm"],
+    related: ["Creating a Corporate Request", "Following Up"],
+    tips: [
+      "Use the person responsible for the booking as the main contact.",
+      "Check spelling carefully because these details appear in admin and communication records.",
+    ],
+    title: "Capturing Company Details",
+    whenToUse: "Use this while completing a corporate request or reviewing an enquiry.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Letting new enquiries sit without a status update.",
+      "Opening the full request only after replying to the client.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Admin, then Corporate Requests.",
+      "Use search or filters to find the enquiry.",
+      "Open the request details.",
+      "Review group details, food and beverage, add-ons, and admin fields.",
+      "Update the status or archive the request when appropriate.",
+    ],
+    id: "managing-corporate-enquiries",
+    keywords: ["manage", "corporate requests", "status", "admin"],
+    moduleId: "corporate-bookings",
+    purpose: "Keep corporate enquiries organised from first contact through confirmation or cancellation.",
+    relatedActions: ["communications", "crm"],
+    related: ["Corporate Statuses", "Following Up"],
+    tips: [
+      "Use statuses to show the next action needed.",
+      "Archive requests only when they no longer need active follow-up.",
+    ],
+    title: "Managing Corporate Enquiries",
+    whenToUse: "Use this during daily enquiry review and manager follow-up.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Following up without checking the latest request notes.",
+      "Sending a message without confirming the selected show or date context.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the corporate request.",
+      "Check the current status and latest notes.",
+      "Confirm the preferred date, guest count, seating, and contact details.",
+      "Use the communication tools or templates to send the next message.",
+      "Check that the communication history updates.",
+    ],
+    id: "following-up",
+    keywords: ["follow up", "message", "client", "communication"],
+    moduleId: "corporate-bookings",
+    purpose: "Make sure corporate clients receive clear, timely responses and the record stays complete.",
+    relatedActions: ["communications"],
+    related: ["Sending Quotations", "Corporate Communication History"],
+    tips: [
+      "Keep follow-up messages short and specific.",
+      "Record meaningful notes if the client gives new information by phone.",
+    ],
+    title: "Following Up",
+    whenToUse: "Use this after a new enquiry, quote discussion, status change, or client reply.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Marking a request as confirmed before the quote is accepted.",
+      "Forgetting that payment is required before the booking is secured.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the corporate request details.",
+      "Confirm the guest count, seating preference, add-ons, and notes.",
+      "Send the quotation communication using the available workflow.",
+      "Update the request status to Quote Sent.",
+      "Move the request forward once the client accepts.",
+    ],
+    id: "sending-quotations",
+    keywords: ["quote", "quotation", "quote sent", "invoice"],
+    moduleId: "corporate-bookings",
+    purpose: "Support the quote step before a corporate request becomes a confirmed booking.",
+    relatedActions: ["communications"],
+    related: ["Following Up", "Corporate Statuses"],
+    tips: [
+      "Confirm all chargeable details before a quote is issued.",
+      "Use the status field so the team can see where the enquiry stands.",
+    ],
+    title: "Sending Quotations",
+    whenToUse: "Use this once the enquiry is detailed enough for pricing or client review.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Trying to convert before the request status is Confirmed.",
+      "Converting when no active show exists for the preferred date.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the confirmed corporate request.",
+      "Select Convert To Booking.",
+      "If more than one active show exists on the date, choose the correct show.",
+      "Confirm the booking is created with Corporate Direct as the source.",
+      "Use Open Booking to review the linked booking reference.",
+    ],
+    id: "converting-to-a-booking",
+    keywords: ["convert", "booking", "corporate direct", "linked booking"],
+    moduleId: "corporate-bookings",
+    purpose: "Turn a confirmed corporate request into a normal booking that appears in the standard bookings system.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Corporate Statuses", "Viewing Booking History"],
+    tips: [
+      "The contact person remains the main booking name.",
+      "The company name appears as a corporate indicator on the booking.",
+    ],
+    title: "Converting to a Booking",
+    whenToUse: "Use this after the corporate request is confirmed and ready for normal booking operations.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Confusing Awaiting Payment with Confirmed.",
+      "Not checking the payment state after converting the request.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Review the payment expectations on the corporate request.",
+      "Update the request status as it moves through acceptance and payment.",
+      "Once converted, manage payment from the normal booking record.",
+      "Check the booking's payment status before treating it as financially complete.",
+    ],
+    id: "managing-deposits",
+    keywords: ["deposit", "payment", "awaiting payment", "corporate"],
+    moduleId: "corporate-bookings",
+    purpose: "Track payment readiness for corporate requests and converted bookings.",
+    relatedActions: ["bookings"],
+    related: ["Corporate Statuses", "Payment Types"],
+    tips: [
+      "Use the status that reflects the current next action.",
+      "Payment state belongs on the booking once the request is converted.",
+    ],
+    title: "Managing Deposits",
+    whenToUse: "Use this when a quote has been accepted but payment still needs attention.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Leaving old guest counts in place after the client updates the number.",
+      "Not reviewing seating again when the group size changes.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the corporate request details.",
+      "Check the current guest count.",
+      "Update notes if the client has confirmed a final number.",
+      "Before conversion, confirm the preferred seating still works for the group.",
+      "After conversion, review the booking total and seating details.",
+    ],
+    id: "final-guest-numbers",
+    keywords: ["guest count", "final numbers", "group size"],
+    moduleId: "corporate-bookings",
+    purpose: "Keep group size accurate so seating, pricing, and operations can plan correctly.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Seating Large Groups", "Converting to a Booking"],
+    tips: [
+      "Ask for final numbers before confirming operational details.",
+      "A change in group size may affect seating and service fee calculations.",
+    ],
+    title: "Final Guest Numbers",
+    whenToUse: "Use this when a client updates or confirms the size of the group.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Promising a section without checking availability.",
+      "Ignoring best-fit table guidance for large groups.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Capture the preferred seating section on the request.",
+      "Review availability for the selected show before conversion.",
+      "Use the booking seating flow to confirm section and best-fit table allocation.",
+      "If the preferred section is not suitable, discuss alternatives with the client.",
+    ],
+    id: "seating-large-groups",
+    keywords: ["seating", "large group", "section", "best fit"],
+    moduleId: "corporate-bookings",
+    purpose: "Manage group seating expectations while protecting table allocation accuracy.",
+    relatedActions: ["bookings"],
+    related: ["Final Guest Numbers", "Converting to a Booking"],
+    tips: [
+      "Large groups may need combined table allocation where available.",
+      "Do not guarantee seating until availability and table fit are confirmed.",
+    ],
+    title: "Seating Large Groups",
+    whenToUse: "Use this when a corporate group has a large party size or specific seating preference.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Sending follow-ups without checking what was already sent.",
+      "Relying on memory instead of the communication history.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the corporate request or related booking.",
+      "Review communication history for previous messages.",
+      "Check the subject, preview, channel, and timestamp.",
+      "Send the next message only after confirming the current context.",
+    ],
+    id: "corporate-communication-history",
+    keywords: ["communication history", "messages", "corporate", "timeline"],
+    moduleId: "corporate-bookings",
+    purpose: "Use communication history to keep corporate follow-up consistent and professional.",
+    relatedActions: ["communications", "crm"],
+    related: ["Following Up", "Sending Quotations"],
+    tips: [
+      "Communication history helps avoid duplicate or conflicting messages.",
+      "Use it before handing an enquiry to another staff member.",
+    ],
+    title: "Corporate Communication History",
+    whenToUse: "Use this before sending a message or reviewing client follow-up.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Leaving an enquiry as Corporate Tentative after the client has replied.",
+      "Using Confirmed before payment or conversion readiness has been checked.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Use Corporate Tentative for new enquiries.",
+      "Use Quote Sent after a quotation has been sent.",
+      "Use Awaiting Acceptance while waiting for the client to approve.",
+      "Use Awaiting Payment once acceptance is received but payment is still pending.",
+      "Use Confirmed when the request is ready to become a booking.",
+      "Use Cancelled or Archived when the request is no longer active.",
+    ],
+    id: "corporate-statuses",
+    keywords: ["status", "tentative", "quote sent", "confirmed", "archived"],
+    moduleId: "corporate-bookings",
+    purpose: "Show the current stage of each corporate request clearly.",
+    relatedActions: ["bookings"],
+    related: ["Managing Corporate Enquiries", "Converting to a Booking"],
+    tips: [
+      "Status should show the next operational action.",
+      "Converted requests show their linked booking reference.",
+    ],
+    title: "Corporate Statuses",
+    whenToUse: "Use this whenever you review or update a corporate request.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Missing contact details.",
+      "Not capturing dietary requirements or add-ons.",
+      "Forgetting to update the request status.",
+      "Converting without an active show on the preferred date.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Review the request before saving or converting.",
+      "Check company, contact, dates, guest count, seating, dietary needs, bar tab, add-ons, and notes.",
+      "Confirm the status matches the latest client conversation.",
+      "Use communication history before sending a new message.",
+    ],
+    id: "common-corporate-mistakes",
+    keywords: ["mistakes", "corporate", "errors", "training"],
+    moduleId: "corporate-bookings",
+    purpose: "Help staff avoid common errors that slow down corporate follow-up.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Best Practice Tips", "Managing Corporate Enquiries"],
+    tips: [
+      "A complete request is easier to quote and convert.",
+      "If a detail is uncertain, add a note rather than leaving the team guessing.",
+    ],
+    title: "Common Corporate Mistakes",
+    whenToUse: "Use this during training or when reviewing a corporate enquiry before action.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Overpromising availability before the date and seating are checked.",
+      "Using unclear notes that another team member cannot follow.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Capture complete details from the first enquiry.",
+      "Keep every status current.",
+      "Use clear notes for preferences, special requests, and client updates.",
+      "Check availability before confirming or converting.",
+      "Use communication history to keep follow-up consistent.",
+    ],
+    id: "corporate-best-practice-tips",
+    keywords: ["best practice", "corporate", "tips", "quality"],
+    moduleId: "corporate-bookings",
+    purpose: "Keep corporate requests professional, organised, and easy to hand over.",
+    relatedActions: ["bookings", "communications", "crm"],
+    related: ["Corporate Booking Overview", "Common Corporate Mistakes"],
+    tips: [
+      "Corporate enquiries often involve several conversations, so the record must tell the full story.",
+      "Use the company name and contact person consistently.",
+      "Confirm important details in writing whenever possible.",
+    ],
+    title: "Best Practice Tips",
+    whenToUse: "Use this as a quality checklist for corporate enquiry handling.",
+  },
+];
+
+const crmGuestLessons: AcademyArticle[] = [
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Looking only at a single booking instead of the full guest profile.",
+      "Adding relationship notes to the wrong guest.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Customers from the admin navigation.",
+      "Search for the guest by name, email, phone number, or booking reference.",
+      "Open the matching profile.",
+      "Review bookings, communication history, preferences, notes, and spend before taking action.",
+    ],
+    id: "crm-overview",
+    keywords: ["crm", "customers", "guests", "profiles"],
+    moduleId: "crm-guests",
+    purpose: "Use CRM to understand each guest beyond a single reservation, including history, preferences, notes, and communication.",
+    relatedActions: ["crm", "bookings"],
+    related: ["Searching for Guests", "Viewing Guest History"],
+    tips: [
+      "CRM is the best place to understand returning guests.",
+      "Check the profile before adding new notes or sending follow-up.",
+    ],
+    title: "CRM Overview",
+    whenToUse: "Use this whenever you need context about a guest or their previous activity.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Searching with only a first name when there are many similar guests.",
+      "Forgetting to clear filters after a search.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Customers.",
+      "Use the Profile Directory search.",
+      "Search by name, email, phone, or booking reference.",
+      "Select the correct profile from the results.",
+      "Confirm the email or phone number before making changes.",
+    ],
+    id: "searching-for-guests",
+    keywords: ["search", "guest", "customer", "profile"],
+    moduleId: "crm-guests",
+    purpose: "Find the correct guest profile quickly during booking support or service.",
+    relatedActions: ["crm"],
+    related: ["CRM Overview", "Duplicate Guests"],
+    tips: [
+      "Email address is often the most reliable search term.",
+      "If the guest is not found, check the booking page or try another spelling.",
+    ],
+    title: "Searching for Guests",
+    whenToUse: "Use this when a guest calls, arrives, or needs help with a booking.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Creating a new profile before checking if the guest already exists.",
+      "Using incomplete contact details.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Search for the guest first.",
+      "If no profile exists, create or allow the booking flow to create the customer record.",
+      "Capture the guest's name, email, phone, and any useful notes.",
+      "Check that the profile appears in the Profile Directory.",
+    ],
+    id: "creating-a-guest-profile",
+    keywords: ["create guest", "profile", "customer", "new guest"],
+    moduleId: "crm-guests",
+    purpose: "Create a reliable guest record so bookings, notes, communication, and history stay connected.",
+    relatedActions: ["crm", "bookings"],
+    related: ["Searching for Guests", "Updating Guest Information"],
+    tips: [
+      "The booking flow can create or update the customer automatically.",
+      "Avoid duplicate profiles by searching first.",
+    ],
+    title: "Creating a Guest Profile",
+    whenToUse: "Use this when a guest is new to the platform or their profile is missing.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Only checking the latest booking.",
+      "Missing older communication that explains the guest's request.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the guest profile.",
+      "Review booking history for past and current reservations.",
+      "Check communication history for recent messages.",
+      "Review notes and preferences before making changes.",
+    ],
+    id: "viewing-guest-history",
+    keywords: ["history", "guest history", "bookings", "communications"],
+    moduleId: "crm-guests",
+    purpose: "Understand the guest's relationship with Zingara before responding or updating a record.",
+    relatedActions: ["crm", "bookings"],
+    related: ["Viewing Previous Bookings", "Guest Communication History"],
+    tips: [
+      "Returning guests may have preferences that affect service.",
+      "Read notes before adding new ones.",
+    ],
+    title: "Viewing Guest History",
+    whenToUse: "Use this before handling a returning guest, complaint, special request, or booking change.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Changing a guest's details without confirming them.",
+      "Overwriting useful notes with a short update.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the guest profile.",
+      "Confirm the updated detail with the guest.",
+      "Update the correct field, such as phone, email, preferences, or notes.",
+      "Save the change and review the profile again.",
+    ],
+    id: "updating-guest-information",
+    keywords: ["update guest", "edit customer", "email", "phone"],
+    moduleId: "crm-guests",
+    purpose: "Keep guest records accurate so bookings, tickets, and communication reach the right person.",
+    relatedActions: ["crm"],
+    related: ["Creating a Guest Profile", "Guest Notes"],
+    tips: [
+      "Be careful when changing email addresses because tickets and messages depend on them.",
+      "Use clear notes when the update affects future service.",
+    ],
+    title: "Updating Guest Information",
+    whenToUse: "Use this when a guest gives new contact details or service preferences.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Treating timelines as comments only.",
+      "Ignoring payment, ticket, or check-in events in the history.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the guest or booking history area.",
+      "Read events in date order.",
+      "Look for booking creation, payment, cancellation, communication, and check-in activity.",
+      "Use the timeline to understand what happened before acting.",
+    ],
+    id: "understanding-guest-timelines",
+    keywords: ["timeline", "events", "history", "activity"],
+    moduleId: "crm-guests",
+    purpose: "Use timelines to see the sequence of important guest and booking activity.",
+    relatedActions: ["crm", "bookings"],
+    related: ["Viewing Guest History", "Guest Communication History"],
+    tips: [
+      "Timelines help during handovers and guest queries.",
+      "Check recent events first when something looks unclear.",
+    ],
+    title: "Understanding Guest Timelines",
+    whenToUse: "Use this when you need to understand what changed and when.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Assuming a guest has no history because the current booking is new.",
+      "Not checking previous seating or payment patterns.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the guest profile.",
+      "Go to booking history.",
+      "Review previous booking references, dates, statuses, seating, and payment state.",
+      "Open a booking if more detail is needed.",
+    ],
+    id: "viewing-previous-bookings",
+    keywords: ["previous bookings", "booking history", "returning guest"],
+    moduleId: "crm-guests",
+    purpose: "See a guest's previous reservations and use that history to support better service.",
+    relatedActions: ["crm", "bookings"],
+    related: ["Viewing Guest History", "Guest Preferences"],
+    tips: [
+      "Previous seating can help with guest preference conversations.",
+      "Use booking references when discussing a specific visit.",
+    ],
+    title: "Viewing Previous Bookings",
+    whenToUse: "Use this for returning guests, service recovery, or booking questions.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Sending a new message without checking what was already sent.",
+      "Missing failed or duplicate communication attempts.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the guest profile.",
+      "Review communication history.",
+      "Check message type, subject, preview, status, and timestamp.",
+      "Use this history before sending a new guest message.",
+    ],
+    id: "guest-communication-history",
+    keywords: ["communication", "messages", "email", "history"],
+    moduleId: "crm-guests",
+    purpose: "Understand what the guest has already been sent before contacting them again.",
+    relatedActions: ["crm", "communications"],
+    related: ["Viewing Guest History", "Guest Notes"],
+    tips: [
+      "Communication history is useful when a guest says they did not receive something.",
+      "Check the latest message before resending tickets or confirmations.",
+    ],
+    title: "Guest Communication History",
+    whenToUse: "Use this before sending, resending, or discussing guest communication.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Putting one-time booking notes into long-term preferences.",
+      "Ignoring preferences during service planning.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the guest profile.",
+      "Review seating, add-on, dietary, and service preferences where available.",
+      "Update preferences only when they apply beyond one booking.",
+      "Use booking notes for details that apply to one visit only.",
+    ],
+    id: "guest-preferences",
+    keywords: ["preferences", "dietary", "seating", "vip"],
+    moduleId: "crm-guests",
+    purpose: "Record useful long-term guest preferences so future visits feel personal and well prepared.",
+    relatedActions: ["crm", "bookings"],
+    related: ["Guest Notes", "Viewing Previous Bookings"],
+    tips: [
+      "Preferences should be helpful for future service.",
+      "Keep sensitive information factual and respectful.",
+    ],
+    title: "Guest Preferences",
+    whenToUse: "Use this when a preference is likely to matter again on future visits.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Creating a second guest profile because of a spelling difference.",
+      "Updating the wrong profile when two guests share a name.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Search by email or phone before creating a new guest.",
+      "Compare names, contact details, and booking history.",
+      "Use the profile that matches the confirmed contact details.",
+      "Flag unclear duplicates for manager review rather than guessing.",
+    ],
+    id: "duplicate-guests",
+    keywords: ["duplicate", "guest", "profile", "merge"],
+    moduleId: "crm-guests",
+    purpose: "Avoid splitting guest history across multiple profiles.",
+    relatedActions: ["crm"],
+    related: ["Searching for Guests", "Creating a Guest Profile"],
+    tips: [
+      "Email and phone are better identifiers than name alone.",
+      "Do not overwrite a profile unless you are sure it is the same person.",
+    ],
+    title: "Duplicate Guests",
+    whenToUse: "Use this when search results show similar names or details.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Writing vague notes that are not useful later.",
+      "Adding private opinions instead of operational facts.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the guest profile.",
+      "Use relationship notes for long-term guest context.",
+      "Use booking notes for details about a specific reservation.",
+      "Keep notes short, factual, and useful for the next team member.",
+    ],
+    id: "guest-notes",
+    keywords: ["notes", "relationship notes", "booking notes", "preferences"],
+    moduleId: "crm-guests",
+    purpose: "Record helpful guest context without cluttering the profile.",
+    relatedActions: ["crm", "bookings"],
+    related: ["Guest Preferences", "Viewing Guest History"],
+    tips: [
+      "Good notes explain what staff need to know and why.",
+      "Avoid comments that would be uncomfortable if read aloud.",
+    ],
+    title: "Guest Notes",
+    whenToUse: "Use this when adding context for future bookings or service.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Updating CRM after the shift from memory.",
+      "Leaving important guest details only in conversation.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Search before creating a profile.",
+      "Confirm contact details before editing.",
+      "Use booking notes for one visit and relationship notes for long-term context.",
+      "Review history before sending messages or making changes.",
+    ],
+    id: "crm-best-practice-tips",
+    keywords: ["best practice", "crm", "guest", "quality"],
+    moduleId: "crm-guests",
+    purpose: "Keep guest records accurate, useful, and respectful.",
+    relatedActions: ["crm", "communications"],
+    related: ["CRM Overview", "Common CRM Mistakes"],
+    tips: [
+      "Update important information while it is fresh.",
+      "Keep profiles clean so the next staff member can act quickly.",
+    ],
+    title: "Best Practice Tips",
+    whenToUse: "Use this as a simple quality checklist for CRM work.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
+      "Creating duplicates.",
+      "Putting booking-specific notes in the guest relationship notes.",
+      "Changing contact details without checking them.",
+      "Ignoring communication history before messaging a guest.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Search carefully before creating or editing.",
+      "Check the profile details against the current booking.",
+      "Use the correct note type.",
+      "Review history before taking action.",
+      "Ask a manager if the record looks inconsistent.",
+    ],
+    id: "common-crm-mistakes",
+    keywords: ["mistakes", "crm", "duplicates", "notes"],
+    moduleId: "crm-guests",
+    purpose: "Help staff avoid CRM errors that make guest service harder.",
+    relatedActions: ["crm"],
+    related: ["Duplicate Guests", "Best Practice Tips"],
+    tips: [
+      "Slow down when profiles look similar.",
+      "A clean CRM profile saves time for every team member.",
+    ],
+    title: "Common CRM Mistakes",
+    whenToUse: "Use this during training or when correcting CRM data quality issues.",
+  },
+];
+
+const waitlistLessons: AcademyArticle[] = [
+  {
+    category: "Waitlist",
+    commonMistakes: [
+      "Treating the waitlist as a confirmed booking.",
+      "Adding a guest without checking the show or guest count.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Operations, then Waitlist.",
+      "Select the relevant show from the show selector.",
+      "Review the Guest Demand Queue for guests waiting on that show.",
+      "Use the entry details to decide whether to promote, update, or remove the request.",
+    ],
+    id: "waitlist-overview",
+    keywords: ["waitlist", "overview", "guest demand", "queue"],
+    moduleId: "waitlist",
+    purpose: "Use the waitlist to track guests who want to attend when their preferred show or seating is not immediately available.",
+    relatedActions: ["waitlist", "bookings"],
+    related: ["Creating a Waitlist Entry", "Managing Waitlist Guests"],
+    tips: [
+      "The waitlist is show-specific, so always check the selected show.",
+      "A waitlist entry is a request, not a confirmed reservation.",
+    ],
+    title: "Waitlist Overview",
+    whenToUse: "Use this when guests want to be considered for availability before a booking can be confirmed.",
+  },
+  {
+    category: "Waitlist",
+    commonMistakes: [
+      "Missing contact details needed for follow-up.",
+      "Capturing the wrong show date or guest count.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the waitlist signup flow or admin waitlist area.",
+      "Capture the guest name, email, phone number, show, guest count, and notes.",
+      "Save the waitlist request.",
+      "Confirm the waitlist reference is generated.",
+      "Check that the entry appears in the correct show queue.",
+    ],
+    id: "creating-a-waitlist-entry",
+    keywords: ["create waitlist", "signup", "waitlist reference", "guest"],
+    moduleId: "waitlist",
+    purpose: "Create a waitlist record so the team can contact the guest if space becomes available.",
+    relatedActions: ["waitlist", "crm"],
+    related: ["Waitlist Overview", "Managing Waitlist Guests"],
+    tips: [
+      "Confirm the preferred show before saving.",
+      "Use notes for seating preferences or timing constraints.",
+    ],
+    title: "Creating a Waitlist Entry",
+    whenToUse: "Use this when a guest cannot book immediately but wants to be contacted if availability opens.",
+  },
+  {
+    category: "Waitlist",
+    commonMistakes: [
+      "Reviewing all entries without selecting the correct show.",
+      "Promoting entries without checking guest details first.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the Waitlist section.",
+      "Choose the show from the dropdown.",
+      "Use optional text search to find a guest or reference inside that show queue.",
+      "Open or review the entry details.",
+      "Update, promote, convert, or remove the entry as needed.",
+    ],
+    id: "managing-waitlist-guests",
+    keywords: ["manage waitlist", "queue", "guest", "show selector"],
+    moduleId: "waitlist",
+    purpose: "Keep waitlist requests organised and ready for action when availability changes.",
+    relatedActions: ["waitlist"],
+    related: ["Promoting Guests", "Waitlist Statuses"],
+    tips: [
+      "Work one show queue at a time.",
+      "Use the waitlist reference when discussing a specific request.",
+    ],
+    title: "Managing Waitlist Guests",
+    whenToUse: "Use this during availability checks, show reviews, or guest follow-up.",
+  },
+  {
+    category: "Waitlist",
+    commonMistakes: [
+      "Promoting a guest without confirming they still want the booking.",
+      "Promoting before checking whether the guest count fits available seating.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the waitlist entry.",
+      "Confirm the guest details, show, guest count, and notes.",
+      "Check current availability.",
+      "Use the promote action when the guest should move forward.",
+      "Confirm the entry status and follow-up activity are updated.",
+    ],
+    id: "promoting-guests",
+    keywords: ["promote", "waitlist promotion", "availability"],
+    moduleId: "waitlist",
+    purpose: "Move a waitlist guest forward when suitable availability becomes available.",
+    relatedActions: ["waitlist", "bookings"],
+    related: ["Converting Waitlist to Booking", "Waitlist Statuses"],
+    tips: [
+      "Promotion should be based on real availability.",
+      "Contact the guest quickly after promotion so the opportunity is not lost.",
+    ],
+    title: "Promoting Guests",
+    whenToUse: "Use this when a guest on the waitlist can now be offered a booking opportunity.",
+  },
+  {
+    category: "Waitlist",
+    commonMistakes: [
+      "Creating a booking from the wrong waitlist entry.",
+      "Skipping the normal booking checks after conversion.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the promoted waitlist entry.",
+      "Confirm guest details and show context.",
+      "Use the conversion action where available.",
+      "Complete the standard booking flow with seating, details, payment, and confirmation.",
+      "Check that the waitlist entry no longer needs active follow-up.",
+    ],
+    id: "converting-waitlist-to-booking",
+    keywords: ["convert", "booking", "waitlist to booking"],
+    moduleId: "waitlist",
+    purpose: "Turn a waitlist opportunity into a confirmed booking using the normal booking process.",
+    relatedActions: ["waitlist", "bookings"],
+    related: ["Promoting Guests", "Creating a Booking"],
+    tips: [
+      "A converted waitlist entry still needs normal booking confirmation.",
+      "Check payment and ticket status after the booking is created.",
+    ],
+    title: "Converting Waitlist to Booking",
+    whenToUse: "Use this once the guest accepts the offered availability.",
+  },
+  {
+    category: "Waitlist",
+    commonMistakes: [
+      "Removing the wrong guest from the queue.",
+      "Removing entries without confirming they are no longer needed.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the Waitlist section.",
+      "Select the correct show.",
+      "Find the waitlist entry.",
+      "Confirm the guest name, contact details, and reference.",
+      "Use the remove action when the request should leave the active queue.",
+    ],
+    id: "removing-waitlist-entries",
+    keywords: ["remove", "delete", "waitlist entry", "queue"],
+    moduleId: "waitlist",
+    purpose: "Remove waitlist requests that are no longer active or no longer required.",
+    relatedActions: ["waitlist"],
+    related: ["Managing Waitlist Guests", "Waitlist Statuses"],
+    tips: [
+      "Confirm the request is no longer needed before removing it.",
+      "Use notes or history to understand why the entry changed.",
+    ],
+    title: "Removing Waitlist Entries",
+    whenToUse: "Use this when a guest declines, is converted, or no longer needs to remain in the queue.",
+  },
+  {
+    category: "Waitlist",
+    commonMistakes: [
+      "Leaving entries in the wrong status after action has been taken.",
+      "Treating promoted entries as already booked.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the waitlist entry.",
+      "Check the current status before acting.",
+      "Update the status when a guest is promoted, converted, removed, or still waiting.",
+      "Use the selected show queue to confirm the right entries remain active.",
+    ],
+    id: "waitlist-statuses",
+    keywords: ["status", "waiting", "promoted", "converted", "removed"],
+    moduleId: "waitlist",
+    purpose: "Use waitlist statuses to show what action has happened and what still needs attention.",
+    relatedActions: ["waitlist"],
+    related: ["Managing Waitlist Guests", "Promoting Guests"],
+    tips: [
+      "Status should always reflect the next operational action.",
+      "Promoted means an opportunity exists; it does not replace booking confirmation.",
+    ],
+    title: "Waitlist Statuses",
+    whenToUse: "Use this whenever reviewing or updating waitlist entries.",
+  },
+  {
+    category: "Waitlist",
+    commonMistakes: [
+      "Letting old waitlist entries sit without review.",
+      "Calling guests without checking the selected show and guest count.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Review waitlist queues regularly by show.",
+      "Keep contact details and notes clear.",
+      "Promote guests only when availability is realistic.",
+      "Move quickly once a guest is promoted.",
+      "Clear or remove entries that are no longer active.",
+    ],
+    id: "waitlist-best-practice-tips",
+    keywords: ["best practice", "waitlist", "tips", "queue"],
+    moduleId: "waitlist",
+    purpose: "Keep the waitlist useful, current, and easy for the team to act on.",
+    relatedActions: ["waitlist", "bookings"],
+    related: ["Waitlist Overview", "Common Waitlist Mistakes"],
+    tips: [
+      "A clean waitlist helps recover demand when space opens.",
+      "Always confirm the guest still wants the booking before converting.",
+    ],
+    title: "Best Practice Tips",
+    whenToUse: "Use this as a quick quality checklist for waitlist work.",
+  },
+  {
+    category: "Waitlist",
+    commonMistakes: [
+      "Selecting the wrong show queue.",
+      "Missing contact details.",
+      "Promoting without checking availability.",
+      "Forgetting to update the status after action is taken.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Check the selected show first.",
+      "Confirm guest name, email, phone, and guest count.",
+      "Review availability before promoting.",
+      "Update the status after promoting, converting, or removing.",
+      "Use notes for context the next staff member will need.",
+    ],
+    id: "common-waitlist-mistakes",
+    keywords: ["mistakes", "waitlist", "errors", "training"],
+    moduleId: "waitlist",
+    purpose: "Help staff avoid waitlist errors that create confusion or missed opportunities.",
+    relatedActions: ["waitlist"],
+    related: ["Waitlist Statuses", "Best Practice Tips"],
+    tips: [
+      "Most waitlist mistakes start with the wrong show context.",
+      "Slow down before promotion or conversion.",
+    ],
+    title: "Common Waitlist Mistakes",
+    whenToUse: "Use this during training or when reviewing waitlist quality.",
+  },
+];
+
+const communicationLessons: AcademyArticle[] = [
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Sending a message before checking the guest or booking context.",
+      "Using a template without reviewing the final text.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Communications or the relevant booking or guest record.",
+      "Confirm the recipient, booking reference, show date, and reason for the message.",
+      "Choose the correct template or write a clear custom message.",
+      "Send the communication and check that it appears in history.",
+    ],
+    id: "communications-overview",
+    keywords: ["communications", "messages", "email", "push"],
+    moduleId: "communications",
+    purpose: "Use Communications to keep guests and staff informed about bookings, payments, tickets, changes, and operational updates.",
+    relatedActions: ["communications", "bookings", "crm"],
+    related: ["Sending Guest Messages", "Using Templates"],
+    tips: [
+      "Always check the latest booking details before sending.",
+      "Communication history is the shared record of what has been sent.",
+    ],
+    title: "Communications Overview",
+    whenToUse: "Use this before sending guest messages, reminders, broadcasts, or booking updates.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Sending to an old email address.",
+      "Writing a message that does not include the booking reference when needed.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the guest, booking, or communications area.",
+      "Confirm the recipient details.",
+      "Write or review the message.",
+      "Send the message.",
+      "Check communication history for the new record.",
+    ],
+    id: "sending-guest-messages",
+    keywords: ["guest message", "custom message", "send"],
+    moduleId: "communications",
+    purpose: "Send a direct message to a guest when a booking or service update needs personal attention.",
+    relatedActions: ["communications", "crm"],
+    related: ["Using Templates", "Viewing Communication History"],
+    tips: [
+      "Keep guest messages short, warm, and specific.",
+      "Include the booking reference when it helps the guest identify the reservation.",
+    ],
+    title: "Sending Guest Messages",
+    whenToUse: "Use this when a guest needs an individual update that is not covered by an automatic message.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Editing a template for one guest when a custom message would be better.",
+      "Saving template changes without checking the wording.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Settings, then Automated Workflows.",
+      "Select the template type.",
+      "Review the subject and message body.",
+      "Use variables where supported.",
+      "Save changes and preview before using the template.",
+    ],
+    id: "using-templates",
+    keywords: ["templates", "subject", "message body", "variables"],
+    moduleId: "communications",
+    purpose: "Use templates to keep common communication consistent and professional.",
+    relatedActions: ["communications"],
+    related: ["Automated Workflows", "Booking Confirmation Emails"],
+    tips: [
+      "Templates affect future messages, so edit carefully.",
+      "Use preview to check how variables appear in the final message.",
+    ],
+    title: "Using Templates",
+    whenToUse: "Use this when managing standard messages such as confirmations, reminders, and payment updates.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Sending workflow messages for the wrong show.",
+      "Forgetting to check the selected template before sending.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Settings, then Automated Workflows.",
+      "Select the correct show.",
+      "Choose the template or workflow action.",
+      "Review or edit the message.",
+      "Send the communication and confirm history updates.",
+    ],
+    id: "automated-workflows",
+    keywords: ["automated workflows", "show reminders", "templates", "history"],
+    moduleId: "communications",
+    purpose: "Use Automated Workflows to send operational messages, reminders, and template-based communications for a selected show.",
+    relatedActions: ["communications"],
+    related: ["Using Templates", "Broadcast Messages"],
+    tips: [
+      "Always confirm the selected show at the top of the workflow.",
+      "Check history after sending to confirm the action was recorded.",
+    ],
+    title: "Automated Workflows",
+    whenToUse: "Use this when sending show reminders, template messages, or show-specific operational communication.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Broadcasting before checking the audience.",
+      "Writing a broad message that sounds too casual or unclear.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Automated Workflows.",
+      "Select the show or audience context.",
+      "Write the broadcast message.",
+      "Review the wording carefully.",
+      "Send the broadcast and confirm the communication history entry.",
+    ],
+    id: "broadcast-messages",
+    keywords: ["broadcast", "show guests", "operational update"],
+    moduleId: "communications",
+    purpose: "Send one message to a group of guests or operational audience when the same update applies to everyone.",
+    relatedActions: ["communications"],
+    related: ["Automated Workflows", "Viewing Communication History"],
+    tips: [
+      "Use broadcasts for clear group updates, not personal guest issues.",
+      "Keep the message precise and easy to act on.",
+    ],
+    title: "Broadcast Messages",
+    whenToUse: "Use this for show-wide or group updates that need to reach multiple recipients.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Changing a table without telling the guest when communication is needed.",
+      "Sending a table change before confirming the new allocation.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the booking details.",
+      "Confirm the updated seating or table information.",
+      "Use the available table change communication where appropriate.",
+      "Send the message.",
+      "Check the communication history for the record.",
+    ],
+    id: "table-change-notifications",
+    keywords: ["table change", "seating", "notification", "booking update"],
+    moduleId: "communications",
+    purpose: "Notify guests when a seating or table change needs to be communicated clearly.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Sending Guest Messages", "Viewing Communication History"],
+    tips: [
+      "Only communicate confirmed table changes.",
+      "Keep the tone reassuring and factual.",
+    ],
+    title: "Table Change Notifications",
+    whenToUse: "Use this when seating details change and the guest should be informed.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Assuming a confirmation was sent without checking history.",
+      "Using the wrong template for the booking payment state.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Complete or open the booking.",
+      "Confirm the booking status and payment status.",
+      "Use the Reservation Confirmed or Reservation Pending template as appropriate.",
+      "Send or resend confirmation if needed.",
+      "Check communication history.",
+    ],
+    id: "booking-confirmation-emails",
+    keywords: ["confirmation email", "reservation confirmed", "pending"],
+    moduleId: "communications",
+    purpose: "Send booking confirmation communication that matches the guest's reservation and payment state.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Using Templates", "Payment Confirmation Emails"],
+    tips: [
+      "Confirmed and pending bookings should not use the same wording.",
+      "Always confirm the guest email before resending.",
+    ],
+    title: "Booking Confirmation Emails",
+    whenToUse: "Use this after booking creation, payment updates, or guest confirmation requests.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Sending payment confirmation before the payment status is updated.",
+      "Confusing deposit paid with fully paid.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking details.",
+      "Confirm the latest payment status.",
+      "Use the payment received communication when payment is recorded.",
+      "Review the message before sending.",
+      "Check communication history for the payment confirmation.",
+    ],
+    id: "payment-confirmation-emails",
+    keywords: ["payment email", "payment received", "deposit", "fully paid"],
+    moduleId: "communications",
+    purpose: "Confirm payment updates clearly so guests and staff share the same understanding.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Booking Confirmation Emails", "Communication Statuses"],
+    tips: [
+      "Payment messages should match the actual payment status.",
+      "If payment failed or is pending, do not send payment received wording.",
+    ],
+    title: "Payment Confirmation Emails",
+    whenToUse: "Use this when deposit, full payment, or payment updates are recorded.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Expecting push notifications before permission is enabled.",
+      "Relying only on push when a formal email is required.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Confirm the app or PWA has notification permission.",
+      "Use the configured notification triggers for booking, payment, waitlist, corporate, or operational events.",
+      "Use Send Test Notification when checking staff notification setup.",
+      "Review the Notification Centre for in-app records.",
+    ],
+    id: "push-notifications",
+    keywords: ["push", "notifications", "pwa", "notification centre"],
+    moduleId: "communications",
+    purpose: "Use push notifications and the Notification Centre to keep staff and guests aware of important events.",
+    relatedActions: ["communications"],
+    related: ["Automated Workflows", "Communication Statuses"],
+    tips: [
+      "Push works best for timely alerts, not detailed explanations.",
+      "Email remains important for formal guest communication.",
+    ],
+    title: "Push Notifications",
+    whenToUse: "Use this when checking notification readiness or explaining why an alert did or did not appear.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Sending a duplicate message because history was not checked.",
+      "Ignoring failed communication records.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the guest, booking, corporate request, or communications area.",
+      "Review the communication history.",
+      "Check timestamp, subject, channel, status, and preview.",
+      "Use the history before sending or resending a message.",
+    ],
+    id: "viewing-communication-history",
+    keywords: ["history", "communication history", "sent", "failed"],
+    moduleId: "communications",
+    purpose: "See what messages have already been sent and whether they were recorded successfully.",
+    relatedActions: ["communications", "crm"],
+    related: ["Sending Guest Messages", "Communication Statuses"],
+    tips: [
+      "History protects the guest from duplicate messages.",
+      "Use it during handovers so the next person understands the conversation.",
+    ],
+    title: "Viewing Communication History",
+    whenToUse: "Use this before guest follow-up, resend actions, or support queries.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Assuming every message was delivered because the button was clicked.",
+      "Ignoring failed or pending statuses.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open communication history.",
+      "Find the message record.",
+      "Check the status, channel, and timestamp.",
+      "If a message failed, review the guest details and use the correct resend or follow-up process.",
+    ],
+    id: "communication-statuses",
+    keywords: ["status", "sent", "failed", "pending", "channel"],
+    moduleId: "communications",
+    purpose: "Understand whether a communication was sent, failed, or still needs attention.",
+    relatedActions: ["communications"],
+    related: ["Viewing Communication History", "Payment Confirmation Emails"],
+    tips: [
+      "A saved history record is not always the same as a successfully delivered message.",
+      "Escalate repeated failures to a manager or Super Admin.",
+    ],
+    title: "Communication Statuses",
+    whenToUse: "Use this when checking whether a message reached the guest or staff audience.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Writing long messages when a short update is clearer.",
+      "Forgetting to check guest details before sending.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Confirm the recipient and booking context.",
+      "Use the right template where available.",
+      "Keep the message short and specific.",
+      "Preview or review the wording.",
+      "Check communication history after sending.",
+    ],
+    id: "communications-best-practice-tips",
+    keywords: ["best practice", "communications", "tips", "quality"],
+    moduleId: "communications",
+    purpose: "Keep Zingara communication accurate, warm, and easy for guests to understand.",
+    relatedActions: ["communications", "crm"],
+    related: ["Communications Overview", "Common Communication Mistakes"],
+    tips: [
+      "Write like a helpful host, not a system alert.",
+      "Important booking information should be clear in the first sentence.",
+    ],
+    title: "Best Practice Tips",
+    whenToUse: "Use this as a quick quality checklist before sending messages.",
+  },
+  {
+    category: "Communications",
+    commonMistakes: [
+      "Sending to the wrong guest.",
+      "Using the wrong template.",
+      "Broadcasting a message that should be personal.",
+      "Forgetting to check communication history.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Check the recipient first.",
+      "Confirm the booking, payment, or show context.",
+      "Choose the correct communication type.",
+      "Review the final wording.",
+      "Confirm the message appears in history after sending.",
+    ],
+    id: "common-communication-mistakes",
+    keywords: ["mistakes", "communications", "errors", "training"],
+    moduleId: "communications",
+    purpose: "Help staff avoid message errors that confuse guests or create extra follow-up.",
+    relatedActions: ["communications"],
+    related: ["Best Practice Tips", "Viewing Communication History"],
+    tips: [
+      "Most communication mistakes can be avoided with one final review.",
+      "If the situation is sensitive, ask a manager to check the wording.",
+    ],
+    title: "Common Communication Mistakes",
+    whenToUse: "Use this during training or when reviewing communication quality.",
+  },
+];
+
+const ticketCheckInLessons: AcademyArticle[] = [
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Treating a ticket as valid without checking the QR result.",
+      "Checking in the wrong booking because the guest name was not confirmed.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Tickets or the Check-In area.",
+      "Search for the guest, booking reference, or ticket where needed.",
+      "Use the QR validation or booking details to confirm the ticket.",
+      "Check the guest in only after the ticket and booking match.",
+    ],
+    id: "tickets-overview",
+    keywords: ["tickets", "check-in", "qr", "guest arrival"],
+    moduleId: "tickets-check-in",
+    purpose: "Use Tickets and Check-In to validate guest entry and keep arrival records accurate.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Digital Tickets", "Checking In Guests"],
+    tips: [
+      "Ticket work is guest-facing, so slow down before confirming entry.",
+      "Use the booking reference when two guests have similar names.",
+    ],
+    title: "Tickets Overview",
+    whenToUse: "Use this when preparing for arrivals, checking tickets, or helping a guest at the door.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Sharing a ticket before confirming the guest details.",
+      "Assuming a downloaded ticket is always the latest version.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking or live ticket.",
+      "Confirm the guest name, show date, seating section, and booking reference.",
+      "Use Open Live Ticket or Download Ticket when the guest needs access.",
+      "Check the ticket status before relying on it for entry.",
+    ],
+    id: "digital-tickets",
+    keywords: ["digital ticket", "live ticket", "download ticket", "guest"],
+    moduleId: "tickets-check-in",
+    purpose: "Understand how guest-facing digital tickets display booking and QR information.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["QR Codes", "Downloading Tickets"],
+    tips: [
+      "Digital tickets should match the current booking record.",
+      "If details look wrong, review the booking before sharing the ticket.",
+    ],
+    title: "Digital Tickets",
+    whenToUse: "Use this when a guest asks for their ticket or needs help opening it.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Scanning a cropped or unclear QR code.",
+      "Ignoring a rejected or duplicate scan result.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the ticket or scanner flow.",
+      "Scan the full QR code.",
+      "Wait for the validation result.",
+      "Confirm the booking reference and guest details before entry.",
+      "Follow the result shown by the system.",
+    ],
+    id: "qr-codes",
+    keywords: ["qr", "scan", "validation", "ticket"],
+    moduleId: "tickets-check-in",
+    purpose: "Use QR codes to connect a guest ticket to the correct booking record.",
+    relatedActions: ["tickets"],
+    related: ["Ticket Validation", "Duplicate Scans"],
+    tips: [
+      "The QR code must be fully visible and not cut off.",
+      "If scanning fails, search by booking reference before making a manual decision.",
+    ],
+    title: "QR Codes",
+    whenToUse: "Use this whenever a guest presents a digital or printed ticket.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Checking in before confirming the ticket belongs to the guest.",
+      "Forgetting to check payment or booking status when a warning appears.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Check-In or the booking details.",
+      "Find the guest by scanning the QR code or searching the booking.",
+      "Confirm guest name, booking reference, show date, and status.",
+      "Select the check-in action.",
+      "Confirm the booking now shows checked in.",
+    ],
+    id: "checking-in-guests",
+    keywords: ["check-in", "arrival", "guest", "door"],
+    moduleId: "tickets-check-in",
+    purpose: "Record guest arrival so the floor and operations team know who has entered.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Manual Check-In", "Ticket Statuses"],
+    tips: [
+      "Check-in should happen once the guest is physically arriving.",
+      "If anything looks wrong, pause and ask a manager before checking in.",
+    ],
+    title: "Checking In Guests",
+    whenToUse: "Use this during arrivals and door operations.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Overriding a failed validation without checking the booking.",
+      "Assuming every scan error is a device issue.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Scan the ticket QR code.",
+      "Read the validation result.",
+      "If accepted, confirm the guest and proceed with check-in.",
+      "If rejected, duplicate, or invalid, open the booking or search by reference.",
+      "Record or follow the appropriate check-in action.",
+    ],
+    id: "ticket-validation",
+    keywords: ["validation", "accepted", "rejected", "invalid ticket"],
+    moduleId: "tickets-check-in",
+    purpose: "Confirm whether a ticket can be accepted for entry.",
+    relatedActions: ["tickets"],
+    related: ["QR Codes", "Duplicate Scans"],
+    tips: [
+      "The validation result should guide the next action.",
+      "Use booking details for context before resolving exceptions.",
+    ],
+    title: "Ticket Validation",
+    whenToUse: "Use this every time a ticket is scanned or checked for entry.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Letting a second scan through without checking who already entered.",
+      "Assuming duplicate scans are always fraud.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Review the duplicate scan warning.",
+      "Open the booking or validation history.",
+      "Check whether the guest was already checked in.",
+      "Confirm with the floor or box office team if needed.",
+      "Escalate unclear cases to a manager.",
+    ],
+    id: "duplicate-scans",
+    keywords: ["duplicate scan", "already checked in", "validation history"],
+    moduleId: "tickets-check-in",
+    purpose: "Handle repeat ticket scans without admitting the wrong person or blocking a genuine guest incorrectly.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Ticket Validation", "Manual Check-In"],
+    tips: [
+      "Duplicate scans can happen when a guest reopens a ticket or a staff member scans twice.",
+      "Check the timing and booking history before deciding.",
+    ],
+    title: "Duplicate Scans",
+    whenToUse: "Use this when the scanner reports a ticket has already been used or scanned.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Reissuing before confirming the guest identity.",
+      "Using reissue language when a simple resend is enough.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the booking details.",
+      "Confirm the guest identity, email, phone, and booking reference.",
+      "Review ticket status and history.",
+      "Use the available ticket action to update or resend as appropriate.",
+      "Check that the action is recorded.",
+    ],
+    id: "reissuing-tickets",
+    keywords: ["reissue", "ticket action", "replace ticket", "ticket status"],
+    moduleId: "tickets-check-in",
+    purpose: "Support ticket access when the original ticket should no longer be relied on or a fresh guest-facing copy is needed.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Resending Tickets", "Ticket Statuses"],
+    tips: [
+      "Use the least disruptive action that solves the guest's issue.",
+      "If the ticket status is unclear, ask a manager before proceeding.",
+    ],
+    title: "Reissuing Tickets",
+    whenToUse: "Use this when ticket access or validity needs manager-level attention.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Resending to the wrong email address.",
+      "Resending without checking whether the guest is looking at the correct booking.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking details.",
+      "Confirm the guest email address.",
+      "Use the ticket resend action.",
+      "Check communication history to confirm the resend was recorded.",
+      "Ask the guest to check their inbox and spam folder if needed.",
+    ],
+    id: "ticket-check-in-resending-tickets",
+    keywords: ["resend ticket", "email", "communication history", "guest"],
+    moduleId: "tickets-check-in",
+    purpose: "Send another copy of a ticket when a guest cannot find or access it.",
+    relatedActions: ["tickets", "communications"],
+    related: ["Digital Tickets", "Viewing Communication History"],
+    tips: [
+      "Confirm the email aloud for phone guests.",
+      "If the guest is already at the door, use ticket lookup while they wait.",
+    ],
+    title: "Resending Tickets",
+    whenToUse: "Use this when a guest asks for their ticket again.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Manual check-in without enough proof of booking.",
+      "Forgetting to record manual entry.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Search for the booking by reference, name, email, or phone.",
+      "Confirm the show date, guest details, status, and payment state.",
+      "Use the manual check-in action only when appropriate.",
+      "Confirm the booking and validation history show the manual check-in.",
+    ],
+    id: "manual-check-in",
+    keywords: ["manual check-in", "search", "arrival", "no qr"],
+    moduleId: "tickets-check-in",
+    purpose: "Check in a guest when QR scanning is not available or cannot be completed.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Checking In Guests", "Ticket Validation"],
+    tips: [
+      "Manual check-in should still be based on a verified booking.",
+      "Use this carefully during busy arrival periods.",
+    ],
+    title: "Manual Check-In",
+    whenToUse: "Use this when a guest cannot present a scannable QR code but their booking can be verified.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Confusing ticket status with payment status.",
+      "Ignoring a cancelled or invalid ticket status.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the ticket or booking details.",
+      "Check the ticket status.",
+      "Compare it with the booking and payment status.",
+      "Use validation history if the ticket was scanned before.",
+      "Escalate any mismatch before check-in.",
+    ],
+    id: "ticket-statuses",
+    keywords: ["ticket status", "issued", "used", "cancelled", "invalid"],
+    moduleId: "tickets-check-in",
+    purpose: "Understand whether a ticket is issued, usable, already used, cancelled, or needs attention.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Ticket Validation", "Duplicate Scans"],
+    tips: [
+      "Ticket status tells you about entry readiness, not the full booking story.",
+      "Always compare ticket status with booking status when something looks unusual.",
+    ],
+    title: "Ticket Statuses",
+    whenToUse: "Use this during ticket lookup, scanning, reissue, or guest arrival support.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Rushing scans during peak arrival.",
+      "Letting guests through before the system result is clear.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Keep the scanner or ticket lookup ready before arrivals begin.",
+      "Confirm each guest against the ticket result.",
+      "Handle duplicate or rejected scans away from the main queue when possible.",
+      "Use manual check-in only after verifying the booking.",
+      "Keep managers informed about repeated issues.",
+    ],
+    id: "ticket-check-in-best-practice-tips",
+    keywords: ["best practice", "tickets", "check-in", "arrival"],
+    moduleId: "tickets-check-in",
+    purpose: "Keep arrivals smooth, accurate, and calm for guests and staff.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Tickets Overview", "Common Ticket Mistakes"],
+    tips: [
+      "Accuracy matters more than speed at the door.",
+      "A calm check-in experience sets the tone for the evening.",
+    ],
+    title: "Best Practice Tips",
+    whenToUse: "Use this as a quick quality checklist before doors open.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Checking in the wrong guest.",
+      "Ignoring duplicate scan warnings.",
+      "Resending tickets without confirming the email address.",
+      "Using manual check-in without verifying the booking.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Confirm the guest and booking reference before action.",
+      "Read every scan result carefully.",
+      "Check ticket, booking, and payment status when something looks wrong.",
+      "Use history before resolving duplicate or invalid scans.",
+      "Ask a manager when the correct action is unclear.",
+    ],
+    id: "common-ticket-mistakes",
+    keywords: ["mistakes", "tickets", "check-in", "errors"],
+    moduleId: "tickets-check-in",
+    purpose: "Help staff avoid ticket and check-in errors that affect guest entry.",
+    relatedActions: ["tickets"],
+    related: ["Best Practice Tips", "Duplicate Scans"],
+    tips: [
+      "Most ticket mistakes happen when staff skip confirmation steps.",
+      "Never ignore warnings from the validation result.",
+    ],
+    title: "Common Ticket Mistakes",
+    whenToUse: "Use this during training or when reviewing arrival issues.",
+  },
+];
+
+const venueOperationsLessons: AcademyArticle[] = [
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Reviewing bookings without checking the active show context.",
+      "Changing operational details without considering tickets, seating, and staff handover.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the operational area you need to review.",
+      "Confirm the selected show and date.",
+      "Review bookings, seating, table fit, ticket status, and check-in readiness.",
+      "Make updates only after confirming the change affects the correct show.",
+    ],
+    id: "venue-overview",
+    keywords: ["venue", "operations", "show", "floor", "overview"],
+    moduleId: "venue-operations",
+    purpose: "Use Venue Operations to prepare the room, seating, shows, and arrival flow for service.",
+    relatedActions: ["bookings", "tickets"],
+    related: ["Shows", "Seating Layout"],
+    tips: [
+      "Always start with the show date.",
+      "Venue changes should be clear enough for the next manager to understand.",
+    ],
+    title: "Venue Overview",
+    whenToUse: "Use this before service, during manager handover, or when reviewing operational readiness.",
+  },
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Confusing show status with booking status.",
+      "Assuming every visible show is bookable.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Show & Availability Management.",
+      "Review the show name, date, time, and status.",
+      "Check whether the show is active, sold out, blackout, venue closure, special event, or inactive.",
+      "Confirm the booking calendar reflects the intended guest-facing status.",
+    ],
+    id: "shows",
+    keywords: ["shows", "show date", "availability", "calendar"],
+    moduleId: "venue-operations",
+    purpose: "Understand how shows control what guests can see and book.",
+    relatedActions: ["bookings"],
+    related: ["Managing Shows", "Venue Statuses"],
+    tips: [
+      "Active and Special Event shows can be bookable.",
+      "Inactive shows are hidden from the guest booking flow.",
+    ],
+    title: "Shows",
+    whenToUse: "Use this when checking what is available for guests to book.",
+  },
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Saving a show without checking the date and time.",
+      "Changing a show with linked bookings without considering guest impact.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Show & Availability Management.",
+      "Create, edit, duplicate, archive, or delete shows using the available actions.",
+      "Check linked bookings before removing or archiving a show.",
+      "Save changes and confirm they appear in the booking calendar and workflow selectors.",
+    ],
+    id: "managing-shows",
+    keywords: ["manage shows", "edit show", "archive show", "delete show"],
+    moduleId: "venue-operations",
+    purpose: "Keep show dates, times, and statuses accurate across booking and operations.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Shows", "Venue Statuses"],
+    tips: [
+      "Archive is safer than delete when a show has linked activity.",
+      "After saving, check the booking calendar if the change affects guests.",
+    ],
+    title: "Managing Shows",
+    whenToUse: "Use this when adding or updating show availability.",
+  },
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Using memory instead of the live seating map.",
+      "Promising a section before checking the current guest count and availability.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the seating step or booking details.",
+      "Review the SVG venue floorplan.",
+      "Select the section being discussed.",
+      "Check the section status, price, seats remaining, and best table fit.",
+    ],
+    id: "seating-layout",
+    keywords: ["seating", "floorplan", "layout", "section"],
+    moduleId: "venue-operations",
+    purpose: "Use the venue floorplan as the source of truth for seating sections.",
+    relatedActions: ["bookings"],
+    related: ["Table Management", "Seating Optimisation"],
+    tips: [
+      "Use the map rather than describing seating from memory.",
+      "The visible floorplan helps staff explain section options consistently.",
+    ],
+    title: "Seating Layout",
+    whenToUse: "Use this whenever discussing seating with guests or staff.",
+  },
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Changing tables without reviewing current bookings.",
+      "Treating best-fit suggestions as manual table overrides.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Review the booking and selected seating section.",
+      "Check the assigned or best-fit table information.",
+      "Use table management controls where available for operational updates.",
+      "Confirm the change is reflected in the booking details.",
+    ],
+    id: "table-management",
+    keywords: ["tables", "table management", "best fit", "allocation"],
+    moduleId: "venue-operations",
+    purpose: "Manage table information so bookings, seating, and operations stay aligned.",
+    relatedActions: ["bookings"],
+    related: ["Table Availability", "Table Changes"],
+    tips: [
+      "Table allocation should stay within the selected seating section.",
+      "Check guest count before changing or confirming table fit.",
+    ],
+    title: "Table Management",
+    whenToUse: "Use this when reviewing or updating table allocation.",
+  },
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Looking only at total seats instead of suitable table fit.",
+      "Assuming a section is available when no table can seat the party.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Choose the show and guest count.",
+      "Select a seating section.",
+      "Review seats remaining and best-fit table information.",
+      "If no suitable table is available, choose another section or review availability.",
+    ],
+    id: "table-availability",
+    keywords: ["availability", "table fit", "seats remaining", "capacity"],
+    moduleId: "venue-operations",
+    purpose: "Understand whether a section can actually seat the selected party size.",
+    relatedActions: ["bookings"],
+    related: ["Table Management", "Seating Optimisation"],
+    tips: [
+      "Seats remaining is not the same as a guaranteed table fit.",
+      "Best-fit allocation helps avoid wasting capacity.",
+    ],
+    title: "Table Availability",
+    whenToUse: "Use this before confirming seating for a guest or group.",
+  },
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Changing a table without telling the right team members.",
+      "Making changes that are not visible in the booking record.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the affected booking.",
+      "Confirm the guest name, booking reference, and current table details.",
+      "Apply the table change where available.",
+      "Review the updated booking details.",
+      "Send communication if the guest needs to be informed.",
+    ],
+    id: "table-changes",
+    keywords: ["table change", "seating change", "guest communication"],
+    moduleId: "venue-operations",
+    purpose: "Handle table changes cleanly so operations and guest communication remain accurate.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Table Management", "Table Change Notifications"],
+    tips: [
+      "Only communicate confirmed changes.",
+      "Use booking history to understand why a table was changed.",
+    ],
+    title: "Table Changes",
+    whenToUse: "Use this when a guest or operational need requires a seating adjustment.",
+  },
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Giving a small party a table that blocks larger group availability.",
+      "Ignoring merged-table options when no single table fits.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Check the party size and selected seating section.",
+      "Review the best-fit table recommendation.",
+      "Use the smallest suitable available table where possible.",
+      "If needed, review compatible combined table options.",
+      "Avoid manual changes that reduce future availability without reason.",
+    ],
+    id: "seating-optimisation",
+    keywords: ["optimisation", "best fit", "merged tables", "capacity"],
+    moduleId: "venue-operations",
+    purpose: "Protect venue capacity by placing guests in the most suitable available table arrangement.",
+    relatedActions: ["bookings"],
+    related: ["Table Availability", "Seating Layout"],
+    tips: [
+      "Good allocation keeps more future booking options open.",
+      "Large groups should be checked carefully before confirmation.",
+    ],
+    title: "Seating Optimisation",
+    whenToUse: "Use this when reviewing table fit for busy shows or larger parties.",
+  },
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Using Blackout, Sold Out, and Venue Closure interchangeably.",
+      "Leaving a show Active when it should be hidden or blocked.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Review the show status in Show & Availability Management.",
+      "Use Active for normal bookable shows.",
+      "Use Sold Out when visible but not bookable.",
+      "Use Blackout for management holds or blocked dates.",
+      "Use Venue Closure when the venue is closed.",
+      "Use Special Event for visible, bookable special dates.",
+      "Use Inactive when the show should be hidden from guests.",
+    ],
+    id: "venue-statuses",
+    keywords: ["status", "active", "sold out", "blackout", "closure", "special event"],
+    moduleId: "venue-operations",
+    purpose: "Use show and venue statuses correctly so guests see accurate availability.",
+    relatedActions: ["bookings"],
+    related: ["Shows", "Managing Shows"],
+    tips: [
+      "Status wording matters because it affects the guest booking calendar.",
+      "Check the calendar after changing a status.",
+    ],
+    title: "Venue Statuses",
+    whenToUse: "Use this whenever setting or reviewing show availability.",
+  },
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Making operational changes without checking guest impact.",
+      "Forgetting to communicate changes that affect guests or staff.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Start with the show date.",
+      "Check bookings, seating, table fit, tickets, and communication history.",
+      "Make one clear change at a time.",
+      "Confirm the update appears in the relevant booking or calendar.",
+      "Communicate important changes where needed.",
+    ],
+    id: "venue-best-practice-tips",
+    keywords: ["best practice", "venue", "operations", "manager"],
+    moduleId: "venue-operations",
+    purpose: "Keep venue operations accurate, calm, and easy to hand over.",
+    relatedActions: ["bookings", "communications", "tickets"],
+    related: ["Venue Overview", "Common Venue Mistakes"],
+    tips: [
+      "Use the platform as the source of truth during service.",
+      "Clear records make handover easier.",
+    ],
+    title: "Best Practice Tips",
+    whenToUse: "Use this as a manager checklist before and during service.",
+  },
+  {
+    category: "Venue Operations",
+    commonMistakes: [
+      "Changing the wrong show.",
+      "Confusing total seats with table availability.",
+      "Deleting instead of archiving linked shows.",
+      "Not checking booking impact before a table change.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Confirm the show and date before every venue update.",
+      "Check linked bookings before archive, delete, or status changes.",
+      "Review best-fit table guidance before confirming seating.",
+      "Check booking and communication history after operational changes.",
+      "Ask a Super Admin before making high-impact changes.",
+    ],
+    id: "common-venue-mistakes",
+    keywords: ["mistakes", "venue", "shows", "tables", "seating"],
+    moduleId: "venue-operations",
+    purpose: "Help staff avoid venue changes that create booking, seating, or guest communication problems.",
+    relatedActions: ["bookings"],
+    related: ["Best Practice Tips", "Venue Statuses"],
+    tips: [
+      "Most venue mistakes come from changing the wrong date or show.",
+      "Pause before any action that affects linked bookings.",
+    ],
+    title: "Common Venue Mistakes",
+    whenToUse: "Use this during training or when reviewing operational errors.",
+  },
+];
+
+const staffPermissionLessons: AcademyArticle[] = [
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Treating staff access as a one-time setup task.",
+      "Leaving inactive staff accounts enabled after role changes or departures.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Settings, then Staff.",
+      "Review the staff list, role, active status, and venue scope.",
+      "Use Create Staff User for new team members.",
+      "Update roles or active state when responsibilities change.",
+    ],
+    id: "staff-management-overview",
+    keywords: ["staff", "permissions", "users", "roles"],
+    moduleId: "staff-permissions",
+    purpose: "Use Staff Management to control who can access the Zingara admin platform and what they are allowed to do.",
+    relatedActions: ["staff"],
+    related: ["Understanding Roles", "Security Best Practices"],
+    tips: [
+      "Keep staff access current before every operational handover.",
+      "Use the lowest role that gives the person the tools they need.",
+    ],
+    title: "Staff Management Overview",
+    whenToUse: "Use this when reviewing staff access, onboarding users, or checking permissions.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Creating a user with the wrong email address.",
+      "Assigning a higher role than the person needs.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Settings, then Staff.",
+      "Select Create Staff User.",
+      "Enter the staff member's full name and email address.",
+      "Choose the correct role and venue scope.",
+      "Create the user and confirm they appear in the staff list.",
+    ],
+    id: "creating-staff-users",
+    keywords: ["create staff", "new user", "invite", "role"],
+    moduleId: "staff-permissions",
+    purpose: "Create a staff account linked to the correct role and venue scope.",
+    relatedActions: ["staff"],
+    related: ["Staff Invitations", "Understanding Roles"],
+    tips: [
+      "Check spelling carefully before creating the account.",
+      "Use a work email address whenever possible.",
+    ],
+    title: "Creating Staff Users",
+    whenToUse: "Use this when a new Zingara team member needs admin access.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Changing a role without confirming the staff member's duties.",
+      "Forgetting to save after changing active state or role.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Settings, then Staff.",
+      "Find the staff member in the list.",
+      "Review their email, role, active status, and venue scope.",
+      "Change the role or active state where needed.",
+      "Save and confirm the staff list updates.",
+    ],
+    id: "editing-staff-users",
+    keywords: ["edit staff", "update user", "role change", "active"],
+    moduleId: "staff-permissions",
+    purpose: "Keep staff records accurate when responsibilities or access needs change.",
+    relatedActions: ["staff"],
+    related: ["Activating & Deactivating Users", "Understanding Roles"],
+    tips: [
+      "Confirm the business reason before changing a role.",
+      "If access looks wrong after an update, ask the user to sign out and back in.",
+    ],
+    title: "Editing Staff Users",
+    whenToUse: "Use this when a staff member changes role, venue scope, or access state.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Deleting or removing access when deactivation is enough.",
+      "Leaving old accounts active after a shift or employment change.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Settings, then Staff.",
+      "Find the staff member.",
+      "Use Deactivate User when access should be paused or removed.",
+      "Use Activate User when access should be restored.",
+      "Confirm the active status changed in the staff list.",
+    ],
+    id: "activating-and-deactivating-users",
+    keywords: ["activate", "deactivate", "staff access", "active user"],
+    moduleId: "staff-permissions",
+    purpose: "Control whether a staff member can actively use the admin platform.",
+    relatedActions: ["staff"],
+    related: ["Editing Staff Users", "Security Best Practices"],
+    tips: [
+      "Deactivate rather than delete for launch operations.",
+      "Review inactive users regularly.",
+    ],
+    title: "Activating & Deactivating Users",
+    whenToUse: "Use this when access must be paused, restored, or removed from daily use.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Giving everyone manager-level access.",
+      "Choosing roles based on seniority rather than platform responsibility.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Review what the person needs to do in the platform.",
+      "Choose Super Admin only for full system control.",
+      "Choose Venue Manager for daily operations and management workflows.",
+      "Choose Box Office Staff for bookings, guests, waitlist, tickets, and communications.",
+      "Choose Floor Manager for arrivals, check-in, tickets, and floor operations.",
+    ],
+    id: "understanding-roles-staff-permissions",
+    keywords: ["roles", "super admin", "venue manager", "box office", "floor manager"],
+    moduleId: "staff-permissions",
+    purpose: "Understand how roles shape staff access inside the Zingara admin platform.",
+    relatedActions: ["staff"],
+    related: ["Super Admin Permissions", "Venue Manager Permissions"],
+    tips: [
+      "A role should match the work the person performs.",
+      "If in doubt, start with less access and escalate if needed.",
+    ],
+    title: "Understanding Roles",
+    whenToUse: "Use this before creating or changing staff access.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Using a Super Admin account for everyday floor tasks.",
+      "Sharing Super Admin access with staff who do not need it.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Assign Super Admin only to approved leadership or system owners.",
+      "Use it for staff management, settings, security, and high-level platform control.",
+      "Review Super Admin accounts regularly.",
+      "Deactivate access immediately when it is no longer required.",
+    ],
+    id: "super-admin-permissions",
+    keywords: ["super admin", "permissions", "security", "settings"],
+    moduleId: "staff-permissions",
+    purpose: "Protect the highest level of platform access.",
+    relatedActions: ["staff"],
+    related: ["Understanding Roles", "Security Best Practices"],
+    tips: [
+      "Super Admin access should be rare.",
+      "Use your own account so important changes can be traced.",
+    ],
+    title: "Super Admin Permissions",
+    whenToUse: "Use this when assigning or reviewing full platform access.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Giving Venue Manager access to users who only need booking tools.",
+      "Assuming Venue Managers should manage staff security.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Use Venue Manager for operational leadership.",
+      "Allow access to booking, guest, communication, ticket, venue, and reporting workflows as configured.",
+      "Use Super Admin for sensitive staff and security decisions.",
+      "Review the role if a manager cannot access a required operational section.",
+    ],
+    id: "venue-manager-permissions",
+    keywords: ["venue manager", "operations", "manager permissions"],
+    moduleId: "staff-permissions",
+    purpose: "Give operational managers the tools they need without unnecessary system control.",
+    relatedActions: ["staff"],
+    related: ["Understanding Roles", "Super Admin Permissions"],
+    tips: [
+      "Venue Manager is for live operations and management workflows.",
+      "Use role changes carefully during busy service periods.",
+    ],
+    title: "Venue Manager Permissions",
+    whenToUse: "Use this when assigning access for managers responsible for daily venue operations.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Giving Box Office Staff access to settings they do not need.",
+      "Blocking box office staff from guest and booking tools they use daily.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Use Box Office Staff for staff who handle reservations and guest support.",
+      "Confirm they can access booking, corporate, CRM, waitlist, communications, and ticket workflows as needed.",
+      "Escalate role changes to a Super Admin if more access is required.",
+    ],
+    id: "box-office-staff-permissions",
+    keywords: ["box office", "bookings", "crm", "tickets"],
+    moduleId: "staff-permissions",
+    purpose: "Give box office staff the operational tools needed for guest-facing booking work.",
+    relatedActions: ["staff", "bookings"],
+    related: ["Understanding Roles", "Floor Manager Permissions"],
+    tips: [
+      "Box Office Staff should be able to help guests quickly.",
+      "They do not need full system settings access for daily work.",
+    ],
+    title: "Box Office Staff Permissions",
+    whenToUse: "Use this when assigning access for reservation and guest support staff.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Giving floor staff unnecessary booking administration access.",
+      "Not giving floor managers enough access to support arrivals.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Use Floor Manager for staff focused on arrivals and floor operations.",
+      "Confirm access to check-in, tickets, venue operations, and guest arrival support as configured.",
+      "Escalate booking or payment changes to Box Office Staff or a manager where needed.",
+    ],
+    id: "floor-manager-permissions",
+    keywords: ["floor manager", "check-in", "tickets", "venue"],
+    moduleId: "staff-permissions",
+    purpose: "Give floor managers practical access for guest arrival and service operations.",
+    relatedActions: ["staff", "tickets"],
+    related: ["Understanding Roles", "Box Office Staff Permissions"],
+    tips: [
+      "Floor Manager access should support speed and accuracy at the door.",
+      "Use booking staff for deeper reservation changes.",
+    ],
+    title: "Floor Manager Permissions",
+    whenToUse: "Use this when assigning access for arrival, ticket, and venue floor support.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Inviting the wrong email address.",
+      "Creating a staff profile without the correct role.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Settings, then Staff.",
+      "Select Create Staff User.",
+      "Enter the staff member's details.",
+      "Select the correct role and venue scope.",
+      "Create the user and confirm the staff profile appears.",
+    ],
+    id: "staff-invitations",
+    keywords: ["staff invitations", "create user", "auth", "profile"],
+    moduleId: "staff-permissions",
+    purpose: "Create staff access through the platform's staff invitation and profile flow.",
+    relatedActions: ["staff"],
+    related: ["Creating Staff Users", "Password Resets"],
+    tips: [
+      "Confirm the role before creating the account.",
+      "If staff cannot log in, check their active status and profile role.",
+    ],
+    title: "Staff Invitations",
+    whenToUse: "Use this when onboarding a new staff member into the admin platform.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Sharing a temporary password through unsafe channels.",
+      "Assuming password issues are always role issues.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Confirm the staff member is using the correct email address.",
+      "Check that their staff profile is active.",
+      "Use the approved password reset process when access needs to be restored.",
+      "Ask the user to log in again after reset is complete.",
+    ],
+    id: "password-resets",
+    keywords: ["password", "reset", "login", "access"],
+    moduleId: "staff-permissions",
+    purpose: "Help staff recover access safely when they cannot log in.",
+    relatedActions: ["staff"],
+    related: ["Staff Invitations", "Security Best Practices"],
+    tips: [
+      "Check active status before assuming the password is the problem.",
+      "Never ask staff to share their password.",
+    ],
+    title: "Password Resets",
+    whenToUse: "Use this when a staff member cannot access their account.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Sharing accounts between staff members.",
+      "Leaving admin sessions open on shared devices.",
+      "Keeping inactive staff enabled.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Use individual accounts for every staff member.",
+      "Assign the lowest practical role.",
+      "Deactivate users who no longer need access.",
+      "Log out after using shared devices.",
+      "Review Super Admin and Venue Manager access regularly.",
+    ],
+    id: "security-best-practices",
+    keywords: ["security", "access", "logout", "least access"],
+    moduleId: "staff-permissions",
+    purpose: "Keep staff access safe without slowing down operations.",
+    relatedActions: ["staff"],
+    related: ["Staff Management Overview", "Super Admin Permissions"],
+    tips: [
+      "Access should match current work, not old responsibilities.",
+      "Security is easiest when staff habits are consistent.",
+    ],
+    title: "Security Best Practices",
+    whenToUse: "Use this when reviewing staff access or training managers.",
+  },
+  {
+    category: "Staff & Permissions",
+    commonMistakes: [
+      "Creating duplicate staff profiles.",
+      "Assigning the wrong role.",
+      "Forgetting to deactivate old accounts.",
+      "Using a shared login for multiple staff members.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Search the staff list before creating a user.",
+      "Confirm the email address and role.",
+      "Use activate or deactivate instead of unnecessary account changes.",
+      "Review access regularly.",
+      "Ask a Super Admin before making sensitive changes.",
+    ],
+    id: "common-staff-management-mistakes",
+    keywords: ["mistakes", "staff", "permissions", "roles"],
+    moduleId: "staff-permissions",
+    purpose: "Help managers avoid staff access errors that create security or operational issues.",
+    relatedActions: ["staff"],
+    related: ["Security Best Practices", "Understanding Roles"],
+    tips: [
+      "Most staff access issues come from wrong email, wrong role, or inactive profile.",
+      "A clean staff list makes daily operations easier.",
+    ],
+    title: "Common Staff Management Mistakes",
+    whenToUse: "Use this during staff setup, role reviews, or access troubleshooting.",
+  },
+];
+
+const settingsLessons: AcademyArticle[] = [
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Changing settings during service without checking the operational impact.",
+      "Assuming settings changes only affect the current screen.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Settings from the admin navigation.",
+      "Choose the relevant area: Staff, Venue, or Automated Workflows.",
+      "Review the current values before editing.",
+      "Save changes and confirm the update appears where expected.",
+      "Tell affected staff if the change affects daily operations.",
+    ],
+    id: "settings-overview",
+    keywords: ["settings", "configuration", "venue", "workflows"],
+    moduleId: "settings",
+    purpose: "Use Settings to manage platform configuration that affects staff, venue details, communication templates, and operational workflows.",
+    relatedActions: ["staff", "communications"],
+    related: ["Venue Configuration", "Communication Templates"],
+    tips: [
+      "Settings are shared across the platform, so change them carefully.",
+      "When in doubt, ask a Super Admin before saving.",
+    ],
+    title: "Settings Overview",
+    whenToUse: "Use this when reviewing or updating platform configuration.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Changing venue details without checking guest-facing displays.",
+      "Leaving outdated operational information in place.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Settings, then Venue.",
+      "Review venue name, branding, operational settings, and venue configuration fields.",
+      "Update only the details that need to change.",
+      "Save and check that the platform still displays the venue correctly.",
+    ],
+    id: "venue-configuration",
+    keywords: ["venue configuration", "venue settings", "branding", "operations"],
+    moduleId: "settings",
+    purpose: "Keep venue details and operational configuration accurate across the platform.",
+    relatedActions: ["staff"],
+    related: ["Settings Overview", "Booking Settings"],
+    tips: [
+      "Venue configuration affects more than one workflow.",
+      "Review guest-facing areas after changing branding or venue details.",
+    ],
+    title: "Venue Configuration",
+    whenToUse: "Use this when venue details, branding, or operational configuration need updating.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Changing booking settings without testing the booking flow afterwards.",
+      "Forgetting that booking settings affect guests and staff.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Review the settings that affect bookings and operations.",
+      "Confirm what the change should achieve.",
+      "Save the update.",
+      "Open the booking flow or bookings page to confirm the expected behaviour.",
+    ],
+    id: "booking-settings",
+    keywords: ["booking settings", "booking flow", "configuration"],
+    moduleId: "settings",
+    purpose: "Understand how operational settings can affect the booking experience and admin workflows.",
+    relatedActions: ["bookings"],
+    related: ["Venue Configuration", "Payment Gateway Settings"],
+    tips: [
+      "Avoid changing booking-related settings during peak service.",
+      "Tell box office staff when a setting changes how bookings should be handled.",
+    ],
+    title: "Booking Settings",
+    whenToUse: "Use this when reviewing configuration that affects booking behaviour or staff workflow.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Editing a live template without previewing it.",
+      "Removing important booking variables from the message.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Settings, then Automated Workflows.",
+      "Choose the template to review.",
+      "Edit the subject or message body carefully.",
+      "Use preview to check the final message.",
+      "Save and use the template for future communications.",
+    ],
+    id: "settings-communication-templates",
+    keywords: ["templates", "communication templates", "subject", "message"],
+    moduleId: "settings",
+    purpose: "Manage standard communication wording used for bookings, payments, corporate enquiries, reminders, and broadcasts.",
+    relatedActions: ["communications"],
+    related: ["Automated Workflows", "Email Configuration"],
+    tips: [
+      "Templates should sound polished and clear.",
+      "Keep variables in place when they provide booking-specific details.",
+    ],
+    title: "Communication Templates",
+    whenToUse: "Use this when standard guest or operational messages need updated wording.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Sending workflow messages for the wrong selected show.",
+      "Forgetting to check communication history after sending.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Settings, then Automated Workflows.",
+      "Select the relevant show.",
+      "Choose the template, reminder, or broadcast workflow.",
+      "Review the message.",
+      "Send and confirm success feedback or history entry.",
+    ],
+    id: "settings-automated-workflows",
+    keywords: ["automated workflows", "reminders", "broadcast", "show selector"],
+    moduleId: "settings",
+    purpose: "Use workflow settings to manage show-specific communications and operational messaging.",
+    relatedActions: ["communications"],
+    related: ["Communication Templates", "Push Notification Settings"],
+    tips: [
+      "The selected show controls the workflow context.",
+      "Use history to confirm what was sent.",
+    ],
+    title: "Automated Workflows",
+    whenToUse: "Use this when sending reminders, communications, or broadcasts from Settings.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Expecting notifications before permission has been allowed.",
+      "Assuming every staff role receives every notification.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the notification or workflow area where notification actions are available.",
+      "Check whether the browser or installed app has notification permission.",
+      "Use Send Test Notification where available.",
+      "Review the Notification Centre for in-app records.",
+      "Confirm the right staff roles should receive the alert.",
+    ],
+    id: "push-notification-settings",
+    keywords: ["push notifications", "notification centre", "test notification"],
+    moduleId: "settings",
+    purpose: "Understand how staff notification readiness is checked from the admin experience.",
+    relatedActions: ["communications"],
+    related: ["Automated Workflows", "Push Notifications"],
+    tips: [
+      "Push notifications depend on device permission.",
+      "Use the Notification Centre if a push alert is missed.",
+    ],
+    title: "Push Notification Settings",
+    whenToUse: "Use this when checking whether staff notifications are ready and visible.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Assuming an email was delivered without checking communication status.",
+      "Changing message wording without considering guest clarity.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Use communication templates to manage guest-facing email wording.",
+      "Send messages through the existing booking, payment, resend, or workflow actions.",
+      "Check communication history for status and timestamp.",
+      "If an email fails, review the guest email address and retry using the correct workflow.",
+    ],
+    id: "email-configuration",
+    keywords: ["email", "email configuration", "templates", "communication history"],
+    moduleId: "settings",
+    purpose: "Understand email behaviour from an admin perspective: templates control wording, workflows send messages, and history shows the result.",
+    relatedActions: ["communications"],
+    related: ["Communication Templates", "Communication Statuses"],
+    tips: [
+      "Email content should be clear, warm, and booking-specific.",
+      "Use communication history before resending.",
+    ],
+    title: "Email Configuration",
+    whenToUse: "Use this when reviewing email wording, delivery status, or guest communication outcomes.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Changing payment assumptions without checking booking totals.",
+      "Confusing payment status with ticket or booking status.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Review payment-related information from the booking and payment areas.",
+      "Confirm whether the booking is pending, deposit paid, fully paid, complimentary, or outstanding.",
+      "Use the correct payment action for admin updates.",
+      "Check the booking financial breakdown after changes.",
+    ],
+    id: "payment-gateway-settings",
+    keywords: ["payment gateway", "payment settings", "payment status", "finance"],
+    moduleId: "settings",
+    purpose: "Understand payment settings from an admin perspective so staff read and manage payment states correctly.",
+    relatedActions: ["bookings"],
+    related: ["Booking Settings", "Payment Types"],
+    tips: [
+      "The final payable amount should match the booking summary.",
+      "Payment updates should be confirmed before guest communication is sent.",
+    ],
+    title: "Payment Gateway Settings",
+    whenToUse: "Use this when reviewing payment behaviour, payment status, or finance-facing booking details.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Assuming all staff prefer the same dashboard or Academy progress view.",
+      "Changing shared settings when only a personal preference is needed.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Use personal controls where the platform provides them, such as Academy favourites, recent lessons, and read progress.",
+      "Use staff settings only for account, role, active state, and venue scope.",
+      "Avoid changing shared configuration for a personal preference.",
+    ],
+    id: "user-preferences",
+    keywords: ["user preferences", "academy progress", "favourites", "staff"],
+    moduleId: "settings",
+    purpose: "Understand the difference between personal preferences and shared platform settings.",
+    relatedActions: ["staff"],
+    related: ["Settings Overview", "Staff Management Overview"],
+    tips: [
+      "Academy progress and favourites are personal to the browser experience.",
+      "Shared settings should support the whole venue team.",
+    ],
+    title: "User Preferences",
+    whenToUse: "Use this when a staff member asks what is personal versus shared configuration.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Making several settings changes at once.",
+      "Saving without checking the result in the relevant workflow.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Decide exactly what needs to change.",
+      "Make one setting change at a time.",
+      "Save and confirm success feedback.",
+      "Open the affected workflow to verify the result.",
+      "Tell affected staff when the change affects daily operations.",
+    ],
+    id: "settings-best-practice-tips",
+    keywords: ["best practice", "settings", "configuration", "admin"],
+    moduleId: "settings",
+    purpose: "Keep settings changes controlled, visible, and easy to verify.",
+    relatedActions: ["staff", "communications"],
+    related: ["Settings Overview", "Common Settings Mistakes"],
+    tips: [
+      "Settings changes should be deliberate, not experimental.",
+      "Document important operational changes in team handover notes.",
+    ],
+    title: "Best Practice Tips",
+    whenToUse: "Use this before changing settings that affect staff or guests.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Editing templates without previewing.",
+      "Changing settings during live service without warning staff.",
+      "Updating payment or booking wording without checking the actual guest flow.",
+      "Changing staff access when a role review is needed first.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Review the current setting before changing it.",
+      "Confirm who or what the change affects.",
+      "Save only when the change is clear.",
+      "Check the affected page or workflow afterwards.",
+      "Escalate uncertain settings changes to a Super Admin.",
+    ],
+    id: "common-settings-mistakes",
+    keywords: ["mistakes", "settings", "configuration", "errors"],
+    moduleId: "settings",
+    purpose: "Help staff avoid settings changes that create confusion across bookings, communications, or operations.",
+    relatedActions: ["staff"],
+    related: ["Best Practice Tips", "Settings Overview"],
+    tips: [
+      "Most settings mistakes come from changing the right field at the wrong time.",
+      "If a change affects guests, verify the guest-facing result.",
+    ],
+    title: "Common Settings Mistakes",
+    whenToUse: "Use this during training or before making high-impact settings changes.",
+  },
+];
+
+const analyticsReportingLessons: AcademyArticle[] = [
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Reading a metric without checking the date or show context.",
+      "Treating live operational numbers as final finance reports.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Analytics or review dashboard reporting cards.",
+      "Confirm the date, show, or reporting context.",
+      "Read the headline metrics first.",
+      "Open related bookings, guests, or communications when more detail is needed.",
+    ],
+    id: "analytics-overview",
+    keywords: ["analytics", "reporting", "metrics", "overview"],
+    moduleId: "analytics-reporting",
+    purpose: "Use Analytics & Reporting to understand booking activity, revenue, attendance, guest demand, and operational performance.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Dashboard Metrics", "Booking Reports"],
+    tips: [
+      "Start with the question you need answered.",
+      "Use reports to guide decisions, then check the source records before taking action.",
+    ],
+    title: "Analytics Overview",
+    whenToUse: "Use this when managers need a clear picture of performance or operational trends.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Assuming dashboard figures explain the full story.",
+      "Ignoring alerts or quick-action context around the metrics.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the Dashboard.",
+      "Review the visible metric cards and operational summaries.",
+      "Check related alerts, quick actions, and notifications.",
+      "Open the relevant section if a metric needs follow-up.",
+    ],
+    id: "dashboard-metrics",
+    keywords: ["dashboard", "metrics", "widgets", "summary"],
+    moduleId: "analytics-reporting",
+    purpose: "Use dashboard metrics as the fastest overview of current venue activity.",
+    relatedActions: ["bookings", "waitlist"],
+    related: ["Analytics Overview", "Attendance Reporting"],
+    tips: [
+      "Dashboard metrics are designed for quick decisions.",
+      "Use deeper reports when you need detail or historical context.",
+    ],
+    title: "Dashboard Metrics",
+    whenToUse: "Use this at the start of a shift or during manager handover.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Counting cancelled bookings as active demand.",
+      "Mixing standard and corporate bookings without checking source.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Bookings or Analytics.",
+      "Apply the relevant search or filters.",
+      "Review booking count, source, status, seating, and date details.",
+      "Open individual bookings when the report needs explanation.",
+    ],
+    id: "booking-reports",
+    keywords: ["booking reports", "booking status", "source", "filters"],
+    moduleId: "analytics-reporting",
+    purpose: "Understand booking activity by status, source, show, guest, or operational need.",
+    relatedActions: ["bookings"],
+    related: ["Corporate Reporting", "Revenue Reporting"],
+    tips: [
+      "Use status filters before drawing conclusions.",
+      "Corporate bookings should remain identifiable by source and company indicator.",
+    ],
+    title: "Booking Reports",
+    whenToUse: "Use this when reviewing reservation volume, booking quality, or operational workload.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Using booking total without checking payment status.",
+      "Treating pending or outstanding amounts as received revenue.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Analytics, Bookings, or payment-related views.",
+      "Review paid, deposit, pending, outstanding, complimentary, and refunded states where shown.",
+      "Check booking financial breakdowns for detail.",
+      "Open individual bookings when totals need verification.",
+    ],
+    id: "revenue-reporting",
+    keywords: ["revenue", "payments", "paid", "deposit", "outstanding"],
+    moduleId: "analytics-reporting",
+    purpose: "Read revenue and payment information accurately for management review.",
+    relatedActions: ["bookings"],
+    related: ["Booking Reports", "Payment Gateway Settings"],
+    tips: [
+      "Payment status matters as much as booking value.",
+      "Use booking details when a total looks unusual.",
+    ],
+    title: "Revenue Reporting",
+    whenToUse: "Use this when reviewing sales, payments, deposits, or outstanding balances.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Confusing booked guests with checked-in guests.",
+      "Ignoring duplicate scan or manual check-in context.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Dashboard, Tickets, Check-In, or Analytics.",
+      "Review booking totals and checked-in totals separately.",
+      "Check validation or check-in history for exceptions.",
+      "Use booking details to resolve unusual attendance records.",
+    ],
+    id: "attendance-reporting",
+    keywords: ["attendance", "check-in", "arrivals", "tickets"],
+    moduleId: "analytics-reporting",
+    purpose: "Understand who was booked, who arrived, and where check-in exceptions may need review.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Dashboard Metrics", "Ticket Validation"],
+    tips: [
+      "Check-in data is operational, so timing matters.",
+      "Manual check-ins should still be traceable in the booking history.",
+    ],
+    title: "Attendance Reporting",
+    whenToUse: "Use this during arrivals, post-show review, and service reporting.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Reviewing corporate demand only from standard booking reports.",
+      "Ignoring requests that have not yet converted to bookings.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Corporate Requests.",
+      "Review active, archived, confirmed, converted, and cancelled statuses.",
+      "Search or filter by company, contact, date, or status.",
+      "Open linked bookings for converted requests.",
+    ],
+    id: "corporate-reporting",
+    keywords: ["corporate reporting", "corporate requests", "converted", "company"],
+    moduleId: "analytics-reporting",
+    purpose: "Track corporate enquiry demand, conversion activity, and linked corporate bookings.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Corporate Booking Overview", "Booking Reports"],
+    tips: [
+      "Corporate requests can show demand before revenue is confirmed.",
+      "Converted requests should be checked against their linked booking reference.",
+    ],
+    title: "Corporate Reporting",
+    whenToUse: "Use this when reviewing group demand, pipeline, and confirmed corporate activity.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Looking at all waitlist entries without selecting the show.",
+      "Treating waitlist demand as confirmed revenue.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Operations, then Waitlist.",
+      "Select the show from the dropdown.",
+      "Review active, promoted, converted, or removed entries.",
+      "Use notes and guest count to understand demand.",
+    ],
+    id: "waitlist-reporting",
+    keywords: ["waitlist reporting", "demand", "promoted", "converted"],
+    moduleId: "analytics-reporting",
+    purpose: "Use waitlist data to understand unmet demand and follow-up opportunities.",
+    relatedActions: ["waitlist"],
+    related: ["Waitlist Overview", "Booking Reports"],
+    tips: [
+      "Waitlist reporting is most useful by show.",
+      "Promoted and converted entries tell different parts of the story.",
+    ],
+    title: "Waitlist Reporting",
+    whenToUse: "Use this when assessing demand for sold out or high-interest shows.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Assuming a communication was successful without checking status.",
+      "Counting sends without reviewing message type or audience.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Communications or the relevant guest, booking, or corporate record.",
+      "Review communication history.",
+      "Check channel, subject, timestamp, preview, and status.",
+      "Use history to identify sent, failed, or repeated messages.",
+    ],
+    id: "communication-reporting",
+    keywords: ["communication reporting", "history", "sent", "failed"],
+    moduleId: "analytics-reporting",
+    purpose: "Understand what messages were sent, to whom, and whether they were recorded successfully.",
+    relatedActions: ["communications", "crm"],
+    related: ["Viewing Communication History", "Communication Statuses"],
+    tips: [
+      "Communication history supports guest service and audit review.",
+      "Failed messages should be followed up before assuming the guest was informed.",
+    ],
+    title: "Communication Reporting",
+    whenToUse: "Use this when reviewing guest communication, broadcasts, reminders, or delivery issues.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Exporting data before applying the right filters.",
+      "Sharing exported information without checking who needs access.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the relevant report or operational list.",
+      "Apply date, status, search, or source filters first.",
+      "Use the available export or download action where present.",
+      "Review the exported file before sharing.",
+      "Share only with staff who need the information.",
+    ],
+    id: "exporting-data",
+    keywords: ["export", "download", "csv", "report"],
+    moduleId: "analytics-reporting",
+    purpose: "Export operational or reporting data for review outside the platform when supported.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Booking Reports", "Revenue Reporting"],
+    tips: [
+      "Filtered exports are easier to read and safer to share.",
+      "Guest information should be handled carefully.",
+    ],
+    title: "Exporting Data",
+    whenToUse: "Use this when management needs a report file for review, finance, or planning.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Making decisions from one metric without checking context.",
+      "Using stale data during live service.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Start with the business question.",
+      "Choose the report or section that answers it.",
+      "Check filters, date range, status, and source.",
+      "Open source records when a number needs explanation.",
+      "Share findings clearly with the team.",
+    ],
+    id: "analytics-best-practice-tips",
+    keywords: ["best practice", "analytics", "reporting", "metrics"],
+    moduleId: "analytics-reporting",
+    purpose: "Use reports responsibly so managers make better operational decisions.",
+    relatedActions: ["bookings", "crm", "communications"],
+    related: ["Analytics Overview", "Common Reporting Mistakes"],
+    tips: [
+      "A good report answers a specific question.",
+      "Numbers are most useful when paired with the operational story behind them.",
+    ],
+    title: "Best Practice Tips",
+    whenToUse: "Use this before sharing reporting insights or making operational decisions.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Confusing bookings created with guests attended.",
+      "Counting pending revenue as received.",
+      "Ignoring filters and status differences.",
+      "Reporting corporate requests and converted bookings as the same thing.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Check the metric definition before using it.",
+      "Confirm the date, show, status, and source filters.",
+      "Separate confirmed, cancelled, pending, and converted records.",
+      "Open source records if a number looks wrong.",
+      "Explain the context when sharing the report.",
+    ],
+    id: "common-reporting-mistakes",
+    keywords: ["mistakes", "reporting", "analytics", "errors"],
+    moduleId: "analytics-reporting",
+    purpose: "Help managers avoid reporting mistakes that lead to poor decisions.",
+    relatedActions: ["bookings"],
+    related: ["Best Practice Tips", "Dashboard Metrics"],
+    tips: [
+      "Most reporting errors come from mixed statuses or missing filters.",
+      "When numbers disagree, check the source records first.",
+    ],
+    title: "Common Reporting Mistakes",
+    whenToUse: "Use this during reporting review, management meetings, or training.",
+  },
+];
+
+const faqLessons: AcademyArticle[] = [
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Searching only one admin section before checking Academy.",
+      "Acting on a problem without opening the related booking, guest, or request record.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Academy and choose Frequently Asked Questions.",
+      "Search for the issue using simple words, such as ticket, password, payment, or waitlist.",
+      "Open the matching FAQ lesson.",
+      "Follow the related action to the correct admin section.",
+    ],
+    id: "frequently-asked-questions-overview",
+    keywords: ["faq", "questions", "help", "support"],
+    moduleId: "faq",
+    purpose: "Use FAQ lessons to solve common staff questions quickly without leaving the platform.",
+    relatedActions: ["bookings", "crm", "communications"],
+    related: ["Navigating the Platform", "Searching the Platform"],
+    tips: [
+      "Search Academy before asking another staff member during busy service.",
+      "Use related actions to jump straight to the area involved.",
+    ],
+    title: "Frequently Asked Questions Overview",
+    whenToUse: "Use this when you need a quick answer to a common operational question.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Trying multiple passwords repeatedly without checking the email address.",
+      "Using another staff member's login instead of resetting access.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Confirm you are using the correct staff email address.",
+      "Check that your account is active with a manager or Super Admin.",
+      "Use the approved password reset process.",
+      "Return to Admin Login and sign in with the updated password.",
+    ],
+    id: "i-forgot-my-password",
+    keywords: ["forgot password", "login", "reset", "staff access"],
+    moduleId: "faq",
+    purpose: "Help staff regain access safely when they cannot log in.",
+    relatedActions: ["staff"],
+    related: ["Logging In", "Password Resets"],
+    tips: [
+      "Do not share passwords or use another staff account.",
+      "If the reset does not work, ask a Super Admin to check your staff profile.",
+    ],
+    title: "I forgot my password",
+    whenToUse: "Use this when a staff member cannot access the Admin area.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Resending before checking the guest email address.",
+      "Assuming the ticket was not created without opening the booking.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking details.",
+      "Confirm the guest email address.",
+      "Check ticket status and communication history.",
+      "Use the ticket resend action.",
+      "Ask the guest to check inbox, spam, and promotions folders.",
+    ],
+    id: "guest-did-not-receive-ticket",
+    keywords: ["ticket not received", "resend ticket", "email", "guest"],
+    moduleId: "faq",
+    purpose: "Help a guest access their ticket when they cannot find the original message.",
+    relatedActions: ["bookings", "tickets", "communications"],
+    related: ["Resending Tickets", "Guest Communication History"],
+    tips: [
+      "Confirm the email aloud when helping by phone.",
+      "Use Open Live Ticket if the guest needs immediate access at the venue.",
+    ],
+    title: "A guest did not receive their ticket",
+    whenToUse: "Use this when a guest says their ticket email is missing.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Creating a duplicate booking before checking existing records.",
+      "Assuming payment success means the booking exists without verifying the reference.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Search Bookings by guest name, email, phone, and any reference available.",
+      "Check CRM for the guest profile and booking history.",
+      "Review payment-related information where visible.",
+      "If no booking exists, escalate to a manager or Super Admin before taking payment-related action.",
+    ],
+    id: "payment-successful-booking-missing",
+    keywords: ["payment successful", "booking missing", "payment issue", "missing booking"],
+    moduleId: "faq",
+    purpose: "Guide staff when a guest reports payment success but the booking cannot be found immediately.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Revenue Reporting", "Viewing Booking History"],
+    tips: [
+      "Search with more than one guest detail before escalating.",
+      "Do not promise a confirmed booking until the record is found or recreated by a manager.",
+    ],
+    title: "A payment was successful but the booking is missing",
+    whenToUse: "Use this for payment-related support where the booking record is unclear.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Promising a table change before checking availability.",
+      "Changing seating without checking the booking and communication history.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking details.",
+      "Confirm the guest name, show date, section, and current table.",
+      "Review seating availability and best-fit guidance.",
+      "Apply the table change only if appropriate.",
+      "Send a table change notification if the guest needs written confirmation.",
+    ],
+    id: "guest-wants-to-change-tables",
+    keywords: ["table change", "seating", "guest request", "table"],
+    moduleId: "faq",
+    purpose: "Handle guest requests for a different table without disrupting seating accuracy.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Table Changes", "Table Change Notifications"],
+    tips: [
+      "Check availability before discussing options with the guest.",
+      "If the request affects floor planning, involve a Venue Manager.",
+    ],
+    title: "A guest wants to change tables",
+    whenToUse: "Use this when a guest asks to move seats or tables.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Creating a new booking before reviewing the cancelled record.",
+      "Ignoring the cancellation reason and lifecycle history.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the cancelled booking.",
+      "Review the cancellation reason, notes, and history.",
+      "Check payment and ticket status before taking further action.",
+      "Escalate to a manager or Super Admin if the booking needs to be restored or recreated.",
+      "Record any follow-up communication clearly.",
+    ],
+    id: "booking-cancelled-accidentally",
+    keywords: ["cancelled accidentally", "restore booking", "cancellation"],
+    moduleId: "faq",
+    purpose: "Respond safely when a booking is cancelled by mistake.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Cancelling a Booking", "Cancellation Reasons"],
+    tips: [
+      "Do not hide the mistake by creating a duplicate without review.",
+      "Check whether the guest has already received cancellation communication.",
+    ],
+    title: "A booking was cancelled accidentally",
+    whenToUse: "Use this when staff identify an accidental cancellation.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Letting a guest in without verifying the booking.",
+      "Using manual check-in before searching for the guest properly.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Search by guest name, booking reference, email, or phone.",
+      "Confirm the show date, booking status, payment status, and guest count.",
+      "Use ticket lookup or manual check-in only after verification.",
+      "Record check-in so the arrival is visible to the team.",
+    ],
+    id: "guest-arrives-without-ticket",
+    keywords: ["no ticket", "arrival", "manual check-in", "ticket lookup"],
+    moduleId: "faq",
+    purpose: "Help a guest enter when they cannot present a digital or printed ticket.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Manual Check-In", "Checking In Guests"],
+    tips: [
+      "Stay calm and move the guest out of the main queue if more checks are needed.",
+      "Use booking reference when available because it is the fastest match.",
+    ],
+    title: "A guest arrives without their ticket",
+    whenToUse: "Use this during arrivals when a guest cannot show their ticket.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Expecting push notifications before permission is allowed.",
+      "Assuming every device or browser context supports notifications the same way.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Check whether the app has notification permission on the device.",
+      "Use Send Test Notification where available.",
+      "Review the Notification Centre for in-app records.",
+      "Confirm the staff role should receive the alert.",
+      "If push still fails, use the in-app notification record and escalate.",
+    ],
+    id: "push-notifications-not-working",
+    keywords: ["push notifications", "not working", "permission", "notification centre"],
+    moduleId: "faq",
+    purpose: "Help staff troubleshoot missing push notifications without interrupting operations.",
+    relatedActions: ["communications"],
+    related: ["Push Notifications", "Push Notification Settings"],
+    tips: [
+      "Push notifications depend on both platform setup and device permission.",
+      "The Notification Centre remains useful even if a push alert is missed.",
+    ],
+    title: "Push notifications are not working",
+    whenToUse: "Use this when staff expected a notification but did not receive one.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Resending before checking communication history.",
+      "Ignoring an incorrect guest email address.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking or guest profile.",
+      "Confirm the guest email address.",
+      "Review communication history for the confirmation message and status.",
+      "Use the correct resend or communication action.",
+      "Ask the guest to check inbox and spam folders.",
+    ],
+    id: "email-confirmations-not-received",
+    keywords: ["email confirmation", "not received", "resend", "communication status"],
+    moduleId: "faq",
+    purpose: "Help staff resolve missing email confirmation questions.",
+    relatedActions: ["communications", "bookings"],
+    related: ["Email Configuration", "Booking Confirmation Emails"],
+    tips: [
+      "Check communication history before sending again.",
+      "If messages repeatedly fail, escalate with the booking reference and guest email.",
+    ],
+    title: "Email confirmations are not being received",
+    whenToUse: "Use this when a guest says they did not receive a confirmation email.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Changing only the converted booking and forgetting the original request context.",
+      "Updating a corporate request without checking communication history.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Corporate Requests and search for the company or contact person.",
+      "Review the current status, notes, guest count, seating preference, and linked booking reference.",
+      "If converted, open the linked booking for booking-level changes.",
+      "Update status, notes, or communication as needed.",
+    ],
+    id: "corporate-booking-needs-changing",
+    keywords: ["corporate booking change", "corporate request", "linked booking"],
+    moduleId: "faq",
+    purpose: "Help staff update corporate request or converted booking details in the correct place.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Converting to a Booking", "Managing Corporate Enquiries"],
+    tips: [
+      "Requests and converted bookings both matter; check both when needed.",
+      "Use the linked booking reference to move from request to booking quickly.",
+    ],
+    title: "A corporate booking needs changing",
+    whenToUse: "Use this when a company updates details after enquiry or conversion.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Trying to promote from the wrong show queue.",
+      "Promoting without checking guest count and availability.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Waitlist.",
+      "Select the correct show from the dropdown.",
+      "Find the guest entry.",
+      "Check status, guest count, notes, and current availability.",
+      "If promotion is blocked, review the reason and escalate if needed.",
+    ],
+    id: "waitlist-guest-cannot-be-promoted",
+    keywords: ["waitlist promotion", "cannot promote", "availability", "show queue"],
+    moduleId: "faq",
+    purpose: "Help staff understand why a waitlist guest may not be ready to promote.",
+    relatedActions: ["waitlist", "bookings"],
+    related: ["Promoting Guests", "Waitlist Statuses"],
+    tips: [
+      "Promotion depends on the selected show and suitable availability.",
+      "A waitlist entry is not a booking until conversion is complete.",
+    ],
+    title: "A waitlist guest cannot be promoted",
+    whenToUse: "Use this when a waitlist promotion does not proceed as expected.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Sharing incomplete issue details with support.",
+      "Contacting support before checking the relevant record.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Capture the issue clearly.",
+      "Include the booking reference, guest name, company name, or waitlist reference if relevant.",
+      "Add what staff were trying to do and what happened.",
+      "Use the support contact details configured by the business administrator.",
+    ],
+    id: "how-do-i-contact-support",
+    keywords: ["support", "help", "contact", "administrator"],
+    moduleId: "faq",
+    purpose: "Explain what information staff should collect before contacting support.",
+    relatedActions: ["staff"],
+    related: ["Frequently Asked Questions Overview", "Common Settings Mistakes"],
+    tips: [
+      "Support contact details can be configured by the business administrator.",
+      "A clear reference number helps support investigate faster.",
+    ],
+    title: "How do I contact support?",
+    whenToUse: "Use this when an issue cannot be resolved through the relevant Academy lesson or admin workflow.",
+  },
+  {
+    category: "Frequently Asked Questions",
+    commonMistakes: [
+      "Skipping record checks before escalating.",
+      "Describing an issue without the booking or guest reference.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Search Academy first.",
+      "Open the related booking, guest, request, ticket, or waitlist entry.",
+      "Collect the reference number and current status.",
+      "Follow the FAQ steps.",
+      "Escalate with clear details if the issue remains unresolved.",
+    ],
+    id: "faq-best-practice-tips",
+    keywords: ["best practice", "faq", "support", "troubleshooting"],
+    moduleId: "faq",
+    purpose: "Help staff solve common issues calmly and consistently.",
+    relatedActions: ["bookings", "crm", "waitlist", "communications", "tickets"],
+    related: ["Frequently Asked Questions Overview", "How do I contact support?"],
+    tips: [
+      "Reference numbers make troubleshooting much faster.",
+      "Check history before repeating an action.",
+      "Escalate early when the issue affects guest arrival, payment, or access.",
+    ],
+    title: "Best Practice Tips",
+    whenToUse: "Use this as a quick checklist for common support questions.",
+  },
+];
+
+const academyArticles: AcademyArticle[] = [
+  ...gettingStartedLessons,
+  ...bookingLessons,
+  ...corporateBookingLessons,
+  ...crmGuestLessons,
+  ...waitlistLessons,
+  ...communicationLessons,
+  ...ticketCheckInLessons,
+  ...venueOperationsLessons,
+  ...staffPermissionLessons,
+  ...settingsLessons,
+  ...analyticsReportingLessons,
+  ...faqLessons,
+  ...academyModules
+    .filter(
+      (module) =>
+        module.id !== "getting-started" &&
+        module.id !== "bookings" &&
+        module.id !== "corporate-bookings" &&
+        module.id !== "crm-guests" &&
+        module.id !== "waitlist" &&
+        module.id !== "communications" &&
+        module.id !== "tickets-check-in" &&
+        module.id !== "venue-operations" &&
+        module.id !== "staff-permissions" &&
+        module.id !== "settings" &&
+        module.id !== "analytics-reporting" &&
+        module.id !== "faq",
+    )
+    .map((module): AcademyArticle => ({
+      category: module.title,
+      commonMistakes: [
+        "Full lesson content has not been populated yet.",
+        "Use existing operational workflows until this module is expanded.",
+      ],
+      difficulty: module.difficulty,
+      howTo: [
+        "Open the relevant admin section.",
+        "Follow current platform workflows.",
+        "Return to this lesson after Phase 7B content expansion.",
+      ],
+      id: `${module.id}-placeholder`,
+      keywords: [module.title.toLowerCase(), "placeholder", "training"],
+      moduleId: module.id,
+      purpose: `${module.title} training placeholder for the complete curriculum.`,
+      relatedActions:
+        module.id === "bookings"
+          ? ["bookings"]
+          : module.id === "crm-guests"
+            ? ["crm"]
+            : module.id === "waitlist"
+              ? ["waitlist"]
+              : module.id === "communications"
+                ? ["communications"]
+                : module.id === "tickets-check-in"
+                  ? ["tickets"]
+                  : module.id === "staff-permissions"
+                    ? ["staff"]
+                    : [],
+      related: ["Welcome to Zingara", "Navigating the Platform"],
+      tips: [
+        "This module is intentionally reserved for the full curriculum build.",
+        "Use related actions to open the operational area.",
+      ],
+      title: `${module.title} Overview`,
+      whenToUse: "Use this placeholder to preview the curriculum structure.",
+    })),
+];
+
+function getAcademyArticleText(article: AcademyArticle) {
+  return [
+    article.title,
+    article.category,
+    article.purpose,
+    article.whenToUse,
+    ...article.keywords,
+    ...article.howTo,
+    ...article.tips,
+    ...article.commonMistakes,
+    ...article.related,
+  ].join(" ");
+}
+
+function getAcademyReadingTime(article: AcademyArticle) {
+  const wordCount = getAcademyArticleText(article)
+    .split(/\s+/)
+    .filter(Boolean).length;
+
+  return `${Math.max(1, Math.ceil(wordCount / 160))} min read`;
+}
+
+function getAcademyArticleByTitle(title: string) {
+  return academyArticles.find(
+    (article) => article.title.toLowerCase() === title.toLowerCase(),
+  );
+}
+
+function getStoredAcademyIds(key: string) {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const parsedValue = JSON.parse(window.localStorage.getItem(key) ?? "[]");
+
+    return Array.isArray(parsedValue)
+      ? parsedValue.filter((value): value is string => typeof value === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeAcademyIds(key: string, ids: string[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(key, JSON.stringify(ids));
+}
 const dashboardWidgetLabels: Record<DashboardWidgetId, string> = {
   alerts: "Operational Alerts",
   "guest-ops": "Guest Operations",
@@ -1091,6 +5239,27 @@ export default function AdminDashboardPage() {
     useState<OperationsTab>("floor");
   const [activeSettingsTab, setActiveSettingsTab] =
     useState<SettingsTab>("staff");
+  const [academySearch, setAcademySearch] = useState("");
+  const [isAcademySearchOpen, setIsAcademySearchOpen] = useState(false);
+  const [selectedAcademyCategory, setSelectedAcademyCategory] =
+    useState("Getting Started");
+  const [selectedAcademyArticleId, setSelectedAcademyArticleId] =
+    useState<string | null>(null);
+  const [favouriteAcademyArticleIds, setFavouriteAcademyArticleIds] =
+    useState<string[]>([]);
+  const [readAcademyArticleIds, setReadAcademyArticleIds] = useState<
+    string[]
+  >([]);
+  const [recentAcademyArticleIds, setRecentAcademyArticleIds] = useState<
+    string[]
+  >([]);
+  const [academyBrowseAllModules, setAcademyBrowseAllModules] =
+    useState(false);
+  const academySearchInputRef = useRef<HTMLInputElement | null>(null);
+  const academyLessonListRef = useRef<HTMLDivElement | null>(null);
+  const academyLessonButtonRefs = useRef<
+    Record<string, HTMLButtonElement | null>
+  >({});
   const [notificationPermission, setNotificationPermission] =
     useState("unsupported");
   const [notificationTestStatus, setNotificationTestStatus] =
@@ -1450,6 +5619,55 @@ export default function AdminDashboardPage() {
       );
     };
   }, [currentStaff, waitlist]);
+
+  useEffect(() => {
+    setFavouriteAcademyArticleIds(
+      getStoredAcademyIds(academyStorageKeys.favourites),
+    );
+    setReadAcademyArticleIds(getStoredAcademyIds(academyStorageKeys.read));
+    setRecentAcademyArticleIds(
+      getStoredAcademyIds(academyStorageKeys.recent).slice(0, 10),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (activeAdminTab !== "academy") {
+      return;
+    }
+
+    window.setTimeout(() => {
+      academySearchInputRef.current?.focus({ preventScroll: true });
+    }, 120);
+  }, [activeAdminTab]);
+
+  useEffect(() => {
+    if (!selectedAcademyArticleId) {
+      return;
+    }
+
+    setRecentAcademyArticleIds((currentIds) => {
+      const nextIds = [
+        selectedAcademyArticleId,
+        ...currentIds.filter((id) => id !== selectedAcademyArticleId),
+      ].slice(0, 10);
+
+      storeAcademyIds(academyStorageKeys.recent, nextIds);
+
+      return nextIds;
+    });
+
+    setReadAcademyArticleIds((currentIds) => {
+      if (currentIds.includes(selectedAcademyArticleId)) {
+        return currentIds;
+      }
+
+      const nextIds = [...currentIds, selectedAcademyArticleId];
+
+      storeAcademyIds(academyStorageKeys.read, nextIds);
+
+      return nextIds;
+    });
+  }, [selectedAcademyArticleId]);
 
   useEffect(() => {
     function refreshNotificationPermission() {
@@ -5271,6 +9489,245 @@ export default function AdminDashboardPage() {
   const activeWorkflowBookings = workflowShowBookings.filter((booking) =>
     isOccupyingBookingStatus(booking.status ?? "confirmed"),
   );
+  const selectedAcademyArticle = selectedAcademyArticleId
+    ? academyArticles.find(
+        (article) => article.id === selectedAcademyArticleId,
+      ) ?? null
+    : null;
+  const selectedAcademyModule =
+    academyModules.find((module) => module.title === selectedAcademyCategory) ??
+    academyModules[0];
+  const activeAcademyLearningPath =
+    academyLearningPaths[currentStaff?.role ?? "venue-manager"] ??
+    academyLearningPaths["venue-manager"];
+  const visibleAcademyModules = academyBrowseAllModules
+    ? academyModules
+    : academyModules.filter((module) =>
+        activeAcademyLearningPath.moduleIds.includes(module.id),
+      );
+  const pathAcademyArticles = academyArticles.filter((article) =>
+    activeAcademyLearningPath.moduleIds.includes(article.moduleId),
+  );
+  const academyQuery = academySearch.trim().toLowerCase();
+  const filteredAcademyArticles = academyArticles.filter((article) => {
+    if (!academyQuery) {
+      return article.category === selectedAcademyCategory;
+    }
+
+    const searchableContent = getAcademyArticleText(article).toLowerCase();
+
+    return searchableContent.includes(academyQuery);
+  });
+  const academySuggestions: AcademySuggestion[] = academyQuery
+    ? [
+        ...academyArticles
+          .filter((article) =>
+            article.title.toLowerCase().includes(academyQuery),
+          )
+          .map((article) => ({
+            id: `title-${article.id}`,
+            label: article.title,
+            type: "Title" as const,
+            articleId: article.id,
+          })),
+        ...academyCategories
+          .filter((category) => category.toLowerCase().includes(academyQuery))
+          .map((category) => ({
+            id: `category-${category}`,
+            label: category,
+            type: "Category" as const,
+            category,
+          })),
+        ...Array.from(
+          new Set(
+            academyArticles.flatMap((article) =>
+              article.keywords.filter((keyword) =>
+                keyword.toLowerCase().includes(academyQuery),
+              ),
+            ),
+          ),
+        ).map((keyword) => ({
+          id: `keyword-${keyword}`,
+          label: keyword,
+          type: "Keyword" as const,
+        })),
+      ].slice(0, 6)
+    : [];
+  const displayedAcademyArticles =
+    selectedAcademyArticle && academyQuery
+      ? [
+          selectedAcademyArticle,
+          ...filteredAcademyArticles.filter(
+            (article) => article.id !== selectedAcademyArticle.id,
+          ),
+        ]
+      : filteredAcademyArticles;
+  const favouriteAcademyArticles = favouriteAcademyArticleIds
+    .map((id) => academyArticles.find((article) => article.id === id))
+    .filter((article): article is AcademyArticle => Boolean(article));
+  const recentAcademyArticles = recentAcademyArticleIds
+    .map((id) => academyArticles.find((article) => article.id === id))
+    .filter((article): article is AcademyArticle => Boolean(article));
+  const academyReadCount = pathAcademyArticles.filter((article) =>
+    readAcademyArticleIds.includes(article.id),
+  ).length;
+  const academyRemainingCount = Math.max(
+    pathAcademyArticles.length - academyReadCount,
+    0,
+  );
+  const academyProgressPercent = Math.round(
+    (academyReadCount / Math.max(pathAcademyArticles.length, 1)) * 100,
+  );
+  const academyPathModules = academyModules.filter((module) =>
+    activeAcademyLearningPath.moduleIds.includes(module.id),
+  );
+  const academyTotalMinutes = academyPathModules.reduce(
+    (total, module) => total + module.estimatedMinutes,
+    0,
+  );
+  const academyRemainingMinutes = academyPathModules.reduce((total, module) => {
+    const moduleLessons = academyArticles.filter(
+      (article) => article.moduleId === module.id,
+    );
+    const moduleReadCount = moduleLessons.filter((article) =>
+      readAcademyArticleIds.includes(article.id),
+    ).length;
+    const moduleRemainingRatio =
+      moduleLessons.length > 0
+        ? (moduleLessons.length - moduleReadCount) / moduleLessons.length
+        : 0;
+
+    return total + Math.round(module.estimatedMinutes * moduleRemainingRatio);
+  }, 0);
+  const academyCourseComplete =
+    academyReadCount === pathAcademyArticles.length &&
+    pathAcademyArticles.length > 0;
+  const currentAcademyModule =
+    academyPathModules.find((module) =>
+      academyArticles.some(
+        (article) =>
+          article.moduleId === module.id &&
+          !readAcademyArticleIds.includes(article.id),
+      ),
+    ) ?? academyPathModules[0];
+  const nextAcademyPathArticle =
+    pathAcademyArticles.find(
+      (article) => !readAcademyArticleIds.includes(article.id),
+    ) ?? pathAcademyArticles[0] ?? academyArticles[0];
+  const selectedAcademyRelatedArticles = selectedAcademyArticle
+    ? selectedAcademyArticle.related.map((related) => {
+        const relatedArticle = getAcademyArticleByTitle(related);
+
+        return (
+          relatedArticle ?? {
+            category: "Phase 7B",
+            commonMistakes: [],
+            difficulty: "beginner" as const,
+            howTo: [],
+            id: `placeholder-${related}`,
+            keywords: [],
+            moduleId: "getting-started",
+            purpose: "This article will be expanded in the full knowledge base.",
+            related: [],
+            relatedActions: [],
+            tips: [],
+            title: related,
+            whenToUse: "Coming soon.",
+          }
+        );
+      })
+    : [];
+  const selectedAcademyModuleLessons = selectedAcademyArticle
+    ? academyArticles.filter(
+        (article) => article.moduleId === selectedAcademyArticle.moduleId,
+      )
+    : [];
+  const selectedAcademyLessonIndex = selectedAcademyArticle
+    ? selectedAcademyModuleLessons.findIndex(
+        (article) => article.id === selectedAcademyArticle.id,
+      )
+    : -1;
+  const previousAcademyLesson =
+    selectedAcademyLessonIndex > 0
+      ? selectedAcademyModuleLessons[selectedAcademyLessonIndex - 1]
+      : null;
+  const nextAcademyLesson =
+    selectedAcademyLessonIndex >= 0 &&
+    selectedAcademyLessonIndex < selectedAcademyModuleLessons.length - 1
+      ? selectedAcademyModuleLessons[selectedAcademyLessonIndex + 1]
+      : null;
+
+  function scrollAcademyLessonIntoView(articleId: string) {
+    window.setTimeout(() => {
+      const lessonButton = academyLessonButtonRefs.current[articleId];
+
+      if (lessonButton) {
+        lessonButton.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+
+      academyLessonListRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    }, 0);
+  }
+
+  function selectAcademyArticle(articleId: string, preserveSearch = false) {
+    const article = academyArticles.find((item) => item.id === articleId);
+
+    if (!article) {
+      return;
+    }
+
+    setSelectedAcademyCategory(article.category);
+    setSelectedAcademyArticleId(article.id);
+    setIsAcademySearchOpen(false);
+
+    if (!preserveSearch) {
+      setAcademySearch("");
+    }
+
+    scrollAcademyLessonIntoView(article.id);
+  }
+
+  function toggleAcademyFavourite(articleId: string) {
+    setFavouriteAcademyArticleIds((currentIds) => {
+      const nextIds = currentIds.includes(articleId)
+        ? currentIds.filter((id) => id !== articleId)
+        : [articleId, ...currentIds];
+
+      storeAcademyIds(academyStorageKeys.favourites, nextIds);
+
+      return nextIds;
+    });
+  }
+
+  function openAcademyAction(actionId: AcademyActionId) {
+    if (actionId === "bookings" || actionId === "tickets") {
+      setActiveAdminTab("bookings");
+      return;
+    }
+
+    if (actionId === "crm") {
+      setActiveAdminTab("customers");
+      return;
+    }
+
+    if (actionId === "waitlist") {
+      setActiveAdminTab("operations");
+      setActiveOperationsTab("waitlist");
+      return;
+    }
+
+    if (actionId === "communications") {
+      setActiveAdminTab("settings");
+      setActiveSettingsTab("workflows");
+      return;
+    }
+
+    if (actionId === "staff") {
+      setActiveAdminTab("settings");
+      setActiveSettingsTab("staff");
+    }
+  }
   const editingShow = shows.find((show) => show.id === editingShowId);
   const editingShowLinkedBookings = editingShow
     ? bookings.filter((booking) => booking.showId === editingShow.id)
@@ -6225,7 +10682,7 @@ export default function AdminDashboardPage() {
 
         <nav
           aria-label="Admin sections"
-          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 sm:mb-8 sm:grid-cols-3 lg:grid-cols-7 lg:rounded-[2rem]"
+          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 sm:mb-8 sm:grid-cols-3 lg:grid-cols-8 lg:rounded-[2rem]"
         >
           {adminTabs.map((tab) => {
             const isActive = activeAdminTab === tab.id;
@@ -6258,6 +10715,727 @@ export default function AdminDashboardPage() {
             );
           })}
         </nav>
+
+        {activeAdminTab === "academy" && (
+          <section className="mb-10 rounded-[2rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#21170B_0%,#090909_46%,#030303_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
+            <div className="mb-6 flex flex-col gap-3 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#D8C36A]">
+                  Training Centre
+                </p>
+                <h2 className="mt-2 text-3xl font-bold uppercase text-white sm:text-4xl">
+                  Zingara Academy
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
+                  Interactive platform guidance for daily venue operations,
+                  staff training, and confident guest service.
+                </p>
+              </div>
+              <span className="w-fit rounded-full border border-[#D8C36A]/35 bg-black/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                {academyModules.length} modules · {academyArticles.length} lessons
+              </span>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[240px_minmax(280px,0.86fr)_minmax(420px,1.32fr)] xl:items-stretch">
+              <aside className="flex flex-col rounded-[1.5rem] border border-[#D8C36A]/15 bg-black/45 p-3 shadow-[0_0_34px_rgba(216,195,106,0.06)] sm:p-4 xl:h-[min(78vh,54rem)] xl:min-h-[42rem]">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                      Training Modules
+                    </p>
+                    <p className="mt-1 text-xs text-[#D8C36A]">
+                      {academyBrowseAllModules
+                        ? "Browsing all modules"
+                        : activeAcademyLearningPath.title}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAcademyBrowseAllModules((current) => !current)
+                    }
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-zinc-400 transition hover:border-[#D8C36A]/45 hover:text-white"
+                  >
+                    {academyBrowseAllModules ? "Path" : "All"}
+                  </button>
+                </div>
+                <div className="grid gap-2 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-1 xl:min-h-0 xl:flex-1">
+                  {visibleAcademyModules.map((module) => {
+                    const moduleLessons = academyArticles.filter(
+                      (article) => article.moduleId === module.id,
+                    );
+                    const moduleReadCount = moduleLessons.filter((article) =>
+                      readAcademyArticleIds.includes(article.id),
+                    ).length;
+                    const moduleProgress = Math.round(
+                      (moduleReadCount / Math.max(moduleLessons.length, 1)) *
+                        100,
+                    );
+                    const moduleStatus =
+                      moduleProgress >= 100
+                        ? "✓ Completed"
+                        : moduleProgress > 0
+                          ? "▶ In Progress"
+                          : "○ Not Started";
+                    const isActive =
+                      module.title === selectedAcademyCategory;
+
+                    return (
+                      <button
+                        key={module.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedAcademyCategory(module.title);
+                          setSelectedAcademyArticleId(null);
+                          setIsAcademySearchOpen(false);
+                          setAcademySearch("");
+                        }}
+                        className={`rounded-2xl border px-4 py-3 text-left transition ${
+                          isActive
+                            ? "border-[#D8C36A]/60 bg-[#D8C36A] text-black shadow-[0_0_22px_rgba(216,195,106,0.18)]"
+                            : "border-white/10 bg-zinc-950/70 text-zinc-300 hover:border-[#D8C36A]/45 hover:text-white"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="font-semibold">{module.title}</span>
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-[0.65rem] ${
+                              isActive ? "bg-black/15" : "bg-white/10"
+                            }`}
+                          >
+                            {moduleProgress}%
+                          </span>
+                        </div>
+                        <div
+                          className={`mt-2 flex flex-wrap gap-1.5 text-[0.62rem] font-semibold uppercase tracking-[0.08em] ${
+                            isActive ? "text-black/70" : "text-zinc-500"
+                          }`}
+                        >
+                          <span>{module.estimatedMinutes} min</span>
+                          <span>•</span>
+                          <span>{moduleLessons.length} lesson{moduleLessons.length === 1 ? "" : "s"}</span>
+                        </div>
+                        <p
+                          className={`mt-1 text-[0.65rem] font-semibold ${
+                            isActive ? "text-black/75" : "text-zinc-500"
+                          }`}
+                        >
+                          {academyDifficultyLabels[module.difficulty]}
+                        </p>
+                        <p
+                          className={`mt-1 text-[0.65rem] font-semibold uppercase tracking-[0.08em] ${
+                            isActive ? "text-black/75" : "text-zinc-500"
+                          }`}
+                        >
+                          {moduleStatus}
+                        </p>
+                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                          <div
+                            className={`h-full rounded-full ${
+                              isActive ? "bg-black/45" : "bg-[#D8C36A]"
+                            }`}
+                            style={{ width: `${moduleProgress}%` }}
+                          />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </aside>
+
+              <section className="flex flex-col rounded-[1.5rem] border border-[#D8C36A]/20 bg-[#050505]/70 p-4 shadow-[inset_0_1px_0_rgba(216,195,106,0.08),0_0_34px_rgba(0,0,0,0.22)] xl:h-[min(78vh,54rem)] xl:min-h-[42rem] xl:overflow-hidden">
+                <label className="relative z-20 block shrink-0 bg-[#050505]/95 pb-4">
+                  <span className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    Search The Academy
+                  </span>
+                  <input
+                    ref={academySearchInputRef}
+                    value={academySearch}
+                    onChange={(event) => {
+                      setAcademySearch(event.target.value);
+                      setIsAcademySearchOpen(true);
+                      setSelectedAcademyArticleId(null);
+                    }}
+                    onFocus={() => setIsAcademySearchOpen(true)}
+                    placeholder="Search titles, keywords, or article content"
+                    className="w-full rounded-full border border-[#D8C36A]/25 bg-zinc-950 px-5 py-4 text-sm font-semibold text-white shadow-[0_0_24px_rgba(216,195,106,0.08)] outline-none transition placeholder:text-zinc-600 focus:border-[#D8C36A]/70 sm:text-base"
+                  />
+                  {isAcademySearchOpen && academySuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.75rem)] z-20 overflow-hidden rounded-2xl border border-[#D8C36A]/25 bg-zinc-950/95 shadow-2xl shadow-black/50 backdrop-blur">
+                      {academySuggestions.map((suggestion) => (
+                        <button
+                          key={suggestion.id}
+                          type="button"
+                          onClick={() => {
+                            if ("articleId" in suggestion) {
+                              selectAcademyArticle(suggestion.articleId, true);
+                            } else if ("category" in suggestion) {
+                              setSelectedAcademyCategory(suggestion.category);
+                              setSelectedAcademyArticleId(null);
+                              setIsAcademySearchOpen(false);
+                              setAcademySearch("");
+                            } else {
+                              setAcademySearch(suggestion.label);
+                              setIsAcademySearchOpen(false);
+                              setSelectedAcademyArticleId(null);
+                            }
+                          }}
+                          className="flex w-full items-center justify-between gap-3 border-b border-white/5 px-4 py-3 text-left text-sm transition last:border-b-0 hover:bg-[#D8C36A]/10"
+                        >
+                          <span className="font-semibold text-white">
+                            {suggestion.label}
+                          </span>
+                          <span className="rounded-full border border-white/10 px-2 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                            {suggestion.type}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </label>
+
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                      {academyQuery ? "Search Results" : selectedAcademyCategory}
+                    </p>
+                    <span className="rounded-full border border-white/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                      {filteredAcademyArticles.length} found
+                    </span>
+                  </div>
+                  {!academyQuery && selectedAcademyModule && (
+                    <div className="mb-4 rounded-2xl border border-[#D8C36A]/20 bg-[#D8C36A]/5 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-white">
+                            {selectedAcademyModule.title}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-zinc-400">
+                            {selectedAcademyModule.estimatedMinutes} min ·{" "}
+                            {filteredAcademyArticles.length} lesson
+                            {filteredAcademyArticles.length === 1 ? "" : "s"} ·{" "}
+                            {academyDifficultyLabels[selectedAcademyModule.difficulty]}
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-white/10 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-zinc-400">
+                          {Math.round(
+                            (filteredAcademyArticles.filter((article) =>
+                              readAcademyArticleIds.includes(article.id),
+                            ).length /
+                              Math.max(filteredAcademyArticles.length, 1)) *
+                              100,
+                          )}
+                          %
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {filteredAcademyArticles.length === 0 ? (
+                    <div className="rounded-2xl border border-[#D8C36A]/25 bg-[radial-gradient(circle_at_top,#21170B_0%,#080808_58%,#030303_100%)] p-6 text-center shadow-[inset_0_1px_0_rgba(216,195,106,0.08)]">
+                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-[#D8C36A]/30 bg-black/45 text-2xl shadow-[0_0_24px_rgba(216,195,106,0.12)]">
+                        🔍
+                      </div>
+                      <h3 className="mt-4 font-bold uppercase tracking-[0.08em] text-white">
+                        No lessons found
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-zinc-400">
+                        Try searching for:
+                      </p>
+                      <div className="mt-4 flex flex-wrap justify-center gap-2">
+                        {[
+                          "Bookings",
+                          "Corporate",
+                          "Tickets",
+                          "CRM",
+                          "Waitlist",
+                          "Communications",
+                        ].map((term) => (
+                          <span
+                            key={term}
+                            className="rounded-full border border-white/10 bg-black/35 px-3 py-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.1em] text-zinc-300"
+                          >
+                            {term}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      ref={academyLessonListRef}
+                      className="max-h-[32rem] space-y-3 overflow-y-auto pr-1 xl:max-h-none xl:h-[calc(100%-5.25rem)]"
+                    >
+                      {displayedAcademyArticles.map((article) => (
+                        <button
+                          key={article.id}
+                          ref={(node) => {
+                            academyLessonButtonRefs.current[article.id] = node;
+                          }}
+                          type="button"
+                          onClick={() => selectAcademyArticle(article.id, Boolean(academyQuery))}
+                          className={`w-full rounded-2xl border p-4 text-left transition ${
+                            selectedAcademyArticle?.id === article.id
+                              ? "border-[#D8C36A]/60 bg-[#D8C36A]/10 shadow-[0_0_28px_rgba(216,195,106,0.14)]"
+                              : "border-white/10 bg-zinc-950/70 hover:border-[#D8C36A]/45"
+                          }`}
+                        >
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                            {article.category}
+                          </p>
+                          <div className="mt-2 flex items-start justify-between gap-3">
+                            <h3 className="text-lg font-bold text-white">
+                              {article.title}
+                            </h3>
+                            <span className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.08em] text-zinc-400">
+                              {getAcademyReadingTime(article)}
+                            </span>
+                          </div>
+                          <p className="mt-2 line-clamp-2 text-sm leading-6 text-zinc-400">
+                            {article.purpose}
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <span className="rounded-full border border-white/10 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-zinc-400">
+                              {readAcademyArticleIds.includes(article.id)
+                                ? "Completed"
+                                : "Not Completed"}
+                            </span>
+                            {favouriteAcademyArticleIds.includes(article.id) && (
+                              <span className="rounded-full border border-[#D8C36A]/30 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-[#F2D66C]">
+                                Favourite
+                              </span>
+                            )}
+                            <span className="rounded-full border border-white/10 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-zinc-400">
+                              {academyDifficultyLabels[article.difficulty]}
+                            </span>
+                            {article.keywords.slice(0, 3).map((keyword) => (
+                              <span
+                                key={keyword}
+                                className="rounded-full border border-white/10 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-zinc-500"
+                              >
+                                {keyword}
+                              </span>
+                            ))}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <article className="min-h-[34rem] rounded-[1.5rem] border border-[#8D7A2F]/35 bg-[linear-gradient(180deg,rgba(24,24,27,0.92),rgba(3,3,3,0.96))] p-5 shadow-[inset_0_1px_0_rgba(216,195,106,0.08),0_24px_70px_rgba(0,0,0,0.36)] sm:p-6 xl:h-[min(78vh,54rem)] xl:min-h-[42rem] xl:overflow-y-auto">
+                {selectedAcademyArticle ? (
+                  <div>
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
+                          {selectedAcademyArticle.category}
+                        </p>
+                        <h2 className="mt-3 text-3xl font-bold uppercase text-white sm:text-4xl">
+                          {selectedAcademyArticle.title}
+                        </h2>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <span className="rounded-full border border-white/10 bg-black/35 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300">
+                            • {getAcademyReadingTime(selectedAcademyArticle)}
+                          </span>
+                          <span className="rounded-full border border-white/10 bg-black/35 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300">
+                            Lesson {selectedAcademyLessonIndex + 1} of{" "}
+                            {selectedAcademyModuleLessons.length}
+                          </span>
+                          <span className="rounded-full border border-white/10 bg-black/35 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300">
+                            {academyDifficultyLabels[selectedAcademyArticle.difficulty]}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          toggleAcademyFavourite(selectedAcademyArticle.id)
+                        }
+                        className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                          favouriteAcademyArticleIds.includes(
+                            selectedAcademyArticle.id,
+                          )
+                            ? "border-[#D8C36A]/60 bg-[#D8C36A] text-black"
+                            : "border-white/15 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/45 hover:text-white"
+                        }`}
+                      >
+                        {favouriteAcademyArticleIds.includes(
+                          selectedAcademyArticle.id,
+                        )
+                          ? "⭐ Favourited"
+                          : "⭐ Favourite"}
+                      </button>
+                    </div>
+
+                    <div className="mt-6 grid gap-4">
+                      {[
+                        ["Purpose", selectedAcademyArticle.purpose],
+                        ["When To Use", selectedAcademyArticle.whenToUse],
+                      ].map(([label, content]) => (
+                        <section
+                          key={label}
+                          className="rounded-2xl border border-white/10 bg-black/35 p-4"
+                        >
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            {label}
+                          </p>
+                          <p className="mt-2 leading-7 text-zinc-200">
+                            {content}
+                          </p>
+                        </section>
+                      ))}
+
+                      {[
+                        ["How To Do It", selectedAcademyArticle.howTo],
+                        ["Tips", selectedAcademyArticle.tips],
+                        [
+                          "Common Mistakes",
+                          selectedAcademyArticle.commonMistakes,
+                        ],
+                      ].map(([label, items]) => (
+                        <section
+                          key={label as string}
+                          className="rounded-2xl border border-white/10 bg-black/35 p-4"
+                        >
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            {label as string}
+                          </p>
+                          <ol className="mt-3 space-y-2 text-sm leading-6 text-zinc-300">
+                            {(items as string[]).map((item, index) => (
+                              <li
+                                key={item}
+                                className="flex gap-3 rounded-xl bg-white/[0.03] px-3 py-2"
+                              >
+                                <span className="font-semibold text-[#F2D66C]">
+                                  {index + 1}
+                                </span>
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ol>
+                        </section>
+                      ))}
+
+                      <section className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          Related Articles
+                        </p>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          {selectedAcademyRelatedArticles.map((related) => (
+                            <button
+                              key={related.id}
+                              type="button"
+                              onClick={() => {
+                                if (!related.id.startsWith("placeholder-")) {
+                                  selectAcademyArticle(related.id);
+                                }
+                              }}
+                              className="rounded-2xl border border-white/10 bg-zinc-950/70 p-4 text-left transition hover:border-[#D8C36A]/45 hover:bg-[#D8C36A]/10"
+                            >
+                              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                                {related.category}
+                              </p>
+                              <h3 className="mt-2 font-bold text-white">
+                                {related.title}
+                              </h3>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <span className="rounded-full border border-white/10 px-2 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                                  {getAcademyReadingTime(related)}
+                                </span>
+                                <span className="rounded-full border border-white/10 px-2 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                                  {academyDifficultyLabels[related.difficulty]}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+
+                      {selectedAcademyArticle.relatedActions.length > 0 && (
+                        <section className="rounded-2xl border border-[#D8C36A]/20 bg-[#D8C36A]/5 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                            Related Actions
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {selectedAcademyArticle.relatedActions.map(
+                              (actionId) => (
+                                <button
+                                  key={actionId}
+                                  type="button"
+                                  onClick={() => openAcademyAction(actionId)}
+                                  className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                                >
+                                  {academyActionLabels[actionId]}
+                                </button>
+                              ),
+                            )}
+                          </div>
+                        </section>
+                      )}
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          disabled={!previousAcademyLesson}
+                          onClick={() => {
+                            if (previousAcademyLesson) {
+                              selectAcademyArticle(previousAcademyLesson.id);
+                            }
+                          }}
+                          className="rounded-2xl border border-white/10 bg-black/35 p-4 text-left transition hover:border-[#D8C36A]/45 disabled:cursor-not-allowed disabled:opacity-35"
+                        >
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                            Previous lesson ←
+                          </p>
+                          <p className="mt-2 font-bold text-white">
+                            {previousAcademyLesson?.title ?? "Start of module"}
+                          </p>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!nextAcademyLesson}
+                          onClick={() => {
+                            if (nextAcademyLesson) {
+                              selectAcademyArticle(nextAcademyLesson.id);
+                            }
+                          }}
+                          className="rounded-2xl border border-white/10 bg-black/35 p-4 text-left transition hover:border-[#D8C36A]/45 disabled:cursor-not-allowed disabled:opacity-35"
+                        >
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                            Next lesson →
+                          </p>
+                          <p className="mt-2 font-bold text-white">
+                            {nextAcademyLesson?.title ?? "Module complete"}
+                          </p>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="min-h-[32rem]">
+                    <div className="rounded-[1.5rem] border border-[#D8C36A]/20 bg-[radial-gradient(circle_at_top,#2B210E_0%,#090909_62%)] p-5 sm:p-6">
+                      <p className="text-5xl">🎓</p>
+                      <h2 className="mt-4 text-3xl font-bold uppercase text-white sm:text-4xl">
+                        {academyProgressPercent === 0
+                          ? "Welcome to Zingara Academy."
+                          : "Academy Dashboard"}
+                      </h2>
+                      <p className="mt-3 max-w-2xl text-base leading-7 text-zinc-300">
+                        {academyProgressPercent === 0
+                          ? `Your recommended learning path is: ${activeAcademyLearningPath.title}.`
+                          : "Continue your role-specific training path and track curriculum progress."}
+                      </p>
+                      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                        {[
+                          ["Current Learning Path", activeAcademyLearningPath.title],
+                          ["Current Module", currentAcademyModule?.title ?? "Complete"],
+                          ["Estimated Time", `${academyRemainingMinutes || academyTotalMinutes} minutes`],
+                        ].map(([label, value]) => (
+                          <div
+                            key={label}
+                            className="rounded-2xl border border-white/10 bg-black/35 p-4"
+                          >
+                            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                              {label}
+                            </p>
+                            <p className="mt-2 font-bold text-white">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {academyCourseComplete && (
+                        <div className="mt-5 rounded-2xl border border-emerald-300/35 bg-emerald-950/20 p-4">
+                          <p className="text-xl font-bold text-emerald-100">
+                            🎉 Congratulations
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-emerald-50/90">
+                            You have successfully completed:{" "}
+                            <span className="font-bold">
+                              {activeAcademyLearningPath.certification}
+                            </span>
+                          </p>
+                        </div>
+                      )}
+                      {academyProgressPercent === 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            selectAcademyArticle(nextAcademyPathArticle.id)
+                          }
+                          className="mt-5 rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold uppercase tracking-[0.14em] text-black shadow-[0_0_26px_rgba(216,195,106,0.22)] transition hover:bg-[#F2D66C]"
+                        >
+                          Start Training
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                      {[
+                        ["🎓", "Continue Learning", "Resume your last viewed lesson."],
+                        ["📚", "Browse Modules", "Explore the complete curriculum."],
+                        ["🚀", "Quick Start (5 minutes)", "Start with the first onboarding lesson."],
+                        ["⭐", "Favourite Articles", "Return to saved training material."],
+                        ["🕒", "Recently Viewed", "Reopen recent lessons."],
+                        ["📈", "Academy Progress", "Track completion and training time."],
+                      ].map(([icon, title, description]) => (
+                        <button
+                          key={title}
+                          type="button"
+                          onClick={() => {
+                            if (title === "Browse Modules") {
+                              setSelectedAcademyCategory("Getting Started");
+                              return;
+                            }
+
+                            if (title === "Continue Learning") {
+                              selectAcademyArticle(nextAcademyPathArticle.id);
+                              return;
+                            }
+
+                            if (title === "Quick Start (5 minutes)") {
+                              selectAcademyArticle("welcome-to-zingara");
+                              return;
+                            }
+
+                            if (title === "Favourite Articles") {
+                              if (favouriteAcademyArticles[0]) {
+                                selectAcademyArticle(favouriteAcademyArticles[0].id);
+                              }
+                              return;
+                            }
+
+                            if (title === "Recently Viewed") {
+                              if (recentAcademyArticles[0]) {
+                                selectAcademyArticle(recentAcademyArticles[0].id);
+                              }
+                              return;
+                            }
+                          }}
+                          className="rounded-2xl border border-white/10 bg-black/35 p-4 text-left transition hover:border-[#D8C36A]/45 hover:bg-[#D8C36A]/10"
+                        >
+                          <span className="text-2xl">{icon}</span>
+                          <p className="mt-3 font-bold text-white">{title}</p>
+                          <p className="mt-1 text-sm leading-6 text-zinc-400">
+                            {description}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+
+                    <section className="mt-6 rounded-2xl border border-white/10 bg-black/35 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
+                            🎓 Academy Progress
+                          </p>
+                          <h3 className="mt-2 text-xl font-bold text-white">
+                            {academyReadCount} of {pathAcademyArticles.length} Lessons Completed
+                          </h3>
+                          <p className="mt-1 text-sm text-zinc-400">
+                            {academyRemainingCount} remaining ·{" "}
+                            {academyRemainingMinutes} min left ·{" "}
+                            {academyTotalMinutes} min total curriculum
+                          </p>
+                        </div>
+                        <span className="w-fit rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300">
+                          {academyCourseComplete
+                            ? "Course Complete"
+                            : `${academyProgressPercent}% Complete`}
+                        </span>
+                      </div>
+                      <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-[#D8C36A] shadow-[0_0_22px_rgba(216,195,106,0.35)] transition-all"
+                          style={{ width: `${academyProgressPercent}%` }}
+                        />
+                      </div>
+                    </section>
+
+                    <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                      <section className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                          Favourite Articles
+                        </p>
+                        {favouriteAcademyArticles.length === 0 ? (
+                          <div className="mt-3 rounded-2xl border border-[#D8C36A]/15 bg-zinc-950/70 p-5 text-center">
+                            <p className="text-3xl">⭐</p>
+                            <h3 className="mt-3 font-bold uppercase text-white">
+                              No Favourites Yet
+                            </h3>
+                            <p className="mt-2 text-sm leading-6 text-zinc-400">
+                              Open an article and tap Favourite to build your
+                              personal training shelf.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="mt-3 space-y-2">
+                            {favouriteAcademyArticles.map((article) => (
+                              <button
+                                key={article.id}
+                                type="button"
+                                onClick={() =>
+                                  selectAcademyArticle(article.id)
+                                }
+                                className="w-full rounded-2xl border border-white/10 bg-zinc-950/70 p-3 text-left transition hover:border-[#D8C36A]/45"
+                              >
+                                <p className="font-semibold text-white">
+                                  {article.title}
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-500">
+                                  {article.category} ·{" "}
+                                  {getAcademyReadingTime(article)}
+                                </p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+
+                      <section className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                          Recently Viewed
+                        </p>
+                        {recentAcademyArticles.length === 0 ? (
+                          <div className="mt-3 rounded-2xl border border-[#D8C36A]/15 bg-zinc-950/70 p-5 text-center">
+                            <p className="text-3xl">🕘</p>
+                            <h3 className="mt-3 font-bold uppercase text-white">
+                              Nothing Viewed Yet
+                            </h3>
+                            <p className="mt-2 text-sm leading-6 text-zinc-400">
+                              Articles you open will appear here for quick
+                              return during training.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="mt-3 space-y-2">
+                            {recentAcademyArticles.map((article) => (
+                              <button
+                                key={article.id}
+                                type="button"
+                                onClick={() =>
+                                  selectAcademyArticle(article.id)
+                                }
+                                className="w-full rounded-2xl border border-white/10 bg-zinc-950/70 p-3 text-left transition hover:border-[#D8C36A]/45"
+                              >
+                                <p className="font-semibold text-white">
+                                  {article.title}
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-500">
+                                  {academyDifficultyLabels[article.difficulty]} ·{" "}
+                                  {getAcademyReadingTime(article)}
+                                </p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    </div>
+                  </div>
+                )}
+              </article>
+            </div>
+          </section>
+        )}
 
         {openCorporateRequest && (
           <div className="fixed inset-0 z-[94] flex items-center justify-center bg-black/75 px-3 py-6 text-white backdrop-blur-md sm:px-5">

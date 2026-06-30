@@ -11,6 +11,7 @@ import {
   getBookingTicketState,
   getTicketUrl,
 } from "@/lib/zingaraDemo";
+import { sendZingaraEmail } from "@/lib/email/smtp";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -518,6 +519,7 @@ function getCommunicationPayload(
   bookingId: string,
   customerId: string,
   showId: string,
+  status: "failed" | "sent" = "sent",
 ) {
   return {
     booking_id: bookingId,
@@ -526,10 +528,34 @@ function getCommunicationPayload(
     message: record.message,
     sent_at: record.sentAt,
     show_id: showId,
-    status: "sent",
+    status,
     subject: record.subject ?? null,
     type: toSupabaseCommunicationType(record.trigger),
   };
+}
+
+async function getEmailDeliveryStatus(record: CommunicationRecord, booking: DemoBooking) {
+  if (record.channel !== "email") {
+    return "sent" as const;
+  }
+
+  const result = await sendZingaraEmail({
+    message: record.message,
+    subject: record.subject,
+    to: booking.customer.email,
+  });
+
+  if (result.ok) {
+    return "sent" as const;
+  }
+
+  console.error("[Zingara API] Email communication failed", {
+    bookingReference: booking.reference,
+    error: result.error,
+    trigger: record.trigger,
+  });
+
+  return "failed" as const;
 }
 
 async function upsertBooking(
@@ -740,11 +766,33 @@ async function syncCommunications(
     subject: string | null;
     type: SupabaseCommunicationType;
   }>;
-  const payloads = (booking.communicationHistory ?? [])
-    .map((record) => getCommunicationPayload(record, bookingId, customerId, showId))
-    .filter(
-      (payload) => !existingRows.some((row) => isSameCommunication(row, payload)),
-    );
+  const payloads = (
+    await Promise.all(
+      (booking.communicationHistory ?? []).map(async (record) => {
+        const basePayload = getCommunicationPayload(
+          record,
+          bookingId,
+          customerId,
+          showId,
+        );
+        const alreadyExists = existingRows.some((row) =>
+          isSameCommunication(row, basePayload),
+        );
+
+        if (alreadyExists) {
+          return null;
+        }
+
+        return getCommunicationPayload(
+          record,
+          bookingId,
+          customerId,
+          showId,
+          await getEmailDeliveryStatus(record, booking),
+        );
+      }),
+    )
+  ).filter((payload): payload is NonNullable<typeof payload> => Boolean(payload));
 
   if (payloads.length === 0) {
     return;

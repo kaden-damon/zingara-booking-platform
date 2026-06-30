@@ -1,4 +1,5 @@
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { sendZingaraEmail } from "@/lib/email/smtp";
 import {
   type CommunicationChannel,
   type CommunicationRecord,
@@ -109,6 +110,32 @@ function toSupabaseChannel(
   return channel;
 }
 
+async function getEmailDeliveryStatus(
+  record: CommunicationRecord,
+  recipient?: string | null,
+) {
+  if (record.channel !== "email") {
+    return "sent" as const;
+  }
+
+  const result = await sendZingaraEmail({
+    message: record.message,
+    subject: record.subject,
+    to: recipient,
+  });
+
+  if (result.ok) {
+    return "sent" as const;
+  }
+
+  console.error("[Zingara API] Email communication failed", {
+    error: result.error,
+    trigger: record.trigger,
+  });
+
+  return "failed" as const;
+}
+
 async function getCommunicationPayload(
   record: CommunicationRecord,
   context: {
@@ -144,7 +171,10 @@ async function getCommunicationPayload(
       message: record.message,
       sent_at: record.sentAt,
       show_id: bookingRelation?.show_id ?? null,
-      status: "sent",
+      status: await getEmailDeliveryStatus(
+        record,
+        context.booking.customer.email,
+      ),
       subject: record.subject ?? null,
       type: toSupabaseType(record.trigger),
     };
@@ -212,7 +242,10 @@ async function getCommunicationPayload(
     message: record.message,
     sent_at: record.sentAt,
     show_id: null,
-    status: "sent",
+    status: await getEmailDeliveryStatus(
+      record,
+      context.corporateRequest?.email,
+    ),
     subject: record.subject ?? null,
     type: toSupabaseType(record.trigger),
   };
