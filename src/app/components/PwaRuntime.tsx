@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 function isLocalhost(hostname: string) {
@@ -39,6 +40,8 @@ async function clearServiceWorkerState() {
 }
 
 export default function PwaRuntime() {
+  const router = useRouter();
+
   useEffect(() => {
     if (!("serviceWorker" in navigator)) {
       return;
@@ -75,6 +78,40 @@ export default function PwaRuntime() {
         // PWA installability is optional for unsupported contexts.
       });
   }, []);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) {
+      return;
+    }
+
+    function handleServiceWorkerMessage(event: MessageEvent) {
+      if (event.data?.type !== "ZINGARA_NOTIFICATION_NAVIGATE") {
+        return;
+      }
+
+      const targetUrl =
+        typeof event.data.url === "string" ? event.data.url : "/book";
+      const nextUrl = new URL(targetUrl, window.location.origin);
+
+      if (nextUrl.origin !== window.location.origin) {
+        return;
+      }
+
+      router.push(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+    }
+
+    navigator.serviceWorker.addEventListener(
+      "message",
+      handleServiceWorkerMessage,
+    );
+
+    return () => {
+      navigator.serviceWorker.removeEventListener(
+        "message",
+        handleServiceWorkerMessage,
+      );
+    };
+  }, [router]);
 
   return null;
 }

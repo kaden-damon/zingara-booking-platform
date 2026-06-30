@@ -80,7 +80,16 @@ export default function LiveTicketClient({
   const [venueSettings, setVenueSettings] =
     useState<DemoVenueSettings>(defaultVenueSettings);
   const [waitlist, setWaitlist] = useState<DemoWaitlistEntry[]>([]);
+  const [returnTo, setReturnTo] = useState("");
   const venueConfig = venueSettings;
+
+  useEffect(() => {
+    const nextReturnTo = new URLSearchParams(window.location.search).get(
+      "returnTo",
+    );
+
+    setReturnTo(nextReturnTo ?? "");
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -185,6 +194,24 @@ export default function LiveTicketClient({
   const paymentStatus = booking
     ? getPaymentStatus(booking)
     : undefined;
+  const handleTicketExit = () => {
+    if (returnTo) {
+      if (window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+
+      window.location.assign(returnTo);
+      return;
+    }
+
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+
+    window.location.assign("/admin");
+  };
 
   return (
     <main className="min-h-screen bg-black px-5 py-10 text-white">
@@ -195,17 +222,10 @@ export default function LiveTicketClient({
         >
           <button
             type="button"
-            onClick={() => {
-              if (window.history.length > 1) {
-                window.history.back();
-                return;
-              }
-
-              window.location.assign("/admin");
-            }}
+            onClick={handleTicketExit}
             className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#D8C36A]/40 bg-[#D8C36A]/10 px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#F3E5A0] transition hover:border-[#F3E5A0] hover:bg-[#D8C36A]/20"
           >
-            Back
+            {returnTo ? "Close" : "Back"}
           </button>
         </nav>
       </header>

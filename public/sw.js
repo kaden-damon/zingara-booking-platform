@@ -83,12 +83,6 @@ self.addEventListener("notificationclick", (event) => {
         );
 
         if (appClient) {
-          if ("navigate" in appClient) {
-            return appClient
-              .navigate(targetUrl)
-              .then((client) => client?.focus());
-          }
-
           appClient.postMessage({
             type: "ZINGARA_NOTIFICATION_NAVIGATE",
             url: targetUrl,

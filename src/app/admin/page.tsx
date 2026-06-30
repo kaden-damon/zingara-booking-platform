@@ -233,6 +233,39 @@ type CustomerProfile = {
   vipTags: string[];
   waitlistEntries: DemoWaitlistEntry[];
 };
+type LiveCustomerRecord = {
+  email: string | null;
+  first_name: string;
+  id: string;
+  mobile: string | null;
+  preferences: {
+    customerKey?: string;
+    vipTags?: string[];
+  } | null;
+  relationship_notes: string | null;
+  surname: string | null;
+};
+type NotificationPreferenceKey = StaffNotificationRecord["trigger"];
+
+const notificationPreferenceStorageKey =
+  "zingara-staff-notification-preferences";
+const notificationPreferenceLabels: Record<NotificationPreferenceKey, string> = {
+  "booking-cancelled": "Booking Cancellations",
+  "guest-checked-in": "Guest Check-ins",
+  "new-booking": "New Bookings",
+  "new-corporate-request": "Corporate Requests",
+  "operational-broadcast-sent": "Operational Broadcasts",
+  "payment-received": "Payment Received",
+  "waitlist-promotion": "Waitlist",
+};
+const notificationPreferenceOrder: NotificationPreferenceKey[] = [
+  "new-booking",
+  "new-corporate-request",
+  "waitlist-promotion",
+  "booking-cancelled",
+  "guest-checked-in",
+  "operational-broadcast-sent",
+];
 
 const bookingStatuses: BookingStatus[] = [
   "new",
@@ -5094,6 +5127,98 @@ function getCustomerKey(customer: {
   return email || phone || name || "unknown-customer";
 }
 
+function normalizeCustomerValue(value?: string | null) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function normalizeCustomerPhone(value?: string | null) {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+function getLiveCustomerName(customer: LiveCustomerRecord) {
+  return [customer.first_name, customer.surname]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+function getLiveCustomerKey(customer: LiveCustomerRecord) {
+  return (
+    customer.preferences?.customerKey ??
+    customer.email?.trim().toLowerCase() ??
+    normalizeCustomerPhone(customer.mobile) ??
+    getLiveCustomerName(customer).toLowerCase() ??
+    customer.id
+  );
+}
+
+async function loadLiveCustomerRecords() {
+  try {
+    const response = await fetch("/api/admin/customers", {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return [] as LiveCustomerRecord[];
+    }
+
+    const payload = (await response.json()) as {
+      rows?: LiveCustomerRecord[];
+    };
+
+    return payload.rows ?? [];
+  } catch {
+    return [] as LiveCustomerRecord[];
+  }
+}
+
+function getStoredNotificationPreferences() {
+  if (typeof window === "undefined") {
+    return {} as Partial<Record<NotificationPreferenceKey, boolean>>;
+  }
+
+  try {
+    const storedPreferences = window.localStorage.getItem(
+      notificationPreferenceStorageKey,
+    );
+
+    return storedPreferences
+      ? (JSON.parse(storedPreferences) as Partial<Record<
+          NotificationPreferenceKey,
+          boolean
+        >>)
+      : ({} as Partial<Record<NotificationPreferenceKey, boolean>>);
+  } catch {
+    return {} as Partial<Record<NotificationPreferenceKey, boolean>>;
+  }
+}
+
+function storeNotificationPreferences(
+  preferences: Partial<Record<NotificationPreferenceKey, boolean>>,
+) {
+  window.localStorage.setItem(
+    notificationPreferenceStorageKey,
+    JSON.stringify(preferences),
+  );
+}
+
+function getPlatformTicketUrl(reference: string) {
+  const ticketUrl = getTicketUrl(reference);
+
+  if (typeof window === "undefined") {
+    return ticketUrl;
+  }
+
+  const returnTo =
+    `${window.location.pathname}${window.location.search}${window.location.hash}` ||
+    "/admin";
+  const contextualTicketUrl = new URL(ticketUrl, window.location.origin);
+
+  contextualTicketUrl.searchParams.set("returnTo", returnTo);
+
+  return `${contextualTicketUrl.pathname}${contextualTicketUrl.search}`;
+}
+
 function getBookingFinancials(booking: DemoBooking) {
   const totalPrice = booking.totalPrice;
   const addonsTotal = booking.addonsTotal ?? 0;
@@ -5186,6 +5311,9 @@ export default function AdminDashboardPage() {
   const [customerCrmRecords, setCustomerCrmRecords] = useState<
     DemoCustomerCrmRecord[]
   >([]);
+  const [liveCustomerRecords, setLiveCustomerRecords] = useState<
+    LiveCustomerRecord[]
+  >([]);
   const [waitlist, setWaitlist] = useState<DemoWaitlistEntry[]>(
     [],
   );
@@ -5267,6 +5395,8 @@ export default function AdminDashboardPage() {
   const [staffNotifications, setStaffNotifications] = useState<
     StaffNotificationRecord[]
   >([]);
+  const [notificationPreferences, setNotificationPreferences] =
+    useState<Partial<Record<NotificationPreferenceKey, boolean>>>({});
   const [notificationCentreUserId, setNotificationCentreUserId] =
     useState("");
   const [isNotificationCentreOpen, setIsNotificationCentreOpen] =
@@ -5394,6 +5524,10 @@ export default function AdminDashboardPage() {
   const [legacyImportError, setLegacyImportError] = useState("");
   const [deleteCorporateRequestId, setDeleteCorporateRequestId] =
     useState("");
+  const [
+    showCustomerRecordComparison,
+    setShowCustomerRecordComparison,
+  ] = useState(false);
   const handledAdminDeepLinkRef = useRef("");
 
   useEffect(() => {
@@ -5405,6 +5539,7 @@ export default function AdminDashboardPage() {
       const nextCorporateRequests = await getCorporateRequests();
       const nextCommunicationTemplates = await getTemplates();
       const nextCustomerCrm = await getCustomers();
+      const nextLiveCustomers = await loadLiveCustomerRecords();
       const nextVenueSettings = await getVenueSettings();
       const nextWaitlist = await getWaitlistEntries();
       const nextTables = getStoredDemoTables();
@@ -5453,6 +5588,7 @@ export default function AdminDashboardPage() {
       setCorporateRequests(nextCorporateRequests);
       setCommunicationTemplates(nextCommunicationTemplates);
       setCustomerCrmRecords(nextCustomerCrm);
+      setLiveCustomerRecords(nextLiveCustomers);
       setVenueSettings(nextVenueSettings);
       setWaitlist(nextWaitlist);
       setTables(nextTables);
@@ -5670,6 +5806,12 @@ export default function AdminDashboardPage() {
   }, [selectedAcademyArticleId]);
 
   useEffect(() => {
+    setShowCustomerRecordComparison(false);
+  }, [selectedCustomerKey]);
+
+  useEffect(() => {
+    setNotificationPreferences(getStoredNotificationPreferences());
+
     function refreshNotificationPermission() {
       setNotificationPermission(getBrowserNotificationStatusLabel());
     }
@@ -5794,7 +5936,11 @@ export default function AdminDashboardPage() {
     canManageBookings || canCheckInGuests;
   const canViewStaffOperations = canCheckInGuests;
   const venueConfig = venueSettings;
-  const unreadNotificationCount = staffNotifications.filter(
+  const visibleStaffNotifications = staffNotifications.filter(
+    (notification) =>
+      notificationPreferences[notification.trigger] ?? true,
+  );
+  const unreadNotificationCount = visibleStaffNotifications.filter(
     (notification) =>
       !notification.readBy?.includes(
         notificationCentreUserId || currentStaff?.id || "",
@@ -5832,6 +5978,22 @@ export default function AdminDashboardPage() {
     } catch {
       showWorkflowToast("⚠ Could not save");
     }
+  }
+
+  function toggleNotificationPreference(
+    preference: NotificationPreferenceKey,
+  ) {
+    setNotificationPreferences((currentPreferences) => {
+      const nextPreferences = {
+        ...currentPreferences,
+        [preference]: !(currentPreferences[preference] ?? true),
+      };
+
+      storeNotificationPreferences(nextPreferences);
+      showWorkflowToast("Notification preferences saved.");
+
+      return nextPreferences;
+    });
   }
 
   async function login(event: FormEvent<HTMLFormElement>) {
@@ -10293,6 +10455,46 @@ export default function AdminDashboardPage() {
     customerProfiles.find(
       (profile) => profile.key === selectedCustomerKey,
     ) ?? null;
+  const selectedLiveCustomerRecord = selectedCustomerProfile
+    ? liveCustomerRecords.find((record) => {
+        const liveKey = getLiveCustomerKey(record);
+        const liveEmail = normalizeCustomerValue(record.email);
+        const livePhone = normalizeCustomerPhone(record.mobile);
+        const snapshotEmail = normalizeCustomerValue(
+          selectedCustomerProfile.customer.email,
+        );
+        const snapshotPhone = normalizeCustomerPhone(
+          selectedCustomerProfile.customer.phone,
+        );
+
+        return (
+          liveKey === selectedCustomerProfile.key ||
+          (!!snapshotEmail && liveEmail === snapshotEmail) ||
+          (!!snapshotPhone && livePhone === snapshotPhone)
+        );
+      }) ?? null
+    : null;
+  const selectedLiveCustomerDisplay = selectedLiveCustomerRecord
+    ? {
+        email: selectedLiveCustomerRecord.email ?? "",
+        name: getLiveCustomerName(selectedLiveCustomerRecord),
+        phone: selectedLiveCustomerRecord.mobile ?? "",
+      }
+    : null;
+  const selectedCustomerRecordDiffers = Boolean(
+    selectedCustomerProfile &&
+      selectedLiveCustomerDisplay &&
+      (normalizeCustomerValue(selectedCustomerProfile.customer.name) !==
+        normalizeCustomerValue(selectedLiveCustomerDisplay.name) ||
+        normalizeCustomerValue(selectedCustomerProfile.customer.email) !==
+          normalizeCustomerValue(selectedLiveCustomerDisplay.email) ||
+        normalizeCustomerPhone(selectedCustomerProfile.customer.phone) !==
+          normalizeCustomerPhone(selectedLiveCustomerDisplay.phone)),
+  );
+  const selectedCustomerSourceLabel =
+    selectedLiveCustomerDisplay && !selectedCustomerRecordDiffers
+      ? "Live Customer Record"
+      : "Booking Snapshot";
   const topCustomerProfiles = customerProfiles.slice(0, 4);
   const activeCorporateBookingRequests = corporateRequests.filter(
     (request) =>
@@ -10586,7 +10788,7 @@ export default function AdminDashboardPage() {
                         Notification Centre
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
-                        {staffNotifications.length} total
+                        {visibleStaffNotifications.length} visible
                       </p>
                     </div>
                     <button
@@ -10600,12 +10802,12 @@ export default function AdminDashboardPage() {
                   </div>
 
                   <div className="max-h-96 overflow-y-auto p-3">
-                    {staffNotifications.length === 0 ? (
+                    {visibleStaffNotifications.length === 0 ? (
                       <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-zinc-400">
-                        No notifications yet.
+                        No notifications match your local preferences.
                       </p>
                     ) : (
-                      staffNotifications.map((notification) => {
+                      visibleStaffNotifications.map((notification) => {
                         const isUnread = !notification.readBy?.includes(
                           notificationCentreUserId ||
                             currentStaff?.id ||
@@ -12151,7 +12353,7 @@ export default function AdminDashboardPage() {
                               </button>
                             )}
                             <a
-                              href={getTicketUrl(
+                              href={getPlatformTicketUrl(
                                 ticketValidationResult.booking.reference,
                               )}
                               className="rounded-full border border-[#D8C36A]/40 px-6 py-3 text-center font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
@@ -14783,6 +14985,24 @@ export default function AdminDashboardPage() {
                           {selectedCustomerProfile.customer.phone ||
                             "No phone"}
                         </p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <span className="inline-flex rounded-full border border-[#D8C36A]/25 bg-[#D8C36A]/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#F2D66C]">
+                            {selectedCustomerSourceLabel}
+                          </span>
+                          {selectedCustomerRecordDiffers && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setShowCustomerRecordComparison(
+                                  (isOpen) => !isOpen,
+                                )
+                              }
+                              className="inline-flex rounded-full border border-white/15 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                            >
+                              View Current Customer Record
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[520px]">
@@ -14824,6 +15044,69 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
                     </div>
+
+                    {showCustomerRecordComparison &&
+                      selectedLiveCustomerDisplay && (
+                        <div className="mt-5 rounded-2xl border border-[#D8C36A]/20 bg-[#D8C36A]/10 p-5">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#F2D66C]">
+                                Customer Record Comparison
+                              </p>
+                              <p className="mt-2 text-sm text-zinc-300">
+                                Booking snapshots are preserved for
+                                audit history. This comparison is read-only.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setShowCustomerRecordComparison(false)
+                              }
+                              className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300 transition hover:bg-white hover:text-black"
+                            >
+                              Close
+                            </button>
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                                Booking Snapshot
+                              </p>
+                              <p className="mt-3 font-semibold text-white">
+                                {selectedCustomerProfile.customer.name ||
+                                  "Unnamed Guest"}
+                              </p>
+                              <p className="mt-1 text-sm text-zinc-400">
+                                {selectedCustomerProfile.customer.email ||
+                                  "No email"}
+                              </p>
+                              <p className="mt-1 text-sm text-zinc-400">
+                                {selectedCustomerProfile.customer.phone ||
+                                  "No phone"}
+                              </p>
+                            </div>
+                            <div className="rounded-2xl border border-emerald-300/20 bg-emerald-950/15 p-4">
+                              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                                Live Customer Record
+                              </p>
+                              <p className="mt-3 font-semibold text-white">
+                                {selectedLiveCustomerDisplay.name ||
+                                  "Unnamed Guest"}
+                              </p>
+                              <p className="mt-1 text-sm text-zinc-400">
+                                {selectedLiveCustomerDisplay.email ||
+                                  "No email"}
+                              </p>
+                              <p className="mt-1 text-sm text-zinc-400">
+                                {selectedLiveCustomerDisplay.phone ||
+                                  "No phone"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                     <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
                       <div className="rounded-2xl border border-white/10 bg-zinc-950 p-5">
@@ -15425,6 +15708,68 @@ export default function AdminDashboardPage() {
                 >
                   Send Test Notification
                 </button>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-2xl border border-white/10 bg-black/35 p-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                    Notification Preferences
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Fine-tune staff notification categories for this
+                    device. Defaults follow the current role-based
+                    routing.
+                  </p>
+                </div>
+                <span className="inline-flex w-fit rounded-full border border-white/10 bg-zinc-950 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                  Local Device
+                </span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {notificationPreferenceOrder.map((preference) => {
+                  const isEnabled =
+                    notificationPreferences[preference] ?? true;
+
+                  return (
+                    <button
+                      key={preference}
+                      type="button"
+                      onClick={() =>
+                        toggleNotificationPreference(preference)
+                      }
+                      className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+                        isEnabled
+                          ? "border-[#D8C36A]/30 bg-[#D8C36A]/10"
+                          : "border-white/10 bg-zinc-950"
+                      }`}
+                    >
+                      <span>
+                        <span className="block text-sm font-semibold text-white">
+                          {notificationPreferenceLabels[preference]}
+                        </span>
+                        <span className="mt-1 block text-xs text-zinc-500">
+                          {isEnabled ? "Enabled" : "Muted locally"}
+                        </span>
+                      </span>
+                      <span
+                        className={`relative h-6 w-11 rounded-full border transition ${
+                          isEnabled
+                            ? "border-[#D8C36A]/50 bg-[#D8C36A]"
+                            : "border-white/15 bg-black"
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-1 h-4 w-4 rounded-full bg-white transition ${
+                            isEnabled ? "left-6" : "left-1"
+                          }`}
+                        />
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -17459,7 +17804,7 @@ export default function AdminDashboardPage() {
                         }`}
                       >
                         <a
-                          href={getTicketUrl(booking.reference)}
+                          href={getPlatformTicketUrl(booking.reference)}
                           className="inline-flex min-h-10 items-center justify-center rounded-full border border-white/15 px-3 py-2 text-center text-xs font-semibold text-zinc-200 transition hover:bg-white hover:text-black sm:px-4 sm:text-sm"
                         >
                           Ticket
@@ -17625,7 +17970,7 @@ export default function AdminDashboardPage() {
                               {booking.tableNumber}
                             </p>
                             <a
-                              href={getTicketUrl(booking.reference)}
+                              href={getPlatformTicketUrl(booking.reference)}
                               className="mt-3 inline-flex rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                             >
                               Open Live Ticket

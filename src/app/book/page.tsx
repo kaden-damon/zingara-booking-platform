@@ -65,6 +65,23 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
+function getPlatformTicketUrl(reference: string) {
+  const ticketUrl = getTicketUrl(reference);
+
+  if (typeof window === "undefined") {
+    return ticketUrl;
+  }
+
+  const returnTo =
+    `${window.location.pathname}${window.location.search}${window.location.hash}` ||
+    "/book";
+  const contextualTicketUrl = new URL(ticketUrl, window.location.origin);
+
+  contextualTicketUrl.searchParams.set("returnTo", returnTo);
+
+  return `${contextualTicketUrl.pathname}${contextualTicketUrl.search}`;
+}
+
 const calendarWeekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const calendarMonths = [
   "January",
@@ -3201,7 +3218,7 @@ export default function BookingPage() {
                     </p>
                     <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-4 sm:gap-3">
                       <a
-                        href={getTicketUrl(bookingReference)}
+                        href={getPlatformTicketUrl(bookingReference)}
                         className="inline-flex rounded-full border border-[#D8C36A]/40 px-4 py-2.5 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-5 sm:py-3 sm:text-sm"
                       >
                         Open Live Ticket
