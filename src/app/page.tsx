@@ -16,7 +16,7 @@ const locations = [
 ];
 
 export const metadata: Metadata = {
-  title: "Zingara Booking Platform",
+  title: "ENTRY GATE | The Royal Countess Zingara",
   description: "Choose your Zingara venue and begin your booking experience.",
 };
 
