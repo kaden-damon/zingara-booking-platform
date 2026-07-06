@@ -183,7 +183,7 @@ export async function proxy(request: NextRequest) {
     const password = formData.get("password");
 
     if (typeof password === "string" && password === sitePassword) {
-      const response = NextResponse.redirect(request.nextUrl);
+      const response = NextResponse.redirect(request.nextUrl, 303);
       response.cookies.set(cookieName, expectedCookieValue, {
         httpOnly: true,
         maxAge: cookieMaxAge,
