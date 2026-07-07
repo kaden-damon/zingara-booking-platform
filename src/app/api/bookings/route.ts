@@ -235,6 +235,14 @@ function getPaymentAmount(booking: DemoBooking) {
   return booking.amountPaid ?? 0;
 }
 
+function isAwaitingExternalPayment(booking: DemoBooking) {
+  return (
+    booking.status === "pending-payment" &&
+    booking.paymentStatus === "pending-payment" &&
+    (booking.amountPaid ?? 0) === 0
+  );
+}
+
 function getCustomerKey(customer: CustomerInfo) {
   const email = customer.email?.trim().toLowerCase();
   const phone = customer.phone?.replace(/\D/g, "");
@@ -854,22 +862,26 @@ export async function POST(request: Request) {
     }
 
     const paymentId = await upsertPayment(supabase, booking, bookingId);
-    const ticketId = await upsertTicket(supabase, booking, bookingId);
+    const ticketId = isAwaitingExternalPayment(booking)
+      ? null
+      : await upsertTicket(supabase, booking, bookingId);
 
     await syncLifecycleEvents(supabase, booking, bookingId);
-    await syncCommunications(supabase, booking, bookingId, customerId, showId);
-    console.info("[Zingara push diagnostics] New booking trigger queued", {
-      bookingReference: booking.reference,
-    });
-    void sendStaffPushNotification({
-      bookingReference: booking.reference,
-      trigger: "new-booking",
-    }).then((result) => {
-      console.info("[Zingara push diagnostics] New booking trigger completed", {
+    if (!isAwaitingExternalPayment(booking)) {
+      await syncCommunications(supabase, booking, bookingId, customerId, showId);
+      console.info("[Zingara push diagnostics] New booking trigger queued", {
         bookingReference: booking.reference,
-        result,
       });
-    });
+      void sendStaffPushNotification({
+        bookingReference: booking.reference,
+        trigger: "new-booking",
+      }).then((result) => {
+        console.info("[Zingara push diagnostics] New booking trigger completed", {
+          bookingReference: booking.reference,
+          result,
+        });
+      });
+    }
 
     return Response.json({
       bookingId,

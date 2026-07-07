@@ -167,6 +167,10 @@ function passwordPage(request: NextRequest, error = false) {
 export async function proxy(request: NextRequest) {
   const sitePassword = process.env.SITE_PASSWORD;
 
+  if (request.nextUrl.pathname === "/api/payfast/itn") {
+    return NextResponse.next();
+  }
+
   if (!sitePassword) {
     return NextResponse.next();
   }

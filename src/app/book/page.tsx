@@ -11,18 +11,13 @@ import QRCode from "qrcode";
 import ScannableQrCode from "../components/ScannableQrCode";
 import {
   registerZingaraPushSubscription,
-  sendZingaraBrowserNotification,
-  sendZingaraGuestPushNotification,
 } from "../../lib/browserNotifications";
 import { createBooking } from "../../lib/supabase/bookings";
-import { getTemplates } from "../../lib/supabase/communicationTemplates";
 import { getShows } from "../../lib/supabase/shows";
 import { getVenueSettings } from "../../lib/supabase/venueSettings";
 import { createWaitlistEntry } from "../../lib/supabase/waitlist";
 import {
   type BookingAddon,
-  type CommunicationRecord,
-  type CommunicationTemplate,
   type CustomerInfo,
   type DemoTable,
   type DemoWaitlistEntry,
@@ -31,23 +26,19 @@ import {
   type DemoShow,
   type SeatingZone,
   applyTableAllocation,
-  createCommunicationRecord,
   createTablesForShow,
   createTicketCode,
-  defaultCommunicationTemplates,
   defaultVenueSettings,
   defaultShows,
   findBestTableAllocation,
   getConfiguredZoneDepositPercentage,
   getConfiguredZonePrice,
-  getCommunicationTemplate,
   getCompactShowDateTime,
   getSouthAfricaShowTime,
   getIncludedBookingFeeBreakdown,
   getStoredDemoTables,
   getTableAllocationDisplay,
   getTicketUrl,
-  renderCommunicationTemplate,
   seatingZones,
   storeDemoTables,
 } from "../../lib/zingaraDemo";
@@ -65,6 +56,13 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
+type PayFastCheckoutResponse = {
+  actionUrl?: string;
+  error?: string;
+  fields?: Record<string, boolean | number | string | null | undefined>;
+  mode?: "live" | "sandbox";
+};
+
 function getPlatformTicketUrl(reference: string) {
   const ticketUrl = getTicketUrl(reference);
 
@@ -80,6 +78,33 @@ function getPlatformTicketUrl(reference: string) {
   contextualTicketUrl.searchParams.set("returnTo", returnTo);
 
   return `${contextualTicketUrl.pathname}${contextualTicketUrl.search}`;
+}
+
+function submitPayFastCheckoutForm(
+  actionUrl: string,
+  fields: NonNullable<PayFastCheckoutResponse["fields"]>,
+) {
+  const form = document.createElement("form");
+
+  form.action = actionUrl;
+  form.method = "POST";
+  form.style.display = "none";
+
+  for (const [name, value] of Object.entries(fields)) {
+    if (value === null || value === undefined || value === "") {
+      continue;
+    }
+
+    const input = document.createElement("input");
+
+    input.name = name;
+    input.type = "hidden";
+    input.value = String(value);
+    form.appendChild(input);
+  }
+
+  document.body.appendChild(form);
+  form.submit();
 }
 
 const calendarWeekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -635,8 +660,6 @@ export default function BookingPage() {
   const [venueSettings, setVenueSettings] = useState(
     defaultVenueSettings,
   );
-  const [communicationTemplates, setCommunicationTemplates] =
-    useState<CommunicationTemplate[]>(defaultCommunicationTemplates);
   const [selectedShowId, setSelectedShowId] = useState("");
   const [selectedShowDate, setSelectedShowDate] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(
@@ -684,6 +707,9 @@ export default function BookingPage() {
   const [installPromptStatus, setInstallPromptStatus] = useState("");
   const [paymentOption, setPaymentOption] =
     useState<PaymentOption>("full");
+  const [paymentRedirectStatus, setPaymentRedirectStatus] = useState("");
+  const [isPayFastRedirecting, setIsPayFastRedirecting] =
+    useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>(
     [],
@@ -944,7 +970,6 @@ export default function BookingPage() {
       const nextShows = await getShows();
       const nextTables = getStoredDemoTables();
       const nextVenueSettings = await getVenueSettings();
-      const nextCommunicationTemplates = await getTemplates();
       const nextGuestVisibleShows = nextShows.filter(isGuestVisibleShow);
 
       if (!isMounted) {
@@ -973,7 +998,6 @@ export default function BookingPage() {
       setShows(nextShows);
       setTables(nextTables);
       setVenueSettings(nextVenueSettings);
-      setCommunicationTemplates(nextCommunicationTemplates);
       setSelectedShowId((currentShowId) =>
         nextGuestVisibleShows.some(
           (show) =>
@@ -1103,6 +1127,28 @@ export default function BookingPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const paymentState = searchParams.get("payment");
+    const booking = searchParams.get("booking");
+
+    if (paymentState === "cancelled") {
+      setPaymentRedirectStatus(
+        booking
+          ? `PayFast checkout was cancelled for ${booking}. Your booking remains pending payment.`
+          : "PayFast checkout was cancelled. Your booking remains pending payment.",
+      );
+    }
+
+    if (paymentState === "return") {
+      setPaymentRedirectStatus(
+        booking
+          ? `Payment submitted successfully for ${booking}. Your booking will be confirmed once PayFast notifies Zingara.`
+          : "Payment submitted successfully. Your booking will be confirmed once PayFast notifies Zingara.",
+      );
+    }
+  }, []);
+
   function handleContinueBooking() {
     if (
       !selectedZone ||
@@ -1163,7 +1209,7 @@ export default function BookingPage() {
     setWaitlistReference(reference);
   }
 
-  async function handleFakePayment() {
+  async function handlePayFastCheckout() {
     if (
       !selectedZone ||
       !selectedShow ||
@@ -1189,6 +1235,9 @@ export default function BookingPage() {
       return;
     }
 
+    setIsPayFastRedirecting(true);
+    setPaymentRedirectStatus("Preparing secure PayFast checkout...");
+
     const allocatedTable = tableAllocation.table;
     const reference = createBookingReference();
     const createdAt = new Date().toISOString();
@@ -1209,23 +1258,15 @@ export default function BookingPage() {
       totalPrice: total,
       pricePerPerson: dynamicPricePerPerson,
       paymentOption,
-      paymentStatus:
-        paymentOption === "deposit"
-          ? ("deposit-paid" as const)
-          : ("fully-paid" as const),
+      paymentStatus: "pending-payment" as const,
       depositPercentage,
-      amountPaid: amountDueNow,
-      balanceDue,
+      amountPaid: 0,
+      balanceDue: total,
       promoCode: appliedPromoCode?.code,
       promoLabel: appliedPromoCode?.description,
       source: "online" as const,
-      ticketCode: createTicketCode(reference),
-      ticketIssuedAt: createdAt,
       customer: customerInfo,
-      status:
-        paymentOption === "deposit"
-          ? ("pending-payment" as const)
-          : ("confirmed" as const),
+      status: "pending-payment" as const,
       lifecycleHistory: [
         {
           id: `${reference}-created`,
@@ -1236,14 +1277,8 @@ export default function BookingPage() {
         {
           id: `${reference}-payment`,
           fromStatus: "new" as const,
-          toStatus:
-            paymentOption === "deposit"
-              ? ("pending-payment" as const)
-              : ("confirmed" as const),
-          note:
-            paymentOption === "deposit"
-              ? "Deposit payment recorded"
-              : "Full payment recorded",
+          toStatus: "pending-payment" as const,
+          note: "Awaiting PayFast payment",
           createdAt,
         },
       ],
@@ -1253,68 +1288,6 @@ export default function BookingPage() {
       communicationHistory: [],
       createdAt,
     };
-    const reservationTemplateTrigger =
-      booking.status === "pending-payment" ||
-      booking.paymentStatus === "deposit-paid"
-        ? ("reservation-pending" as const)
-        : ("reservation-confirmed" as const);
-    const bookingConfirmationTemplate = getCommunicationTemplate(
-      communicationTemplates,
-      reservationTemplateTrigger,
-      "email",
-    );
-    const paymentConfirmationTemplate = getCommunicationTemplate(
-      communicationTemplates,
-      "payment-confirmation",
-      "email",
-    );
-    const communicationHistory: CommunicationRecord[] = [
-      bookingConfirmationTemplate
-        ? createCommunicationRecord({
-            booking,
-            channel: bookingConfirmationTemplate.channel,
-            message: renderCommunicationTemplate(
-              bookingConfirmationTemplate.body,
-              booking,
-              selectedShow,
-            ),
-            sentAt: createdAt,
-            subject: renderCommunicationTemplate(
-              bookingConfirmationTemplate.subject,
-              booking,
-              selectedShow,
-            ),
-            templateId: bookingConfirmationTemplate.id,
-            trigger: reservationTemplateTrigger,
-          })
-        : undefined,
-      paymentConfirmationTemplate
-        ? createCommunicationRecord({
-            booking,
-            channel: paymentConfirmationTemplate.channel,
-            message: renderCommunicationTemplate(
-              paymentConfirmationTemplate.body,
-              booking,
-              selectedShow,
-            ),
-            sentAt: createdAt,
-            subject: renderCommunicationTemplate(
-              paymentConfirmationTemplate.subject,
-              booking,
-              selectedShow,
-            ),
-            templateId: paymentConfirmationTemplate.id,
-            trigger: "payment-confirmation",
-          })
-        : undefined,
-    ].filter(
-      (record): record is CommunicationRecord =>
-        record !== undefined,
-    );
-    const bookingWithCommunication = {
-      ...booking,
-      communicationHistory,
-    };
     const nextTables = applyTableAllocation(
       tables,
       tableAllocation,
@@ -1322,33 +1295,51 @@ export default function BookingPage() {
       customerInfo.name,
     );
 
-    await createBooking(bookingWithCommunication);
-    await registerZingaraPushSubscription({
-      bookingReference: reference,
-      customerEmail: customerInfo.email,
-      customerName: customerInfo.name,
-    });
-    if (booking.status === "confirmed") {
-      void sendZingaraGuestPushNotification("reservation-confirmed", {
+    try {
+      await createBooking(booking);
+      await registerZingaraPushSubscription({
         bookingReference: reference,
+        customerEmail: customerInfo.email,
+        customerName: customerInfo.name,
       });
-    } else {
-      void sendZingaraGuestPushNotification("reservation-pending-payment", {
-        bookingReference: reference,
+
+      storeDemoTables(nextTables);
+      setTables(nextTables);
+      setAllocatedTableNumber(allocatedTable.tableNumber);
+
+      const response = await fetch("/api/payfast/checkout", {
+        body: JSON.stringify({
+          amount: amountDueNow,
+          bookingReference: reference,
+          customer: customerInfo,
+          itemDescription: `${selectedShow.label} · ${selectedZone.title} · ${partySize} guests`,
+          itemName: "The Royal Countess Zingara Booking",
+          section: selectedZone.title,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
       });
+      const checkout = (await response.json()) as PayFastCheckoutResponse;
+
+      if (!response.ok || !checkout.actionUrl || !checkout.fields) {
+        throw new Error(
+          checkout.error ?? "PayFast checkout could not be prepared.",
+        );
+      }
+
+      setPaymentRedirectStatus("Redirecting to PayFast sandbox checkout...");
+      submitPayFastCheckoutForm(checkout.actionUrl, checkout.fields);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "PayFast checkout could not be prepared.";
+
+      setPaymentRedirectStatus(`Payment could not be started. ${message}`);
+      setIsPayFastRedirecting(false);
     }
-    if ((booking.amountPaid ?? 0) > 0) {
-      void sendZingaraGuestPushNotification("payment-received", {
-        bookingReference: reference,
-      });
-    }
-    storeDemoTables(nextTables);
-    setTables(nextTables);
-    setAllocatedTableNumber(allocatedTable.tableNumber);
-    setBookingReference(reference);
-    setShowTicketReadyPrompt(true);
-    setInstallPromptStatus("");
-    void sendZingaraBrowserNotification("booking-confirmed");
   }
 
   async function installZingaraApp() {
@@ -2999,7 +2990,7 @@ export default function BookingPage() {
               className="mt-5 space-y-4 sm:mt-8 sm:space-y-5"
               onSubmit={(e) => {
                 e.preventDefault();
-                handleFakePayment();
+                void handlePayFastCheckout();
               }}
             >
               <h3 className="zingara-heading text-lg font-bold sm:text-xl">
@@ -3060,6 +3051,12 @@ export default function BookingPage() {
                   />
                 </label>
               </div>
+
+              {paymentRedirectStatus && (
+                <p className="rounded-xl border border-[#D8C36A]/25 bg-black/30 px-4 py-3 text-sm font-semibold text-[#F2D66C]">
+                  {paymentRedirectStatus}
+                </p>
+              )}
 
               {bookingReference && (
                 <div className="space-y-4 sm:space-y-5">
@@ -3303,12 +3300,15 @@ export default function BookingPage() {
 
               <button
                 type="submit"
-                disabled={!selectedShow || Boolean(bookingReference)}
+                disabled={
+                  !selectedShow ||
+                  isPayFastRedirecting
+                }
                 className="w-full rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"
               >
-                {bookingReference
-                  ? "Booking Stored"
-                  : "Confirm Booking"}
+                {isPayFastRedirecting
+                  ? "Redirecting To PayFast"
+                  : "Pay With PayFast"}
               </button>
             </form>
           </div>

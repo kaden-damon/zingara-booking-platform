@@ -625,14 +625,10 @@ export async function getSupabaseBookingId(reference: string) {
 }
 
 export async function createBooking(booking: DemoBooking) {
-  try {
-    await fetchSupabaseApi("/api/bookings", {
-      body: { booking },
-      method: "POST",
-    });
-  } catch (error) {
-    console.error("[Zingara Supabase] Failed to create booking transaction", error);
-  }
+  await fetchSupabaseApi("/api/bookings", {
+    body: { booking },
+    method: "POST",
+  });
 
   return booking;
 }
