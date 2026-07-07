@@ -98,6 +98,7 @@ import {
   type DemoTable,
   type DemoVenueSettings,
   type DemoWaitlistEntry,
+  type GuestTicket,
   type PaymentStatus,
   type SeatingZone,
   type SeatingZoneId,
@@ -121,7 +122,9 @@ import {
   getStoredDemoTables,
   getSouthAfricaShowTime,
   getTicketUrl,
+  getGuestTicketsForBooking,
   renderCommunicationTemplate,
+  normalizeTicketReference,
   isValidBookingStatus,
   isValidSeatingZoneId,
   seatingZones,
@@ -167,6 +170,7 @@ type LoginForm = {
 };
 type TicketValidationResult = {
   booking?: DemoBooking;
+  guestTicket?: GuestTicket;
   message: string;
   state: TicketState | "Invalid";
   waitlistEntry?: DemoWaitlistEntry;
@@ -253,7 +257,7 @@ const notificationPreferenceLabels: Record<NotificationPreferenceKey, string> = 
   "booking-cancelled": "Booking Cancellations",
   "guest-checked-in": "Guest Check-ins",
   "new-booking": "New Bookings",
-  "new-corporate-request": "Corporate Requests",
+  "new-corporate-request": "Corporate Bookings",
   "operational-broadcast-sent": "Operational Broadcasts",
   "payment-received": "Payment Received",
   "waitlist-promotion": "Waitlist",
@@ -380,6 +384,34 @@ const corporateRequestStatusLabels: Record<
   "quote-sent": "Quote Sent",
 };
 
+function formatCorporateDietaryRequirement(requirement: string) {
+  return requirement === "Strict Halaal"
+    ? "Strict Halaal · R250"
+    : requirement;
+}
+
+function createCorporatePaymentToken() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `corp-pay-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
+function getCorporateAddonPrice(addon: string) {
+  const matchedPrice = addon.match(/R([\d,]+)/);
+
+  return matchedPrice
+    ? Number(matchedPrice[1].replaceAll(",", ""))
+    : 0;
+}
+
+function getCorporateDietarySurcharge(request: CorporateRequest) {
+  return request.dietaryRequirements.includes("Strict Halaal") ? 250 : 0;
+}
+
 const corporateRequestStatusClasses: Record<
   CorporateRequestStatus,
   string
@@ -443,7 +475,6 @@ type DashboardLayoutState = {
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "overview", label: "Dashboard" },
   { id: "bookings", label: "Bookings" },
-  { id: "corporate", label: "Corporate Requests" },
   { id: "operations", label: "Operations" },
   { id: "customers", label: "Customers" },
   { id: "analytics", label: "Analytics" },
@@ -529,7 +560,8 @@ const academyActionLabels: Record<AcademyActionId, string> = {
 
 const academyModules: AcademyModule[] = [
   { difficulty: "beginner", estimatedMinutes: 30, id: "getting-started", title: "Getting Started" },
-  { difficulty: "beginner", estimatedMinutes: 35, id: "bookings", title: "Bookings" },
+  { difficulty: "beginner", estimatedMinutes: 45, id: "bookings", title: "Bookings" },
+  { difficulty: "beginner", estimatedMinutes: 18, id: "find-my-booking", title: "Find My Booking" },
   { difficulty: "intermediate", estimatedMinutes: 30, id: "corporate-bookings", title: "Corporate Bookings" },
   { difficulty: "intermediate", estimatedMinutes: 25, id: "crm-guests", title: "CRM & Guests" },
   { difficulty: "intermediate", estimatedMinutes: 20, id: "waitlist", title: "Waitlist" },
@@ -548,6 +580,7 @@ const academyLearningPaths: Record<AdminRole, AcademyLearningPath> = {
     moduleIds: [
       "getting-started",
       "bookings",
+      "find-my-booking",
       "corporate-bookings",
       "crm-guests",
       "waitlist",
@@ -562,6 +595,7 @@ const academyLearningPaths: Record<AdminRole, AcademyLearningPath> = {
     moduleIds: [
       "getting-started",
       "bookings",
+      "find-my-booking",
       "corporate-bookings",
       "crm-guests",
       "waitlist",
@@ -577,6 +611,7 @@ const academyLearningPaths: Record<AdminRole, AcademyLearningPath> = {
       "getting-started",
       "venue-operations",
       "bookings",
+      "find-my-booking",
       "communications",
       "crm-guests",
       "tickets-check-in",
@@ -596,6 +631,7 @@ const academyLearningPaths: Record<AdminRole, AcademyLearningPath> = {
     moduleIds: [
       "getting-started",
       "tickets-check-in",
+      "find-my-booking",
       "venue-operations",
       "crm-guests",
     ],
@@ -610,6 +646,7 @@ const academyLearningPaths: Record<AdminRole, AcademyLearningPath> = {
       "crm-guests",
       "analytics-reporting",
       "bookings",
+      "find-my-booking",
     ],
     role: "marketing",
     title: "Venue Manager",
@@ -626,6 +663,7 @@ const academyLearningPaths: Record<AdminRole, AcademyLearningPath> = {
       "getting-started",
       "venue-operations",
       "bookings",
+      "find-my-booking",
       "communications",
       "crm-guests",
       "tickets-check-in",
@@ -648,17 +686,19 @@ const gettingStartedLessons: AcademyArticle[] = [
     howTo: [
       "Start with this Getting Started module.",
       "Read each lesson in order.",
+      "Understand that guests begin at the Entry Gate, choose Cape Town or Johannesburg, then choose Book Your Experience or Find My Booking.",
       "Use the related actions to open the live area being explained.",
       "Mark lessons as complete as you become comfortable.",
     ],
     id: "welcome-to-zingara",
-    keywords: ["welcome", "onboarding", "platform", "academy"],
+    keywords: ["welcome", "onboarding", "platform", "academy", "entry gate", "location"],
     moduleId: "getting-started",
     purpose: "Zingara is the booking and operations platform for The Royal Countess experience. It helps the team manage reservations, guest details, seating, tickets, communications, check-in, waitlists, corporate enquiries, and staff access from one place.",
     relatedActions: ["bookings", "crm", "waitlist", "communications"],
-    related: ["Logging In", "Navigating the Platform", "Dashboard Overview"],
+    related: ["Logging In", "Navigating the Platform", "Finding an Existing Booking"],
     tips: [
       "Think of the platform as the shared source of truth for the team.",
+      "The guest journey starts with location choice, then moves into booking or lookup.",
       "Use Academy whenever you are unsure where to start or how a workflow should be handled.",
     ],
     title: "Welcome to Zingara",
@@ -730,6 +770,10 @@ const gettingStartedLessons: AcademyArticle[] = [
     ],
     difficulty: "beginner",
     howTo: [
+      "Use the Entry Gate to understand the guest's starting point.",
+      "Guests choose Cape Town or Johannesburg before entering the booking or lookup journey.",
+      "Book Your Experience opens the standard booking flow for the selected location.",
+      "Find My Booking opens the secure lookup flow for an existing booking.",
       "Use Dashboard for the live overview, notifications, quick actions, and search.",
       "Use Bookings to view, update, cancel, and open guest reservations.",
       "Use Corporate for business and group enquiries.",
@@ -742,13 +786,14 @@ const gettingStartedLessons: AcademyArticle[] = [
       "Use Academy for training, refresher lessons, and workflow guidance.",
     ],
     id: "navigating-the-platform",
-    keywords: ["navigation", "tabs", "admin", "sections", "workflow"],
+    keywords: ["navigation", "tabs", "admin", "sections", "workflow", "entry gate", "find booking"],
     moduleId: "getting-started",
     purpose: "The Admin area is divided into clear sections so staff can quickly reach the right workflow during service.",
     relatedActions: ["bookings", "crm", "waitlist", "communications", "staff"],
-    related: ["Dashboard Overview", "Searching the Platform"],
+    related: ["Dashboard Overview", "Finding an Existing Booking"],
     tips: [
       "Start with the guest question, then choose the matching section.",
+      "If a guest is returning to pay or retrieve tickets, Find My Booking is usually the right path.",
       "If a section is missing, it may not be part of your role.",
       "Use Academy search if you know the task but not where it lives.",
     ],
@@ -793,19 +838,21 @@ const gettingStartedLessons: AcademyArticle[] = [
     difficulty: "beginner",
     howTo: [
       "Search bookings by guest name, booking reference, email, phone, company name, or seating detail where available.",
+      "Guests using Find My Booking must verify with booking reference plus email or mobile.",
       "Search guests in CRM by name, email, phone number, or booking history.",
       "Search corporate requests by company, contact person, email, or phone number.",
       "Search Academy by lesson title, keyword, category, or article content.",
       "Clear filters and try a second search term if the result does not appear.",
     ],
     id: "searching-the-platform",
-    keywords: ["search", "find", "reference", "guest", "filter"],
+    keywords: ["search", "find", "reference", "guest", "filter", "find my booking", "verification"],
     moduleId: "getting-started",
     purpose: "Search helps staff find the right record quickly, especially during service when guests are waiting.",
     relatedActions: ["bookings", "crm", "waitlist"],
-    related: ["Navigating the Platform", "Dashboard Overview"],
+    related: ["Navigating the Platform", "Finding an Existing Booking"],
     tips: [
       "Booking references are usually the fastest search term.",
+      "For guest self-service, never search by name alone.",
       "For corporate requests, try both the company name and the contact name.",
       "Always open the record and confirm the details before changing anything.",
     ],
@@ -819,24 +866,26 @@ const bookingLessons: AcademyArticle[] = [
     category: "Bookings",
     commonMistakes: [
       "Creating a booking before checking the guest count and preferred seating.",
+      "Using the standard flow for 21 or more guests instead of Corporate Booking.",
       "Skipping the confirmation screen before moving to the next guest.",
     ],
     difficulty: "beginner",
     howTo: [
       "Open Bookings or start from the public Book flow.",
       "Select the show date and time.",
-      "Choose the guest count.",
+      "Choose the guest count, up to 20 guests for a standard booking.",
       "Select seating from the venue map and confirm the best-fit table.",
-      "Enter guest details, review the payment summary, and confirm the booking.",
+      "Enter guest details, review the Payment Summary, and continue to secure PayFast checkout.",
     ],
     id: "creating-a-booking",
-    keywords: ["booking", "create", "reservation", "guest"],
+    keywords: ["booking", "create", "reservation", "guest", "20 guests", "payfast"],
     moduleId: "bookings",
     purpose: "Create a standard reservation for guests attending The Royal Countess experience.",
     relatedActions: ["bookings", "crm"],
-    related: ["Selecting a Show", "Choosing Seating", "Booking Confirmation"],
+    related: ["Selecting a Show", "Choosing Seating", "Payment Summary"],
     tips: [
       "Confirm the spelling of the guest name and email before saving.",
+      "For 21 or more guests, guide the guest to Corporate Booking.",
       "Use the booking summary to check totals before confirmation.",
     ],
     title: "Creating a Booking",
@@ -854,16 +903,18 @@ const bookingLessons: AcademyArticle[] = [
       "Use the calendar to choose the guest's preferred date.",
       "Check the date status before continuing.",
       "Select the available show time.",
+      "If the chosen seating zone is unavailable, review any suggested future show for the same location.",
       "Continue only when the selected show is bookable.",
     ],
     id: "selecting-a-show",
-    keywords: ["show", "date", "calendar", "time", "status"],
+    keywords: ["show", "date", "calendar", "time", "status", "future show recommendation"],
     moduleId: "bookings",
     purpose: "Choose the correct show date and time before seating or pricing is calculated.",
     relatedActions: ["bookings"],
-    related: ["Creating a Booking", "Booking Statuses"],
+    related: ["Creating a Booking", "Choosing Seating"],
     tips: [
       "Special Event dates may still be bookable.",
+      "Future show recommendations help guests stay in the same location and seating zone where possible.",
       "Inactive dates are hidden from the guest booking flow.",
     ],
     title: "Selecting a Show",
@@ -957,22 +1008,51 @@ const bookingLessons: AcademyArticle[] = [
     difficulty: "beginner",
     howTo: [
       "Review the payment summary.",
-      "Choose the correct payment option: full payment, deposit, outstanding, complimentary, or pending where available.",
+      "Choose full payment or the standard deposit option where available.",
+      "Standard deposits use the configured R550 per-person deposit value.",
+      "PayFast checkout is used for online card payment.",
       "Check service fee rules for parties of six or more.",
       "Confirm the payment state shown on the booking.",
     ],
     id: "payment-types",
-    keywords: ["payment", "deposit", "paid", "outstanding", "complimentary"],
+    keywords: ["payment", "deposit", "paid", "outstanding", "complimentary", "payfast", "r550"],
     moduleId: "bookings",
     purpose: "Record the correct payment state so finance, operations, and the guest see the same information.",
     relatedActions: ["bookings"],
-    related: ["Add-ons & Extras", "Booking Statuses"],
+    related: ["Payment Summary", "Booking Statuses"],
     tips: [
-      "Use Pending Payment when the booking is not financially complete.",
-      "Only use Fully Paid once the payment has been confirmed.",
+      "Pending Payment means the guest still needs to complete PayFast checkout.",
+      "Only use Fully Paid once payment has been confirmed.",
     ],
     title: "Payment Types",
     whenToUse: "Use this during checkout, payment updates, and booking review.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Reading optional extras as part of the final payment section.",
+      "Missing the payment reassurance before sending a guest to checkout.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Step 5 Payment Summary.",
+      "Review ticket price, booking fee, deposit or full payment, and total payable.",
+      "Confirm the guest understands secure online payment is handled through PayFast.",
+      "Use Continue Payment when a pending booking needs to resume checkout.",
+      "Tell the guest their digital ticket is delivered after successful payment confirmation.",
+    ],
+    id: "payment-summary",
+    keywords: ["payment summary", "payfast", "secure payment", "deposit", "continue payment"],
+    moduleId: "bookings",
+    purpose: "Help staff explain the final payment step clearly before the guest enters checkout.",
+    relatedActions: ["bookings"],
+    related: ["Payment Types", "Continue Payment", "Booking Confirmation"],
+    tips: [
+      "Keep payment language simple and guest-facing.",
+      "Reassure guests that ticket delivery follows successful payment.",
+    ],
+    title: "Payment Summary",
+    whenToUse: "Use this when reviewing Step 5 or helping a guest understand payment.",
   },
   {
     category: "Bookings",
@@ -984,7 +1064,8 @@ const bookingLessons: AcademyArticle[] = [
     howTo: [
       "Review the final confirmation screen.",
       "Check the booking reference, guest details, show date, seating, total, and payment state.",
-      "Confirm the QR ticket has been generated.",
+      "Confirm the booking has reached the correct payment status.",
+      "Use Download App if the guest wants quick access to tickets and updates on their device.",
       "Use Open Live Ticket or Download Ticket if the guest needs access immediately.",
     ],
     id: "booking-confirmation",
@@ -992,9 +1073,10 @@ const bookingLessons: AcademyArticle[] = [
     moduleId: "bookings",
     purpose: "Make sure a completed booking is saved, ticketed, and ready for guest communication.",
     relatedActions: ["bookings", "tickets"],
-    related: ["Downloading Tickets", "Resending Tickets"],
+    related: ["Downloading Tickets", "Download App", "Payment Summary"],
     tips: [
       "The booking reference is the fastest way to find the booking later.",
+      "Tickets are delivered after successful payment confirmation.",
       "Confirm the ticket date and payment state before ending a guest call.",
     ],
     title: "Booking Confirmation",
@@ -1117,20 +1199,46 @@ const bookingLessons: AcademyArticle[] = [
       "Open the booking confirmation or booking details.",
       "Check the guest name, show date, seating, and reference.",
       "Select Download Ticket.",
-      "Share or print the PDF only after confirming it belongs to the correct guest.",
+      "Share or print the Admission Pass PDF only after confirming it belongs to the correct guest.",
     ],
     id: "downloading-tickets",
     keywords: ["download", "ticket", "pdf", "print"],
     moduleId: "bookings",
-    purpose: "Create a PDF copy of the guest ticket for sharing, printing, or saving.",
+    purpose: "Create a premium Admission Pass PDF for sharing, printing, or saving.",
     relatedActions: ["bookings", "tickets"],
-    related: ["Resending Tickets", "Booking Confirmation"],
+    related: ["Resending Tickets", "Admission Pass PDF"],
     tips: [
       "The QR code must remain clear and fully visible.",
       "Use Open Live Ticket when the guest needs an on-screen version.",
     ],
     title: "Downloading Tickets",
     whenToUse: "Use this when a guest needs a ticket file or printed copy.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Assuming the app prompt replaces the ticket email.",
+      "Forcing guests to install the app when they prefer the browser.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "After booking confirmation, look for the Download App prompt.",
+      "Explain that installing the app helps guests access tickets and receive updates.",
+      "Use Maybe Later if the guest does not want to install.",
+      "Guests can still use their email or live ticket link without installing.",
+    ],
+    id: "download-app",
+    keywords: ["download app", "install app", "pwa", "ticket ready", "guest updates"],
+    moduleId: "bookings",
+    purpose: "Help staff explain the guest app prompt after confirmation.",
+    relatedActions: ["bookings", "tickets"],
+    related: ["Booking Confirmation", "Digital Tickets"],
+    tips: [
+      "Keep the message optional and reassuring.",
+      "The app is useful, but the booking remains accessible through normal ticket links.",
+    ],
+    title: "Download App",
+    whenToUse: "Use this when guests ask why the app prompt appears after booking.",
   },
   {
     category: "Bookings",
@@ -1247,22 +1355,26 @@ const corporateBookingLessons: AcademyArticle[] = [
     commonMistakes: [
       "Treating a corporate enquiry like an instant standard booking.",
       "Missing important company or contact details before follow-up.",
+      "Forgetting that all group and event detail fields are required before submission.",
     ],
     difficulty: "beginner",
     howTo: [
       "Use Corporate Booking for business, group, and event enquiries.",
-      "Capture the company, contact person, date, guest count, seating preference, and notes.",
-      "Review the request in Admin under Corporate Requests.",
+      "Capture every required group and event detail before submitting.",
+      "Include dietary requirements, pre-authorised bar tab, add-ons, location acknowledgement, and notes.",
+      "Review the request in Admin under Corporate Bookings.",
       "Update the status as the enquiry moves through quote, acceptance, payment, and confirmation.",
+      "Convert confirmed requests to bookings, then use payment links when payment is outstanding.",
     ],
     id: "corporate-booking-overview",
-    keywords: ["corporate", "overview", "enquiry", "group"],
+    keywords: ["corporate", "overview", "enquiry", "group", "payment link", "dashboard"],
     moduleId: "corporate-bookings",
     purpose: "Explain how corporate enquiries move from request to confirmed booking in the Zingara platform.",
     relatedActions: ["bookings", "crm", "communications"],
-    related: ["Creating a Corporate Request", "Corporate Statuses"],
+    related: ["Creating a Corporate Request", "Corporate Payment Links", "Corporate Timeline"],
     tips: [
       "Corporate requests are managed separately until they are ready to become bookings.",
+      "The Corporate Bookings dashboard shows status, event date, company, guest count, balance, payment status, and consultant.",
       "Keep notes clear so managers can follow the enquiry without asking twice.",
     ],
     title: "Corporate Booking Overview",
@@ -1277,19 +1389,23 @@ const corporateBookingLessons: AcademyArticle[] = [
     difficulty: "beginner",
     howTo: [
       "Open the Corporate Booking form.",
-      "Enter the group and event details.",
-      "Add dietary requirements, bar tab preference, add-ons, and notes.",
+      "Enter all Group & Event Details; every field in this section is required.",
+      "Add dietary requirements, including the Strict Halaal option if requested.",
+      "Choose the pre-authorised bar tab amount per person.",
+      "Select add-ons such as Branded Menu Cards, Face Painting, Tarot Reading, or VIP Bar.",
+      "Confirm whether the request is for Cape Town or Johannesburg.",
       "Submit the request.",
-      "Confirm it appears in Admin under Corporate Requests.",
+      "Confirm it appears in Admin under Corporate Bookings.",
     ],
     id: "creating-a-corporate-request",
-    keywords: ["create", "corporate request", "form", "submit"],
+    keywords: ["create", "corporate request", "form", "submit", "required fields", "location acknowledgement"],
     moduleId: "corporate-bookings",
     purpose: "Create a corporate request record so the enquiry can be tracked and followed up.",
     relatedActions: ["bookings", "communications"],
-    related: ["Capturing Company Details", "Managing Corporate Enquiries"],
+    related: ["Capturing Company Details", "Corporate Statuses"],
     tips: [
       "If the guest only wants a call back, use Request Agent Contact.",
+      "Strict Halaal carries a fixed R250 surcharge.",
       "Add notes for anything that affects quoting or availability.",
     ],
     title: "Creating a Corporate Request",
@@ -1308,13 +1424,14 @@ const corporateBookingLessons: AcademyArticle[] = [
       "Capture their phone number and email address.",
       "Add preferred and alternative dates where provided.",
       "Confirm the guest count and seating preference before saving.",
+      "Capture the location acknowledgement for Cape Town or Johannesburg.",
     ],
     id: "capturing-company-details",
     keywords: ["company", "contact", "email", "phone", "details"],
     moduleId: "corporate-bookings",
     purpose: "Capture the information staff need to identify the company and contact the right person.",
     relatedActions: ["crm"],
-    related: ["Creating a Corporate Request", "Following Up"],
+    related: ["Creating a Corporate Request", "Finding an Existing Booking"],
     tips: [
       "Use the person responsible for the booking as the main contact.",
       "Check spelling carefully because these details appear in admin and communication records.",
@@ -1330,20 +1447,22 @@ const corporateBookingLessons: AcademyArticle[] = [
     ],
     difficulty: "beginner",
     howTo: [
-      "Open Admin, then Corporate Requests.",
+      "Open Admin, then Bookings, then Corporate Bookings.",
       "Use search or filters to find the enquiry.",
       "Open the request details.",
-      "Review group details, food and beverage, add-ons, and admin fields.",
+      "Review status, event date, company, guest count, outstanding balance, payment status, and assigned consultant.",
+      "Use quick actions for Convert to Booking, Send Payment Link, Resend Confirmation, Edit Request, Cancel Request, or View Timeline.",
       "Update the status or archive the request when appropriate.",
     ],
     id: "managing-corporate-enquiries",
-    keywords: ["manage", "corporate requests", "status", "admin"],
+    keywords: ["manage", "corporate requests", "status", "admin", "dashboard", "quick actions"],
     moduleId: "corporate-bookings",
     purpose: "Keep corporate enquiries organised from first contact through confirmation or cancellation.",
     relatedActions: ["communications", "crm"],
-    related: ["Corporate Statuses", "Following Up"],
+    related: ["Corporate Statuses", "Corporate Timeline"],
     tips: [
       "Use statuses to show the next action needed.",
+      "Use the timeline before taking action so you can see what has already happened.",
       "Archive requests only when they no longer need active follow-up.",
     ],
     title: "Managing Corporate Enquiries",
@@ -1360,6 +1479,7 @@ const corporateBookingLessons: AcademyArticle[] = [
       "Open the corporate request.",
       "Check the current status and latest notes.",
       "Confirm the preferred date, guest count, seating, and contact details.",
+      "Review the corporate timeline for request creation, updates, conversion, payment links, payment received, and confirmation.",
       "Use the communication tools or templates to send the next message.",
       "Check that the communication history updates.",
     ],
@@ -1368,7 +1488,7 @@ const corporateBookingLessons: AcademyArticle[] = [
     moduleId: "corporate-bookings",
     purpose: "Make sure corporate clients receive clear, timely responses and the record stays complete.",
     relatedActions: ["communications"],
-    related: ["Sending Quotations", "Corporate Communication History"],
+    related: ["Sending Quotations", "Corporate Timeline"],
     tips: [
       "Keep follow-up messages short and specific.",
       "Record meaningful notes if the client gives new information by phone.",
@@ -1385,19 +1505,20 @@ const corporateBookingLessons: AcademyArticle[] = [
     difficulty: "intermediate",
     howTo: [
       "Open the corporate request details.",
-      "Confirm the guest count, seating preference, add-ons, and notes.",
+      "Confirm guest count, seating preference, add-ons, Strict Halaal surcharge, pre-authorised bar tab, and notes.",
       "Send the quotation communication using the available workflow.",
       "Update the request status to Quote Sent.",
       "Move the request forward once the client accepts.",
     ],
     id: "sending-quotations",
-    keywords: ["quote", "quotation", "quote sent", "invoice"],
+    keywords: ["quote", "quotation", "quote sent", "invoice", "strict halaal", "bar tab"],
     moduleId: "corporate-bookings",
     purpose: "Support the quote step before a corporate request becomes a confirmed booking.",
     relatedActions: ["communications"],
-    related: ["Following Up", "Corporate Statuses"],
+    related: ["Following Up", "Corporate Payment Links"],
     tips: [
       "Confirm all chargeable details before a quote is issued.",
+      "Pre-authorised bar tab values are per person and form part of the upfront payment discussion.",
       "Use the status field so the team can see where the enquiry stands.",
     ],
     title: "Sending Quotations",
@@ -1414,6 +1535,7 @@ const corporateBookingLessons: AcademyArticle[] = [
       "Open the confirmed corporate request.",
       "Select Convert To Booking.",
       "If more than one active show exists on the date, choose the correct show.",
+      "Confirm company details, guest details, add-ons, notes, dietary requirements, bar tab, pricing, and location are preserved.",
       "Confirm the booking is created with Corporate Direct as the source.",
       "Use Open Booking to review the linked booking reference.",
     ],
@@ -1422,7 +1544,7 @@ const corporateBookingLessons: AcademyArticle[] = [
     moduleId: "corporate-bookings",
     purpose: "Turn a confirmed corporate request into a normal booking that appears in the standard bookings system.",
     relatedActions: ["bookings", "crm"],
-    related: ["Corporate Statuses", "Viewing Booking History"],
+    related: ["Corporate Statuses", "Corporate Payment Links"],
     tips: [
       "The contact person remains the main booking name.",
       "The company name appears as a corporate indicator on the booking.",
@@ -1440,21 +1562,77 @@ const corporateBookingLessons: AcademyArticle[] = [
     howTo: [
       "Review the payment expectations on the corporate request.",
       "Update the request status as it moves through acceptance and payment.",
+      "Use Pending Payment, Partially Paid, Paid, or Cancelled to understand the current payment state.",
       "Once converted, manage payment from the normal booking record.",
+      "Use Send Payment Link when the converted booking still has an outstanding balance.",
       "Check the booking's payment status before treating it as financially complete.",
     ],
     id: "managing-deposits",
-    keywords: ["deposit", "payment", "awaiting payment", "corporate"],
+    keywords: ["deposit", "payment", "awaiting payment", "corporate", "payment link", "partially paid"],
     moduleId: "corporate-bookings",
     purpose: "Track payment readiness for corporate requests and converted bookings.",
     relatedActions: ["bookings"],
-    related: ["Corporate Statuses", "Payment Types"],
+    related: ["Corporate Payment Links", "Payment Types"],
     tips: [
       "Use the status that reflects the current next action.",
       "Payment state belongs on the booking once the request is converted.",
     ],
     title: "Managing Deposits",
     whenToUse: "Use this when a quote has been accepted but payment still needs attention.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Sending a payment link before confirming the linked booking and outstanding balance.",
+      "Creating a new booking instead of using the converted corporate booking.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the confirmed or converted corporate booking.",
+      "Check the linked booking reference and payment status.",
+      "Select Send Payment Link when payment is still outstanding.",
+      "Confirm the email is sent and communication history is recorded.",
+      "Use the existing PayFast checkout link so the guest continues payment on the same booking.",
+    ],
+    id: "corporate-payment-links",
+    keywords: ["corporate payment link", "payfast", "outstanding balance", "send payment link"],
+    moduleId: "corporate-bookings",
+    purpose: "Send a secure payment link for a converted corporate booking without creating duplicates.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Managing Deposits", "Payment Summary"],
+    tips: [
+      "Payment links should point to the existing booking only.",
+      "Check communication history after sending so the team can see when it went out.",
+    ],
+    title: "Corporate Payment Links",
+    whenToUse: "Use this when a corporate booking is ready for payment but has not yet been paid.",
+  },
+  {
+    category: "Corporate Bookings",
+    commonMistakes: [
+      "Treating the timeline as comments only.",
+      "Sending another message without checking previous actions.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the corporate request details.",
+      "Select View Timeline or scroll to the timeline section.",
+      "Review Request Created, Updated, Converted, Payment Link Sent, Payment Received, and Booking Confirmed events.",
+      "Use the timeline to decide the next action.",
+      "Record meaningful updates so the next staff member has context.",
+    ],
+    id: "corporate-timeline",
+    keywords: ["corporate timeline", "history", "payment link sent", "converted", "confirmed"],
+    moduleId: "corporate-bookings",
+    purpose: "Show the sequence of important corporate booking actions in one place.",
+    relatedActions: ["bookings", "communications"],
+    related: ["Managing Corporate Enquiries", "Corporate Communication History"],
+    tips: [
+      "The timeline is the quickest way to understand where a request stands.",
+      "Use it before calling or emailing the client.",
+    ],
+    title: "Corporate Timeline",
+    whenToUse: "Use this before updating a corporate request or handing it to another staff member.",
   },
   {
     category: "Corporate Bookings",
@@ -1548,6 +1726,7 @@ const corporateBookingLessons: AcademyArticle[] = [
       "Use Awaiting Acceptance while waiting for the client to approve.",
       "Use Awaiting Payment once acceptance is received but payment is still pending.",
       "Use Confirmed when the request is ready to become a booking.",
+      "Use Converted once the linked standard booking has been created.",
       "Use Cancelled or Archived when the request is no longer active.",
     ],
     id: "corporate-statuses",
@@ -1555,7 +1734,7 @@ const corporateBookingLessons: AcademyArticle[] = [
     moduleId: "corporate-bookings",
     purpose: "Show the current stage of each corporate request clearly.",
     relatedActions: ["bookings"],
-    related: ["Managing Corporate Enquiries", "Converting to a Booking"],
+    related: ["Managing Corporate Enquiries", "Corporate Timeline"],
     tips: [
       "Status should show the next operational action.",
       "Converted requests show their linked booking reference.",
@@ -1568,13 +1747,15 @@ const corporateBookingLessons: AcademyArticle[] = [
     commonMistakes: [
       "Missing contact details.",
       "Not capturing dietary requirements or add-ons.",
+      "Forgetting the location acknowledgement.",
+      "Missing payment status before follow-up.",
       "Forgetting to update the request status.",
       "Converting without an active show on the preferred date.",
     ],
     difficulty: "beginner",
     howTo: [
       "Review the request before saving or converting.",
-      "Check company, contact, dates, guest count, seating, dietary needs, bar tab, add-ons, and notes.",
+      "Check company, contact, dates, guest count, seating, dietary needs, pre-authorised bar tab, add-ons, location, and notes.",
       "Confirm the status matches the latest client conversation.",
       "Use communication history before sending a new message.",
     ],
@@ -1586,6 +1767,7 @@ const corporateBookingLessons: AcademyArticle[] = [
     related: ["Best Practice Tips", "Managing Corporate Enquiries"],
     tips: [
       "A complete request is easier to quote and convert.",
+      "Chargeable add-ons include Strict Halaal, VIP Bar, Tarot Reading, Face Painting, and Branded Menu Cards where selected.",
       "If a detail is uncertain, add a note rather than leaving the team guessing.",
     ],
     title: "Common Corporate Mistakes",
@@ -1601,8 +1783,10 @@ const corporateBookingLessons: AcademyArticle[] = [
     howTo: [
       "Capture complete details from the first enquiry.",
       "Keep every status current.",
+      "Check the dashboard for outstanding balance and payment status.",
       "Use clear notes for preferences, special requests, and client updates.",
       "Check availability before confirming or converting.",
+      "Use Send Payment Link only after the request is linked to a booking.",
       "Use communication history to keep follow-up consistent.",
     ],
     id: "corporate-best-practice-tips",
@@ -1613,6 +1797,7 @@ const corporateBookingLessons: AcademyArticle[] = [
     related: ["Corporate Booking Overview", "Common Corporate Mistakes"],
     tips: [
       "Corporate enquiries often involve several conversations, so the record must tell the full story.",
+      "The timeline should explain what happened without needing a separate handover.",
       "Use the company name and contact person consistently.",
       "Confirm important details in writing whenever possible.",
     ],
@@ -2575,17 +2760,18 @@ const ticketCheckInLessons: AcademyArticle[] = [
     howTo: [
       "Open Tickets or the Check-In area.",
       "Search for the guest, booking reference, or ticket where needed.",
-      "Use the QR validation or booking details to confirm the ticket.",
+      "Use the QR validation or booking details to confirm the individual guest ticket.",
       "Check the guest in only after the ticket and booking match.",
     ],
     id: "tickets-overview",
-    keywords: ["tickets", "check-in", "qr", "guest arrival"],
+    keywords: ["tickets", "check-in", "qr", "guest arrival", "individual tickets", "ticket numbering"],
     moduleId: "tickets-check-in",
     purpose: "Use Tickets and Check-In to validate guest entry and keep arrival records accurate.",
     relatedActions: ["tickets", "bookings"],
-    related: ["Digital Tickets", "Checking In Guests"],
+    related: ["Digital Tickets", "Individual Guest Tickets", "Ticket Customisation"],
     tips: [
       "Ticket work is guest-facing, so slow down before confirming entry.",
+      "Each guest ticket has its own ticket number and QR code.",
       "Use the booking reference when two guests have similar names.",
     ],
     title: "Tickets Overview",
@@ -2601,17 +2787,19 @@ const ticketCheckInLessons: AcademyArticle[] = [
     howTo: [
       "Open the booking or live ticket.",
       "Confirm the guest name, show date, seating section, and booking reference.",
+      "Check the ticket number, such as Ticket 2 of 6, when a booking has multiple guests.",
       "Use Open Live Ticket or Download Ticket when the guest needs access.",
       "Check the ticket status before relying on it for entry.",
     ],
     id: "digital-tickets",
-    keywords: ["digital ticket", "live ticket", "download ticket", "guest"],
+    keywords: ["digital ticket", "live ticket", "download ticket", "guest", "ticket number", "table colour"],
     moduleId: "tickets-check-in",
     purpose: "Understand how guest-facing digital tickets display booking and QR information.",
     relatedActions: ["tickets", "bookings"],
-    related: ["QR Codes", "Downloading Tickets"],
+    related: ["QR Codes", "Admission Pass PDF", "Individual Guest Tickets"],
     tips: [
       "Digital tickets should match the current booking record.",
+      "The table colour helps staff recognise the guest's seating zone quickly.",
       "If details look wrong, review the booking before sharing the ticket.",
     ],
     title: "Digital Tickets",
@@ -2627,8 +2815,9 @@ const ticketCheckInLessons: AcademyArticle[] = [
     howTo: [
       "Open the ticket or scanner flow.",
       "Scan the full QR code.",
+      "If needed, search using the ticket reference or full ticket URL.",
       "Wait for the validation result.",
-      "Confirm the booking reference and guest details before entry.",
+      "Confirm the booking reference, ticket number, and guest details before entry.",
       "Follow the result shown by the system.",
     ],
     id: "qr-codes",
@@ -2636,9 +2825,10 @@ const ticketCheckInLessons: AcademyArticle[] = [
     moduleId: "tickets-check-in",
     purpose: "Use QR codes to connect a guest ticket to the correct booking record.",
     relatedActions: ["tickets"],
-    related: ["Ticket Validation", "Duplicate Scans"],
+    related: ["Ticket Validation", "Individual Guest Tickets"],
     tips: [
       "The QR code must be fully visible and not cut off.",
+      "Each individual guest ticket has its own QR code.",
       "If scanning fails, search by booking reference before making a manual decision.",
     ],
     title: "QR Codes",
@@ -2654,22 +2844,77 @@ const ticketCheckInLessons: AcademyArticle[] = [
     howTo: [
       "Open Check-In or the booking details.",
       "Find the guest by scanning the QR code or searching the booking.",
-      "Confirm guest name, booking reference, show date, and status.",
+      "Confirm guest name, booking reference, show date, ticket number, and status.",
       "Select the check-in action.",
-      "Confirm the booking now shows checked in.",
+      "Confirm only the correct individual ticket is checked in.",
     ],
     id: "checking-in-guests",
     keywords: ["check-in", "arrival", "guest", "door"],
     moduleId: "tickets-check-in",
     purpose: "Record guest arrival so the floor and operations team know who has entered.",
     relatedActions: ["tickets", "bookings"],
-    related: ["Manual Check-In", "Ticket Statuses"],
+    related: ["Manual Check-In", "Individual Guest Tickets"],
     tips: [
       "Check-in should happen once the guest is physically arriving.",
+      "Checking in one ticket must not check in the whole party.",
       "If anything looks wrong, pause and ask a manager before checking in.",
     ],
     title: "Checking In Guests",
     whenToUse: "Use this during arrivals and door operations.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Leaving all tickets under the lead guest name when individual guest details are known.",
+      "Trying to collect every guest detail during checkout.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the live ticket or booking confirmation after payment.",
+      "Select Customise Tickets.",
+      "Expand the ticket that needs updating.",
+      "Add the guest's full name, email address, or mobile number.",
+      "Save the ticket and check for the update confirmation.",
+    ],
+    id: "ticket-customisation",
+    keywords: ["ticket customisation", "customise tickets", "guest names", "guest ticket"],
+    moduleId: "tickets-check-in",
+    purpose: "Add optional guest details to individual tickets after checkout without slowing down booking.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Individual Guest Tickets", "Guest Ticket Management"],
+    tips: [
+      "Customisation is optional and can happen after payment.",
+      "Only update the ticket that belongs to that guest.",
+    ],
+    title: "Ticket Customisation",
+    whenToUse: "Use this when the booking owner wants each guest ticket to show the right person.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Treating one booking QR code as valid for the whole party.",
+      "Checking in the full party when only one guest has arrived.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the booking's live ticket view.",
+      "Review each ticket, such as Ticket 1 of 5 and Ticket 2 of 5.",
+      "Use the unique QR code shown on the specific guest ticket.",
+      "Check in guests one ticket at a time.",
+      "Confirm checked-in tickets become read-only where editing is no longer allowed.",
+    ],
+    id: "individual-guest-tickets",
+    keywords: ["individual guest tickets", "ticket numbering", "ticket 1 of", "unique qr", "individual check-in"],
+    moduleId: "tickets-check-in",
+    purpose: "Understand how one booking can contain separate tickets for each guest.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Ticket Customisation", "Checking In Guests"],
+    tips: [
+      "Individual tickets improve attendance tracking and reduce ticket sharing mistakes.",
+      "Always match the QR code to the guest ticket being checked in.",
+    ],
+    title: "Individual Guest Tickets",
+    whenToUse: "Use this for bookings with more than one guest.",
   },
   {
     category: "Tickets & Check-In",
@@ -2697,6 +2942,60 @@ const ticketCheckInLessons: AcademyArticle[] = [
     ],
     title: "Ticket Validation",
     whenToUse: "Use this every time a ticket is scanned or checked for entry.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Using the live ticket when the guest specifically needs a PDF.",
+      "Downloading the wrong individual guest ticket.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the live ticket or the individual guest ticket.",
+      "Confirm the guest name, ticket number, booking reference, date, seating zone, table, and table colour.",
+      "Select Download Ticket.",
+      "Open or share the Admission Pass PDF for that specific ticket.",
+      "Check that the QR code is large and easy to scan.",
+    ],
+    id: "admission-pass-pdf",
+    keywords: ["admission pass", "download ticket", "pdf ticket", "table colour", "qr code"],
+    moduleId: "tickets-check-in",
+    purpose: "Download the premium admission pass PDF for a specific guest ticket.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Digital Tickets", "Individual Guest Tickets"],
+    tips: [
+      "The PDF is designed for admission, not as a payment summary.",
+      "Use the correct individual ticket before downloading.",
+    ],
+    title: "Admission Pass PDF",
+    whenToUse: "Use this when a guest wants a printable or shareable ticket file.",
+  },
+  {
+    category: "Tickets & Check-In",
+    commonMistakes: [
+      "Editing a ticket that has already been checked in.",
+      "Regenerating a ticket without confirming the guest identity.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the live ticket view.",
+      "Expand the individual guest ticket that needs attention.",
+      "Edit guest name, email, or mobile before the event if the ticket has not been checked in.",
+      "Use Email Ticket, Resend Ticket, or Download Ticket for that specific guest.",
+      "Regenerate only the affected ticket when a fresh QR code is required.",
+    ],
+    id: "guest-ticket-management",
+    keywords: ["guest ticket management", "email ticket", "resend ticket", "regenerate ticket", "edit ticket"],
+    moduleId: "tickets-check-in",
+    purpose: "Manage individual guest ticket details and actions without affecting the rest of the booking.",
+    relatedActions: ["tickets", "communications"],
+    related: ["Ticket Customisation", "Admission Pass PDF"],
+    tips: [
+      "Checked-in tickets are read-only.",
+      "Regeneration should be used carefully because it replaces only one guest ticket.",
+    ],
+    title: "Guest Ticket Management",
+    whenToUse: "Use this when a guest ticket needs editing, emailing, resending, downloading, or regeneration.",
   },
   {
     category: "Tickets & Check-In",
@@ -2762,7 +3061,7 @@ const ticketCheckInLessons: AcademyArticle[] = [
     howTo: [
       "Open the booking details.",
       "Confirm the guest email address.",
-      "Use the ticket resend action.",
+      "Use Email Ticket or Resend Ticket for the correct individual guest ticket.",
       "Check communication history to confirm the resend was recorded.",
       "Ask the guest to check their inbox and spam folder if needed.",
     ],
@@ -2771,7 +3070,7 @@ const ticketCheckInLessons: AcademyArticle[] = [
     moduleId: "tickets-check-in",
     purpose: "Send another copy of a ticket when a guest cannot find or access it.",
     relatedActions: ["tickets", "communications"],
-    related: ["Digital Tickets", "Viewing Communication History"],
+    related: ["Guest Ticket Management", "Viewing Communication History"],
     tips: [
       "Confirm the email aloud for phone guests.",
       "If the guest is already at the door, use ticket lookup while they wait.",
@@ -3734,17 +4033,20 @@ const settingsLessons: AcademyArticle[] = [
     howTo: [
       "Review payment-related information from the booking and payment areas.",
       "Confirm whether the booking is pending, deposit paid, fully paid, complimentary, or outstanding.",
+      "Use PayFast checkout for guest online payments.",
+      "Use Continue Payment when a pending guest needs to resume checkout.",
       "Use the correct payment action for admin updates.",
       "Check the booking financial breakdown after changes.",
     ],
     id: "payment-gateway-settings",
-    keywords: ["payment gateway", "payment settings", "payment status", "finance"],
+    keywords: ["payment gateway", "payment settings", "payment status", "finance", "payfast", "continue payment"],
     moduleId: "settings",
-    purpose: "Understand payment settings from an admin perspective so staff read and manage payment states correctly.",
+    purpose: "Understand payment settings from an admin perspective so staff read PayFast payment states and booking balances correctly.",
     relatedActions: ["bookings"],
     related: ["Booking Settings", "Payment Types"],
     tips: [
       "The final payable amount should match the booking summary.",
+      "Digital tickets are delivered after successful payment confirmation.",
       "Payment updates should be confirmed before guest communication is sent.",
     ],
     title: "Payment Gateway Settings",
@@ -3972,7 +4274,7 @@ const analyticsReportingLessons: AcademyArticle[] = [
     ],
     difficulty: "intermediate",
     howTo: [
-      "Open Corporate Requests.",
+      "Open Corporate Bookings.",
       "Review active, archived, confirmed, converted, and cancelled statuses.",
       "Search or filter by company, contact, date, or status.",
       "Open linked bookings for converted requests.",
@@ -4124,6 +4426,170 @@ const analyticsReportingLessons: AcademyArticle[] = [
     ],
     title: "Common Reporting Mistakes",
     whenToUse: "Use this during reporting review, management meetings, or training.",
+  },
+];
+
+const findMyBookingLessons: AcademyArticle[] = [
+  {
+    category: "Find My Booking",
+    commonMistakes: [
+      "Searching with only a name, email, or mobile number.",
+      "Assuming a failed lookup means the booking reference does not exist.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Find My Booking from the Entry Gate after selecting Cape Town or Johannesburg.",
+      "Enter the booking reference.",
+      "Enter either the matching email address or matching mobile number.",
+      "Submit the search.",
+      "If the booking is found, review the booking summary and ticket actions.",
+    ],
+    id: "finding-an-existing-booking",
+    keywords: ["find my booking", "lookup", "booking reference", "existing booking"],
+    moduleId: "find-my-booking",
+    purpose: "Help guests securely retrieve an existing booking without contacting staff.",
+    relatedActions: ["bookings", "tickets"],
+    related: ["Booking Verification", "Downloading Tickets"],
+    tips: [
+      "The selected location is carried through from the Entry Gate.",
+      "Use the booking reference plus email or mobile to protect guest information.",
+    ],
+    title: "Finding an Existing Booking",
+    whenToUse: "Use this when a guest needs to reopen a booking, view tickets, or continue payment.",
+  },
+  {
+    category: "Find My Booking",
+    commonMistakes: [
+      "Telling a guest which field was incorrect.",
+      "Looking up a booking with unverified contact details.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Ask the guest for their booking reference.",
+      "Ask for the same email address or mobile number used on the booking.",
+      "Enter both values together.",
+      "If verification fails, use the standard message and do not reveal which value failed.",
+      "Ask the guest to check their confirmation message and try again.",
+    ],
+    id: "booking-verification",
+    keywords: ["verification", "popia", "privacy", "booking reference", "email", "mobile"],
+    moduleId: "find-my-booking",
+    purpose: "Protect guest privacy by verifying the booking before showing details.",
+    relatedActions: ["bookings"],
+    related: ["Finding an Existing Booking", "Security & POPIA"],
+    tips: [
+      "Never confirm whether a reference, email, or mobile exists on its own.",
+      "Verification is designed so future OTP checks can be added without changing the guest journey.",
+    ],
+    title: "Booking Verification",
+    whenToUse: "Use this whenever a guest searches for an existing booking.",
+  },
+  {
+    category: "Find My Booking",
+    commonMistakes: [
+      "Downloading before confirming the booking belongs to the guest.",
+      "Using the wrong individual ticket in a multi-guest booking.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Complete booking verification.",
+      "Review the guest name, booking reference, date, time, seating zone, table, and ticket status.",
+      "Choose the correct individual guest ticket if more than one ticket exists.",
+      "Select Download Ticket.",
+      "Confirm the Admission Pass PDF opens for the selected ticket.",
+    ],
+    id: "find-booking-downloading-tickets",
+    keywords: ["find booking download", "download ticket", "admission pass", "individual ticket"],
+    moduleId: "find-my-booking",
+    purpose: "Download the right ticket from the secure booking lookup result.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Admission Pass PDF", "Individual Guest Tickets"],
+    tips: [
+      "The PDF is ticket-specific when a booking has multiple guests.",
+      "Use Open Live Ticket when the guest needs an on-screen version instead.",
+    ],
+    title: "Downloading Tickets",
+    whenToUse: "Use this when a guest has found their booking and needs a ticket file.",
+  },
+  {
+    category: "Find My Booking",
+    commonMistakes: [
+      "Resending to an address that does not belong to the ticket.",
+      "Resending every ticket when only one guest needs help.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Complete booking verification.",
+      "Open the ticket list for the booking.",
+      "Choose the individual ticket that needs to be sent again.",
+      "Select Resend Ticket or Email Ticket Again.",
+      "Confirm the communication is recorded where available.",
+    ],
+    id: "find-booking-resending-tickets",
+    keywords: ["resend ticket", "email ticket again", "find my booking", "guest ticket"],
+    moduleId: "find-my-booking",
+    purpose: "Send a ticket again from the secure lookup result.",
+    relatedActions: ["tickets", "communications"],
+    related: ["Guest Ticket Management", "Email confirmations are not being received"],
+    tips: [
+      "Resend only the ticket the guest needs.",
+      "Ask the guest to check inbox and spam folders after sending.",
+    ],
+    title: "Resending Tickets",
+    whenToUse: "Use this when a guest can verify their booking but cannot find their ticket email.",
+  },
+  {
+    category: "Find My Booking",
+    commonMistakes: [
+      "Creating a second booking when the original booking is still pending.",
+      "Treating a return from PayFast as payment confirmation.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Complete booking verification.",
+      "Check whether the booking status is Pending Payment.",
+      "Select Continue Payment.",
+      "The guest resumes PayFast checkout for the existing booking.",
+      "Wait for payment confirmation before treating the booking as paid or ticketed.",
+    ],
+    id: "continue-payment",
+    keywords: ["continue payment", "pending payment", "payfast", "existing booking"],
+    moduleId: "find-my-booking",
+    purpose: "Allow a guest to finish payment on an existing booking without creating a duplicate.",
+    relatedActions: ["bookings"],
+    related: ["Payment Summary", "Payment Types"],
+    tips: [
+      "Continue Payment must reuse the existing booking reference.",
+      "Payment confirmation happens after the payment provider confirms the payment.",
+    ],
+    title: "Continue Payment",
+    whenToUse: "Use this when a guest started a booking but did not complete payment.",
+  },
+  {
+    category: "Find My Booking",
+    commonMistakes: [
+      "Revealing whether a booking reference exists.",
+      "Sharing booking details before verification succeeds.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Use the same neutral message when a lookup fails.",
+      "Do not reveal whether the booking reference, email, or mobile was wrong.",
+      "Only show booking details after both verification values match.",
+      "If the guest cannot verify, escalate through the normal support process.",
+    ],
+    id: "security-and-popia",
+    keywords: ["security", "popia", "privacy", "verification", "guest data"],
+    moduleId: "find-my-booking",
+    purpose: "Keep guest booking data private while still offering self-service support.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Booking Verification", "Finding an Existing Booking"],
+    tips: [
+      "Neutral error messages protect guests from information leaks.",
+      "Future OTP checks can build on the same verification journey.",
+    ],
+    title: "Security & POPIA",
+    whenToUse: "Use this when helping staff understand why Find My Booking requires two matching details.",
   },
 ];
 
@@ -4375,7 +4841,7 @@ const faqLessons: AcademyArticle[] = [
     ],
     difficulty: "intermediate",
     howTo: [
-      "Open Corporate Requests and search for the company or contact person.",
+      "Open Corporate Bookings and search for the company or contact person.",
       "Review the current status, notes, guest count, seating preference, and linked booking reference.",
       "If converted, open the linked booking for booking-level changes.",
       "Update status, notes, or communication as needed.",
@@ -4479,6 +4945,7 @@ const faqLessons: AcademyArticle[] = [
 const academyArticles: AcademyArticle[] = [
   ...gettingStartedLessons,
   ...bookingLessons,
+  ...findMyBookingLessons,
   ...corporateBookingLessons,
   ...crmGuestLessons,
   ...waitlistLessons,
@@ -4494,6 +4961,7 @@ const academyArticles: AcademyArticle[] = [
       (module) =>
         module.id !== "getting-started" &&
         module.id !== "bookings" &&
+        module.id !== "find-my-booking" &&
         module.id !== "corporate-bookings" &&
         module.id !== "crm-guests" &&
         module.id !== "waitlist" &&
@@ -6689,24 +7157,48 @@ export default function AdminDashboardPage() {
     const pricePerPerson =
       venueSettings.zonePricing[zoneId]?.price ?? zone.price;
     const subtotalPrice = pricePerPerson * request.guestCount;
-    const serviceFeeAmount =
-      request.guestCount >= 6 ? Math.round(subtotalPrice * 0.125) : 0;
-    const totalPrice = subtotalPrice + serviceFeeAmount;
+    const dietarySurcharge = getCorporateDietarySurcharge(request);
     const corporateAddons = request.addons.map((addon, index) => ({
       id: `${request.id}-addon-${index + 1}`,
       name: addon,
-      price: 0,
+      price: getCorporateAddonPrice(addon),
     }));
+    const corporateAddonsTotal = corporateAddons.reduce(
+      (total, addon) => total + addon.price,
+      0,
+    );
+    const serviceFeeAmount =
+      request.guestCount >= 6 ? Math.round(subtotalPrice * 0.125) : 0;
+    const totalPrice =
+      subtotalPrice +
+      serviceFeeAmount +
+      corporateAddonsTotal +
+      dietarySurcharge;
     const corporateNotes = [
       request.notes,
       request.dietaryRequirements.length > 0
-        ? `Dietary: ${request.dietaryRequirements.join(", ")}`
+        ? `Dietary: ${request.dietaryRequirements
+            .map(formatCorporateDietaryRequirement)
+            .join(", ")}`
+        : "",
+      request.dietaryRequirements.includes("Strict Halaal")
+        ? "Strict Halaal surcharge: R250"
         : "",
       request.otherDietaryRequirement
         ? `Other dietary notes: ${request.otherDietaryRequirement}`
         : "",
+      request.barTab ? `Pre-authorised bar tab: ${request.barTab}` : "",
       request.addons.length > 0
         ? `Corporate add-ons: ${request.addons.join(", ")}`
+        : "",
+      corporateAddonsTotal > 0
+        ? `Corporate add-ons total: ${formatCurrency(corporateAddonsTotal)}`
+        : "",
+      dietarySurcharge > 0
+        ? `Dietary surcharge total: ${formatCurrency(dietarySurcharge)}`
+        : "",
+      request.locationAcknowledgement
+        ? `Confirmed location: ${request.locationAcknowledgement}`
         : "",
       `Company: ${request.companyName}`,
     ]
@@ -6722,7 +7214,7 @@ export default function AdminDashboardPage() {
       partySize: request.guestCount,
       bookingDate: getShowLabel(selectedConversionShow),
       addons: corporateAddons,
-      addonsTotal: 0,
+      addonsTotal: corporateAddonsTotal,
       subtotalPrice,
       discountAmount: 0,
       serviceFeeAmount,
@@ -6789,6 +7281,8 @@ export default function AdminDashboardPage() {
         corporateRequest.id === request.id
           ? {
               ...corporateRequest,
+              assignedConsultant:
+                corporateRequest.assignedConsultant ?? currentStaff?.name,
               linkedBookingReference: bookingReference,
               status: "converted",
               updatedAt: now,
@@ -6802,6 +7296,136 @@ export default function AdminDashboardPage() {
       "Corporate request successfully converted to booking.",
     );
     void sendZingaraBrowserNotification("booking-confirmed");
+  }
+
+  function sendCorporatePaymentLink(request: CorporateRequest) {
+    if (!canManageBookings || !request.linkedBookingReference) {
+      return;
+    }
+
+    const linkedBooking = getCorporateLinkedBooking(request);
+
+    if (!linkedBooking) {
+      showWorkflowToast("⚠ Could not save");
+      return;
+    }
+
+    const financials = getBookingFinancials(linkedBooking);
+
+    if (financials.balanceDue <= 0) {
+      showWorkflowToast("✓ Saved · Corporate booking already paid");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const token =
+      request.paymentLinkToken ??
+      linkedBooking.corporatePaymentToken ??
+      createCorporatePaymentToken();
+    const paymentLink = getCorporatePaymentLink(request, token);
+
+    if (!paymentLink) {
+      showWorkflowToast("⚠ Could not save");
+      return;
+    }
+
+    const paymentRecord = createCommunicationRecord({
+      booking: linkedBooking,
+      channel: "email",
+      message: [
+        `Dear ${linkedBooking.customer.name || "guest"},`,
+        "",
+        `Your secure payment link for corporate booking ${linkedBooking.reference} is ready:`,
+        paymentLink,
+        "",
+        `Outstanding balance: ${formatCurrency(financials.balanceDue)}.`,
+        "",
+        "Payment is processed through the existing secure PayFast checkout.",
+      ].join("\n"),
+      sentAt: now,
+      subject: `Payment link for ${linkedBooking.reference}`,
+      trigger: "custom-message",
+    });
+    const updatedBooking: DemoBooking = {
+      ...linkedBooking,
+      corporatePaymentLinkSentAt: now,
+      corporatePaymentToken: token,
+      communicationHistory: [
+        paymentRecord,
+        ...(linkedBooking.communicationHistory ?? []),
+      ],
+      lifecycleHistory: [
+        {
+          id: `${linkedBooking.reference}-payment-link-${now}`,
+          fromStatus: linkedBooking.status,
+          toStatus: linkedBooking.status,
+          note: "Payment Link Sent",
+          createdAt: now,
+        },
+        ...(linkedBooking.lifecycleHistory ?? []),
+      ],
+      operationalNotes: [
+        linkedBooking.operationalNotes ?? "",
+        `Corporate payment token: ${token}`,
+        `Corporate payment link sent: ${now}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+
+    saveBookings(
+      bookings.map((booking) =>
+        booking.reference === linkedBooking.reference
+          ? updatedBooking
+          : booking,
+      ),
+    );
+    saveCorporateRequests(
+      corporateRequests.map((corporateRequest) =>
+        corporateRequest.id === request.id
+          ? {
+              ...corporateRequest,
+              assignedConsultant:
+                corporateRequest.assignedConsultant ?? currentStaff?.name,
+              paymentLinkSentAt: now,
+              paymentLinkToken: token,
+              updatedAt: now,
+            }
+          : corporateRequest,
+      ),
+    );
+    setCorporateConversionStatusRequestId(request.id);
+    setCorporateConversionStatus("Payment link sent.");
+  }
+
+  function cancelCorporateRequest(request: CorporateRequest) {
+    if (!canManageBookings || request.status === "cancelled") {
+      return;
+    }
+
+    const now = new Date().toISOString();
+
+    if (request.linkedBookingReference) {
+      const linkedBooking = getCorporateLinkedBooking(request);
+
+      if (linkedBooking && linkedBooking.status !== "cancelled") {
+        cancelBooking(linkedBooking, "Corporate request cancelled");
+      }
+    }
+
+    saveCorporateRequests(
+      corporateRequests.map((corporateRequest) =>
+        corporateRequest.id === request.id
+          ? {
+              ...corporateRequest,
+              cancellationReason: "Corporate request cancelled",
+              cancelledAt: now,
+              status: "cancelled",
+              updatedAt: now,
+            }
+          : corporateRequest,
+      ),
+    );
   }
 
   function saveWaitlist(nextWaitlist: DemoWaitlistEntry[]) {
@@ -8409,10 +9033,23 @@ export default function AdminDashboardPage() {
   }
 
   function findTicketRecord(code: string) {
-    const normalizedCode = code.trim();
+    const normalizedCode = normalizeTicketReference(code);
 
     if (!normalizedCode) {
       return {};
+    }
+
+    for (const currentBooking of bookings) {
+      const guestTicket = getGuestTicketsForBooking(currentBooking).find(
+        (ticket) => ticket.ticketCode === normalizedCode,
+      );
+
+      if (guestTicket) {
+        return {
+          booking: currentBooking,
+          guestTicket,
+        };
+      }
     }
 
     const booking = bookings.find(
@@ -8461,14 +9098,19 @@ export default function AdminDashboardPage() {
   }
 
   function validateTicketCodeValue(code: string) {
-    const { booking, waitlistEntry } = findTicketRecord(code);
+    const { booking, guestTicket, waitlistEntry } = findTicketRecord(code);
 
     if (booking) {
-      const state = getBookingTicketState(booking);
+      const state = guestTicket
+        ? guestTicket.status === "checked-in"
+          ? "Checked In"
+          : getBookingTicketState(booking)
+        : getBookingTicketState(booking);
       const isDuplicateCheckIn = state === "Checked In";
 
       setTicketValidationResult({
         booking,
+        guestTicket,
         message: isDuplicateCheckIn
           ? "Already checked in. Duplicate check-in blocked."
           : state === "Cancelled"
@@ -8480,7 +9122,7 @@ export default function AdminDashboardPage() {
       });
       void createTicketValidation({
         booking,
-        code,
+        code: guestTicket?.ticketCode ?? normalizeTicketReference(code),
         deviceLabel: isScannerOpen ? "QR Scanner" : "Manual Validation",
         notes: isDuplicateCheckIn
           ? "Duplicate scan blocked."
@@ -8623,6 +9265,7 @@ export default function AdminDashboardPage() {
 
   function checkInValidatedTicket() {
     const booking = ticketValidationResult?.booking;
+    const guestTicket = ticketValidationResult?.guestTicket;
 
     if (!booking || !canCheckInGuests) {
       return;
@@ -8634,6 +9277,87 @@ export default function AdminDashboardPage() {
           currentBooking.reference === booking.reference,
       ) ?? booking;
     const freshState = getBookingTicketState(freshBooking);
+    const freshGuestTicket = guestTicket
+      ? getGuestTicketsForBooking(freshBooking).find(
+          (ticket) => ticket.ticketCode === guestTicket.ticketCode,
+        )
+      : undefined;
+
+    if (freshGuestTicket) {
+      if (freshGuestTicket.status === "checked-in") {
+        setTicketValidationResult({
+          booking: freshBooking,
+          guestTicket: freshGuestTicket,
+          message: "Already checked in. Duplicate check-in blocked.",
+          state: "Checked In",
+        });
+        return;
+      }
+
+      if (freshState !== "Active") {
+        setTicketValidationResult({
+          booking: freshBooking,
+          guestTicket: freshGuestTicket,
+          message:
+            freshState === "Cancelled"
+              ? "Ticket is cancelled and cannot be checked in."
+              : freshState === "Pending Payment"
+                ? "Ticket found, but payment is still pending."
+                : "Ticket is no longer active for check-in.",
+          state: freshState,
+        });
+        return;
+      }
+
+      const arrivalTime = new Date().toISOString();
+      const checkedInGuestTicket = {
+        ...freshGuestTicket,
+        checkedInAt: arrivalTime,
+        status: "checked-in" as const,
+      };
+      const nextBooking = {
+        ...freshBooking,
+        guestTickets: getGuestTicketsForBooking(freshBooking).map((ticket) =>
+          ticket.ticketCode === checkedInGuestTicket.ticketCode
+            ? checkedInGuestTicket
+            : ticket,
+        ),
+        lifecycleHistory: [
+          createLifecycleEvent(
+            freshBooking,
+            "checked-in",
+            `Guest ticket checked in: ${checkedInGuestTicket.ticketCode}`,
+          ),
+          ...(freshBooking.lifecycleHistory ?? []),
+        ],
+      };
+
+      saveBookings(
+        bookings.map((currentBooking) =>
+          currentBooking.reference === freshBooking.reference
+            ? nextBooking
+            : currentBooking,
+        ),
+      );
+      void createTicketValidation({
+        booking: nextBooking,
+        code: checkedInGuestTicket.ticketCode,
+        deviceLabel: "Entrance Check-In",
+        notes: "Individual ticket accepted and guest checked in.",
+        result: "checked_in",
+      });
+      void sendZingaraBrowserNotification("check-in-confirmed");
+      void sendZingaraStaffPushNotification("guest-checked-in", {
+        bookingReference: freshBooking.reference,
+      });
+      setTicketValidationResult({
+        booking: nextBooking,
+        guestTicket: checkedInGuestTicket,
+        message: "Guest ticket checked in. Other guests remain pending.",
+        state: "Checked In",
+      });
+      return;
+    }
 
     if (freshState !== "Active") {
       setTicketValidationResult({
@@ -8703,6 +9427,7 @@ export default function AdminDashboardPage() {
 
   function overrideCheckInValidatedTicket() {
     const booking = ticketValidationResult?.booking;
+    const guestTicket = ticketValidationResult?.guestTicket;
 
     if (!booking || !canManageBookings) {
       return;
@@ -8719,6 +9444,63 @@ export default function AdminDashboardPage() {
         booking: freshBooking,
         message: "Manager override blocked: this booking is cancelled.",
         state: "Cancelled",
+      });
+      return;
+    }
+
+    const freshGuestTicket = guestTicket
+      ? getGuestTicketsForBooking(freshBooking).find(
+          (ticket) => ticket.ticketCode === guestTicket.ticketCode,
+        )
+      : undefined;
+
+    if (freshGuestTicket) {
+      const arrivalTime = new Date().toISOString();
+      const checkedInGuestTicket = {
+        ...freshGuestTicket,
+        checkedInAt: arrivalTime,
+        status: "checked-in" as const,
+      };
+      const nextBooking = {
+        ...freshBooking,
+        guestTickets: getGuestTicketsForBooking(freshBooking).map((ticket) =>
+          ticket.ticketCode === checkedInGuestTicket.ticketCode
+            ? checkedInGuestTicket
+            : ticket,
+        ),
+        lifecycleHistory: [
+          createLifecycleEvent(
+            freshBooking,
+            "checked-in",
+            `Manager override guest ticket check-in: ${checkedInGuestTicket.ticketCode}`,
+          ),
+          ...(freshBooking.lifecycleHistory ?? []),
+        ],
+      };
+
+      saveBookings(
+        bookings.map((currentBooking) =>
+          currentBooking.reference === freshBooking.reference
+            ? nextBooking
+            : currentBooking,
+        ),
+      );
+      void createTicketValidation({
+        booking: nextBooking,
+        code: checkedInGuestTicket.ticketCode,
+        deviceLabel: "Manager Override",
+        notes: "Manager override individual ticket check-in recorded.",
+        result: "checked_in",
+      });
+      void sendZingaraBrowserNotification("check-in-confirmed");
+      void sendZingaraStaffPushNotification("guest-checked-in", {
+        bookingReference: freshBooking.reference,
+      });
+      setTicketValidationResult({
+        booking: nextBooking,
+        guestTicket: checkedInGuestTicket,
+        message: "Manager override check-in recorded for this guest ticket.",
+        state: "Checked In",
       });
       return;
     }
@@ -9470,6 +10252,129 @@ export default function AdminDashboardPage() {
       .find((line) => line.toLowerCase().startsWith("company:"));
 
     return companyNote?.replace(/^company:\s*/i, "").trim() ?? "";
+  }
+
+  function getCorporateLinkedBooking(request: CorporateRequest) {
+    return request.linkedBookingReference
+      ? bookings.find(
+          (booking) => booking.reference === request.linkedBookingReference,
+        )
+      : undefined;
+  }
+
+  function getCorporatePaymentSummary(request: CorporateRequest) {
+    const linkedBooking = getCorporateLinkedBooking(request);
+
+    if (request.status === "cancelled" || linkedBooking?.status === "cancelled") {
+      return {
+        amountPaid: linkedBooking?.amountPaid ?? 0,
+        balanceDue: linkedBooking?.balanceDue ?? 0,
+        label: "Cancelled",
+      };
+    }
+
+    if (!linkedBooking) {
+      return {
+        amountPaid: 0,
+        balanceDue: 0,
+        label: "Pending Payment",
+      };
+    }
+
+    const financials = getBookingFinancials(linkedBooking);
+
+    if (financials.balanceDue <= 0 || financials.paymentStatus === "fully-paid") {
+      return {
+        amountPaid: financials.amountPaid,
+        balanceDue: 0,
+        label: "Paid",
+      };
+    }
+
+    if (financials.amountPaid > 0 || financials.paymentStatus === "deposit-paid") {
+      return {
+        amountPaid: financials.amountPaid,
+        balanceDue: financials.balanceDue,
+        label: "Partially Paid",
+      };
+    }
+
+    return {
+      amountPaid: financials.amountPaid,
+      balanceDue: financials.balanceDue,
+      label: "Pending Payment",
+    };
+  }
+
+  function getCorporatePaymentLink(request: CorporateRequest, token: string) {
+    if (typeof window === "undefined" || !request.linkedBookingReference) {
+      return "";
+    }
+
+    const paymentUrl = new URL("/corporate/payment", window.location.origin);
+
+    paymentUrl.searchParams.set("booking", request.linkedBookingReference);
+    paymentUrl.searchParams.set("token", token);
+
+    return paymentUrl.toString();
+  }
+
+  function getCorporateTimeline(request: CorporateRequest) {
+    const linkedBooking = getCorporateLinkedBooking(request);
+    const timeline = [
+      {
+        at: request.createdAt,
+        label: "Request Created",
+        note: `${request.companyName || "Corporate request"} submitted.`,
+      },
+    ];
+
+    if (request.updatedAt && request.updatedAt !== request.createdAt) {
+      timeline.push({
+        at: request.updatedAt,
+        label: "Updated",
+        note: `Status: ${corporateRequestStatusLabels[request.status]}.`,
+      });
+    }
+
+    if (request.paymentLinkSentAt) {
+      timeline.push({
+        at: request.paymentLinkSentAt,
+        label: "Payment Link Sent",
+        note: "Secure PayFast payment link emailed to guest.",
+      });
+    }
+
+    if (request.linkedBookingReference) {
+      timeline.push({
+        at: linkedBooking?.createdAt ?? request.updatedAt,
+        label: "Converted",
+        note: `Linked booking ${request.linkedBookingReference}.`,
+      });
+    }
+
+    linkedBooking?.lifecycleHistory?.forEach((event) => {
+      if (event.note?.toLowerCase().includes("payment received")) {
+        timeline.push({
+          at: event.createdAt,
+          label: "Payment Received",
+          note: event.note,
+        });
+      }
+
+      if (event.toStatus === "confirmed") {
+        timeline.push({
+          at: event.createdAt,
+          label: "Booking Confirmed",
+          note: event.note ?? "Booking confirmed.",
+        });
+      }
+    });
+
+    return timeline.sort(
+      (left, right) =>
+        new Date(right.at).getTime() - new Date(left.at).getTime(),
+    );
   }
 
   const filteredBookings = bookings.filter((booking) => {
@@ -10543,6 +11448,13 @@ export default function AdminDashboardPage() {
     options: { isArchived?: boolean } = {},
   ) {
     const isGrid = corporateViewMode === "grid";
+    const linkedBooking = getCorporateLinkedBooking(request);
+    const paymentSummary = getCorporatePaymentSummary(request);
+    const canSendPaymentLink =
+      Boolean(linkedBooking) &&
+      paymentSummary.balanceDue > 0 &&
+      request.status !== "cancelled" &&
+      !options.isArchived;
 
     return (
       <section
@@ -10579,13 +11491,24 @@ export default function AdminDashboardPage() {
             </p>
             <div className="mt-3 grid gap-2 text-sm text-zinc-400 sm:grid-cols-2">
               <p>
-                <span className="text-zinc-500">Date</span> · {request.preferredDate || "Not supplied"}
+                <span className="text-zinc-500">Event Date</span> · {request.preferredDate || "Not supplied"}
               </p>
               <p>
                 <span className="text-zinc-500">Guests</span> · {request.guestCount}
               </p>
+              <p>
+                <span className="text-zinc-500">Payment</span> · {paymentSummary.label}
+              </p>
+              <p>
+                <span className="text-zinc-500">Outstanding</span> ·{" "}
+                {formatCurrency(paymentSummary.balanceDue)}
+              </p>
               <p className="sm:col-span-2">
                 <span className="text-zinc-500">Seating</span> · {request.seatingPreference || "Flexible"}
+              </p>
+              <p className="sm:col-span-2">
+                <span className="text-zinc-500">Consultant</span> ·{" "}
+                {request.assignedConsultant || "Unassigned"}
               </p>
               {request.linkedBookingReference && (
                 <p className="sm:col-span-2">
@@ -10606,16 +11529,64 @@ export default function AdminDashboardPage() {
               onClick={() => setOpenCorporateRequestId(request.id)}
               className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
             >
-              Open Request
+              Edit Request
             </button>
+            {!request.linkedBookingReference &&
+              request.status === "confirmed" &&
+              !options.isArchived && (
+              <button
+                type="button"
+                onClick={() =>
+                  convertCorporateRequestToBooking(
+                    request,
+                    corporateConversionShowSelections[request.id] ??
+                      getCorporateConversionShows(request)[0]?.id,
+                  )
+                }
+                disabled={!canManageBookings}
+                className="rounded-full border border-emerald-300/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-200 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Convert
+              </button>
+            )}
+            {canSendPaymentLink && (
+              <button
+                type="button"
+                onClick={() => sendCorporatePaymentLink(request)}
+                disabled={!canManageBookings}
+                className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Send Payment Link
+              </button>
+            )}
+            {request.linkedBookingReference && (
+              <button
+                type="button"
+                onClick={() => {
+                  const booking = getCorporateLinkedBooking(request);
+
+                  if (booking) {
+                    sendWorkflowCommunication(
+                      booking,
+                      "confirmation-resend",
+                      "email",
+                    );
+                  }
+                }}
+                disabled={!canManageCommunications}
+                className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Resend Confirmation
+              </button>
+            )}
             {!options.isArchived && (
               <button
                 type="button"
-                onClick={() => archiveCorporateRequest(request.id)}
+                onClick={() => cancelCorporateRequest(request)}
                 disabled={!canManageBookings}
-                className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-full border border-red-300/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-red-200 transition hover:bg-red-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Archive
+                Cancel Request
               </button>
             )}
             {request.linkedBookingReference && (
@@ -10884,10 +11855,12 @@ export default function AdminDashboardPage() {
 
         <nav
           aria-label="Admin sections"
-          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 sm:mb-8 sm:grid-cols-3 lg:grid-cols-8 lg:rounded-[2rem]"
+          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 sm:mb-8 sm:grid-cols-3 lg:grid-cols-7 lg:rounded-[2rem]"
         >
           {adminTabs.map((tab) => {
-            const isActive = activeAdminTab === tab.id;
+            const isActive =
+              activeAdminTab === tab.id ||
+              (tab.id === "bookings" && activeAdminTab === "corporate");
 
             return (
               <button
@@ -10917,6 +11890,36 @@ export default function AdminDashboardPage() {
             );
           })}
         </nav>
+
+        {(activeAdminTab === "bookings" || activeAdminTab === "corporate") &&
+          canViewBookingManagement && (
+          <nav
+            aria-label="Booking sections"
+            className="mb-8 flex flex-col gap-2 rounded-[1.25rem] border border-white/10 bg-black/35 p-2 sm:w-fit sm:flex-row"
+          >
+            {[
+              ["bookings", "Standard Bookings"],
+              ["corporate", "Corporate Bookings"],
+            ].map(([tabId, label]) => {
+              const isActiveBookingSection = activeAdminTab === tabId;
+
+              return (
+                <button
+                  key={tabId}
+                  type="button"
+                  onClick={() => setActiveAdminTab(tabId as AdminTab)}
+                  className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                    isActiveBookingSection
+                      ? "bg-[#D8C36A] text-black"
+                      : "border border-white/10 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </nav>
+        )}
 
         {activeAdminTab === "academy" && (
           <section className="mb-10 rounded-[2rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#21170B_0%,#090909_46%,#030303_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
@@ -11723,6 +12726,15 @@ export default function AdminDashboardPage() {
                         </dt>
                         <dd className="mt-1">{openCorporateRequest.seatingPreference || "Flexible"}</dd>
                       </div>
+                      <div>
+                        <dt className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                          Confirmed Location
+                        </dt>
+                        <dd className="mt-1">
+                          {openCorporateRequest.locationAcknowledgement ||
+                            "Not supplied"}
+                        </dd>
+                      </div>
                       <div className="sm:col-span-2">
                         <dt className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
                           Occasion
@@ -11754,7 +12766,9 @@ export default function AdminDashboardPage() {
                                   key={requirement}
                                   className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-zinc-200"
                                 >
-                                  {requirement}
+                                  {formatCorporateDietaryRequirement(
+                                    requirement,
+                                  )}
                                 </span>
                               ),
                             )
@@ -11774,7 +12788,7 @@ export default function AdminDashboardPage() {
                       </div>
                       <div>
                         <p className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                          Bar Tab Selection
+                          Pre-authorised Bar Tab (pp)
                         </p>
                         <p className="mt-1 font-semibold text-white">
                           {openCorporateRequest.barTab || "No Bar Tab"}
@@ -11888,6 +12902,169 @@ export default function AdminDashboardPage() {
                   </section>
                 </div>
 
+                {(() => {
+                  const linkedBooking =
+                    getCorporateLinkedBooking(openCorporateRequest);
+                  const paymentSummary =
+                    getCorporatePaymentSummary(openCorporateRequest);
+                  const timeline =
+                    getCorporateTimeline(openCorporateRequest);
+                  const canSendPaymentLink =
+                    Boolean(linkedBooking) &&
+                    paymentSummary.balanceDue > 0 &&
+                    openCorporateRequest.status !== "cancelled" &&
+                    !openCorporateRequest.archivedAt;
+
+                  return (
+                    <section className="mt-5 rounded-[1.5rem] border border-[#D8C36A]/20 bg-black/35 p-4">
+                      <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
+                            Corporate Workflow
+                          </p>
+                          <div className="mt-4 grid gap-3 text-sm text-zinc-300 sm:grid-cols-2 lg:grid-cols-1">
+                            <p>
+                              <span className="text-zinc-500">Payment</span>{" "}
+                              · {paymentSummary.label}
+                            </p>
+                            <p>
+                              <span className="text-zinc-500">
+                                Outstanding
+                              </span>{" "}
+                              · {formatCurrency(paymentSummary.balanceDue)}
+                            </p>
+                            <p>
+                              <span className="text-zinc-500">
+                                Consultant
+                              </span>{" "}
+                              ·{" "}
+                              {openCorporateRequest.assignedConsultant ||
+                                "Unassigned"}
+                            </p>
+                            {openCorporateRequest.paymentLinkSentAt && (
+                              <p>
+                                <span className="text-zinc-500">
+                                  Payment Link
+                                </span>{" "}
+                                ·{" "}
+                                {new Date(
+                                  openCorporateRequest.paymentLinkSentAt,
+                                ).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="mt-5 flex flex-wrap gap-2">
+                            {openCorporateRequest.status === "confirmed" &&
+                              !openCorporateRequest.linkedBookingReference &&
+                              !openCorporateRequest.archivedAt && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  convertCorporateRequestToBooking(
+                                    openCorporateRequest,
+                                    corporateConversionShowSelections[
+                                      openCorporateRequest.id
+                                    ] ??
+                                      getCorporateConversionShows(
+                                        openCorporateRequest,
+                                      )[0]?.id,
+                                  )
+                                }
+                                disabled={!canManageBookings}
+                                className="rounded-full border border-emerald-300/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-200 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Convert To Booking
+                              </button>
+                            )}
+                            {canSendPaymentLink && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  sendCorporatePaymentLink(openCorporateRequest)
+                                }
+                                disabled={!canManageBookings}
+                                className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Send Payment Link
+                              </button>
+                            )}
+                            {linkedBooking && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  sendWorkflowCommunication(
+                                    linkedBooking,
+                                    "confirmation-resend",
+                                    "email",
+                                  )
+                                }
+                                disabled={!canManageCommunications}
+                                className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Resend Confirmation
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                document
+                                  .getElementById("corporate-timeline")
+                                  ?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "nearest",
+                                  })
+                              }
+                              className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300 transition hover:bg-white hover:text-black"
+                            >
+                              View Timeline
+                            </button>
+                            {!openCorporateRequest.archivedAt &&
+                              openCorporateRequest.status !== "cancelled" && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  cancelCorporateRequest(openCorporateRequest)
+                                }
+                                disabled={!canManageBookings}
+                                className="rounded-full border border-red-300/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-red-200 transition hover:bg-red-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Cancel Request
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div id="corporate-timeline">
+                          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                            Timeline
+                          </p>
+                          <div className="mt-4 space-y-3">
+                            {timeline.map((event) => (
+                              <div
+                                key={`${event.label}-${event.at}-${event.note}`}
+                                className="rounded-2xl border border-white/10 bg-zinc-950 px-4 py-3"
+                              >
+                                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                  <p className="font-semibold text-white">
+                                    {event.label}
+                                  </p>
+                                  <p className="text-xs text-zinc-500">
+                                    {new Date(event.at).toLocaleString()}
+                                  </p>
+                                </div>
+                                <p className="mt-2 text-sm leading-6 text-zinc-400">
+                                  {event.note}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  );
+                })()}
+
                 {openCorporateRequest.status === "confirmed" &&
                   !openCorporateRequest.archivedAt &&
                   !openCorporateRequest.linkedBookingReference && (
@@ -11900,10 +13077,9 @@ export default function AdminDashboardPage() {
                         <p className="mt-3 rounded-2xl border border-red-300/25 bg-red-950/20 px-4 py-3 text-sm font-semibold text-red-100">
                           No active show exists for this date.
                         </p>
-                      ) : (
-                        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                          {getCorporateConversionShows(openCorporateRequest)
-                            .length > 1 && (
+                      ) : getCorporateConversionShows(openCorporateRequest)
+                          .length > 1 ? (
+                        <div className="mt-4">
                             <label className="flex-1 text-sm text-zinc-400">
                               Select Show
                               <select
@@ -11936,26 +13112,12 @@ export default function AdminDashboardPage() {
                                 ))}
                               </select>
                             </label>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              convertCorporateRequestToBooking(
-                                openCorporateRequest,
-                                corporateConversionShowSelections[
-                                  openCorporateRequest.id
-                                ] ??
-                                  getCorporateConversionShows(
-                                    openCorporateRequest,
-                                  )[0]?.id,
-                              )
-                            }
-                            disabled={!canManageBookings}
-                            className="rounded-full bg-emerald-300 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Convert To Booking
-                          </button>
                         </div>
+                      ) : (
+                        <p className="mt-3 rounded-2xl border border-emerald-300/15 bg-black/35 px-4 py-3 text-sm text-emerald-100">
+                          Active show match found. Use Convert To Booking in
+                          Quick Actions.
+                        </p>
                       )}
                       {corporateConversionStatus &&
                         corporateConversionStatusRequestId ===
@@ -12285,6 +13447,17 @@ export default function AdminDashboardPage() {
                                   .tableNumber
                               }
                             </p>
+                            {ticketValidationResult.guestTicket && (
+                              <p className="mt-2 text-sm text-[#F2D66C]">
+                                Ticket{" "}
+                                {ticketValidationResult.guestTicket.index} of{" "}
+                                {ticketValidationResult.guestTicket.total} ·{" "}
+                                {
+                                  ticketValidationResult.guestTicket
+                                    .fullName
+                                }
+                              </p>
+                            )}
                           </div>
 
                           <div className="grid grid-cols-1 gap-3 text-sm text-zinc-300 sm:grid-cols-2">
@@ -12354,7 +13527,9 @@ export default function AdminDashboardPage() {
                             )}
                             <a
                               href={getPlatformTicketUrl(
-                                ticketValidationResult.booking.reference,
+                                ticketValidationResult.guestTicket
+                                  ?.ticketCode ??
+                                  ticketValidationResult.booking.reference,
                               )}
                               className="rounded-full border border-[#D8C36A]/40 px-6 py-3 text-center font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                             >
@@ -17248,7 +18423,7 @@ export default function AdminDashboardPage() {
                   Corporate Enquiries
                 </p>
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-3xl font-bold">Corporate Requests</h2>
+                  <h2 className="text-3xl font-bold">Corporate Bookings</h2>
                   <label className="group relative block w-10 shrink-0 transition-all duration-300 focus-within:w-full sm:focus-within:w-80">
                     <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-[#F2D66C] transition-all duration-300 group-focus-within:left-4 group-focus-within:translate-x-0">
                       <svg
@@ -17270,7 +18445,7 @@ export default function AdminDashboardPage() {
                       onChange={(event) =>
                         setCorporateSearch(event.target.value)
                       }
-                      aria-label="Search corporate requests"
+                      aria-label="Search corporate bookings"
                       className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-0 text-sm text-transparent shadow-[0_0_18px_rgba(216,195,106,0.1)] transition-all duration-300 focus:border-[#D8C36A]/70 focus:pr-4 focus:text-white focus:outline-none"
                     />
                   </label>
@@ -17343,7 +18518,7 @@ export default function AdminDashboardPage() {
               <h3 className="text-xl font-bold uppercase">Active Requests</h3>
               {filteredActiveCorporateRequests.length === 0 ? (
                 <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
-                  No active corporate requests match the current filters.
+                  No active corporate bookings match the current filters.
                 </div>
               ) : (
                 <div

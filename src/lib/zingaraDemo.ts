@@ -18,6 +18,7 @@ export const defaultZingaraLandingLogoUrl =
 export const defaultZingaraLogoUrl = "/brand/zingara-activator.svg";
 export const defaultZingaraFaviconUrl = "/brand/wax-seal.png";
 export const includedBookingFeeAmount = 10;
+export const defaultStandardDepositPerPerson = 550;
 
 export function getIncludedBookingFeeBreakdown(ticketGrossAmount = 0) {
   const bookingFee = ticketGrossAmount > 0 ? includedBookingFeeAmount : 0;
@@ -47,6 +48,7 @@ export type DemoVenueSettings = {
     bookingCutoffHours: number;
     cancellationRule: string;
     checkInGraceMinutes: number;
+    defaultDepositAmount?: number;
     defaultDepositPercentage: number;
     ticketRefreshSeconds: number;
     waitlistAutoPromotionEnabled: boolean;
@@ -90,6 +92,7 @@ export type DemoVenueSettings = {
   zonePricing: Record<
     string,
     {
+      depositAmount?: number;
       depositPercentage: number;
       price: number;
     }
@@ -117,6 +120,7 @@ export const defaultVenueSettings: DemoVenueSettings = {
     cancellationRule:
       "Refund review required for cancellations within 48 hours of showtime.",
     checkInGraceMinutes: 30,
+    defaultDepositAmount: defaultStandardDepositPerPerson,
     defaultDepositPercentage: 50,
     ticketRefreshSeconds: 20,
     waitlistAutoPromotionEnabled: false,
@@ -160,22 +164,27 @@ export const defaultVenueSettings: DemoVenueSettings = {
   venueName: "The Royal Countess Zingara",
   zonePricing: {
     "elevated-stage": {
+      depositAmount: defaultStandardDepositPerPerson,
       depositPercentage: 50,
       price: 1470,
     },
     "golden-circle": {
+      depositAmount: defaultStandardDepositPerPerson,
       depositPercentage: 40,
       price: 1470,
     },
     "middle-ring": {
+      depositAmount: defaultStandardDepositPerPerson,
       depositPercentage: 35,
       price: 1260,
     },
     "royal-balcony": {
+      depositAmount: defaultStandardDepositPerPerson,
       depositPercentage: 50,
       price: 1340,
     },
     "royal-booths": {
+      depositAmount: defaultStandardDepositPerPerson,
       depositPercentage: 50,
       price: 1420,
     },
@@ -196,7 +205,7 @@ export const seatingZones = [
       "bottom-[25%] left-1/2 h-[18%] w-[44%] -translate-x-1/2 rounded-t-[999px] rounded-b-2xl",
     glowClass: "shadow-[#C5A94B]/30 hover:shadow-[#C5A94B]/60",
     minGuests: 2,
-    maxGuests: 12,
+    maxGuests: 20,
     depositPercentage: 50,
     totalCapacity: 0,
     bookedSeats: 0,
@@ -214,7 +223,7 @@ export const seatingZones = [
       "bottom-[42%] left-1/2 h-[18%] w-[64%] -translate-x-1/2 rounded-[999px]",
     glowClass: "shadow-[#E06B9C]/30 hover:shadow-[#E06B9C]/60",
     minGuests: 2,
-    maxGuests: 12,
+    maxGuests: 20,
     depositPercentage: 40,
     totalCapacity: 86,
     bookedSeats: 0,
@@ -232,7 +241,7 @@ export const seatingZones = [
       "top-[18%] left-1/2 h-[24%] w-[82%] -translate-x-1/2 rounded-[999px]",
     glowClass: "shadow-[#55D8C1]/25 hover:shadow-[#55D8C1]/55",
     minGuests: 2,
-    maxGuests: 8,
+    maxGuests: 20,
     depositPercentage: 35,
     totalCapacity: 90,
     bookedSeats: 0,
@@ -250,7 +259,7 @@ export const seatingZones = [
       "top-[43%] left-[6%] h-[26%] w-[24%] rounded-l-[999px] rounded-r-3xl",
     glowClass: "shadow-[#F05F8D]/30 hover:shadow-[#F05F8D]/60",
     minGuests: 2,
-    maxGuests: 6,
+    maxGuests: 20,
     depositPercentage: 50,
     totalCapacity: 114,
     bookedSeats: 0,
@@ -268,7 +277,7 @@ export const seatingZones = [
       "top-[43%] right-[6%] h-[26%] w-[24%] rounded-r-[999px] rounded-l-3xl",
     glowClass: "shadow-[#C087E8]/30 hover:shadow-[#C087E8]/60",
     minGuests: 2,
-    maxGuests: 8,
+    maxGuests: 20,
     depositPercentage: 50,
     totalCapacity: 20,
     bookedSeats: 0,
@@ -456,6 +465,9 @@ export type DemoBooking = {
   depositPercentage?: number;
   amountPaid?: number;
   balanceDue?: number;
+  guestTickets?: GuestTicket[];
+  corporatePaymentLinkSentAt?: string;
+  corporatePaymentToken?: string;
   promoCode?: string;
   promoLabel?: string;
   source?: BookingSource;
@@ -470,6 +482,18 @@ export type DemoBooking = {
   arrivalTime?: string;
   communicationHistory: CommunicationRecord[];
   createdAt: string;
+};
+export type GuestTicket = {
+  checkedInAt?: string;
+  email?: string;
+  fullName: string;
+  id: string;
+  index: number;
+  mobile?: string;
+  regeneratedAt?: string;
+  status: "checked-in" | "valid" | "void";
+  ticketCode: string;
+  total: number;
 };
 export type DemoWaitlistEntry = {
   id: string;
@@ -510,7 +534,13 @@ export type CorporateRequest = {
   otherDietaryRequirement: string;
   barTab: string;
   addons: string[];
+  assignedConsultant?: string;
+  cancellationReason?: string;
+  cancelledAt?: string;
+  locationAcknowledgement?: string;
   notes: string;
+  paymentLinkSentAt?: string;
+  paymentLinkToken?: string;
   status: CorporateRequestStatus;
   requestType: "agent-contact" | "corporate-booking";
   source: "Corporate Direct";
@@ -621,6 +651,68 @@ export function createTicketCode(reference: string) {
     .toUpperCase();
 
   return `ZQR-${reference.replaceAll("-", "")}-${checksum}`;
+}
+
+export function createGuestTicketCode(reference: string, index: number) {
+  return `${createTicketCode(reference)}-${String(index).padStart(2, "0")}`;
+}
+
+export function normalizeTicketReference(input: string) {
+  const trimmedInput = input.trim();
+
+  if (!trimmedInput) {
+    return "";
+  }
+
+  try {
+    const url = new URL(trimmedInput);
+    const ticketSegment = url.pathname.split("/").filter(Boolean).pop();
+    const ticketQuery =
+      url.searchParams.get("ticket") ??
+      url.searchParams.get("code") ??
+      url.searchParams.get("reference");
+
+    return decodeURIComponent(ticketQuery ?? ticketSegment ?? trimmedInput);
+  } catch {
+    return decodeURIComponent(trimmedInput);
+  }
+}
+
+export function getGuestTicketsForBooking(booking: DemoBooking) {
+  const existingTickets = Array.isArray(booking.guestTickets)
+    ? booking.guestTickets
+    : [];
+  const total = Math.max(booking.partySize, 1);
+
+  return Array.from({ length: total }, (_, ticketIndex) => {
+    const index = ticketIndex + 1;
+    const existingTicket = existingTickets.find(
+      (ticket) => ticket.index === index,
+    );
+
+    return {
+      checkedInAt: existingTicket?.checkedInAt,
+      email:
+        existingTicket?.email ??
+        (index === 1 ? booking.customer.email : ""),
+      fullName:
+        existingTicket?.fullName ??
+        (index === 1
+          ? booking.customer.name
+          : `Guest ${index}`),
+      id: existingTicket?.id ?? `${booking.reference}-${index}`,
+      index,
+      mobile:
+        existingTicket?.mobile ??
+        (index === 1 ? booking.customer.phone : ""),
+      regeneratedAt: existingTicket?.regeneratedAt,
+      status: existingTicket?.status ?? "valid",
+      ticketCode:
+        existingTicket?.ticketCode ??
+        createGuestTicketCode(booking.reference, index),
+      total,
+    } satisfies GuestTicket;
+  });
 }
 
 export function getTicketUrl(reference: string) {
@@ -1037,6 +1129,17 @@ export function getConfiguredZoneDepositPercentage(
   );
 }
 
+export function getConfiguredZoneDepositAmount(
+  settings: DemoVenueSettings,
+  zone: Pick<SeatingZone, "id">,
+) {
+  return (
+    settings.zonePricing[zone.id]?.depositAmount ??
+    settings.operationalSettings.defaultDepositAmount ??
+    defaultStandardDepositPerPerson
+  );
+}
+
 export function getShowById(showId: string) {
   return getStoredDemoShows().find((show) => show.id === showId);
 }
@@ -1379,7 +1482,25 @@ function normalizeCorporateRequest(
     addons: Array.isArray(request.addons)
       ? request.addons.map((item) => getSafeString(item))
       : [],
+    assignedConsultant: request.assignedConsultant
+      ? getSafeString(request.assignedConsultant)
+      : undefined,
+    cancellationReason: request.cancellationReason
+      ? getSafeString(request.cancellationReason)
+      : undefined,
+    cancelledAt: request.cancelledAt
+      ? getSafeString(request.cancelledAt)
+      : undefined,
+    locationAcknowledgement: request.locationAcknowledgement
+      ? getSafeString(request.locationAcknowledgement)
+      : undefined,
     notes: getSafeString(request.notes),
+    paymentLinkSentAt: request.paymentLinkSentAt
+      ? getSafeString(request.paymentLinkSentAt)
+      : undefined,
+    paymentLinkToken: request.paymentLinkToken
+      ? getSafeString(request.paymentLinkToken)
+      : undefined,
     status: isKnownValue(
       request.status,
       corporateRequestStatusValues,

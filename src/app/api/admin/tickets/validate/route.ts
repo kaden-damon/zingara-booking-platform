@@ -1,6 +1,7 @@
 import {
   type DemoBooking,
   createTicketCode,
+  normalizeTicketReference,
 } from "@/lib/zingaraDemo";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
@@ -38,24 +39,31 @@ export async function POST(request: Request) {
       validatedAt?: string;
     };
 
-    if (!body.booking || !body.result) {
+    if (!body.booking && !body.code) {
       return Response.json(
-        { error: "Booking and validation result are required." },
+        { error: "Booking or ticket code is required." },
+        { status: 400 },
+      );
+    }
+
+    if (!body.result) {
+      return Response.json(
+        { error: "Validation result is required." },
         { status: 400 },
       );
     }
 
     const ticketCode =
-      body.booking.ticketCode ?? createTicketCode(body.booking.reference);
+      body.booking?.ticketCode ??
+      (body.booking ? createTicketCode(body.booking.reference) : "");
+    const normalizedCode = normalizeTicketReference(body.code ?? ticketCode);
+    const ticketCodes = Array.from(
+      new Set([ticketCode, normalizedCode].filter(Boolean)),
+    );
     const { data: ticketRows, error: ticketError } = await supabase
       .from("tickets")
       .select("id,booking_id,ticket_code")
-      .or(
-        [
-          `ticket_code.eq.${ticketCode}`,
-          `ticket_code.eq.${body.code ?? ticketCode}`,
-        ].join(","),
-      )
+      .in("ticket_code", ticketCodes)
       .limit(1);
 
     if (ticketError) {
@@ -88,6 +96,17 @@ export async function POST(request: Request) {
 
     if (error) {
       throw error;
+    }
+
+    if (body.result === "checked_in") {
+      const { error: updateError } = await supabase
+        .from("tickets")
+        .update({ ticket_status: "checked_in" })
+        .eq("id", ticket.id);
+
+      if (updateError) {
+        throw updateError;
+      }
     }
 
     return Response.json({ row: data });

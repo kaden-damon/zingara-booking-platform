@@ -31,7 +31,7 @@ import {
   defaultVenueSettings,
   defaultShows,
   findBestTableAllocation,
-  getConfiguredZoneDepositPercentage,
+  getConfiguredZoneDepositAmount,
   getConfiguredZonePrice,
   getCompactShowDateTime,
   getSouthAfricaShowTime,
@@ -62,6 +62,8 @@ type PayFastCheckoutResponse = {
   fields?: Record<string, boolean | number | string | null | undefined>;
   mode?: "live" | "sandbox";
 };
+
+type EntryLocationKey = "cape-town" | "johannesburg";
 
 function getPlatformTicketUrl(reference: string) {
   const ticketUrl = getTicketUrl(reference);
@@ -486,6 +488,42 @@ function isGuestBookableShow(show: DemoShow | undefined) {
   return status === "active" || status === "special-event";
 }
 
+function normalizeEntryLocation(
+  value: string | null | undefined,
+): EntryLocationKey | null {
+  const normalisedValue = value?.trim().toLowerCase();
+
+  if (
+    normalisedValue === "johannesburg" ||
+    normalisedValue === "joburg"
+  ) {
+    return "johannesburg";
+  }
+
+  if (normalisedValue === "cape-town" || normalisedValue === "cape town") {
+    return "cape-town";
+  }
+
+  return null;
+}
+
+function getEntryLocationLabel(location: EntryLocationKey | null) {
+  return location === "johannesburg" ? "Johannesburg" : "Cape Town";
+}
+
+function getShowVenueKey(show: DemoShow | undefined): EntryLocationKey {
+  return (show?.venueName ?? "cape-town").toLowerCase().includes("joburg") ||
+    (show?.venueName ?? "").toLowerCase().includes("johannesburg")
+    ? "johannesburg"
+    : "cape-town";
+}
+
+function getShowTimeValue(show: DemoShow) {
+  return new Date(
+    `${show.date}T${getSouthAfricaShowTime(show) || show.time || "00:00"}`,
+  ).getTime();
+}
+
 function getDateCalendarStatus(
   showsForDate: DemoShow[],
 ): BookingCalendarStatus | undefined {
@@ -660,6 +698,8 @@ export default function BookingPage() {
   const [venueSettings, setVenueSettings] = useState(
     defaultVenueSettings,
   );
+  const [selectedEntryLocation, setSelectedEntryLocation] =
+    useState<EntryLocationKey | null>(null);
   const [selectedShowId, setSelectedShowId] = useState("");
   const [selectedShowDate, setSelectedShowDate] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(
@@ -711,9 +751,7 @@ export default function BookingPage() {
   const [isPayFastRedirecting, setIsPayFastRedirecting] =
     useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
-  const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>(
-    [],
-  );
+  const [selectedAddonIds] = useState<string[]>([]);
   const [tables, setTables] = useState<DemoTable[]>(() =>
     defaultShows.flatMap((show) => createTablesForShow(show.id)),
   );
@@ -754,15 +792,12 @@ export default function BookingPage() {
       ? Math.round(discountedSubtotal * serviceFeeRate)
       : 0;
   const total = discountedSubtotal + serviceFeeAmount;
-  const depositPercentage = selectedZone
-    ? getConfiguredZoneDepositPercentage(
-        venueConfig,
-        selectedZone,
-      )
-    : venueConfig.operationalSettings.defaultDepositPercentage;
-  const depositAmount = Math.ceil(
-    total * (depositPercentage / 100),
-  );
+  const depositPerPerson = selectedZone
+    ? getConfiguredZoneDepositAmount(venueConfig, selectedZone)
+    : (venueConfig.operationalSettings.defaultDepositAmount ?? 0);
+  const depositAmount = Math.min(total, depositPerPerson * partySize);
+  const depositPercentage =
+    total > 0 ? (depositAmount / total) * 100 : 100;
   const amountDueNow =
     paymentOption === "deposit" ? depositAmount : total;
   const balanceDue = Math.max(total - amountDueNow, 0);
@@ -770,11 +805,16 @@ export default function BookingPage() {
     (show) => show.id === selectedShowId,
   );
   const guestVisibleShows = shows.filter(isGuestVisibleShow);
+  const locationVisibleShows = selectedEntryLocation
+    ? guestVisibleShows.filter(
+        (show) => getShowVenueKey(show) === selectedEntryLocation,
+      )
+    : guestVisibleShows;
   const showDateSet = new Set(
-    guestVisibleShows.map((show) => show.date),
+    locationVisibleShows.map((show) => show.date),
   );
   const calendarDays = getCalendarDays(calendarMonth);
-  const selectedDateShows = guestVisibleShows.filter(
+  const selectedDateShows = locationVisibleShows.filter(
     (show) => show.date === selectedShowDate,
   );
   const selectedShowIsBookable = isGuestBookableShow(selectedShow);
@@ -802,6 +842,34 @@ export default function BookingPage() {
           partySize,
         )
       : undefined;
+  const selectedShowTimeValue = selectedShow
+    ? getShowTimeValue(selectedShow)
+    : 0;
+  function getRecommendedFutureShow(zone: SeatingOption) {
+    if (!selectedShow) {
+      return undefined;
+    }
+
+    return locationVisibleShows
+      .filter(
+        (show) =>
+          show.id !== selectedShow.id &&
+          getShowVenueKey(show) === getShowVenueKey(selectedShow) &&
+          isGuestBookableShow(show) &&
+          getShowTimeValue(show) > selectedShowTimeValue &&
+          Boolean(
+            findBestTableAllocation(
+              tables,
+              show.id,
+              zone.id,
+              partySize,
+            ),
+          ),
+      )
+      .sort((firstShow, secondShow) => {
+        return getShowTimeValue(firstShow) - getShowTimeValue(secondShow);
+      })[0];
+  }
   const customerDetailsComplete = Boolean(
     customerInfo.name.trim() &&
       customerInfo.email.trim() &&
@@ -928,6 +996,18 @@ export default function BookingPage() {
     setSelectedShowId(showId);
     setActiveBookingStep(1);
     resetBookingProgress();
+  }
+
+  function selectRecommendedShow(show: DemoShow) {
+    setSelectedShowDate(show.date);
+    setSelectedShowId(show.id);
+    setCalendarMonth(getMonthKey(show.date));
+    setActiveBookingStep(2);
+    setPreviewSeatingZone(null);
+    setIsConfirmationOpen(false);
+    setBookingReference(null);
+    setAllocatedTableNumber(null);
+    setWaitlistReference(null);
   }
 
   function selectPartySize(nextPartySize: number) {
@@ -1129,8 +1209,23 @@ export default function BookingPage() {
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
+    const locationFromQuery = normalizeEntryLocation(
+      searchParams.get("location"),
+    );
+    const locationFromStorage = normalizeEntryLocation(
+      window.localStorage.getItem("zingara-selected-location"),
+    );
+    const nextLocation = locationFromQuery ?? locationFromStorage;
     const paymentState = searchParams.get("payment");
     const booking = searchParams.get("booking");
+
+    if (nextLocation) {
+      setSelectedEntryLocation(nextLocation);
+      window.localStorage.setItem(
+        "zingara-selected-location",
+        nextLocation,
+      );
+    }
 
     if (paymentState === "cancelled") {
       setPaymentRedirectStatus(
@@ -1148,6 +1243,31 @@ export default function BookingPage() {
       );
     }
   }, []);
+
+  useEffect(() => {
+    if (!selectedEntryLocation) {
+      return;
+    }
+
+    if (selectedShowId) {
+      const selectedShowForLocation = shows.find(
+        (show) => show.id === selectedShowId,
+      );
+
+      if (
+        selectedShowForLocation &&
+        getShowVenueKey(selectedShowForLocation) !== selectedEntryLocation
+      ) {
+        setSelectedShowId("");
+        setSelectedZone(null);
+        setPreviewSeatingZone(null);
+      }
+    }
+
+    if (selectedShowDate && !showDateSet.has(selectedShowDate)) {
+      setSelectedShowDate("");
+    }
+  }, [selectedEntryLocation, selectedShowDate, selectedShowId, showDateSet, shows]);
 
   function handleContinueBooking() {
     if (
@@ -1167,16 +1287,6 @@ export default function BookingPage() {
     setBookingReference(null);
     setAllocatedTableNumber(null);
     setIsConfirmationOpen(true);
-  }
-
-  function toggleAddon(addonId: string) {
-    setSelectedAddonIds((currentAddonIds) =>
-      currentAddonIds.includes(addonId)
-        ? currentAddonIds.filter((currentId) => currentId !== addonId)
-        : [...currentAddonIds, addonId],
-    );
-    setBookingReference(null);
-    setAllocatedTableNumber(null);
   }
 
   async function handleJoinWaitlist() {
@@ -1210,6 +1320,10 @@ export default function BookingPage() {
   }
 
   async function handlePayFastCheckout() {
+    if (isPayFastRedirecting) {
+      return;
+    }
+
     if (
       !selectedZone ||
       !selectedShow ||
@@ -1427,6 +1541,14 @@ export default function BookingPage() {
     }
 
     setTicketDownloadStatus("Preparing ticket...");
+    const ticketWindow = window.open("", "_blank");
+
+    if (!ticketWindow) {
+      setTicketDownloadStatus("Please allow pop-ups to open ticket.");
+      return;
+    }
+
+    ticketWindow.opener = null;
 
     const canvas = document.createElement("canvas");
     const width = 1200;
@@ -1434,6 +1556,7 @@ export default function BookingPage() {
     const context = canvas.getContext("2d");
 
     if (!context) {
+      ticketWindow.close();
       setTicketDownloadStatus("Unable to prepare ticket.");
       return;
     }
@@ -1551,16 +1674,11 @@ export default function BookingPage() {
 
     const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.94);
     const pdfBlob = createImagePdfBlob(jpegDataUrl, width, height);
-    const downloadUrl = URL.createObjectURL(pdfBlob);
-    const link = document.createElement("a");
+    const ticketUrl = URL.createObjectURL(pdfBlob);
 
-    link.href = downloadUrl;
-    link.download = `zingara-ticket-${bookingReference}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(downloadUrl);
-    setTicketDownloadStatus("Ticket downloaded.");
+    ticketWindow.location.href = ticketUrl;
+    window.setTimeout(() => URL.revokeObjectURL(ticketUrl), 30000);
+    setTicketDownloadStatus("Ticket opened in a new tab.");
   }
 
   function renderVenueSvgHotspot({
@@ -1644,6 +1762,14 @@ export default function BookingPage() {
         <p className="mb-9 max-w-3xl text-left text-base leading-6 text-zinc-400 sm:mb-14 sm:text-2xl">
           {venueConfig.subtitle}
         </p>
+
+        {selectedEntryLocation && (
+          <div className="-mt-5 mb-8 flex justify-start sm:-mt-10 sm:mb-10">
+            <span className="inline-flex rounded-full border border-[#D8C36A]/35 bg-[#D8C36A]/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+              {getEntryLocationLabel(selectedEntryLocation)}
+            </span>
+          </div>
+        )}
 
 	        <section className="mb-8 sm:mb-10">
 	          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
@@ -1894,7 +2020,7 @@ export default function BookingPage() {
 
                     const day = Number(dateValue.split("-")[2]);
                     const dateStatus = getDateCalendarStatus(
-                      guestVisibleShows.filter(
+                      locationVisibleShows.filter(
                         (show) => show.date === dateValue,
                       ),
                     );
@@ -2017,7 +2143,7 @@ export default function BookingPage() {
                   Step 2 · Guests
                 </p>
                 <p className="zingara-subheading mt-1.5 max-w-2xl text-sm leading-5 text-zinc-300 sm:mt-2 sm:text-lg sm:leading-6 lg:whitespace-nowrap">
-                  Choose 1 to 21 guests. Seating rules update instantly.
+                  Choose 1 to 20 guests. Groups of 21+ should use Corporate Booking.
                 </p>
               </div>
 
@@ -2036,7 +2162,7 @@ export default function BookingPage() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => selectPartySize(Math.min(21, partySize + 1))}
+                  onClick={() => selectPartySize(Math.min(20, partySize + 1))}
                   className="grid h-10 w-10 place-items-center rounded-full text-xl text-zinc-300 transition hover:bg-white hover:text-black"
                   aria-label="Increase guests"
                 >
@@ -2500,8 +2626,8 @@ export default function BookingPage() {
                     Payment Summary
                   </h2>
                   <p className="mt-2 text-sm leading-5 text-zinc-300 sm:mt-3 sm:text-base sm:leading-6">
-                    Review totals, select full payment or deposit, then
-                    continue to confirmation.
+                    Review the amount due today, choose full payment
+                    or deposit, then continue to secure checkout.
                   </p>
                 </div>
                 <span className="w-fit rounded-full border border-[#D8C36A]/30 bg-black/30 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] sm:px-4 sm:py-2 sm:text-sm">
@@ -2573,46 +2699,6 @@ export default function BookingPage() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-5">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A] sm:mb-4 sm:text-sm">
-                    Optional Add-Ons
-                  </p>
-
-                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2 sm:gap-3">
-                    {bookingAddons.map((addon) => {
-                      const isSelected = selectedAddonIds.includes(
-                        addon.id,
-                      );
-
-                      return (
-                        <label
-                          key={addon.id}
-                          className={`flex cursor-pointer items-start gap-2 rounded-xl border p-2.5 transition sm:gap-3 sm:rounded-2xl sm:p-4 ${
-                            isSelected
-                              ? "border-[#D8C36A] bg-[#D8C36A]/10"
-                              : "border-white/10 bg-zinc-950 hover:border-[#D8C36A]/50"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleAddon(addon.id)}
-                            className="mt-1 h-4 w-4 accent-[#D8C36A]"
-                          />
-                          <span>
-                            <span className="block text-sm font-semibold text-white">
-                              {addon.name}
-                            </span>
-                            <span className="mt-0.5 block text-xs text-zinc-400 sm:mt-1 sm:text-sm">
-                              {formatCurrency(addon.price)}
-                            </span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-
                 <div className="border-t border-zinc-700 pt-3 sm:pt-4">
                   <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2 sm:mb-5 sm:gap-4">
                     <label className="rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-4">
@@ -2632,7 +2718,7 @@ export default function BookingPage() {
                           Pay In Full Today
                         </option>
                         <option value="deposit">
-                          Deposit Only ({depositPercentage}%)
+                          Deposit Only ({formatCurrency(depositPerPerson)} pp)
                         </option>
                       </select>
                     </label>
@@ -2759,6 +2845,9 @@ export default function BookingPage() {
                 : availability.isLimited
                   ? "border-amber-300/45 bg-amber-950/25 text-amber-100"
                   : "border-emerald-300/35 bg-emerald-950/20 text-emerald-200";
+              const recommendedShow = !availability.isAvailable
+                ? getRecommendedFutureShow(previewSeatingZone)
+                : undefined;
 
               return (
                 <>
@@ -2804,6 +2893,32 @@ export default function BookingPage() {
                     {previewSeatingZone.description}
                   </p>
 
+                  {!availability.isAvailable && recommendedShow && (
+                    <div className="mt-4 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/10 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                        Nearest Available Show
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-200">
+                        {getCompactShowDateTime(recommendedShow)} has
+                        availability in {previewSeatingZone.title}.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => selectRecommendedShow(recommendedShow)}
+                        className="mt-3 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black transition hover:bg-zinc-300"
+                      >
+                        Select This Show
+                      </button>
+                    </div>
+                  )}
+
+                  {!availability.isAvailable && !recommendedShow && (
+                    <p className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100">
+                      No future show in this location currently has
+                      availability for {previewSeatingZone.title}.
+                    </p>
+                  )}
+
                   <button
                     type="button"
                     disabled={!availability.isAvailable}
@@ -2829,8 +2944,13 @@ export default function BookingPage() {
                 </p>
 
                 <h2 className="text-2xl font-bold sm:text-3xl">
-                  Payment & Confirmation
+                  Payment Summary
                 </h2>
+                <p className="mt-2 max-w-xl text-sm leading-5 text-zinc-300 sm:text-base sm:leading-6">
+                  Confirm your details and continue to secure PayFast
+                  checkout. Tickets are issued after payment is
+                  confirmed.
+                </p>
               </div>
 
               <button
@@ -2910,33 +3030,11 @@ export default function BookingPage() {
 
               <div className="col-span-2 rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-5">
                 <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-zinc-500 sm:text-xs">
-                  Add-Ons
-                </p>
-                {selectedAddons.length === 0 ? (
-                  <p className="mt-1.5 text-sm text-zinc-400 sm:mt-2 sm:text-base">
-                    No optional extras selected.
-                  </p>
-                ) : (
-                  <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3 sm:gap-2">
-                    {selectedAddons.map((addon) => (
-                      <span
-                        key={addon.id}
-                        className="rounded-full border border-[#D8C36A]/30 bg-black/40 px-2.5 py-1 text-xs text-[#F2D66C] sm:px-3 sm:text-sm"
-                      >
-                        {addon.name} · {formatCurrency(addon.price)}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="col-span-2 rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-5">
-                <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-zinc-500 sm:text-xs">
                   Payment Plan
                 </p>
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
                   {paymentOption === "deposit"
-                    ? `${depositPercentage}% Deposit`
+                    ? `${formatCurrency(depositPerPerson)} pp Deposit`
                     : "Full Payment"}
                 </p>
                 <p className="mt-1.5 text-sm text-zinc-300 sm:mt-2">
@@ -3207,7 +3305,7 @@ export default function BookingPage() {
                         value={getTicketUrl(bookingReference)}
                         label="Scannable live ticket QR code"
                         logoUrl={venueConfig.faviconUrl}
-                        className="mx-auto mb-1 w-[min(70vw,196px)] max-w-[196px] shrink-0 p-3 pb-3.5 md:mx-0 md:mb-0 md:w-full md:max-w-[220px] md:p-3"
+                        className="mx-auto mb-2 w-[min(70vw,206px)] max-w-[206px] shrink-0 p-4 pb-5 md:mx-0 md:mb-0 md:w-full md:max-w-[230px]"
                       />
                     </div>
                     <p className="mt-3 break-all border-t border-white/10 pt-3 font-mono text-[0.65rem] text-zinc-400 sm:mt-5 sm:pt-4 sm:text-sm">
@@ -3220,6 +3318,14 @@ export default function BookingPage() {
                       >
                         Open Live Ticket
                       </a>
+                      {partySize > 1 && (
+                        <a
+                          href={`${getPlatformTicketUrl(bookingReference)}&customise=1`}
+                          className="inline-flex rounded-full border border-white/15 px-4 py-2.5 text-xs font-semibold text-zinc-300 transition hover:bg-white hover:text-black sm:px-5 sm:py-3 sm:text-sm"
+                        >
+                          Customise Tickets
+                        </a>
+                      )}
                       <button
                         type="button"
                         onClick={downloadTicketPdf}
@@ -3239,7 +3345,7 @@ export default function BookingPage() {
                   {showTicketReadyPrompt && (
                     <div className="rounded-[1.25rem] border border-[#D8C36A]/40 bg-[radial-gradient(circle_at_top,#241B0A_0%,#111111_48%,#050505_100%)] p-4 shadow-[0_0_36px_rgba(216,195,106,0.14)] sm:rounded-[1.5rem] sm:p-5">
                       <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#F2D66C]">
-                        <span aria-hidden="true">🎟</span> Ticket Ready
+                        <span aria-hidden="true">🎟</span> DOWNLOAD APP
                       </p>
                       <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
                         Install the Zingara App to receive booking
@@ -3300,16 +3406,27 @@ export default function BookingPage() {
 
               <button
                 type="submit"
+                aria-busy={isPayFastRedirecting}
                 disabled={
                   !selectedShow ||
                   isPayFastRedirecting
                 }
-                className="w-full rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"
+                className="inline-flex w-full items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"
               >
+                {isPayFastRedirecting && (
+                  <span
+                    aria-hidden="true"
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-black/25 border-t-black"
+                  />
+                )}
                 {isPayFastRedirecting
-                  ? "Redirecting To PayFast"
-                  : "Pay With PayFast"}
+                  ? "Processing Secure Payment..."
+                  : "Confirm Booking"}
               </button>
+              <p className="text-center text-xs leading-5 text-zinc-500">
+                Secure online payment. Digital tickets and confirmation email
+                are sent after PayFast confirms payment.
+              </p>
             </form>
           </div>
         </div>

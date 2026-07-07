@@ -23,6 +23,10 @@ const navigationItems = [
     label: "Book",
   },
   {
+    href: "/find-booking",
+    label: "Find My Booking",
+  },
+  {
     href: "/corporate",
     label: "Corporate Booking",
   },
@@ -83,6 +87,8 @@ export default function ZingaraHeader() {
   const needsOperationalTopSpace =
     pathname === "/book" ||
     pathname.startsWith("/book/") ||
+    pathname === "/find-booking" ||
+    pathname.startsWith("/find-booking/") ||
     pathname === "/admin" ||
     pathname.startsWith("/admin/");
 

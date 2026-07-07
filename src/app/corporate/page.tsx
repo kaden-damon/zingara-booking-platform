@@ -24,29 +24,31 @@ const occasionOptions = [
   "Other",
 ];
 const dietaryOptions = [
-  "Vegetarian",
-  "Vegan",
-  "Halaal Friendly",
-  "Strictly Halaal",
-  "Gluten Free",
-  "Nut Allergy",
-  "Dairy Free",
-  "Other",
+  { label: "Vegetarian", value: "Vegetarian" },
+  { label: "Vegan", value: "Vegan" },
+  { label: "Halaal Friendly", value: "Halaal Friendly" },
+  { label: "Strict Halaal · R250", value: "Strict Halaal" },
+  { label: "Gluten Free", value: "Gluten Free" },
+  { label: "Nut Allergy", value: "Nut Allergy" },
+  { label: "Dairy Free", value: "Dairy Free" },
+  { label: "Other", value: "Other" },
 ];
 const barTabOptions = [
   "No Bar Tab",
-  "R500",
-  "R1,000",
-  "R2,000",
-  "Open Tab",
+  "R500 pp",
+  "R1,000 pp",
+  "R2,000 pp",
+  "Open Tab pp",
 ];
 const corporateAddons = [
   "Arrival Drinks",
-  "Dedicated Hostess / Butler",
-  "Custom Menu Cards",
+  "Branded Menu Cards",
   "Personalised Table Signage",
-  "Face Painting",
-  "Tarot Card Readings",
+  "Face Painting · Eye · R100",
+  "Face Painting · Half Face · R200",
+  "Face Painting · Mask · R200",
+  "Tarot Reading · R450",
+  "VIP Bar",
 ];
 const calendarMonths = [
   "January",
@@ -74,6 +76,7 @@ type CorporateFormState = {
   dietaryRequirements: string[];
   email: string;
   guestCount: number;
+  locationAcknowledgement: string;
   notes: string;
   occasion: string;
   otherDietaryRequirement: string;
@@ -92,6 +95,7 @@ const initialFormState: CorporateFormState = {
   dietaryRequirements: [],
   email: "",
   guestCount: 6,
+  locationAcknowledgement: "",
   notes: "",
   occasion: "Year-End Function",
   otherDietaryRequirement: "",
@@ -146,6 +150,10 @@ function getDateDisplay(dateValue: string) {
 export default function CorporateBookingPage() {
   const [form, setForm] = useState<CorporateFormState>(initialFormState);
   const [submissionStatus, setSubmissionStatus] = useState("");
+  const [validationError, setValidationError] = useState("");
+  const [submissionAction, setSubmissionAction] = useState<
+    CorporateRequest["requestType"] | null
+  >(null);
   const [openCalendarField, setOpenCalendarField] = useState<
     "alternativeDate" | "preferredDate" | null
   >(null);
@@ -220,27 +228,100 @@ export default function CorporateBookingPage() {
   async function persistCorporateRequest(
     requestType: CorporateRequest["requestType"],
   ) {
-    const nextRequest = createRequest(requestType);
-    const requestWithCommunication = {
-      ...nextRequest,
-      communicationHistory:
-        requestType === "corporate-booking"
-          ? await createCorporateTentativeCommunication(nextRequest)
-          : [],
-    };
+    if (submissionAction) {
+      return;
+    }
 
-    await createCorporateRequest(requestWithCommunication);
-    void syncCorporateRequestCommunications(requestWithCommunication);
-    setSubmissionStatus(
-      requestType === "agent-contact"
-        ? "Agent contact request received."
-        : "Corporate booking request received.",
-    );
+    const fieldError = getCorporateValidationError();
+
+    if (fieldError) {
+      setSubmissionStatus("");
+      setValidationError(fieldError);
+      return;
+    }
+
+    setValidationError("");
+    setSubmissionAction(requestType);
+
+    try {
+      const nextRequest = createRequest(requestType);
+      const requestWithCommunication = {
+        ...nextRequest,
+        communicationHistory:
+          requestType === "corporate-booking"
+            ? await createCorporateTentativeCommunication(nextRequest)
+            : [],
+      };
+
+      await createCorporateRequest(requestWithCommunication);
+      void syncCorporateRequestCommunications(requestWithCommunication);
+      setSubmissionStatus(
+        requestType === "agent-contact"
+          ? "Agent contact request received."
+          : "Corporate booking request received.",
+      );
+    } catch {
+      setSubmissionStatus("");
+      setValidationError(
+        requestType === "agent-contact"
+          ? "Agent contact request could not be saved. Please try again."
+          : "Corporate booking request could not be saved. Please try again.",
+      );
+    } finally {
+      setSubmissionAction(null);
+    }
   }
 
   function submitCorporateRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void persistCorporateRequest("corporate-booking");
+  }
+
+  function updateCorporateForm(
+    updates: Partial<CorporateFormState>,
+  ) {
+    setForm((currentForm) => ({
+      ...currentForm,
+      ...updates,
+    }));
+
+    if (validationError) {
+      setValidationError("");
+    }
+  }
+
+  function getCorporateValidationError() {
+    const requiredFields = [
+      [form.companyName, "Company Name"],
+      [form.contactName, "Contact Person Full Name"],
+      [form.contactNumber, "Contact Number"],
+      [form.email, "Email Address"],
+      [form.preferredDate, "Preferred Event Date"],
+      [form.alternativeDate, "Alternative Event Date"],
+      [form.seatingPreference, "Preferred Seating Section"],
+      [form.occasion, "Occasion / Purpose"],
+    ];
+    const missingField = requiredFields.find(
+      ([value]) => !String(value).trim(),
+    );
+
+    if (missingField) {
+      return `${missingField[1]} is required.`;
+    }
+
+    if (!Number.isFinite(form.guestCount) || form.guestCount < 1) {
+      return "Number of Guests is required.";
+    }
+
+    if (form.occasion === "Other" && !form.otherOccasion.trim()) {
+      return "Other Description is required.";
+    }
+
+    if (!form.locationAcknowledgement) {
+      return "Please confirm whether this booking request is for Cape Town or Johannesburg.";
+    }
+
+    return "";
   }
 
   function openCalendar(field: "alternativeDate" | "preferredDate") {
@@ -259,10 +340,7 @@ export default function CorporateBookingPage() {
 
     const dateValue = `${calendarMonth}-${String(day).padStart(2, "0")}`;
 
-    setForm((currentForm) => ({
-      ...currentForm,
-      [openCalendarField]: dateValue,
-    }));
+    updateCorporateForm({ [openCalendarField]: dateValue });
     setOpenCalendarField(null);
   }
 
@@ -406,9 +484,15 @@ export default function CorporateBookingPage() {
               {submissionStatus}
             </p>
           )}
+          {validationError && (
+            <p className="mt-4 rounded-2xl border border-red-300/30 bg-red-950/25 px-4 py-3 text-sm font-semibold text-red-100">
+              {validationError}
+            </p>
+          )}
         </div>
 
         <form
+          noValidate
           onSubmit={submitCorporateRequest}
           className="mt-8 space-y-6 rounded-[2rem] border border-[#8D7A2F]/25 bg-[#080808] p-5 shadow-2xl shadow-black/35 sm:p-8"
         >
@@ -428,14 +512,13 @@ export default function CorporateBookingPage() {
                     {label}
                   </span>
                   <input
-                    required={key !== "alternativeDate"}
+                    required
                     type={type}
                     value={String(form[key as keyof CorporateFormState])}
                     onChange={(event) =>
-                      setForm((currentForm) => ({
-                        ...currentForm,
+                      updateCorporateForm({
                         [key]: event.target.value,
-                      }))
+                      })
                     }
                     className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
                   />
@@ -450,6 +533,7 @@ export default function CorporateBookingPage() {
               {renderDatePicker(
                 "Alternative Event Date",
                 "alternativeDate",
+                true,
               )}
 
               <label className="block">
@@ -462,10 +546,9 @@ export default function CorporateBookingPage() {
                   min={1}
                   value={form.guestCount}
                   onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
+                    updateCorporateForm({
                       guestCount: Number(event.target.value),
-                    }))
+                    })
                   }
                   className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
                 />
@@ -478,10 +561,9 @@ export default function CorporateBookingPage() {
                 <select
                   value={form.seatingPreference}
                   onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
+                    updateCorporateForm({
                       seatingPreference: event.target.value,
-                    }))
+                    })
                   }
                   className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
                 >
@@ -501,10 +583,9 @@ export default function CorporateBookingPage() {
               <select
                 value={form.occasion}
                 onChange={(event) =>
-                  setForm((currentForm) => ({
-                    ...currentForm,
+                  updateCorporateForm({
                     occasion: event.target.value,
-                  }))
+                  })
                 }
                 className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
               >
@@ -521,11 +602,11 @@ export default function CorporateBookingPage() {
                 </span>
                 <input
                   value={form.otherOccasion}
+                  required
                   onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
+                    updateCorporateForm({
                       otherOccasion: event.target.value,
-                    }))
+                    })
                   }
                   className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
                 />
@@ -540,33 +621,32 @@ export default function CorporateBookingPage() {
             <div className="mt-4 flex flex-wrap gap-2">
               {dietaryOptions.map((option) => (
                 <label
-                  key={option}
+                  key={option.value}
                   className={`cursor-pointer rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
-                    form.dietaryRequirements.includes(option)
+                    form.dietaryRequirements.includes(option.value)
                       ? "border-[#D8C36A] bg-[#D8C36A] text-black"
                       : "border-white/15 bg-black/35 text-zinc-300"
                   }`}
                 >
                   <input
                     type="checkbox"
-                    checked={form.dietaryRequirements.includes(option)}
+                    checked={form.dietaryRequirements.includes(option.value)}
                     onChange={() =>
-                      setForm((currentForm) => ({
-                        ...currentForm,
+                      updateCorporateForm({
                         dietaryRequirements: toggleSelection(
-                          currentForm.dietaryRequirements,
-                          option,
+                          form.dietaryRequirements,
+                          option.value,
                         ),
-                      }))
+                      })
                     }
                     className="sr-only"
                   />
-                  {option}
+                  {option.label}
                 </label>
               ))}
             </div>
             <p className="mt-3 text-sm text-[#F2D66C]">
-              Strictly halaal requests may incur an additional surcharge.
+              Strict Halaal requests include a fixed R250 surcharge.
             </p>
             {form.dietaryRequirements.includes("Other") && (
               <label className="mt-4 block">
@@ -576,10 +656,9 @@ export default function CorporateBookingPage() {
                 <input
                   value={form.otherDietaryRequirement}
                   onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
+                    updateCorporateForm({
                       otherDietaryRequirement: event.target.value,
-                    }))
+                    })
                   }
                   className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
                 />
@@ -588,15 +667,14 @@ export default function CorporateBookingPage() {
 
             <label className="mt-5 block">
               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                Would you like a bar tab?
+                Pre-authorised Bar Tab (pp)
               </span>
               <select
                 value={form.barTab}
                 onChange={(event) =>
-                  setForm((currentForm) => ({
-                    ...currentForm,
+                  updateCorporateForm({
                     barTab: event.target.value,
-                  }))
+                  })
                 }
                 className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
               >
@@ -605,6 +683,11 @@ export default function CorporateBookingPage() {
                 ))}
               </select>
             </label>
+            <p className="mt-3 text-sm leading-6 text-zinc-400">
+              The selected amount is pre-authorised during checkout and used
+              as your upfront bar tab. Any additional spend is payable on the
+              evening.
+            </p>
           </section>
 
           <section className="border-t border-white/10 pt-6">
@@ -625,17 +708,52 @@ export default function CorporateBookingPage() {
                     type="checkbox"
                     checked={form.addons.includes(addon)}
                     onChange={() =>
-                      setForm((currentForm) => ({
-                        ...currentForm,
+                      updateCorporateForm({
                         addons: toggleSelection(
-                          currentForm.addons,
+                          form.addons,
                           addon,
                         ),
-                      }))
+                      })
                     }
                     className="mr-3 accent-[#D8C36A]"
                   />
                   {addon}
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="border-t border-white/10 pt-6">
+            <h2 className="text-2xl font-bold uppercase">
+              Location Acknowledgement
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-zinc-400">
+              I confirm this booking request is for:
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {["Cape Town", "Johannesburg"].map((location) => (
+                <label
+                  key={location}
+                  className={`cursor-pointer rounded-2xl border p-4 text-sm font-semibold uppercase tracking-[0.12em] transition ${
+                    form.locationAcknowledgement === location
+                      ? "border-[#D8C36A] bg-[#D8C36A]/15 text-[#F2D66C]"
+                      : "border-white/10 bg-black/35 text-zinc-300"
+                  }`}
+                >
+                  <input
+                    required
+                    type="radio"
+                    name="locationAcknowledgement"
+                    value={location}
+                    checked={form.locationAcknowledgement === location}
+                    onChange={(event) =>
+                      updateCorporateForm({
+                        locationAcknowledgement: event.target.value,
+                      })
+                    }
+                    className="mr-3 accent-[#D8C36A]"
+                  />
+                  {location}
                 </label>
               ))}
             </div>
@@ -657,6 +775,32 @@ export default function CorporateBookingPage() {
             </ul>
           </section>
 
+          <section className="rounded-[1.5rem] border border-white/10 bg-black/35 p-5">
+            <h2 className="text-xl font-bold uppercase">
+              Pricing Summary
+            </h2>
+            <div className="mt-4 grid gap-3 text-sm text-zinc-300 sm:grid-cols-2">
+              <p>
+                <span className="text-zinc-500">Strict Halaal</span> ·{" "}
+                {form.dietaryRequirements.includes("Strict Halaal")
+                  ? "R250 fixed surcharge"
+                  : "Not selected"}
+              </p>
+              <p>
+                <span className="text-zinc-500">
+                  Pre-authorised Bar Tab
+                </span>{" "}
+                · {form.barTab}
+              </p>
+              <p className="sm:col-span-2">
+                <span className="text-zinc-500">Corporate Add-ons</span> ·{" "}
+                {form.addons.length > 0
+                  ? form.addons.join(", ")
+                  : "None selected"}
+              </p>
+            </div>
+          </section>
+
           <label className="block">
             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
               Notes
@@ -664,10 +808,9 @@ export default function CorporateBookingPage() {
             <textarea
               value={form.notes}
               onChange={(event) =>
-                setForm((currentForm) => ({
-                  ...currentForm,
+                updateCorporateForm({
                   notes: event.target.value,
-                }))
+                })
               }
               rows={4}
               className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
@@ -678,22 +821,33 @@ export default function CorporateBookingPage() {
           <div className="flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
+              disabled={Boolean(submissionAction)}
               onClick={() => void persistCorporateRequest("agent-contact")}
-              className="rounded-full border border-white/20 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white hover:text-black"
+              className="rounded-full border border-white/20 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
             >
-              Request Agent Contact
+              {submissionAction === "agent-contact"
+                ? "Sending Request..."
+                : "Request Agent Contact"}
             </button>
             <button
               type="submit"
-              className="rounded-full bg-white px-6 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]"
+              disabled={Boolean(submissionAction)}
+              className="rounded-full bg-white px-6 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-wait disabled:opacity-50"
             >
-              Submit Corporate Booking
+              {submissionAction === "corporate-booking"
+                ? "Submitting..."
+                : "Submit Corporate Booking"}
             </button>
           </div>
 
           {submissionStatus && (
             <p className="rounded-2xl border border-emerald-300/30 bg-emerald-950/25 px-4 py-3 text-sm font-semibold text-emerald-200">
               {submissionStatus}
+            </p>
+          )}
+          {validationError && (
+            <p className="rounded-2xl border border-red-300/30 bg-red-950/25 px-4 py-3 text-sm font-semibold text-red-100">
+              {validationError}
             </p>
           )}
         </form>
