@@ -7739,7 +7739,7 @@ export default function AdminDashboardPage() {
       "email",
       {
         refundSummary:
-          "This demo notice records the cancellation and marks the booking for refund review.",
+          "This notice records the cancellation and marks the booking for refund review.",
       },
     );
 
@@ -8303,7 +8303,7 @@ export default function AdminDashboardPage() {
 
     if (file.name.endsWith(".xlsx")) {
       setLegacyImportError(
-        "XLSX files are accepted for legacy intake, but this lightweight local demo preview currently needs the workbook exported as CSV before confirmation.",
+        "XLSX files are accepted for legacy intake, but this lightweight preview currently needs the workbook exported as CSV before confirmation.",
       );
       return;
     }
@@ -12741,7 +12741,7 @@ export default function AdminDashboardPage() {
                 Venue Configuration
               </h2>
               <p className="mt-2 text-zinc-400">
-                Local demo settings for branding, operations, ticket
+                Venue settings for branding, operations, ticket
                 display, and seating prices.
               </p>
             </div>
@@ -17645,7 +17645,7 @@ export default function AdminDashboardPage() {
 
           {bookings.length === 0 ? (
             <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
-              No demo bookings have been confirmed yet.
+              No bookings yet.
             </div>
           ) : filteredBookings.length === 0 ? (
             <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">

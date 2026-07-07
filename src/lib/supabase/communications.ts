@@ -4,8 +4,6 @@ import {
   type CommunicationTrigger,
   type CorporateRequest,
   type DemoBooking,
-  getStoredCorporateRequests,
-  getStoredDemoBookings,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
 import { fetchSupabaseApi } from "./apiClient";
@@ -156,17 +154,6 @@ function toCommunicationChannel(
   return channel;
 }
 
-function getFallbackCommunications() {
-  return [
-    ...getStoredDemoBookings().flatMap(
-      (booking) => booking.communicationHistory ?? [],
-    ),
-    ...getStoredCorporateRequests().flatMap(
-      (request) => request.communicationHistory ?? [],
-    ),
-  ];
-}
-
 function toCommunicationRecord(
   row: SupabaseCommunicationRow,
 ): CommunicationRecord {
@@ -260,11 +247,7 @@ export async function getCommunications() {
   const rows = await getCommunicationRows();
 
   if (!rows) {
-    return getFallbackCommunications();
-  }
-
-  if (rows.length === 0) {
-    return getFallbackCommunications();
+    return [];
   }
 
   return rows.map(toCommunicationRecord);
@@ -281,41 +264,26 @@ export async function getCommunication(id: string) {
     }
   }
 
-  return getFallbackCommunications().find(
-    (communication) => communication.id === id,
-  );
+  return undefined;
 }
 
 export async function getCommunicationsForBooking(booking: DemoBooking) {
   const bookingRelation = await getBookingRelation(booking.reference);
 
   if (!bookingRelation) {
-    return booking.communicationHistory ?? [];
+    return [];
   }
 
   const rows = await getCommunicationRows();
 
   if (!rows) {
-    return booking.communicationHistory ?? [];
+    return [];
   }
 
   const supabaseRows = rows.filter((row) => row.booking_id === bookingRelation.id);
   const supabaseCommunications = supabaseRows.map(toCommunicationRecord);
 
-  return [
-    ...supabaseCommunications,
-    ...(booking.communicationHistory ?? []).filter(
-      (communication) =>
-        !supabaseRows.some(
-          (row) =>
-            row.channel === toSupabaseChannel(communication.channel) &&
-            row.message === communication.message &&
-            row.sent_at === communication.sentAt &&
-            row.subject === (communication.subject ?? null) &&
-            row.type === toSupabaseType(communication.trigger),
-        ),
-    ),
-  ].sort(
+  return supabaseCommunications.sort(
     (left, right) =>
       new Date(right.sentAt).getTime() - new Date(left.sentAt).getTime(),
   );

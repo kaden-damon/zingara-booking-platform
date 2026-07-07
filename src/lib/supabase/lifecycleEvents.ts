@@ -2,7 +2,6 @@ import {
   type BookingLifecycleEvent,
   type BookingStatus,
   type DemoBooking,
-  getStoredDemoBookings,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
 import { fetchSupabaseApi } from "./apiClient";
@@ -63,12 +62,6 @@ function toDemoBookingStatus(status: SupabaseBookingStatus): BookingStatus {
   }
 
   return status;
-}
-
-function getFallbackLifecycleEvents(): BookingLifecycleEvent[] {
-  return getStoredDemoBookings().flatMap(
-    (booking) => (booking.lifecycleHistory ?? []) as BookingLifecycleEvent[],
-  );
 }
 
 function toLifecycleEvent(row: SupabaseLifecycleEventRow): BookingLifecycleEvent {
@@ -145,11 +138,7 @@ export async function getLifecycleEvents() {
   const rows = await getLifecycleEventRows();
 
   if (!rows) {
-    return getFallbackLifecycleEvents();
-  }
-
-  if (rows.length === 0) {
-    return getFallbackLifecycleEvents();
+    return [];
   }
 
   return rows.map(toLifecycleEvent);
@@ -173,12 +162,6 @@ export async function getLifecycleEventsForBooking(booking: DemoBooking) {
 
   return [
     ...supabaseEvents,
-    ...(booking.lifecycleHistory ?? []).filter((event) => {
-      const bookingId = bookingRelation.id;
-      const payload = toLifecyclePayload(event, bookingId);
-
-      return !supabaseRows.some((row) => isSameLifecycleEvent(row, payload));
-    }),
   ].sort(
     (left, right) =>
       new Date(right.createdAt).getTime() -

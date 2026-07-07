@@ -1,8 +1,4 @@
-import {
-  type CorporateRequest,
-  getStoredCorporateRequests,
-  storeCorporateRequests,
-} from "@/lib/zingaraDemo";
+import { type CorporateRequest } from "@/lib/zingaraDemo";
 import { fetchSupabaseApi } from "./apiClient";
 
 async function getSupabaseCorporateRequests() {
@@ -42,25 +38,13 @@ async function persistCorporateRequestsToSupabase(
 }
 
 export async function getCorporateRequests() {
-  const fallbackRequests = getStoredCorporateRequests();
   const supabaseRequests = await getSupabaseCorporateRequests();
 
   if (!supabaseRequests) {
-    return fallbackRequests;
+    return [];
   }
 
-  if (supabaseRequests.length === 0) {
-    await persistCorporateRequestsToSupabase(fallbackRequests);
-
-    return fallbackRequests;
-  }
-
-  const supabaseIds = new Set(supabaseRequests.map((request) => request.id));
-
-  return [
-    ...supabaseRequests,
-    ...fallbackRequests.filter((request) => !supabaseIds.has(request.id)),
-  ];
+  return supabaseRequests;
 }
 
 export async function getCorporateRequest(id: string) {
@@ -70,9 +54,6 @@ export async function getCorporateRequest(id: string) {
 }
 
 export async function createCorporateRequest(request: CorporateRequest) {
-  const nextRequests = [request, ...getStoredCorporateRequests()];
-
-  storeCorporateRequests(nextRequests);
   await persistCorporateRequestsToSupabase([request], {
     route: "/api/corporate-requests",
   });
@@ -81,18 +62,12 @@ export async function createCorporateRequest(request: CorporateRequest) {
 }
 
 export async function updateCorporateRequest(request: CorporateRequest) {
-  const nextRequests = getStoredCorporateRequests().map((currentRequest) =>
-    currentRequest.id === request.id ? request : currentRequest,
-  );
-
-  storeCorporateRequests(nextRequests);
   await persistCorporateRequestsToSupabase([request]);
 
   return request;
 }
 
 export async function saveCorporateRequests(requests: CorporateRequest[]) {
-  storeCorporateRequests(requests);
   await persistCorporateRequestsToSupabase(requests, { replace: true });
 
   return getCorporateRequests();

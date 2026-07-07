@@ -1,8 +1,6 @@
 import {
   type CustomerInfo,
   type DemoCustomerCrmRecord,
-  getStoredDemoCustomerCrm,
-  storeDemoCustomerCrm,
 } from "@/lib/zingaraDemo";
 import { fetchSupabaseApi } from "./apiClient";
 
@@ -185,17 +183,10 @@ async function persistCustomersToSupabase(records: DemoCustomerCrmRecord[]) {
 }
 
 export async function getCustomers() {
-  const fallbackCustomers = getStoredDemoCustomerCrm();
   const rows = await getSupabaseCustomers();
 
   if (!rows) {
-    return fallbackCustomers;
-  }
-
-  if (rows.length === 0) {
-    await persistCustomersToSupabase(fallbackCustomers);
-
-    return fallbackCustomers;
+    return [];
   }
 
   return rows.map(toCrmRecord);
@@ -205,9 +196,7 @@ export async function getCustomer(id: string) {
   const rows = await getSupabaseCustomers();
 
   if (!rows) {
-    return getStoredDemoCustomerCrm().find(
-      (record) => record.customerKey === id,
-    );
+    return undefined;
   }
 
   const row = rows.find(
@@ -287,7 +276,6 @@ export async function upsertCustomerFromInfo(
 }
 
 export async function saveCustomers(records: DemoCustomerCrmRecord[]) {
-  storeDemoCustomerCrm(records);
   await persistCustomersToSupabase(records);
 
   return getCustomers();

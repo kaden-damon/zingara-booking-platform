@@ -7,8 +7,6 @@ import {
   type DemoBooking,
   type PaymentStatus,
   createTicketCode,
-  getStoredDemoBookings,
-  storeDemoBookings,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
 import { fetchSupabaseApi } from "./apiClient";
@@ -595,35 +593,11 @@ async function getSupabaseBookings() {
   }
 }
 
-async function persistBookingsToSupabase(bookings: DemoBooking[]) {
-  await Promise.all(
-    bookings.map(async (booking) => {
-      try {
-        await fetchSupabaseApi("/api/admin/bookings", {
-          body: { booking },
-          method: "PATCH",
-        });
-      } catch (error) {
-        console.error("[Zingara Supabase] Failed to persist booking", error);
-      }
-    }),
-  );
-
-  return bookings;
-}
-
 export async function getBookings() {
-  const fallbackBookings = getStoredDemoBookings();
   const rows = await getSupabaseBookings();
 
   if (!rows) {
-    return fallbackBookings;
-  }
-
-  if (rows.length === 0) {
-    await persistBookingsToSupabase(fallbackBookings);
-
-    return fallbackBookings;
+    return [];
   }
 
   return Promise.all(rows.map(toDemoBooking));
@@ -651,15 +625,6 @@ export async function getSupabaseBookingId(reference: string) {
 }
 
 export async function createBooking(booking: DemoBooking) {
-  const nextBookings = [
-    booking,
-    ...getStoredDemoBookings().filter(
-      (currentBooking) => currentBooking.reference !== booking.reference,
-    ),
-  ];
-
-  storeDemoBookings(nextBookings);
-
   try {
     await fetchSupabaseApi("/api/bookings", {
       body: { booking },
@@ -673,12 +638,6 @@ export async function createBooking(booking: DemoBooking) {
 }
 
 export async function updateBooking(booking: DemoBooking) {
-  const nextBookings = getStoredDemoBookings().map((currentBooking) =>
-    currentBooking.reference === booking.reference ? booking : currentBooking,
-  );
-
-  storeDemoBookings(nextBookings);
-
   try {
     await fetchSupabaseApi("/api/admin/bookings", {
       body: { booking },
@@ -692,12 +651,6 @@ export async function updateBooking(booking: DemoBooking) {
 }
 
 export async function deleteBooking(id: string) {
-  const nextBookings = getStoredDemoBookings().filter(
-    (booking) => booking.reference !== id,
-  );
-
-  storeDemoBookings(nextBookings);
-
   try {
     await fetchSupabaseApi("/api/admin/bookings", {
       body: { reference: id },
@@ -707,12 +660,10 @@ export async function deleteBooking(id: string) {
     console.error("[Zingara Supabase] Failed to delete booking", error);
   }
 
-  return nextBookings;
+  return getBookings();
 }
 
 export async function saveBookings(bookings: DemoBooking[]) {
-  storeDemoBookings(bookings);
-
   await Promise.all(
     bookings.map(async (booking) => {
       try {

@@ -41,49 +41,6 @@ type SupabaseTicketRow = {
   ticket_code: string;
 };
 
-const localTicketValidationsStorageKey = "zingara-ticket-validations";
-
-function getLocalTicketValidations() {
-  if (typeof window === "undefined") {
-    return [] as TicketValidationRecord[];
-  }
-
-  try {
-    const storedValidations = window.localStorage.getItem(
-      localTicketValidationsStorageKey,
-    );
-    const parsedValidations = storedValidations
-      ? (JSON.parse(storedValidations) as unknown)
-      : [];
-
-    return Array.isArray(parsedValidations)
-      ? (parsedValidations as TicketValidationRecord[])
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function storeLocalTicketValidation(validation: TicketValidationRecord) {
-  if (typeof window === "undefined") {
-    return validation;
-  }
-
-  const nextValidations = [
-    validation,
-    ...getLocalTicketValidations().filter(
-      (currentValidation) => currentValidation.id !== validation.id,
-    ),
-  ];
-
-  window.localStorage.setItem(
-    localTicketValidationsStorageKey,
-    JSON.stringify(nextValidations),
-  );
-
-  return validation;
-}
-
 function toTicketValidationRecord(
   row: SupabaseTicketValidationRow,
 ): TicketValidationRecord {
@@ -139,13 +96,12 @@ async function getTicketValidationRows() {
 
 export async function getTicketValidations() {
   const rows = await getTicketValidationRows();
-  const localValidations = getLocalTicketValidations();
 
   if (!rows) {
-    return localValidations;
+    return [];
   }
 
-  return [...rows.map(toTicketValidationRecord), ...localValidations];
+  return rows.map(toTicketValidationRecord);
 }
 
 export async function createTicketValidation({
@@ -173,7 +129,7 @@ export async function createTicketValidation({
     validatedAt,
   };
   if (!booking) {
-    return storeLocalTicketValidation(fallbackValidation);
+    return fallbackValidation;
   }
 
   try {
@@ -196,6 +152,6 @@ export async function createTicketValidation({
       : fallbackValidation;
   } catch (error) {
     console.error("[Zingara Supabase] Failed to create ticket validation", error);
-    return storeLocalTicketValidation(fallbackValidation);
+    return fallbackValidation;
   }
 }
