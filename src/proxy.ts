@@ -153,6 +153,20 @@ function passwordPage(request: NextRequest, error = false) {
         </form>
       </section>
     </main>
+    <script>
+      (() => {
+        const fragment = window.location.hash || "";
+        if (
+          fragment &&
+          /(?:access_token|refresh_token|type=invite|type=recovery)/.test(fragment)
+        ) {
+          window.sessionStorage.setItem(
+            "zingara-supabase-auth-fragment",
+            fragment,
+          );
+        }
+      })();
+    </script>
   </body>
 </html>`,
     {

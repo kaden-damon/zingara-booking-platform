@@ -74,3 +74,28 @@ export async function signOutAdmin() {
     console.error("[Zingara Supabase Auth] Sign out failed", error);
   }
 }
+
+export async function updateAdminPassword(password: string) {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    return {
+      error: "Supabase is not configured for this environment.",
+    };
+  }
+
+  const { error } = await supabase.auth.updateUser({
+    password,
+  });
+
+  if (error) {
+    console.error("[Zingara Supabase Auth] Password update failed", error);
+    return {
+      error: error.message,
+    };
+  }
+
+  return {
+    error: "",
+  };
+}

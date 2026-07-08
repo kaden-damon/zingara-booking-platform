@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import AuthRedirectHandler from "./AuthRedirectHandler";
 import EntryGateClient from "./EntryGateClient";
 
 export const metadata: Metadata = {
@@ -10,6 +11,7 @@ export const metadata: Metadata = {
 export default function Home() {
   return (
     <main className="min-h-screen overflow-hidden bg-black text-white">
+      <AuthRedirectHandler />
       <section className="mx-auto flex min-h-screen w-full max-w-[132rem] flex-col items-center px-0 pb-9 pt-10 sm:px-5 sm:pt-12 lg:px-0 lg:pt-[5.55rem]">
         <div className="animate-[fadeIn_900ms_ease-out_both] text-center">
           <h1
