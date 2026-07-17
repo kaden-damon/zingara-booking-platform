@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import AuthRedirectHandler from "./AuthRedirectHandler";
 import EntryGateClient from "./EntryGateClient";
+import PaymentBrandMarks from "./components/PaymentBrandMarks";
+import { royalDecrees } from "../lib/royalDecrees";
 
 export const metadata: Metadata = {
   title: "ENTRY GATE | The Royal Countess Zingara",
@@ -39,11 +42,47 @@ export default function Home() {
         <EntryGateClient />
 
         <footer
-          className="mt-auto pt-10 text-center text-[0.74rem] leading-relaxed text-white/42 sm:pt-12"
+          className="mt-auto pt-10 text-center text-[0.74rem] leading-relaxed text-white/80 sm:pt-12"
           style={{
             fontFamily: "var(--font-zingara-subheading), Georgia, serif",
           }}
         >
+          <div className="mx-auto mb-5 max-w-4xl">
+            <Link
+              href="/royal-decrees"
+              className="text-[0.82rem] uppercase tracking-[0.18em] text-[#F2D66C] transition hover:text-white"
+            >
+              Royal Decrees
+            </Link>
+            <nav
+              aria-label="Royal Decrees"
+              className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2 text-[0.68rem] uppercase tracking-[0.12em] text-white/76"
+            >
+              {royalDecrees.map((decree) => (
+                <Link
+                  key={decree.slug}
+                  href={decree.href}
+                  className="transition hover:text-[#F2D66C]"
+                >
+                  {decree.title === "Booking & Cancellation Policy"
+                    ? "Refund & Cancellation"
+                    : decree.title === "Contact & Company Information"
+                      ? "Contact"
+                      : decree.title === "Access to Information (PAIA)"
+                        ? "PAIA Manual"
+                      : decree.title}
+                </Link>
+              ))}
+            </nav>
+            <div className="mx-auto mt-4 max-w-3xl">
+              <p className="text-center text-[0.62rem] uppercase tracking-[0.16em] text-[#F2D66C]">
+                Accepted Payment Methods
+              </p>
+              <div className="mt-2">
+                <PaymentBrandMarks compact />
+              </div>
+            </div>
+          </div>
           <p>© 2026 House of Zingara.</p>
           <p>All rights reserved by royal decree</p>
         </footer>

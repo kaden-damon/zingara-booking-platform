@@ -31,6 +31,10 @@ const navigationItems = [
     label: "Corporate Booking",
   },
   {
+    href: "/royal-decrees",
+    label: "Royal Decrees",
+  },
+  {
     href: "/admin",
     label: "Admin Login",
   },
@@ -89,6 +93,8 @@ export default function ZingaraHeader() {
     pathname.startsWith("/book/") ||
     pathname === "/find-booking" ||
     pathname.startsWith("/find-booking/") ||
+    pathname === "/royal-decrees" ||
+    pathname.startsWith("/royal-decrees/") ||
     pathname === "/admin" ||
     pathname.startsWith("/admin/");
 

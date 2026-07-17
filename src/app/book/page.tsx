@@ -8,6 +8,7 @@ import {
 } from "react";
 import QRCode from "qrcode";
 
+import PaymentBrandMarks from "../components/PaymentBrandMarks";
 import ScannableQrCode from "../components/ScannableQrCode";
 import {
   registerZingaraPushSubscription,
@@ -750,6 +751,8 @@ export default function BookingPage() {
   const [paymentRedirectStatus, setPaymentRedirectStatus] = useState("");
   const [isPayFastRedirecting, setIsPayFastRedirecting] =
     useState(false);
+  const [hasAcceptedBookingTerms, setHasAcceptedBookingTerms] =
+    useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [selectedAddonIds] = useState<string[]>([]);
   const [tables, setTables] = useState<DemoTable[]>(() =>
@@ -1286,6 +1289,7 @@ export default function BookingPage() {
 
     setBookingReference(null);
     setAllocatedTableNumber(null);
+    setHasAcceptedBookingTerms(false);
     setIsConfirmationOpen(true);
   }
 
@@ -1335,6 +1339,13 @@ export default function BookingPage() {
         tables,
       )
     ) {
+      return;
+    }
+
+    if (!hasAcceptedBookingTerms) {
+      setPaymentRedirectStatus(
+        "Please agree to the Royal Decrees before continuing.",
+      );
       return;
     }
 
@@ -3156,6 +3167,57 @@ export default function BookingPage() {
                 </p>
               )}
 
+              <div className="rounded-xl border border-[#D8C36A]/20 bg-black/25 p-3 text-center sm:rounded-2xl sm:p-4">
+                <p className="text-center text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                  Accepted Secure Payment Methods
+                </p>
+                <div className="mt-3">
+                  <PaymentBrandMarks />
+                </div>
+              </div>
+
+              <label className="flex gap-3 rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3 text-sm leading-6 text-zinc-300 sm:rounded-2xl sm:p-4">
+                <input
+                  required
+                  type="checkbox"
+                  checked={hasAcceptedBookingTerms}
+                  onChange={(event) => {
+                    setHasAcceptedBookingTerms(event.target.checked);
+                    if (event.target.checked) {
+                      setPaymentRedirectStatus("");
+                    }
+                  }}
+                  className="mt-1 h-4 w-4 shrink-0 accent-[#D8C36A]"
+                />
+                <span>
+                  I have read and agree to the{" "}
+                  <Link
+                    href="/royal-decrees/terms-and-conditions"
+                    target="_blank"
+                    className="font-semibold text-[#F2D66C] underline decoration-[#D8C36A]/45 underline-offset-4 transition hover:text-white"
+                  >
+                    Terms & Conditions
+                  </Link>
+                  ,{" "}
+                  <Link
+                    href="/royal-decrees/booking-terms"
+                    target="_blank"
+                    className="font-semibold text-[#F2D66C] underline decoration-[#D8C36A]/45 underline-offset-4 transition hover:text-white"
+                  >
+                    Booking Terms
+                  </Link>
+                  {" "}and{" "}
+                  <Link
+                    href="/royal-decrees/booking-and-cancellation-policy"
+                    target="_blank"
+                    className="font-semibold text-[#F2D66C] underline decoration-[#D8C36A]/45 underline-offset-4 transition hover:text-white"
+                  >
+                    Booking & Cancellation Policy
+                  </Link>
+                  .
+                </span>
+              </label>
+
               {bookingReference && (
                 <div className="space-y-4 sm:space-y-5">
                   <div className="rounded-xl border border-emerald-400/40 bg-emerald-950/30 p-3.5 sm:rounded-2xl sm:p-5">
@@ -3409,7 +3471,8 @@ export default function BookingPage() {
                 aria-busy={isPayFastRedirecting}
                 disabled={
                   !selectedShow ||
-                  isPayFastRedirecting
+                  isPayFastRedirecting ||
+                  !hasAcceptedBookingTerms
                 }
                 className="inline-flex w-full items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"
               >
