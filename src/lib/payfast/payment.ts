@@ -48,6 +48,21 @@ export function createPayFastPaymentData(
   return appendPayFastSignature(data, config.passphrase);
 }
 
+export function createPayFastResultUrl(
+  baseUrl: string,
+  payment: "cancelled" | "failed" | "return",
+  bookingReference: string,
+) {
+  const url = new URL(baseUrl);
+
+  url.searchParams.delete("payment");
+  url.searchParams.delete("booking");
+  url.searchParams.set("payment", payment);
+  url.searchParams.set("booking", bookingReference);
+
+  return url.toString();
+}
+
 export function getPayFastPaymentFormAction(
   config: PayFastConfig = getPayFastConfig(),
 ) {

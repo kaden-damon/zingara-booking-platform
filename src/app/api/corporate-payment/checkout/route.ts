@@ -1,6 +1,7 @@
 import { getPayFastConfig } from "@/lib/payfast/config";
 import {
   createPayFastPaymentData,
+  createPayFastResultUrl,
   getPayFastPaymentFormAction,
 } from "@/lib/payfast/payment";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
@@ -116,9 +117,17 @@ export async function POST(request: Request) {
 
     const payFastConfig = {
       ...config,
-      cancelUrl: config.cancelUrl,
+      cancelUrl: createPayFastResultUrl(
+        config.cancelUrl,
+        "cancelled",
+        bookingReference,
+      ),
       notifyUrl: config.notifyUrl,
-      returnUrl: config.returnUrl,
+      returnUrl: createPayFastResultUrl(
+        config.returnUrl,
+        "return",
+        bookingReference,
+      ),
     };
     const { firstName, lastName } = splitName(booking.customer.name);
     const paymentData = createPayFastPaymentData(

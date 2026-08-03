@@ -1,6 +1,7 @@
 import { getPayFastConfig } from "@/lib/payfast/config";
 import {
   createPayFastPaymentData,
+  createPayFastResultUrl,
   getPayFastPaymentFormAction,
 } from "@/lib/payfast/payment";
 
@@ -54,9 +55,17 @@ export async function POST(request: Request) {
 
     const payFastConfig = {
       ...config,
-      cancelUrl: config.cancelUrl,
+      cancelUrl: createPayFastResultUrl(
+        config.cancelUrl,
+        "cancelled",
+        body.bookingReference,
+      ),
       notifyUrl: config.notifyUrl,
-      returnUrl: config.returnUrl,
+      returnUrl: createPayFastResultUrl(
+        config.returnUrl,
+        "return",
+        body.bookingReference,
+      ),
     };
     const { firstName, lastName } = splitName(body.customer?.name);
     const paymentData = createPayFastPaymentData(
