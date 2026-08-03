@@ -646,6 +646,23 @@ export async function updateBooking(booking: DemoBooking) {
   return booking;
 }
 
+export async function persistBookingCancellation(booking: DemoBooking) {
+  try {
+    await fetchSupabaseApi("/api/admin/bookings", {
+      body: {
+        action: "cancel",
+        booking,
+      },
+      method: "PATCH",
+    });
+  } catch (error) {
+    console.error("[Zingara Supabase] Failed to cancel booking", error);
+    throw error;
+  }
+
+  return getBookings();
+}
+
 export async function deleteBooking(id: string) {
   try {
     await fetchSupabaseApi("/api/admin/bookings", {

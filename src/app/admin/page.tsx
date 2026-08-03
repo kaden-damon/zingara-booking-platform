@@ -32,6 +32,7 @@ import {
 } from "../../lib/browserNotifications";
 import {
   getBookings,
+  persistBookingCancellation,
   saveBookings as persistBookings,
 } from "../../lib/supabase/bookings";
 import {
@@ -8355,8 +8356,10 @@ export default function AdminDashboardPage() {
     }
 
     releaseBookingTable(booking);
+    const cancelledAt = new Date().toISOString();
     const cancelledBooking = {
       ...booking,
+      cancelledAt,
       cancellationReason: reason,
       lifecycleHistory: [
         createLifecycleEvent(
@@ -8378,19 +8381,28 @@ export default function AdminDashboardPage() {
       },
     );
 
-    saveBookings(
-      bookings.map((currentBooking) =>
-        currentBooking.reference === booking.reference
-          ? {
-              ...cancelledBooking,
-              communicationHistory: [
-                cancellationRecord,
-                ...(currentBooking.communicationHistory ?? []),
-              ],
-            }
-          : currentBooking,
-      ),
+    const nextCancelledBooking = {
+      ...cancelledBooking,
+      communicationHistory: [
+        cancellationRecord,
+        ...(booking.communicationHistory ?? []),
+      ],
+    };
+    const nextBookings = bookings.map((currentBooking) =>
+      currentBooking.reference === booking.reference
+        ? nextCancelledBooking
+        : currentBooking,
     );
+
+    setBookings(nextBookings);
+    void persistBookingCancellation(nextCancelledBooking)
+      .then((persistedBookings) => {
+        setBookings(persistedBookings);
+        showWorkflowToast("✓ Saved · Booking cancelled");
+      })
+      .catch(() => {
+        showWorkflowToast("⚠ Could not save");
+      });
     void sendZingaraBrowserNotification("booking-cancelled");
     void sendZingaraStaffPushNotification("booking-cancelled", {
       bookingReference: booking.reference,

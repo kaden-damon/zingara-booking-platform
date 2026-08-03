@@ -478,6 +478,7 @@ export type DemoBooking = {
   lifecycleHistory?: BookingLifecycleEvent[];
   operationalNotes?: string;
   cancellationReason?: string;
+  cancelledAt?: string;
   refundNotes?: string;
   arrivalTime?: string;
   communicationHistory: CommunicationRecord[];
@@ -1426,6 +1427,7 @@ function normalizeDemoBooking(booking: DemoBooking) {
     ],
     operationalNotes: booking.operationalNotes ?? "",
     cancellationReason: booking.cancellationReason ?? "",
+    cancelledAt: booking.cancelledAt,
     refundNotes: booking.refundNotes ?? "",
     communicationHistory: (
       Array.isArray(booking.communicationHistory)
