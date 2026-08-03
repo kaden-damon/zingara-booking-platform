@@ -37,6 +37,7 @@ export function getPayFastConfig(
   const mode = normalizeMode(env.PAYFAST_MODE);
   const merchantId = readEnvValue(env, "PAYFAST_MERCHANT_ID");
   const merchantKey = readEnvValue(env, "PAYFAST_MERCHANT_KEY");
+  const passphrase = readEnvValue(env, "PAYFAST_PASSPHRASE");
   const returnUrl = readEnvValue(env, "PAYFAST_RETURN_URL");
   const cancelUrl = readEnvValue(env, "PAYFAST_CANCEL_URL");
   const notifyUrl = readEnvValue(env, "PAYFAST_NOTIFY_URL");
@@ -45,14 +46,19 @@ export function getPayFastConfig(
   return {
     cancelUrl,
     configured: Boolean(
-      merchantId && merchantKey && returnUrl && cancelUrl && notifyUrl,
+      merchantId &&
+        merchantKey &&
+        returnUrl &&
+        cancelUrl &&
+        notifyUrl &&
+        passphrase,
     ),
     merchantId,
     merchantKey,
     mode,
     notifyUrl,
     onsiteProcessUrl: urls.onsiteProcessUrl,
-    passphrase: readEnvValue(env, "PAYFAST_PASSPHRASE"),
+    passphrase,
     processUrl: urls.processUrl,
     returnUrl,
     validateUrl: urls.validateUrl,

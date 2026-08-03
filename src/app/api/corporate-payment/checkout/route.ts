@@ -24,14 +24,6 @@ type BookingRow = {
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
 
-function getBaseUrl(request: Request) {
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const forwardedProto = request.headers.get("x-forwarded-proto") ?? "https";
-  const host = forwardedHost ?? request.headers.get("host");
-
-  return host ? `${forwardedProto}://${host}` : new URL(request.url).origin;
-}
-
 function splitName(name: string | undefined) {
   const trimmedName = name?.trim() ?? "";
   const [firstName = "", ...surnameParts] = trimmedName.split(/\s+/);
@@ -114,23 +106,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const baseUrl = getBaseUrl(request);
     const config = getPayFastConfig();
+    if (!config.configured) {
+      return Response.json(
+        { error: "Payment checkout is not configured." },
+        { status: 503 },
+      );
+    }
+
     const payFastConfig = {
       ...config,
-      cancelUrl:
-        config.cancelUrl ||
-        `${baseUrl}/book?payment=cancelled&booking=${encodeURIComponent(
-          bookingReference,
-        )}`,
-      merchantId: config.merchantId || "10000100",
-      merchantKey: config.merchantKey || "46f0cd694581a",
-      notifyUrl: config.notifyUrl || `${baseUrl}/api/payfast/itn`,
-      returnUrl:
-        config.returnUrl ||
-        `${baseUrl}/book?payment=return&booking=${encodeURIComponent(
-          bookingReference,
-        )}`,
+      cancelUrl: config.cancelUrl,
+      notifyUrl: config.notifyUrl,
+      returnUrl: config.returnUrl,
     };
     const { firstName, lastName } = splitName(booking.customer.name);
     const paymentData = createPayFastPaymentData(

@@ -1454,7 +1454,7 @@ export default function BookingPage() {
         );
       }
 
-      setPaymentRedirectStatus("Redirecting to PayFast sandbox checkout...");
+      setPaymentRedirectStatus("Redirecting to secure PayFast checkout...");
       submitPayFastCheckoutForm(checkout.actionUrl, checkout.fields);
     } catch (error) {
       const message =
