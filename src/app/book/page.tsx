@@ -20,6 +20,7 @@ import { createWaitlistEntry } from "../../lib/supabase/waitlist";
 import {
   type BookingAddon,
   type CustomerInfo,
+  type DemoBooking,
   type DemoTable,
   type DemoWaitlistEntry,
   type PaymentOption,
@@ -65,6 +66,42 @@ type PayFastCheckoutResponse = {
 };
 
 type EntryLocationKey = "cape-town" | "johannesburg";
+
+type PostPaymentStatus =
+  | "idle"
+  | "confirming"
+  | "timeout"
+  | "cancelled"
+  | "failed";
+
+type BookingStatusLookupRow = {
+  amount_paid?: number;
+  balance_outstanding?: number;
+  booking_reference: string;
+  booking_status: string;
+  guest_count?: number;
+  notes?: string | null;
+  payment_status: string;
+  total_amount?: number;
+};
+
+const bookingMetadataPrefix = "__zingara_booking_meta__:";
+
+function parseReturnedBooking(
+  row: BookingStatusLookupRow,
+): DemoBooking | null {
+  if (!row.notes?.startsWith(bookingMetadataPrefix)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(
+      row.notes.slice(bookingMetadataPrefix.length),
+    ) as DemoBooking;
+  } catch {
+    return null;
+  }
+}
 
 function getPlatformTicketUrl(reference: string) {
   const ticketUrl = getTicketUrl(reference);
@@ -749,6 +786,10 @@ export default function BookingPage() {
   const [paymentOption, setPaymentOption] =
     useState<PaymentOption>("full");
   const [paymentRedirectStatus, setPaymentRedirectStatus] = useState("");
+  const [postPaymentStatus, setPostPaymentStatus] =
+    useState<PostPaymentStatus>("idle");
+  const [postPaymentBookingReference, setPostPaymentBookingReference] =
+    useState("");
   const [isPayFastRedirecting, setIsPayFastRedirecting] =
     useState(false);
   const [hasAcceptedBookingTerms, setHasAcceptedBookingTerms] =
@@ -1231,19 +1272,21 @@ export default function BookingPage() {
     }
 
     if (paymentState === "cancelled") {
-      setPaymentRedirectStatus(
-        booking
-          ? `PayFast checkout was cancelled for ${booking}. Your booking remains pending payment.`
-          : "PayFast checkout was cancelled. Your booking remains pending payment.",
-      );
+      setPostPaymentBookingReference(booking ?? "");
+      setPostPaymentStatus("cancelled");
+      setPaymentRedirectStatus("");
+    }
+
+    if (paymentState === "failed") {
+      setPostPaymentBookingReference(booking ?? "");
+      setPostPaymentStatus("failed");
+      setPaymentRedirectStatus("");
     }
 
     if (paymentState === "return") {
-      setPaymentRedirectStatus(
-        booking
-          ? `Payment submitted successfully for ${booking}. Your booking will be confirmed once PayFast notifies Zingara.`
-          : "Payment submitted successfully. Your booking will be confirmed once PayFast notifies Zingara.",
-      );
+      setPostPaymentBookingReference(booking ?? "");
+      setPostPaymentStatus(booking ? "confirming" : "timeout");
+      setPaymentRedirectStatus("");
     }
   }, []);
 
@@ -1271,6 +1314,128 @@ export default function BookingPage() {
       setSelectedShowDate("");
     }
   }, [selectedEntryLocation, selectedShowDate, selectedShowId, showDateSet, shows]);
+
+  useEffect(() => {
+    if (
+      postPaymentStatus !== "confirming" ||
+      !postPaymentBookingReference
+    ) {
+      return;
+    }
+
+    let isActive = true;
+    let elapsedMs = 0;
+
+    async function checkBookingStatus() {
+      try {
+        const response = await fetch(
+          `/api/admin/bookings?reference=${encodeURIComponent(
+            postPaymentBookingReference,
+          )}`,
+          { cache: "no-store" },
+        );
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json()) as {
+          rows?: BookingStatusLookupRow[];
+        };
+        const row = payload.rows?.[0];
+
+        if (!row) {
+          return;
+        }
+
+        if (
+          row.booking_status === "cancelled" ||
+          row.payment_status === "failed" ||
+          row.payment_status === "cancelled"
+        ) {
+          setPostPaymentStatus("failed");
+          return;
+        }
+
+        const isConfirmed =
+          row.booking_status === "confirmed" ||
+          row.payment_status === "fully_paid" ||
+          row.payment_status === "deposit_paid";
+
+        if (!isConfirmed) {
+          return;
+        }
+
+        const returnedBooking = parseReturnedBooking(row);
+
+        if (returnedBooking) {
+          const returnedShow = shows.find(
+            (show) => show.id === returnedBooking.showId,
+          );
+          const returnedZone =
+            seatingZones.find(
+              (zone) => zone.id === returnedBooking.zoneId,
+            ) ??
+            seatingZones.find(
+              (zone) => zone.title === returnedBooking.zoneTitle,
+            ) ??
+            null;
+
+          if (returnedBooking.showId) {
+            setSelectedShowId(returnedBooking.showId);
+          }
+          if (returnedShow) {
+            setSelectedShowDate(returnedShow.date);
+            setCalendarMonth(getMonthKey(returnedShow.date));
+            setSelectedEntryLocation(getShowVenueKey(returnedShow));
+          }
+          setPartySize(returnedBooking.partySize);
+          setSelectedZone(returnedZone);
+          setPreviewSeatingZone(returnedZone);
+          if (returnedBooking.customer) {
+            setCustomerInfo(returnedBooking.customer);
+          }
+          setCustomerNotes(returnedBooking.operationalNotes ?? "");
+          setPaymentOption(returnedBooking.paymentOption ?? "full");
+          setAllocatedTableNumber(returnedBooking.tableNumber);
+        } else {
+          setPartySize(row.guest_count ?? partySize);
+        }
+
+        setBookingReference(row.booking_reference);
+        setShowTicketReadyPrompt(true);
+        setPostPaymentStatus("idle");
+        setPaymentRedirectStatus("");
+        setActiveBookingStep(4);
+        setIsConfirmationOpen(true);
+      } catch {
+        // Stay in the reassuring state; timeout covers slow confirmation.
+      }
+    }
+
+    void checkBookingStatus();
+
+    const intervalId = window.setInterval(() => {
+      if (!isActive) {
+        return;
+      }
+
+      elapsedMs += 2000;
+
+      if (elapsedMs >= 30000) {
+        setPostPaymentStatus("timeout");
+        window.clearInterval(intervalId);
+        return;
+      }
+
+      void checkBookingStatus();
+    }, 2000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(intervalId);
+    };
+  }, [partySize, postPaymentBookingReference, postPaymentStatus, shows]);
 
   function handleContinueBooking() {
     if (
@@ -1762,9 +1927,109 @@ export default function BookingPage() {
   const royalBalconyZone = seatingZones.find(
     (zone) => zone.id === "royal-balcony",
   );
+  const retryBookingHref = selectedEntryLocation
+    ? `/book?location=${selectedEntryLocation}`
+    : "/book";
+
+  function renderPostPaymentExperience() {
+    if (postPaymentStatus === "idle") {
+      return null;
+    }
+
+    const isConfirming = postPaymentStatus === "confirming";
+    const isTimeout = postPaymentStatus === "timeout";
+    const isProblem =
+      postPaymentStatus === "cancelled" || postPaymentStatus === "failed";
+    const title = isConfirming
+      ? "Confirming your payment..."
+      : isTimeout
+        ? "We're still confirming your payment."
+        : postPaymentStatus === "cancelled"
+          ? "Payment was cancelled."
+          : "Payment could not be confirmed.";
+
+    return (
+      <div className="fixed inset-0 z-[70] grid place-items-center overflow-y-auto bg-black/95 px-4 py-8 text-white backdrop-blur-xl">
+        <section className="w-full max-w-2xl rounded-[2rem] border border-[#D8C36A]/35 bg-[radial-gradient(circle_at_top,#231A0A_0%,#101010_46%,#050505_100%)] p-6 text-center shadow-[0_0_80px_rgba(216,195,106,0.18)] sm:p-10">
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-[#D8C36A]/45 bg-[#D8C36A]/10 shadow-[0_0_34px_rgba(216,195,106,0.2)]">
+            {isConfirming ? (
+              <span
+                aria-hidden="true"
+                className="h-7 w-7 animate-spin rounded-full border-2 border-[#D8C36A]/30 border-t-[#F2D66C]"
+              />
+            ) : (
+              <span className="text-2xl" aria-hidden="true">
+                {isTimeout ? "✓" : "!"}
+              </span>
+            )}
+          </div>
+
+          <p className="mt-6 text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
+            PayFast Payment
+          </p>
+          <h2 className="mt-3 text-3xl font-bold sm:text-5xl">
+            {title}
+          </h2>
+
+          {postPaymentBookingReference && (
+            <p className="mt-4 font-mono text-sm font-semibold text-[#F2D66C] sm:text-base">
+              {postPaymentBookingReference}
+            </p>
+          )}
+
+          {isConfirming && (
+            <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-zinc-300 sm:text-lg sm:leading-8">
+              We're securely confirming your payment with PayFast. This
+              usually takes only a few seconds. Please do not refresh or
+              close this page.
+            </p>
+          )}
+
+          {isTimeout && (
+            <div className="mx-auto mt-6 max-w-xl space-y-4 text-base leading-7 text-zinc-300 sm:text-lg sm:leading-8">
+              <p>Your payment has been received.</p>
+              <p>
+                There is no need to pay again. Your booking confirmation
+                and tickets will be emailed to you automatically once
+                confirmation has completed.
+              </p>
+            </div>
+          )}
+
+          {isProblem && (
+            <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-zinc-300 sm:text-lg sm:leading-8">
+              Your booking has not been confirmed. You can try the secure
+              payment again, or find your booking to check its latest
+              status.
+            </p>
+          )}
+
+          {(isTimeout || isProblem) && (
+            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+              {isProblem && (
+                <Link
+                  href={retryBookingHref}
+                  className="rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]"
+                >
+                  Try Again
+                </Link>
+              )}
+              <Link
+                href="/find-booking"
+                className="rounded-full border border-white/15 px-6 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white hover:text-black"
+              >
+                Find My Booking
+              </Link>
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }
 
   return (
     <main className="relative isolate z-10 min-h-screen overflow-x-hidden bg-black px-3 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-6 text-white sm:px-6 sm:py-14 lg:py-16">
+      {renderPostPaymentExperience()}
       <div className="relative z-10 mx-auto max-w-5xl">
         <h1 className="mb-3.5 text-left text-2xl font-bold min-[390px]:text-3xl sm:mb-4 sm:text-5xl lg:text-6xl">
           Book Your Experience
@@ -3225,7 +3490,7 @@ export default function BookingPage() {
                       Step 6 · Complete
                     </p>
                         <p className="mt-1 text-base font-bold text-white">
-                          Payment Approved
+                          Booking Confirmed
                         </p>
                     <div className="mt-3 grid grid-cols-2 gap-2 sm:mt-4 sm:gap-3">
                       <div>
@@ -3378,7 +3643,7 @@ export default function BookingPage() {
                         href={getPlatformTicketUrl(bookingReference)}
                         className="inline-flex rounded-full border border-[#D8C36A]/40 px-4 py-2.5 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-5 sm:py-3 sm:text-sm"
                       >
-                        Open Live Ticket
+                        View Digital Ticket
                       </a>
                       {partySize > 1 && (
                         <a
