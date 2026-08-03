@@ -16,7 +16,6 @@ import {
   getCompactShowDateTime,
   getIncludedBookingFeeBreakdown,
   getTicketStateClasses,
-  getTicketUrl,
 } from "../../../lib/zingaraDemo";
 
 type LiveTicketClientProps = {
@@ -85,14 +84,6 @@ function getTicketState(
 
 function formatCurrency(amount: number) {
   return `R${amount.toLocaleString()}`;
-}
-
-function getAbsoluteTicketUrl(ticketCode: string) {
-  if (typeof window === "undefined") {
-    return getTicketUrl(ticketCode);
-  }
-
-  return new URL(getTicketUrl(ticketCode), window.location.origin).toString();
 }
 
 function getTicketLocation({
@@ -176,8 +167,8 @@ function createImagePdfBlob(
 ) {
   const encoder = new TextEncoder();
   const imageBytes = dataUrlToBytes(jpegDataUrl);
-  const pageWidth = 612;
-  const pageHeight = 792;
+  const pageWidth = imageWidth;
+  const pageHeight = imageHeight;
   const chunks: BlobPart[] = [];
   const offsets: number[] = [];
   let byteLength = 0;
@@ -494,8 +485,8 @@ export default function LiveTicketClient({
       [ticket.ticketCode]: "Preparing PDF...",
     }));
 
-    const width = 1224;
-    const height = 1584;
+    const width = 420;
+    const height = 760;
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
 
@@ -516,10 +507,10 @@ export default function LiveTicketClient({
       venueConfig.ticketBranding.ticketLogoUrl || venueConfig.logoUrl,
     );
 
-    const passX = 88;
-    const passY = 250;
-    const passWidth = 390;
-    const passHeight = 910;
+    const passX = 22;
+    const passY = 20;
+    const passWidth = 376;
+    const passHeight = 720;
     const cardCenter = passX + passWidth / 2;
     const showDateTime = getCompactShowDateTime(show ?? undefined);
     const [showDate, showTime] = showDateTime.includes(" · ")
@@ -531,82 +522,91 @@ export default function LiveTicketClient({
     context.fillStyle = "#050505";
     context.fillRect(0, 0, width, height);
 
-    const pageGradient = context.createLinearGradient(0, 0, 0, height);
+    const pageGradient = context.createRadialGradient(
+      cardCenter,
+      95,
+      30,
+      cardCenter,
+      180,
+      520,
+    );
 
-    pageGradient.addColorStop(0, "#100B06");
-    pageGradient.addColorStop(0.42, "#050505");
+    pageGradient.addColorStop(0, "#1B1209");
+    pageGradient.addColorStop(0.5, "#070707");
     pageGradient.addColorStop(1, "#000000");
     context.fillStyle = pageGradient;
     context.fillRect(0, 0, width, height);
 
     context.fillStyle = "#D8C36A";
-    context.fillRect(0, 0, width, 7);
+    context.fillRect(0, 0, width, 4);
 
-    if (logo) {
-      const logoWidth = 210;
-      const logoHeight = Math.min((logo.height / logo.width) * logoWidth, 108);
-
-      context.drawImage(logo, 88, 58, logoWidth, logoHeight);
-    } else {
-      context.fillStyle = "#D8C36A";
-      context.font = "400 48px Georgia, serif";
-      context.textAlign = "left";
-      context.fillText("ZINGARA", 88, 122);
-    }
-
-    context.fillStyle = "#101010";
+    context.fillStyle = "#090909";
     context.fillRect(passX, passY, passWidth, passHeight);
-    context.strokeStyle = "rgba(216,195,106,0.76)";
+    context.strokeStyle = "rgba(216,195,106,0.82)";
     context.lineWidth = 2;
     context.strokeRect(passX, passY, passWidth, passHeight);
 
-    const titleBarHeight = 58;
+    if (logo) {
+      const logoWidth = 118;
+      const logoHeight = Math.min((logo.height / logo.width) * logoWidth, 58);
+
+      context.drawImage(
+        logo,
+        cardCenter - logoWidth / 2,
+        42,
+        logoWidth,
+        logoHeight,
+      );
+    } else {
+      context.fillStyle = "#D8C36A";
+      context.font = "400 28px Georgia, serif";
+      context.textAlign = "center";
+      context.fillText("ZINGARA", cardCenter, 78);
+    }
 
     context.fillStyle = "#D8C36A";
-    context.fillRect(passX, passY, passWidth, titleBarHeight);
-    context.fillStyle = "#060606";
-    context.font = "700 27px sans-serif";
+    context.font = "700 20px Georgia, serif";
     context.textAlign = "center";
-    context.fillText("ADMISSION PASS", cardCenter, passY + 38);
+    context.fillText("ADMISSION PASS", cardCenter, 118);
 
-    const artworkY = passY + titleBarHeight;
-    const artworkHeight = 236;
+    const artworkY = 136;
+    const artworkHeight = 142;
 
     context.fillStyle = "#000000";
-    context.fillRect(passX, artworkY, passWidth, artworkHeight);
+    context.fillRect(passX + 16, artworkY, passWidth - 32, artworkHeight);
     if (artwork) {
       drawContainImage(
         context,
         artwork,
-        passX + 8,
-        artworkY + 8,
-        passWidth - 16,
-        artworkHeight - 16,
+        passX + 18,
+        artworkY + 2,
+        passWidth - 36,
+        artworkHeight - 4,
       );
     }
-    context.strokeStyle = "rgba(216,195,106,0.32)";
+    context.strokeStyle = "rgba(216,195,106,0.36)";
     context.lineWidth = 1;
-    context.strokeRect(passX + 8, artworkY + 8, passWidth - 16, artworkHeight - 16);
+    context.strokeRect(passX + 16, artworkY, passWidth - 32, artworkHeight);
 
     context.fillStyle = "#FFFFFF";
-    context.font = "700 24px sans-serif";
-    context.fillText(guestName, cardCenter, artworkY + artworkHeight + 42);
-    context.fillStyle = "#CFCFCF";
-    context.font = "400 21px sans-serif";
-    context.fillText(showDate, cardCenter, artworkY + artworkHeight + 73);
+    context.font = "700 22px Georgia, serif";
+    context.fillText(guestName, cardCenter, 316, passWidth - 48);
+    context.fillStyle = "#D8D8D8";
+    context.font = "400 15px sans-serif";
+    context.fillText(showDate, cardCenter, 342);
     if (showTime) {
-      context.fillText(showTime, cardCenter, artworkY + artworkHeight + 102);
+      context.fillText(showTime, cardCenter, 364);
     }
 
-    const qrTop = artworkY + artworkHeight + 128;
+    const qrTop = 386;
 
-    const qrValue = getAbsoluteTicketUrl(ticket.ticketCode);
+    const qrValue = ticket.ticketCode;
     const qrDataUrl = await QRCode.toDataURL(qrValue, {
       color: { dark: "#000000", light: "#FFFFFF" },
-      errorCorrectionLevel: "H",
-      margin: 2,
-      scale: 10,
-      width: 270,
+      errorCorrectionLevel: "M",
+      margin: 3,
+      scale: 8,
+      width: 190,
     });
     const qrImage = await new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image();
@@ -617,15 +617,15 @@ export default function LiveTicketClient({
     });
 
     context.fillStyle = "#FFFFFF";
-    context.fillRect(cardCenter - 143, qrTop, 286, 286);
-    context.drawImage(qrImage, cardCenter - 132, qrTop + 11, 264, 264);
+    context.fillRect(cardCenter - 101, qrTop, 202, 202);
+    context.drawImage(qrImage, cardCenter - 95, qrTop + 6, 190, 190);
 
-    const detailsTop = qrTop + 322;
+    const detailsTop = qrTop + 236;
     const detailLeft = passX + 34;
     const detailRight = passX + passWidth - 34;
 
     context.fillStyle = "#D8C36A";
-    context.font = "700 18px sans-serif";
+    context.font = "700 16px sans-serif";
     context.textAlign = "center";
     context.fillText(
       `Ticket ${ticket.index} of ${ticket.total}`,
@@ -634,52 +634,58 @@ export default function LiveTicketClient({
     );
 
     context.fillStyle = "#FFFFFF";
-    context.font = "700 20px sans-serif";
-    context.fillText(venueName, cardCenter, detailsTop + 35, passWidth - 50);
+    context.font = "700 15px sans-serif";
+    context.fillText(booking.reference, cardCenter, detailsTop + 25);
+    context.fillStyle = "#D8D8D8";
+    context.font = "400 12px monospace";
+    context.fillText(ticket.ticketCode, cardCenter, detailsTop + 45);
+    context.fillStyle = "#FFFFFF";
+    context.font = "700 14px sans-serif";
+    context.fillText(venueName, cardCenter, detailsTop + 72, passWidth - 50);
     context.fillStyle = "#CFCFCF";
-    context.font = "400 18px sans-serif";
+    context.font = "400 13px sans-serif";
     context.fillText(
       booking.zoneTitle,
       cardCenter,
-      detailsTop + 64,
+      detailsTop + 93,
       passWidth - 50,
     );
     context.fillText(
       `Table ${booking.tableNumber}`,
       cardCenter,
-      detailsTop + 92,
+      detailsTop + 113,
       passWidth - 50,
     );
 
     context.fillStyle = "rgba(216,195,106,0.08)";
-    context.fillRect(detailLeft, detailsTop + 118, detailRight - detailLeft, 50);
+    context.fillRect(detailLeft, detailsTop + 130, detailRight - detailLeft, 36);
     context.strokeStyle = tableColour.border;
     context.lineWidth = 1.5;
-    context.strokeRect(detailLeft, detailsTop + 118, detailRight - detailLeft, 50);
+    context.strokeRect(detailLeft, detailsTop + 130, detailRight - detailLeft, 36);
     context.fillStyle = tableColour.background;
     context.beginPath();
-    context.arc(detailLeft + 25, detailsTop + 143, 11, 0, Math.PI * 2);
+    context.arc(detailLeft + 22, detailsTop + 148, 8, 0, Math.PI * 2);
     context.fill();
     context.strokeStyle = tableColour.border;
     context.stroke();
 
     context.textAlign = "left";
     context.fillStyle = "#FFFFFF";
-    context.font = "700 16px sans-serif";
+    context.font = "700 12px sans-serif";
     context.fillText(
       tableColour.label,
-      detailLeft + 48,
-      detailsTop + 149,
+      detailLeft + 39,
+      detailsTop + 153,
       detailRight - detailLeft - 62,
     );
 
     context.textAlign = "center";
-    context.fillStyle = "#D8C36A";
-    context.font = "700 16px sans-serif";
+    context.fillStyle = "#CFCFCF";
+    context.font = "400 12px sans-serif";
     context.fillText(
-      `Booking ${booking.reference}`,
+      "Present this ticket at the entrance",
       cardCenter,
-      passY + passHeight - 48,
+      passY + passHeight - 22,
       passWidth - 46,
     );
 
@@ -1067,7 +1073,7 @@ export default function LiveTicketClient({
 
             <div className="flex flex-col items-center">
               <ScannableQrCode
-                value={getAbsoluteTicketUrl(activeTicket.ticketCode)}
+                value={activeTicket.ticketCode}
                 label="Scannable individual ticket QR code"
                 logoUrl={venueConfig.faviconUrl}
               />

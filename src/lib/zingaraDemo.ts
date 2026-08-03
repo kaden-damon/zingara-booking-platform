@@ -639,7 +639,33 @@ function normalizeCustomerInfo(customer?: Partial<CustomerInfo>) {
   };
 }
 
+const shortReferenceAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const shortBookingReferencePattern = /^ZNG-[A-HJ-NP-Z2-9]{6}$/;
+
+export function createShortBookingReference() {
+  let suffix = "";
+
+  for (let index = 0; index < 6; index += 1) {
+    suffix +=
+      shortReferenceAlphabet[
+        Math.floor(Math.random() * shortReferenceAlphabet.length)
+      ];
+  }
+
+  return `ZNG-${suffix}`;
+}
+
+export function isShortBookingReference(reference: string) {
+  return shortBookingReferencePattern.test(reference.trim().toUpperCase());
+}
+
 export function createTicketCode(reference: string) {
+  const normalizedReference = reference.trim().toUpperCase();
+
+  if (isShortBookingReference(normalizedReference)) {
+    return `${normalizedReference}-01`;
+  }
+
   const checksum = reference
     .split("")
     .reduce(
@@ -654,6 +680,12 @@ export function createTicketCode(reference: string) {
 }
 
 export function createGuestTicketCode(reference: string, index: number) {
+  const normalizedReference = reference.trim().toUpperCase();
+
+  if (isShortBookingReference(normalizedReference)) {
+    return `${normalizedReference}-${String(index).padStart(2, "0")}`;
+  }
+
   return `${createTicketCode(reference)}-${String(index).padStart(2, "0")}`;
 }
 
@@ -672,9 +704,14 @@ export function normalizeTicketReference(input: string) {
       url.searchParams.get("code") ??
       url.searchParams.get("reference");
 
-    return decodeURIComponent(ticketQuery ?? ticketSegment ?? trimmedInput);
+    return decodeURIComponent(
+      ticketQuery ?? ticketSegment ?? trimmedInput,
+    ).toUpperCase();
   } catch {
-    return decodeURIComponent(trimmedInput);
+    return decodeURIComponent(trimmedInput)
+      .replace(/[?#].*$/, "")
+      .replace(/\/$/, "")
+      .toUpperCase();
   }
 }
 

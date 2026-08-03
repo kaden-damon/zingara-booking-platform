@@ -22,6 +22,10 @@ function getAbsoluteQrValue(value: string) {
     return value;
   }
 
+  if (!value.startsWith("/")) {
+    return value;
+  }
+
   return new URL(value, window.location.origin).toString();
 }
 

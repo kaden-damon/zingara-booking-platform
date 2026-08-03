@@ -375,7 +375,7 @@ async function ensureTicket(
     .insert({
       booking_id: bookingId,
       issued_at: booking.ticketIssuedAt ?? new Date().toISOString(),
-      qr_payload: getTicketUrl(booking.reference),
+      qr_payload: ticketCode,
       ticket_code: ticketCode,
       ticket_status: "valid",
       ticket_url: getTicketUrl(booking.reference),

@@ -107,6 +107,7 @@ import {
   applyTableAllocation,
   communicationVariableHints,
   createCommunicationRecord,
+  createShortBookingReference,
   createTablesForShow,
   createTicketCode,
   defaultCommunicationTemplates,
@@ -5398,9 +5399,19 @@ function getNextTableId(
 }
 
 function createBookingReference() {
-  return `ZNG-${Date.now().toString(36).toUpperCase()}-${Math.floor(
-    Math.random() * 900 + 100,
-  )}`;
+  return createShortBookingReference();
+}
+
+function createAvailableBookingReference(bookings: DemoBooking[]) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const reference = createBookingReference();
+
+    if (!bookings.some((booking) => booking.reference === reference)) {
+      return reference;
+    }
+  }
+
+  throw new Error("A unique booking reference could not be generated.");
 }
 
 function canUseTableForBooking(
@@ -7152,7 +7163,7 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    const bookingReference = createBookingReference();
+    const bookingReference = createAvailableBookingReference(bookings);
     const now = new Date().toISOString();
     const pricePerPerson =
       venueSettings.zonePricing[zoneId]?.price ?? zone.price;
@@ -10036,7 +10047,7 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    const bookingReference = createBookingReference();
+    const bookingReference = createAvailableBookingReference(bookings);
     const show = shows.find((demoShow) => demoShow.id === entry.showId);
     const subtotalPrice = allocation.zone.price * entry.partySize;
     const now = new Date().toISOString();

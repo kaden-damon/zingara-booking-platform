@@ -499,7 +499,7 @@ function getTicketPayload(booking: DemoBooking, bookingId: string) {
   return {
     booking_id: bookingId,
     issued_at: booking.ticketIssuedAt ?? booking.createdAt,
-    qr_payload: getTicketUrl(booking.reference),
+    qr_payload: ticketCode,
     ticket_code: ticketCode,
     ticket_status: toSupabaseTicketStatus(booking),
     ticket_url: getTicketUrl(booking.reference),

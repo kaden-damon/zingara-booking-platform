@@ -56,7 +56,7 @@ function toTicketPayload(booking: DemoBooking, bookingId: string) {
   return {
     booking_id: bookingId,
     issued_at: booking.ticketIssuedAt ?? booking.createdAt,
-    qr_payload: getTicketUrl(booking.reference),
+    qr_payload: ticketCode,
     ticket_code: ticketCode,
     ticket_status: toSupabaseTicketStatus(booking),
     ticket_url: getTicketUrl(booking.reference),
@@ -104,7 +104,7 @@ export async function getTicket(code: string) {
         booking_id: booking.reference,
         id: booking.reference,
         issued_at: booking.ticketIssuedAt ?? booking.createdAt,
-        qr_payload: getTicketUrl(booking.reference),
+        qr_payload: booking.ticketCode ?? createTicketCode(booking.reference),
         ticket_code: booking.ticketCode ?? createTicketCode(booking.reference),
         ticket_status: toSupabaseTicketStatus(booking),
         ticket_url: getTicketUrl(booking.reference),

@@ -75,8 +75,8 @@ function getTicketUrlForCode(ticketCode: string) {
   return getTicketUrl(ticketCode);
 }
 
-function getTicketQrPayload(ticketCode: string, requestUrl: string) {
-  return new URL(getTicketUrlForCode(ticketCode), requestUrl).toString();
+function getTicketQrPayload(ticketCode: string) {
+  return ticketCode;
 }
 
 function toVenueSettings(row: SupabaseVenueSettingsRow | null | undefined) {
@@ -261,7 +261,7 @@ async function persistGuestTickets(
     const payload = {
       booking_id: bookingId,
       issued_at: issuedAt,
-      qr_payload: getTicketQrPayload(ticket.ticketCode, requestUrl),
+      qr_payload: getTicketQrPayload(ticket.ticketCode),
       ticket_code: ticket.ticketCode,
       ticket_status: ticket.status === "checked-in" ? "checked_in" : "valid",
       ticket_url: getTicketUrlForCode(ticket.ticketCode),

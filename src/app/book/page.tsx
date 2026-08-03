@@ -28,6 +28,7 @@ import {
   type DemoShow,
   type SeatingZone,
   applyTableAllocation,
+  createShortBookingReference,
   createTablesForShow,
   createTicketCode,
   defaultVenueSettings,
@@ -84,6 +85,11 @@ type BookingStatusLookupRow = {
   payment_status: string;
   total_amount?: number;
 };
+
+const nightCourtArtworkUrl =
+  "https://static.wixstatic.com/media/e3c98c_c172ded85e4844a09eae769cda2d00c8~mv2.png/v1/fill/w_1536,h_1023,al_c,q_90,enc_avif,quality_auto/Night%20Court_Postcard.png";
+const springCourtArtworkUrl =
+  "https://static.wixstatic.com/media/e3c98c_41b1137d458441d1ac0c4df8de9f4dec~mv2.png/v1/fill/w_1536,h_1023,al_c,q_90,enc_avif,quality_auto/Spring%20Court_Postcard.png";
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
 
@@ -369,10 +375,26 @@ function getAvailabilityState(
   };
 }
 
-function createBookingReference() {
-  return `ZNG-${Date.now().toString(36).toUpperCase()}-${Math.floor(
-    Math.random() * 900 + 100,
-  )}`;
+async function createBookingReference() {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const reference = createShortBookingReference();
+    const response = await fetch(
+      `/api/admin/bookings?reference=${encodeURIComponent(reference)}`,
+      { cache: "no-store" },
+    );
+
+    if (!response.ok) {
+      throw new Error("Booking reference could not be verified.");
+    }
+
+    const payload = (await response.json()) as { rows?: unknown[] };
+
+    if ((payload.rows ?? []).length === 0) {
+      return reference;
+    }
+  }
+
+  throw new Error("A unique booking reference could not be generated.");
 }
 
 function createWaitlistReference() {
@@ -611,8 +633,8 @@ function createImagePdfBlob(
 ) {
   const encoder = new TextEncoder();
   const imageBytes = dataUrlToBytes(jpegDataUrl);
-  const pageWidth = 595;
-  const pageHeight = 842;
+  const pageWidth = imageWidth;
+  const pageHeight = imageHeight;
   const chunks: BlobPart[] = [];
   const offsets: number[] = [];
   let byteLength = 0;
@@ -688,6 +710,24 @@ function loadImage(src: string) {
     image.onerror = reject;
     image.src = src;
   });
+}
+
+function drawContainImage(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const imageRatio = image.width / image.height;
+  const targetRatio = width / height;
+  const drawWidth = imageRatio > targetRatio ? width : height * imageRatio;
+  const drawHeight = imageRatio > targetRatio ? width / imageRatio : height;
+  const drawX = x + (width - drawWidth) / 2;
+  const drawY = y + (height - drawHeight) / 2;
+
+  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
 }
 
 async function loadImageFromUrl(url: string) {
@@ -1529,7 +1569,19 @@ export default function BookingPage() {
     setPaymentRedirectStatus("Preparing secure PayFast checkout...");
 
     const allocatedTable = tableAllocation.table;
-    const reference = createBookingReference();
+    let reference = "";
+
+    try {
+      reference = await createBookingReference();
+    } catch (error) {
+      console.error("[Zingara Booking] Failed to generate booking reference", error);
+      setIsPayFastRedirecting(false);
+      setPaymentRedirectStatus(
+        "We could not start your payment securely. Please try again.",
+      );
+      return;
+    }
+
     const createdAt = new Date().toISOString();
     const booking = {
       reference,
@@ -1727,8 +1779,8 @@ export default function BookingPage() {
     ticketWindow.opener = null;
 
     const canvas = document.createElement("canvas");
-    const width = 1200;
-    const height = 1700;
+    const width = 420;
+    const height = 760;
     const context = canvas.getContext("2d");
 
     if (!context) {
@@ -1742,110 +1794,177 @@ export default function BookingPage() {
     context.fillStyle = "#050505";
     context.fillRect(0, 0, width, height);
 
+    const passX = 22;
+    const passY = 20;
+    const passWidth = 376;
+    const passHeight = 720;
+    const cardCenter = passX + passWidth / 2;
+    const locationLabel = getEntryLocationLabel(selectedEntryLocation);
+    const artworkUrl =
+      selectedEntryLocation === "johannesburg"
+        ? springCourtArtworkUrl
+        : nightCourtArtworkUrl;
+    const artwork = await loadImageFromUrl(artworkUrl);
+    const ticketCode = createTicketCode(bookingReference);
+    const zoneBackground =
+      selectedZone.colour.match(/bg-\[(#[0-9A-Fa-f]{6})\]/)?.[1] ??
+      "#111111";
+    const zoneBorder =
+      selectedZone.colour.match(/border-\[(#[0-9A-Fa-f]{6})\]/)?.[1] ??
+      "#D8C36A";
+
     const gradient = context.createRadialGradient(
-      width / 2,
+      cardCenter,
+      95,
+      30,
+      cardCenter,
       180,
-      80,
-      width / 2,
-      260,
-      920,
+      520,
     );
 
-    gradient.addColorStop(0, "#2A1710");
-    gradient.addColorStop(0.55, "#111111");
-    gradient.addColorStop(1, "#050505");
+    gradient.addColorStop(0, "#1B1209");
+    gradient.addColorStop(0.5, "#070707");
+    gradient.addColorStop(1, "#000000");
     context.fillStyle = gradient;
     context.fillRect(0, 0, width, height);
+
     context.strokeStyle = "#D8C36A";
-    context.lineWidth = 4;
-    context.strokeRect(56, 56, width - 112, height - 112);
+    context.lineWidth = 2;
+    context.strokeRect(passX, passY, passWidth, passHeight);
 
     const logo = await loadImageFromUrl(
       venueConfig.ticketBranding.ticketLogoUrl || venueConfig.logoUrl,
     );
 
     if (logo) {
-      const logoWidth = 300;
-      const logoHeight = (logo.height / logo.width) * logoWidth;
+      const logoWidth = 118;
+      const logoHeight = Math.min((logo.height / logo.width) * logoWidth, 58);
 
-      context.drawImage(logo, 80, 86, logoWidth, logoHeight);
+      context.drawImage(
+        logo,
+        cardCenter - logoWidth / 2,
+        42,
+        logoWidth,
+        logoHeight,
+      );
     } else {
       context.fillStyle = "#D8C36A";
-      context.font = "700 56px serif";
-      context.fillText("ZINGARA", 80, 150);
+      context.font = "400 28px Georgia, serif";
+      context.textAlign = "center";
+      context.fillText("ZINGARA", cardCenter, 78);
     }
 
     context.fillStyle = "#D8C36A";
-    context.font = "700 28px sans-serif";
-    context.fillText("LIVE DIGITAL TICKET", 80, 285);
-    context.fillStyle = "#FFFFFF";
-    context.font = "700 54px sans-serif";
-    context.fillText(customerInfo.name || "Guest", 80, 365);
-    context.fillStyle = "#A1A1AA";
-    context.font = "400 30px sans-serif";
-    context.fillText(getCompactShowDateTime(selectedShow), 80, 420);
+    context.font = "700 20px Georgia, serif";
+    context.textAlign = "center";
+    context.fillText("ADMISSION PASS", cardCenter, 118);
 
-    const qrValue = new URL(
-      getTicketUrl(bookingReference),
-      window.location.origin,
-    ).toString();
+    const artworkY = 136;
+    const artworkHeight = 142;
+
+    context.fillStyle = "#000000";
+    context.fillRect(passX + 16, artworkY, passWidth - 32, artworkHeight);
+    if (artwork) {
+      drawContainImage(
+        context,
+        artwork,
+        passX + 18,
+        artworkY + 2,
+        passWidth - 36,
+        artworkHeight - 4,
+      );
+    }
+    context.strokeStyle = "rgba(216,195,106,0.36)";
+    context.lineWidth = 1;
+    context.strokeRect(passX + 16, artworkY, passWidth - 32, artworkHeight);
+
+    context.fillStyle = "#FFFFFF";
+    context.font = "700 22px Georgia, serif";
+    context.fillText(customerInfo.name || "Guest", cardCenter, 316, passWidth - 48);
+    context.fillStyle = "#D8D8D8";
+    context.font = "400 15px sans-serif";
+    const [showDate, showTime] = getCompactShowDateTime(selectedShow).includes(
+      " · ",
+    )
+      ? getCompactShowDateTime(selectedShow).split(" · ")
+      : [getCompactShowDateTime(selectedShow), ""];
+    context.fillText(showDate, cardCenter, 342);
+    if (showTime) {
+      context.fillText(showTime, cardCenter, 364);
+    }
+
+    const qrValue = ticketCode;
     const qrDataUrl = await QRCode.toDataURL(qrValue, {
       color: { dark: "#000000", light: "#FFFFFF" },
-      errorCorrectionLevel: "H",
-      margin: 2,
-      scale: 10,
-      width: 420,
+      errorCorrectionLevel: "M",
+      margin: 3,
+      scale: 8,
+      width: 190,
     });
     const qrImage = await loadImage(qrDataUrl);
+    const qrTop = 386;
 
     context.fillStyle = "#FFFFFF";
-    context.fillRect(690, 250, 430, 430);
-    context.drawImage(qrImage, 705, 265, 400, 400);
+    context.fillRect(cardCenter - 101, qrTop, 202, 202);
+    context.drawImage(qrImage, cardCenter - 95, qrTop + 6, 190, 190);
 
-    const detailRows = [
-      ["Booking Reference", bookingReference],
-      ["Ticket Code", createTicketCode(bookingReference)],
-      ["Seating", selectedZone.title],
-      ["Guests", `${partySize}`],
-      ["Ticket", formatCurrency(includedBookingFeeBreakdown.ticketAmount)],
-      ["Booking Fee", formatCurrency(includedBookingFeeBreakdown.bookingFee)],
-      ["Service Fee", formatCurrency(serviceFeeAmount)],
-      ["Total Due", formatCurrency(total)],
-      ["Payment", paymentOption === "deposit" ? "Deposit Paid" : "Paid"],
-      ["Paid Today", formatCurrency(amountDueNow)],
-      ["Balance", formatCurrency(balanceDue)],
-    ].filter(
-      ([label, value]) =>
-        label !== "Service Fee" ||
-        value !== formatCurrency(0),
+    const detailsTop = qrTop + 236;
+
+    context.fillStyle = "#D8C36A";
+    context.font = "700 16px sans-serif";
+    context.fillText(`Ticket 1 of ${partySize}`, cardCenter, detailsTop);
+    context.fillStyle = "#FFFFFF";
+    context.font = "700 15px sans-serif";
+    context.fillText(bookingReference, cardCenter, detailsTop + 25);
+    context.fillStyle = "#D8D8D8";
+    context.font = "400 12px monospace";
+    context.fillText(ticketCode, cardCenter, detailsTop + 45);
+    context.fillStyle = "#FFFFFF";
+    context.font = "700 14px sans-serif";
+    context.fillText(locationLabel, cardCenter, detailsTop + 72, passWidth - 50);
+    context.fillStyle = "#CFCFCF";
+    context.font = "400 13px sans-serif";
+    context.fillText(selectedZone.title, cardCenter, detailsTop + 93, passWidth - 50);
+    context.fillText(
+      `Table ${allocatedTableNumber ?? "Assigned"}`,
+      cardCenter,
+      detailsTop + 113,
+      passWidth - 50,
     );
 
-    let y = 570;
+    const detailLeft = passX + 34;
+    const detailRight = passX + passWidth - 34;
 
-    for (const [label, value] of detailRows) {
-      context.fillStyle = "#71717A";
-      context.font = "700 24px sans-serif";
-      context.fillText(label.toUpperCase(), 80, y);
-      context.fillStyle = "#FFFFFF";
-      context.font = "700 36px sans-serif";
-      context.fillText(value, 80, y + 46);
-      y += 96;
-    }
+    context.fillStyle = "rgba(216,195,106,0.08)";
+    context.fillRect(detailLeft, detailsTop + 130, detailRight - detailLeft, 36);
+    context.strokeStyle = zoneBorder;
+    context.lineWidth = 1.5;
+    context.strokeRect(detailLeft, detailsTop + 130, detailRight - detailLeft, 36);
+    context.fillStyle = zoneBackground;
+    context.beginPath();
+    context.arc(detailLeft + 22, detailsTop + 148, 8, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = zoneBorder;
+    context.stroke();
 
-    const ticketUrlY = Math.max(y + 24, 1420);
-    context.fillStyle = "#D8C36A";
-    context.font = "700 28px sans-serif";
-    context.fillText("LIVE TICKET URL", 80, ticketUrlY);
-    context.fillStyle = "#A1A1AA";
-    context.font = "400 26px sans-serif";
-    context.fillText(qrValue, 80, ticketUrlY + 45, 1040);
-    context.fillStyle = "#71717A";
-    context.font = "400 22px sans-serif";
+    context.textAlign = "left";
+    context.fillStyle = "#FFFFFF";
+    context.font = "700 12px sans-serif";
     context.fillText(
-      "This PDF is a demo ticket export. The live ticket URL reflects the latest booking and check-in status.",
-      80,
-      ticketUrlY + 115,
-      1040,
+      `${selectedZone.title} Colour`,
+      detailLeft + 39,
+      detailsTop + 153,
+      detailRight - detailLeft - 62,
+    );
+
+    context.textAlign = "center";
+    context.fillStyle = "#CFCFCF";
+    context.font = "400 12px sans-serif";
+    context.fillText(
+      "Present this ticket at the entrance",
+      cardCenter,
+      passY + passHeight - 22,
+      passWidth - 46,
     );
 
     const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.94);
@@ -3629,7 +3748,7 @@ export default function BookingPage() {
                       </div>
 
                       <ScannableQrCode
-                        value={getTicketUrl(bookingReference)}
+                        value={createTicketCode(bookingReference)}
                         label="Scannable live ticket QR code"
                         logoUrl={venueConfig.faviconUrl}
                         className="mx-auto mb-2 w-[min(70vw,206px)] max-w-[206px] shrink-0 p-4 pb-5 md:mx-0 md:mb-0 md:w-full md:max-w-[230px]"
