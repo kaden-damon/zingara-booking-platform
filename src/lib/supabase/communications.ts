@@ -232,14 +232,35 @@ function isSameCommunication(
   row: SupabaseCommunicationRow,
   payload: Awaited<ReturnType<typeof getCommunicationPayload>>,
 ) {
+  if (
+    row.booking_id !== payload.booking_id ||
+    row.channel !== payload.channel ||
+    row.customer_id !== payload.customer_id ||
+    row.status !== "sent" ||
+    row.type !== payload.type
+  ) {
+    return false;
+  }
+
+  if (
+    [
+      "booking_confirmation",
+      "complimentary_booking",
+      "corporate_tentative_booking",
+      "payment_confirmation",
+      "refund_notice",
+      "reservation_confirmed",
+      "reservation_pending",
+      "show_reminder",
+    ].includes(payload.type)
+  ) {
+    return true;
+  }
+
   return (
-    row.booking_id === payload.booking_id &&
-    row.channel === payload.channel &&
-    row.customer_id === payload.customer_id &&
     row.message === payload.message &&
-    row.sent_at === payload.sent_at &&
     row.subject === payload.subject &&
-    row.type === payload.type
+    row.sent_at === payload.sent_at
   );
 }
 

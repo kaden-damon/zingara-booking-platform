@@ -1,5 +1,10 @@
 import nodemailer from "nodemailer";
 
+const APPLICATION_EMAIL_SENDER = {
+  address: "bookings@zingara.co.za",
+  name: "Zingara Bookings",
+} as const;
+
 type EmailSendInput = {
   message: string;
   subject?: string | null;
@@ -43,9 +48,8 @@ function getEmailConfig() {
   const secure = parseBoolean(process.env.EMAIL_SECURE, false);
   const username = process.env.EMAIL_USERNAME;
   const password = process.env.EMAIL_PASSWORD;
-  const fromName = process.env.EMAIL_FROM_NAME || "Zingara Bookings";
-  const fromAddress =
-    process.env.EMAIL_FROM_ADDRESS || "bookings@zingara.co.za";
+  const fromName = APPLICATION_EMAIL_SENDER.name;
+  const fromAddress = APPLICATION_EMAIL_SENDER.address;
 
   return {
     configured: Boolean(host && port && username && password && fromAddress),

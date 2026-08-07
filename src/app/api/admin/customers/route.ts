@@ -1,4 +1,14 @@
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import {
+  getRequestingUser,
+  getServiceClient,
+  isSuperAdminProfile,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
+import {
+  diffAuditFields,
+  recordAuditEvent,
+  tryRecordAuditEvent,
+} from "@/lib/supabase/serverAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -8,7 +18,17 @@ type CustomerWriteInput = {
   email?: string;
   mobile?: string;
   name?: string;
+  preferences?: Partial<CustomerPreferences>;
   relationshipNotes?: string;
+  vipTags?: string[];
+};
+
+type CustomerPreferences = {
+  archivedAt?: string;
+  archivedBy?: string;
+  archiveReason?: string;
+  customerKey?: string;
+  marketingPreference?: string;
   vipTags?: string[];
 };
 
@@ -18,10 +38,7 @@ type SupabaseCustomerRow = {
   first_name: string;
   id: string;
   mobile: string | null;
-  preferences: {
-    customerKey?: string;
-    vipTags?: string[];
-  } | null;
+  preferences: CustomerPreferences | null;
   relationship_notes: string | null;
   surname: string | null;
   vip_status: string | null;
@@ -29,6 +46,32 @@ type SupabaseCustomerRow = {
 
 const customerSelect =
   "id,first_name,surname,email,mobile,vip_status,preferences,relationship_notes,dietary_requirements,created_at,updated_at";
+const customerAuditFields = [
+  "first_name",
+  "surname",
+  "email",
+  "mobile",
+  "vip_status",
+  "preferences",
+  "relationship_notes",
+  "dietary_requirements",
+];
+
+async function getAuditActor(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.staffProfile || !auth.user) {
+    return {
+      staffProfile: null,
+      user: await getRequestingUser(request),
+    };
+  }
+
+  return {
+    staffProfile: auth.staffProfile,
+    user: auth.user,
+  };
+}
 
 function getCustomerKey(customer: {
   email?: string;
@@ -52,7 +95,10 @@ function splitCustomerName(name: string | undefined, fallbackKey: string) {
   };
 }
 
-function toCustomerPayload(input: CustomerWriteInput) {
+function toCustomerPayload(
+  input: CustomerWriteInput,
+  existingPreferences: CustomerPreferences | null = null,
+) {
   const customerKey =
     input.customerKey ??
     getCustomerKey({
@@ -69,8 +115,10 @@ function toCustomerPayload(input: CustomerWriteInput) {
     first_name: nameParts.firstName,
     mobile: input.mobile?.trim() || null,
     preferences: {
+      ...(existingPreferences ?? {}),
       customerKey,
       vipTags,
+      ...(input.preferences ?? {}),
     },
     relationship_notes: input.relationshipNotes ?? "",
     surname: nameParts.surname,
@@ -122,8 +170,11 @@ async function upsertCustomer(
   serviceClient: NonNullable<ReturnType<typeof getServiceClient>>,
   input: CustomerWriteInput,
 ) {
-  const payload = toCustomerPayload(input);
   const existingCustomer = await findCustomer(serviceClient, input);
+  const payload = toCustomerPayload(
+    input,
+    existingCustomer?.preferences ?? null,
+  );
 
   if (existingCustomer) {
     const mergedPayload = {
@@ -214,7 +265,44 @@ export async function POST(request: Request) {
       );
     }
 
+    const existingCustomer = await findCustomer(serviceClient, body.input);
     const row = await upsertCustomer(serviceClient, body.input);
+    const actor = await getAuditActor(request);
+    const diff = diffAuditFields(
+      existingCustomer as Record<string, unknown> | null,
+      row as Record<string, unknown> | null,
+      customerAuditFields,
+    );
+
+    try {
+      await recordAuditEvent(serviceClient, actor.staffProfile, actor.user, {
+        action: existingCustomer ? "customer.edit" : "customer.create",
+        afterValues: diff.afterValues,
+        beforeValues: diff.beforeValues,
+        changedFields:
+          diff.changedFields.length > 0 ? diff.changedFields : ["id"],
+        entityId: (row as { id?: string } | null)?.id ?? null,
+        entityReference:
+          (row as { email?: string | null; mobile?: string | null; id?: string })
+            ?.email ??
+          (row as { mobile?: string | null })?.mobile ??
+          (row as { id?: string })?.id ??
+          "unknown-customer",
+        entityType: "customer",
+        outcome: "success",
+        request,
+        sourceArea: "Customers",
+      });
+    } catch {
+      return Response.json(
+        {
+          auditError:
+            "Customer was saved, but the audit event could not be recorded.",
+          row,
+        },
+        { status: 500 },
+      );
+    }
 
     return Response.json({ row });
   } catch (error) {
@@ -239,9 +327,120 @@ export async function PATCH(request: Request) {
 
   try {
     const body = (await request.json()) as {
+      archive?: { archived?: boolean; reason?: string };
       id?: string;
       input?: CustomerWriteInput;
     };
+
+    if (body.archive) {
+      if (!body.id) {
+        return Response.json(
+          { error: "Customer id is required." },
+          { status: 400 },
+        );
+      }
+
+      const auth = await requireActiveStaff(request);
+
+      if (auth.error || !auth.staffProfile || !auth.user) {
+        return Response.json(
+          { error: "Active staff authentication is required." },
+          { status: 401 },
+        );
+      }
+
+      if (!isSuperAdminProfile(auth.staffProfile)) {
+        return Response.json(
+          { error: "Super Admin access is required." },
+          { status: 403 },
+        );
+      }
+
+      const { data: beforeCustomer, error: beforeError } = await serviceClient
+        .from("customers")
+        .select(customerSelect)
+        .eq("id", body.id)
+        .maybeSingle();
+
+      if (beforeError) {
+        throw beforeError;
+      }
+
+      if (!beforeCustomer) {
+        return Response.json(
+          { error: "Customer could not be found." },
+          { status: 404 },
+        );
+      }
+
+      const previousPreferences =
+        (beforeCustomer as SupabaseCustomerRow).preferences ?? {};
+      const nextPreferences: CustomerPreferences = {
+        ...previousPreferences,
+      };
+
+      if (body.archive.archived) {
+        nextPreferences.archivedAt = new Date().toISOString();
+        nextPreferences.archivedBy =
+          auth.staffProfile.full_name ?? auth.user.email ?? auth.staffProfile.id;
+        nextPreferences.archiveReason = body.archive.reason?.trim() || undefined;
+      } else {
+        delete nextPreferences.archivedAt;
+        delete nextPreferences.archivedBy;
+        delete nextPreferences.archiveReason;
+      }
+
+      const { data, error } = await serviceClient
+        .from("customers")
+        .update({ preferences: nextPreferences })
+        .eq("id", body.id)
+        .select(customerSelect)
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      const diff = diffAuditFields(
+        beforeCustomer as Record<string, unknown> | null,
+        data as Record<string, unknown> | null,
+        customerAuditFields,
+      );
+
+      try {
+        await recordAuditEvent(serviceClient, auth.staffProfile, auth.user, {
+          action: body.archive.archived
+            ? "customer.archive"
+            : "customer.restore",
+          afterValues: diff.afterValues,
+          beforeValues: diff.beforeValues,
+          changedFields:
+            diff.changedFields.length > 0
+              ? diff.changedFields
+              : ["preferences"],
+          entityId: body.id,
+          entityReference:
+            (data as { email?: string | null; mobile?: string | null })?.email ??
+            (data as { mobile?: string | null })?.mobile ??
+            body.id,
+          entityType: "customer",
+          outcome: "success",
+          request,
+          sourceArea: "Customers",
+        });
+      } catch {
+        return Response.json(
+          {
+            auditError:
+              "Customer archive state was updated, but the audit event could not be recorded.",
+            row: data,
+          },
+          { status: 500 },
+        );
+      }
+
+      return Response.json({ row: data });
+    }
 
     if (!body.input) {
       return Response.json(
@@ -251,20 +450,95 @@ export async function PATCH(request: Request) {
     }
 
     if (!body.id) {
+      const existingCustomer = await findCustomer(serviceClient, body.input);
       const row = await upsertCustomer(serviceClient, body.input);
+      const actor = await getAuditActor(request);
+      const diff = diffAuditFields(
+        existingCustomer as Record<string, unknown> | null,
+        row as Record<string, unknown> | null,
+        customerAuditFields,
+      );
+
+      await tryRecordAuditEvent(serviceClient, actor.staffProfile, actor.user, {
+        action: existingCustomer ? "customer.edit" : "customer.create",
+        afterValues: diff.afterValues,
+        beforeValues: diff.beforeValues,
+        changedFields:
+          diff.changedFields.length > 0 ? diff.changedFields : ["id"],
+        entityId: (row as { id?: string } | null)?.id ?? null,
+        entityReference:
+          (row as { email?: string | null; mobile?: string | null; id?: string })
+            ?.email ??
+          (row as { mobile?: string | null })?.mobile ??
+          (row as { id?: string })?.id ??
+          "unknown-customer",
+        entityType: "customer",
+        outcome: "success",
+        request,
+        sourceArea: "Customers",
+      });
 
       return Response.json({ row });
     }
 
+    const { data: beforeCustomer, error: beforeError } = await serviceClient
+      .from("customers")
+      .select(customerSelect)
+      .eq("id", body.id)
+      .maybeSingle();
+
+    if (beforeError) {
+      throw beforeError;
+    }
+
     const { data, error } = await serviceClient
       .from("customers")
-      .update(toCustomerPayload(body.input))
+      .update(
+        toCustomerPayload(
+          body.input,
+          (beforeCustomer as SupabaseCustomerRow | null)?.preferences ?? null,
+        ),
+      )
       .eq("id", body.id)
       .select(customerSelect)
       .maybeSingle();
 
     if (error) {
       throw error;
+    }
+
+    const actor = await getAuditActor(request);
+    const diff = diffAuditFields(
+      beforeCustomer as Record<string, unknown> | null,
+      data as Record<string, unknown> | null,
+      customerAuditFields,
+    );
+
+    try {
+      await recordAuditEvent(serviceClient, actor.staffProfile, actor.user, {
+        action: "customer.edit",
+        afterValues: diff.afterValues,
+        beforeValues: diff.beforeValues,
+        changedFields: diff.changedFields,
+        entityId: body.id,
+        entityReference:
+          (data as { email?: string | null; mobile?: string | null })?.email ??
+          (data as { mobile?: string | null })?.mobile ??
+          body.id,
+        entityType: "customer",
+        outcome: "success",
+        request,
+        sourceArea: "Customers",
+      });
+    } catch {
+      return Response.json(
+        {
+          auditError:
+            "Customer was updated, but the audit event could not be recorded.",
+          row: data,
+        },
+        { status: 500 },
+      );
     }
 
     return Response.json({ row: data });

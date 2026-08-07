@@ -11,6 +11,10 @@ import {
   getBookingTicketState,
   getTicketUrl,
 } from "@/lib/zingaraDemo";
+import {
+  findDuplicateSentCommunication,
+  insertCommunicationPayload,
+} from "@/lib/email/communicationIdempotency";
 import { sendZingaraEmail } from "@/lib/email/smtp";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
@@ -353,7 +357,6 @@ function isSameLifecycleEvent(
 ) {
   return (
     row.booking_id === payload.booking_id &&
-    row.created_at === payload.created_at &&
     row.from_status === payload.from_status &&
     row.note === payload.note &&
     row.to_status === payload.to_status
@@ -756,60 +759,26 @@ async function syncCommunications(
     return;
   }
 
-  const { data: rows, error: loadError } = await supabase
-    .from("communications")
-    .select("booking_id,channel,customer_id,message,sent_at,subject,type")
-    .eq("booking_id", bookingId);
+  for (const record of booking.communicationHistory ?? []) {
+    const basePayload = getCommunicationPayload(
+      record,
+      bookingId,
+      customerId,
+      showId,
+    );
+    const duplicateRow = await findDuplicateSentCommunication(supabase, {
+      ...basePayload,
+      status: "sent",
+    });
 
-  if (loadError) {
-    throw loadError;
-  }
+    if (duplicateRow) {
+      continue;
+    }
 
-  const existingRows = (rows ?? []) as Array<{
-    booking_id: string | null;
-    channel: SupabaseCommunicationChannel;
-    customer_id: string | null;
-    message: string;
-    sent_at: string | null;
-    subject: string | null;
-    type: SupabaseCommunicationType;
-  }>;
-  const payloads = (
-    await Promise.all(
-      (booking.communicationHistory ?? []).map(async (record) => {
-        const basePayload = getCommunicationPayload(
-          record,
-          bookingId,
-          customerId,
-          showId,
-        );
-        const alreadyExists = existingRows.some((row) =>
-          isSameCommunication(row, basePayload),
-        );
-
-        if (alreadyExists) {
-          return null;
-        }
-
-        return getCommunicationPayload(
-          record,
-          bookingId,
-          customerId,
-          showId,
-          await getEmailDeliveryStatus(record, booking),
-        );
-      }),
-    )
-  ).filter((payload): payload is NonNullable<typeof payload> => Boolean(payload));
-
-  if (payloads.length === 0) {
-    return;
-  }
-
-  const { error } = await supabase.from("communications").insert(payloads);
-
-  if (error) {
-    throw error;
+    await insertCommunicationPayload(supabase, {
+      ...basePayload,
+      status: await getEmailDeliveryStatus(record, booking),
+    });
   }
 }
 

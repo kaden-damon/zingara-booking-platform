@@ -1,10 +1,16 @@
 import {
   type DemoShow,
+  normalizeShowLocation,
 } from "@/lib/zingaraDemo";
 import {
   getServiceClient,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
+import {
+  diffAuditFields,
+  pickAuditFields,
+  recordAuditEvent,
+} from "@/lib/supabase/serverAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +45,15 @@ type SupabaseShowWrite = {
 };
 
 const metadataPrefix = "__zingara_show_meta__:";
+const showAuditFields = [
+  "name",
+  "description",
+  "date",
+  "time",
+  "venue",
+  "status",
+  "notes",
+];
 
 function toSupabaseStatus(
   status: DemoShow["operationalStatus"],
@@ -83,6 +98,7 @@ function toDemoStatus(
 function parseShowNotes(notes: string | null) {
   if (!notes?.startsWith(metadataPrefix)) {
     return {
+      address: "",
       internalNotes: notes ?? "",
       legacyId: "",
     };
@@ -90,16 +106,19 @@ function parseShowNotes(notes: string | null) {
 
   try {
     const parsed = JSON.parse(notes.slice(metadataPrefix.length)) as {
+      address?: string;
       internalNotes?: string;
       legacyId?: string;
     };
 
     return {
+      address: parsed.address ?? "",
       internalNotes: parsed.internalNotes ?? "",
       legacyId: parsed.legacyId ?? "",
     };
   } catch {
     return {
+      address: "",
       internalNotes: "",
       legacyId: "",
     };
@@ -108,6 +127,7 @@ function parseShowNotes(notes: string | null) {
 
 function serializeShowNotes(show: DemoShow) {
   return `${metadataPrefix}${JSON.stringify({
+    address: show.address ?? "",
     internalNotes: show.internalNotes ?? "",
     legacyId: show.id,
   })}`;
@@ -115,14 +135,18 @@ function serializeShowNotes(show: DemoShow) {
 
 function toDemoShow(row: SupabaseShowRow): DemoShow {
   const notes = parseShowNotes(row.notes);
+  const location = normalizeShowLocation(row.venue);
+  const legacyAddress = location ? "" : row.venue;
 
   return {
     archivedAt: row.status === "archived" ? row.updated_at : undefined,
+    address: notes.address || legacyAddress,
     date: row.date,
     description: row.description ?? "",
     id: notes.legacyId || row.id,
     internalNotes: notes.internalNotes,
     label: row.name,
+    location: location ?? undefined,
     operationalStatus: toDemoStatus(row.status),
     time: row.time.slice(0, 5),
     venueName: row.venue,
@@ -137,7 +161,7 @@ function toSupabaseShow(show: DemoShow): SupabaseShowWrite {
     notes: serializeShowNotes(show),
     status: show.archivedAt ? "archived" : toSupabaseStatus(show.operationalStatus),
     time: show.time,
-    venue: show.venueName ?? "Zingara",
+    venue: normalizeShowLocation(show.location ?? show.venueName) ?? "",
   };
 }
 
@@ -183,6 +207,18 @@ export async function PUT(request: Request) {
   try {
     const body = (await request.json()) as { shows?: DemoShow[] };
     const shows = body.shows ?? [];
+
+    if (
+      shows.some(
+        (show) => !normalizeShowLocation(show.location ?? show.venueName),
+      )
+    ) {
+      return Response.json(
+        { error: "Every show requires a valid Location." },
+        { status: 400 },
+      );
+    }
+
     const existingRows = await loadShowRows();
     const existingRowsByDemoId = new Map(
       existingRows.map((row) => [parseShowNotes(row.notes).legacyId || row.id, row]),
@@ -224,7 +260,89 @@ export async function PUT(request: Request) {
       }
     }
 
-    const persistedShows = (await loadShowRows()).map(toDemoShow);
+    const persistedRows = await loadShowRows();
+    const persistedShows = persistedRows.map(toDemoShow);
+    const existingRowsById = new Map(existingRows.map((row) => [row.id, row]));
+    const persistedRowsByDemoId = new Map(
+      persistedRows.map((row) => [parseShowNotes(row.notes).legacyId || row.id, row]),
+    );
+
+    try {
+      for (const show of shows) {
+        const afterRow = persistedRowsByDemoId.get(show.id);
+        const beforeRow = afterRow ? existingRowsById.get(afterRow.id) : null;
+
+        if (!afterRow) {
+          continue;
+        }
+
+        const diff = diffAuditFields(
+          beforeRow as Record<string, unknown> | null,
+          afterRow as Record<string, unknown>,
+          showAuditFields,
+        );
+
+        if (beforeRow && diff.changedFields.length === 0) {
+          continue;
+        }
+
+        await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+          action: beforeRow ? "show.edit" : "show.create",
+          afterValues:
+            diff.changedFields.length > 0
+              ? diff.afterValues
+              : pickAuditFields(afterRow as Record<string, unknown>, [
+                  "name",
+                  "date",
+                  "time",
+                  "venue",
+                  "status",
+                ]),
+          beforeValues: diff.beforeValues,
+          changedFields:
+            diff.changedFields.length > 0
+              ? diff.changedFields
+              : ["name", "date", "time", "venue"],
+          entityId: afterRow.id,
+          entityLocation: normalizeShowLocation(afterRow.venue) ?? null,
+          entityReference: parseShowNotes(afterRow.notes).legacyId || afterRow.id,
+          entityType: "show",
+          outcome: "success",
+          request,
+          sourceArea: "Shows",
+        });
+      }
+
+      for (const removedRow of removedRows) {
+        await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+          action: "show.delete",
+          beforeValues: pickAuditFields(removedRow as Record<string, unknown>, [
+            "name",
+            "date",
+            "time",
+            "venue",
+            "status",
+          ]),
+          entityId: removedRow.id,
+          entityLocation: normalizeShowLocation(removedRow.venue) ?? null,
+          entityReference: parseShowNotes(removedRow.notes).legacyId || removedRow.id,
+          entityType: "show",
+          outcome: "success",
+          reason: "Show removed from admin show set.",
+          request,
+          sourceArea: "Shows",
+        });
+      }
+    } catch {
+      return Response.json(
+        {
+          auditError:
+            "Shows were saved, but one or more audit events could not be recorded.",
+          shows: persistedShows,
+        },
+        { status: 500 },
+      );
+    }
 
     return Response.json({ shows: persistedShows });
   } catch (error) {

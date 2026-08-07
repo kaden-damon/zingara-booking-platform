@@ -3,6 +3,12 @@ import {
   type AdminRole,
   adminRoleLabels,
 } from "@/lib/zingaraAccess";
+import { normalizeStaffVenueScope } from "@/lib/staffLocations";
+import {
+  pickAuditFields,
+  recordAuditEvent,
+  tryRecordAuditEvent,
+} from "@/lib/supabase/serverAudit";
 
 type StaffInvitationRequest = {
   action?: "create-profile" | "create-user";
@@ -43,6 +49,16 @@ function getServiceClient() {
       persistSession: false,
     },
   });
+}
+
+function getPasswordSetupRedirectUrl(request: Request) {
+  const url = new URL(request.url);
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const host = forwardedHost ?? request.headers.get("host") ?? url.host;
+  const protocol = forwardedProto ?? url.protocol.replace(":", "");
+
+  return `${protocol}://${host}/set-password`;
 }
 
 function getAnonClient(accessToken: string) {
@@ -206,6 +222,24 @@ async function isSuperAdmin(
   return isAllowed;
 }
 
+async function getStaffProfileForUser(
+  serviceClient: NonNullable<ReturnType<typeof getServiceClient>>,
+  userId: string,
+) {
+  const { data, error } = await serviceClient
+    .from("staff_profiles")
+    .select("id,user_id,full_name,email,role_id,active,venue_scope,roles(id,name)")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Staff Invitations] Failed to load audit actor", error);
+    return null;
+  }
+
+  return data;
+}
+
 async function findExistingAuthUser(
   serviceClient: NonNullable<ReturnType<typeof getServiceClient>>,
   email: string,
@@ -231,7 +265,7 @@ async function createOrInviteAuthUser(
   serviceClient: NonNullable<ReturnType<typeof getServiceClient>>,
   input: Required<
     Pick<StaffInvitationRequest, "email" | "fullName" | "role">
-  > & { venueScope: string[] },
+  > & { redirectTo: string; venueScope: string[] },
 ) {
   const existingUser = await findExistingAuthUser(serviceClient, input.email);
 
@@ -247,6 +281,7 @@ async function createOrInviteAuthUser(
         role: input.role,
         venueId: input.venueScope[0] ?? "",
       },
+      redirectTo: input.redirectTo,
     },
   );
 
@@ -352,6 +387,21 @@ export async function POST(request: Request) {
   }
 
   if (!(await isSuperAdmin(serviceClient, requestingUser))) {
+    const actorProfile = await getStaffProfileForUser(
+      serviceClient,
+      requestingUser.id,
+    );
+
+    await tryRecordAuditEvent(serviceClient, actorProfile, requestingUser, {
+      action: "staff.invite",
+      entityReference: "unknown-staff",
+      entityType: "staff",
+      outcome: "blocked",
+      reason: "Super Admin access is required.",
+      request,
+      sourceArea: "Settings",
+    });
+
     return Response.json(
       { error: "Super Admin access is required." },
       { status: 403 },
@@ -362,7 +412,7 @@ export async function POST(request: Request) {
   const email = body.email?.trim().toLowerCase();
   const fullName = body.fullName?.trim();
   const role = body.role;
-  const venueScope = body.venueScope?.filter(Boolean) ?? [];
+  const venueScope = normalizeStaffVenueScope(body.venueScope ?? []);
 
   if (!email || !fullName || !role || !adminRoleLabels[role]) {
     return Response.json(
@@ -371,9 +421,17 @@ export async function POST(request: Request) {
     );
   }
 
+  if (venueScope.length === 0) {
+    return Response.json(
+      { error: "A valid location is required." },
+      { status: 400 },
+    );
+  }
+
   const authUser = await createOrInviteAuthUser(serviceClient, {
     email,
     fullName,
+    redirectTo: getPasswordSetupRedirectUrl(request),
     role,
     venueScope,
   });
@@ -394,8 +452,66 @@ export async function POST(request: Request) {
   });
 
   if (!profile) {
+    const actorProfile = await getStaffProfileForUser(
+      serviceClient,
+      requestingUser.id,
+    );
+
+    await tryRecordAuditEvent(serviceClient, actorProfile, requestingUser, {
+      action: "staff.invite",
+      afterValues: {
+        email,
+        fullName,
+        role,
+        venueScope,
+      },
+      entityReference: email,
+      entityType: "staff",
+      outcome: "failed",
+      reason: "Staff profile could not be created.",
+      request,
+      sourceArea: "Settings",
+    });
+
     return Response.json(
       { error: "Staff profile could not be created." },
+      { status: 500 },
+    );
+  }
+
+  const actorProfile = await getStaffProfileForUser(
+    serviceClient,
+    requestingUser.id,
+  );
+
+  try {
+    await recordAuditEvent(serviceClient, actorProfile, requestingUser, {
+      action: "staff.invite",
+      afterValues: pickAuditFields(profile as Record<string, unknown>, [
+        "active",
+        "email",
+        "name",
+        "role",
+        "roleId",
+        "userId",
+        "venueScope",
+      ]),
+      changedFields: ["email", "role", "venueScope"],
+      entityId: profile.id,
+      entityReference: profile.email,
+      entityType: "staff",
+      outcome: "success",
+      reason: "Staff invitation and profile created.",
+      request,
+      sourceArea: "Settings",
+    });
+  } catch {
+    return Response.json(
+      {
+        auditError:
+          "Staff user was created, but the audit event could not be recorded.",
+        profile,
+      },
       { status: 500 },
     );
   }

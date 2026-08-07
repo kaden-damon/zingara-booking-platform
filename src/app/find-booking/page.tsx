@@ -114,11 +114,11 @@ function formatDate(date: string) {
     return date;
   }
 
-  return parsedDate.toLocaleDateString("en-ZA", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
-  });
+  const day = String(parsedDate.getDate()).padStart(2, "0");
+  const month = String(parsedDate.getMonth() + 1).padStart(2, "0");
+  const year = parsedDate.getFullYear();
+
+  return `${day}/${month}/${year}`;
 }
 
 function getTicketUrl(

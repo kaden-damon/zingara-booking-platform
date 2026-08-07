@@ -5,6 +5,7 @@ import {
   rolePermissions,
 } from "@/lib/zingaraAccess";
 import { defaultVenueSettings } from "@/lib/zingaraDemo";
+import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
   type StaffProfileRow,
   ensureDefaultRoles,
@@ -17,6 +18,11 @@ import {
   requireActiveStaff,
   staffProfileToSession,
 } from "@/lib/supabase/serverAdmin";
+import {
+  diffAuditFields,
+  pickAuditFields,
+  recordAuditEvent,
+} from "@/lib/supabase/serverAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +35,15 @@ type StaffProfileFallback = {
   username: string;
   venueId: string;
 };
+
+const staffAuditFields = [
+  "active",
+  "email",
+  "full_name",
+  "role_id",
+  "user_id",
+  "venue_scope",
+];
 
 function toStaffManagementProfile(row: StaffProfileRow) {
   const role = Array.isArray(row.roles) ? row.roles[0] : row.roles;
@@ -106,10 +121,14 @@ async function getOrCreateSession(
       ? user.user_metadata.name
       : user.email ?? "");
   const venueId =
-    fallback?.venueId ??
-    (typeof user.user_metadata?.venueId === "string"
-      ? user.user_metadata.venueId
-      : defaultVenueSettings.venueId);
+    role === "super-admin"
+      ? "all"
+      : normalizeStaffVenueScope([fallback?.venueId ?? ""])[0] ??
+        (typeof user.user_metadata?.venueId === "string"
+          ? normalizeStaffVenueScope([user.user_metadata.venueId])[0]
+          : undefined) ??
+        normalizeStaffVenueScope([defaultVenueSettings.venueId])[0] ??
+        "cape-town";
 
   const { error } = await serviceClient.from("staff_profiles").insert({
     active: fallback?.active ?? true,
@@ -213,6 +232,7 @@ export async function PATCH(request: Request) {
       email?: string;
       id?: string;
       role?: AdminRole;
+      venueScope?: string[];
     };
 
     if (!body.id && !body.email) {
@@ -234,6 +254,29 @@ export async function PATCH(request: Request) {
       updates.role_id = (await getRoleId(auth.serviceClient, body.role)) ?? null;
     }
 
+    if (body.venueScope) {
+      const venueScope = normalizeStaffVenueScope(body.venueScope);
+
+      if (venueScope.length === 0) {
+        return Response.json(
+          { error: "A valid staff location is required." },
+          { status: 400 },
+        );
+      }
+
+      updates.venue_scope = venueScope;
+    }
+
+    const { data: beforeProfile, error: beforeError } = await auth.serviceClient
+      .from("staff_profiles")
+      .select("id,user_id,full_name,email,role_id,active,venue_scope")
+      .eq(body.id ? "id" : "email", body.id ?? body.email?.trim().toLowerCase())
+      .maybeSingle();
+
+    if (beforeError) {
+      throw beforeError;
+    }
+
     const { error } = await auth.serviceClient
       .from("staff_profiles")
       .update(updates)
@@ -250,6 +293,60 @@ export async function PATCH(request: Request) {
         : currentProfile.email.trim().toLowerCase() ===
           body.email?.trim().toLowerCase(),
     );
+
+    const { data: afterProfile, error: afterError } = await auth.serviceClient
+      .from("staff_profiles")
+      .select("id,user_id,full_name,email,role_id,active,venue_scope")
+      .eq(body.id ? "id" : "email", body.id ?? body.email?.trim().toLowerCase())
+      .maybeSingle();
+
+    if (afterError) {
+      throw afterError;
+    }
+
+    const diff = diffAuditFields(
+      beforeProfile as Record<string, unknown> | null,
+      afterProfile as Record<string, unknown> | null,
+      staffAuditFields,
+    );
+    const action = typeof body.active === "boolean"
+      ? body.active
+        ? "staff.activate"
+        : "staff.deactivate"
+      : body.role
+        ? "staff.role-change"
+        : body.venueScope
+          ? "staff.location-scope-change"
+          : "staff.edit";
+
+    try {
+      await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+        action,
+        afterValues: diff.afterValues,
+        beforeValues: diff.beforeValues,
+        changedFields: diff.changedFields,
+        entityId: (afterProfile as { id?: string } | null)?.id ?? body.id ?? null,
+        entityReference:
+          (afterProfile as { email?: string | null } | null)?.email ??
+          body.email?.trim().toLowerCase() ??
+          body.id ??
+          "unknown-staff",
+        entityType: "staff",
+        outcome: "success",
+        request,
+        sourceArea: "Settings",
+      });
+    } catch {
+      return Response.json(
+        {
+          auditError:
+            "Staff profile was updated, but the audit event could not be recorded.",
+          profile,
+          profiles,
+        },
+        { status: 500 },
+      );
+    }
 
     return Response.json({ profile, profiles });
   } catch (error) {
@@ -296,7 +393,7 @@ export async function DELETE(request: Request) {
 
     const { data: profile, error: profileError } = await auth.serviceClient
       .from("staff_profiles")
-      .select("id,user_id")
+      .select("id,user_id,active,role_id")
       .eq("id", id)
       .maybeSingle();
 
@@ -313,6 +410,27 @@ export async function DELETE(request: Request) {
         { error: "You cannot delete your own active staff profile." },
         { status: 400 },
       );
+    }
+
+    const superAdminRoleId = await getRoleId(auth.serviceClient, "super-admin");
+
+    if (profile.active && profile.role_id === superAdminRoleId) {
+      const { count, error: superAdminCountError } = await auth.serviceClient
+        .from("staff_profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("active", true)
+        .eq("role_id", superAdminRoleId);
+
+      if (superAdminCountError) {
+        throw superAdminCountError;
+      }
+
+      if ((count ?? 0) <= 1) {
+        return Response.json(
+          { error: "The last active Super Admin cannot be deleted." },
+          { status: 400 },
+        );
+      }
     }
 
     if (profile.user_id === replacementUserId) {
@@ -373,6 +491,17 @@ export async function DELETE(request: Request) {
       throw transferError;
     }
 
+    const { data: beforeProfileFull, error: beforeFullError } =
+      await auth.serviceClient
+        .from("staff_profiles")
+        .select("id,user_id,full_name,email,role_id,active,venue_scope")
+        .eq("id", id)
+        .maybeSingle();
+
+    if (beforeFullError) {
+      throw beforeFullError;
+    }
+
     const { error } = await auth.serviceClient
       .from("staff_profiles")
       .delete()
@@ -387,6 +516,34 @@ export async function DELETE(request: Request) {
 
     if (deleteUserError) {
       throw deleteUserError;
+    }
+
+    try {
+      await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+        action: "staff.delete",
+        beforeValues: pickAuditFields(
+          beforeProfileFull as Record<string, unknown>,
+          staffAuditFields,
+        ),
+        entityId: id,
+        entityReference:
+          (beforeProfileFull as { email?: string | null } | null)?.email ??
+          profile.user_id,
+        entityType: "staff",
+        outcome: "success",
+        reason: "Staff profile and Supabase Auth user deleted.",
+        request,
+        sourceArea: "Settings",
+      });
+    } catch {
+      return Response.json(
+        {
+          auditError:
+            "Staff profile was deleted, but the audit event could not be recorded.",
+          success: true,
+        },
+        { status: 500 },
+      );
     }
 
     return Response.json({ success: true });

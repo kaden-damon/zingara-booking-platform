@@ -12,6 +12,10 @@ import {
   type DemoShow,
   type PaymentOption,
 } from "@/lib/zingaraDemo";
+import {
+  findDuplicateSentCommunication,
+  insertCommunicationPayload,
+} from "@/lib/email/communicationIdempotency";
 import { sendZingaraEmail } from "@/lib/email/smtp";
 import { getPayFastConfig } from "@/lib/payfast/config";
 import {
@@ -461,24 +465,6 @@ async function ensureCommunication(
   templates: Awaited<ReturnType<typeof loadTemplates>>,
 ) {
   const type = getSupabaseCommunicationType(trigger);
-  const { data: existingRows, error: loadError } = await supabase
-    .from("communications")
-    .select("id")
-    .eq("booking_id", bookingId)
-    .eq("channel", "email")
-    .eq("type", type)
-    .limit(1);
-
-  if (loadError) {
-    throw loadError;
-  }
-
-  const existingId = (existingRows?.[0] as { id?: string } | undefined)?.id;
-
-  if (existingId) {
-    return existingId;
-  }
-
   const template = getCommunicationTemplate(templates, trigger, "email");
 
   if (!template) {
@@ -493,30 +479,32 @@ async function ensureCommunication(
     templateId: template.id,
     trigger,
   });
+  const basePayload = {
+    booking_id: bookingId,
+    channel: "email",
+    customer_id: customerId,
+    message: record.message,
+    sent_at: record.sentAt,
+    show_id: showId,
+    status: "sent" as const,
+    subject: record.subject ?? null,
+    type,
+  };
+  const duplicateRow = await findDuplicateSentCommunication(supabase, basePayload);
+
+  if (duplicateRow) {
+    return duplicateRow.id;
+  }
+
   const result = await sendZingaraEmail({
     message: record.message,
     subject: record.subject,
     to: booking.customer.email,
   });
-  const { data, error } = await supabase
-    .from("communications")
-    .insert({
-      booking_id: bookingId,
-      channel: "email",
-      customer_id: customerId,
-      message: record.message,
-      sent_at: record.sentAt,
-      show_id: showId,
-      status: result.ok ? "sent" : "failed",
-      subject: record.subject ?? null,
-      type,
-    })
-    .select("id")
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
+  const data = await insertCommunicationPayload(supabase, {
+    ...basePayload,
+    status: result.ok ? "sent" : "failed",
+  });
 
   return (data as { id?: string } | null)?.id;
 }

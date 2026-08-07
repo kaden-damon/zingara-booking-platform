@@ -1,6 +1,7 @@
 import {
   type DemoShow,
   getStoredDemoShows,
+  normalizeShowLocation,
   storeDemoShows,
 } from "@/lib/zingaraDemo";
 import { fetchSupabaseApi } from "./apiClient";
@@ -80,6 +81,7 @@ function toDemoStatus(
 function parseShowNotes(notes: string | null) {
   if (!notes?.startsWith(metadataPrefix)) {
     return {
+      address: "",
       internalNotes: notes ?? "",
       legacyId: "",
     };
@@ -87,16 +89,19 @@ function parseShowNotes(notes: string | null) {
 
   try {
     const parsed = JSON.parse(notes.slice(metadataPrefix.length)) as {
+      address?: string;
       internalNotes?: string;
       legacyId?: string;
     };
 
     return {
+      address: parsed.address ?? "",
       internalNotes: parsed.internalNotes ?? "",
       legacyId: parsed.legacyId ?? "",
     };
   } catch {
     return {
+      address: "",
       internalNotes: "",
       legacyId: "",
     };
@@ -105,6 +110,7 @@ function parseShowNotes(notes: string | null) {
 
 function serializeShowNotes(show: DemoShow) {
   return `${metadataPrefix}${JSON.stringify({
+    address: show.address ?? "",
     internalNotes: show.internalNotes ?? "",
     legacyId: show.id,
   })}`;
@@ -112,14 +118,18 @@ function serializeShowNotes(show: DemoShow) {
 
 function toDemoShow(row: SupabaseShowRow): DemoShow {
   const notes = parseShowNotes(row.notes);
+  const location = normalizeShowLocation(row.venue);
+  const legacyAddress = location ? "" : row.venue;
 
   return {
     archivedAt: row.status === "archived" ? row.updated_at : undefined,
+    address: notes.address || legacyAddress,
     date: row.date,
     description: row.description ?? "",
     id: notes.legacyId || row.id,
     internalNotes: notes.internalNotes,
     label: row.name,
+    location: location ?? undefined,
     operationalStatus: toDemoStatus(row.status),
     time: row.time.slice(0, 5),
     venueName: row.venue,
@@ -134,7 +144,7 @@ function toSupabaseShow(show: DemoShow): SupabaseShowWrite {
     notes: serializeShowNotes(show),
     status: show.archivedAt ? "archived" : toSupabaseStatus(show.operationalStatus),
     time: show.time,
-    venue: show.venueName ?? "Zingara",
+    venue: normalizeShowLocation(show.location ?? show.venueName) ?? "",
   };
 }
 

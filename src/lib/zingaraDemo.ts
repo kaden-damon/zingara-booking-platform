@@ -377,9 +377,11 @@ export type DemoShow = {
   date: string;
   time: string;
   label: string;
+  address?: string;
   archivedAt?: string;
   description?: string;
   internalNotes?: string;
+  location?: EntryLocationKey;
   operationalStatus?:
     | "active"
     | "inactive"
@@ -389,6 +391,57 @@ export type DemoShow = {
     | "special-event";
   venueName?: string;
 };
+export type EntryLocationKey = "cape-town" | "johannesburg";
+export const showLocationOptions = [
+  {
+    city: "Cape Town",
+    courtName: "The Night Court",
+    label: "Cape Town — The Night Court",
+    value: "cape-town",
+  },
+  {
+    city: "Johannesburg",
+    courtName: "The Spring Court",
+    label: "Johannesburg — The Spring Court",
+    value: "johannesburg",
+  },
+] as const satisfies Array<{
+  city: string;
+  courtName: string;
+  label: string;
+  value: EntryLocationKey;
+}>;
+
+export function normalizeShowLocation(
+  value: string | null | undefined,
+): EntryLocationKey | null {
+  const normalisedValue = value?.trim().toLowerCase();
+
+  if (
+    normalisedValue === "johannesburg" ||
+    normalisedValue === "joburg" ||
+    normalisedValue === "jhb"
+  ) {
+    return "johannesburg";
+  }
+
+  if (
+    normalisedValue === "cape-town" ||
+    normalisedValue === "cape town" ||
+    normalisedValue === "capetown"
+  ) {
+    return "cape-town";
+  }
+
+  return null;
+}
+
+export function getShowLocationOption(location: EntryLocationKey) {
+  return (
+    showLocationOptions.find((option) => option.value === location) ??
+    showLocationOptions[0]
+  );
+}
 export type CustomerInfo = {
   name: string;
   email: string;
@@ -477,6 +530,9 @@ export type DemoBooking = {
   status: BookingStatus;
   lifecycleHistory?: BookingLifecycleEvent[];
   operationalNotes?: string;
+  archivedAt?: string;
+  archivedBy?: string;
+  archiveReason?: string;
   cancellationReason?: string;
   cancelledAt?: string;
   refundNotes?: string;
@@ -787,12 +843,15 @@ export function renderCommunicationTemplate(
   show?: DemoShow,
   extras: Record<string, string | number | undefined> = {},
 ) {
+  const showDateDisplay = show
+    ? getSouthAfricaShowDate(show)
+    : booking.bookingDate;
   const variables: Record<string, string | number | undefined> = {
     amountPaid: formatDemoCurrency(booking.amountPaid),
     balanceDue: formatDemoCurrency(booking.balanceDue),
     bookingRef: booking.reference,
     customerName: booking.customer.name,
-    date: show?.date ?? booking.bookingDate,
+    date: showDateDisplay,
     deposit_amount: formatDemoCurrency(booking.amountPaid),
     guest_count: booking.partySize,
     guest_name: booking.customer.name,
@@ -804,7 +863,7 @@ export function renderCommunicationTemplate(
       "Any eligible refund will be reviewed by the box office.",
     seatingZone: booking.zoneTitle,
     section: booking.zoneTitle,
-    showDate: show?.date ?? booking.bookingDate,
+    showDate: showDateDisplay,
     showName: show?.label ?? booking.bookingDate,
     showTime: show?.time ?? "",
     tableNumber: booking.tableNumber,
@@ -928,12 +987,16 @@ export const defaultShows: DemoShow[] = [
     date: "2026-06-20",
     time: "19:00",
     label: "Saturday, The Royal Countess Dinner Show",
+    location: "cape-town",
+    venueName: "cape-town",
   },
   {
     id: "show-2026-06-21-1700",
     date: "2026-06-21",
     time: "17:00",
     label: "Sunday, The Royal Countess Dinner Show",
+    location: "cape-town",
+    venueName: "cape-town",
   },
 ];
 
@@ -1182,9 +1245,21 @@ export function getShowById(showId: string) {
   return getStoredDemoShows().find((show) => show.id === showId);
 }
 
+export function getSouthAfricaShowDate(showOrDate: Pick<DemoShow, "date"> | string) {
+  const dateValue =
+    typeof showOrDate === "string" ? showOrDate : showOrDate.date;
+  const dateParts = dateValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!dateParts) {
+    return dateValue;
+  }
+
+  return `${dateParts[3]}/${dateParts[2]}/${dateParts[1]}`;
+}
+
 export function getShowLabel(show?: DemoShow) {
   return show
-    ? `${show.date} at ${show.time} · ${show.label}`
+    ? `${getSouthAfricaShowDate(show)} at ${getSouthAfricaShowTime(show)} · ${show.label}`
     : "Unassigned show";
 }
 
@@ -1193,9 +1268,7 @@ export function getCompactShowDateTime(show?: DemoShow) {
     return "Unassigned show";
   }
 
-  const [year, month, day] = show.date.split("-");
-
-  return `${day}/${month}/${year.slice(-2)} · ${getSouthAfricaShowTime(show)}`;
+  return `${getSouthAfricaShowDate(show)} · ${getSouthAfricaShowTime(show)}`;
 }
 
 export function getSouthAfricaShowTime(
@@ -2293,26 +2366,10 @@ function getSeededDemoCustomerCrm() {
 }
 
 function createSeededDemoTables(shows = defaultShows) {
-  const bookings = getSeededDemoBookings();
-
-  return shows
-    .flatMap((show) => createTablesForShow(show.id))
-    .map((table) => {
-      const booking = bookings.find(
-        (currentBooking) =>
-          currentBooking.showId === table.showId &&
-          currentBooking.tableId === table.id,
-      );
-
-      return booking
-        ? {
-            ...table,
-            status: "booked" as const,
-            bookingReference: booking.reference,
-            guestNotes: booking.customer.name,
-          }
-        : table;
-    });
+  return applyBookingOccupancyToTables(
+    shows.flatMap((show) => createTablesForShow(show.id)),
+    getSeededDemoBookings(),
+  );
 }
 
 function mergeSeededItems<T>(
@@ -2332,43 +2389,82 @@ function mergeSeededItems<T>(
   return [...storedItems, ...missingSeedItems];
 }
 
-function isOccupyingDemoBookingStatus(status: BookingStatus) {
+export function isOccupyingBookingStatus(status?: BookingStatus) {
+  const normalizedStatus = status ?? "confirmed";
+
   return ![
     "cancelled",
     "refunded",
     "completed",
     "no-show",
     "waitlisted",
-  ].includes(status);
+  ].includes(normalizedStatus);
 }
 
-function applyBookingOccupancyToTables(
+export function isOperationallyActiveBooking(
+  booking: Pick<DemoBooking, "archivedAt" | "status">,
+) {
+  return (
+    !booking.archivedAt &&
+    isOccupyingBookingStatus(booking.status ?? "confirmed")
+  );
+}
+
+function clearBookingOccupancy(table: DemoTable) {
+  if (!table.bookingReference && table.status !== "booked") {
+    return table;
+  }
+
+  return {
+    ...table,
+    bookingReference: undefined,
+    guestNotes: table.baseGuestNotes ?? "",
+    status:
+      table.baseStatus === "disabled"
+        ? ("disabled" as const)
+        : ("available" as const),
+  };
+}
+
+export function applyBookingOccupancyToTables(
   tables: DemoTable[],
   bookings: DemoBooking[],
 ) {
+  const occupyingBookings = bookings.filter(isOperationallyActiveBooking);
+
   return tables.map((table) => {
-    if (table.status === "disabled" || table.bookingReference) {
-      return table;
+    const availableTable = clearBookingOccupancy(table);
+
+    if (availableTable.status === "disabled") {
+      return availableTable;
     }
 
-    const occupyingBooking = bookings.find(
+    if (availableTable.mergedInto) {
+      return availableTable;
+    }
+
+    const occupyingBooking = occupyingBookings.find(
       (booking) =>
-        booking.tableId === table.id &&
-        booking.showId === table.showId &&
-        isOccupyingDemoBookingStatus(booking.status),
+        booking.tableId === availableTable.id &&
+        booking.showId === availableTable.showId,
     );
 
     return occupyingBooking
       ? {
-          ...table,
+          ...availableTable,
           status: "booked" as const,
           bookingReference: occupyingBooking.reference,
           guestNotes:
-            table.guestNotes || occupyingBooking.customer.name
-              ? `${occupyingBooking.customer.name} ${table.guestNotes}`.trim()
-              : table.guestNotes,
+            availableTable.guestNotes || occupyingBooking.customer.name
+              ? `${occupyingBooking.customer.name} ${availableTable.guestNotes}`.trim()
+              : availableTable.guestNotes,
         }
-      : table;
+      : {
+          ...availableTable,
+          guestNotes: availableTable.mergedFrom?.length
+            ? (availableTable.baseGuestNotes ?? "")
+            : "",
+        };
   });
 }
 

@@ -1,6 +1,10 @@
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { sendZingaraEmail } from "@/lib/email/smtp";
 import {
+  findDuplicateSentCommunication,
+  insertCommunicationPayload,
+} from "@/lib/email/communicationIdempotency";
+import {
   type CommunicationChannel,
   type CommunicationRecord,
   type CommunicationTrigger,
@@ -171,10 +175,7 @@ async function getCommunicationPayload(
       message: record.message,
       sent_at: record.sentAt,
       show_id: bookingRelation?.show_id ?? null,
-      status: await getEmailDeliveryStatus(
-        record,
-        context.booking.customer.email,
-      ),
+      status: "sent" as const,
       subject: record.subject ?? null,
       type: toSupabaseType(record.trigger),
     };
@@ -242,13 +243,24 @@ async function getCommunicationPayload(
     message: record.message,
     sent_at: record.sentAt,
     show_id: null,
-    status: await getEmailDeliveryStatus(
-      record,
-      context.corporateRequest?.email,
-    ),
+    status: "sent" as const,
     subject: record.subject ?? null,
     type: toSupabaseType(record.trigger),
   };
+}
+
+function getCommunicationRecipient(
+  record: CommunicationRecord,
+  context: {
+    booking?: DemoBooking;
+    corporateRequest?: CorporateRequest;
+  },
+) {
+  if (record.channel !== "email") {
+    return null;
+  }
+
+  return context.booking?.customer.email ?? context.corporateRequest?.email ?? null;
 }
 
 export async function POST(request: Request) {
@@ -275,21 +287,28 @@ export async function POST(request: Request) {
       );
     }
 
-    const payload = await getCommunicationPayload(body.record, {
+    const context = {
       booking: body.booking,
       corporateRequest: body.corporateRequest,
+    };
+    const payload = await getCommunicationPayload(body.record, context);
+    const duplicateRow = await findDuplicateSentCommunication(supabase, {
+      ...payload,
+      status: "sent",
     });
-    const { data, error } = await supabase
-      .from("communications")
-      .insert(payload)
-      .select(
-        "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
-      )
-      .maybeSingle();
 
-    if (error) {
-      throw error;
+    if (duplicateRow) {
+      return Response.json({ deduped: true, row: duplicateRow });
     }
+
+    const status = await getEmailDeliveryStatus(
+      body.record,
+      getCommunicationRecipient(body.record, context),
+    );
+    const data = await insertCommunicationPayload(supabase, {
+      ...payload,
+      status,
+    });
 
     return Response.json({ row: data });
   } catch (error) {

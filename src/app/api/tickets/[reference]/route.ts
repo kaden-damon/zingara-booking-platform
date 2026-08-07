@@ -10,6 +10,10 @@ import {
   normalizeTicketReference,
   seatingZones,
 } from "@/lib/zingaraDemo";
+import {
+  findDuplicateSentCommunication,
+  insertCommunicationPayload,
+} from "@/lib/email/communicationIdempotency";
 import { sendZingaraEmail } from "@/lib/email/smtp";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
@@ -27,6 +31,7 @@ type SupabaseBookingRow = {
   booking_reference: string;
   booking_status: string;
   created_at: string;
+  customer_id: string;
   guest_count: number;
   id: string;
   notes: string | null;
@@ -178,7 +183,7 @@ async function loadBookingByReferenceOrTicket(
   if (ticketRow?.booking_id) {
     const { data, error } = await supabase
       .from("bookings")
-      .select("id,booking_reference,booking_status,created_at,guest_count,notes,section,show_id")
+      .select("id,customer_id,booking_reference,booking_status,created_at,guest_count,notes,section,show_id")
       .eq("id", ticketRow.booking_id)
       .maybeSingle();
 
@@ -191,7 +196,7 @@ async function loadBookingByReferenceOrTicket(
 
   const { data, error } = await supabase
     .from("bookings")
-    .select("id,booking_reference,booking_status,created_at,guest_count,notes,section,show_id")
+    .select("id,customer_id,booking_reference,booking_status,created_at,guest_count,notes,section,show_id")
     .eq("booking_reference", reference)
     .maybeSingle();
 
@@ -351,7 +356,7 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
   const [{ data: showRow }, { data: venueRow }] = await Promise.all([
     supabase
       .from("shows")
-      .select("id,date,time,name,notes")
+      .select("id,date,time,name,notes,venue")
       .eq("id", bookingRow.show_id)
       .maybeSingle(),
     supabase
@@ -461,6 +466,15 @@ export async function PATCH(request: Request, context: TicketRouteContext) {
 }
 
 export async function POST(request: Request, context: TicketRouteContext) {
+  const supabase = getServiceClient();
+
+  if (!supabase) {
+    return Response.json(
+      { error: "Supabase service role is not configured." },
+      { status: 500 },
+    );
+  }
+
   try {
     const { reference } = await context.params;
     const body = (await request.json()) as {
@@ -477,10 +491,9 @@ export async function POST(request: Request, context: TicketRouteContext) {
     }
 
     if (body.action === "regenerate") {
-      const supabase = getServiceClient();
       const currentTicket = payload.activeTicket;
 
-      if (!supabase || currentTicket.status === "checked-in") {
+      if (currentTicket.status === "checked-in") {
         return Response.json(
           { error: "This ticket can no longer be regenerated." },
           { status: 409 },
@@ -531,10 +544,49 @@ export async function POST(request: Request, context: TicketRouteContext) {
         getTicketUrlForCode(payload.activeTicket.ticketCode),
         request.url,
       ).toString();
+      const message =
+        body.action === "resend"
+          ? `Your Zingara ticket has been resent.\n\nOpen your ticket: ${ticketUrl}`
+          : `Your Zingara ticket is ready.\n\nOpen your ticket: ${ticketUrl}`;
+      const subject =
+        body.action === "resend"
+          ? "Your Zingara Ticket Resend"
+          : "Your Zingara Ticket";
+      const baseCommunicationPayload = {
+        booking_id: payload.bookingId,
+        channel: "email",
+        customer_id: null,
+        message,
+        sent_at: new Date().toISOString(),
+        show_id: null,
+        status: "sent" as const,
+        subject,
+        type: "custom_message",
+      };
+      const duplicateRow = await findDuplicateSentCommunication(
+        supabase,
+        baseCommunicationPayload,
+        {
+          replayWindowMs: body.action === "resend" ? 60_000 : undefined,
+        },
+      );
+
+      if (duplicateRow) {
+        return Response.json({
+          deduped: true,
+          ok: true,
+          status: "sent",
+        });
+      }
+
       const result = await sendZingaraEmail({
-        message: `Your Zingara ticket is ready.\n\nOpen your ticket: ${ticketUrl}`,
-        subject: "Your Zingara Ticket",
+        message,
+        subject,
         to: email,
+      });
+      await insertCommunicationPayload(supabase, {
+        ...baseCommunicationPayload,
+        status: result.ok ? "sent" : "failed",
       });
 
       return Response.json({

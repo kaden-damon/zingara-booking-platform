@@ -1,4 +1,14 @@
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import {
+  getRequestingUser,
+  getServiceClient,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
+import {
+  diffAuditFields,
+  pickAuditFields,
+  recordAuditEvent,
+  tryRecordAuditEvent,
+} from "@/lib/supabase/serverAudit";
 import type {
   BookingLifecycleEvent,
   BookingStatus,
@@ -8,8 +18,25 @@ import type {
 export const dynamic = "force-dynamic";
 
 const bookingSelect =
-  "id,customer_id,show_id,table_id,booking_reference,booking_source,company_name,guest_count,booking_status,payment_status,section,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,created_at,updated_at";
+  "id,customer_id,show_id,table_id,booking_reference,booking_source,company_name,guest_count,booking_status,payment_status,section,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,archived_by,archive_reason,created_at,updated_at";
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
+const bookingAuditFields = [
+  "booking_status",
+  "payment_status",
+  "guest_count",
+  "section",
+  "table_id",
+  "total_amount",
+  "amount_paid",
+  "balance_outstanding",
+  "notes",
+  "dietary_requirements",
+  "archived_at",
+  "archived_by",
+  "archive_reason",
+  "customer_id",
+  "show_id",
+];
 
 type SupabaseBookingStatus =
   | "cancelled"
@@ -164,15 +191,262 @@ function getRouteClient() {
   return getServiceClient();
 }
 
-async function runBookingTransaction(request: Request) {
+async function getRequestingStaffProfileId(request: Request) {
+  const supabase = getRouteClient();
+  const user = await getRequestingUser(request);
+
+  if (!supabase || !user?.id) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("staff_profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Zingara API] Failed to resolve locking staff", error);
+    return null;
+  }
+
+  return (data as { id?: string } | null)?.id ?? null;
+}
+
+async function getAuditActor(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.staffProfile || !auth.user) {
+    return {
+      staffProfile: null,
+      user: null,
+    };
+  }
+
+  return {
+    staffProfile: auth.staffProfile,
+    user: auth.user,
+  };
+}
+
+async function expireStaleBookingLocks() {
+  const supabase = getRouteClient();
+
+  if (!supabase) {
+    return;
+  }
+
+  await supabase
+    .from("booking_edit_locks")
+    .update({
+      release_reason: "heartbeat-timeout",
+      released_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .is("released_at", null)
+    .lt(
+      "last_activity_at",
+      new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    );
+}
+
+async function ensureNoConflictingBookingLock(
+  request: Request,
+  bookingReference?: string,
+) {
+  const supabase = getRouteClient();
+
+  if (!supabase || !bookingReference) {
+    return null;
+  }
+
+  await expireStaleBookingLocks();
+
+  const { data: activeLock, error } = await supabase
+    .from("booking_edit_locks")
+    .select(
+      "id,booking_reference,staff_profile_id,staff_name,staff_role,last_activity_at,started_at",
+    )
+    .eq("booking_reference", bookingReference)
+    .is("released_at", null)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Zingara API] Failed to verify booking edit lock", error);
+
+    return Response.json(
+      { error: "Booking edit lock could not be verified." },
+      { status: 500 },
+    );
+  }
+
+  if (!activeLock) {
+    return null;
+  }
+
+  const requestingStaffProfileId = await getRequestingStaffProfileId(request);
+
+  if (
+    requestingStaffProfileId &&
+    activeLock.staff_profile_id === requestingStaffProfileId
+  ) {
+    return null;
+  }
+
+  const actor = await getAuditActor(request);
+
+  await tryRecordAuditEvent(supabase, actor.staffProfile, actor.user, {
+    action: "booking.write-blocked-by-lock",
+    beforeValues: pickAuditFields(activeLock as Record<string, unknown>, [
+      "booking_reference",
+      "staff_name",
+      "staff_role",
+      "last_activity_at",
+      "started_at",
+    ]),
+    entityReference: bookingReference,
+    entityType: "booking",
+    outcome: "blocked",
+    reason: "A valid booking edit lock exists for another staff member.",
+    request,
+    sourceArea: "Bookings",
+  });
+
+  return Response.json(
+    {
+      error: "This booking is currently being edited.",
+      lock: activeLock,
+    },
+    { status: 409 },
+  );
+}
+
+async function runBookingTransaction(request: Request, body?: unknown) {
+  const requestBody = body ?? (await request.json());
+  const bookingReference =
+    typeof requestBody === "object" &&
+    requestBody &&
+    "booking" in requestBody &&
+    typeof (requestBody as { booking?: { reference?: unknown } }).booking
+      ?.reference === "string"
+      ? (requestBody as { booking: { reference: string } }).booking.reference
+      : undefined;
+  const supabase = getRouteClient();
+  const actor = await getAuditActor(request);
+  const { data: beforeBooking } =
+    supabase && bookingReference
+      ? await supabase
+          .from("bookings")
+          .select(bookingSelect)
+          .eq("booking_reference", bookingReference)
+          .maybeSingle()
+      : { data: null };
+
+  if (
+    supabase &&
+    beforeBooking &&
+    (beforeBooking as { archived_at?: string | null }).archived_at
+  ) {
+    await tryRecordAuditEvent(supabase, actor.staffProfile, actor.user, {
+      action: "booking.edit",
+      beforeValues: pickAuditFields(beforeBooking as Record<string, unknown>, [
+        "booking_reference",
+        "archived_at",
+        "archive_reason",
+      ]),
+      entityId: (beforeBooking as { id?: string }).id ?? null,
+      entityReference: bookingReference ?? "unknown-booking",
+      entityType: "booking",
+      outcome: "blocked",
+      reason: "Archived bookings must be restored before editing.",
+      request,
+      sourceArea: "Bookings",
+    });
+
+    return Response.json(
+      { error: "Archived bookings must be restored before editing." },
+      { status: 409 },
+    );
+  }
+
   const response = await fetch(new URL("/api/bookings", request.url), {
-    body: JSON.stringify(await request.json()),
+    body: JSON.stringify(requestBody),
     headers: {
       "Content-Type": "application/json",
     },
     method: "POST",
   });
   const payload = await response.json().catch(() => ({}));
+
+  if (supabase && bookingReference) {
+    const { data: afterBooking } = await supabase
+      .from("bookings")
+      .select(bookingSelect)
+      .eq("booking_reference", bookingReference)
+      .maybeSingle();
+    const diff = diffAuditFields(
+      beforeBooking as Record<string, unknown> | null,
+      afterBooking as Record<string, unknown> | null,
+      bookingAuditFields,
+    );
+    const action = beforeBooking ? "booking.edit" : "booking.create";
+
+    if (response.ok) {
+      try {
+        await recordAuditEvent(supabase, actor.staffProfile, actor.user, {
+          action,
+          afterValues:
+            diff.changedFields.length > 0
+              ? diff.afterValues
+              : pickAuditFields(afterBooking as Record<string, unknown>, [
+                  "booking_reference",
+                  "booking_status",
+                  "payment_status",
+                ]),
+          beforeValues: diff.beforeValues,
+          changedFields:
+            diff.changedFields.length > 0
+              ? diff.changedFields
+              : ["booking_reference"],
+          entityId:
+            ((afterBooking ?? beforeBooking) as { id?: string } | null)?.id ??
+            null,
+          entityReference: bookingReference,
+          entityType: "booking",
+          outcome: "success",
+          request,
+          sourceArea: "Bookings",
+        });
+      } catch {
+        return Response.json(
+          {
+            ...payload,
+            auditError:
+              "Booking was saved, but the audit event could not be recorded.",
+          },
+          { status: 500 },
+        );
+      }
+    } else {
+      await tryRecordAuditEvent(supabase, actor.staffProfile, actor.user, {
+        action,
+        beforeValues: pickAuditFields(beforeBooking as Record<string, unknown>, [
+          "booking_reference",
+          "booking_status",
+          "payment_status",
+        ]),
+        entityReference: bookingReference,
+        entityType: "booking",
+        outcome: "failed",
+        reason:
+          typeof payload?.error === "string"
+            ? payload.error
+            : "Booking save request failed.",
+        request,
+        sourceArea: "Bookings",
+      });
+    }
+  }
 
   return Response.json(payload, { status: response.status });
 }
@@ -202,7 +476,7 @@ async function persistBookingCancellation(request: Request) {
 
     const { data: bookingRows, error: loadError } = await supabase
       .from("bookings")
-      .select("id,payment_status")
+      .select("id,payment_status,archived_at")
       .eq("booking_reference", booking.reference)
       .limit(1);
 
@@ -211,7 +485,7 @@ async function persistBookingCancellation(request: Request) {
     }
 
     const existingBooking = bookingRows?.[0] as
-      | { id?: string; payment_status?: string }
+      | { archived_at?: string | null; id?: string; payment_status?: string }
       | undefined;
 
     if (!existingBooking?.id) {
@@ -219,6 +493,45 @@ async function persistBookingCancellation(request: Request) {
         { error: "Booking could not be resolved for cancellation." },
         { status: 404 },
       );
+    }
+
+    if (existingBooking.archived_at) {
+      const actor = await getAuditActor(request);
+
+      await tryRecordAuditEvent(supabase, actor.staffProfile, actor.user, {
+        action: "booking.cancel",
+        entityId: existingBooking.id,
+        entityReference: booking.reference,
+        entityType: "booking",
+        outcome: "blocked",
+        reason: "Archived bookings must be restored before cancellation.",
+        request,
+        sourceArea: "Bookings",
+      });
+
+      return Response.json(
+        {
+          error: "Archived bookings must be restored before cancellation.",
+        },
+        { status: 409 },
+      );
+    }
+
+    const { data: beforeBooking, error: beforeError } = await supabase
+      .from("bookings")
+      .select(bookingSelect)
+      .eq("id", existingBooking.id)
+      .maybeSingle();
+
+    if (beforeError) {
+      throw beforeError;
+    }
+
+    if (
+      ((beforeBooking as { booking_status?: string } | null)
+        ?.booking_status ?? "") === "cancelled"
+    ) {
+      return Response.json({ idempotent: true, row: beforeBooking });
     }
 
     const { data: updatedBooking, error: updateError } = await supabase
@@ -244,13 +557,20 @@ async function persistBookingCancellation(request: Request) {
         latestCancellationEvent,
         existingBooking.id,
       );
-      const { data: existingEvents, error: eventLoadError } = await supabase
+      let existingEventQuery = supabase
         .from("booking_lifecycle_events")
         .select("id")
         .eq("booking_id", existingBooking.id)
-        .eq("created_at", payload.created_at)
+        .eq("note", payload.note)
         .eq("to_status", payload.to_status)
         .limit(1);
+
+      existingEventQuery = payload.from_status
+        ? existingEventQuery.eq("from_status", payload.from_status)
+        : existingEventQuery.is("from_status", null);
+
+      const { data: existingEvents, error: eventLoadError } =
+        await existingEventQuery;
 
       if (eventLoadError) {
         throw eventLoadError;
@@ -267,6 +587,38 @@ async function persistBookingCancellation(request: Request) {
       }
     }
 
+    const actor = await getAuditActor(request);
+    const diff = diffAuditFields(
+      beforeBooking as Record<string, unknown>,
+      updatedBooking as Record<string, unknown>,
+      bookingAuditFields,
+    );
+
+    try {
+      await recordAuditEvent(supabase, actor.staffProfile, actor.user, {
+        action: "booking.cancel",
+        afterValues: diff.afterValues,
+        beforeValues: diff.beforeValues,
+        changedFields: diff.changedFields,
+        entityId: existingBooking.id,
+        entityReference: booking.reference,
+        entityType: "booking",
+        outcome: "success",
+        reason: latestCancellationEvent?.note ?? "Booking cancelled.",
+        request,
+        sourceArea: "Bookings",
+      });
+    } catch {
+      return Response.json(
+        {
+          auditError:
+            "Booking was cancelled, but the audit event could not be recorded.",
+          row: updatedBooking,
+        },
+        { status: 500 },
+      );
+    }
+
     return Response.json({ row: updatedBooking });
   } catch (error) {
     console.error("[Zingara API] Failed to persist booking cancellation", error);
@@ -278,20 +630,213 @@ async function persistBookingCancellation(request: Request) {
   }
 }
 
+async function setBookingArchiveState(
+  request: Request,
+  options: {
+    archive: boolean;
+    reason?: string;
+    references: string[];
+  },
+) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
+    return auth.error;
+  }
+
+  const role = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+
+  if (role?.name?.trim().toLowerCase() !== "super admin") {
+    await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+      action: options.archive ? "booking.archive" : "booking.restore",
+      entityReference: options.references[0] ?? "unknown-booking",
+      entityType: "booking",
+      outcome: "blocked",
+      reason: "Super Admin access is required.",
+      request,
+      sourceArea: "Bookings",
+    });
+
+    return Response.json(
+      { error: "Super Admin access is required." },
+      { status: 403 },
+    );
+  }
+
+  const references = [...new Set(options.references.map((reference) => reference.trim()).filter(Boolean))];
+
+  if (references.length === 0) {
+    return Response.json(
+      { error: "At least one booking reference is required." },
+      { status: 400 },
+    );
+  }
+
+  const { data: beforeRows, error: loadError } = await auth.serviceClient
+    .from("bookings")
+    .select(bookingSelect)
+    .in("booking_reference", references);
+
+  if (loadError) {
+    throw loadError;
+  }
+
+  const rowsToChange = (beforeRows ?? []).filter((row) =>
+    options.archive ? !row.archived_at : Boolean(row.archived_at),
+  );
+
+  if (rowsToChange.length === 0) {
+    return Response.json({
+      archived: 0,
+      restored: 0,
+      skipped: references.length,
+    });
+  }
+
+  const updatePayload = options.archive
+    ? {
+        archive_reason: options.reason?.trim() || "Archived by Super Admin.",
+        archived_at: new Date().toISOString(),
+        archived_by: auth.user.id,
+        updated_at: new Date().toISOString(),
+      }
+    : {
+        archive_reason: null,
+        archived_at: null,
+        archived_by: null,
+        updated_at: new Date().toISOString(),
+      };
+
+  const { data: afterRows, error: updateError } = await auth.serviceClient
+    .from("bookings")
+    .update(updatePayload)
+    .in(
+      "booking_reference",
+      rowsToChange.map((row) => row.booking_reference),
+    )
+    .select(bookingSelect);
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  try {
+    const afterRowsByReference = new Map(
+      (afterRows ?? []).map((row) => [row.booking_reference, row]),
+    );
+
+    for (const beforeRow of rowsToChange) {
+      const afterRow = afterRowsByReference.get(beforeRow.booking_reference);
+      const diff = diffAuditFields(
+        beforeRow as Record<string, unknown>,
+        afterRow as Record<string, unknown>,
+        bookingAuditFields,
+      );
+
+      await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+        action: options.archive ? "booking.archive" : "booking.restore",
+        afterValues: diff.afterValues,
+        beforeValues: diff.beforeValues,
+        changedFields: diff.changedFields,
+        entityId: beforeRow.id,
+        entityReference: beforeRow.booking_reference,
+        entityType: "booking",
+        outcome: "success",
+        reason: options.reason ?? (options.archive ? "Booking archived." : "Booking restored."),
+        request,
+        sourceArea: "Bookings",
+      });
+    }
+  } catch (auditError) {
+    if (options.archive) {
+      await auth.serviceClient
+        .from("bookings")
+        .update({
+          archive_reason: null,
+          archived_at: null,
+          archived_by: null,
+          updated_at: new Date().toISOString(),
+        })
+        .in(
+          "booking_reference",
+          rowsToChange.map((row) => row.booking_reference),
+        );
+    } else {
+      for (const beforeRow of rowsToChange) {
+        await auth.serviceClient
+          .from("bookings")
+          .update({
+            archive_reason: beforeRow.archive_reason,
+            archived_at: beforeRow.archived_at,
+            archived_by: beforeRow.archived_by,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("booking_reference", beforeRow.booking_reference);
+      }
+    }
+
+    console.error("[Zingara API] Booking archive audit failed", auditError);
+
+    return Response.json(
+      {
+        auditError: "Booking archive audit could not be recorded.",
+      },
+      { status: 500 },
+    );
+  }
+
+  return Response.json({
+    archived: options.archive ? rowsToChange.length : 0,
+    restored: options.archive ? 0 : rowsToChange.length,
+    skipped: references.length - rowsToChange.length,
+  });
+}
+
 export async function POST(request: Request) {
   return runBookingTransaction(request);
 }
 
 export async function PATCH(request: Request) {
-  const body = (await request.clone().json().catch(() => ({}))) as {
+  const body = (await request.json().catch(() => ({}))) as {
     action?: string;
+    booking?: DemoBooking;
   };
+  const lockError = await ensureNoConflictingBookingLock(
+    request,
+    body.booking?.reference,
+  );
 
-  if (body.action === "cancel") {
-    return persistBookingCancellation(request);
+  if (lockError) {
+    return lockError;
   }
 
-  return runBookingTransaction(request);
+  if (body.action === "cancel") {
+    return persistBookingCancellation(
+      new Request(request.url, {
+        body: JSON.stringify(body),
+        headers: request.headers,
+        method: request.method,
+      }),
+    );
+  }
+
+  if (body.action === "archive" || body.action === "restore") {
+    const archiveBody = body as {
+      action: "archive" | "restore";
+      reason?: string;
+      references?: string[];
+    };
+
+    return setBookingArchiveState(request, {
+      archive: archiveBody.action === "archive",
+      reason: archiveBody.reason,
+      references: archiveBody.references ?? [],
+    });
+  }
+
+  return runBookingTransaction(request, body);
 }
 
 export async function DELETE(request: Request) {
@@ -317,6 +862,18 @@ export async function DELETE(request: Request) {
     );
   }
 
+  const lockError = await ensureNoConflictingBookingLock(request, reference);
+
+  if (lockError) {
+    return lockError;
+  }
+
+  const { data: beforeBooking } = await supabase
+    .from("bookings")
+    .select(bookingSelect)
+    .eq("booking_reference", reference)
+    .maybeSingle();
+
   const { error } = await supabase
     .from("bookings")
     .delete()
@@ -330,6 +887,24 @@ export async function DELETE(request: Request) {
       { status: 500 },
     );
   }
+
+  const actor = await getAuditActor(request);
+  await tryRecordAuditEvent(supabase, actor.staffProfile, actor.user, {
+    action: "booking.delete",
+    beforeValues: pickAuditFields(beforeBooking as Record<string, unknown>, [
+      "booking_reference",
+      "booking_status",
+      "payment_status",
+      "guest_count",
+    ]),
+    entityId: (beforeBooking as { id?: string } | null)?.id ?? null,
+    entityReference: reference,
+    entityType: "booking",
+    outcome: "success",
+    reason: "Booking deleted through admin API.",
+    request,
+    sourceArea: "Bookings",
+  });
 
   return Response.json({ ok: true });
 }

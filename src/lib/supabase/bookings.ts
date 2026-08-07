@@ -34,6 +34,9 @@ type SupabasePaymentStatus =
 type SupabaseBookingRow = {
   addons_total: number;
   amount_paid: number;
+  archive_reason: string | null;
+  archived_at: string | null;
+  archived_by: string | null;
   balance_outstanding: number;
   booking_reference: string;
   booking_source: string;
@@ -518,6 +521,9 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     const booking = {
       ...metadataBooking,
       amountPaid: row.amount_paid,
+      archivedAt: row.archived_at ?? metadataBooking.archivedAt,
+      archivedBy: row.archived_by ?? metadataBooking.archivedBy,
+      archiveReason: row.archive_reason ?? metadataBooking.archiveReason,
       balanceDue: row.balance_outstanding,
       paymentStatus: toDemoPaymentStatus(row.payment_status),
       status: toDemoBookingStatus(row.booking_status),
@@ -538,6 +544,9 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     addons: [],
     addonsTotal: row.addons_total,
     amountPaid: row.amount_paid,
+    archivedAt: row.archived_at ?? undefined,
+    archivedBy: row.archived_by ?? undefined,
+    archiveReason: row.archive_reason ?? undefined,
     balanceDue: row.balance_outstanding,
     bookingDate: "",
     communicationHistory: [],
@@ -634,14 +643,10 @@ export async function createBooking(booking: DemoBooking) {
 }
 
 export async function updateBooking(booking: DemoBooking) {
-  try {
-    await fetchSupabaseApi("/api/admin/bookings", {
-      body: { booking },
-      method: "PATCH",
-    });
-  } catch (error) {
-    console.error("[Zingara Supabase] Failed to update booking", error);
-  }
+  await fetchSupabaseApi("/api/admin/bookings", {
+    body: { booking },
+    method: "PATCH",
+  });
 
   return booking;
 }
@@ -663,6 +668,34 @@ export async function persistBookingCancellation(booking: DemoBooking) {
   return getBookings();
 }
 
+export async function archiveBookings(
+  references: string[],
+  reason = "Archived by Super Admin.",
+) {
+  await fetchSupabaseApi("/api/admin/bookings", {
+    body: {
+      action: "archive",
+      reason,
+      references,
+    },
+    method: "PATCH",
+  });
+
+  return getBookings();
+}
+
+export async function restoreBookings(references: string[]) {
+  await fetchSupabaseApi("/api/admin/bookings", {
+    body: {
+      action: "restore",
+      references,
+    },
+    method: "PATCH",
+  });
+
+  return getBookings();
+}
+
 export async function deleteBooking(id: string) {
   try {
     await fetchSupabaseApi("/api/admin/bookings", {
@@ -677,18 +710,22 @@ export async function deleteBooking(id: string) {
 }
 
 export async function saveBookings(bookings: DemoBooking[]) {
-  await Promise.all(
+  const results = await Promise.allSettled(
     bookings.map(async (booking) => {
-      try {
-        await fetchSupabaseApi("/api/admin/bookings", {
-          body: { booking },
-          method: "PATCH",
-        });
-      } catch (error) {
-        console.error("[Zingara Supabase] Failed to save booking", error);
-      }
+      await fetchSupabaseApi("/api/admin/bookings", {
+        body: { booking },
+        method: "PATCH",
+      });
     }),
   );
+  const failedResult = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+
+  if (failedResult) {
+    console.error("[Zingara Supabase] Failed to save booking", failedResult.reason);
+    throw failedResult.reason;
+  }
 
   return getBookings();
 }

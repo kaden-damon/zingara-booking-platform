@@ -3,6 +3,7 @@ import {
   type GuestTicket,
   defaultVenueSettings,
   getGuestTicketsForBooking,
+  normalizeShowLocation,
 } from "@/lib/zingaraDemo";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
@@ -103,22 +104,19 @@ function normalizeEntryLocation(value: string | null | undefined) {
 }
 
 function getShowLocation(show: SupabaseShowRow | null) {
-  const source = [
-    show?.name,
-    show?.venue,
-    show?.notes,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return source.includes("joburg") || source.includes("johannesburg")
-    ? "johannesburg"
-    : "cape-town";
+  return normalizeShowLocation(show?.venue);
 }
 
-function getLocationLabel(location: string) {
-  return location === "johannesburg" ? "Johannesburg" : defaultVenueSettings.venueName;
+function getLocationLabel(location: string | null) {
+  if (location === "johannesburg") {
+    return "Johannesburg";
+  }
+
+  if (location === "cape-town") {
+    return "Cape Town";
+  }
+
+  return defaultVenueSettings.venueName;
 }
 
 function getCustomerName(

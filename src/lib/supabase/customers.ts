@@ -5,7 +5,11 @@ import {
 import { fetchSupabaseApi } from "./apiClient";
 
 type CustomerPreferences = {
+  archivedAt?: string;
+  archivedBy?: string;
+  archiveReason?: string;
   customerKey?: string;
+  marketingPreference?: string;
   vipTags?: string[];
 };
 
@@ -29,6 +33,7 @@ type CustomerWriteInput = {
   email?: string;
   mobile?: string;
   name?: string;
+  preferences?: Partial<CustomerPreferences>;
   relationshipNotes?: string;
   vipTags?: string[];
 };
@@ -75,7 +80,10 @@ function toCrmRecord(row: SupabaseCustomerRow): DemoCustomerCrmRecord {
   };
 }
 
-function toCustomerPayload(input: CustomerWriteInput) {
+function toCustomerPayload(
+  input: CustomerWriteInput,
+  existingPreferences: CustomerPreferences | null = null,
+) {
   const customerKey =
     input.customerKey ??
     getCustomerKey({
@@ -92,8 +100,10 @@ function toCustomerPayload(input: CustomerWriteInput) {
     first_name: nameParts.firstName,
     mobile: input.mobile?.trim() || null,
     preferences: {
+      ...(existingPreferences ?? {}),
       customerKey,
       vipTags,
+      ...(input.preferences ?? {}),
     },
     relationship_notes: input.relationshipNotes ?? "",
     surname: nameParts.surname,
@@ -242,6 +252,29 @@ export async function updateCustomer(
     return payload.row ? toCrmRecord(payload.row as SupabaseCustomerRow) : undefined;
   } catch (error) {
     console.error("[Zingara Supabase] Failed to update customer", error);
+    return undefined;
+  }
+}
+
+export async function updateCustomerArchiveStatus(
+  id: string,
+  archived: boolean,
+) {
+  try {
+    const payload = await fetchSupabaseApi<{ row: SupabaseCustomerRow | null }>(
+      "/api/admin/customers",
+      {
+        body: { archive: { archived }, id },
+        method: "PATCH",
+      },
+    );
+
+    return payload.row ? toCrmRecord(payload.row as SupabaseCustomerRow) : undefined;
+  } catch (error) {
+    console.error(
+      "[Zingara Supabase] Failed to update customer archive status",
+      error,
+    );
     return undefined;
   }
 }

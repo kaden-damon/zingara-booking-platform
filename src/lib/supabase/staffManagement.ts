@@ -194,6 +194,28 @@ export async function updateStaffActive(id: string, active: boolean) {
   }
 }
 
+export async function updateStaffVenueScope(id: string, venueScope: string[]) {
+  try {
+    const payload = await fetchSupabaseApi<{
+      profile?: StaffManagementProfile;
+    }>("/api/admin/staff", {
+      body: {
+        id,
+        venueScope,
+      },
+      method: "PATCH",
+    });
+
+    return payload.profile;
+  } catch (error) {
+    console.error(
+      "[Zingara Supabase Staff] Failed to update staff location",
+      error,
+    );
+    return undefined;
+  }
+}
+
 export async function deleteStaffProfile(
   id: string,
   replacementUserId: string,

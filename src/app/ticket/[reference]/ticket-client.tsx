@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import QRCode from "qrcode";
 
 import ScannableQrCode from "../../components/ScannableQrCode";
+import {
+  createDownloadableTicketPdf,
+  resolveDownloadableTicketPdfInput,
+  TicketPdfDataError,
+} from "../../../lib/ticketPdf";
 import {
   type DemoBooking,
   type DemoShow,
@@ -33,11 +37,6 @@ type TicketPayload = {
   };
   venueSettings: DemoVenueSettings;
 };
-
-const nightCourtArtworkUrl =
-  "https://static.wixstatic.com/media/e3c98c_c172ded85e4844a09eae769cda2d00c8~mv2.png/v1/fill/w_1536,h_1023,al_c,q_90,enc_avif,quality_auto/Night%20Court_Postcard.png";
-const springCourtArtworkUrl =
-  "https://static.wixstatic.com/media/e3c98c_41b1137d458441d1ac0c4df8de9f4dec~mv2.png/v1/fill/w_1536,h_1023,al_c,q_90,enc_avif,quality_auto/Spring%20Court_Postcard.png";
 
 const paymentStatusLabels: Record<PaymentStatus, string> = {
   "comp-vip": "Comp/VIP",
@@ -84,148 +83,6 @@ function getTicketState(
 
 function formatCurrency(amount: number) {
   return `R${amount.toLocaleString()}`;
-}
-
-function getTicketLocation({
-  booking,
-  show,
-  venueSettings,
-}: {
-  booking: DemoBooking;
-  show: DemoShow | null;
-  venueSettings: DemoVenueSettings;
-}) {
-  const locationSource = [
-    booking.bookingDate,
-    booking.operationalNotes,
-    show?.label,
-    show?.venueName,
-    venueSettings.venueName,
-    venueSettings.venueId,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return locationSource.includes("joburg") ||
-    locationSource.includes("johannesburg")
-    ? {
-        artworkUrl: springCourtArtworkUrl,
-        label: "Johannesburg",
-      }
-    : {
-        artworkUrl: nightCourtArtworkUrl,
-        label: "Cape Town",
-      };
-}
-
-function drawContainImage(
-  context: CanvasRenderingContext2D,
-  image: HTMLImageElement,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-) {
-  const imageRatio = image.width / image.height;
-  const targetRatio = width / height;
-  const drawWidth = imageRatio > targetRatio ? width : height * imageRatio;
-  const drawHeight = imageRatio > targetRatio ? width / imageRatio : height;
-  const drawX = x + (width - drawWidth) / 2;
-  const drawY = y + (height - drawHeight) / 2;
-
-  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
-}
-
-function loadCanvasImage(src: string) {
-  return new Promise<HTMLImageElement | null>((resolve) => {
-    const image = new Image();
-
-    image.crossOrigin = "anonymous";
-    image.onload = () => resolve(image);
-    image.onerror = () => resolve(null);
-    image.src = src;
-  });
-}
-
-function dataUrlToBytes(dataUrl: string) {
-  const base64 = dataUrl.split(",")[1] ?? "";
-  const binary = window.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return bytes;
-}
-
-function createImagePdfBlob(
-  jpegDataUrl: string,
-  imageWidth: number,
-  imageHeight: number,
-) {
-  const encoder = new TextEncoder();
-  const imageBytes = dataUrlToBytes(jpegDataUrl);
-  const pageWidth = imageWidth;
-  const pageHeight = imageHeight;
-  const chunks: BlobPart[] = [];
-  const offsets: number[] = [];
-  let byteLength = 0;
-
-  function addChunk(bytes: Uint8Array) {
-    const chunk = new ArrayBuffer(bytes.byteLength);
-
-    new Uint8Array(chunk).set(bytes);
-    chunks.push(chunk);
-    byteLength += bytes.length;
-  }
-
-  function addString(value: string) {
-    addChunk(encoder.encode(value));
-  }
-
-  function addObject(id: number, body: () => void) {
-    offsets[id] = byteLength;
-    addString(`${id} 0 obj\n`);
-    body();
-    addString("\nendobj\n");
-  }
-
-  const content = `q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/Im0 Do\nQ`;
-
-  addString("%PDF-1.4\n");
-  addObject(1, () => addString("<< /Type /Catalog /Pages 2 0 R >>"));
-  addObject(2, () =>
-    addString("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
-  );
-  addObject(3, () =>
-    addString(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`,
-    ),
-  );
-  addObject(4, () => {
-    addString(
-      `<< /Type /XObject /Subtype /Image /Width ${imageWidth} /Height ${imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`,
-    );
-    addChunk(imageBytes);
-    addString("\nendstream");
-  });
-  addObject(5, () =>
-    addString(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`),
-  );
-
-  const xrefOffset = byteLength;
-
-  addString("xref\n0 6\n0000000000 65535 f \n");
-  for (let id = 1; id <= 5; id += 1) {
-    addString(`${String(offsets[id]).padStart(10, "0")} 00000 n \n`);
-  }
-  addString(
-    `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`,
-  );
-
-  return new Blob(chunks, { type: "application/pdf" });
 }
 
 export default function LiveTicketClient({
@@ -354,13 +211,13 @@ export default function LiveTicketClient({
   }, [activeTicket?.ticketCode, hasAutoDownloaded]);
 
   const handleTicketExit = () => {
-    if (returnTo) {
-      if (window.history.length > 1) {
-        window.history.back();
-        return;
-      }
+    const safeReturnTo =
+      returnTo.startsWith("/admin") && !returnTo.startsWith("//")
+        ? returnTo
+        : "";
 
-      window.location.assign(returnTo);
+    if (safeReturnTo) {
+      window.location.assign(safeReturnTo);
       return;
     }
 
@@ -485,220 +342,44 @@ export default function LiveTicketClient({
       [ticket.ticketCode]: "Preparing PDF...",
     }));
 
-    const width = 420;
-    const height = 760;
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
+    try {
+      const pdfInput = resolveDownloadableTicketPdfInput({
+        booking,
+        tableColour,
+        ticket,
+        show,
+        venueSettings: venueConfig,
+      });
+      const pdfBlob = await createDownloadableTicketPdf(pdfInput);
+      const pdfUrl = URL.createObjectURL(pdfBlob);
 
-    if (!context) {
+      ticketWindow.location.href = pdfUrl;
+      window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 30000);
+      setTicketActionStatus((current) => ({
+        ...current,
+        [ticket.ticketCode]: "PDF opened.",
+      }));
+    } catch (error) {
       ticketWindow.close();
-      return;
+      if (error instanceof TicketPdfDataError) {
+        console.error("[Zingara ticket PDF] Missing ticket data", {
+          bookingReference: booking.reference,
+          missingFields: error.missingFields,
+          ticketCode: ticket.ticketCode,
+        });
+      } else {
+        console.error("[Zingara ticket PDF] Ticket PDF generation failed", {
+          bookingReference: booking.reference,
+          error,
+          ticketCode: ticket.ticketCode,
+        });
+      }
+      setTicketActionStatus((current) => ({
+        ...current,
+        [ticket.ticketCode]:
+          "Ticket PDF could not be prepared. Please contact Guest Services.",
+      }));
     }
-
-    canvas.width = width;
-    canvas.height = height;
-    const location = getTicketLocation({
-      booking,
-      show,
-      venueSettings: venueConfig,
-    });
-    const artwork = await loadCanvasImage(location.artworkUrl);
-    const logo = await loadCanvasImage(
-      venueConfig.ticketBranding.ticketLogoUrl || venueConfig.logoUrl,
-    );
-
-    const passX = 22;
-    const passY = 20;
-    const passWidth = 376;
-    const passHeight = 720;
-    const cardCenter = passX + passWidth / 2;
-    const showDateTime = getCompactShowDateTime(show ?? undefined);
-    const [showDate, showTime] = showDateTime.includes(" · ")
-      ? showDateTime.split(" · ")
-      : [showDateTime, ""];
-    const guestName = ticket.fullName || booking.customer.name || "Guest";
-    const venueName = venueConfig.venueName || location.label;
-
-    context.fillStyle = "#050505";
-    context.fillRect(0, 0, width, height);
-
-    const pageGradient = context.createRadialGradient(
-      cardCenter,
-      95,
-      30,
-      cardCenter,
-      180,
-      520,
-    );
-
-    pageGradient.addColorStop(0, "#1B1209");
-    pageGradient.addColorStop(0.5, "#070707");
-    pageGradient.addColorStop(1, "#000000");
-    context.fillStyle = pageGradient;
-    context.fillRect(0, 0, width, height);
-
-    context.fillStyle = "#D8C36A";
-    context.fillRect(0, 0, width, 4);
-
-    context.fillStyle = "#090909";
-    context.fillRect(passX, passY, passWidth, passHeight);
-    context.strokeStyle = "rgba(216,195,106,0.82)";
-    context.lineWidth = 2;
-    context.strokeRect(passX, passY, passWidth, passHeight);
-
-    if (logo) {
-      const logoWidth = 118;
-      const logoHeight = Math.min((logo.height / logo.width) * logoWidth, 58);
-
-      context.drawImage(
-        logo,
-        cardCenter - logoWidth / 2,
-        42,
-        logoWidth,
-        logoHeight,
-      );
-    } else {
-      context.fillStyle = "#D8C36A";
-      context.font = "400 28px Georgia, serif";
-      context.textAlign = "center";
-      context.fillText("ZINGARA", cardCenter, 78);
-    }
-
-    context.fillStyle = "#D8C36A";
-    context.font = "700 20px Georgia, serif";
-    context.textAlign = "center";
-    context.fillText("ADMISSION PASS", cardCenter, 118);
-
-    const artworkY = 136;
-    const artworkHeight = 142;
-
-    context.fillStyle = "#000000";
-    context.fillRect(passX + 16, artworkY, passWidth - 32, artworkHeight);
-    if (artwork) {
-      drawContainImage(
-        context,
-        artwork,
-        passX + 18,
-        artworkY + 2,
-        passWidth - 36,
-        artworkHeight - 4,
-      );
-    }
-    context.strokeStyle = "rgba(216,195,106,0.36)";
-    context.lineWidth = 1;
-    context.strokeRect(passX + 16, artworkY, passWidth - 32, artworkHeight);
-
-    context.fillStyle = "#FFFFFF";
-    context.font = "700 22px Georgia, serif";
-    context.fillText(guestName, cardCenter, 316, passWidth - 48);
-    context.fillStyle = "#D8D8D8";
-    context.font = "400 15px sans-serif";
-    context.fillText(showDate, cardCenter, 342);
-    if (showTime) {
-      context.fillText(showTime, cardCenter, 364);
-    }
-
-    const qrTop = 386;
-
-    const qrValue = ticket.ticketCode;
-    const qrDataUrl = await QRCode.toDataURL(qrValue, {
-      color: { dark: "#000000", light: "#FFFFFF" },
-      errorCorrectionLevel: "M",
-      margin: 3,
-      scale: 8,
-      width: 190,
-    });
-    const qrImage = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const image = new Image();
-
-      image.onload = () => resolve(image);
-      image.onerror = reject;
-      image.src = qrDataUrl;
-    });
-
-    context.fillStyle = "#FFFFFF";
-    context.fillRect(cardCenter - 101, qrTop, 202, 202);
-    context.drawImage(qrImage, cardCenter - 95, qrTop + 6, 190, 190);
-
-    const detailsTop = qrTop + 236;
-    const detailLeft = passX + 34;
-    const detailRight = passX + passWidth - 34;
-
-    context.fillStyle = "#D8C36A";
-    context.font = "700 16px sans-serif";
-    context.textAlign = "center";
-    context.fillText(
-      `Ticket ${ticket.index} of ${ticket.total}`,
-      cardCenter,
-      detailsTop,
-    );
-
-    context.fillStyle = "#FFFFFF";
-    context.font = "700 15px sans-serif";
-    context.fillText(booking.reference, cardCenter, detailsTop + 25);
-    context.fillStyle = "#D8D8D8";
-    context.font = "400 12px monospace";
-    context.fillText(ticket.ticketCode, cardCenter, detailsTop + 45);
-    context.fillStyle = "#FFFFFF";
-    context.font = "700 14px sans-serif";
-    context.fillText(venueName, cardCenter, detailsTop + 72, passWidth - 50);
-    context.fillStyle = "#CFCFCF";
-    context.font = "400 13px sans-serif";
-    context.fillText(
-      booking.zoneTitle,
-      cardCenter,
-      detailsTop + 93,
-      passWidth - 50,
-    );
-    context.fillText(
-      `Table ${booking.tableNumber}`,
-      cardCenter,
-      detailsTop + 113,
-      passWidth - 50,
-    );
-
-    context.fillStyle = "rgba(216,195,106,0.08)";
-    context.fillRect(detailLeft, detailsTop + 130, detailRight - detailLeft, 36);
-    context.strokeStyle = tableColour.border;
-    context.lineWidth = 1.5;
-    context.strokeRect(detailLeft, detailsTop + 130, detailRight - detailLeft, 36);
-    context.fillStyle = tableColour.background;
-    context.beginPath();
-    context.arc(detailLeft + 22, detailsTop + 148, 8, 0, Math.PI * 2);
-    context.fill();
-    context.strokeStyle = tableColour.border;
-    context.stroke();
-
-    context.textAlign = "left";
-    context.fillStyle = "#FFFFFF";
-    context.font = "700 12px sans-serif";
-    context.fillText(
-      tableColour.label,
-      detailLeft + 39,
-      detailsTop + 153,
-      detailRight - detailLeft - 62,
-    );
-
-    context.textAlign = "center";
-    context.fillStyle = "#CFCFCF";
-    context.font = "400 12px sans-serif";
-    context.fillText(
-      "Present this ticket at the entrance",
-      cardCenter,
-      passY + passHeight - 22,
-      passWidth - 46,
-    );
-
-    const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.94);
-    const pdfBlob = createImagePdfBlob(jpegDataUrl, width, height);
-    const pdfUrl = URL.createObjectURL(pdfBlob);
-
-    ticketWindow.location.href = pdfUrl;
-    window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 30000);
-    setTicketActionStatus((current) => ({
-      ...current,
-      [ticket.ticketCode]: "PDF opened.",
-    }));
   }
 
   return (
@@ -713,7 +394,7 @@ export default function LiveTicketClient({
             onClick={handleTicketExit}
             className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#D8C36A]/40 bg-[#D8C36A]/10 px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#F3E5A0] transition hover:border-[#F3E5A0] hover:bg-[#D8C36A]/20"
           >
-            {returnTo ? "Close" : "Back"}
+            Back
           </button>
         </nav>
       </header>
@@ -1090,6 +771,11 @@ export default function LiveTicketClient({
               >
                 Download Ticket
               </button>
+              {ticketActionStatus[activeTicket.ticketCode] && (
+                <p className="mt-3 text-center text-sm font-semibold text-emerald-300">
+                  {ticketActionStatus[activeTicket.ticketCode]}
+                </p>
+              )}
             </div>
           </div>
         )}

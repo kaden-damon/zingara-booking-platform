@@ -18,23 +18,37 @@ import {
   rolePermissions,
 } from "../../lib/zingaraAccess";
 import {
-  getBrowserNotificationDiagnostics,
-  getBrowserNotificationStatusLabel,
   getStaffNotifications,
   markAllStaffNotificationsRead,
   markStaffNotificationRead,
-  registerZingaraPushSubscription,
   sendZingaraBrowserNotification,
   sendZingaraGuestPushNotification,
   sendZingaraStaffPushNotification,
-  sendZingaraPushTestNotification,
   type StaffNotificationRecord,
+  type ZingaraNotificationTrigger,
 } from "../../lib/browserNotifications";
 import {
+  type BookingEditLock,
+  acquireBookingEditLock,
+  getBookingEditLocks,
+  heartbeatBookingEditLock,
+  releaseBookingEditLock,
+  requestBookingEditTakeover,
+} from "../../lib/supabase/bookingLocks";
+import {
+  archiveBookings,
   getBookings,
   persistBookingCancellation,
+  restoreBookings,
   saveBookings as persistBookings,
 } from "../../lib/supabase/bookings";
+import {
+  getAuditTrail,
+} from "../../lib/supabase/auditTrail";
+import type {
+  AuditEvent,
+  AuditOutcome,
+} from "../../lib/auditTrail";
 import {
   adminAuthChangedEvent,
   getAdminAuthSession,
@@ -49,13 +63,14 @@ import { syncCorporateRequestCommunications } from "../../lib/supabase/communica
 import {
   getCustomers,
   saveCustomers,
+  updateCustomerArchiveStatus,
   upsertCustomerFromInfo,
 } from "../../lib/supabase/customers";
 import {
   getCorporateRequests,
   saveCorporateRequests as persistCorporateRequests,
 } from "../../lib/supabase/corporateRequests";
-import { updatePayment } from "../../lib/supabase/payments";
+import { getPayments, updatePayment } from "../../lib/supabase/payments";
 import {
   getOrCreateStaffProfileSession,
 } from "../../lib/supabase/staffProfiles";
@@ -66,17 +81,24 @@ import {
   deleteStaffProfile,
   updateStaffActive,
   updateStaffRole,
+  updateStaffVenueScope,
 } from "../../lib/supabase/staffManagement";
 import {
   createStaffUser,
   getAvailableRoles,
 } from "../../lib/supabase/staffInvitations";
 import {
+  getStaffVenueScopeLabel,
+  normalizeStaffVenueScope,
+  staffLocationOptions,
+} from "../../lib/staffLocations";
+import {
   getShows,
   replaceShows,
 } from "../../lib/supabase/shows";
 import { createTicketValidation } from "../../lib/supabase/ticketValidations";
 import { updateTicket } from "../../lib/supabase/tickets";
+import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
 import {
   getVenueSettings,
   saveVenueSettings as persistVenueSettings,
@@ -99,6 +121,7 @@ import {
   type DemoTable,
   type DemoVenueSettings,
   type DemoWaitlistEntry,
+  type EntryLocationKey,
   type GuestTicket,
   type PaymentStatus,
   type SeatingZone,
@@ -120,16 +143,20 @@ import {
   getCommunicationTemplate,
   getIncludedBookingFeeBreakdown,
   getShowLabel,
+  getShowLocationOption,
   getZoneById,
   getStoredDemoTables,
   getSouthAfricaShowTime,
   getTicketUrl,
   getGuestTicketsForBooking,
   renderCommunicationTemplate,
+  isOperationallyActiveBooking,
+  normalizeShowLocation,
   normalizeTicketReference,
   isValidBookingStatus,
   isValidSeatingZoneId,
   seatingZones,
+  showLocationOptions,
   storeDemoTables,
 } from "../../lib/zingaraDemo";
 
@@ -140,11 +167,14 @@ type NewTableForm = {
 type NewTablesByZone = Record<SeatingZoneId, NewTableForm>;
 type MergeSelection = Record<SeatingZoneId, string>;
 type NewShowForm = {
+  address: string;
   date: string;
   time: string;
   label: string;
+  location: EntryLocationKey | "";
 };
 type ShowEditForm = {
+  address: string;
   date: string;
   description: string;
   internalNotes: string;
@@ -190,6 +220,7 @@ type BroadcastForm = {
   message: string;
   subject: string;
 };
+type PaymentRow = Awaited<ReturnType<typeof getPayments>>[number];
 type WaitlistReport = Record<WaitlistStatus, number> & {
   activeGuests: number;
 };
@@ -225,6 +256,8 @@ type CustomerProfile = {
     subject?: string;
     trigger?: CommunicationTrigger;
   }[];
+  archivedAt?: string;
+  archivedBy?: string;
   customer: {
     email: string;
     name: string;
@@ -245,7 +278,11 @@ type LiveCustomerRecord = {
   id: string;
   mobile: string | null;
   preferences: {
+    archivedAt?: string;
+    archivedBy?: string;
+    archiveReason?: string;
     customerKey?: string;
+    marketingPreference?: string;
     vipTags?: string[];
   } | null;
   relationship_notes: string | null;
@@ -272,6 +309,7 @@ const notificationPreferenceOrder: NotificationPreferenceKey[] = [
   "guest-checked-in",
   "operational-broadcast-sent",
 ];
+const mutedBrowserNotificationPermission = "default" as const;
 
 const bookingStatuses: BookingStatus[] = [
   "new",
@@ -455,10 +493,181 @@ type AdminTab =
   | "analytics"
   | "settings"
   | "academy";
+type BookingArchiveFilter = "active" | "all" | "archived";
+type CustomerArchiveFilter = "active" | "all" | "archived";
 type BookingViewMode = "grid" | "list";
 type FloorZoneFilter = SeatingZoneId | "all";
-type OperationsTab = "floor" | "check-in" | "waitlist";
-type SettingsTab = "staff" | "venue" | "workflows";
+type OperationsTab =
+  | "dashboard"
+  | "floor"
+  | "check-in"
+  | "waitlist"
+  | "daily-booking-manifest"
+  | "floor-manifest"
+  | "financial-reports"
+  | "export-centre";
+type SettingsTab = "audit" | "portability" | "staff" | "venue" | "workflows";
+type AuditFilters = {
+  action: string;
+  actorStaffProfileId: string;
+  dateFrom: string;
+  dateTo: string;
+  entityReference: string;
+  entityType: string;
+  location: string;
+  outcome: AuditOutcome | "all";
+  search: string;
+};
+type ManifestLocationFilter = "all" | EntryLocationKey;
+type ManifestStatusFilter =
+  | "active"
+  | "pending-payment"
+  | "cancelled"
+  | "checked-in"
+  | "no-show"
+  | "all";
+type DailyManifestSort =
+  | "guest-name"
+  | "table-number"
+  | "section"
+  | "booking-status"
+  | "balance-due";
+type FinancialBookingTypeFilter = "all" | "standard" | "corporate";
+type FinancialReportTab =
+  | "payments-received"
+  | "future-booking-revenue"
+  | "monthly-income"
+  | "complimentary-bookings";
+type OperationsExportId =
+  | "daily-manifest"
+  | "floor-manifest"
+  | "payments-received"
+  | "future-booking-revenue"
+  | "monthly-income"
+  | "complimentary-bookings";
+type ExportFormat = "pdf" | "xlsx";
+type ExportCellValue = Date | number | string;
+type ExportRow = Record<string, ExportCellValue>;
+type ExportSheet = {
+  columns: string[];
+  name: string;
+  rows: ExportRow[];
+  summary?: Array<[string, ExportCellValue]>;
+};
+type DataPortabilityEntity = "bookings" | "customers";
+type DataPortabilityMode = "export" | "history" | "import";
+type DataPortabilityImportAction = "Create" | "Skip" | "Update";
+type DataPortabilityImportIssue = {
+  field: string;
+  message: string;
+  rowNumber: number;
+  severity: "error" | "warning";
+};
+type DataPortabilityPreviewRow = {
+  action: DataPortabilityImportAction;
+  errors: string[];
+  rowNumber: number;
+  valid: boolean;
+  values: Record<string, string>;
+  warnings: string[];
+};
+type DataPortabilityImportPreview = {
+  duplicateRows: number;
+  entity: DataPortabilityEntity;
+  fileName: string;
+  headers: string[];
+  invalidRows: number;
+  issues: DataPortabilityImportIssue[];
+  missingRequiredColumns: string[];
+  rows: DataPortabilityPreviewRow[];
+  rowsDetected: number;
+  validRows: number;
+  wouldCreate: number;
+  wouldSkip: number;
+  wouldUpdate: number;
+};
+type DataPortabilityImportLogRow = {
+  action: DataPortabilityImportAction;
+  customer: string;
+  errors: string;
+  message: string;
+  reference: string;
+  row: number;
+  status: "Failed" | "Skipped" | "Success";
+  warnings: string;
+};
+type DataPortabilityImportResult = {
+  auditTrail: string[];
+  completedAt: string;
+  created: number;
+  dataset: DataPortabilityEntity;
+  durationMs: number;
+  failed: number;
+  fileName: string;
+  logRows: DataPortabilityImportLogRow[];
+  records: number;
+  restorePointId: string;
+  result: "failed" | "partial" | "success";
+  skipped: number;
+  startedAt: string;
+  updated: number;
+  user: string;
+};
+type DataPortabilityImportHistoryEntry = Pick<
+  DataPortabilityImportResult,
+  | "completedAt"
+  | "created"
+  | "dataset"
+  | "durationMs"
+  | "failed"
+  | "fileName"
+  | "records"
+  | "restorePointId"
+  | "result"
+  | "skipped"
+  | "updated"
+  | "user"
+> & {
+  id: string;
+  finalStatus: "failed" | "pending" | "rolled_back" | "success";
+  logRows: DataPortabilityImportLogRow[];
+};
+type DataPortabilityImportHistoryApiRow = {
+  completed_at: string | null;
+  created_count: number;
+  dataset: DataPortabilityEntity;
+  duration_ms: number;
+  failed_count: number;
+  final_status: "failed" | "pending" | "rolled_back" | "success";
+  id: string;
+  original_file_name: string;
+  restore_point_id: string | null;
+  result_log?: unknown;
+  skipped_count: number;
+  staff_profiles?: { email?: string | null; full_name?: string | null } | null;
+  started_at: string;
+  total_rows: number;
+  updated_count: number;
+  valid_rows: number;
+};
+type DataPortabilityRestorePoint = {
+  bookingCount: number;
+  bookings: DemoBooking[];
+  createdAt: string;
+  customerCrmCount: number;
+  customerCrmRecords: DemoCustomerCrmRecord[];
+  dataset: DataPortabilityEntity;
+  id: string;
+  liveCustomerCount: number;
+  paymentLinkCount: number;
+  ticketLinkCount: number;
+};
+type PortabilityColumn = {
+  example: string;
+  key: string;
+  label: string;
+  required?: boolean;
+};
 type DashboardWidgetId =
   | "tonight"
   | "guest-ops"
@@ -473,6 +682,30 @@ type DashboardLayoutState = {
   minimized: DashboardWidgetId[];
   order: DashboardWidgetId[];
 };
+type SystemHealthStatus = "healthy" | "offline" | "warning";
+type SystemHealthCheck = {
+  description: string;
+  displayLabel?: string;
+  name: string;
+  status: SystemHealthStatus;
+};
+type SystemStatusPayload = {
+  checks: SystemHealthCheck[];
+  generatedAt: string;
+  overallStatus: SystemHealthStatus;
+  platform: {
+    activeBookingLocks: number;
+    autoRefresh: string;
+    build: string;
+    currentDatabase: string;
+    currentDateTime: string;
+    currentStaff: string;
+    environment: string;
+    lastSuccessfulHealthCheck: string | null;
+    platformVersion: string;
+    staffLoggedIn: string;
+  };
+};
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "overview", label: "Dashboard" },
@@ -483,6 +716,53 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "settings", label: "Settings" },
   { id: "academy", label: "🎓 Academy" },
 ];
+
+const dataPortabilityColumns: Record<
+  DataPortabilityEntity,
+  PortabilityColumn[]
+> = {
+  bookings: [
+    { example: "ZNG-7K4P2Q", key: "booking_reference", label: "Booking Reference", required: true },
+    { example: "Confirmed", key: "booking_status", label: "Booking Status", required: true },
+    { example: "Standard", key: "booking_type", label: "Booking Type", required: true },
+    { example: "The Royal Countess", key: "show", label: "Show", required: true },
+    { example: "2026-08-09", key: "show_date", label: "Show Date", required: true },
+    { example: "Cape Town — The Night Court", key: "location", label: "Location", required: true },
+    { example: "2026-08-01", key: "booking_date", label: "Booking Date", required: true },
+    { example: "Guest Example", key: "customer_name", label: "Customer Name", required: true },
+    { example: "guest@example.com", key: "customer_email", label: "Customer Email" },
+    { example: "+27 21 000 0000", key: "customer_phone", label: "Customer Phone" },
+    { example: "2", key: "number_of_guests", label: "Number of Guests", required: true },
+    { example: "Royal Booths", key: "seating_zone", label: "Seating Zone", required: true },
+    { example: "B2", key: "table", label: "Table", required: true },
+    { example: "1100", key: "booking_total", label: "Booking Total", required: true },
+    { example: "550", key: "amount_paid", label: "Amount Paid", required: true },
+    { example: "550", key: "balance_due", label: "Balance Due", required: true },
+    { example: "Deposit Paid", key: "payment_status", label: "Payment Status", required: true },
+    { example: "Anniversary table", key: "guest_notes", label: "Guest Notes" },
+    { example: "No", key: "complimentary_flag", label: "Complimentary flag" },
+    { example: "No", key: "corporate_flag", label: "Corporate flag" },
+    { example: "No", key: "archived", label: "Archived" },
+    { example: "Not archived", key: "archived_at", label: "Archived At" },
+  ],
+  customers: [
+    { example: "Guest Example", key: "customer_name", label: "Customer Name", required: true },
+    { example: "guest@example.com", key: "email", label: "Email" },
+    { example: "+27 21 000 0000", key: "phone", label: "Phone" },
+    { example: "Example Company", key: "company", label: "Company" },
+    { example: "1", key: "number_of_bookings", label: "Number of Bookings" },
+    { example: "2026-08-09", key: "last_booking", label: "Last Booking" },
+    { example: "2", key: "total_guests", label: "Total Guests" },
+    { example: "Prefers aisle access", key: "guest_notes", label: "Guest Notes" },
+    { example: "Not recorded", key: "marketing_preference", label: "Marketing preference" },
+    { example: "Active", key: "customer_status", label: "Customer Status" },
+  ],
+};
+
+const dataPortabilityEntityLabels: Record<DataPortabilityEntity, string> = {
+  bookings: "Bookings",
+  customers: "Customers",
+};
 
 type AcademyArticle = {
   category: string;
@@ -573,6 +853,7 @@ const academyModules: AcademyModule[] = [
   { difficulty: "advanced", estimatedMinutes: 25, id: "staff-permissions", title: "Staff & Permissions" },
   { difficulty: "advanced", estimatedMinutes: 25, id: "settings", title: "Settings" },
   { difficulty: "intermediate", estimatedMinutes: 25, id: "analytics-reporting", title: "Analytics & Reporting" },
+  { difficulty: "advanced", estimatedMinutes: 30, id: "platform-administration", title: "Platform Administration" },
   { difficulty: "beginner", estimatedMinutes: 15, id: "faq", title: "Frequently Asked Questions" },
 ];
 const allAcademyModuleIds = academyModules.map((module) => module.id);
@@ -695,7 +976,7 @@ const gettingStartedLessons: AcademyArticle[] = [
     id: "welcome-to-zingara",
     keywords: ["welcome", "onboarding", "platform", "academy", "entry gate", "location"],
     moduleId: "getting-started",
-    purpose: "Zingara is the booking and operations platform for The Royal Countess experience. It helps the team manage reservations, guest details, seating, tickets, communications, check-in, waitlists, corporate enquiries, and staff access from one place.",
+    purpose: "Zingara Version 1.0 RC is the booking and operations platform for The Royal Countess experience. It helps the team manage reservations, guest details, seating, tickets, communications, check-in, waitlists, corporate enquiries, reporting, imports, audit history, and staff access from one place.",
     relatedActions: ["bookings", "crm", "waitlist", "communications"],
     related: ["Logging In", "Navigating the Platform", "Finding an Existing Booking"],
     tips: [
@@ -776,15 +1057,11 @@ const gettingStartedLessons: AcademyArticle[] = [
       "Guests choose Cape Town or Johannesburg before entering the booking or lookup journey.",
       "Book Your Experience opens the standard booking flow for the selected location.",
       "Find My Booking opens the secure lookup flow for an existing booking.",
-      "Use Dashboard for the live overview, notifications, quick actions, and search.",
-      "Use Bookings to view, update, cancel, and open guest reservations.",
-      "Use Corporate for business and group enquiries.",
-      "Use CRM to view guest profiles, preferences, notes, spend, and history.",
-      "Use Waitlist for guests waiting for availability.",
-      "Use Communications for messages, reminders, broadcasts, and templates.",
-      "Use Tickets and Check-In for ticket lookup, scanning, and arrivals.",
-      "Use Venue for show, seating, table, and floor operations.",
-      "Use Staff and Settings for users, roles, venue configuration, and system setup.",
+      "Use Dashboard for the live overview, notifications, System Status, quick actions, and search.",
+      "Use Bookings to view, update, cancel, archive, and open guest reservations.",
+      "Use Operations for Dashboard, Floor, Check-In, Waitlist, Daily Manifest, Floor Manifest, Financial Reports, and Exports.",
+      "Use Customers to view CRM profiles, preferences, notes, spend, booking history, and customer archive status.",
+      "Use Settings for Staff, Venue, Automated Workflows, Audit Trail, and Data Portability.",
       "Use Academy for training, refresher lessons, and workflow guidance.",
     ],
     id: "navigating-the-platform",
@@ -1137,6 +1414,63 @@ const bookingLessons: AcademyArticle[] = [
     ],
     title: "Cancelling a Booking",
     whenToUse: "Use this when a guest no longer wants or can attend their reservation.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Ignoring the editing badge and opening the same booking as another staff member.",
+      "Trying to save changes while another active editor holds the lock.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open the booking from the Bookings list.",
+      "If no one else is editing, enter Edit mode and complete the change.",
+      "If the booking is locked, review the current editor name, role, start time, and last activity.",
+      "Use View Read Only when you only need to inspect the booking, customer, tickets, or payments.",
+      "Use Request Takeover only when the current editor is unavailable or inactive.",
+      "Super Admins and Venue Managers may force takeover after the lock is stale.",
+    ],
+    id: "booking-locking-and-read-only-mode",
+    keywords: ["booking lock", "editing", "read only", "takeover", "multi staff"],
+    moduleId: "bookings",
+    purpose: "Prevent two staff members from silently editing the same booking at the same time.",
+    relatedActions: ["bookings"],
+    related: ["Editing a Booking", "Audit Trail"],
+    tips: [
+      "A lock protects the guest record from conflicting changes.",
+      "Read-only mode is safe for checking details while another staff member edits.",
+      "Do not force takeover unless the current editor is genuinely inactive or a manager approves it.",
+    ],
+    title: "Booking Locking & Read-Only Mode",
+    whenToUse: "Use this whenever more than one staff member may be working in Bookings.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Archiving when the booking should be cancelled.",
+      "Thinking archive deletes the booking or guest history.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Bookings.",
+      "Use Active, Archived, or All filters to control which bookings are visible.",
+      "Open the booking and confirm the reference, guest, show, and status.",
+      "Use Archive Booking when the booking should leave normal views but remain preserved.",
+      "Use Restore Booking if an archived booking should return to active operational visibility.",
+      "Check that booking history, tickets, payments, communications, and audit records remain linked.",
+    ],
+    id: "booking-archive",
+    keywords: ["booking archive", "archived", "restore booking", "active filter"],
+    moduleId: "bookings",
+    purpose: "Keep normal booking views tidy without deleting operational history.",
+    relatedActions: ["bookings"],
+    related: ["Viewing Booking History", "Audit Trail"],
+    tips: [
+      "Cancel explains the guest outcome; archive controls staff visibility.",
+      "Archived bookings remain part of reporting, audit, import matching, and historical lookup where appropriate.",
+    ],
+    title: "Booking Archive",
+    whenToUse: "Use this when a preserved booking should no longer appear in normal active booking work.",
   },
   {
     category: "Bookings",
@@ -2073,6 +2407,34 @@ const crmGuestLessons: AcademyArticle[] = [
   {
     category: "CRM & Guests",
     commonMistakes: [
+      "Archiving a customer because a booking should be cancelled.",
+      "Assuming archived customers are removed from duplicate detection or history.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Customers.",
+      "Use the Active, Archived, or All filter.",
+      "Open the customer profile and confirm the guest details.",
+      "Super Admins can choose Archive Customer when the profile should disappear from normal CRM views.",
+      "Use Restore Customer when the profile should return to active CRM work.",
+      "Confirm bookings, payments, tickets, communications, audit history, and import matching remain connected.",
+    ],
+    id: "customer-archive",
+    keywords: ["customer archive", "archived customers", "restore customer", "crm filters"],
+    moduleId: "crm-guests",
+    purpose: "Hide inactive customer profiles from normal CRM work without deleting guest history.",
+    relatedActions: ["crm"],
+    related: ["CRM Overview", "Duplicate Guests"],
+    tips: [
+      "Archive is a visibility control, not deletion.",
+      "Archived customers still protect against duplicate imports by email or phone.",
+    ],
+    title: "Customer Archive",
+    whenToUse: "Use this when a customer profile should be retained but no longer appear in the Active CRM list.",
+  },
+  {
+    category: "CRM & Guests",
+    commonMistakes: [
       "Writing vague notes that are not useful later.",
       "Adding private opinions instead of operational facts.",
     ],
@@ -2625,7 +2987,7 @@ const communicationLessons: AcademyArticle[] = [
     howTo: [
       "Confirm the app or PWA has notification permission.",
       "Use the configured notification triggers for booking, payment, waitlist, corporate, or operational events.",
-      "Use Send Test Notification when checking staff notification setup.",
+      "Review Notification Preferences when checking staff notification setup.",
       "Review the Notification Centre for in-app records.",
     ],
     id: "push-notifications",
@@ -3982,7 +4344,7 @@ const settingsLessons: AcademyArticle[] = [
     howTo: [
       "Open the notification or workflow area where notification actions are available.",
       "Check whether the browser or installed app has notification permission.",
-      "Use Send Test Notification where available.",
+      "Review Notification Preferences for local device delivery.",
       "Review the Notification Centre for in-app records.",
       "Confirm the right staff roles should receive the alert.",
     ],
@@ -4193,6 +4555,90 @@ const analyticsReportingLessons: AcademyArticle[] = [
   {
     category: "Analytics & Reporting",
     commonMistakes: [
+      "Looking for Daily Manifest under Bookings instead of Operations.",
+      "Using the wrong location or show filter before service.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Operations.",
+      "Use Dashboard for operational KPI cards.",
+      "Open Daily Manifest for the show list view with guests, contact details, tables, notes, statuses, deposits, and balances.",
+      "Open Floor Manifest for section and table cards grouped for service.",
+      "Use Refresh to pull the latest booking and check-in data.",
+      "Use Print or export actions where available for handover.",
+    ],
+    id: "operations-dashboard-and-manifests",
+    keywords: ["operations", "daily manifest", "floor manifest", "operations dashboard", "print"],
+    moduleId: "analytics-reporting",
+    purpose: "Use Operations as the central workspace for service readiness, manifests, floor context, and live operational checks.",
+    relatedActions: ["bookings", "tickets", "waitlist"],
+    related: ["Daily Manifest", "Floor Manifest"],
+    tips: [
+      "Select the correct location and show before reading a manifest.",
+      "Manifests are read-only in normal use and should not send communications.",
+    ],
+    title: "Operations Dashboard & Manifests",
+    whenToUse: "Use this before service, during handover, or when the floor needs a live operating list.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Printing before checking filters.",
+      "Treating cancelled bookings as active guests.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Operations, then Daily Manifest.",
+      "Select the permitted location and show.",
+      "Use status and search filters to find the right guests.",
+      "Sort by guest name, table, section, status, or balance due when needed.",
+      "Review the result count, total guests, last refreshed time, and summary strip.",
+      "Print or export only after the list matches the service requirement.",
+    ],
+    id: "daily-manifest",
+    keywords: ["daily manifest", "guest list", "contact details", "table number", "notes"],
+    moduleId: "analytics-reporting",
+    purpose: "Use Daily Manifest as the live guest list for the selected show.",
+    relatedActions: ["bookings", "tickets"],
+    related: ["Operations Dashboard & Manifests", "Floor Manifest"],
+    tips: [
+      "Cancelled bookings are not shown by default.",
+      "Use search for booking reference, guest name, email, phone, or table number.",
+    ],
+    title: "Daily Manifest",
+    whenToUse: "Use this when box office, managers, or service leads need the show guest list.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Reading a table card without checking the selected show.",
+      "Assuming vacant and occupied tables are calculated from memory.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Operations, then Floor Manifest.",
+      "Select the permitted location and show.",
+      "Review each seating section for occupied tables, vacant tables, guest count, and outstanding balance where authorised.",
+      "Open table cards to read guest name, guests, payment status, payment notes, bar credit, gratuity, and guest notes where recorded.",
+      "Refresh after check-in or booking changes.",
+      "Print or export for floor handover when required.",
+    ],
+    id: "floor-manifest",
+    keywords: ["floor manifest", "sections", "tables", "vacant", "occupied", "floor"],
+    moduleId: "analytics-reporting",
+    purpose: "Use Floor Manifest as the table-ready operational view for the selected show.",
+    relatedActions: ["tickets", "bookings"],
+    related: ["Daily Manifest", "Checking In Guests"],
+    tips: [
+      "Merged tables and per-show overrides are reflected from the existing floor data.",
+      "Floor Manifest is for service scanning, not for editing bookings.",
+    ],
+    title: "Floor Manifest",
+    whenToUse: "Use this when the floor team needs a section-by-section service view.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
       "Counting cancelled bookings as active demand.",
       "Mixing standard and corporate bookings without checking source.",
     ],
@@ -4372,6 +4818,62 @@ const analyticsReportingLessons: AcademyArticle[] = [
     ],
     title: "Exporting Data",
     whenToUse: "Use this when management needs a report file for review, finance, or planning.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Counting pending or failed payments as received income.",
+      "Using monthly income reports without checking the selected month and location.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Open Operations, then Financial Reports.",
+      "Apply location, show, date range, reporting month, booking type, and payment status filters.",
+      "Review Payments Received for confirmed payment records.",
+      "Review Future Booking Revenue for future show value, collected amounts, and balances.",
+      "Review Monthly Income Statement for management-level cash and booking summaries.",
+      "Review Complimentary Bookings for daily and monthly complimentary counts.",
+      "Use the summary cards before opening individual rows.",
+    ],
+    id: "financial-reports",
+    keywords: ["financial reports", "payments received", "future revenue", "monthly income", "complimentary bookings"],
+    moduleId: "analytics-reporting",
+    purpose: "Use Financial Reports for management visibility into confirmed payments, future booking value, complimentary activity, and monthly performance.",
+    relatedActions: ["bookings"],
+    related: ["Revenue Reporting", "Export Centre"],
+    tips: [
+      "Financial Reports use confirmed payment records and existing booking calculations.",
+      "Do not treat PayFast return pages as payment confirmation; ITN remains the payment source of truth.",
+    ],
+    title: "Financial Reports",
+    whenToUse: "Use this when Super Admins or authorised Venue Managers need management reporting.",
+  },
+  {
+    category: "Analytics & Reporting",
+    commonMistakes: [
+      "Exporting from the wrong report because the file names look similar.",
+      "Sharing contact or financial exports with staff who do not need them.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Operations, then Exports.",
+      "Choose Daily Manifest, Floor Manifest, Payments Received, Future Booking Revenue, Monthly Income Statement, or Complimentary Bookings.",
+      "Confirm the filters match the source report.",
+      "Download PDF or Excel where available.",
+      "Open the exported file and confirm totals match the screen before sharing.",
+    ],
+    id: "export-centre",
+    keywords: ["export centre", "pdf export", "excel export", "xlsx", "operations exports"],
+    moduleId: "analytics-reporting",
+    purpose: "Use Export Centre to download approved operational and financial files from the same filtered datasets as the on-screen reports.",
+    relatedActions: ["bookings"],
+    related: ["Financial Reports", "Daily Manifest"],
+    tips: [
+      "Box Office Staff may export manifests but not financial reports.",
+      "Floor Managers use Floor Manifest exports only where their role permits it.",
+    ],
+    title: "Export Centre",
+    whenToUse: "Use this when the team needs a PDF or Excel file for handover, finance, or planning.",
   },
   {
     category: "Analytics & Reporting",
@@ -4595,6 +5097,203 @@ const findMyBookingLessons: AcademyArticle[] = [
   },
 ];
 
+const platformAdministrationLessons: AcademyArticle[] = [
+  {
+    category: "Platform Administration",
+    commonMistakes: [
+      "Treating import preview as a live import.",
+      "Using production files before validating the template and dry-run counts.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Open Settings, then Data Portability.",
+      "Choose Bookings or Customers.",
+      "Use Export when you need a current file without internal IDs or secrets.",
+      "Download the correct import template before preparing a new file.",
+      "Upload CSV or Excel to preview and validate rows before importing.",
+      "Review records found, valid, invalid, duplicates, would create, would update, and would skip counts.",
+    ],
+    id: "data-portability-overview",
+    keywords: ["data portability", "export", "import preview", "dry run", "csv", "xlsx"],
+    moduleId: "platform-administration",
+    purpose: "Use Data Portability to safely export and prepare booking or customer import files without changing records during preview.",
+    relatedActions: [],
+    related: ["Transactional Import", "Restore Points & Import History"],
+    tips: [
+      "Preview is read-only until an authorised import is confirmed.",
+      "Use templates so column names match the importer exactly.",
+    ],
+    title: "Data Portability Overview",
+    whenToUse: "Use this when preparing booking or customer data for export, validation, or controlled import.",
+  },
+  {
+    category: "Platform Administration",
+    commonMistakes: [
+      "Approving an import without reading validation warnings.",
+      "Expecting partial imports to remain after a failed transaction.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Complete the import preview first.",
+      "Review all validation errors, warnings, duplicates, create counts, update counts, and skip counts.",
+      "Confirm the import only when the preview matches the intended result.",
+      "The system creates a restore point and import history entry.",
+      "The import runs transactionally so a failed import rolls back instead of leaving partial records.",
+      "Check Import History and Audit Trail after completion.",
+    ],
+    id: "transactional-import",
+    keywords: ["transactional import", "confirm import", "rollback", "validation", "restore point"],
+    moduleId: "platform-administration",
+    purpose: "Run approved imports safely after preview and validation have passed.",
+    relatedActions: [],
+    related: ["Data Portability Overview", "Restore Points & Import History"],
+    tips: [
+      "Do not approve imports during busy service unless it is operationally necessary.",
+      "If anything is unclear, stop at preview and ask a Super Admin to review.",
+    ],
+    title: "Transactional Import",
+    whenToUse: "Use this when a Super Admin is ready to apply a validated booking or customer import.",
+  },
+  {
+    category: "Platform Administration",
+    commonMistakes: [
+      "Assuming restore deletes audit or import history.",
+      "Restoring the wrong import because the timestamp was not checked.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Open Settings, then Data Portability.",
+      "Open Import History.",
+      "Find the import by type, timestamp, staff member, and result.",
+      "Review the restore point details.",
+      "Use Restore only when the imported changes should be rolled back.",
+      "Confirm that import history and audit records remain preserved after restore.",
+    ],
+    id: "restore-points-and-import-history",
+    keywords: ["restore points", "import history", "restore import", "rollback"],
+    moduleId: "platform-administration",
+    purpose: "Use restore points and import history to reverse a controlled import while preserving accountability.",
+    relatedActions: [],
+    related: ["Transactional Import", "Audit Trail"],
+    tips: [
+      "Restore is for import recovery, not routine editing.",
+      "Check before and after counts when a restore is used.",
+    ],
+    title: "Restore Points & Import History",
+    whenToUse: "Use this after a controlled import needs review or rollback.",
+  },
+  {
+    category: "Platform Administration",
+    commonMistakes: [
+      "Treating audit events as editable notes.",
+      "Looking only at booking history when a staff action needs review.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Open Settings, then Audit Trail.",
+      "Filter or search for the relevant staff member, booking, customer, import, lock, or workflow action.",
+      "Review the event time, actor, action, target, and safe summary.",
+      "Use audit records to understand who changed what and when.",
+      "Do not try to edit or delete audit entries.",
+    ],
+    id: "audit-trail",
+    keywords: ["audit trail", "immutable audit", "staff action", "history"],
+    moduleId: "platform-administration",
+    purpose: "Use the immutable Audit Trail to review important staff and system actions.",
+    relatedActions: [],
+    related: ["Booking Locking & Read-Only Mode", "Restore Points & Import History"],
+    tips: [
+      "Audit Trail supports accountability; it is not a guest communication log.",
+      "Sensitive values are intentionally not exposed in audit summaries.",
+    ],
+    title: "Audit Trail",
+    whenToUse: "Use this during management review, incident review, import checks, or staff access review.",
+  },
+  {
+    category: "Platform Administration",
+    commonMistakes: [
+      "Ignoring local configuration warnings that are clearly marked.",
+      "Assuming System Status sends test emails, push notifications, or payments.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Dashboard.",
+      "Review System Status below the dashboard widget canvas.",
+      "Check Overall Platform Status first.",
+      "Review Database, Bookings, Customers, Audit Trail, Data Portability, Payments, Email, Push, Ticket Engine, QR Validation, and Booking Locks.",
+      "Read Platform Information for Version, Build, Environment, Current Staff, Active Booking Locks, Current Database, Current Date/Time, Last Successful Health Check, and Auto Refresh.",
+      "Use Refresh Status for an immediate health check.",
+    ],
+    id: "system-health-dashboard",
+    keywords: ["system status", "platform health", "health check", "last successful health check", "auto refresh"],
+    moduleId: "platform-administration",
+    purpose: "Use System Status to confirm the main platform services are reachable without triggering payments, emails, pushes, or workflow changes.",
+    relatedActions: [],
+    related: ["Dashboard Overview", "Audit Trail"],
+    tips: [
+      "A local PayFast configuration warning can be expected in local development.",
+      "Critical database or booking failures should be escalated immediately.",
+    ],
+    title: "System Health Dashboard",
+    whenToUse: "Use this at the start of a shift, before rollout checks, or when the platform feels unhealthy.",
+  },
+  {
+    category: "Platform Administration",
+    commonMistakes: [
+      "Sending a workflow before checking the selected show and recipient count.",
+      "Editing template variables until booking-specific information disappears.",
+    ],
+    difficulty: "intermediate",
+    howTo: [
+      "Open Settings, then Automated Workflows.",
+      "Select the correct show or workflow context.",
+      "Review the template subject, body, variables, and recipient preview.",
+      "Use send controls only when the recipient set is correct.",
+      "Check Communications and Audit Trail after sending.",
+      "Use failed communication retry paths deliberately rather than refreshing repeatedly.",
+    ],
+    id: "automated-workflows-and-template-variables",
+    keywords: ["automated workflows", "template variables", "send safety", "communication templates"],
+    moduleId: "platform-administration",
+    purpose: "Use automated workflows safely so one staff action sends only the intended communication.",
+    relatedActions: ["communications"],
+    related: ["Communication Templates", "Audit Trail"],
+    tips: [
+      "Template variables keep guest and booking information accurate.",
+      "One logical action should create one intended email per recipient and type.",
+    ],
+    title: "Automated Workflows & Template Variables",
+    whenToUse: "Use this before sending reminders, broadcasts, workflow emails, or staff-facing operational messages.",
+  },
+  {
+    category: "Platform Administration",
+    commonMistakes: [
+      "Assuming push delivery means the Notification Centre is unnecessary.",
+      "Forgetting that notification permission is device-specific.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open the Notification Centre from Admin.",
+      "Review unread alerts and recent activity.",
+      "Use Notification Preferences where available to manage local device delivery.",
+      "Confirm browser or app notification permission if push alerts are expected.",
+      "Use the Notification Centre as the fallback record when a device notification is missed.",
+    ],
+    id: "notification-preferences",
+    keywords: ["notification preferences", "notification centre", "push notifications", "staff alerts"],
+    moduleId: "platform-administration",
+    purpose: "Help staff understand how in-app notifications and device push preferences work together.",
+    relatedActions: ["communications"],
+    related: ["Push Notifications", "System Health Dashboard"],
+    tips: [
+      "Push notifications depend on the current device and browser permission.",
+      "The Notification Centre remains the reliable place to review platform alerts.",
+    ],
+    title: "Notification Preferences",
+    whenToUse: "Use this when staff ask why they did or did not receive an alert.",
+  },
+];
+
 const faqLessons: AcademyArticle[] = [
   {
     category: "Frequently Asked Questions",
@@ -4790,7 +5489,7 @@ const faqLessons: AcademyArticle[] = [
     difficulty: "intermediate",
     howTo: [
       "Check whether the app has notification permission on the device.",
-      "Use Send Test Notification where available.",
+      "Review Notification Preferences and the Notification Centre.",
       "Review the Notification Centre for in-app records.",
       "Confirm the staff role should receive the alert.",
       "If push still fails, use the in-app notification record and escalate.",
@@ -4957,62 +5656,8 @@ const academyArticles: AcademyArticle[] = [
   ...staffPermissionLessons,
   ...settingsLessons,
   ...analyticsReportingLessons,
+  ...platformAdministrationLessons,
   ...faqLessons,
-  ...academyModules
-    .filter(
-      (module) =>
-        module.id !== "getting-started" &&
-        module.id !== "bookings" &&
-        module.id !== "find-my-booking" &&
-        module.id !== "corporate-bookings" &&
-        module.id !== "crm-guests" &&
-        module.id !== "waitlist" &&
-        module.id !== "communications" &&
-        module.id !== "tickets-check-in" &&
-        module.id !== "venue-operations" &&
-        module.id !== "staff-permissions" &&
-        module.id !== "settings" &&
-        module.id !== "analytics-reporting" &&
-        module.id !== "faq",
-    )
-    .map((module): AcademyArticle => ({
-      category: module.title,
-      commonMistakes: [
-        "Full lesson content has not been populated yet.",
-        "Use existing operational workflows until this module is expanded.",
-      ],
-      difficulty: module.difficulty,
-      howTo: [
-        "Open the relevant admin section.",
-        "Follow current platform workflows.",
-        "Return to this lesson after Phase 7B content expansion.",
-      ],
-      id: `${module.id}-placeholder`,
-      keywords: [module.title.toLowerCase(), "placeholder", "training"],
-      moduleId: module.id,
-      purpose: `${module.title} training placeholder for the complete curriculum.`,
-      relatedActions:
-        module.id === "bookings"
-          ? ["bookings"]
-          : module.id === "crm-guests"
-            ? ["crm"]
-            : module.id === "waitlist"
-              ? ["waitlist"]
-              : module.id === "communications"
-                ? ["communications"]
-                : module.id === "tickets-check-in"
-                  ? ["tickets"]
-                  : module.id === "staff-permissions"
-                    ? ["staff"]
-                    : [],
-      related: ["Welcome to Zingara", "Navigating the Platform"],
-      tips: [
-        "This module is intentionally reserved for the full curriculum build.",
-        "Use related actions to open the operational area.",
-      ],
-      title: `${module.title} Overview`,
-      whenToUse: "Use this placeholder to preview the curriculum structure.",
-    })),
 ];
 
 function getAcademyArticleText(article: AcademyArticle) {
@@ -5107,6 +5752,8 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "staff", label: "Staff" },
   { id: "venue", label: "Venue Configuration" },
   { id: "workflows", label: "Automated Workflows" },
+  { id: "audit", label: "Audit Trail" },
+  { id: "portability", label: "Portability" },
 ];
 const userManagementRoles: AdminRole[] = [
   "super-admin",
@@ -5241,18 +5888,18 @@ function getBlankMergeSelections() {
   );
 }
 
-function getShowEditForm(
-  show: DemoShow,
-  fallbackVenueName: string,
-): ShowEditForm {
+function getShowEditForm(show: DemoShow): ShowEditForm {
+  const location = normalizeShowLocation(show.location ?? show.venueName);
+
   return {
+    address: show.address ?? "",
     date: show.date,
     description: show.description ?? "",
     internalNotes: show.internalNotes ?? "",
     label: show.label,
     operationalStatus: show.operationalStatus ?? "active",
     time: show.time,
-    venueName: show.venueName ?? fallbackVenueName,
+    venueName: location ?? "",
   };
 }
 
@@ -5356,10 +6003,10 @@ function getTableOccupancy(
   }
 
   const booking = bookings.find(
-    (currentBooking) =>
-      (currentBooking.tableId === table.id ||
-        currentBooking.reference === table.bookingReference) &&
-      isOccupyingBookingStatus(currentBooking.status ?? "confirmed"),
+      (currentBooking) =>
+        (currentBooking.tableId === table.id ||
+          currentBooking.reference === table.bookingReference) &&
+      isOperationallyActiveBooking(currentBooking),
   );
 
   if ((booking?.status ?? "confirmed") === "checked-in") {
@@ -5369,7 +6016,7 @@ function getTableOccupancy(
     };
   }
 
-  if (booking || table.status === "booked") {
+  if (booking) {
     return {
       booking,
       state: "reserved" as const,
@@ -5426,28 +6073,94 @@ function canUseTableForBooking(
   );
 }
 
-function isTerminalBookingStatus(status: BookingStatus) {
-  return (
-    status === "cancelled" ||
-    status === "refunded" ||
-    status === "completed" ||
-    status === "no-show" ||
-    status === "waitlisted"
-  );
-}
-
-function isOccupyingBookingStatus(status: BookingStatus) {
-  return !isTerminalBookingStatus(status);
-}
-
 function formatArrivalTime(arrivalTime?: string) {
   return arrivalTime
-    ? new Date(arrivalTime).toLocaleString()
+    ? formatSouthAfricanTimestamp(arrivalTime)
     : "Awaiting arrival";
 }
 
 function formatCurrency(amount: number) {
   return `R${amount.toLocaleString()}`;
+}
+
+function formatSouthAfricanDate(value: Date | string | undefined | null) {
+  if (!value) {
+    return "Not recorded";
+  }
+
+  const parsedDate =
+    value instanceof Date
+      ? value
+      : /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? new Date(`${value}T00:00:00`)
+        : new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value);
+  }
+
+  const day = String(parsedDate.getDate()).padStart(2, "0");
+  const month = String(parsedDate.getMonth() + 1).padStart(2, "0");
+  const year = parsedDate.getFullYear();
+
+  return `${day}/${month}/${year}`;
+}
+
+function formatSouthAfricanTime(value: Date | string | undefined | null) {
+  if (!value) {
+    return "Not recorded";
+  }
+
+  const parsedDate = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value);
+  }
+
+  const hours = String(parsedDate.getHours()).padStart(2, "0");
+  const minutes = String(parsedDate.getMinutes()).padStart(2, "0");
+
+  return `${hours}:${minutes}`;
+}
+
+function formatSouthAfricanTimestamp(
+  value: Date | string | undefined | null,
+) {
+  if (!value) {
+    return "Not recorded";
+  }
+
+  const parsedDate = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value);
+  }
+
+  return `${formatSouthAfricanDate(parsedDate)} ${formatSouthAfricanTime(parsedDate)}`;
+}
+
+function getSystemHealthLabel(status: SystemHealthStatus) {
+  if (status === "healthy") {
+    return "🟢 Healthy";
+  }
+
+  if (status === "offline") {
+    return "🔴 Offline";
+  }
+
+  return "🟡 Warning";
+}
+
+function getSystemHealthBadgeClass(status: SystemHealthStatus) {
+  if (status === "healthy") {
+    return "border-emerald-300/30 bg-emerald-950/25 text-emerald-200";
+  }
+
+  if (status === "offline") {
+    return "border-red-300/35 bg-red-950/30 text-red-100";
+  }
+
+  return "border-amber-300/35 bg-amber-950/25 text-amber-100";
 }
 
 function formatOperationalShowDate(date: string) {
@@ -5523,6 +6236,473 @@ function createCsv(rows: Array<Record<string, string | number | undefined>>) {
   ].join("\n");
 }
 
+function createCsvFromSheet(sheet: ExportSheet) {
+  return [
+    sheet.columns.map(escapeCsvValue).join(","),
+    ...sheet.rows.map((row) =>
+      sheet.columns
+        .map((column) => escapeCsvValue(String(row[column] ?? "")))
+        .join(","),
+    ),
+  ].join("\n");
+}
+
+function sanitizeExportFileName(value: string) {
+  return value
+    .replaceAll(/[^A-Za-z0-9._-]+/g, "-")
+    .replaceAll(/-+/g, "-")
+    .replaceAll(/^-|-$/g, "");
+}
+
+function escapeXml(value: ExportCellValue) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function getExcelColumnName(index: number) {
+  let columnName = "";
+  let currentIndex = index + 1;
+
+  while (currentIndex > 0) {
+    const remainder = (currentIndex - 1) % 26;
+    columnName = String.fromCharCode(65 + remainder) + columnName;
+    currentIndex = Math.floor((currentIndex - 1) / 26);
+  }
+
+  return columnName;
+}
+
+function getExcelSerialDate(date: Date) {
+  const epoch = Date.UTC(1899, 11, 30);
+
+  return (date.getTime() - epoch) / 86400000;
+}
+
+function buildCrc32Table() {
+  return Array.from({ length: 256 }, (_, index) => {
+    let crc = index;
+
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    }
+
+    return crc >>> 0;
+  });
+}
+
+const crc32Table = buildCrc32Table();
+
+function crc32(bytes: Uint8Array) {
+  let crc = 0xffffffff;
+
+  bytes.forEach((byte) => {
+    crc = crc32Table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  });
+
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function writeUint16(bytes: number[], value: number) {
+  bytes.push(value & 0xff, (value >>> 8) & 0xff);
+}
+
+function writeUint32(bytes: number[], value: number) {
+  bytes.push(
+    value & 0xff,
+    (value >>> 8) & 0xff,
+    (value >>> 16) & 0xff,
+    (value >>> 24) & 0xff,
+  );
+}
+
+function createZipBlob(files: Array<{ content: string; path: string }>) {
+  const encoder = new TextEncoder();
+  const bytes: number[] = [];
+  const centralDirectory: number[] = [];
+
+  files.forEach((file) => {
+    const nameBytes = encoder.encode(file.path);
+    const contentBytes = encoder.encode(file.content);
+    const checksum = crc32(contentBytes);
+    const localHeaderOffset = bytes.length;
+
+    writeUint32(bytes, 0x04034b50);
+    writeUint16(bytes, 20);
+    writeUint16(bytes, 0);
+    writeUint16(bytes, 0);
+    writeUint16(bytes, 0);
+    writeUint16(bytes, 0);
+    writeUint32(bytes, checksum);
+    writeUint32(bytes, contentBytes.length);
+    writeUint32(bytes, contentBytes.length);
+    writeUint16(bytes, nameBytes.length);
+    writeUint16(bytes, 0);
+    bytes.push(...nameBytes, ...contentBytes);
+
+    writeUint32(centralDirectory, 0x02014b50);
+    writeUint16(centralDirectory, 20);
+    writeUint16(centralDirectory, 20);
+    writeUint16(centralDirectory, 0);
+    writeUint16(centralDirectory, 0);
+    writeUint16(centralDirectory, 0);
+    writeUint16(centralDirectory, 0);
+    writeUint32(centralDirectory, checksum);
+    writeUint32(centralDirectory, contentBytes.length);
+    writeUint32(centralDirectory, contentBytes.length);
+    writeUint16(centralDirectory, nameBytes.length);
+    writeUint16(centralDirectory, 0);
+    writeUint16(centralDirectory, 0);
+    writeUint16(centralDirectory, 0);
+    writeUint16(centralDirectory, 0);
+    writeUint32(centralDirectory, 0);
+    writeUint32(centralDirectory, localHeaderOffset);
+    centralDirectory.push(...nameBytes);
+  });
+
+  const centralDirectoryOffset = bytes.length;
+
+  bytes.push(...centralDirectory);
+  writeUint32(bytes, 0x06054b50);
+  writeUint16(bytes, 0);
+  writeUint16(bytes, 0);
+  writeUint16(bytes, files.length);
+  writeUint16(bytes, files.length);
+  writeUint32(bytes, centralDirectory.length);
+  writeUint32(bytes, centralDirectoryOffset);
+  writeUint16(bytes, 0);
+
+  return new Blob([new Uint8Array(bytes)], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+}
+
+function isCurrencyExportLabel(label: string) {
+  const normalized = label.toLowerCase();
+
+  if (
+    normalized.includes("status") ||
+    normalized.includes("method") ||
+    normalized.includes("description") ||
+    normalized.includes("date") ||
+    normalized.includes("reference") ||
+    normalized.includes("count") ||
+    normalized.includes("number") ||
+    normalized.includes("guest") ||
+    normalized.includes("table") ||
+    normalized.includes("average") ||
+    (normalized.includes("booking") &&
+      !normalized.includes("income") &&
+      !normalized.includes("payment") &&
+      !normalized.includes("revenue") &&
+      !normalized.includes("value"))
+  ) {
+    return false;
+  }
+
+  return [
+    "amount",
+    "balance",
+    "cash",
+    "collected",
+    "deposit",
+    "income",
+    "outstanding",
+    "payment",
+    "refund",
+    "revenue",
+    "total",
+    "value",
+  ].some((token) => normalized.includes(token));
+}
+
+function formatExportValueForPdf(label: string, value: ExportCellValue | undefined) {
+  if (value instanceof Date) {
+    return formatSouthAfricanDate(value);
+  }
+
+  if (typeof value === "number" && isCurrencyExportLabel(label)) {
+    return `R ${value
+      .toLocaleString("en-ZA", {
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 2,
+      })
+      .replaceAll("\u00a0", " ")}`;
+  }
+
+  return String(value ?? "Not recorded");
+}
+
+function createWorksheetXml(sheet: ExportSheet) {
+  const headerRows = [
+    [`Generated`, new Date()],
+    ...(sheet.summary ?? []),
+    [],
+  ];
+  const rows: ExportCellValue[][] = [
+    ...headerRows,
+    sheet.columns,
+    ...sheet.rows.map((row) =>
+      sheet.columns.map((column) => row[column] ?? ""),
+    ),
+  ];
+  const tableHeaderIndex = headerRows.length + 1;
+  const lastColumn = getExcelColumnName(Math.max(sheet.columns.length - 1, 0));
+  const lastRow = Math.max(rows.length, tableHeaderIndex);
+  const sheetData = rows
+    .map((row, rowIndex) => {
+      const rowNumber = rowIndex + 1;
+      const cells = row
+        .map((value, columnIndex) => {
+          const ref = `${getExcelColumnName(columnIndex)}${rowNumber}`;
+          const tableColumnLabel =
+            rowIndex > tableHeaderIndex - 1
+              ? String(rows[tableHeaderIndex - 1]?.[columnIndex] ?? "")
+              : "";
+          const summaryLabel =
+            rowIndex < tableHeaderIndex - 1 && columnIndex === 1
+              ? String(row[0] ?? "")
+              : "";
+
+          if (value instanceof Date) {
+            return `<c r="${ref}" s="2"><v>${getExcelSerialDate(value)}</v></c>`;
+          }
+
+          if (typeof value === "number") {
+            const style =
+              isCurrencyExportLabel(tableColumnLabel || summaryLabel) ? 1 : 0;
+
+            return `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
+          }
+
+          return `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+        })
+        .join("");
+
+      return `<row r="${rowNumber}">${cells}</row>`;
+    })
+    .join("");
+  const autoFilter =
+    sheet.columns.length > 0
+      ? `<autoFilter ref="A${tableHeaderIndex}:${lastColumn}${lastRow}"/>`
+      : "";
+  const columnWidths = sheet.columns
+    .map((column, index) => {
+      const maxLength = Math.min(
+        Math.max(
+          column.length,
+          ...sheet.rows.map((row) => String(row[column] ?? "").length),
+          12,
+        ),
+        34,
+      );
+
+      return `<col min="${index + 1}" max="${index + 1}" width="${maxLength + 2}" customWidth="1"/>`;
+    })
+    .join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="${tableHeaderIndex}" topLeftCell="A${tableHeaderIndex + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${columnWidths}</cols><sheetData>${sheetData}</sheetData>${autoFilter}</worksheet>`;
+}
+
+function createXlsxBlob(sheets: ExportSheet[]) {
+  const workbookSheets = sheets
+    .map(
+      (sheet, index) =>
+        `<sheet name="${escapeXml(sheet.name.slice(0, 31))}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`,
+    )
+    .join("");
+  const workbookRels = sheets
+    .map(
+      (_, index) =>
+        `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`,
+    )
+    .join("");
+  const contentTypes = sheets
+    .map(
+      (_, index) =>
+        `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
+    )
+    .join("");
+  const files = [
+    {
+      path: "[Content_Types].xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${contentTypes}</Types>`,
+    },
+    {
+      path: "_rels/.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    },
+    {
+      path: "xl/workbook.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${workbookSheets}</sheets></workbook>`,
+    },
+    {
+      path: "xl/_rels/workbook.xml.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${workbookRels}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    },
+    {
+      path: "xl/styles.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="R #,##0.00"/></numFmts><fonts count="1"><font><sz val="11"/><name val="Aptos"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`,
+    },
+    ...sheets.map((sheet, index) => ({
+      path: `xl/worksheets/sheet${index + 1}.xml`,
+      content: createWorksheetXml(sheet),
+    })),
+  ];
+
+  return createZipBlob(files);
+}
+
+function escapePdfText(value: string) {
+  return value
+    .replaceAll("·", "-")
+    .replaceAll("–", "-")
+    .replaceAll("—", "-")
+    .replaceAll("’", "'")
+    .replaceAll("“", '"')
+    .replaceAll("”", '"')
+    .replaceAll("\u00a0", " ")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("(", "\\(")
+    .replaceAll(")", "\\)");
+}
+
+function createReportPdfBlob({
+  landscape = false,
+  sheets,
+  subtitle,
+  title,
+}: {
+  landscape?: boolean;
+  sheets: ExportSheet[];
+  subtitle: string;
+  title: string;
+}) {
+  const width = landscape ? 842 : 595;
+  const height = landscape ? 595 : 842;
+  const margin = 40;
+  const lineHeight = 13;
+  const pages: string[] = [];
+  const addPage = () => {
+    pages.push("");
+  };
+  const addLine = (text: string, x: number, y: number, size = 9) => {
+    pages[pages.length - 1] += `BT /F1 ${size} Tf ${x} ${y} Td (${escapePdfText(text)}) Tj ET\n`;
+  };
+
+  addPage();
+  let y = height - margin;
+  addLine(title, margin, y, 16);
+  y -= 18;
+  addLine(subtitle, margin, y, 9);
+  y -= 18;
+  addLine(`Generated ${formatSouthAfricanTimestamp(new Date())}`, margin, y, 8);
+  y -= 22;
+
+  sheets.forEach((sheet) => {
+    if (y < 120) {
+      addPage();
+      y = height - margin;
+    }
+
+    addLine(sheet.name, margin, y, 13);
+    y -= 16;
+
+    (sheet.summary ?? []).forEach(([label, value]) => {
+      if (y < margin) {
+        addPage();
+        y = height - margin;
+      }
+      addLine(`${label}: ${formatExportValueForPdf(label, value)}`, margin, y, 8);
+      y -= lineHeight;
+    });
+
+    const visibleColumns = sheet.columns.slice(
+      0,
+      landscape ? 9 : 7,
+    );
+
+    if (visibleColumns.length > 0) {
+      if (y < 80) {
+        addPage();
+        y = height - margin;
+      }
+      addLine(visibleColumns.join(" | "), margin, y, 7);
+      y -= lineHeight;
+    }
+
+    const rows = sheet.rows.length > 0 ? sheet.rows : [{ Notice: "No matching records" }];
+    rows.forEach((row) => {
+      if (y < margin + 24) {
+        addPage();
+        y = height - margin;
+        if (visibleColumns.length > 0) {
+          addLine(visibleColumns.join(" | "), margin, y, 7);
+          y -= lineHeight;
+        }
+      }
+
+      addLine(
+        visibleColumns
+          .map((column) => {
+            const value = row[column];
+
+            return formatExportValueForPdf(column, value);
+          })
+          .join(" | ")
+          .slice(0, 150),
+        margin,
+        y,
+        7,
+      );
+      y -= lineHeight;
+    });
+
+    y -= 14;
+  });
+
+  const objects: string[] = [];
+  const pageRefs: string[] = [];
+
+  objects.push("<< /Type /Catalog /Pages 2 0 R >>");
+  objects.push("");
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+
+  pages.forEach((content, index) => {
+    const pageObjectId = objects.length + 1;
+    const contentObjectId = pageObjectId + 1;
+
+    pageRefs.push(`${pageObjectId} 0 R`);
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjectId} 0 R >>`,
+    );
+    objects.push(
+      `<< /Length ${content.length} >>\nstream\n${content}BT /F1 8 Tf ${width - 90} 24 Td (Page ${index + 1} of ${pages.length}) Tj ET\nendstream`,
+    );
+  });
+
+  objects[1] = `<< /Type /Pages /Kids [${pageRefs.join(" ")}] /Count ${pages.length} >>`;
+
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [0];
+
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
 function parseCsvRows(text: string) {
   const rows: string[][] = [];
   let field = "";
@@ -5583,6 +6763,281 @@ function parseCsvRows(text: string) {
   );
 }
 
+function parseCsvTable(text: string) {
+  const rows: string[][] = [];
+  let field = "";
+  let row: string[] = [];
+  let isQuoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    const nextCharacter = text[index + 1];
+
+    if (character === '"' && isQuoted && nextCharacter === '"') {
+      field += '"';
+      index += 1;
+    } else if (character === '"') {
+      isQuoted = !isQuoted;
+    } else if (character === "," && !isQuoted) {
+      row.push(field.trim());
+      field = "";
+    } else if (
+      (character === "\n" || character === "\r") &&
+      !isQuoted
+    ) {
+      if (character === "\r" && nextCharacter === "\n") {
+        index += 1;
+      }
+      row.push(field.trim());
+      if (row.some(Boolean)) {
+        rows.push(row);
+      }
+      field = "";
+      row = [];
+    } else {
+      field += character;
+    }
+  }
+
+  if (isQuoted) {
+    throw new Error("Malformed CSV: a quoted field was not closed.");
+  }
+
+  row.push(field.trim());
+  if (row.some(Boolean)) {
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function normalizePortabilityKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, "_")
+    .replaceAll(/^_|_$/g, "");
+}
+
+function parsePortabilityTable(rows: string[][]) {
+  if (rows.length < 2) {
+    return { headers: rows[0] ?? [], records: [] };
+  }
+
+  const knownHeaderKeys = new Set(
+    Object.values(dataPortabilityColumns)
+      .flat()
+      .map((column) => column.key),
+  );
+  const headerRowIndex = rows.findIndex((row) =>
+    row.filter((cell) => knownHeaderKeys.has(normalizePortabilityKey(cell)))
+      .length >= 2,
+  );
+
+  if (headerRowIndex < 0) {
+    const firstNonEmptyRow = rows.find((row) =>
+      row.some((cell) => Boolean(cell.trim())),
+    );
+
+    return { headers: firstNonEmptyRow ?? [], records: [] };
+  }
+
+  const headers = rows[headerRowIndex].map((header) => header.trim());
+  const records = rows
+    .slice(headerRowIndex + 1)
+    .filter((row) => row.some((cell) => Boolean(cell.trim())))
+    .map((values) =>
+      headers.reduce(
+        (record, header, index) => ({
+          ...record,
+          [normalizePortabilityKey(header)]: values[index]?.trim() ?? "",
+        }),
+        {} as Record<string, string>,
+      ),
+    );
+
+  return { headers, records };
+}
+
+function readZipUint16(bytes: Uint8Array, offset: number) {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function readZipUint32(bytes: Uint8Array, offset: number) {
+  return (
+    bytes[offset] |
+    (bytes[offset + 1] << 8) |
+    (bytes[offset + 2] << 16) |
+    (bytes[offset + 3] << 24)
+  ) >>> 0;
+}
+
+async function inflateZipEntry(bytes: Uint8Array) {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+
+  new Uint8Array(buffer).set(bytes);
+
+  const stream = new Blob([buffer]).stream().pipeThrough(
+    new DecompressionStream("deflate-raw"),
+  );
+  const inflatedBuffer = await new Response(stream).arrayBuffer();
+
+  return new Uint8Array(inflatedBuffer);
+}
+
+async function readXlsxFiles(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let eocdOffset = -1;
+
+  for (let index = bytes.length - 22; index >= 0; index -= 1) {
+    if (readZipUint32(bytes, index) === 0x06054b50) {
+      eocdOffset = index;
+      break;
+    }
+  }
+
+  if (eocdOffset < 0) {
+    throw new Error("The uploaded workbook could not be read.");
+  }
+
+  const entryCount = readZipUint16(bytes, eocdOffset + 10);
+  const centralDirectoryOffset = readZipUint32(bytes, eocdOffset + 16);
+  const decoder = new TextDecoder();
+  const files = new Map<string, string>();
+  let cursor = centralDirectoryOffset;
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (readZipUint32(bytes, cursor) !== 0x02014b50) {
+      break;
+    }
+
+    const compressionMethod = readZipUint16(bytes, cursor + 10);
+    const compressedSize = readZipUint32(bytes, cursor + 20);
+    const fileNameLength = readZipUint16(bytes, cursor + 28);
+    const extraLength = readZipUint16(bytes, cursor + 30);
+    const commentLength = readZipUint16(bytes, cursor + 32);
+    const localHeaderOffset = readZipUint32(bytes, cursor + 42);
+    const fileName = decoder.decode(
+      bytes.slice(cursor + 46, cursor + 46 + fileNameLength),
+    );
+    const localFileNameLength = readZipUint16(bytes, localHeaderOffset + 26);
+    const localExtraLength = readZipUint16(bytes, localHeaderOffset + 28);
+    const dataStart =
+      localHeaderOffset + 30 + localFileNameLength + localExtraLength;
+    const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+    const contentBytes =
+      compressionMethod === 0
+        ? compressed
+        : compressionMethod === 8
+          ? await inflateZipEntry(compressed)
+          : null;
+
+    if (contentBytes) {
+      files.set(fileName, decoder.decode(contentBytes));
+    }
+
+    cursor += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  return files;
+}
+
+function getXmlText(node: Element | null) {
+  return node?.textContent ?? "";
+}
+
+async function parseXlsxTable(file: File) {
+  const files = await readXlsxFiles(file);
+  const workbookXml = files.get("xl/workbook.xml");
+  const workbookRelsXml = files.get("xl/_rels/workbook.xml.rels");
+
+  if (!workbookXml || !workbookRelsXml) {
+    throw new Error("The uploaded workbook is missing worksheet metadata.");
+  }
+
+  const parser = new DOMParser();
+  const workbook = parser.parseFromString(workbookXml, "application/xml");
+  const rels = parser.parseFromString(workbookRelsXml, "application/xml");
+  const firstSheet = workbook.getElementsByTagName("sheet")[0];
+  const relationshipId = firstSheet?.getAttribute("r:id");
+  const relationship = Array.from(
+    rels.getElementsByTagName("Relationship"),
+  ).find((item) => item.getAttribute("Id") === relationshipId);
+  const target = relationship?.getAttribute("Target") ?? "worksheets/sheet1.xml";
+  const worksheetPath = target.startsWith("/")
+    ? target.slice(1)
+    : target.startsWith("xl/")
+      ? target
+      : `xl/${target}`;
+  const worksheetXml = files.get(worksheetPath);
+
+  if (!worksheetXml) {
+    throw new Error("The uploaded workbook does not contain a readable sheet.");
+  }
+
+  const sharedStringsXml = files.get("xl/sharedStrings.xml");
+  const sharedStrings = sharedStringsXml
+    ? Array.from(
+        parser
+          .parseFromString(sharedStringsXml, "application/xml")
+          .getElementsByTagName("si"),
+      ).map((item) =>
+        Array.from(item.getElementsByTagName("t"))
+          .map((textNode) => textNode.textContent ?? "")
+          .join(""),
+      )
+    : [];
+  const worksheet = parser.parseFromString(worksheetXml, "application/xml");
+
+  return Array.from(worksheet.getElementsByTagName("row")).map((row) =>
+    Array.from(row.getElementsByTagName("c")).map((cell) => {
+      const type = cell.getAttribute("t");
+
+      if (type === "inlineStr") {
+        return getXmlText(cell.getElementsByTagName("t")[0]).trim();
+      }
+
+      const value = getXmlText(cell.getElementsByTagName("v")[0]).trim();
+
+      return type === "s" ? sharedStrings[Number(value)] ?? "" : value;
+    }),
+  );
+}
+
+async function parsePortabilityFile(file: File) {
+  const fileName = file.name.toLowerCase();
+
+  if (fileName.endsWith(".csv") || fileName.endsWith(".txt")) {
+    return parsePortabilityTable(parseCsvTable(await file.text()));
+  }
+
+  if (fileName.endsWith(".xlsx")) {
+    return parsePortabilityTable(await parseXlsxTable(file));
+  }
+
+  throw new Error("Upload a CSV or XLSX file.");
+}
+
+function isValidPortabilityEmail(value: string) {
+  return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function isValidPortabilityPhone(value: string) {
+  return !value || /^[0-9+()\s.-]{7,}$/.test(value.trim());
+}
+
+function isValidPortabilityDate(value: string) {
+  return !value || !Number.isNaN(new Date(value).getTime());
+}
+
+function isValidPortabilityNumber(value: string) {
+  return !value || Number.isFinite(Number(value.replaceAll(",", "")));
+}
+
+function isLikelyBookingReference(value: string) {
+  return /^[A-Z0-9][A-Z0-9-]{3,}$/i.test(value.trim());
+}
+
 function formatPercent(value: number) {
   return `${Math.round(value)}%`;
 }
@@ -5632,6 +7087,10 @@ function getLiveCustomerKey(customer: LiveCustomerRecord) {
   );
 }
 
+function isLiveCustomerArchived(customer: LiveCustomerRecord | null | undefined) {
+  return Boolean(customer?.preferences?.archivedAt);
+}
+
 async function loadLiveCustomerRecords() {
   try {
     const response = await fetch("/api/admin/customers", {
@@ -5676,10 +7135,14 @@ function getStoredNotificationPreferences() {
 function storeNotificationPreferences(
   preferences: Partial<Record<NotificationPreferenceKey, boolean>>,
 ) {
-  window.localStorage.setItem(
-    notificationPreferenceStorageKey,
-    JSON.stringify(preferences),
-  );
+  try {
+    window.localStorage.setItem(
+      notificationPreferenceStorageKey,
+      JSON.stringify(preferences),
+    );
+  } catch {
+    // Some private browsing contexts block local storage.
+  }
 }
 
 function getPlatformTicketUrl(reference: string) {
@@ -5689,9 +7152,7 @@ function getPlatformTicketUrl(reference: string) {
     return ticketUrl;
   }
 
-  const returnTo =
-    `${window.location.pathname}${window.location.search}${window.location.hash}` ||
-    "/admin";
+  const returnTo = `/admin?booking=${encodeURIComponent(reference)}`;
   const contextualTicketUrl = new URL(ticketUrl, window.location.origin);
 
   contextualTicketUrl.searchParams.set("returnTo", returnTo);
@@ -5800,9 +7261,16 @@ export default function AdminDashboardPage() {
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingPage, setBookingPage] = useState(1);
   const [customerSearch, setCustomerSearch] = useState("");
+  const [customerArchiveFilter, setCustomerArchiveFilter] =
+    useState<CustomerArchiveFilter>("active");
   const [selectedCustomerKey, setSelectedCustomerKey] = useState<
     string | null
   >(null);
+  const [customerProfileReturnContext, setCustomerProfileReturnContext] =
+    useState<{
+      bookingReference?: string;
+      source: "bookings" | "customers" | "direct";
+    }>({ source: "direct" });
   const [waitlistSearch, setWaitlistSearch] = useState("");
   const [staffSearch, setStaffSearch] = useState("");
   const [ticketValidationInput, setTicketValidationInput] =
@@ -5843,10 +7311,48 @@ export default function AdminDashboardPage() {
     useState<DashboardWidgetId[]>([]);
   const [draggedDashboardWidget, setDraggedDashboardWidget] =
     useState<DashboardWidgetId | null>(null);
+  const [systemStatus, setSystemStatus] =
+    useState<SystemStatusPayload | null>(null);
+  const [isSystemStatusLoading, setIsSystemStatusLoading] =
+    useState(false);
+  const [systemStatusError, setSystemStatusError] = useState("");
   const [activeOperationsTab, setActiveOperationsTab] =
-    useState<OperationsTab>("floor");
+    useState<OperationsTab>("dashboard");
+  const [activeDataPortabilityEntity, setActiveDataPortabilityEntity] =
+    useState<DataPortabilityEntity>("bookings");
+  const [activeDataPortabilityMode, setActiveDataPortabilityMode] =
+    useState<DataPortabilityMode>("export");
+  const [dataPortabilityPreview, setDataPortabilityPreview] =
+    useState<DataPortabilityImportPreview | null>(null);
+  const [dataPortabilityImportError, setDataPortabilityImportError] =
+    useState("");
+  const [dataPortabilityImportStatus, setDataPortabilityImportStatus] =
+    useState("");
+  const [dataPortabilityImportHistory, setDataPortabilityImportHistory] =
+    useState<DataPortabilityImportHistoryEntry[]>([]);
+  const [dataPortabilityImportResult, setDataPortabilityImportResult] =
+    useState<DataPortabilityImportResult | null>(null);
+  const [isDataPortabilityImporting, setIsDataPortabilityImporting] =
+    useState(false);
   const [activeSettingsTab, setActiveSettingsTab] =
     useState<SettingsTab>("staff");
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [auditFilters, setAuditFilters] = useState<AuditFilters>({
+    action: "",
+    actorStaffProfileId: "",
+    dateFrom: "",
+    dateTo: "",
+    entityReference: "",
+    entityType: "",
+    location: "all",
+    outcome: "all",
+    search: "",
+  });
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditStatus, setAuditStatus] = useState("");
+  const [selectedAuditEventId, setSelectedAuditEventId] =
+    useState<string | null>(null);
   const [academySearch, setAcademySearch] = useState("");
   const [isAcademySearchOpen, setIsAcademySearchOpen] = useState(false);
   const [selectedAcademyCategory, setSelectedAcademyCategory] =
@@ -5868,10 +7374,6 @@ export default function AdminDashboardPage() {
   const academyLessonButtonRefs = useRef<
     Record<string, HTMLButtonElement | null>
   >({});
-  const [notificationPermission, setNotificationPermission] =
-    useState("unsupported");
-  const [notificationTestStatus, setNotificationTestStatus] =
-    useState("");
   const [staffNotifications, setStaffNotifications] = useState<
     StaffNotificationRecord[]
   >([]);
@@ -5883,6 +7385,14 @@ export default function AdminDashboardPage() {
     useState(false);
   const [templatePreviewVisible, setTemplatePreviewVisible] =
     useState(false);
+  const [
+    copiedCommunicationVariable,
+    setCopiedCommunicationVariable,
+  ] = useState("");
+  const [
+    communicationVariableCopyError,
+    setCommunicationVariableCopyError,
+  ] = useState("");
   const [bookingViewMode, setBookingViewMode] =
     useState<BookingViewMode>("list");
   const [corporateViewMode, setCorporateViewMode] =
@@ -5906,6 +7416,22 @@ export default function AdminDashboardPage() {
     useState<BookingViewMode>("list");
   const [hideCancelledBookings, setHideCancelledBookings] =
     useState(true);
+  const [bookingArchiveFilter, setBookingArchiveFilter] =
+    useState<BookingArchiveFilter>("active");
+  const [bookingStatusFilter, setBookingStatusFilter] =
+    useState<BookingStatus | "all">("all");
+  const [bookingArchiveModal, setBookingArchiveModal] = useState<{
+    mode: "all" | "filtered";
+    references: string[];
+  } | null>(null);
+  const [bookingArchiveReason, setBookingArchiveReason] = useState(
+    "End-of-period archive.",
+  );
+  const [bookingArchiveConfirmation, setBookingArchiveConfirmation] =
+    useState("");
+  const [bookingArchiveStatus, setBookingArchiveStatus] = useState("");
+  const [isBookingArchiveSubmitting, setIsBookingArchiveSubmitting] =
+    useState(false);
   const [bookingShowFilter, setBookingShowFilter] = useState("all");
   const [bookingDateFilter, setBookingDateFilter] = useState("all");
   const [bookingSourceFilter, setBookingSourceFilter] =
@@ -5932,12 +7458,13 @@ export default function AdminDashboardPage() {
   const [staffManagementStatus, setStaffManagementStatus] =
     useState("");
   const [isStaffInviteOpen, setIsStaffInviteOpen] = useState(false);
+  const [isStaffUserCreating, setIsStaffUserCreating] = useState(false);
   const [staffInviteForm, setStaffInviteForm] =
     useState<StaffInviteForm>({
       email: "",
       fullName: "",
       role: "venue-manager",
-      venueScope: defaultVenueSettings.venueId,
+      venueScope: "",
     });
   const [staffDeleteProfileId, setStaffDeleteProfileId] = useState("");
   const [staffDeleteReplacementUserId, setStaffDeleteReplacementUserId] =
@@ -5950,24 +7477,30 @@ export default function AdminDashboardPage() {
     defaultShows[0]?.id ?? "",
   );
   const [workflowStatus, setWorkflowStatus] = useState("");
+  const [isWorkflowSendConfirmOpen, setIsWorkflowSendConfirmOpen] =
+    useState(false);
+  const [isWorkflowSending, setIsWorkflowSending] = useState(false);
   const [workflowToast, setWorkflowToast] = useState("");
   const workflowToastTimerRef = useRef<number | null>(null);
   const [newShow, setNewShow] = useState<NewShowForm>({
+    address: "",
     date: "",
     time: "",
     label: "",
+    location: "",
   });
   const [editingShowId, setEditingShowId] = useState("");
   const [showDeleteConfirmationId, setShowDeleteConfirmationId] =
     useState("");
   const [showEditForm, setShowEditForm] = useState<ShowEditForm>({
+    address: "",
     date: "",
     description: "",
     internalNotes: "",
     label: "",
     operationalStatus: "active",
     time: "",
-    venueName: defaultVenueSettings.venueName,
+    venueName: "",
   });
   const [tables, setTables] = useState<DemoTable[]>(() =>
     defaultShows.flatMap((show) => createTablesForShow(show.id)),
@@ -5983,8 +7516,23 @@ export default function AdminDashboardPage() {
     useState<SplitMergeReview | null>(null);
   const [expandedBookingReference, setExpandedBookingReference] =
     useState("");
+  const [bookingEditLocks, setBookingEditLocks] = useState<
+    BookingEditLock[]
+  >([]);
+  const [activeBookingEditLock, setActiveBookingEditLock] =
+    useState<BookingEditLock | null>(null);
+  const [bookingReadOnlyReferences, setBookingReadOnlyReferences] =
+    useState<string[]>([]);
+  const [bookingLockStatus, setBookingLockStatus] = useState("");
+  const [bookingLockSessionId] = useState(() =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `booking-lock-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  const activeBookingEditLockRef = useRef<BookingEditLock | null>(null);
   const [cancellingBookingReference, setCancellingBookingReference] =
     useState("");
+  const [isCancellingBooking, setIsCancellingBooking] = useState(false);
   const [cancellationReason, setCancellationReason] = useState<
     (typeof cancellationReasons)[number]
   >(cancellationReasons[0]);
@@ -5999,6 +7547,33 @@ export default function AdminDashboardPage() {
   const [reportPaymentFilter, setReportPaymentFilter] =
     useState<PaymentStatus | "all">("all");
   const [reportDateFilter, setReportDateFilter] = useState("");
+  const [manifestLocationFilter, setManifestLocationFilter] =
+    useState<ManifestLocationFilter>("all");
+  const [manifestStatusFilter, setManifestStatusFilter] =
+    useState<ManifestStatusFilter>("active");
+  const [manifestSearch, setManifestSearch] = useState("");
+  const [dailyManifestSort, setDailyManifestSort] =
+    useState<DailyManifestSort>("table-number");
+  const [manifestLastRefreshedAt, setManifestLastRefreshedAt] =
+    useState(() => new Date().toISOString());
+  const [paymentRows, setPaymentRows] = useState<PaymentRow[]>([]);
+  const [financialLocationFilter, setFinancialLocationFilter] =
+    useState<ManifestLocationFilter>("all");
+  const [financialShowFilter, setFinancialShowFilter] = useState("all");
+  const [financialDateFrom, setFinancialDateFrom] = useState("");
+  const [financialDateTo, setFinancialDateTo] = useState("");
+  const [financialReportingMonth, setFinancialReportingMonth] =
+    useState(() => new Date().toISOString().slice(0, 7));
+  const [financialBookingTypeFilter, setFinancialBookingTypeFilter] =
+    useState<FinancialBookingTypeFilter>("all");
+  const [financialPaymentStatusFilter, setFinancialPaymentStatusFilter] =
+    useState<PaymentStatus | "all">("all");
+  const [financialIncludeCancelled, setFinancialIncludeCancelled] =
+    useState(false);
+  const [activeFinancialReportTab, setActiveFinancialReportTab] =
+    useState<FinancialReportTab>("payments-received");
+  const [financialLastRefreshedAt, setFinancialLastRefreshedAt] =
+    useState(() => new Date().toISOString());
   const [legacyImportPreview, setLegacyImportPreview] =
     useState<LegacyImportPreview | null>(null);
   const [legacyImportError, setLegacyImportError] = useState("");
@@ -6014,66 +7589,86 @@ export default function AdminDashboardPage() {
     let isMounted = true;
 
     async function loadDemoData() {
-      const nextShows = await getShows();
-      const nextBookings = await getBookings();
-      const nextCorporateRequests = await getCorporateRequests();
-      const nextCommunicationTemplates = await getTemplates();
-      const nextCustomerCrm = await getCustomers();
-      const nextLiveCustomers = await loadLiveCustomerRecords();
-      const nextVenueSettings = await getVenueSettings();
-      const nextWaitlist = await getWaitlistEntries();
-      const nextTables = getStoredDemoTables();
       const nextAdminSession = await getSupabaseAdminSession();
-      const nextStaffProfiles = await getStaffProfiles();
-      const nextStaffRoles = await getAvailableRoles();
-
-      console.log("[Zingara show management] show reloaded", {
-        showCount: nextShows.length,
-        shows: nextShows.map((show) => ({
-          date: show.date,
-          id: show.id,
-          label: show.label,
-          status: show.operationalStatus ?? "active",
-          time: getSouthAfricaShowTime(show),
-        })),
-      });
-      console.log("[Zingara admin] dashboard show source", {
-        shows: nextShows.map((show) => ({
-          date: show.date,
-          id: show.id,
-          label: show.label,
-          status: show.operationalStatus ?? "active",
-          time: getSouthAfricaShowTime(show),
-        })),
-      });
 
       if (!isMounted) {
         return;
       }
 
-      setHasHydrated(true);
       setCurrentStaff(nextAdminSession);
-      setShows(nextShows);
-      setSelectedShowId((currentShowId) =>
-        nextShows.some((show) => show.id === currentShowId)
-          ? currentShowId
-          : nextShows[0]?.id ?? "",
-      );
-      setWorkflowShowId((currentShowId) =>
-        nextShows.some((show) => show.id === currentShowId)
-          ? currentShowId
-          : nextShows[0]?.id ?? "",
-      );
-      setBookings(nextBookings);
-      setCorporateRequests(nextCorporateRequests);
-      setCommunicationTemplates(nextCommunicationTemplates);
-      setCustomerCrmRecords(nextCustomerCrm);
-      setLiveCustomerRecords(nextLiveCustomers);
-      setVenueSettings(nextVenueSettings);
-      setWaitlist(nextWaitlist);
-      setTables(nextTables);
-      setStaffProfiles(nextStaffProfiles);
-      setStaffRoles(nextStaffRoles);
+
+      if (!nextAdminSession) {
+        setHasHydrated(true);
+        return;
+      }
+
+      try {
+        const nextShows = await getShows();
+        const nextBookings = await getBookings();
+        const nextCorporateRequests = await getCorporateRequests();
+        const nextCommunicationTemplates = await getTemplates();
+        const nextCustomerCrm = await getCustomers();
+        const nextLiveCustomers = await loadLiveCustomerRecords();
+        const nextVenueSettings = await getVenueSettings();
+        const nextWaitlist = await getWaitlistEntries();
+        const nextTables = getStoredDemoTables();
+        const nextStaffProfiles = await getStaffProfiles();
+        const nextStaffRoles = await getAvailableRoles();
+        const nextPaymentRows = await getPayments();
+
+        console.log("[Zingara show management] show reloaded", {
+          showCount: nextShows.length,
+          shows: nextShows.map((show) => ({
+            date: show.date,
+            id: show.id,
+            label: show.label,
+            status: show.operationalStatus ?? "active",
+            time: getSouthAfricaShowTime(show),
+          })),
+        });
+        console.log("[Zingara admin] dashboard show source", {
+          shows: nextShows.map((show) => ({
+            date: show.date,
+            id: show.id,
+            label: show.label,
+            status: show.operationalStatus ?? "active",
+            time: getSouthAfricaShowTime(show),
+          })),
+        });
+
+        if (!isMounted) {
+          return;
+        }
+
+        setShows(nextShows);
+        setSelectedShowId((currentShowId) =>
+          nextShows.some((show) => show.id === currentShowId)
+            ? currentShowId
+            : nextShows[0]?.id ?? "",
+        );
+        setWorkflowShowId((currentShowId) =>
+          nextShows.some((show) => show.id === currentShowId)
+            ? currentShowId
+            : nextShows[0]?.id ?? "",
+        );
+        setBookings(nextBookings);
+        setCorporateRequests(nextCorporateRequests);
+        setCommunicationTemplates(nextCommunicationTemplates);
+        setCustomerCrmRecords(nextCustomerCrm);
+        setLiveCustomerRecords(nextLiveCustomers);
+        setVenueSettings(nextVenueSettings);
+        setWaitlist(nextWaitlist);
+        setTables(nextTables);
+        setStaffProfiles(nextStaffProfiles);
+        setStaffRoles(nextStaffRoles);
+        setPaymentRows(nextPaymentRows);
+      } catch (error) {
+        console.error("[Zingara admin] Failed to load dashboard data", error);
+      } finally {
+        if (isMounted) {
+          setHasHydrated(true);
+        }
+      }
     }
 
     const hydrationTimer = window.setTimeout(loadDemoData, 0);
@@ -6178,7 +7773,6 @@ export default function AdminDashboardPage() {
         setActiveAdminTab("bookings");
         setBookingSearch(bookingReference);
         setBookingPage(1);
-        setExpandedBookingReference(bookingReference);
       } else if (waitlistId) {
         const linkedWaitlistEntry = waitlist.find(
           (entry) => entry.id === waitlistId,
@@ -6291,25 +7885,6 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     setNotificationPreferences(getStoredNotificationPreferences());
-
-    function refreshNotificationPermission() {
-      setNotificationPermission(getBrowserNotificationStatusLabel());
-    }
-
-    const permissionTimer = window.setTimeout(
-      refreshNotificationPermission,
-      0,
-    );
-
-    window.addEventListener("focus", refreshNotificationPermission);
-
-    return () => {
-      window.clearTimeout(permissionTimer);
-      window.removeEventListener(
-        "focus",
-        refreshNotificationPermission,
-      );
-    };
   }, []);
 
   useEffect(() => {
@@ -6415,11 +7990,1002 @@ export default function AdminDashboardPage() {
   const canViewBookingManagement =
     canManageBookings || canCheckInGuests;
   const canViewStaffOperations = canCheckInGuests;
+  const isSuperAdmin = currentStaff?.role === "super-admin";
+  const isVenueManager = currentStaff?.role === "venue-manager";
+  const canViewAuditTrail = isSuperAdmin || isVenueManager;
+  const isBoxOfficeStaff =
+    currentStaff?.role === "box-office" ||
+    currentStaff?.role === "box-office-staff";
+  const isFloorManager = currentStaff?.role === "floor-manager";
+
+  useEffect(() => {
+    if (activeAdminTab !== "settings" || activeSettingsTab !== "audit") {
+      return;
+    }
+
+    void refreshAuditTrail(1);
+  }, [activeAdminTab, activeSettingsTab, auditFilters, canViewAuditTrail]);
+  const canViewDataPortability = isSuperAdmin;
+  const activeBookingEditCount = bookingEditLocks.length;
+
+  useEffect(() => {
+    if (activeAdminTab !== "overview" || !currentStaff) {
+      return;
+    }
+
+    void refreshSystemStatus();
+
+    const interval = window.setInterval(() => {
+      void refreshSystemStatus();
+    }, 60000);
+
+    return () => window.clearInterval(interval);
+  }, [activeAdminTab, currentStaff?.id]);
+
+  function isOwnBookingLock(lock?: BookingEditLock | null) {
+    if (!lock || !currentStaff) {
+      return false;
+    }
+
+    return (
+      lock.staffUserId === currentStaff.id ||
+      lock.sessionId === bookingLockSessionId
+    );
+  }
+
+  function getBookingEditLock(reference: string) {
+    return bookingEditLocks.find(
+      (lock) => lock.bookingReference === reference,
+    );
+  }
+
+  function isBookingReadOnly(reference: string) {
+    const lock = getBookingEditLock(reference);
+    const booking = bookings.find(
+      (currentBooking) => currentBooking.reference === reference,
+    );
+
+    return (
+      Boolean(booking?.archivedAt) ||
+      bookingReadOnlyReferences.includes(reference) ||
+      Boolean(lock && !isOwnBookingLock(lock))
+    );
+  }
+
+  function canForceBookingTakeover(lock?: BookingEditLock | null) {
+    return Boolean(
+      lock?.isStale &&
+        (currentStaff?.role === "super-admin" ||
+          currentStaff?.role === "venue-manager"),
+    );
+  }
+
+  async function refreshBookingEditLocks(reference?: string) {
+    if (!currentStaff) {
+      setBookingEditLocks([]);
+      return;
+    }
+
+    try {
+      const locks = await getBookingEditLocks(reference);
+
+      setBookingEditLocks((currentLocks) => {
+        if (!reference) {
+          return locks;
+        }
+
+        const remainingLocks = currentLocks.filter(
+          (lock) => lock.bookingReference !== reference,
+        );
+
+        return [...remainingLocks, ...locks];
+      });
+    } catch (error) {
+      console.error("[Zingara Admin] Failed to refresh booking locks", error);
+    }
+  }
+
+  async function releaseCurrentBookingLock(reason = "closed") {
+    const lock = activeBookingEditLockRef.current;
+
+    if (!lock) {
+      return;
+    }
+
+    activeBookingEditLockRef.current = null;
+    setActiveBookingEditLock(null);
+
+    try {
+      await releaseBookingEditLock({
+        lockId: lock.id,
+        reason,
+        sessionId: bookingLockSessionId,
+      });
+      await refreshBookingEditLocks(lock.bookingReference);
+    } catch (error) {
+      console.error("[Zingara Admin] Failed to release booking lock", error);
+    }
+  }
+
+  function closeBookingDetails() {
+    void releaseCurrentBookingLock("closed");
+    setExpandedBookingReference("");
+  }
+
+  useEffect(() => {
+    activeBookingEditLockRef.current = activeBookingEditLock;
+  }, [activeBookingEditLock]);
+
+  useEffect(() => {
+    if (!currentStaff) {
+      setBookingEditLocks([]);
+      setActiveBookingEditLock(null);
+      activeBookingEditLockRef.current = null;
+      return;
+    }
+
+    void refreshBookingEditLocks();
+    const timer = window.setInterval(() => {
+      void refreshBookingEditLocks();
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, [currentStaff?.id]);
+
+  useEffect(() => {
+    if (!expandedBookingReference || !currentStaff || !canManageBookings) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    async function acquireLock() {
+      setBookingLockStatus("Checking editing presence...");
+
+      try {
+        const result = await acquireBookingEditLock({
+          bookingReference: expandedBookingReference,
+          sessionId: bookingLockSessionId,
+        });
+
+        if (isCancelled) {
+          return;
+        }
+
+        if (result.status === "acquired" && result.lock) {
+          setActiveBookingEditLock(result.lock);
+          setBookingReadOnlyReferences((currentReferences) =>
+            currentReferences.filter(
+              (reference) => reference !== expandedBookingReference,
+            ),
+          );
+          setBookingLockStatus("");
+          await refreshBookingEditLocks(expandedBookingReference);
+          return;
+        }
+
+        if (result.lock) {
+          setBookingEditLocks((currentLocks) => [
+            ...currentLocks.filter(
+              (lock) =>
+                lock.bookingReference !== result.lock?.bookingReference,
+            ),
+            result.lock as BookingEditLock,
+          ]);
+        }
+
+        setBookingReadOnlyReferences((currentReferences) =>
+          currentReferences.includes(expandedBookingReference)
+            ? currentReferences
+            : [...currentReferences, expandedBookingReference],
+        );
+        setBookingLockStatus(
+          result.status === "missing"
+            ? "Booking could not be found for locking."
+            : "This booking is currently being edited.",
+        );
+      } catch (error) {
+        console.error("[Zingara Admin] Failed to acquire booking lock", error);
+        setBookingReadOnlyReferences((currentReferences) =>
+          currentReferences.includes(expandedBookingReference)
+            ? currentReferences
+            : [...currentReferences, expandedBookingReference],
+        );
+        setBookingLockStatus(
+          "Booking editing is temporarily unavailable. Opened read only.",
+        );
+      }
+    }
+
+    void acquireLock();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    bookingLockSessionId,
+    canManageBookings,
+    currentStaff?.id,
+    expandedBookingReference,
+  ]);
+
+  useEffect(() => {
+    if (!activeBookingEditLock || !expandedBookingReference) {
+      return;
+    }
+
+    const timer = window.setInterval(async () => {
+      try {
+        const result = await heartbeatBookingEditLock({
+          lockId: activeBookingEditLock.id,
+          sessionId: bookingLockSessionId,
+        });
+
+        if (result.status === "acquired" && result.lock) {
+          setActiveBookingEditLock(result.lock);
+          setBookingEditLocks((currentLocks) => [
+            ...currentLocks.filter((lock) => lock.id !== result.lock?.id),
+            result.lock as BookingEditLock,
+          ]);
+        } else {
+          setActiveBookingEditLock(null);
+          activeBookingEditLockRef.current = null;
+          setBookingReadOnlyReferences((currentReferences) =>
+            currentReferences.includes(expandedBookingReference)
+              ? currentReferences
+              : [...currentReferences, expandedBookingReference],
+          );
+          setBookingLockStatus("Editing access was released.");
+        }
+      } catch (error) {
+        console.error("[Zingara Admin] Failed to heartbeat booking lock", error);
+      }
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, [activeBookingEditLock?.id, bookingLockSessionId, expandedBookingReference]);
+
+  useEffect(() => {
+    function releaseOnUnload() {
+      const lock = activeBookingEditLockRef.current;
+
+      if (!lock) {
+        return;
+      }
+
+      void releaseBookingEditLock({
+        lockId: lock.id,
+        reason: "tab-closed",
+        sessionId: bookingLockSessionId,
+      }).catch(() => undefined);
+    }
+
+    window.addEventListener("beforeunload", releaseOnUnload);
+
+    return () => window.removeEventListener("beforeunload", releaseOnUnload);
+  }, [bookingLockSessionId]);
+
+  useEffect(() => {
+    if (!hasHydrated || !canViewDataPortability) {
+      return;
+    }
+
+    void refreshDataPortabilityHistory();
+  }, [canViewDataPortability, hasHydrated]);
+
+  const canViewOperationsWorkspace = Boolean(
+    isSuperAdmin ||
+      isVenueManager ||
+      isBoxOfficeStaff ||
+      isFloorManager,
+  );
+  const canViewOperationsFinancials =
+    isSuperAdmin || isVenueManager;
+  const operationsFrameworkTabDefinitions = [
+    {
+      description: "Live operational KPIs",
+      id: "dashboard",
+      label: "Dashboard",
+    },
+    {
+      description: "Daily guest and booking manifest",
+      id: "daily-booking-manifest",
+      label: "Daily Manifest",
+    },
+    {
+      description: "Floor-ready service manifest",
+      id: "floor-manifest",
+      label: "Floor Manifest",
+    },
+    {
+      description: "Revenue and balance reporting",
+      id: "financial-reports",
+      label: "Financial Reports",
+    },
+    {
+      description: "Operational exports",
+      id: "export-centre",
+      label: "Exports",
+    },
+  ] satisfies Array<{
+    description: string;
+    id: OperationsTab;
+    label: string;
+  }>;
+  const selectedOperationsFrameworkTabMeta =
+    operationsFrameworkTabDefinitions.find(
+      (tab) => tab.id === activeOperationsTab,
+    );
+  const southAfricaToday = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Johannesburg",
+  }).format(new Date());
+  const isArchivedBooking = (booking: DemoBooking) =>
+    Boolean(booking.archivedAt);
+  const activeBookingsForOperations = bookings.filter(
+    (booking) => !isArchivedBooking(booking),
+  );
+  const operationalBookings = bookings.filter(
+    isOperationallyActiveBooking,
+  );
+  const todaysOperationalBookings = operationalBookings.filter(
+    (booking) => booking.bookingDate === southAfricaToday,
+  );
+  const getBookingPaidAmount = (booking: DemoBooking) =>
+    Math.max(booking.amountPaid ?? 0, 0);
+  const getBookingOutstandingAmount = (booking: DemoBooking) =>
+    Math.max(
+      booking.balanceDue ?? booking.totalPrice - getBookingPaidAmount(booking),
+      0,
+    );
+  const getOperationsBookingShow = (booking: DemoBooking) =>
+    shows.find((show) => show.id === booking.showId);
+  const getBookingLocation = (booking: DemoBooking) => {
+    const show = getOperationsBookingShow(booking);
+
+    return normalizeShowLocation(show?.location ?? show?.venueName);
+  };
+  const operationsDashboardKpis = [
+    {
+      accent: "border-[#D8C36A]/35 bg-[#D8C36A]/10",
+      label: "Today's Bookings",
+      value: todaysOperationalBookings.length.toString(),
+    },
+    {
+      accent: "border-emerald-300/30 bg-emerald-950/20",
+      label: "Today's Guests",
+      value: todaysOperationalBookings
+        .reduce((total, booking) => total + booking.partySize, 0)
+        .toString(),
+    },
+    {
+      accent: "border-sky-300/30 bg-sky-950/20",
+      label: "Today's Revenue",
+      value: formatCurrency(
+        todaysOperationalBookings.reduce(
+          (total, booking) => total + getBookingPaidAmount(booking),
+          0,
+        ),
+      ),
+    },
+    {
+      accent: "border-amber-300/30 bg-amber-950/20",
+      label: "Outstanding Balances",
+      value: formatCurrency(
+        operationalBookings.reduce(
+          (total, booking) => total + getBookingOutstandingAmount(booking),
+          0,
+        ),
+      ),
+    },
+    {
+      accent: "border-lime-300/30 bg-lime-950/20",
+      label: "Deposits Received",
+      value: formatCurrency(
+        operationalBookings
+          .filter((booking) => booking.paymentOption === "deposit")
+          .reduce(
+            (total, booking) => total + getBookingPaidAmount(booking),
+            0,
+          ),
+      ),
+    },
+    {
+      accent: "border-fuchsia-300/30 bg-fuchsia-950/20",
+      label: "Complimentary Bookings",
+      value: operationalBookings
+        .filter((booking) => booking.totalPrice === 0)
+        .length.toString(),
+    },
+    {
+      accent: "border-violet-300/30 bg-violet-950/20",
+      label: "Corporate Bookings",
+      value: operationalBookings
+        .filter((booking) =>
+          (booking.source ?? "").toLowerCase().includes("corporate"),
+        )
+        .length.toString(),
+    },
+    {
+      accent: "border-orange-300/30 bg-orange-950/20",
+      label: "Upcoming Shows",
+      value: shows
+        .filter(
+          (show) =>
+            (show.operationalStatus ?? "active") === "active" &&
+            show.date >= southAfricaToday,
+        )
+        .length.toString(),
+    },
+    {
+      accent: "border-rose-300/30 bg-rose-950/20",
+      label: "Cape Town Bookings",
+      value: operationalBookings
+        .filter((booking) => getBookingLocation(booking) === "cape-town")
+        .length.toString(),
+    },
+    {
+      accent: "border-teal-300/30 bg-teal-950/20",
+      label: "Johannesburg Bookings",
+      value: operationalBookings
+        .filter((booking) => getBookingLocation(booking) === "johannesburg")
+        .length.toString(),
+    },
+    {
+      accent: "border-sky-300/30 bg-sky-950/20",
+      label: "Bookings Being Edited",
+      value: activeBookingEditCount.toString(),
+    },
+  ];
+  const permittedManifestLocations = (() => {
+    const normalizedScope = normalizeStaffVenueScope([
+      currentStaff?.venueId ?? "",
+    ]);
+    const scopedLocations = normalizedScope.filter(
+      (scope): scope is EntryLocationKey =>
+        scope === "cape-town" || scope === "johannesburg",
+    );
+
+    if (normalizedScope.includes("all") || scopedLocations.length > 1) {
+      return ["cape-town", "johannesburg"] as EntryLocationKey[];
+    }
+
+    if (scopedLocations.length > 0) {
+      return scopedLocations;
+    }
+
+    return ["cape-town", "johannesburg"] as EntryLocationKey[];
+  })();
+  const canSelectAllManifestLocations =
+    permittedManifestLocations.length > 1;
+  const effectiveManifestLocation =
+    manifestLocationFilter === "all" && canSelectAllManifestLocations
+      ? "all"
+      : permittedManifestLocations.includes(
+            manifestLocationFilter as EntryLocationKey,
+          )
+        ? manifestLocationFilter
+        : permittedManifestLocations[0];
+  const getShowManifestLocation = (show: DemoShow) =>
+    normalizeShowLocation(show.location ?? show.venueName);
+  const permittedManifestShows = shows
+    .filter((show) => {
+      if (show.archivedAt) {
+        return false;
+      }
+
+      const showLocation = getShowManifestLocation(show);
+
+      if (!showLocation || !permittedManifestLocations.includes(showLocation)) {
+        return false;
+      }
+
+      return (
+        effectiveManifestLocation === "all" ||
+        showLocation === effectiveManifestLocation
+      );
+    })
+    .sort((left, right) => {
+      const leftValue = `${left.date}T${left.time || "00:00"}`;
+      const rightValue = `${right.date}T${right.time || "00:00"}`;
+
+      return leftValue.localeCompare(rightValue);
+    });
+  const manifestSelectedShow =
+    permittedManifestShows.find((show) => show.id === selectedShowId) ??
+    permittedManifestShows[0];
+  const manifestSelectedShowLocation = manifestSelectedShow
+    ? getShowManifestLocation(manifestSelectedShow)
+    : null;
+  const manifestLocationLabel =
+    effectiveManifestLocation === "all"
+      ? "All Locations"
+      : getShowLocationOption(effectiveManifestLocation).label;
+  const manifestStatusOptions: Array<{
+    label: string;
+    value: ManifestStatusFilter;
+  }> = [
+    { label: "Confirmed / Active", value: "active" },
+    { label: "Pending Payment", value: "pending-payment" },
+    { label: "Cancelled", value: "cancelled" },
+    { label: "Checked In", value: "checked-in" },
+    { label: "No Show", value: "no-show" },
+    { label: "All", value: "all" },
+  ];
+  const manifestSearchTerm = manifestSearch.trim().toLowerCase();
+  const getManifestCheckInStatus = (booking: DemoBooking) => {
+    const status = booking.status ?? "confirmed";
+
+    if (status === "checked-in") {
+      return "Checked In";
+    }
+
+    if (status === "no-show") {
+      return "No Show";
+    }
+
+    if (booking.arrivalTime) {
+      return "Arrived";
+    }
+
+    return "Not Arrived";
+  };
+  const getManifestStatusMatches = (booking: DemoBooking) => {
+    const status = booking.status ?? "confirmed";
+
+    if (manifestStatusFilter === "all") {
+      return true;
+    }
+
+    if (manifestStatusFilter === "active") {
+      return isOperationallyActiveBooking(booking);
+    }
+
+    return status === manifestStatusFilter;
+  };
+  const manifestShowBookings = manifestSelectedShow
+    ? activeBookingsForOperations.filter(
+        (booking) =>
+          booking.showId === manifestSelectedShow.id &&
+          getManifestStatusMatches(booking),
+      )
+    : [];
+  const manifestBookings = manifestShowBookings.filter((booking) => {
+    if (!manifestSearchTerm) {
+      return true;
+    }
+
+    return [
+      booking.reference,
+      booking.customer.name,
+      booking.customer.email,
+      booking.customer.phone,
+      booking.tableNumber,
+      booking.zoneTitle,
+      booking.operationalNotes ?? "",
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(manifestSearchTerm);
+  });
+  const sortedDailyManifestBookings = [...manifestBookings].sort(
+    (left, right) => {
+      if (dailyManifestSort === "guest-name") {
+        return left.customer.name.localeCompare(right.customer.name);
+      }
+
+      if (dailyManifestSort === "section") {
+        return left.zoneTitle.localeCompare(right.zoneTitle);
+      }
+
+      if (dailyManifestSort === "booking-status") {
+        return (left.status ?? "confirmed").localeCompare(
+          right.status ?? "confirmed",
+        );
+      }
+
+      if (dailyManifestSort === "balance-due") {
+        return (
+          getBookingFinancials(right).balanceDue -
+          getBookingFinancials(left).balanceDue
+        );
+      }
+
+      return left.tableNumber.localeCompare(right.tableNumber, undefined, {
+        numeric: true,
+      });
+    },
+  );
+  const manifestSummary = manifestBookings.reduce(
+    (summary, booking) => {
+      const financials = getBookingFinancials(booking);
+
+      return {
+        checkedIn:
+          summary.checkedIn +
+          ((booking.status ?? "confirmed") === "checked-in" ? 1 : 0),
+        complimentary:
+          summary.complimentary + (booking.totalPrice === 0 ? 1 : 0),
+        depositsReceived: summary.depositsReceived + financials.amountPaid,
+        outstandingBalance:
+          summary.outstandingBalance + financials.balanceDue,
+        totalBookings: summary.totalBookings + 1,
+        totalGuests: summary.totalGuests + booking.partySize,
+      };
+    },
+    {
+      checkedIn: 0,
+      complimentary: 0,
+      depositsReceived: 0,
+      outstandingBalance: 0,
+      totalBookings: 0,
+      totalGuests: 0,
+    },
+  );
+  const manifestBookingReferences = new Set(
+    manifestBookings.map((booking) => booking.reference),
+  );
+  const manifestTables = manifestSelectedShow
+    ? floorManagementZones.flatMap((zone) =>
+        getZoneTables(tables, manifestSelectedShow.id, zone.id).map(
+          (table) => ({
+            occupancy: getTableOccupancy(table, activeBookingsForOperations),
+            table,
+            zone,
+          }),
+        ),
+      )
+    : [];
+  const manifestOccupiedTableCount = manifestTables.filter(
+    ({ occupancy }) =>
+      occupancy.state === "reserved" || occupancy.state === "checked-in",
+  ).length;
+  const manifestVacantTableCount = manifestTables.filter(
+    ({ occupancy }) => occupancy.state === "available",
+  ).length;
+  const financialPermittedLocations = permittedManifestLocations;
+  const canSelectAllFinancialLocations = financialPermittedLocations.length > 1;
+  const effectiveFinancialLocation =
+    financialLocationFilter === "all" && canSelectAllFinancialLocations
+      ? "all"
+      : financialPermittedLocations.includes(
+            financialLocationFilter as EntryLocationKey,
+          )
+        ? financialLocationFilter
+        : financialPermittedLocations[0];
+  const financialLocationLabel =
+    effectiveFinancialLocation === "all"
+      ? "All Locations"
+      : getShowLocationOption(effectiveFinancialLocation).label;
+  const financialShows = shows
+    .filter((show) => {
+      const location = getShowManifestLocation(show);
+
+      return (
+        !show.archivedAt &&
+        Boolean(location) &&
+        financialPermittedLocations.includes(location as EntryLocationKey) &&
+        (effectiveFinancialLocation === "all" ||
+          location === effectiveFinancialLocation)
+      );
+    })
+    .sort((left, right) =>
+      `${left.date}T${left.time || "00:00"}`.localeCompare(
+        `${right.date}T${right.time || "00:00"}`,
+      ),
+    );
+  const financialShowIds = new Set(financialShows.map((show) => show.id));
+  const getFinancialBookingType = (booking: DemoBooking) =>
+    (booking.source ?? "").toLowerCase().includes("corporate")
+      ? "corporate"
+      : "standard";
+  const getFinancialBookingLocation = (booking: DemoBooking) => {
+    const show = getOperationsBookingShow(booking);
+
+    return show ? getShowManifestLocation(show) : null;
+  };
+  const isBookingInFinancialScope = (booking: DemoBooking) => {
+    if (booking.showId && !financialShowIds.has(booking.showId)) {
+      return false;
+    }
+
+    if (financialShowFilter !== "all" && booking.showId !== financialShowFilter) {
+      return false;
+    }
+
+    if (
+      financialBookingTypeFilter !== "all" &&
+      getFinancialBookingType(booking) !== financialBookingTypeFilter
+    ) {
+      return false;
+    }
+
+    if (
+      financialPaymentStatusFilter !== "all" &&
+      getBookingPaymentStatus(booking) !== financialPaymentStatusFilter
+    ) {
+      return false;
+    }
+
+    return true;
+  };
+  const financialDateFromValue =
+    financialDateFrom || `${financialReportingMonth}-01`;
+  const financialDateToValue =
+    financialDateTo ||
+    new Date(
+      Number(financialReportingMonth.slice(0, 4)),
+      Number(financialReportingMonth.slice(5, 7)),
+      0,
+    )
+      .toISOString()
+      .slice(0, 10);
+  const isDateWithinRange = (dateValue: string, from: string, to: string) =>
+    dateValue >= from && dateValue <= to;
+  const isConfirmedPaymentRow = (row: PaymentRow) =>
+    row.payment_status === "deposit_paid" ||
+    row.payment_status === "fully_paid" ||
+    row.payment_status === "refunded";
+  const scopedFinancialBookings = activeBookingsForOperations.filter(
+    isBookingInFinancialScope,
+  );
+  const paymentsReceivedRows = paymentRows
+    .filter((row) => {
+      if (!isConfirmedPaymentRow(row)) {
+        return false;
+      }
+
+      const paymentDate = (row.processed_at ?? row.created_at).slice(0, 10);
+
+      if (!isDateWithinRange(paymentDate, financialDateFromValue, financialDateToValue)) {
+        return false;
+      }
+
+      const booking = row.reference
+        ? activeBookingsForOperations.find(
+            (currentBooking) => currentBooking.reference === row.reference,
+          )
+        : undefined;
+
+      return booking ? isBookingInFinancialScope(booking) : false;
+    })
+    .map((row) => {
+      const booking = activeBookingsForOperations.find(
+        (currentBooking) => currentBooking.reference === row.reference,
+      );
+      const show = booking ? getOperationsBookingShow(booking) : undefined;
+      const financials = booking ? getBookingFinancials(booking) : null;
+
+      return {
+        amountReceived: Number(row.amount ?? 0),
+        balanceDue: financials?.balanceDue ?? 0,
+        booking,
+        bookingTotal: financials?.totalPrice ?? 0,
+        bookingType: booking ? getFinancialBookingType(booking) : "standard",
+        description: row.notes ?? row.payment_type ?? "Not recorded",
+        guests: booking?.partySize ?? 0,
+        location: show
+          ? getShowLocationOption(getShowManifestLocation(show) ?? "cape-town").city
+          : "Not recorded",
+        method: row.method ?? "Not recorded",
+        paymentDate: row.processed_at ?? row.created_at,
+        paymentStatus: row.payment_status,
+        row,
+        show,
+      };
+    });
+  const futureBookingRows = scopedFinancialBookings.filter((booking) => {
+    const show = getOperationsBookingShow(booking);
+
+    if (!show || show.date <= financialDateToValue) {
+      return false;
+    }
+
+    if (!financialIncludeCancelled && (booking.status ?? "confirmed") === "cancelled") {
+      return false;
+    }
+
+    return true;
+  });
+  const monthStart = `${financialReportingMonth}-01`;
+  const monthEnd = new Date(
+    Number(financialReportingMonth.slice(0, 4)),
+    Number(financialReportingMonth.slice(5, 7)),
+    0,
+  )
+    .toISOString()
+    .slice(0, 10);
+  const monthlyBookings = scopedFinancialBookings.filter((booking) => {
+    const show = getOperationsBookingShow(booking);
+
+    return Boolean(show && show.date >= monthStart && show.date <= monthEnd);
+  });
+  const complimentaryBookings = monthlyBookings.filter(
+    (booking) =>
+      booking.totalPrice === 0 ||
+      getBookingPaymentStatus(booking) === "comp-vip",
+  );
+  const paymentsReceivedSummary = paymentsReceivedRows.reduce(
+    (summary, row) => ({
+      corporate:
+        summary.corporate +
+        (row.bookingType === "corporate" ? row.amountReceived : 0),
+      count: summary.count + 1,
+      deposits:
+        summary.deposits +
+        (row.row.payment_type === "deposit" ? row.amountReceived : 0),
+      full:
+        summary.full +
+        (row.row.payment_type === "full_payment" ||
+        row.row.payment_type === "balance"
+          ? row.amountReceived
+          : 0),
+      refunds:
+        summary.refunds +
+        (row.row.payment_type === "refund" ||
+        row.row.payment_status === "refunded"
+          ? row.amountReceived
+          : 0),
+      standard:
+        summary.standard +
+        (row.bookingType === "standard" ? row.amountReceived : 0),
+      total: summary.total + row.amountReceived,
+    }),
+    {
+      corporate: 0,
+      count: 0,
+      deposits: 0,
+      full: 0,
+      refunds: 0,
+      standard: 0,
+      total: 0,
+    },
+  );
+  const futureRevenueSummary = futureBookingRows.reduce(
+    (summary, booking) => {
+      const financials = getBookingFinancials(booking);
+
+      return {
+        collected: summary.collected + financials.amountPaid,
+        count: summary.count + 1,
+        guests: summary.guests + booking.partySize,
+        outstanding: summary.outstanding + financials.balanceDue,
+        value: summary.value + financials.totalPrice,
+      };
+    },
+    { collected: 0, count: 0, guests: 0, outstanding: 0, value: 0 },
+  );
+  const monthlyIncomeSummary = monthlyBookings.reduce(
+    (summary, booking) => {
+      const financials = getBookingFinancials(booking);
+      const location = getFinancialBookingLocation(booking);
+      const type = getFinancialBookingType(booking);
+      const isComp = complimentaryBookings.some(
+        (compBooking) => compBooking.reference === booking.reference,
+      );
+
+      return {
+        bookingCount: summary.bookingCount + 1,
+        capeTown:
+          summary.capeTown + (location === "cape-town" ? financials.amountPaid : 0),
+        closingOutstanding: summary.closingOutstanding + financials.balanceDue,
+        complimentaryValue:
+          summary.complimentaryValue + (isComp ? financials.totalPrice : 0),
+        corporate:
+          summary.corporate + (type === "corporate" ? financials.amountPaid : 0),
+        deposits:
+          summary.deposits +
+          (booking.paymentOption === "deposit" ? financials.amountPaid : 0),
+        grossBookingValue: summary.grossBookingValue + financials.totalPrice,
+        guestCount: summary.guestCount + booking.partySize,
+        johannesburg:
+          summary.johannesburg +
+          (location === "johannesburg" ? financials.amountPaid : 0),
+        netCashReceived: summary.netCashReceived + financials.amountPaid,
+        paymentsReceived: summary.paymentsReceived + financials.amountPaid,
+        refunds:
+          summary.refunds +
+          (booking.paymentStatus === "refunded" ? financials.amountPaid : 0),
+        standard:
+          summary.standard + (type === "standard" ? financials.amountPaid : 0),
+      };
+    },
+    {
+      bookingCount: 0,
+      capeTown: 0,
+      closingOutstanding: 0,
+      complimentaryValue: 0,
+      corporate: 0,
+      deposits: 0,
+      grossBookingValue: 0,
+      guestCount: 0,
+      johannesburg: 0,
+      netCashReceived: 0,
+      paymentsReceived: 0,
+      refunds: 0,
+      standard: 0,
+    },
+  );
+  const complimentarySummary = complimentaryBookings.reduce(
+    (summary, booking) => {
+      const location = getFinancialBookingLocation(booking);
+
+      return {
+        capeTown: summary.capeTown + (location === "cape-town" ? 1 : 0),
+        count: summary.count + 1,
+        guests: summary.guests + booking.partySize,
+        johannesburg:
+          summary.johannesburg + (location === "johannesburg" ? 1 : 0),
+        value: summary.value + getBookingFinancials(booking).totalPrice,
+      };
+    },
+    { capeTown: 0, count: 0, guests: 0, johannesburg: 0, value: 0 },
+  );
+  const financialDashboardCards = [
+    ["Payments Received", formatCurrency(paymentsReceivedSummary.total)],
+    ["Gross Booking Value", formatCurrency(monthlyIncomeSummary.grossBookingValue)],
+    ["Outstanding Balances", formatCurrency(futureRevenueSummary.outstanding)],
+    ["Refunds", formatCurrency(paymentsReceivedSummary.refunds)],
+    ["Complimentary Value", formatCurrency(complimentarySummary.value)],
+    ["Future Booking Value", formatCurrency(futureRevenueSummary.value)],
+    ["Total Bookings", monthlyIncomeSummary.bookingCount.toString()],
+    ["Total Guests", monthlyIncomeSummary.guestCount.toString()],
+  ];
+
+  useEffect(() => {
+    if (permittedManifestLocations.length === 0) {
+      return;
+    }
+
+    if (
+      manifestLocationFilter === "all" &&
+      !canSelectAllManifestLocations
+    ) {
+      setManifestLocationFilter(permittedManifestLocations[0]);
+      return;
+    }
+
+    if (
+      manifestLocationFilter !== "all" &&
+      !permittedManifestLocations.includes(manifestLocationFilter)
+    ) {
+      setManifestLocationFilter(
+        canSelectAllManifestLocations ? "all" : permittedManifestLocations[0],
+      );
+    }
+  }, [
+    canSelectAllManifestLocations,
+    manifestLocationFilter,
+    permittedManifestLocations,
+  ]);
+
+  useEffect(() => {
+    if (
+      (activeOperationsTab === "daily-booking-manifest" ||
+        activeOperationsTab === "floor-manifest") &&
+      manifestSelectedShow &&
+      selectedShowId !== manifestSelectedShow.id
+    ) {
+      setSelectedShowId(manifestSelectedShow.id);
+    }
+  }, [activeOperationsTab, manifestSelectedShow, selectedShowId]);
+
   const venueConfig = venueSettings;
   const visibleStaffNotifications = staffNotifications.filter(
     (notification) =>
       notificationPreferences[notification.trigger] ?? true,
   );
+  const staffDeleteProfile = staffProfiles.find(
+    (profile) => profile.id === staffDeleteProfileId,
+  );
+  const staffDeleteReplacementOptions = staffProfiles.filter(
+    (profile) =>
+      profile.id !== staffDeleteProfileId &&
+      profile.active &&
+      profile.userId !== staffDeleteProfile?.userId,
+  );
+  const activeSuperAdminCount = staffProfiles.filter(
+    (profile) => profile.active && profile.role === "super-admin",
+  ).length;
   const unreadNotificationCount = visibleStaffNotifications.filter(
     (notification) =>
       !notification.readBy?.includes(
@@ -6476,6 +9042,66 @@ export default function AdminDashboardPage() {
     });
   }
 
+  function sendPreferredBrowserNotification(
+    preference: NotificationPreferenceKey,
+    trigger: ZingaraNotificationTrigger,
+    overrides: Partial<{ body: string; title: string }> = {},
+  ) {
+    if ((notificationPreferences[preference] ?? true) === false) {
+      console.info(
+        "[Zingara notifications] Local device notification muted:",
+        preference,
+      );
+      return {
+        ok: false,
+        permission: mutedBrowserNotificationPermission,
+      };
+    }
+
+    return sendZingaraBrowserNotification(trigger, overrides);
+  }
+
+  async function copyCommunicationVariable(variable: string) {
+    const variableText = `{{${variable}}}`;
+
+    setCommunicationVariableCopyError("");
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(variableText);
+      } else {
+        const textarea = document.createElement("textarea");
+
+        textarea.value = variableText;
+        textarea.setAttribute("readonly", "true");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand("copy");
+        textarea.remove();
+
+        if (!copied) {
+          throw new Error("Clipboard fallback failed.");
+        }
+      }
+
+      setCopiedCommunicationVariable(variableText);
+      window.setTimeout(() => {
+        setCopiedCommunicationVariable((currentVariable) =>
+          currentVariable === variableText ? "" : currentVariable,
+        );
+      }, 1800);
+    } catch {
+      setCommunicationVariableCopyError(
+        `Could not copy ${variableText}.`,
+      );
+      window.setTimeout(() => {
+        setCommunicationVariableCopyError("");
+      }, 2200);
+    }
+  }
+
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -6505,6 +9131,7 @@ export default function AdminDashboardPage() {
   }
 
   async function logout() {
+    await releaseCurrentBookingLock("logout");
     await signOutAdmin();
     window.dispatchEvent(new Event(adminAuthChangedEvent));
     setCurrentStaff(null);
@@ -6646,6 +9273,28 @@ export default function AdminDashboardPage() {
     persistDashboardLayout(defaultLayout);
   }
 
+  async function refreshSystemStatus() {
+    if (!currentStaff) {
+      return;
+    }
+
+    setIsSystemStatusLoading(true);
+    setSystemStatusError("");
+
+    try {
+      const payload = await fetchSupabaseApi<SystemStatusPayload>(
+        "/api/admin/system-status",
+      );
+
+      setSystemStatus(payload);
+    } catch (error) {
+      console.error("[Zingara admin] Failed to load system status", error);
+      setSystemStatusError("System status could not be refreshed.");
+    } finally {
+      setIsSystemStatusLoading(false);
+    }
+  }
+
   function updateShowOperationalStatus(
     showId: string,
     operationalStatus: NonNullable<DemoShow["operationalStatus"]>,
@@ -6668,20 +9317,21 @@ export default function AdminDashboardPage() {
 
   function openShowEditor(show: DemoShow) {
     setEditingShowId(show.id);
-    setShowEditForm(getShowEditForm(show, venueConfig.venueName));
+    setShowEditForm(getShowEditForm(show));
   }
 
   function closeShowEditor() {
     setEditingShowId("");
     setShowDeleteConfirmationId("");
     setShowEditForm({
+      address: "",
       date: "",
       description: "",
       internalNotes: "",
       label: "",
       operationalStatus: "active",
       time: "",
-      venueName: venueConfig.venueName,
+      venueName: "",
     });
   }
 
@@ -6696,7 +9346,8 @@ export default function AdminDashboardPage() {
       !editingShowId ||
       !showEditForm.date ||
       !showEditForm.time ||
-      !showEditForm.label.trim()
+      !showEditForm.label.trim() ||
+      !normalizeShowLocation(showEditForm.venueName)
     ) {
       console.log("[Zingara show management] save blocked", {
         canManageShows,
@@ -6704,19 +9355,27 @@ export default function AdminDashboardPage() {
         hasDate: Boolean(showEditForm.date),
         hasLabel: Boolean(showEditForm.label.trim()),
         hasTime: Boolean(showEditForm.time),
+        hasLocation: Boolean(normalizeShowLocation(showEditForm.venueName)),
       });
       return;
     }
 
+    const showLocation = normalizeShowLocation(showEditForm.venueName);
+
+    if (!showLocation) {
+      return;
+    }
+
     const updatedShow = {
+      address: showEditForm.address.trim(),
       date: showEditForm.date,
       description: showEditForm.description.trim(),
       internalNotes: showEditForm.internalNotes.trim(),
       label: showEditForm.label.trim(),
+      location: showLocation,
       operationalStatus: showEditForm.operationalStatus,
       time: showEditForm.time,
-      venueName:
-        showEditForm.venueName.trim() || venueConfig.venueName,
+      venueName: showLocation,
     };
     const nextShows = shows.map((show) =>
       show.id === editingShowId
@@ -6745,21 +9404,30 @@ export default function AdminDashboardPage() {
       !canManageShows ||
       !editingShowId ||
       !showEditForm.date ||
-      !showEditForm.time
+      !showEditForm.time ||
+      !normalizeShowLocation(showEditForm.venueName)
     ) {
+      return;
+    }
+
+    const showLocation = normalizeShowLocation(showEditForm.venueName);
+
+    if (!showLocation) {
       return;
     }
 
     const duplicateId = `show-${showEditForm.date}-${showEditForm.time.replace(":", "")}-${Date.now()}`;
     const duplicateShow: DemoShow = {
       id: duplicateId,
+      address: showEditForm.address.trim(),
       date: showEditForm.date,
       description: showEditForm.description.trim(),
       internalNotes: showEditForm.internalNotes.trim(),
       label: `${showEditForm.label.trim()} Copy`,
+      location: showLocation,
       operationalStatus: showEditForm.operationalStatus,
       time: showEditForm.time,
-      venueName: showEditForm.venueName.trim() || venueConfig.venueName,
+      venueName: showLocation,
     };
 
     saveShows([...shows, duplicateShow]);
@@ -6840,11 +9508,58 @@ export default function AdminDashboardPage() {
     setStaffRoles(nextRoles);
   }
 
+  async function refreshAuditTrail(page = auditPage) {
+    if (!canViewAuditTrail) {
+      setAuditEvents([]);
+      setAuditTotal(0);
+      return;
+    }
+
+    setAuditStatus("Loading audit events...");
+
+    try {
+      const payload = await getAuditTrail({
+        ...auditFilters,
+        page,
+        pageSize: 25,
+      });
+
+      setAuditEvents(payload.events);
+      setAuditTotal(payload.total);
+      setAuditPage(payload.page);
+      setAuditStatus(
+        payload.events.length > 0
+          ? `Showing ${payload.events.length} of ${payload.total} audit events.`
+          : "No audit events match the selected filters.",
+      );
+    } catch (error) {
+      console.error("[Zingara Admin] Failed to load audit trail", error);
+      setAuditEvents([]);
+      setAuditTotal(0);
+      setAuditStatus("Audit Trail could not be loaded.");
+    }
+  }
+
+  function updateAuditFilter<Key extends keyof AuditFilters>(
+    key: Key,
+    value: AuditFilters[Key],
+  ) {
+    setAuditFilters((filters) => ({
+      ...filters,
+      [key]: value,
+    }));
+    setAuditPage(1);
+  }
+
   async function changeStaffProfileRole(
     profile: StaffManagementProfile,
     role: AdminRole,
   ) {
     if (currentStaff?.role !== "super-admin") {
+      return;
+    }
+
+    if (isStaffUserCreating) {
       return;
     }
 
@@ -6858,6 +9573,34 @@ export default function AdminDashboardPage() {
     await refreshStaffManagement();
     setStaffManagementStatus("Staff role updated.");
     showWorkflowToast("✓ Saved · Staff role updated");
+  }
+
+  async function changeStaffProfileLocation(
+    profile: StaffManagementProfile,
+    location: string,
+  ) {
+    if (currentStaff?.role !== "super-admin") {
+      return;
+    }
+
+    const venueScope = normalizeStaffVenueScope([location]);
+
+    if (venueScope.length === 0) {
+      setStaffManagementStatus("Select a valid staff location.");
+      showWorkflowToast("⚠ Could not save");
+      return;
+    }
+
+    setStaffManagementStatus("");
+    const updatedProfile = await updateStaffVenueScope(profile.id, venueScope);
+    if (!updatedProfile) {
+      showWorkflowToast("⚠ Could not save");
+      setStaffManagementStatus("Staff location could not be updated.");
+      return;
+    }
+    await refreshStaffManagement();
+    setStaffManagementStatus("Staff location updated.");
+    showWorkflowToast("✓ Saved · Staff location updated");
   }
 
   async function toggleStaffProfileActive(
@@ -6892,35 +9635,44 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    const venueScope = staffInviteForm.venueScope
-      .split(",")
-      .map((scope) => scope.trim())
-      .filter(Boolean);
+    const venueScope = normalizeStaffVenueScope([staffInviteForm.venueScope]);
 
-    setStaffManagementStatus("");
-    const result = await createStaffUser({
-      email: staffInviteForm.email,
-      fullName: staffInviteForm.fullName,
-      role: staffInviteForm.role,
-      venueScope,
-    });
-
-    if (result.error) {
-      setStaffManagementStatus(result.error);
+    if (venueScope.length === 0) {
+      setStaffManagementStatus("Select a staff location.");
       showWorkflowToast("⚠ Could not save");
       return;
     }
 
-    await refreshStaffManagement();
-    setStaffInviteForm({
-      email: "",
-      fullName: "",
-      role: "venue-manager",
-      venueScope: currentStaff.venueId,
-    });
-    setIsStaffInviteOpen(false);
-    setStaffManagementStatus("Staff user created.");
-    showWorkflowToast("✓ Saved · User created");
+    setStaffManagementStatus("Creating staff account... Sending invitation...");
+    setIsStaffUserCreating(true);
+
+    try {
+      const result = await createStaffUser({
+        email: staffInviteForm.email,
+        fullName: staffInviteForm.fullName,
+        role: staffInviteForm.role,
+        venueScope,
+      });
+
+      if (result.error) {
+        setStaffManagementStatus(result.error);
+        showWorkflowToast("⚠ Could not save");
+        return;
+      }
+
+      await refreshStaffManagement();
+      setStaffInviteForm({
+        email: "",
+        fullName: "",
+        role: "venue-manager",
+        venueScope: "",
+      });
+      setIsStaffInviteOpen(false);
+      setStaffManagementStatus("Staff user created.");
+      showWorkflowToast("✓ Saved · User created");
+    } finally {
+      setIsStaffUserCreating(false);
+    }
   }
 
   function openStaffDeleteModal(profile: StaffManagementProfile) {
@@ -6931,7 +9683,9 @@ export default function AdminDashboardPage() {
     setStaffDeleteProfileId(profile.id);
     const replacement = staffProfiles.find(
       (staffProfile) =>
-        staffProfile.id !== profile.id && staffProfile.active,
+        staffProfile.id !== profile.id &&
+        staffProfile.active &&
+        staffProfile.userId !== profile.userId,
     );
     setStaffDeleteReplacementUserId(replacement?.userId ?? "");
     setStaffManagementStatus("");
@@ -7307,7 +10061,10 @@ export default function AdminDashboardPage() {
     setCorporateConversionStatus(
       "Corporate request successfully converted to booking.",
     );
-    void sendZingaraBrowserNotification("booking-confirmed");
+    void sendPreferredBrowserNotification(
+      "new-corporate-request",
+      "booking-confirmed",
+    );
   }
 
   function sendCorporatePaymentLink(request: CorporateRequest) {
@@ -7786,7 +10543,9 @@ export default function AdminDashboardPage() {
   }
 
   function createShow() {
-    if (!canManageShows || !newShow.date || !newShow.time) {
+    const showLocation = normalizeShowLocation(newShow.location);
+
+    if (!canManageShows || !newShow.date || !newShow.time || !showLocation) {
       return;
     }
 
@@ -7799,20 +10558,24 @@ export default function AdminDashboardPage() {
 
     const show: DemoShow = {
       id: showId,
+      address: newShow.address.trim(),
       date: newShow.date,
       time: newShow.time,
       label: newShow.label.trim() || "Zingara Show",
+      location: showLocation,
       operationalStatus: "active",
-      venueName: venueConfig.venueName,
+      venueName: showLocation,
     };
 
     saveShows([...shows, show]);
     saveTables([...tables, ...createTablesForShow(show.id)]);
     setSelectedShowId(show.id);
     setNewShow({
+      address: "",
       date: "",
       time: "",
       label: "",
+      location: "",
     });
   }
 
@@ -8068,7 +10831,7 @@ export default function AdminDashboardPage() {
       (currentBooking) =>
         (currentBooking.tableId === mergedTable.id ||
           currentBooking.reference === mergedTable.bookingReference) &&
-        isOccupyingBookingStatus(currentBooking.status ?? "confirmed"),
+        isOperationallyActiveBooking(currentBooking),
     );
     const sourceTables = tables.filter((table) =>
       mergedTable.mergedFrom?.includes(table.id),
@@ -8211,7 +10974,10 @@ export default function AdminDashboardPage() {
     field: keyof DemoBooking["customer"],
     value: string,
   ) {
-    if (!canManageBookings) {
+    if (!canManageBookings || isBookingReadOnly(reference)) {
+      if (isBookingReadOnly(reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
       return;
     }
 
@@ -8238,7 +11004,10 @@ export default function AdminDashboardPage() {
       | "refundNotes",
     value: string,
   ) {
-    if (!canManageBookings) {
+    if (!canManageBookings || isBookingReadOnly(reference)) {
+      if (isBookingReadOnly(reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
       return;
     }
 
@@ -8335,7 +11104,15 @@ export default function AdminDashboardPage() {
   }
 
   function openCancellationModal(booking: DemoBooking) {
-    if (!canManageBookings) {
+    if (isArchivedBooking(booking)) {
+      showWorkflowToast("Restore this booking before making changes.");
+      return;
+    }
+
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      if (isBookingReadOnly(booking.reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
       return;
     }
 
@@ -8345,17 +11122,23 @@ export default function AdminDashboardPage() {
   }
 
   function closeCancellationModal() {
+    if (isCancellingBooking) {
+      return;
+    }
+
     setCancellingBookingReference("");
     setCancellationReason(cancellationReasons[0]);
     setCancellationOtherReason("");
   }
 
-  function cancelBooking(booking: DemoBooking, reason: string) {
-    if (!canManageBookings) {
+  async function cancelBooking(booking: DemoBooking, reason: string) {
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      if (isBookingReadOnly(booking.reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
       return;
     }
 
-    releaseBookingTable(booking);
     const cancelledAt = new Date().toISOString();
     const cancelledBooking = {
       ...booking,
@@ -8388,31 +11171,42 @@ export default function AdminDashboardPage() {
         ...(booking.communicationHistory ?? []),
       ],
     };
-    const nextBookings = bookings.map((currentBooking) =>
-      currentBooking.reference === booking.reference
-        ? nextCancelledBooking
-        : currentBooking,
-    );
+    setIsCancellingBooking(true);
 
-    setBookings(nextBookings);
-    void persistBookingCancellation(nextCancelledBooking)
-      .then((persistedBookings) => {
-        setBookings(persistedBookings);
-        showWorkflowToast("✓ Saved · Booking cancelled");
-      })
-      .catch(() => {
-        showWorkflowToast("⚠ Could not save");
+    try {
+      const persistedBookings =
+        await persistBookingCancellation(nextCancelledBooking);
+
+      setBookings(persistedBookings);
+      releaseBookingTable(booking);
+      closeBookingDetails();
+      setCancellingBookingReference("");
+      setCancellationReason(cancellationReasons[0]);
+      setCancellationOtherReason("");
+      void releaseCurrentBookingLock("cancelled");
+      void sendPreferredBrowserNotification(
+        "booking-cancelled",
+        "booking-cancelled",
+      );
+      void sendZingaraStaffPushNotification("booking-cancelled", {
+        bookingReference: booking.reference,
       });
-    void sendZingaraBrowserNotification("booking-cancelled");
-    void sendZingaraStaffPushNotification("booking-cancelled", {
-      bookingReference: booking.reference,
-    });
-    void sendZingaraGuestPushNotification("reservation-cancelled", {
-      bookingReference: booking.reference,
-    });
+      void sendZingaraGuestPushNotification("reservation-cancelled", {
+        bookingReference: booking.reference,
+      });
+      showWorkflowToast("✓ Saved · Booking cancelled");
+    } catch {
+      showWorkflowToast("⚠ Could not save cancellation");
+    } finally {
+      setIsCancellingBooking(false);
+    }
   }
 
   function confirmBookingCancellation() {
+    if (isCancellingBooking) {
+      return;
+    }
+
     const booking = bookings.find(
       (currentBooking) =>
         currentBooking.reference === cancellingBookingReference,
@@ -8423,15 +11217,123 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    cancelBooking(booking, getCancellationSummary());
-    closeCancellationModal();
+    void cancelBooking(booking, getCancellationSummary());
+  }
+
+  function openBookingArchiveModal(mode: "all" | "filtered") {
+    if (!isSuperAdmin) {
+      showWorkflowToast("Super Admin access is required.");
+      return;
+    }
+
+    const archivableBookings =
+      mode === "all"
+        ? getAllNonArchivedBookings()
+        : getFilteredArchivableBookings();
+    const references = archivableBookings.map((booking) => booking.reference);
+
+    if (references.length === 0) {
+      showWorkflowToast("No non-archived bookings are available to archive.");
+      return;
+    }
+
+    setBookingArchiveModal({ mode, references });
+    setBookingArchiveReason("End-of-period archive.");
+    setBookingArchiveConfirmation("");
+    setBookingArchiveStatus("");
+  }
+
+  function closeBookingArchiveModal() {
+    if (isBookingArchiveSubmitting) {
+      return;
+    }
+
+    setBookingArchiveModal(null);
+    setBookingArchiveReason("End-of-period archive.");
+    setBookingArchiveConfirmation("");
+    setBookingArchiveStatus("");
+  }
+
+  async function confirmBookingArchive() {
+    if (
+      !bookingArchiveModal ||
+      isBookingArchiveSubmitting ||
+      bookingArchiveConfirmation.trim() !== "ARCHIVE BOOKINGS"
+    ) {
+      return;
+    }
+
+    const currentReferences =
+      bookingArchiveModal.mode === "all"
+        ? getAllNonArchivedBookings().map((booking) => booking.reference)
+        : getFilteredArchivableBookings().map((booking) => booking.reference);
+
+    if (
+      currentReferences.length !== bookingArchiveModal.references.length ||
+      currentReferences.some(
+        (reference) => !bookingArchiveModal.references.includes(reference),
+      )
+    ) {
+      setBookingArchiveModal({
+        ...bookingArchiveModal,
+        references: currentReferences,
+      });
+      setBookingArchiveConfirmation("");
+      setBookingArchiveStatus(
+        "The affected booking count changed. Review the updated count and confirm again.",
+      );
+      return;
+    }
+
+    setIsBookingArchiveSubmitting(true);
+    setBookingArchiveStatus("Archiving selected bookings...");
+
+    try {
+      const persistedBookings = await archiveBookings(
+        currentReferences,
+        bookingArchiveReason,
+      );
+
+      setBookings(persistedBookings);
+      setBookingArchiveStatus("");
+      setBookingArchiveModal(null);
+      setBookingArchiveReason("End-of-period archive.");
+      setBookingArchiveConfirmation("");
+      showWorkflowToast(
+        `✓ Archived ${currentReferences.length} booking${currentReferences.length === 1 ? "" : "s"}`,
+      );
+    } catch {
+      setBookingArchiveStatus("Archive could not be completed.");
+      showWorkflowToast("⚠ Archive could not be completed");
+    } finally {
+      setIsBookingArchiveSubmitting(false);
+    }
+  }
+
+  async function restoreBooking(booking: DemoBooking) {
+    if (!isSuperAdmin) {
+      showWorkflowToast("Super Admin access is required.");
+      return;
+    }
+
+    try {
+      const persistedBookings = await restoreBookings([booking.reference]);
+
+      setBookings(persistedBookings);
+      showWorkflowToast(`✓ Restored ${booking.reference}`);
+    } catch {
+      showWorkflowToast("⚠ Booking could not be restored");
+    }
   }
 
   function updateBookingStatus(
     booking: DemoBooking,
     status: BookingStatus,
   ) {
-    if (!canManageBookings) {
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      if (isBookingReadOnly(booking.reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
       return;
     }
 
@@ -8526,7 +11428,8 @@ export default function AdminDashboardPage() {
           : currentBooking,
       ),
     );
-    void sendZingaraBrowserNotification(
+    void sendPreferredBrowserNotification(
+      status === "checked-in" ? "guest-checked-in" : "new-booking",
       status === "checked-in"
         ? "check-in-confirmed"
         : "booking-updated",
@@ -8547,7 +11450,10 @@ export default function AdminDashboardPage() {
     booking: DemoBooking,
     paymentStatus: PaymentStatus,
   ) {
-    if (!canManageBookings) {
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      if (isBookingReadOnly(booking.reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
       return;
     }
 
@@ -8650,7 +11556,10 @@ export default function AdminDashboardPage() {
           : currentBooking,
       ),
     );
-    void sendZingaraBrowserNotification("booking-updated");
+    void sendPreferredBrowserNotification(
+      "new-booking",
+      "booking-updated",
+    );
     if (paymentStatus === "fully-paid" || paymentStatus === "deposit-paid") {
       void sendZingaraGuestPushNotification("payment-received", {
         bookingReference: booking.reference,
@@ -8760,7 +11669,7 @@ export default function AdminDashboardPage() {
         table: booking.tableNumber,
         status: bookingStatusLabels[booking.status ?? "confirmed"],
         arrival: booking.arrivalTime
-          ? new Date(booking.arrivalTime).toLocaleString()
+          ? formatSouthAfricanTimestamp(booking.arrivalTime)
           : "",
         signature: "",
       }));
@@ -8812,6 +11721,1475 @@ export default function AdminDashboardPage() {
     link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  function downloadBlobFile(filename: string, blob: Blob) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function parseExportDate(dateValue?: string | null) {
+    if (!dateValue) {
+      return "Not recorded";
+    }
+
+    const date = new Date(dateValue);
+
+    return Number.isNaN(date.getTime()) ? dateValue : date;
+  }
+
+  function getExportLocationSlug() {
+    return sanitizeExportFileName(financialLocationLabel || manifestLocationLabel);
+  }
+
+  function getExportPeriodLabel() {
+    if (activeFinancialReportTab === "monthly-income" ||
+        activeFinancialReportTab === "complimentary-bookings") {
+      return financialReportingMonth;
+    }
+
+    return `${financialDateFromValue}_to_${financialDateToValue}`;
+  }
+
+  function withRowsOrEmpty(sheet: ExportSheet): ExportSheet {
+    if (sheet.rows.length > 0) {
+      return sheet;
+    }
+
+    return {
+      ...sheet,
+      rows: [
+        {
+          [sheet.columns[0] ?? "Status"]: "No matching records",
+        },
+      ],
+    };
+  }
+
+  function buildDailyManifestExportSheet(): ExportSheet {
+    const columns = [
+      "Booking Reference",
+      "Guest Name",
+      "Contact Number",
+      "Email",
+      "Guests",
+      "Section",
+      "Table Number",
+      "Booking Status",
+      "Check-In Status",
+      "Payment Status",
+      "Deposit Paid",
+      "Balance Due",
+      "Guest Notes",
+    ];
+
+    return withRowsOrEmpty({
+      columns,
+      name: "Daily Manifest",
+      rows: sortedDailyManifestBookings.map((booking) => {
+        const financials = getBookingFinancials(booking);
+
+        return {
+          "Balance Due": financials.balanceDue,
+          "Booking Reference": booking.reference,
+          "Booking Status": bookingStatusLabels[booking.status ?? "confirmed"],
+          "Check-In Status": getManifestCheckInStatus(booking),
+          "Contact Number": booking.customer.phone || "Not recorded",
+          "Deposit Paid": financials.amountPaid,
+          Email: booking.customer.email || "Not recorded",
+          "Guest Name": booking.customer.name || "Unnamed Guest",
+          "Guest Notes": booking.operationalNotes || "Not recorded",
+          Guests: booking.partySize,
+          "Payment Status": paymentStatusLabels[financials.paymentStatus],
+          Section: booking.zoneTitle,
+          "Table Number": booking.tableNumber,
+        };
+      }),
+      summary: [
+        ["Location", manifestLocationLabel],
+        ["Show", manifestSelectedShow?.label ?? "No show selected"],
+        [
+          "Show Date",
+          manifestSelectedShow
+            ? formatOperationalShowDate(manifestSelectedShow.date)
+            : "Not recorded",
+        ],
+        ["Total Bookings", manifestSummary.totalBookings],
+        ["Total Guests", manifestSummary.totalGuests],
+        ["Outstanding Balance", manifestSummary.outstandingBalance],
+      ],
+    });
+  }
+
+  function buildFloorManifestExportSheets(): ExportSheet[] {
+    return floorManagementZones.map((zone) => {
+      const columns = [
+        "Table Number",
+        "Section",
+        "Status",
+        "Guest Name",
+        "Guests",
+        "Booking Reference",
+        "Booking Status",
+        "Check-In Status",
+        "Payment Status",
+        "Deposit Paid",
+        "Balance Due",
+        "Bar Credit",
+        "Gratuity Paid",
+        "Guest Notes",
+      ];
+      const zoneTables = getZoneTables(
+        tables,
+        manifestSelectedShow?.id ?? selectedShowId,
+        zone.id,
+      );
+      const rows = zoneTables
+        .filter((table) => {
+          const occupancy = getTableOccupancy(table, bookings);
+
+          return (
+            !occupancy.booking ||
+            manifestBookingReferences.has(occupancy.booking.reference)
+          );
+        })
+        .map((table) => {
+          const occupancy = getTableOccupancy(table, bookings);
+          const booking = occupancy.booking;
+          const financials = booking ? getBookingFinancials(booking) : null;
+          const paymentStatus = booking ? getBookingPaymentStatus(booking) : null;
+
+          return {
+            "Balance Due": financials?.balanceDue ?? "Not recorded",
+            "Bar Credit": "Not recorded",
+            "Booking Reference": booking?.reference ?? "Vacant",
+            "Booking Status": booking
+              ? bookingStatusLabels[booking.status ?? "confirmed"]
+              : "Vacant",
+            "Check-In Status": booking
+              ? getManifestCheckInStatus(booking)
+              : "Not arrived",
+            "Deposit Paid": financials?.amountPaid ?? "Not recorded",
+            "Gratuity Paid": "Not recorded",
+            "Guest Name": booking?.customer.name || "Vacant",
+            "Guest Notes":
+              booking?.operationalNotes || table.guestNotes || "Not recorded",
+            Guests: booking?.partySize ?? 0,
+            "Payment Status": paymentStatus
+              ? paymentStatusLabels[paymentStatus]
+              : "Not recorded",
+            Section: zone.title,
+            Status: tableOccupancyLabels[occupancy.state],
+            "Table Number": table.tableNumber,
+          };
+        });
+
+      return withRowsOrEmpty({
+        columns,
+        name: zone.title.slice(0, 31),
+        rows,
+        summary: [
+          ["Location", manifestLocationLabel],
+          ["Show", manifestSelectedShow?.label ?? "No show selected"],
+          ["Section", zone.title],
+          ["Occupied Tables", rows.filter((row) => row.Status !== "Available").length],
+        ],
+      });
+    });
+  }
+
+  function buildPaymentsReceivedExportSheet(): ExportSheet {
+    const columns = [
+      "Payment Date",
+      "Booking Reference",
+      "Guest / Company Name",
+      "Booking Type",
+      "Show Date",
+      "Location",
+      "Guests",
+      "Payment Method",
+      "Payment Description",
+      "Amount Received",
+      "Booking Total",
+      "Balance Due",
+      "Payment Status",
+    ];
+
+    return withRowsOrEmpty({
+      columns,
+      name: "Payments Received",
+      rows: paymentsReceivedRows.map((row) => ({
+        "Amount Received": row.amountReceived,
+        "Balance Due": row.balanceDue,
+        "Booking Reference": row.booking?.reference ?? row.row.reference ?? "Not recorded",
+        "Booking Total": row.bookingTotal,
+        "Booking Type": row.bookingType === "corporate" ? "Corporate" : "Standard",
+        "Guest / Company Name":
+          row.booking?.customer.name || row.booking?.customer.email || "Not recorded",
+        Guests: row.guests,
+        Location: row.location,
+        "Payment Date": parseExportDate(row.paymentDate),
+        "Payment Description": row.description,
+        "Payment Method": row.method,
+        "Payment Status": row.paymentStatus,
+        "Show Date": row.show ? parseExportDate(row.show.date) : "Not recorded",
+      })),
+      summary: [
+        ["Location", financialLocationLabel],
+        ["Period", `${financialDateFromValue} to ${financialDateToValue}`],
+        ["Total payments received", paymentsReceivedSummary.total],
+        ["Number of payments", paymentsReceivedSummary.count],
+        ["Standard booking payments", paymentsReceivedSummary.standard],
+        ["Corporate booking payments", paymentsReceivedSummary.corporate],
+        ["Deposits received", paymentsReceivedSummary.deposits],
+        ["Full payments received", paymentsReceivedSummary.full],
+        ["Refunds recorded", paymentsReceivedSummary.refunds],
+        [
+          "Net payments after recorded refunds",
+          paymentsReceivedSummary.total - paymentsReceivedSummary.refunds,
+        ],
+      ],
+    });
+  }
+
+  function buildFutureRevenueExportSheet(): ExportSheet {
+    const columns = [
+      "Booking Reference",
+      "Guest / Company",
+      "Show Date",
+      "Location",
+      "Guests",
+      "Booking Total",
+      "Amount Paid",
+      "Balance Due",
+      "Booking Status",
+      "Payment Status",
+    ];
+
+    return withRowsOrEmpty({
+      columns,
+      name: "Future Revenue",
+      rows: futureBookingRows.map((booking) => {
+        const show = getOperationsBookingShow(booking);
+        const financials = getBookingFinancials(booking);
+        const location = getFinancialBookingLocation(booking);
+
+        return {
+          "Amount Paid": financials.amountPaid,
+          "Balance Due": financials.balanceDue,
+          "Booking Reference": booking.reference,
+          "Booking Status": bookingStatusLabels[booking.status ?? "confirmed"],
+          "Booking Total": financials.totalPrice,
+          "Guest / Company": booking.customer.name || "Unnamed Guest",
+          Guests: booking.partySize,
+          Location: location ? getShowLocationOption(location).city : "Not recorded",
+          "Payment Status": paymentStatusLabels[financials.paymentStatus],
+          "Show Date": show ? parseExportDate(show.date) : "Not recorded",
+        };
+      }),
+      summary: [
+        ["Reporting Date", financialDateToValue],
+        ["Total future-booking value", futureRevenueSummary.value],
+        ["Total collected", futureRevenueSummary.collected],
+        ["Total outstanding", futureRevenueSummary.outstanding],
+        ["Number of future bookings", futureRevenueSummary.count],
+        ["Total future guests", futureRevenueSummary.guests],
+      ],
+    });
+  }
+
+  function buildMonthlyIncomeExportSheet(): ExportSheet {
+    return {
+      columns: ["Metric", "Value"],
+      name: "Monthly Income",
+      rows: [
+        { Metric: "Opening outstanding balance", Value: "Not reliably calculable from current stored data" },
+        { Metric: "Payments received during month", Value: monthlyIncomeSummary.paymentsReceived },
+        { Metric: "Standard booking income", Value: monthlyIncomeSummary.standard },
+        { Metric: "Corporate booking income", Value: monthlyIncomeSummary.corporate },
+        { Metric: "Deposits received", Value: monthlyIncomeSummary.deposits },
+        { Metric: "Balance payments received", Value: monthlyIncomeSummary.paymentsReceived - monthlyIncomeSummary.deposits },
+        { Metric: "Refunds recorded", Value: monthlyIncomeSummary.refunds },
+        { Metric: "Complimentary booking value", Value: monthlyIncomeSummary.complimentaryValue },
+        { Metric: "Gross booking value", Value: monthlyIncomeSummary.grossBookingValue },
+        { Metric: "Net cash received", Value: monthlyIncomeSummary.netCashReceived },
+        { Metric: "Closing outstanding balance", Value: monthlyIncomeSummary.closingOutstanding },
+        { Metric: "Booking count", Value: monthlyIncomeSummary.bookingCount },
+        { Metric: "Guest count", Value: monthlyIncomeSummary.guestCount },
+        { Metric: "Cape Town", Value: monthlyIncomeSummary.capeTown },
+        { Metric: "Johannesburg", Value: monthlyIncomeSummary.johannesburg },
+      ],
+      summary: [
+        ["Location", financialLocationLabel],
+        ["Reporting month", financialReportingMonth],
+        ["Report note", "Management report. Not an audited accounting statement."],
+      ],
+    };
+  }
+
+  function buildComplimentaryExportSheet(): ExportSheet {
+    const columns = [
+      "Date",
+      "Location",
+      "Booking Reference",
+      "Guest / Company",
+      "Guests",
+      "Complimentary Reason",
+      "Complimentary Value",
+      "Created By",
+    ];
+
+    return withRowsOrEmpty({
+      columns,
+      name: "Complimentary",
+      rows: complimentaryBookings.map((booking) => {
+        const show = getOperationsBookingShow(booking);
+        const location = getFinancialBookingLocation(booking);
+
+        return {
+          "Booking Reference": booking.reference,
+          "Complimentary Reason": booking.operationalNotes || "Not recorded",
+          "Complimentary Value": getBookingFinancials(booking).totalPrice,
+          "Created By": "Not recorded",
+          Date: show ? parseExportDate(show.date) : "Not recorded",
+          "Guest / Company": booking.customer.name || "Unnamed Guest",
+          Guests: booking.partySize,
+          Location: location ? getShowLocationOption(location).city : "Not recorded",
+        };
+      }),
+      summary: [
+        ["Reporting month", financialReportingMonth],
+        ["Total complimentary bookings", complimentarySummary.count],
+        ["Total complimentary guests", complimentarySummary.guests],
+        ["Total complimentary value", complimentarySummary.value],
+        ["Cape Town count", complimentarySummary.capeTown],
+        ["Johannesburg count", complimentarySummary.johannesburg],
+        [
+          "Daily average",
+          Number((complimentarySummary.count / Math.max(Number(monthEnd.slice(8, 10)), 1)).toFixed(2)),
+        ],
+      ],
+    });
+  }
+
+  function getOperationsExportSheets(exportId: OperationsExportId): ExportSheet[] {
+    if (exportId === "daily-manifest") {
+      return [buildDailyManifestExportSheet()];
+    }
+
+    if (exportId === "floor-manifest") {
+      return buildFloorManifestExportSheets();
+    }
+
+    if (exportId === "payments-received") {
+      return [buildPaymentsReceivedExportSheet()];
+    }
+
+    if (exportId === "future-booking-revenue") {
+      return [buildFutureRevenueExportSheet()];
+    }
+
+    if (exportId === "monthly-income") {
+      return [buildMonthlyIncomeExportSheet()];
+    }
+
+    return [buildComplimentaryExportSheet()];
+  }
+
+  function getOperationsExportTitle(exportId: OperationsExportId) {
+    const labels: Record<OperationsExportId, string> = {
+      "complimentary-bookings": "Complimentary Bookings",
+      "daily-manifest": "Daily Manifest",
+      "floor-manifest": "Floor Manifest",
+      "future-booking-revenue": "Future Booking Revenue",
+      "monthly-income": "Monthly Income Statement",
+      "payments-received": "Payments Received",
+    };
+
+    return labels[exportId];
+  }
+
+  function getOperationsExportFilename(exportId: OperationsExportId, format: ExportFormat) {
+    const datePart =
+      exportId === "monthly-income" || exportId === "complimentary-bookings"
+        ? financialReportingMonth
+        : exportId === "daily-manifest" || exportId === "floor-manifest"
+          ? manifestSelectedShow?.date ?? southAfricaToday
+          : getExportPeriodLabel();
+    const locationPart =
+      exportId === "daily-manifest" || exportId === "floor-manifest"
+        ? sanitizeExportFileName(manifestLocationLabel)
+        : getExportLocationSlug();
+
+    return sanitizeExportFileName(
+      `Zingara_${getOperationsExportTitle(exportId)}_${datePart}_${locationPart}.${format}`,
+    );
+  }
+
+  function downloadOperationsExport(exportId: OperationsExportId, format: ExportFormat) {
+    if (!hasHydrated) {
+      return;
+    }
+
+    const sheets = getOperationsExportSheets(exportId);
+    const title = getOperationsExportTitle(exportId);
+    const subtitle =
+      exportId === "daily-manifest" || exportId === "floor-manifest"
+        ? `${manifestLocationLabel} · ${manifestSelectedShow?.label ?? "No show selected"}`
+        : `${financialLocationLabel} · ${getExportPeriodLabel()}`;
+    const blob =
+      format === "xlsx"
+        ? createXlsxBlob(sheets)
+        : createReportPdfBlob({
+            landscape:
+              exportId === "floor-manifest" ||
+              exportId === "future-booking-revenue" ||
+              exportId === "payments-received",
+            sheets,
+            subtitle,
+            title,
+          });
+
+    downloadBlobFile(getOperationsExportFilename(exportId, format), blob);
+  }
+
+  function getPortabilityColumns(entity: DataPortabilityEntity) {
+    return dataPortabilityColumns[entity];
+  }
+
+  function getPortabilityExportFilename(
+    entity: DataPortabilityEntity,
+    suffix: string,
+    extension: "csv" | "xlsx",
+  ) {
+    return sanitizeExportFileName(
+      `Zingara_${dataPortabilityEntityLabels[entity]}_${suffix}_${southAfricaToday}.${extension}`,
+    );
+  }
+
+  function buildBookingsPortabilityRows(): ExportRow[] {
+    return bookings.map((booking) => {
+      const show = getBookingShow(booking);
+      const financials = getBookingFinancials(booking);
+      const location = getBookingLocation(booking);
+      const bookingType = getFinancialBookingType(booking);
+
+      return {
+        "Amount Paid": financials.amountPaid,
+        Archived: booking.archivedAt ? "Yes" : "No",
+        "Archived At": booking.archivedAt
+          ? parseExportDate(booking.archivedAt)
+          : "Not archived",
+        "Balance Due": financials.balanceDue,
+        "Booking Date": parseExportDate(booking.createdAt),
+        "Booking Reference": booking.reference,
+        "Booking Status": bookingStatusLabels[booking.status ?? "confirmed"],
+        "Booking Total": financials.totalPrice,
+        "Booking Type": bookingType === "corporate" ? "Corporate" : "Standard",
+        "Corporate flag": bookingType === "corporate" ? "Yes" : "No",
+        "Complimentary flag":
+          financials.paymentStatus === "comp-vip" || financials.totalPrice === 0
+            ? "Yes"
+            : "No",
+        "Customer Email": booking.customer.email || "Not recorded",
+        "Customer Name": booking.customer.name || "Unnamed Guest",
+        "Customer Phone": booking.customer.phone || "Not recorded",
+        "Guest Notes": booking.operationalNotes || "Not recorded",
+        Location: location
+          ? getShowLocationOption(location).label
+          : "Not recorded",
+        "Number of Guests": booking.partySize,
+        "Payment Status": paymentStatusLabels[financials.paymentStatus],
+        "Seating Zone": booking.zoneTitle,
+        Show: show ? getShowLabel(show) : booking.bookingDate || "Not recorded",
+        "Show Date": show ? parseExportDate(show.date) : "Not recorded",
+        Table: booking.tableNumber,
+      };
+    });
+  }
+
+  function buildCustomersPortabilityRows(): ExportRow[] {
+    const liveCustomersByKey = new Map(
+      liveCustomerRecords.map((customer) => [
+        getLiveCustomerKey(customer),
+        customer,
+      ]),
+    );
+
+    return customerProfiles.map((profile) => {
+      const liveCustomer = liveCustomersByKey.get(profile.key);
+      const lastBooking = profile.bookingHistory[0];
+
+      return {
+        Company: "Not recorded",
+        "Customer Name":
+          getLiveCustomerName(liveCustomer ?? ({} as LiveCustomerRecord)) ||
+          profile.customer.name ||
+          "Unnamed Guest",
+        "Customer Status":
+          profile.archivedAt
+            ? "Archived"
+            : profile.totalBookings > 0
+              ? "Active"
+              : "Not recorded",
+        Email:
+          liveCustomer?.email || profile.customer.email || "Not recorded",
+        "Guest Notes":
+          liveCustomer?.relationship_notes || profile.notes || "Not recorded",
+        "Last Booking": lastBooking
+          ? parseExportDate(
+              getBookingShow(lastBooking)?.date ?? lastBooking.createdAt,
+            )
+          : "Not recorded",
+        "Marketing preference":
+          liveCustomer?.preferences?.marketingPreference ?? "Not recorded",
+        "Number of Bookings": profile.totalBookings,
+        Phone:
+          liveCustomer?.mobile || profile.customer.phone || "Not recorded",
+        "Total Guests": profile.bookingHistory.reduce(
+          (total, booking) => total + booking.partySize,
+          0,
+        ),
+      };
+    });
+  }
+
+  function buildDataPortabilityExportSheet(
+    entity: DataPortabilityEntity,
+  ): ExportSheet {
+    const columns = getPortabilityColumns(entity).map((column) => column.label);
+    const rows =
+      entity === "bookings"
+        ? buildBookingsPortabilityRows()
+        : buildCustomersPortabilityRows();
+
+    return withRowsOrEmpty({
+      columns,
+      name: dataPortabilityEntityLabels[entity],
+      rows,
+      summary: [
+        ["Export type", dataPortabilityEntityLabels[entity]],
+        ["Records", rows.length],
+        ["Note", "Portable public business fields only."],
+      ],
+    });
+  }
+
+  function downloadDataPortabilityExport(
+    entity: DataPortabilityEntity,
+    format: "csv" | "xlsx",
+  ) {
+    const sheet = buildDataPortabilityExportSheet(entity);
+
+    if (format === "csv") {
+      downloadTextFile(
+        getPortabilityExportFilename(entity, "Export", "csv"),
+        createCsvFromSheet(sheet),
+        "text/csv;charset=utf-8",
+      );
+      return;
+    }
+
+    downloadBlobFile(
+      getPortabilityExportFilename(entity, "Export", "xlsx"),
+      createXlsxBlob([sheet]),
+    );
+  }
+
+  function buildDataPortabilityTemplateSheet(
+    entity: DataPortabilityEntity,
+  ): ExportSheet {
+    const columns = getPortabilityColumns(entity);
+
+    return {
+      columns: columns.map((column) => column.label),
+      name: `${dataPortabilityEntityLabels[entity]} Template`.slice(0, 31),
+      rows: [
+        columns.reduce(
+          (row, column) => ({
+            ...row,
+            [column.label]: column.example,
+          }),
+          {} as ExportRow,
+        ),
+      ],
+      summary: [
+        ["Instruction", "Use the header row exactly as provided."],
+        ["Instruction", "The example row is synthetic and can be removed."],
+        ["Instruction", "Preview and validation run before any confirmed import."],
+      ],
+    };
+  }
+
+  function downloadDataPortabilityTemplate(
+    entity: DataPortabilityEntity,
+    format: "csv" | "xlsx",
+  ) {
+    const sheet = buildDataPortabilityTemplateSheet(entity);
+
+    if (format === "csv") {
+      downloadTextFile(
+        getPortabilityExportFilename(entity, "Import_Template", "csv"),
+        createCsvFromSheet(sheet),
+        "text/csv;charset=utf-8",
+      );
+      return;
+    }
+
+    downloadBlobFile(
+      getPortabilityExportFilename(entity, "Import_Template", "xlsx"),
+      createXlsxBlob([sheet]),
+    );
+  }
+
+  function normalizeImportLookupValue(value: string) {
+    return value.trim().toLowerCase();
+  }
+
+  function getShowImportAliases(show: DemoShow) {
+    return [
+      show.id,
+      show.label,
+      getShowLabel(show),
+      show.date,
+      `${show.label} ${show.date}`,
+    ]
+      .filter(Boolean)
+      .map((value) => normalizeImportLookupValue(String(value)));
+  }
+
+  function buildDataPortabilityPreview(
+    entity: DataPortabilityEntity,
+    fileName: string,
+    parsed: { headers: string[]; records: Record<string, string>[] },
+  ): DataPortabilityImportPreview {
+    const columns = getPortabilityColumns(entity);
+    const receivedColumnKeys = new Set(
+      parsed.headers.map((header) => normalizePortabilityKey(header)),
+    );
+    const missingRequiredColumns = columns
+      .filter((column) => column.required && !receivedColumnKeys.has(column.key))
+      .map((column) => column.label);
+    const issues: DataPortabilityImportIssue[] = [];
+    const existingBookingReferences = new Set(
+      bookings.map((booking) => booking.reference.trim().toLowerCase()),
+    );
+    const existingCustomerEmails = new Set(
+      [
+        ...customerProfiles.map((profile) => profile.customer.email),
+        ...liveCustomerRecords.map((customer) => customer.email ?? ""),
+      ]
+        .filter(Boolean)
+        .map((email) => email.trim().toLowerCase()),
+    );
+    const existingCustomerPhones = new Set(
+      [
+        ...customerProfiles.map((profile) => profile.customer.phone),
+        ...liveCustomerRecords.map((customer) => customer.mobile ?? ""),
+      ]
+        .filter(Boolean)
+        .map(normalizeCustomerPhone),
+    );
+    const showAliases = new Set(shows.flatMap(getShowImportAliases));
+    const locationAliases = new Set([
+      "all locations",
+      "cape-town",
+      "cape town",
+      "cape town — the night court",
+      "cape town - the night court",
+      "johannesburg",
+      "joburg",
+      "johannesburg — the spring court",
+      "johannesburg - the spring court",
+    ]);
+    const zoneAliases = new Set(
+      seatingZones.flatMap((zone) => [
+        normalizeImportLookupValue(zone.id),
+        normalizeImportLookupValue(zone.title),
+      ]),
+    );
+    const tableAliases = new Set(
+      tables.map((table) => normalizeImportLookupValue(table.tableNumber)),
+    );
+    const seenBookingReferences = new Set<string>();
+    const seenCustomerKeys = new Set<string>();
+
+    const rows = parsed.records.map((record, index) => {
+      const rowNumber = index + 2;
+      const errors: string[] = [];
+      const warnings: string[] = [];
+      const addIssue = (
+        field: string,
+        message: string,
+        severity: "error" | "warning" = "error",
+      ) => {
+        const list = severity === "error" ? errors : warnings;
+
+        list.push(`${field}: ${message}`);
+        issues.push({ field, message, rowNumber, severity });
+      };
+
+      missingRequiredColumns.forEach((field) =>
+        addIssue(field, "Missing required column."),
+      );
+
+      if (entity === "bookings") {
+        const reference = record.booking_reference ?? "";
+        const email = record.customer_email ?? "";
+        const phone = record.customer_phone ?? "";
+        const showValue = record.show ?? "";
+        const location = record.location ?? "";
+        const zone = record.seating_zone ?? "";
+        const table = record.table ?? "";
+
+        if (!reference) {
+          addIssue("Booking Reference", "Required.");
+        } else if (!isLikelyBookingReference(reference)) {
+          addIssue("Booking Reference", "Use a valid booking reference.");
+        }
+
+        if (reference) {
+          const normalizedReference = reference.trim().toLowerCase();
+
+          if (seenBookingReferences.has(normalizedReference)) {
+            addIssue("Booking Reference", "Duplicate row in this file.");
+          }
+          seenBookingReferences.add(normalizedReference);
+        }
+
+        if (!record.customer_name) {
+          addIssue("Customer Name", "Required.");
+        }
+        if (!email && !phone) {
+          addIssue("Customer Email", "Email or phone is required.");
+        }
+        if (!isValidPortabilityEmail(email)) {
+          addIssue("Customer Email", "Invalid email format.");
+        }
+        if (!isValidPortabilityPhone(phone)) {
+          addIssue("Customer Phone", "Invalid phone format.");
+        }
+        if (!isValidPortabilityDate(record.show_date ?? "")) {
+          addIssue("Show Date", "Invalid date format.");
+        }
+        if (!isValidPortabilityDate(record.booking_date ?? "")) {
+          addIssue("Booking Date", "Invalid date format.");
+        }
+        ["number_of_guests", "booking_total", "amount_paid", "balance_due"].forEach(
+          (field) => {
+            if (!isValidPortabilityNumber(record[field] ?? "")) {
+              addIssue(field, "Must be numeric.");
+            }
+          },
+        );
+        if (showValue && !showAliases.has(normalizeImportLookupValue(showValue))) {
+          addIssue("Show", "Unknown show.", "warning");
+        }
+        if (
+          location &&
+          !locationAliases.has(normalizeImportLookupValue(location))
+        ) {
+          addIssue("Location", "Unknown location.", "warning");
+        }
+        if (zone && !zoneAliases.has(normalizeImportLookupValue(zone))) {
+          addIssue("Seating Zone", "Unknown seating zone.", "warning");
+        }
+        if (table && !tableAliases.has(normalizeImportLookupValue(table))) {
+          addIssue("Table", "Unknown table.", "warning");
+        }
+        if (
+          (email && !existingCustomerEmails.has(email.trim().toLowerCase())) ||
+          (phone && !existingCustomerPhones.has(normalizeCustomerPhone(phone)))
+        ) {
+          addIssue(
+            "Customer",
+            "Unknown customer; Phase 19D.2 will decide whether to create or link.",
+            "warning",
+          );
+        }
+
+        const valid = errors.length === 0;
+        const action: DataPortabilityImportAction = !valid
+          ? "Skip"
+          : existingBookingReferences.has(reference.trim().toLowerCase())
+            ? "Update"
+            : "Create";
+
+        return {
+          action,
+          errors,
+          rowNumber,
+          valid,
+          values: record,
+          warnings,
+        };
+      }
+
+      const email = record.email ?? "";
+      const phone = record.phone ?? "";
+      const customerKey =
+        email.trim().toLowerCase() || normalizeCustomerPhone(phone);
+
+      if (!record.customer_name) {
+        addIssue("Customer Name", "Required.");
+      }
+      if (!email && !phone) {
+        addIssue("Email", "Email or phone is required.");
+      }
+      if (!isValidPortabilityEmail(email)) {
+        addIssue("Email", "Invalid email format.");
+      }
+      if (!isValidPortabilityPhone(phone)) {
+        addIssue("Phone", "Invalid phone format.");
+      }
+      if (!isValidPortabilityDate(record.last_booking ?? "")) {
+        addIssue("Last Booking", "Invalid date format.");
+      }
+      ["number_of_bookings", "total_guests"].forEach((field) => {
+        if (!isValidPortabilityNumber(record[field] ?? "")) {
+          addIssue(field, "Must be numeric.");
+        }
+      });
+      if (customerKey) {
+        if (seenCustomerKeys.has(customerKey)) {
+          addIssue("Customer", "Duplicate row in this file.");
+        }
+        seenCustomerKeys.add(customerKey);
+      }
+
+      const valid = errors.length === 0;
+      const normalizedPhone = normalizeCustomerPhone(phone);
+      const action: DataPortabilityImportAction = !valid
+        ? "Skip"
+        : existingCustomerEmails.has(email.trim().toLowerCase()) ||
+            existingCustomerPhones.has(normalizedPhone)
+          ? "Update"
+          : "Create";
+
+      return {
+        action,
+        errors,
+        rowNumber,
+        valid,
+        values: record,
+        warnings,
+      };
+    });
+
+    return {
+      duplicateRows: rows.filter((row) =>
+        row.errors.some((error) => error.includes("Duplicate row")),
+      ).length,
+      entity,
+      fileName,
+      headers: parsed.headers,
+      invalidRows: rows.filter((row) => !row.valid).length,
+      issues,
+      missingRequiredColumns,
+      rows,
+      rowsDetected: rows.length,
+      validRows: rows.filter((row) => row.valid).length,
+      wouldCreate: rows.filter((row) => row.action === "Create").length,
+      wouldSkip: rows.filter((row) => row.action === "Skip").length,
+      wouldUpdate: rows.filter((row) => row.action === "Update").length,
+    };
+  }
+
+  async function handleDataPortabilityImportFile(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+
+    setDataPortabilityImportError("");
+    setDataPortabilityImportStatus("");
+    setDataPortabilityPreview(null);
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const parsed = await parsePortabilityFile(file);
+      const preview = buildDataPortabilityPreview(
+        activeDataPortabilityEntity,
+        file.name,
+        parsed,
+      );
+
+      setDataPortabilityPreview(preview);
+      setDataPortabilityImportStatus(
+        `${preview.rowsDetected} row${preview.rowsDetected === 1 ? "" : "s"} parsed. Dry-run preview only.`,
+      );
+    } catch (error) {
+      setDataPortabilityImportError(
+        error instanceof Error
+          ? error.message
+          : "The file could not be parsed.",
+      );
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function getDataPortabilityLogFilename() {
+    const timestamp = new Date()
+      .toISOString()
+      .slice(0, 16)
+      .replace("T", "_")
+      .replace(":", "-");
+
+    return `Import_Result_${timestamp}.xlsx`;
+  }
+
+  function getImportBookingStatus(value: string): BookingStatus {
+    const normalizedValue = normalizeImportLookupValue(value);
+    const matchedStatus = Object.entries(bookingStatusLabels).find(
+      ([status, label]) =>
+        normalizeImportLookupValue(status) === normalizedValue ||
+        normalizeImportLookupValue(label) === normalizedValue,
+    )?.[0] as BookingStatus | undefined;
+
+    return matchedStatus && isValidBookingStatus(matchedStatus)
+      ? matchedStatus
+      : "pending-payment";
+  }
+
+  function getImportPaymentStatus(value: string): PaymentStatus {
+    const normalizedValue = normalizeImportLookupValue(value);
+    const matchedStatus = Object.entries(paymentStatusLabels).find(
+      ([status, label]) =>
+        normalizeImportLookupValue(status) === normalizedValue ||
+        normalizeImportLookupValue(label) === normalizedValue,
+    )?.[0] as PaymentStatus | undefined;
+
+    return matchedStatus ?? "pending-payment";
+  }
+
+  function getImportBoolean(value: string) {
+    return ["1", "true", "yes", "y"].includes(
+      normalizeImportLookupValue(value),
+    );
+  }
+
+  function getImportNumber(value: string, fallback = 0) {
+    const parsedValue = Number(String(value).replace(/[^\d.-]/g, ""));
+
+    return Number.isFinite(parsedValue) ? parsedValue : fallback;
+  }
+
+  function findImportShow(record: Record<string, string>) {
+    const showValue = normalizeImportLookupValue(record.show ?? "");
+    const showDate = record.show_date?.trim();
+    const location = normalizeShowLocation(record.location);
+
+    return shows.find((show) => {
+      const aliases = getShowImportAliases(show);
+
+      return (
+        (showValue ? aliases.includes(showValue) : true) &&
+        (showDate ? show.date === showDate : true) &&
+        (location ? show.location === location : true)
+      );
+    });
+  }
+
+  function findImportZone(record: Record<string, string>) {
+    const zoneValue = normalizeImportLookupValue(record.seating_zone ?? "");
+
+    return (
+      seatingZones.find(
+        (zone) =>
+          normalizeImportLookupValue(zone.id) === zoneValue ||
+          normalizeImportLookupValue(zone.title) === zoneValue,
+      ) ?? seatingZones[0]
+    );
+  }
+
+  function findImportTable(
+    record: Record<string, string>,
+    showId: string,
+    zoneId: SeatingZoneId,
+  ) {
+    const tableValue = normalizeImportLookupValue(record.table ?? "");
+
+    return (
+      tables.find(
+        (table) =>
+          table.showId === showId &&
+          table.zoneId === zoneId &&
+          normalizeImportLookupValue(table.tableNumber) === tableValue,
+      ) ??
+      tables.find(
+        (table) =>
+          table.zoneId === zoneId &&
+          normalizeImportLookupValue(table.tableNumber) === tableValue,
+      )
+    );
+  }
+
+  function buildImportedBooking(
+    row: DataPortabilityPreviewRow,
+    existingBooking?: DemoBooking,
+  ) {
+    const record = row.values;
+    const show = findImportShow(record);
+    const zone = findImportZone(record);
+    const table = show
+      ? findImportTable(record, show.id, zone.id)
+      : undefined;
+    const now = new Date().toISOString();
+    const totalPrice = getImportNumber(
+      record.booking_total ?? "",
+      existingBooking?.totalPrice ?? 0,
+    );
+    const amountPaid = getImportNumber(
+      record.amount_paid ?? "",
+      existingBooking?.amountPaid ?? 0,
+    );
+    const balanceDue = getImportNumber(
+      record.balance_due ?? "",
+      existingBooking?.balanceDue ?? Math.max(totalPrice - amountPaid, 0),
+    );
+    const partySize = Math.max(
+      1,
+      Math.round(
+        getImportNumber(
+          record.number_of_guests ?? "",
+          existingBooking?.partySize ?? 1,
+        ),
+      ),
+    );
+    const reference =
+      record.booking_reference?.trim() || existingBooking?.reference || "";
+    const bookingStatus = getImportBookingStatus(record.booking_status ?? "");
+    const importedPaymentStatus = getImportPaymentStatus(
+      record.payment_status ?? "",
+    );
+    const paymentStatus =
+      existingBooking && row.action === "Update"
+        ? (existingBooking.paymentStatus ?? "pending-payment")
+        : getImportBoolean(record.complimentary_flag ?? "")
+          ? "comp-vip"
+          : importedPaymentStatus;
+    const nextBooking: DemoBooking = {
+      addons: existingBooking?.addons ?? [],
+      addonsTotal: existingBooking?.addonsTotal ?? 0,
+      amountPaid:
+        existingBooking && row.action === "Update"
+          ? existingBooking.amountPaid
+          : amountPaid,
+      balanceDue:
+        existingBooking && row.action === "Update"
+          ? existingBooking.balanceDue
+          : balanceDue,
+      bookingDate: show ? getShowLabel(show) : (existingBooking?.bookingDate ?? ""),
+      cancellationReason: existingBooking?.cancellationReason ?? "",
+      cancelledAt: existingBooking?.cancelledAt,
+      communicationHistory: existingBooking?.communicationHistory ?? [],
+      corporatePaymentLinkSentAt: existingBooking?.corporatePaymentLinkSentAt,
+      corporatePaymentToken: existingBooking?.corporatePaymentToken,
+      createdAt:
+        existingBooking?.createdAt || record.booking_date?.trim() || now,
+      customer: {
+        email:
+          record.customer_email?.trim() || existingBooking?.customer.email || "",
+        name:
+          record.customer_name?.trim() ||
+          existingBooking?.customer.name ||
+          "Imported Guest",
+        phone:
+          record.customer_phone?.trim() || existingBooking?.customer.phone || "",
+      },
+      discountAmount: existingBooking?.discountAmount ?? 0,
+      guestTickets: existingBooking?.guestTickets,
+      lifecycleHistory: existingBooking?.lifecycleHistory ?? [],
+      operationalNotes:
+        record.guest_notes?.trim() ||
+        existingBooking?.operationalNotes ||
+        "",
+      partySize,
+      paymentOption: existingBooking?.paymentOption ?? "deposit",
+      paymentStatus,
+      pricePerPerson:
+        partySize > 0
+          ? Math.round(totalPrice / partySize)
+          : existingBooking?.pricePerPerson ?? 0,
+      promoCode: existingBooking?.promoCode,
+      promoLabel: existingBooking?.promoLabel,
+      reference,
+      refundNotes: existingBooking?.refundNotes ?? "",
+      serviceFeeAmount: existingBooking?.serviceFeeAmount ?? 0,
+      showId: show?.id ?? existingBooking?.showId,
+      source:
+        record.corporate_flag &&
+        getImportBoolean(record.corporate_flag)
+          ? "corporate-direct"
+          : existingBooking?.source ?? "admin",
+      status: bookingStatus,
+      subtotalPrice: existingBooking?.subtotalPrice ?? totalPrice,
+      tableId: table?.id ?? existingBooking?.tableId ?? "imported-table",
+      tableNumber:
+        table?.tableNumber ||
+        record.table?.trim() ||
+        existingBooking?.tableNumber ||
+        "Not recorded",
+      ticketCode: existingBooking?.ticketCode ?? createTicketCode(reference),
+      ticketIssuedAt: existingBooking?.ticketIssuedAt ?? now,
+      totalPrice: existingBooking && row.action === "Update"
+        ? existingBooking.totalPrice
+        : totalPrice,
+      zoneId: zone.id,
+      zoneTitle: zone.title,
+    };
+
+    return {
+      booking: nextBooking,
+      missing: [
+        !reference ? "Booking Reference" : "",
+        !show ? "Show" : "",
+        !record.customer_name?.trim() && !existingBooking?.customer.name
+          ? "Customer Name"
+          : "",
+      ].filter(Boolean),
+    };
+  }
+
+  function downloadDataPortabilityResultLog(result: DataPortabilityImportResult) {
+    const sheet: ExportSheet = {
+      columns: [
+        "Row",
+        "Action",
+        "Status",
+        "Message",
+        "Reference",
+        "Customer",
+        "Warnings",
+        "Errors",
+      ],
+      name: "Import Result",
+      rows: result.logRows.map((row) => ({
+        Action: row.action,
+        Customer: row.customer,
+        Errors: row.errors,
+        Message: row.message,
+        Reference: row.reference,
+        Row: row.row,
+        Status: row.status,
+        Warnings: row.warnings,
+      })),
+      summary: [
+        ["Dataset", dataPortabilityEntityLabels[result.dataset]],
+        ["Result", result.result],
+        ["Records", result.records],
+        ["Created", result.created],
+        ["Updated", result.updated],
+        ["Skipped", result.skipped],
+        ["Failed", result.failed],
+        ["Restore Point", result.restorePointId],
+      ],
+    };
+
+    downloadBlobFile(getDataPortabilityLogFilename(), createXlsxBlob([sheet]));
+  }
+
+  function mapDataPortabilityHistoryRow(
+    row: DataPortabilityImportHistoryApiRow,
+  ): DataPortabilityImportHistoryEntry {
+    const rawLogRows = Array.isArray(row.result_log) ? row.result_log : [];
+
+    return {
+      completedAt: row.completed_at ?? row.started_at,
+      created: row.created_count,
+      dataset: row.dataset,
+      durationMs: row.duration_ms,
+      failed: row.failed_count,
+      finalStatus: row.final_status,
+      fileName: row.original_file_name,
+      id: row.id,
+      logRows: rawLogRows.map((logRow) => {
+        const record = logRow as Partial<DataPortabilityImportLogRow>;
+
+        return {
+          action: record.action ?? "Skip",
+          customer: record.customer ?? "",
+          errors: Array.isArray(record.errors)
+            ? record.errors.join("; ")
+            : record.errors ?? "",
+          message: record.message ?? "",
+          reference: record.reference ?? "",
+          row: Number(record.row ?? 0),
+          status: record.status ?? "Success",
+          warnings: Array.isArray(record.warnings)
+            ? record.warnings.join("; ")
+            : record.warnings ?? "",
+        };
+      }),
+      records: row.total_rows,
+      restorePointId: row.restore_point_id ?? "Not recorded",
+      result:
+        row.final_status === "rolled_back"
+          ? "failed"
+          : row.final_status === "success"
+            ? "success"
+            : "partial",
+      skipped: row.skipped_count,
+      updated: row.updated_count,
+      user:
+        row.staff_profiles?.email ??
+        row.staff_profiles?.full_name ??
+        "Staff user",
+    };
+  }
+
+  async function refreshDataPortabilityHistory() {
+    try {
+      const payload = await fetchSupabaseApi<{
+        rows: DataPortabilityImportHistoryApiRow[];
+      }>("/api/admin/data-portability/imports");
+
+      setDataPortabilityImportHistory(
+        (payload.rows ?? []).map(mapDataPortabilityHistoryRow),
+      );
+    } catch (error) {
+      console.error("[Zingara data portability] History load failed", error);
+    }
+  }
+
+  async function executeDataPortabilityImport() {
+    if (!canViewDataPortability || !dataPortabilityPreview || isDataPortabilityImporting) {
+      return;
+    }
+
+    setIsDataPortabilityImporting(true);
+    setDataPortabilityImportError("");
+    setDataPortabilityImportStatus("Creating durable restore point...");
+    setDataPortabilityImportResult(null);
+
+    try {
+      const revalidatedPreview = buildDataPortabilityPreview(
+        dataPortabilityPreview.entity,
+        dataPortabilityPreview.fileName,
+        {
+          headers: dataPortabilityPreview.headers,
+          records: dataPortabilityPreview.rows.map((row) => row.values),
+        },
+      );
+      const previewSignature = JSON.stringify(
+        dataPortabilityPreview.rows.map((row) => ({
+          action: row.action,
+          errors: row.errors,
+          rowNumber: row.rowNumber,
+          valid: row.valid,
+          warnings: row.warnings,
+        })),
+      );
+      const revalidatedSignature = JSON.stringify(
+        revalidatedPreview.rows.map((row) => ({
+          action: row.action,
+          errors: row.errors,
+          rowNumber: row.rowNumber,
+          valid: row.valid,
+          warnings: row.warnings,
+        })),
+      );
+
+      if (previewSignature !== revalidatedSignature) {
+        throw new Error(
+          "Validation changed after preview. Clear the preview and upload the file again.",
+        );
+      }
+
+      setDataPortabilityImportStatus("Transactional import in progress...");
+      const payload = await fetchSupabaseApi<{
+        result: {
+          completedAt?: string;
+          created: number;
+          dataset: DataPortabilityEntity;
+          durationMs: number;
+          failed: number;
+          id: string;
+          records: number;
+          restorePointId: string;
+          resultLog?: Array<{
+            action: DataPortabilityImportAction;
+            customer?: string;
+            errors?: string[] | string;
+            message?: string;
+            reference?: string;
+            row?: number | string;
+            status?: "Failed" | "Skipped" | "Success";
+            warnings?: string[] | string;
+          }>;
+          skipped: number;
+          startedAt?: string;
+          status: "success";
+          updated: number;
+        };
+      }>("/api/admin/data-portability/imports", {
+        body: {
+          action: "execute",
+          dataset: dataPortabilityPreview.entity,
+          fileName: dataPortabilityPreview.fileName,
+          rows: dataPortabilityPreview.rows,
+        },
+        method: "POST",
+      });
+      const importResult = payload.result;
+      const completedAt =
+        importResult.completedAt ?? new Date().toISOString();
+      const startedAt = importResult.startedAt ?? completedAt;
+      const logRows = (importResult.resultLog ?? []).map((row) => ({
+        action: row.action,
+        customer: row.customer ?? "",
+        errors: Array.isArray(row.errors)
+          ? row.errors.join("; ")
+          : row.errors ?? "",
+        message: row.message ?? "",
+        reference: row.reference ?? "",
+        row: Number(row.row ?? 0),
+        status: row.status ?? "Success",
+        warnings: Array.isArray(row.warnings)
+          ? row.warnings.join("; ")
+          : row.warnings ?? "",
+      }));
+      const result: DataPortabilityImportResult = {
+        auditTrail: [
+          `Who: ${currentStaff?.email ?? currentStaff?.name ?? "Authenticated admin"}`,
+          `When: ${completedAt}`,
+          `Dataset: ${dataPortabilityEntityLabels[dataPortabilityPreview.entity]}`,
+          `Rows: ${importResult.records}`,
+          `Result: ${importResult.status}`,
+          `Restore Point ID: ${importResult.restorePointId}`,
+        ],
+        completedAt,
+        created: importResult.created,
+        dataset: dataPortabilityPreview.entity,
+        durationMs: importResult.durationMs,
+        failed: importResult.failed,
+        fileName: dataPortabilityPreview.fileName,
+        logRows,
+        records: importResult.records,
+        restorePointId: importResult.restorePointId,
+        result: importResult.failed > 0 ? "partial" : "success",
+        skipped: importResult.skipped,
+        startedAt,
+        updated: importResult.updated,
+        user: currentStaff?.email ?? currentStaff?.name ?? "Authenticated admin",
+      };
+
+      if (dataPortabilityPreview.entity === "bookings") {
+        setBookings(await getBookings());
+      } else {
+        setCustomerCrmRecords(await getCustomers());
+        setLiveCustomerRecords(await loadLiveCustomerRecords());
+      }
+
+      setDataPortabilityImportResult(result);
+      await refreshDataPortabilityHistory();
+      setDataPortabilityImportStatus(
+        `Import complete. ${result.created} created, ${result.updated} updated, ${result.skipped} skipped, ${result.failed} failed.`,
+      );
+      showWorkflowToast("✓ Import complete");
+    } catch (error) {
+      setDataPortabilityImportError(
+        error instanceof Error ? error.message : "Import failed.",
+      );
+      setDataPortabilityImportStatus(
+        "Import failed. The database transaction was rolled back.",
+      );
+      showWorkflowToast("⚠ Import failed");
+    } finally {
+      setIsDataPortabilityImporting(false);
+    }
+  }
+
+  async function restoreDataPortabilityImport(
+    entry: DataPortabilityImportHistoryEntry,
+  ) {
+    if (
+      !canViewDataPortability ||
+      entry.finalStatus !== "success" ||
+      !entry.restorePointId
+    ) {
+      return;
+    }
+
+    try {
+      const preview = await fetchSupabaseApi<{
+        restorePoint: {
+          bookingCount: number;
+          customerCount: number;
+          dataset: DataPortabilityEntity;
+          id: string;
+          restoredAt: string | null;
+          restoreCount: number;
+        } | null;
+      }>("/api/admin/data-portability/imports", {
+        body: {
+          action: "restore-preview",
+          importId: entry.id,
+        },
+        method: "POST",
+      });
+
+      if (!preview.restorePoint) {
+        setDataPortabilityImportError("Restore point could not be found.");
+        return;
+      }
+
+      if (preview.restorePoint.restoreCount > 0) {
+        setDataPortabilityImportError(
+          "This import has already been restored once.",
+        );
+        return;
+      }
+
+      const confirmed = window.confirm(
+        [
+          "Restore this Data Portability import?",
+          "",
+          `Dataset: ${dataPortabilityEntityLabels[preview.restorePoint.dataset]}`,
+          `Bookings affected: ${preview.restorePoint.bookingCount}`,
+          `Customers affected: ${preview.restorePoint.customerCount}`,
+          "",
+          "This restore runs server-side in a database transaction and does not send emails.",
+        ].join("\n"),
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setDataPortabilityImportStatus("Restoring import...");
+      await fetchSupabaseApi<{ result: unknown }>(
+        "/api/admin/data-portability/imports",
+        {
+          body: {
+            action: "restore",
+            importId: entry.id,
+          },
+          method: "POST",
+        },
+      );
+      await Promise.all([
+        refreshDataPortabilityHistory(),
+        getBookings().then(setBookings),
+        getCustomers().then(setCustomerCrmRecords),
+        loadLiveCustomerRecords().then(setLiveCustomerRecords),
+      ]);
+      setDataPortabilityImportStatus("Import restore complete.");
+      showWorkflowToast("✓ Import restored");
+    } catch (error) {
+      setDataPortabilityImportError(
+        error instanceof Error ? error.message : "Import could not be restored.",
+      );
+      showWorkflowToast("⚠ Restore failed");
+    }
   }
 
   function exportReport(reportType: OperationalReportType) {
@@ -9005,7 +13383,7 @@ export default function AdminDashboardPage() {
   function checkInGuest(booking: DemoBooking) {
     if (
       !canCheckInGuests ||
-      !isOccupyingBookingStatus(booking.status ?? "confirmed")
+      !isOperationallyActiveBooking(booking)
     ) {
       return;
     }
@@ -9049,7 +13427,10 @@ export default function AdminDashboardPage() {
       notes: "Manual check-in recorded.",
       result: "checked_in",
     });
-    void sendZingaraBrowserNotification("check-in-confirmed");
+    void sendPreferredBrowserNotification(
+      "guest-checked-in",
+      "check-in-confirmed",
+    );
     void sendZingaraStaffPushNotification("guest-checked-in", {
       bookingReference: booking.reference,
     });
@@ -9369,7 +13750,10 @@ export default function AdminDashboardPage() {
         notes: "Individual ticket accepted and guest checked in.",
         result: "checked_in",
       });
-      void sendZingaraBrowserNotification("check-in-confirmed");
+      void sendPreferredBrowserNotification(
+      "guest-checked-in",
+      "check-in-confirmed",
+    );
       void sendZingaraStaffPushNotification("guest-checked-in", {
         bookingReference: freshBooking.reference,
       });
@@ -9437,7 +13821,10 @@ export default function AdminDashboardPage() {
       notes: "Ticket accepted and guest checked in.",
       result: "checked_in",
     });
-    void sendZingaraBrowserNotification("check-in-confirmed");
+    void sendPreferredBrowserNotification(
+      "guest-checked-in",
+      "check-in-confirmed",
+    );
     void sendZingaraStaffPushNotification("guest-checked-in", {
       bookingReference: freshBooking.reference,
     });
@@ -9515,7 +13902,10 @@ export default function AdminDashboardPage() {
         notes: "Manager override individual ticket check-in recorded.",
         result: "checked_in",
       });
-      void sendZingaraBrowserNotification("check-in-confirmed");
+      void sendPreferredBrowserNotification(
+      "guest-checked-in",
+      "check-in-confirmed",
+    );
       void sendZingaraStaffPushNotification("guest-checked-in", {
         bookingReference: freshBooking.reference,
       });
@@ -9571,7 +13961,10 @@ export default function AdminDashboardPage() {
       notes: "Manager override check-in recorded.",
       result: "checked_in",
     });
-    void sendZingaraBrowserNotification("check-in-confirmed");
+    void sendPreferredBrowserNotification(
+      "guest-checked-in",
+      "check-in-confirmed",
+    );
     void sendZingaraStaffPushNotification("guest-checked-in", {
       bookingReference: freshBooking.reference,
     });
@@ -9586,7 +13979,10 @@ export default function AdminDashboardPage() {
     booking: DemoBooking,
     nextTableId: string,
   ) {
-    if (!canManageBookings) {
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      if (isBookingReadOnly(booking.reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
       return;
     }
 
@@ -9705,7 +14101,10 @@ export default function AdminDashboardPage() {
           : currentBooking,
       ),
     );
-    void sendZingaraBrowserNotification("booking-updated");
+    void sendPreferredBrowserNotification(
+      "new-booking",
+      "booking-updated",
+    );
     setTableCompatibilityWarnings((currentWarnings) => {
       const nextWarnings = { ...currentWarnings };
       delete nextWarnings[booking.reference];
@@ -9785,7 +14184,7 @@ export default function AdminDashboardPage() {
 
     const activeBookings = workflowShowBookings.filter(
       (booking) =>
-        isOccupyingBookingStatus(booking.status ?? "confirmed") &&
+        isOperationallyActiveBooking(booking) &&
         (booking.status ?? "confirmed") !== "checked-in",
     );
 
@@ -9815,18 +14214,22 @@ export default function AdminDashboardPage() {
     setWorkflowStatus(
       `Show reminders sent to ${activeBookings.length} booking${activeBookings.length === 1 ? "" : "s"}.`,
     );
-    void sendZingaraBrowserNotification("booking-updated", {
-      body: "Show reminders have been sent successfully.",
-    });
+    void sendPreferredBrowserNotification(
+      "operational-broadcast-sent",
+      "booking-updated",
+      {
+        body: "Show reminders have been sent successfully.",
+      },
+    );
   }
 
-  function sendSelectedTemplateCommunication() {
+  function openSelectedTemplateCommunicationConfirmation() {
     if (!canManageCommunications || !selectedCommunicationTemplate) {
       return;
     }
 
-    const activeBookings = workflowShowBookings.filter((booking) =>
-      isOccupyingBookingStatus(booking.status ?? "confirmed"),
+    const activeBookings = workflowShowBookings.filter(
+      isOperationallyActiveBooking,
     );
 
     if (activeBookings.length === 0) {
@@ -9836,28 +14239,74 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    saveBookings(
-      activeBookings.reduce(
-        (nextBookings, booking) =>
-          appendCommunicationToBookings(
-            nextBookings,
-            booking.reference,
-            (currentBooking) =>
-              createTemplateCommunication(
-                currentBooking,
-                selectedCommunicationTemplate,
-              ),
-          ),
-        bookings,
-      ),
+    setIsWorkflowSendConfirmOpen(true);
+  }
+
+  function closeSelectedTemplateCommunicationConfirmation() {
+    if (isWorkflowSending) {
+      return;
+    }
+
+    setIsWorkflowSendConfirmOpen(false);
+  }
+
+  function sendSelectedTemplateCommunication() {
+    if (
+      isWorkflowSending ||
+      !canManageCommunications ||
+      !selectedCommunicationTemplate
+    ) {
+      return;
+    }
+
+    const activeBookings = workflowShowBookings.filter(
+      isOperationallyActiveBooking,
     );
-    setWorkflowStatus(
-      `Communication sent successfully to ${activeBookings.length} booking${activeBookings.length === 1 ? "" : "s"}.`,
-    );
-    showWorkflowToast("Communication sent successfully.");
-    void sendZingaraBrowserNotification("booking-updated", {
-      body: "Communication sent successfully.",
-    });
+
+    if (activeBookings.length === 0) {
+      setWorkflowStatus(
+        "No active bookings are available for this communication.",
+      );
+      setIsWorkflowSendConfirmOpen(false);
+      return;
+    }
+
+    setIsWorkflowSending(true);
+
+    try {
+      saveBookings(
+        activeBookings.reduce(
+          (nextBookings, booking) =>
+            appendCommunicationToBookings(
+              nextBookings,
+              booking.reference,
+              (currentBooking) =>
+                createTemplateCommunication(
+                  currentBooking,
+                  selectedCommunicationTemplate,
+                ),
+            ),
+          bookings,
+        ),
+      );
+      setWorkflowStatus(
+        `Communication sent successfully to ${activeBookings.length} booking${activeBookings.length === 1 ? "" : "s"}.`,
+      );
+      showWorkflowToast("Communication sent successfully.");
+      void sendPreferredBrowserNotification(
+        "operational-broadcast-sent",
+        "booking-updated",
+        {
+          body: "Communication sent successfully.",
+        },
+      );
+      setIsWorkflowSendConfirmOpen(false);
+    } catch {
+      setWorkflowStatus("Communication could not be sent.");
+      showWorkflowToast("⚠ Could not send communication");
+    } finally {
+      setIsWorkflowSending(false);
+    }
   }
 
   function broadcastOperationalUpdate() {
@@ -9868,8 +14317,7 @@ export default function AdminDashboardPage() {
     }
 
     const showBookings = workflowShowBookings.filter(
-      (booking) =>
-        isOccupyingBookingStatus(booking.status ?? "confirmed"),
+      isOperationallyActiveBooking,
     );
 
     if (showBookings.length === 0) {
@@ -9911,49 +14359,14 @@ export default function AdminDashboardPage() {
       `Operational update sent to ${showBookings.length} booking${showBookings.length === 1 ? "" : "s"}.`,
     );
     showWorkflowToast("Broadcast sent successfully.");
-    void sendZingaraBrowserNotification("booking-updated", {
-      body: "Operational update sent successfully.",
-    });
+    void sendPreferredBrowserNotification(
+      "operational-broadcast-sent",
+      "booking-updated",
+      {
+        body: "Operational update sent successfully.",
+      },
+    );
     void sendZingaraStaffPushNotification("operational-broadcast-sent");
-  }
-
-  async function sendTestBrowserNotification() {
-    const diagnostics = getBrowserNotificationDiagnostics();
-
-    console.info(
-      "[Zingara push] Test button tapped. Diagnostics:",
-      diagnostics,
-    );
-    setNotificationTestStatus("Requesting browser permission...");
-
-    const registrationResult = await registerZingaraPushSubscription();
-
-    setNotificationPermission(getBrowserNotificationStatusLabel());
-
-    if (!registrationResult.ok) {
-      setNotificationTestStatus(
-        registrationResult.reason ??
-          (registrationResult.permission === "denied"
-            ? "Notifications are blocked for this browser. Enable them in browser or PWA settings."
-            : "Notification permission was not granted yet."),
-      );
-      return;
-    }
-
-    setNotificationTestStatus("Push subscription saved. Sending notification...");
-
-    const result = await sendZingaraPushTestNotification();
-
-    if (result.ok) {
-      setNotificationTestStatus(
-        `Test notification sent to ${result.sent ?? 1} subscription${(result.sent ?? 1) === 1 ? "" : "s"}.`,
-      );
-      return;
-    }
-
-    setNotificationTestStatus(
-      "Push subscription was saved, but the test notification could not be delivered.",
-    );
   }
 
   function findWaitlistConversionTable(entry: DemoWaitlistEntry) {
@@ -10156,11 +14569,17 @@ export default function AdminDashboardPage() {
     );
   }
 
-  function openCustomerProfile(customer: {
-    email?: string;
-    name?: string;
-    phone?: string;
-  }) {
+  function openCustomerProfile(
+    customer: {
+      email?: string;
+      name?: string;
+      phone?: string;
+    },
+    context: {
+      bookingReference?: string;
+      source: "bookings" | "customers" | "direct";
+    } = { source: "direct" },
+  ) {
     const customerKey = getCustomerKey(customer);
     const matchedProfile = customerProfiles.find(
       (profile) => profile.key === customerKey,
@@ -10177,11 +14596,30 @@ export default function AdminDashboardPage() {
 
     setCustomerSearch("");
     setSelectedCustomerKey(customerKey);
+    setCustomerProfileReturnContext(context);
     setActiveAdminTab("customers");
 
     console.log("[Zingara CRM] profile loaded", {
       customerKey,
     });
+  }
+
+  function returnFromCustomerProfile() {
+    if (
+      customerProfileReturnContext.source === "bookings" &&
+      customerProfileReturnContext.bookingReference
+    ) {
+      setActiveAdminTab("bookings");
+      setBookingSearch(customerProfileReturnContext.bookingReference);
+      setBookingPage(1);
+      setSelectedCustomerKey(null);
+      setCustomerProfileReturnContext({ source: "direct" });
+      return;
+    }
+
+    setActiveAdminTab("customers");
+    setSelectedCustomerKey(null);
+    setCustomerProfileReturnContext({ source: "direct" });
   }
 
   function updateCustomerCrmRecord(
@@ -10224,6 +14662,86 @@ export default function AdminDashboardPage() {
     });
   }
 
+  async function setCustomerArchiveStatus(
+    profile: CustomerProfile,
+    archived: boolean,
+  ) {
+    if (!isSuperAdmin) {
+      showWorkflowToast("Super Admin access is required.");
+      return;
+    }
+
+    const liveCustomer = liveCustomerRecords.find((record) => {
+      const liveKey = getLiveCustomerKey(record);
+      const liveEmail = normalizeCustomerValue(record.email);
+      const livePhone = normalizeCustomerPhone(record.mobile);
+      const profileEmail = normalizeCustomerValue(profile.customer.email);
+      const profilePhone = normalizeCustomerPhone(profile.customer.phone);
+
+      return (
+        liveKey === profile.key ||
+        (!!profileEmail && liveEmail === profileEmail) ||
+        (!!profilePhone && livePhone === profilePhone)
+      );
+    });
+
+    if (!liveCustomer) {
+      showWorkflowToast("⚠ Live customer record could not be found.");
+      return;
+    }
+
+    const actionLabel = archived ? "archive" : "restore";
+    const confirmed = window.confirm(
+      archived
+        ? "Archive this customer? Bookings, payments, tickets, communications and audit history will remain linked."
+        : "Restore this customer to the active CRM view?",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const previousLiveCustomers = liveCustomerRecords;
+    const archivedAt = archived ? new Date().toISOString() : undefined;
+    const optimisticCustomer: LiveCustomerRecord = {
+      ...liveCustomer,
+      preferences: archived
+        ? {
+            ...(liveCustomer.preferences ?? {}),
+            archivedAt,
+            archivedBy: currentStaff?.name ?? currentStaff?.email,
+          }
+        : {
+            ...(liveCustomer.preferences ?? {}),
+            archivedAt: undefined,
+            archivedBy: undefined,
+            archiveReason: undefined,
+          },
+    };
+
+    setLiveCustomerRecords(
+      liveCustomerRecords.map((record) =>
+        record.id === liveCustomer.id ? optimisticCustomer : record,
+      ),
+    );
+
+    const persistedRecord = await updateCustomerArchiveStatus(
+      liveCustomer.id,
+      archived,
+    );
+
+    if (!persistedRecord) {
+      setLiveCustomerRecords(previousLiveCustomers);
+      showWorkflowToast(`⚠ Could not ${actionLabel} customer.`);
+      return;
+    }
+
+    setLiveCustomerRecords(await loadLiveCustomerRecords());
+    showWorkflowToast(
+      archived ? "✓ Customer archived" : "✓ Customer restored",
+    );
+  }
+
   function getBookingSearchText(booking: DemoBooking) {
     const status = booking.status ?? "confirmed";
     const paymentStatus = getBookingPaymentStatus(booking);
@@ -10254,6 +14772,111 @@ export default function AdminDashboardPage() {
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
+  }
+
+  function bookingMatchesCurrentFilters(
+    booking: DemoBooking,
+    options: { includeArchiveView?: boolean } = {},
+  ) {
+    const searchTerm = bookingSearch.trim().toLowerCase();
+    const archived = isArchivedBooking(booking);
+
+    if (options.includeArchiveView !== false) {
+      if (bookingArchiveFilter === "active" && archived) {
+        return false;
+      }
+
+      if (bookingArchiveFilter === "archived" && !archived) {
+        return false;
+      }
+    }
+
+    if (
+      bookingShowFilter !== "all" &&
+      booking.showId !== bookingShowFilter
+    ) {
+      return false;
+    }
+
+    if (bookingDateFilter !== "all") {
+      const bookingShow = shows.find(
+        (show) => show.id === booking.showId,
+      );
+
+      if (bookingShow?.date !== bookingDateFilter) {
+        return false;
+      }
+    }
+
+    if (
+      bookingArchiveFilter !== "archived" &&
+      hideCancelledBookings &&
+      bookingStatusFilter !== "cancelled" &&
+      (booking.status ?? "confirmed") === "cancelled"
+    ) {
+      return false;
+    }
+
+    if (
+      bookingStatusFilter !== "all" &&
+      (booking.status ?? "confirmed") !== bookingStatusFilter
+    ) {
+      return false;
+    }
+
+    if (
+      bookingSourceFilter !== "all" &&
+      (booking.source ?? "online") !== bookingSourceFilter
+    ) {
+      return false;
+    }
+
+    return !searchTerm || getBookingSearchText(booking).includes(searchTerm);
+  }
+
+  function getFilteredArchivableBookings() {
+    return bookings.filter(
+      (booking) =>
+        bookingMatchesCurrentFilters(booking) &&
+        !isArchivedBooking(booking),
+    );
+  }
+
+  function getAllNonArchivedBookings() {
+    return bookings.filter((booking) => !isArchivedBooking(booking));
+  }
+
+  function getBookingArchiveFilterSummary() {
+    const selectedShow =
+      bookingShowFilter === "all"
+        ? "All shows"
+        : getShowLabel(
+            shows.find((show) => show.id === bookingShowFilter),
+          );
+    const selectedStatus =
+      bookingStatusFilter === "all"
+        ? "All statuses"
+        : bookingStatusLabels[bookingStatusFilter];
+    const selectedSource =
+      bookingSourceFilter === "all"
+        ? "All sources"
+        : bookingSourceLabels[bookingSourceFilter];
+    const selectedArchiveView =
+      bookingArchiveFilter === "active"
+        ? "Active view"
+        : bookingArchiveFilter === "archived"
+          ? "Archived view"
+          : "All archive states";
+
+    return [
+      selectedArchiveView,
+      selectedShow,
+      bookingDateFilter === "all" ? "All dates" : bookingDateFilter,
+      selectedStatus,
+      selectedSource,
+      hideCancelledBookings ? "Cancelled hidden" : "Cancelled included",
+      bookingSearch.trim() ? `Search: ${bookingSearch.trim()}` : "No search",
+    ].join(" · ");
   }
 
   function getCorporateBookingCompanyName(booking: DemoBooking) {
@@ -10400,50 +15023,50 @@ export default function AdminDashboardPage() {
     );
   }
 
-  const filteredBookings = bookings.filter((booking) => {
-    const searchTerm = bookingSearch.trim().toLowerCase();
-
-    if (
-      bookingShowFilter !== "all" &&
-      booking.showId !== bookingShowFilter
-    ) {
-      return false;
-    }
-
-    if (bookingDateFilter !== "all") {
-      const bookingShow = shows.find(
-        (show) => show.id === booking.showId,
-      );
-
-      if (bookingShow?.date !== bookingDateFilter) {
-        return false;
-      }
-    }
-
-    if (
-      hideCancelledBookings &&
-      (booking.status ?? "confirmed") === "cancelled"
-    ) {
-      return false;
-    }
-
-    if (
-      bookingSourceFilter !== "all" &&
-      (booking.source ?? "online") !== bookingSourceFilter
-    ) {
-      return false;
-    }
-
-    if (!searchTerm) {
-      return true;
-    }
-
-    return getBookingSearchText(booking).includes(searchTerm);
-  });
+  const filteredBookings = bookings.filter((booking) =>
+    bookingMatchesCurrentFilters(booking),
+  );
   const bookingPageCount = Math.max(
     1,
     Math.ceil(filteredBookings.length / bookingPageSize),
   );
+  const filteredArchivableBookings = getFilteredArchivableBookings();
+  const allArchivableBookings = getAllNonArchivedBookings();
+  const archivedBookingCount = bookings.filter(isArchivedBooking).length;
+  const nonArchivedBookingCount = allArchivableBookings.length;
+  const nonArchivedCancelledBookingCount = allArchivableBookings.filter(
+    (booking) => (booking.status ?? "confirmed") === "cancelled",
+  ).length;
+  const bookingArchiveFilterSummary = getBookingArchiveFilterSummary();
+  const bookingArchiveModalBookings = bookingArchiveModal
+    ? bookings.filter((booking) =>
+        bookingArchiveModal.references.includes(booking.reference),
+      )
+    : [];
+  const bookingArchiveModalDateValues = bookingArchiveModalBookings
+    .map((booking) => getBookingShow(booking)?.date ?? booking.bookingDate)
+    .filter(Boolean)
+    .sort();
+  const bookingArchiveModalDateRange =
+    bookingArchiveModalDateValues.length > 1
+      ? `${bookingArchiveModalDateValues[0]} → ${
+          bookingArchiveModalDateValues[
+            bookingArchiveModalDateValues.length - 1
+          ]
+        }`
+      : bookingArchiveModalDateValues[0] ?? "Not recorded";
+  const bookingArchiveModalStatusCounts =
+    bookingArchiveModalBookings.reduce(
+      (counts, booking) => {
+        const status = booking.status ?? "confirmed";
+
+        return {
+          ...counts,
+          [status]: (counts[status] ?? 0) + 1,
+        };
+      },
+      {} as Partial<Record<BookingStatus, number>>,
+    );
   const safeBookingPage = Math.min(bookingPage, bookingPageCount);
   const paginatedBookings = filteredBookings.slice(
     (safeBookingPage - 1) * bookingPageSize,
@@ -10480,11 +15103,11 @@ export default function AdminDashboardPage() {
       (_, index) => index + 1,
     ),
   ];
-  const selectedShowBookings = bookings.filter(
+  const selectedShowBookings = activeBookingsForOperations.filter(
     (booking) => booking.showId === selectedShowId,
   );
   const activeShowBookings = selectedShowBookings.filter(
-    (booking) => (booking.status ?? "confirmed") !== "cancelled",
+    isOperationallyActiveBooking,
   );
   const checkedInBookings = activeShowBookings.filter(
     (booking) => (booking.status ?? "confirmed") === "checked-in",
@@ -10574,10 +15197,12 @@ export default function AdminDashboardPage() {
     workflowShows[0] ??
     selectedShow;
   const workflowShowBookings = workflowShow
-    ? bookings.filter((booking) => booking.showId === workflowShow.id)
+    ? activeBookingsForOperations.filter(
+        (booking) => booking.showId === workflowShow.id,
+      )
     : [];
   const activeWorkflowBookings = workflowShowBookings.filter((booking) =>
-    isOccupyingBookingStatus(booking.status ?? "confirmed"),
+    isOperationallyActiveBooking(booking),
   );
   const selectedAcademyArticle = selectedAcademyArticleId
     ? academyArticles.find(
@@ -10705,27 +15330,9 @@ export default function AdminDashboardPage() {
       (article) => !readAcademyArticleIds.includes(article.id),
     ) ?? pathAcademyArticles[0] ?? academyArticles[0];
   const selectedAcademyRelatedArticles = selectedAcademyArticle
-    ? selectedAcademyArticle.related.map((related) => {
-        const relatedArticle = getAcademyArticleByTitle(related);
-
-        return (
-          relatedArticle ?? {
-            category: "Phase 7B",
-            commonMistakes: [],
-            difficulty: "beginner" as const,
-            howTo: [],
-            id: `placeholder-${related}`,
-            keywords: [],
-            moduleId: "getting-started",
-            purpose: "This article will be expanded in the full knowledge base.",
-            related: [],
-            relatedActions: [],
-            tips: [],
-            title: related,
-            whenToUse: "Coming soon.",
-          }
-        );
-      })
+    ? selectedAcademyArticle.related
+        .map((related) => getAcademyArticleByTitle(related))
+        .filter((article): article is AcademyArticle => Boolean(article))
     : [];
   const selectedAcademyModuleLessons = selectedAcademyArticle
     ? academyArticles.filter(
@@ -10818,6 +15425,34 @@ export default function AdminDashboardPage() {
       setActiveSettingsTab("staff");
     }
   }
+
+  async function refreshManifestData() {
+    const [nextShows, nextBookings] = await Promise.all([
+      getShows(),
+      getBookings(),
+    ]);
+
+    setShows(nextShows);
+    setBookings(nextBookings);
+    setTables(getStoredDemoTables());
+    setManifestLastRefreshedAt(new Date().toISOString());
+    showWorkflowToast("✓ Refreshed · Manifest data updated");
+  }
+
+  async function refreshFinancialReportData() {
+    const [nextShows, nextBookings, nextPayments] = await Promise.all([
+      getShows(),
+      getBookings(),
+      getPayments(),
+    ]);
+
+    setShows(nextShows);
+    setBookings(nextBookings);
+    setPaymentRows(nextPayments);
+    setFinancialLastRefreshedAt(new Date().toISOString());
+    showWorkflowToast("✓ Refreshed · Financial data updated");
+  }
+
   const editingShow = shows.find((show) => show.id === editingShowId);
   const editingShowLinkedBookings = editingShow
     ? bookings.filter((booking) => booking.showId === editingShow.id)
@@ -11196,8 +15831,14 @@ export default function AdminDashboardPage() {
     waitlistTotal > 0
       ? (convertedWaitlistCount / waitlistTotal) * 100
       : 0;
-  const customerProfiles = Object.values(
-    bookings.reduce(
+  const customerProfiles = (() => {
+    const liveCustomersByKey = new Map(
+      liveCustomerRecords.map((customer) => [
+        getLiveCustomerKey(customer),
+        customer,
+      ]),
+    );
+    const profilesByKey = bookings.reduce(
       (profiles, booking) => {
         const customerKey = getCustomerKey(booking.customer);
         const existingProfile = profiles[customerKey] ?? {
@@ -11239,9 +15880,52 @@ export default function AdminDashboardPage() {
         return profiles;
       },
       {} as Record<string, CustomerProfile>,
-    ),
-  ).map((profile) => {
-    const activeBookings = profile.bookingHistory.filter(
+    );
+
+    for (const liveCustomer of liveCustomerRecords) {
+      const customerKey = getLiveCustomerKey(liveCustomer);
+
+      if (profilesByKey[customerKey]) {
+        continue;
+      }
+
+      profilesByKey[customerKey] = {
+        addOns: [],
+        attendanceCount: 0,
+        attendanceFrequency: 0,
+        bookingHistory: [],
+        communicationHistory: [],
+        customer: {
+          email: liveCustomer.email ?? "",
+          name: getLiveCustomerName(liveCustomer),
+          phone: liveCustomer.mobile ?? "",
+        },
+        favouriteZone: "No favourite yet",
+        key: customerKey,
+        notes: "",
+        promoUsage: [],
+        totalBookings: 0,
+        totalSpend: 0,
+        vipTags: [],
+        waitlistEntries: [],
+      };
+    }
+
+    return Object.values(profilesByKey).map((profile) => {
+      const profileEmail = normalizeCustomerValue(profile.customer.email);
+      const profilePhone = normalizeCustomerPhone(profile.customer.phone);
+      const liveCustomer =
+        liveCustomersByKey.get(profile.key) ??
+        liveCustomerRecords.find((record) => {
+          const liveEmail = normalizeCustomerValue(record.email);
+          const livePhone = normalizeCustomerPhone(record.mobile);
+
+          return (
+            (!!profileEmail && liveEmail === profileEmail) ||
+            (!!profilePhone && livePhone === profilePhone)
+          );
+        });
+      const activeBookings = profile.bookingHistory.filter(
       (booking) => (booking.status ?? "confirmed") !== "cancelled",
     );
     const zoneCounts = activeBookings.reduce(
@@ -11350,6 +16034,8 @@ export default function AdminDashboardPage() {
       favouriteZone,
       notes: crmRecord?.notes ?? "",
       promoUsage,
+      archivedAt: liveCustomer?.preferences?.archivedAt,
+      archivedBy: liveCustomer?.preferences?.archivedBy,
       totalBookings: activeBookings.length,
       totalSpend: activeBookings.reduce(
         (total, booking) =>
@@ -11359,21 +16045,34 @@ export default function AdminDashboardPage() {
       vipTags: crmRecord?.vipTags ?? [],
       waitlistEntries,
     };
-  }).sort(
-    (firstProfile, secondProfile) =>
-      secondProfile.totalSpend - firstProfile.totalSpend,
-  );
+    }).sort(
+      (firstProfile, secondProfile) =>
+        secondProfile.totalSpend - firstProfile.totalSpend,
+    );
+  })();
+  const activeCustomerCount = customerProfiles.filter(
+    (profile) => !profile.archivedAt,
+  ).length;
+  const archivedCustomerCount = customerProfiles.length - activeCustomerCount;
   const customerSearchTerm = customerSearch.trim().toLowerCase();
   const filteredCustomerProfiles = customerProfiles.filter((profile) => {
+    if (customerArchiveFilter === "active" && profile.archivedAt) {
+      return false;
+    }
+
+    if (customerArchiveFilter === "archived" && !profile.archivedAt) {
+      return false;
+    }
+
     if (!customerSearchTerm) {
       return true;
     }
 
     return (
-      profile.customer.name.toLowerCase().includes(customerSearchTerm) ||
-      profile.customer.email.toLowerCase().includes(customerSearchTerm) ||
-      profile.customer.phone.toLowerCase().includes(customerSearchTerm) ||
-      profile.favouriteZone.toLowerCase().includes(customerSearchTerm) ||
+      (profile.customer.name ?? "").toLowerCase().includes(customerSearchTerm) ||
+      (profile.customer.email ?? "").toLowerCase().includes(customerSearchTerm) ||
+      (profile.customer.phone ?? "").toLowerCase().includes(customerSearchTerm) ||
+      (profile.favouriteZone ?? "").toLowerCase().includes(customerSearchTerm) ||
       profile.vipTags.some((tag) =>
         tag.toLowerCase().includes(customerSearchTerm),
       )
@@ -11423,7 +16122,9 @@ export default function AdminDashboardPage() {
     selectedLiveCustomerDisplay && !selectedCustomerRecordDiffers
       ? "Live Customer Record"
       : "Booking Snapshot";
-  const topCustomerProfiles = customerProfiles.slice(0, 4);
+  const topCustomerProfiles = customerProfiles
+    .filter((profile) => !profile.archivedAt)
+    .slice(0, 4);
   const activeCorporateBookingRequests = corporateRequests.filter(
     (request) =>
       !request.archivedAt && request.requestType === "corporate-booking",
@@ -11639,6 +16340,29 @@ export default function AdminDashboardPage() {
     );
   }
 
+  if (!hasHydrated) {
+    return (
+      <main className="relative isolate z-10 flex min-h-screen items-center justify-center bg-black px-4 py-10 text-white sm:px-6 sm:py-16">
+        <section className="relative z-10 w-full max-w-3xl rounded-[1.5rem] border border-[#8D7A2F]/40 bg-[radial-gradient(circle_at_top,#2A1A0D_0%,#101010_46%,#050505_100%)] p-5 text-center shadow-2xl shadow-[#8D7A2F]/10 sm:rounded-[2rem] sm:p-8">
+          <div
+            aria-label={venueConfig.brandTitle}
+            className="mx-auto h-16 w-44 bg-contain bg-center bg-no-repeat sm:h-20 sm:w-56"
+            style={{
+              backgroundImage: `url("${venueConfig.logoUrl}")`,
+            }}
+          />
+          <h1 className="mt-6 text-3xl font-bold uppercase sm:text-5xl">
+            Restoring Session
+          </h1>
+          <p className="mt-3 text-sm font-semibold uppercase tracking-[0.28em] text-[#D8C36A]">
+            Staff Access
+          </p>
+          <div className="mx-auto mt-8 h-10 w-10 animate-spin rounded-full border-2 border-[#D8C36A]/30 border-t-[#D8C36A]" />
+        </section>
+      </main>
+    );
+  }
+
   if (!currentStaff) {
     return (
       <main className="relative isolate z-10 flex min-h-screen items-center justify-center bg-black px-4 py-10 text-white sm:px-6 sm:py-16">
@@ -11724,14 +16448,14 @@ export default function AdminDashboardPage() {
         </div>
       )}
       <div className="relative z-10 mx-auto max-w-7xl">
-        <div className="mb-8 flex flex-col gap-5 border-b border-zinc-800 pb-6 lg:mb-12 lg:flex-row lg:items-end lg:justify-between lg:pb-8">
+        <div className="mb-8 flex flex-col gap-5 border-b border-zinc-800 pb-6 print:hidden lg:mb-12 lg:flex-row lg:items-end lg:justify-between lg:pb-8">
           <div>
             <p className="mb-3 text-sm font-semibold uppercase tracking-[0.28em] text-zinc-500">
               Admin
             </p>
 
             <h1 className="text-3xl font-bold sm:text-5xl">
-              {venueConfig.brandTitle} Box Office Dashboard
+              {venueConfig.brandTitle} Box Office
             </h1>
           </div>
 
@@ -11826,9 +16550,9 @@ export default function AdminDashboardPage() {
                                   {notification.message}
                                 </p>
                                 <p className="mt-2 text-xs text-zinc-500">
-                                  {new Date(
+                                  {formatSouthAfricanTimestamp(
                                     notification.createdAt,
-                                  ).toLocaleString()}
+                                  )}
                                 </p>
                               </div>
                               {isUnread && (
@@ -11863,7 +16587,7 @@ export default function AdminDashboardPage() {
                 {adminRoleLabels[currentStaff.role] ?? "Staff"}
               </p>
               <p className="mt-1 text-xs text-zinc-500">
-                Venue: {currentStaff.venueId}
+                Location: {getStaffVenueScopeLabel([currentStaff.venueId])}
               </p>
               <button
                 type="button"
@@ -11878,7 +16602,7 @@ export default function AdminDashboardPage() {
 
         <nav
           aria-label="Admin sections"
-          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 sm:mb-8 sm:grid-cols-3 lg:grid-cols-7 lg:rounded-[2rem]"
+          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-7 lg:rounded-[2rem]"
         >
           {adminTabs.map((tab) => {
             const isActive =
@@ -11893,7 +16617,9 @@ export default function AdminDashboardPage() {
                   setActiveAdminTab(tab.id);
 
                   if (tab.id === "operations") {
-                    if (canManageTables) {
+                    if (canViewOperationsWorkspace) {
+                      setActiveOperationsTab("dashboard");
+                    } else if (canManageTables) {
                       setActiveOperationsTab("floor");
                     } else if (canViewStaffOperations) {
                       setActiveOperationsTab("check-in");
@@ -12858,7 +17584,9 @@ export default function AdminDashboardPage() {
                           Created Date
                         </p>
                         <p className="mt-1">
-                          {new Date(openCorporateRequest.createdAt).toLocaleString()}
+                          {formatSouthAfricanTimestamp(
+                            openCorporateRequest.createdAt,
+                          )}
                         </p>
                       </div>
                       {openCorporateRequest.linkedBookingReference && (
@@ -12970,9 +17698,9 @@ export default function AdminDashboardPage() {
                                   Payment Link
                                 </span>{" "}
                                 ·{" "}
-                                {new Date(
+                                {formatSouthAfricanTimestamp(
                                   openCorporateRequest.paymentLinkSentAt,
-                                ).toLocaleString()}
+                                )}
                               </p>
                             )}
                           </div>
@@ -13073,7 +17801,7 @@ export default function AdminDashboardPage() {
                                     {event.label}
                                   </p>
                                   <p className="text-xs text-zinc-500">
-                                    {new Date(event.at).toLocaleString()}
+                                    {formatSouthAfricanTimestamp(event.at)}
                                   </p>
                                 </div>
                                 <p className="mt-2 text-sm leading-6 text-zinc-400">
@@ -13282,6 +18010,7 @@ export default function AdminDashboardPage() {
                     <button
                       type="button"
                       onClick={closeCancellationModal}
+                      disabled={isCancellingBooking}
                       className="rounded-full border border-white/20 px-5 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
                     >
                       Back
@@ -13290,18 +18019,166 @@ export default function AdminDashboardPage() {
                       type="button"
                       onClick={confirmBookingCancellation}
                       disabled={
+                        isCancellingBooking ||
                         requiresOtherReason &&
                         !cancellationOtherReason.trim()
                       }
                       className="rounded-full border border-red-300/45 bg-red-300 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Confirm Cancellation
+                      {isCancellingBooking
+                        ? "Cancelling..."
+                        : "Confirm Cancellation"}
                     </button>
                   </div>
                 </section>
               </div>
             );
           })()}
+
+        {bookingArchiveModal && isSuperAdmin && (
+          <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
+            <section className="w-full max-w-xl rounded-[2rem] border border-[#D8C36A]/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
+                Booking Archive
+              </p>
+              <h2 className="mt-3 text-2xl font-bold">
+                Archive {bookingArchiveModal.references.length} booking
+                {bookingArchiveModal.references.length === 1 ? "" : "s"}?
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-zinc-400">
+                Archived bookings are hidden from active operational views,
+                manifests, KPIs and default exports. No bookings, payments,
+                tickets, customers or communications are deleted.
+              </p>
+              <p className="mt-3 rounded-2xl border border-[#D8C36A]/20 bg-[#D8C36A]/10 p-3 text-sm leading-6 text-[#F6E7A6]">
+                {bookingArchiveModal.mode === "all"
+                  ? "Current filters do not limit this action. It applies to every non-archived booking in your authorised scope."
+                  : "This action applies to every non-archived booking matching the current filters, across all pages."}
+              </p>
+              <div className="mt-5 grid gap-3 rounded-2xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-300 sm:grid-cols-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
+                    Scope
+                  </p>
+                  <p className="mt-1 font-semibold text-white">
+                    {bookingArchiveModal.mode === "all"
+                      ? "All non-archived bookings"
+                      : "Current filters"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
+                    {bookingArchiveModal.mode === "all"
+                      ? "Total affected"
+                      : "Matching bookings"}
+                  </p>
+                  <p className="mt-1 font-semibold text-white">
+                    {bookingArchiveModal.references.length}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
+                    Existing archived
+                  </p>
+                  <p className="mt-1 font-semibold text-white">
+                    {archivedBookingCount}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
+                    Dates
+                  </p>
+                  <p className="mt-1 font-semibold text-white">
+                    {bookingArchiveModalDateRange}
+                  </p>
+                </div>
+                {bookingArchiveModal.mode === "filtered" && (
+                  <div className="sm:col-span-3">
+                    <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
+                      Current filter summary
+                    </p>
+                    <p className="mt-1 font-semibold text-white">
+                      {bookingArchiveFilterSummary}
+                    </p>
+                  </div>
+                )}
+                <div className="sm:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
+                    Status mix
+                  </p>
+                  <p className="mt-1 font-semibold text-white">
+                    {Object.entries(bookingArchiveModalStatusCounts)
+                      .map(
+                        ([status, count]) =>
+                          `${bookingStatusLabels[status as BookingStatus]}: ${count}`,
+                      )
+                      .join(" · ") || "Not recorded"}
+                  </p>
+                </div>
+              </div>
+
+              <label className="mt-5 block">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                  Archive reason
+                </span>
+                <textarea
+                  value={bookingArchiveReason}
+                  onChange={(event) =>
+                    setBookingArchiveReason(event.target.value)
+                  }
+                  disabled={isBookingArchiveSubmitting}
+                  rows={3}
+                  className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70 disabled:opacity-60"
+                />
+              </label>
+
+              <label className="mt-4 block">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                  Type ARCHIVE BOOKINGS to confirm
+                </span>
+                <input
+                  value={bookingArchiveConfirmation}
+                  onChange={(event) =>
+                    setBookingArchiveConfirmation(event.target.value)
+                  }
+                  disabled={isBookingArchiveSubmitting}
+                  className="mt-2 w-full rounded-full border border-white/15 bg-black px-4 py-3 font-mono text-sm text-white outline-none transition focus:border-[#D8C36A]/70 disabled:opacity-60"
+                  placeholder="ARCHIVE BOOKINGS"
+                />
+              </label>
+
+              {bookingArchiveStatus && (
+                <p className="mt-4 rounded-2xl border border-white/10 bg-black/35 p-3 text-sm text-zinc-300">
+                  {bookingArchiveStatus}
+                </p>
+              )}
+
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeBookingArchiveModal}
+                  disabled={isBookingArchiveSubmitting}
+                  className="rounded-full border border-white/20 px-5 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmBookingArchive}
+                  disabled={
+                    isBookingArchiveSubmitting ||
+                    bookingArchiveConfirmation.trim() !== "ARCHIVE BOOKINGS"
+                  }
+                  className="rounded-full border border-[#D8C36A]/45 bg-[#D8C36A] px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isBookingArchiveSubmitting
+                    ? "Archiving..."
+                    : "Archive Bookings"}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
 
         {deleteCorporateRequestId && (
           <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
@@ -13663,25 +18540,39 @@ export default function AdminDashboardPage() {
 
         <div className="transition-opacity duration-300">
         {activeAdminTab === "operations" && (
-          <section className="mb-8 rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/70 p-2 shadow-2xl shadow-black/20">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <section className="mb-8 rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/70 p-2 shadow-2xl shadow-black/20 print:hidden">
+            <div className="flex gap-2 overflow-x-auto pb-1 lg:justify-center lg:overflow-visible">
               {(
                 [
+                  ["dashboard", "Dashboard", canViewOperationsWorkspace],
                   ["floor", "Floor", canManageTables],
                   ["check-in", "Check-In", canViewStaffOperations],
                   ["waitlist", "Waitlist", canManageWaitlist],
+                  [
+                    "daily-booking-manifest",
+                    "Daily Manifest",
+                    isSuperAdmin || isVenueManager || isBoxOfficeStaff,
+                  ],
+                  ["floor-manifest", "Floor Manifest", canViewOperationsWorkspace],
+                  [
+                    "financial-reports",
+                    "Financial Reports",
+                    canViewOperationsFinancials,
+                  ],
+                  ["export-centre", "Exports", canViewOperationsWorkspace],
                 ] as Array<[OperationsTab, string, boolean]>
-              ).map(([tab, label, isEnabled]) => (
+              )
+                .filter(([, , isEnabled]) => isEnabled)
+                .map(([tab, label]) => (
                 <button
                   key={tab}
                   type="button"
-                  disabled={!isEnabled}
                   onClick={() => setActiveOperationsTab(tab)}
-                  className={`rounded-2xl px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] transition ${
+                  className={`min-w-max whitespace-nowrap rounded-2xl px-3 py-3 text-[0.66rem] font-semibold uppercase tracking-[0.08em] transition sm:px-4 sm:text-xs sm:tracking-[0.1em] ${
                     activeOperationsTab === tab
                       ? "bg-[#D8C36A] text-black shadow-[0_0_24px_rgba(216,195,106,0.2)]"
                       : "border border-white/10 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
-                  } disabled:cursor-not-allowed disabled:opacity-35`}
+                  }`}
                 >
                   {label}
                 </button>
@@ -13690,10 +18581,1131 @@ export default function AdminDashboardPage() {
           </section>
         )}
 
+        {activeAdminTab === "operations" &&
+          (activeOperationsTab === "daily-booking-manifest" ||
+            activeOperationsTab === "floor-manifest") && (
+          <section className="mb-8 rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/70 p-4 shadow-2xl shadow-black/20 print:border-black print:bg-white print:text-black print:shadow-none sm:p-5">
+            <div className="mb-5 flex flex-col gap-2 print:block">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A] print:text-black">
+                {activeOperationsTab === "daily-booking-manifest"
+                  ? "Daily Manifest"
+                  : "Floor Manifest"}
+              </p>
+              <h2 className="text-2xl font-bold text-white print:text-black">
+                {manifestSelectedShow?.label ?? "No permitted show selected"}
+              </h2>
+              <p className="text-sm text-zinc-400 print:text-zinc-700">
+                {manifestLocationLabel}
+                {manifestSelectedShow
+                  ? ` · ${formatOperationalShowDate(manifestSelectedShow.date)} · ${getSouthAfricaShowTime(manifestSelectedShow)}`
+                  : ""}
+              </p>
+              <p className="hidden text-xs text-zinc-600 print:block">
+                Generated {formatSouthAfricanTimestamp(manifestLastRefreshedAt)}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 print:hidden md:grid-cols-2 xl:grid-cols-6">
+              <label className="text-sm text-zinc-400">
+                Location
+                <select
+                  value={manifestLocationFilter}
+                  onChange={(event) => {
+                    const nextLocation = event.target
+                      .value as ManifestLocationFilter;
+
+                    setManifestLocationFilter(nextLocation);
+                    setManifestSearch("");
+                  }}
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                >
+                  {canSelectAllManifestLocations && (
+                    <option value="all">All Locations</option>
+                  )}
+                  {staffLocationOptions
+                    .filter(
+                      (option) =>
+                        option.value !== "all" &&
+                        permittedManifestLocations.includes(
+                          option.value as EntryLocationKey,
+                        ),
+                    )
+                    .map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+
+              <label className="text-sm text-zinc-400 xl:col-span-2">
+                Show
+                <select
+                  value={manifestSelectedShow?.id ?? ""}
+                  onChange={(event) => setSelectedShowId(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                >
+                  {permittedManifestShows.length === 0 ? (
+                    <option value="">No permitted shows</option>
+                  ) : (
+                    permittedManifestShows.map((show) => (
+                      <option key={show.id} value={show.id}>
+                        {show.label} · {formatOperationalShowDate(show.date)}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+
+              <label className="text-sm text-zinc-400">
+                Show Date
+                <input
+                  readOnly
+                  value={
+                    manifestSelectedShow
+                      ? formatOperationalShowDate(manifestSelectedShow.date)
+                      : "No date"
+                  }
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-zinc-300"
+                />
+              </label>
+
+              <label className="text-sm text-zinc-400">
+                Booking Status
+                <select
+                  value={manifestStatusFilter}
+                  onChange={(event) =>
+                    setManifestStatusFilter(
+                      event.target.value as ManifestStatusFilter,
+                    )
+                  }
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                >
+                  {manifestStatusOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="text-sm text-zinc-400">
+                Search
+                <input
+                  value={manifestSearch}
+                  onChange={(event) => setManifestSearch(event.target.value)}
+                  placeholder="Reference, guest, contact, table"
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                />
+              </label>
+
+              {activeOperationsTab === "daily-booking-manifest" && (
+                <label className="text-sm text-zinc-400">
+                  Sort
+                  <select
+                    value={dailyManifestSort}
+                    onChange={(event) =>
+                      setDailyManifestSort(
+                        event.target.value as DailyManifestSort,
+                      )
+                    }
+                    className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                  >
+                    <option value="table-number">Table Number</option>
+                    <option value="guest-name">Guest Name</option>
+                    <option value="section">Section</option>
+                    <option value="booking-status">Booking Status</option>
+                    <option value="balance-due">Balance Due</option>
+                  </select>
+                </label>
+              )}
+
+              <div className="flex flex-wrap items-end gap-2 xl:col-span-2">
+                <button
+                  type="button"
+                  onClick={() => void refreshManifestData()}
+                  className="rounded-full border border-[#D8C36A]/40 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="rounded-full border border-white/15 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                >
+                  Print
+                </button>
+                <p className="text-xs text-zinc-500">
+                  Last refreshed{" "}
+                  {formatSouthAfricanTime(manifestLastRefreshedAt)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 print:grid-cols-6 sm:grid-cols-3 xl:grid-cols-6">
+              {[
+                ["Total Bookings", manifestSummary.totalBookings],
+                ["Total Guests", manifestSummary.totalGuests],
+                ["Checked In", manifestSummary.checkedIn],
+                [
+                  "Outstanding",
+                  formatCurrency(manifestSummary.outstandingBalance),
+                ],
+                [
+                  "Deposits Received",
+                  formatCurrency(manifestSummary.depositsReceived),
+                ],
+                ["Complimentary", manifestSummary.complimentary],
+                ...(activeOperationsTab === "floor-manifest"
+                  ? [
+                      ["Occupied Tables", manifestOccupiedTableCount],
+                      ["Vacant Tables", manifestVacantTableCount],
+                    ]
+                  : []),
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-2xl border border-white/10 bg-black/35 p-4 print:border-zinc-300 print:bg-white"
+                >
+                  <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                    {label}
+                  </p>
+                  <p className="mt-2 text-xl font-bold text-white print:text-black">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {activeAdminTab === "operations" &&
+          activeOperationsTab === "daily-booking-manifest" && (
+          <section className="mb-10 rounded-[2rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#21170B_0%,#080808_48%,#030303_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 print:border-0 print:bg-white print:p-0 print:text-black print:shadow-none sm:p-6">
+            <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between print:hidden">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
+                  Live List View
+                </p>
+                <h2 className="mt-1 text-2xl font-bold text-white">
+                  Daily Manifest
+                </h2>
+              </div>
+              <p className="text-sm text-zinc-500">
+                {sortedDailyManifestBookings.length} result
+                {sortedDailyManifestBookings.length === 1 ? "" : "s"} ·{" "}
+                {manifestSummary.totalGuests} guest
+                {manifestSummary.totalGuests === 1 ? "" : "s"}
+              </p>
+            </div>
+
+            {sortedDailyManifestBookings.length === 0 ? (
+              <div className="rounded-[1.75rem] border border-white/10 bg-black/35 p-8 text-center print:border-zinc-300 print:bg-white">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A] print:text-black">
+                  No bookings match
+                </p>
+                <p className="mx-auto mt-3 max-w-xl text-sm text-zinc-400 print:text-zinc-700">
+                  Adjust the show, status, location, or search filters to
+                  view the daily manifest.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-white/10 print:overflow-visible print:border-zinc-300">
+                <table className="min-w-[1200px] w-full border-collapse text-left text-sm print:min-w-0 print:text-[10px]">
+                  <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C] print:bg-zinc-100 print:text-black">
+                    <tr>
+                      {[
+                        "Booking Reference",
+                        "Guest Name",
+                        "Contact Number",
+                        "Email",
+                        "Guests",
+                        "Section",
+                        "Table",
+                        "Booking Status",
+                        "Check-In",
+                        "Payment Status",
+                        "Deposit Paid",
+                        "Balance Due",
+                        "Guest Notes",
+                      ].map((heading) => (
+                        <th key={heading} className="px-3 py-3 font-semibold">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10 print:divide-zinc-200">
+                    {sortedDailyManifestBookings.map((booking) => {
+                      const financials = getBookingFinancials(booking);
+                      const paymentStatus = getBookingPaymentStatus(booking);
+
+                      return (
+                        <tr
+                          key={`daily-manifest-${booking.reference}`}
+                          className="align-top text-zinc-200 print:text-black"
+                        >
+                          <td className="px-3 py-3 font-semibold text-white print:text-black">
+                            {booking.reference}
+                          </td>
+                          <td className="px-3 py-3">
+                            {booking.customer.name || "Unnamed Guest"}
+                          </td>
+                          <td className="px-3 py-3">
+                            {booking.customer.phone || "Not recorded"}
+                          </td>
+                          <td className="px-3 py-3">
+                            {booking.customer.email || "Not recorded"}
+                          </td>
+                          <td className="px-3 py-3">{booking.partySize}</td>
+                          <td className="px-3 py-3">{booking.zoneTitle}</td>
+                          <td className="px-3 py-3">{booking.tableNumber}</td>
+                          <td className="px-3 py-3">
+                            {bookingStatusLabels[
+                              booking.status ?? "confirmed"
+                            ]}
+                          </td>
+                          <td className="px-3 py-3">
+                            {getManifestCheckInStatus(booking)}
+                          </td>
+                          <td className="px-3 py-3">
+                            {paymentStatusLabels[paymentStatus]}
+                          </td>
+                          <td className="px-3 py-3">
+                            {formatCurrency(financials.amountPaid)}
+                          </td>
+                          <td className="px-3 py-3">
+                            {formatCurrency(financials.balanceDue)}
+                          </td>
+                          <td className="min-w-56 px-3 py-3">
+                            {booking.operationalNotes || "Not recorded"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeAdminTab === "operations" &&
+          activeOperationsTab === "floor-manifest" && (
+          <section className="mb-10 rounded-[2rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#21170B_0%,#080808_48%,#030303_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 print:border-0 print:bg-white print:p-0 print:text-black print:shadow-none sm:p-6">
+            <div className="mb-5 print:hidden">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
+                Floor-ready view
+              </p>
+              <h2 className="mt-1 text-2xl font-bold text-white">
+                Floor Manifest
+              </h2>
+            </div>
+
+            {!manifestSelectedShow ? (
+              <div className="rounded-[1.75rem] border border-white/10 bg-black/35 p-8 text-center">
+                <p className="text-sm text-zinc-400">
+                  Select a permitted show to view the floor manifest.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-5 print:block">
+                {floorManagementZones.map((zone) => {
+                  const zoneTables = getZoneTables(
+                    tables,
+                    manifestSelectedShow.id,
+                    zone.id,
+                  );
+                  const visibleZoneTables = zoneTables.filter((table) => {
+                    const occupancy = getTableOccupancy(table, bookings);
+
+                    if (!occupancy.booking) {
+                      return true;
+                    }
+
+                    return manifestBookingReferences.has(
+                      occupancy.booking.reference,
+                    );
+                  });
+                  const sectionOccupied = visibleZoneTables.filter((table) => {
+                    const occupancy = getTableOccupancy(table, bookings);
+
+                    return (
+                      occupancy.state === "reserved" ||
+                      occupancy.state === "checked-in"
+                    );
+                  });
+                  const sectionVacant = visibleZoneTables.filter(
+                    (table) =>
+                      getTableOccupancy(table, bookings).state === "available",
+                  );
+                  const sectionGuestCount = sectionOccupied.reduce(
+                    (total, table) =>
+                      total +
+                      (getTableOccupancy(table, bookings).booking?.partySize ??
+                        0),
+                    0,
+                  );
+                  const sectionOutstanding = sectionOccupied.reduce(
+                    (total, table) => {
+                      const booking = getTableOccupancy(table, bookings).booking;
+
+                      return booking
+                        ? total + getBookingFinancials(booking).balanceDue
+                        : total;
+                    },
+                    0,
+                  );
+
+                  return (
+                    <section
+                      key={`floor-manifest-${zone.id}`}
+                      className="break-inside-avoid rounded-2xl border border-white/10 bg-black/30 p-5 print:mb-5 print:border-zinc-300 print:bg-white"
+                    >
+                      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <h3 className="text-2xl font-bold text-white print:text-black">
+                            {zone.title}
+                          </h3>
+                          <p className="mt-1 text-sm text-zinc-400 print:text-zinc-700">
+                            {sectionOccupied.length} occupied ·{" "}
+                            {sectionVacant.length} vacant ·{" "}
+                            {sectionGuestCount} guests
+                            {canViewOperationsFinancials
+                              ? ` · ${formatCurrency(sectionOutstanding)} outstanding`
+                              : ""}
+                          </p>
+                        </div>
+                      </div>
+
+                      {visibleZoneTables.length === 0 ? (
+                        <p className="rounded-xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-400 print:border-zinc-300 print:bg-white print:text-zinc-700">
+                          No tables match the current filter.
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-2">
+                          {visibleZoneTables.map((table) => {
+                            const occupancy = getTableOccupancy(table, bookings);
+                            const booking = occupancy.booking;
+                            const financials = booking
+                              ? getBookingFinancials(booking)
+                              : null;
+                            const paymentStatus = booking
+                              ? getBookingPaymentStatus(booking)
+                              : null;
+                            const hasBalance =
+                              Boolean(financials) &&
+                              (financials?.balanceDue ?? 0) > 0;
+
+                            return (
+                              <article
+                                key={`floor-manifest-${table.id}`}
+                                className={`break-inside-avoid rounded-2xl border p-4 ${
+                                  occupancy.state === "available"
+                                    ? "border-emerald-400/25 bg-emerald-950/10"
+                                    : occupancy.state === "checked-in"
+                                      ? "border-sky-300/30 bg-sky-950/15"
+                                      : occupancy.state === "blocked"
+                                        ? "border-red-300/30 bg-red-950/15"
+                                        : hasBalance
+                                          ? "border-amber-300/35 bg-amber-950/15"
+                                          : "border-white/10 bg-black/35"
+                                } print:border-zinc-300 print:bg-white`}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                                      Table
+                                    </p>
+                                    <p className="mt-1 text-2xl font-bold text-white print:text-black">
+                                      {table.tableNumber}
+                                    </p>
+                                  </div>
+                                  <span
+                                    className={`rounded-full border px-3 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.1em] ${tableOccupancyClasses[occupancy.state]}`}
+                                  >
+                                    {tableOccupancyLabels[occupancy.state]}
+                                  </span>
+                                </div>
+
+                                {booking ? (
+                                  <div className="mt-4 space-y-2 text-sm text-zinc-300 print:text-zinc-800">
+                                    <p className="font-semibold text-white print:text-black">
+                                      {booking.customer.name || "Unnamed Guest"}
+                                    </p>
+                                    <p>
+                                      {booking.partySize} guests ·{" "}
+                                      {booking.reference}
+                                    </p>
+                                    <p>
+                                      Status:{" "}
+                                      {
+                                        bookingStatusLabels[
+                                          booking.status ?? "confirmed"
+                                        ]
+                                      }{" "}
+                                      · {getManifestCheckInStatus(booking)}
+                                    </p>
+                                    <p>
+                                      Payment:{" "}
+                                      {paymentStatus
+                                        ? paymentStatusLabels[paymentStatus]
+                                        : "Not recorded"}
+                                    </p>
+                                    <p>
+                                      Deposit paid:{" "}
+                                      {financials
+                                        ? formatCurrency(financials.amountPaid)
+                                        : "Not recorded"}
+                                    </p>
+                                    <p>
+                                      Balance due:{" "}
+                                      {financials
+                                        ? formatCurrency(financials.balanceDue)
+                                        : "Not recorded"}
+                                    </p>
+                                    <p>Payment notes: Not recorded</p>
+                                    <p>Bar credit: Not recorded</p>
+                                    <p>Gratuity paid: Not recorded</p>
+                                    <p>
+                                      Guest notes:{" "}
+                                      {booking.operationalNotes ||
+                                        table.guestNotes ||
+                                        "Not recorded"}
+                                    </p>
+                                    {table.mergedFrom?.length && (
+                                      <p className="rounded-xl border border-sky-300/20 bg-sky-950/10 px-3 py-2 text-xs text-sky-100 print:border-zinc-300 print:bg-white print:text-zinc-700">
+                                        Merged table:{" "}
+                                        {table.mergedFrom.length + 1} linked
+                                        units
+                                      </p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="mt-4 text-sm text-zinc-400 print:text-zinc-700">
+                                    <p>Vacant table</p>
+                                    <p className="mt-1">
+                                      {table.seatCapacity} seats
+                                      {table.guestNotes
+                                        ? ` · ${table.guestNotes}`
+                                        : ""}
+                                    </p>
+                                  </div>
+                                )}
+                              </article>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeAdminTab === "operations" &&
+          activeOperationsTab === "dashboard" &&
+          canViewOperationsWorkspace && (
+          <section className="mb-10 rounded-[2rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#21170B_0%,#080808_48%,#030303_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
+            <div className="mb-6 flex flex-col gap-3 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#D8C36A]">
+                  Operations
+                </p>
+                <h2 className="mt-2 text-3xl font-bold uppercase text-white sm:text-4xl">
+                  Operations Dashboard
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
+                  Live booking visibility for today’s service, upcoming
+                  shows, balances, deposits, and location demand.
+                </p>
+              </div>
+              <span className="w-fit rounded-full border border-[#D8C36A]/35 bg-black/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                Today · {formatOperationalShowDate(southAfricaToday)}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              {operationsDashboardKpis.map((card) => (
+                <article
+                  key={card.label}
+                  className={`rounded-2xl border p-5 ${card.accent}`}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">
+                    {card.label}
+                  </p>
+                  <p className="mt-3 text-3xl font-bold text-white">
+                    {card.value}
+                  </p>
+                </article>
+              ))}
+            </div>
+            {activeBookingEditCount > 0 && (
+              <div className="mt-4 rounded-2xl border border-sky-300/25 bg-sky-950/20 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      {activeBookingEditCount} booking
+                      {activeBookingEditCount === 1 ? "" : "s"} currently
+                      being edited.
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      Open the booking list to see live editing badges and
+                      current editor details.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveAdminTab("bookings");
+                      setBookingPage(1);
+                    }}
+                    className="rounded-full border border-sky-300/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-sky-100 transition hover:bg-sky-300 hover:text-black"
+                  >
+                    View List
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeAdminTab === "operations" &&
+          activeOperationsTab === "financial-reports" &&
+          canViewOperationsFinancials && (
+          <section className="mb-10 rounded-[2rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#21170B_0%,#080808_48%,#030303_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
+            <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
+                  Operations
+                </p>
+                <h2 className="mt-2 text-3xl font-bold text-white">
+                  Financial Reports
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+                  Management summaries built from confirmed payments, bookings,
+                  shows, and existing financial status fields.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!hasHydrated}
+                  onClick={() =>
+                    downloadOperationsExport(activeFinancialReportTab, "pdf")
+                  }
+                  className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  Export PDF
+                </button>
+                <button
+                  type="button"
+                  disabled={!hasHydrated}
+                  onClick={() =>
+                    downloadOperationsExport(activeFinancialReportTab, "xlsx")
+                  }
+                  className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  Export Excel
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+              <label className="text-sm text-zinc-400">
+                Location
+                <select
+                  value={financialLocationFilter}
+                  onChange={(event) => {
+                    setFinancialLocationFilter(
+                      event.target.value as ManifestLocationFilter,
+                    );
+                    setFinancialShowFilter("all");
+                  }}
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                >
+                  {canSelectAllFinancialLocations && (
+                    <option value="all">All Locations</option>
+                  )}
+                  {staffLocationOptions
+                    .filter(
+                      (option) =>
+                        option.value !== "all" &&
+                        financialPermittedLocations.includes(
+                          option.value as EntryLocationKey,
+                        ),
+                    )
+                    .map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+
+              <label className="text-sm text-zinc-400">
+                Show
+                <select
+                  value={financialShowFilter}
+                  onChange={(event) => setFinancialShowFilter(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                >
+                  <option value="all">All Shows</option>
+                  {financialShows.map((show) => (
+                    <option key={show.id} value={show.id}>
+                      {show.label} · {formatOperationalShowDate(show.date)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="text-sm text-zinc-400">
+                Date From
+                <input
+                  type="date"
+                  value={financialDateFrom}
+                  onChange={(event) => setFinancialDateFrom(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                />
+              </label>
+
+              <label className="text-sm text-zinc-400">
+                Date To
+                <input
+                  type="date"
+                  value={financialDateTo}
+                  onChange={(event) => setFinancialDateTo(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                />
+              </label>
+
+              <label className="text-sm text-zinc-400">
+                Reporting Month
+                <input
+                  type="month"
+                  value={financialReportingMonth}
+                  onChange={(event) =>
+                    setFinancialReportingMonth(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                />
+              </label>
+
+              <label className="text-sm text-zinc-400">
+                Booking Type
+                <select
+                  value={financialBookingTypeFilter}
+                  onChange={(event) =>
+                    setFinancialBookingTypeFilter(
+                      event.target.value as FinancialBookingTypeFilter,
+                    )
+                  }
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                >
+                  <option value="all">All Types</option>
+                  <option value="standard">Standard</option>
+                  <option value="corporate">Corporate</option>
+                </select>
+              </label>
+
+              <label className="text-sm text-zinc-400">
+                Payment Status
+                <select
+                  value={financialPaymentStatusFilter}
+                  onChange={(event) =>
+                    setFinancialPaymentStatusFilter(
+                      event.target.value as PaymentStatus | "all",
+                    )
+                  }
+                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                >
+                  <option value="all">All Statuses</option>
+                  {Object.entries(paymentStatusLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-zinc-300 xl:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={financialIncludeCancelled}
+                  onChange={(event) =>
+                    setFinancialIncludeCancelled(event.target.checked)
+                  }
+                  className="h-4 w-4 accent-[#D8C36A]"
+                />
+                Include cancelled future bookings
+              </label>
+
+              <div className="flex flex-wrap items-end gap-2 xl:col-span-3">
+                <button
+                  type="button"
+                  onClick={() => void refreshFinancialReportData()}
+                  className="rounded-full border border-[#D8C36A]/40 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                >
+                  Refresh
+                </button>
+                <p className="text-xs text-zinc-500">
+                  Last refreshed{" "}
+                  {formatSouthAfricanTime(financialLastRefreshedAt)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {financialDashboardCards.map(([label, value]) => (
+                <article
+                  key={label}
+                  className="rounded-2xl border border-white/10 bg-black/35 p-4"
+                >
+                  <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                    {label}
+                  </p>
+                  <p className="mt-2 text-2xl font-bold text-white">{value}</p>
+                </article>
+              ))}
+            </div>
+
+            <div className="mt-6 flex gap-2 overflow-x-auto pb-1">
+              {(
+                [
+                  ["payments-received", "Payments Received"],
+                  ["future-booking-revenue", "Future Revenue"],
+                  ["monthly-income", "Monthly Income"],
+                  ["complimentary-bookings", "Complimentary"],
+                ] as Array<[FinancialReportTab, string]>
+              ).map(([tab, label]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveFinancialReportTab(tab)}
+                  className={`min-w-max rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
+                    activeFinancialReportTab === tab
+                      ? "bg-[#D8C36A] text-black"
+                      : "border border-white/10 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
+              {activeFinancialReportTab === "payments-received" && (
+                <table className="min-w-[1180px] w-full text-left text-sm">
+                  <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C]">
+                    <tr>
+                      {buildPaymentsReceivedExportSheet().columns.map((heading) => (
+                        <th key={heading} className="px-3 py-3 font-semibold">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {paymentsReceivedRows.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-5 text-zinc-400" colSpan={13}>
+                          No confirmed payments match the current filters.
+                        </td>
+                      </tr>
+                    ) : (
+                      paymentsReceivedRows.map((row) => (
+                        <tr key={row.row.id} className="text-zinc-200">
+                          <td className="px-3 py-3">
+                            {formatOperationalShowDate(row.paymentDate.slice(0, 10))}
+                          </td>
+                          <td className="px-3 py-3 font-mono text-[#F2D66C]">
+                            {row.booking?.reference ?? row.row.reference}
+                          </td>
+                          <td className="px-3 py-3">
+                            {row.booking?.customer.name || "Not recorded"}
+                          </td>
+                          <td className="px-3 py-3 capitalize">{row.bookingType}</td>
+                          <td className="px-3 py-3">
+                            {row.show
+                              ? formatOperationalShowDate(row.show.date)
+                              : "Not recorded"}
+                          </td>
+                          <td className="px-3 py-3">{row.location}</td>
+                          <td className="px-3 py-3">{row.guests}</td>
+                          <td className="px-3 py-3">{row.method}</td>
+                          <td className="px-3 py-3">{row.description}</td>
+                          <td className="px-3 py-3">
+                            {formatCurrency(row.amountReceived)}
+                          </td>
+                          <td className="px-3 py-3">
+                            {formatCurrency(row.bookingTotal)}
+                          </td>
+                          <td className="px-3 py-3">
+                            {formatCurrency(row.balanceDue)}
+                          </td>
+                          <td className="px-3 py-3">{row.paymentStatus}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {activeFinancialReportTab === "future-booking-revenue" && (
+                <table className="min-w-[980px] w-full text-left text-sm">
+                  <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C]">
+                    <tr>
+                      {buildFutureRevenueExportSheet().columns.map((heading) => (
+                        <th key={heading} className="px-3 py-3 font-semibold">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {futureBookingRows.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-5 text-zinc-400" colSpan={10}>
+                          No future bookings match the current filters.
+                        </td>
+                      </tr>
+                    ) : (
+                      futureBookingRows.map((booking) => {
+                        const show = getOperationsBookingShow(booking);
+                        const financials = getBookingFinancials(booking);
+                        const location = getFinancialBookingLocation(booking);
+
+                        return (
+                          <tr key={booking.reference} className="text-zinc-200">
+                            <td className="px-3 py-3 font-mono text-[#F2D66C]">
+                              {booking.reference}
+                            </td>
+                            <td className="px-3 py-3">
+                              {booking.customer.name || "Unnamed Guest"}
+                            </td>
+                            <td className="px-3 py-3">
+                              {show
+                                ? formatOperationalShowDate(show.date)
+                                : "Not recorded"}
+                            </td>
+                            <td className="px-3 py-3">
+                              {location
+                                ? getShowLocationOption(location).city
+                                : "Not recorded"}
+                            </td>
+                            <td className="px-3 py-3">{booking.partySize}</td>
+                            <td className="px-3 py-3">
+                              {formatCurrency(financials.totalPrice)}
+                            </td>
+                            <td className="px-3 py-3">
+                              {formatCurrency(financials.amountPaid)}
+                            </td>
+                            <td className="px-3 py-3">
+                              {formatCurrency(financials.balanceDue)}
+                            </td>
+                            <td className="px-3 py-3">
+                              {bookingStatusLabels[booking.status ?? "confirmed"]}
+                            </td>
+                            <td className="px-3 py-3">
+                              {paymentStatusLabels[financials.paymentStatus]}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {activeFinancialReportTab === "monthly-income" && (
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C]">
+                    <tr>
+                      <th className="px-3 py-3 font-semibold">Metric</th>
+                      <th className="px-3 py-3 font-semibold">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10 text-zinc-200">
+                    {buildMonthlyIncomeExportSheet().rows.map((row) => (
+                      <tr key={String(row.Metric)}>
+                        <td className="px-3 py-3">{String(row.Metric)}</td>
+                        <td className="px-3 py-3">
+                          {typeof row.Value === "number"
+                            ? row.Metric.toString().includes("count")
+                              ? row.Value
+                              : formatCurrency(row.Value)
+                            : row.Value instanceof Date
+                              ? formatSouthAfricanDate(row.Value)
+                              : String(row.Value)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {activeFinancialReportTab === "complimentary-bookings" && (
+                <table className="min-w-[900px] w-full text-left text-sm">
+                  <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C]">
+                    <tr>
+                      {buildComplimentaryExportSheet().columns.map((heading) => (
+                        <th key={heading} className="px-3 py-3 font-semibold">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {complimentaryBookings.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-5 text-zinc-400" colSpan={8}>
+                          No complimentary bookings match the current month.
+                        </td>
+                      </tr>
+                    ) : (
+                      complimentaryBookings.map((booking) => {
+                        const show = getOperationsBookingShow(booking);
+                        const location = getFinancialBookingLocation(booking);
+
+                        return (
+                          <tr key={booking.reference} className="text-zinc-200">
+                            <td className="px-3 py-3">
+                              {show
+                                ? formatOperationalShowDate(show.date)
+                                : "Not recorded"}
+                            </td>
+                            <td className="px-3 py-3">
+                              {location
+                                ? getShowLocationOption(location).city
+                                : "Not recorded"}
+                            </td>
+                            <td className="px-3 py-3 font-mono text-[#F2D66C]">
+                              {booking.reference}
+                            </td>
+                            <td className="px-3 py-3">
+                              {booking.customer.name || "Unnamed Guest"}
+                            </td>
+                            <td className="px-3 py-3">{booking.partySize}</td>
+                            <td className="px-3 py-3">
+                              {booking.operationalNotes || "Not recorded"}
+                            </td>
+                            <td className="px-3 py-3">
+                              {formatCurrency(getBookingFinancials(booking).totalPrice)}
+                            </td>
+                            <td className="px-3 py-3">Not recorded</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </section>
+        )}
+
+        {activeAdminTab === "operations" &&
+          activeOperationsTab === "export-centre" &&
+          canViewOperationsWorkspace && (
+          <section className="mb-10 rounded-[2rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#21170B_0%,#080808_48%,#030303_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
+            <div className="border-b border-white/10 pb-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
+                Operations
+              </p>
+              <h2 className="mt-2 text-3xl font-bold text-white">
+                Export Centre
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+                Download filtered operational manifests and authorised
+                financial reports as PDF or Excel files.
+              </p>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {(
+                [
+                  [
+                    "daily-manifest",
+                    "Daily Manifest",
+                    "A4 portrait-ready booking list for the selected show.",
+                    isSuperAdmin || isVenueManager || isBoxOfficeStaff,
+                  ],
+                  [
+                    "floor-manifest",
+                    "Floor Manifest",
+                    "A4 landscape-ready section and table service view.",
+                    canViewOperationsWorkspace,
+                  ],
+                  [
+                    "payments-received",
+                    "Payments Received",
+                    "Confirmed payment receipts for the selected period.",
+                    canViewOperationsFinancials,
+                  ],
+                  [
+                    "future-booking-revenue",
+                    "Future Booking Revenue",
+                    "Future show value, collected funds, and outstanding balances.",
+                    canViewOperationsFinancials,
+                  ],
+                  [
+                    "monthly-income",
+                    "Monthly Income Statement",
+                    "Management income summary for the selected calendar month.",
+                    canViewOperationsFinancials,
+                  ],
+                  [
+                    "complimentary-bookings",
+                    "Complimentary Bookings",
+                    "Daily and monthly complimentary booking counts and value.",
+                    canViewOperationsFinancials,
+                  ],
+                ] as Array<[OperationsExportId, string, string, boolean]>
+              )
+                .filter(([, , , isAllowed]) => isAllowed)
+                .map(([exportId, title, description]) => (
+                <article
+                  key={exportId}
+                  className="rounded-[1.5rem] border border-white/10 bg-black/35 p-5"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                    {title}
+                  </p>
+                  <p className="mt-3 min-h-12 text-sm leading-6 text-zinc-400">
+                    {description}
+                  </p>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={!hasHydrated}
+                      onClick={() => downloadOperationsExport(exportId, "pdf")}
+                      className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      PDF
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!hasHydrated}
+                      onClick={() => downloadOperationsExport(exportId, "xlsx")}
+                      className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      Excel
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
         {activeAdminTab === "settings" && canManageSettings && (
           <section className="mb-8 rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/70 p-2 shadow-2xl shadow-black/20">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {settingsTabs.map((tab) => (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+              {settingsTabs
+                .filter((tab) => tab.id !== "portability" || canViewDataPortability)
+                .map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
@@ -13707,6 +19719,573 @@ export default function AdminDashboardPage() {
                   {tab.label}
                 </button>
               ))}
+            </div>
+          </section>
+        )}
+
+        {activeAdminTab === "settings" &&
+          activeSettingsTab === "portability" &&
+          canViewDataPortability && (
+          <section className="mb-10 rounded-[2rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#21170B_0%,#080808_48%,#030303_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
+            <div className="border-b border-white/10 pb-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
+                Data Portability
+              </p>
+              <h2 className="mt-2 text-3xl font-bold text-white">
+                Bookings & Customers
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+                Export clean operational records and preview future imports
+                safely. Phase 19D.1 performs validation and dry-runs only.
+              </p>
+            </div>
+
+            <div className="mt-6 grid gap-3 lg:grid-cols-[280px_1fr]">
+              <aside className="rounded-[1.5rem] border border-white/10 bg-black/35 p-3">
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+                  {(
+                    [
+                      ["bookings", "Bookings"],
+                      ["customers", "Customers"],
+                    ] as Array<[DataPortabilityEntity, string]>
+                  ).map(([entity, label]) => (
+                    <button
+                      key={entity}
+                      type="button"
+                      onClick={() => {
+                        setActiveDataPortabilityEntity(entity);
+                        setDataPortabilityPreview(null);
+                        setDataPortabilityImportError("");
+                        setDataPortabilityImportStatus("");
+                      }}
+                      className={`rounded-2xl px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                        activeDataPortabilityEntity === entity
+                          ? "bg-[#D8C36A] text-black"
+                          : "border border-white/10 bg-zinc-950 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-4 grid grid-cols-3 gap-2 lg:grid-cols-1">
+                  {(
+                    [
+                      ["export", "Export"],
+                      ["import", "Import"],
+                      ["history", "History"],
+                    ] as Array<[DataPortabilityMode, string]>
+                  ).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setActiveDataPortabilityMode(mode)}
+                      className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
+                        activeDataPortabilityMode === mode
+                          ? "border border-[#D8C36A]/60 bg-[#1A1208] text-[#F2D66C]"
+                          : "border border-white/10 bg-black/35 text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </aside>
+
+              <div className="rounded-[1.5rem] border border-white/10 bg-black/35 p-5">
+                {activeDataPortabilityMode === "export" && (
+                  <div>
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          Export
+                        </p>
+                        <h3 className="mt-1 text-2xl font-bold text-white">
+                          {dataPortabilityEntityLabels[activeDataPortabilityEntity]} Export
+                        </h3>
+                        <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+                          Downloads include only portable business fields.
+                          Internal IDs, tokens, secrets and audit metadata
+                          are excluded.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadDataPortabilityExport(
+                              activeDataPortabilityEntity,
+                              "xlsx",
+                            )
+                          }
+                          className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]"
+                        >
+                          Export Excel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadDataPortabilityExport(
+                              activeDataPortabilityEntity,
+                              "csv",
+                            )
+                          }
+                          className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                        >
+                          Export CSV
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 overflow-x-auto rounded-2xl border border-white/10">
+                      <table className="min-w-[980px] w-full text-left text-sm">
+                        <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C]">
+                          <tr>
+                            {getPortabilityColumns(activeDataPortabilityEntity)
+                              .slice(0, 8)
+                              .map((column) => (
+                                <th
+                                  key={column.key}
+                                  className="px-3 py-3 font-semibold"
+                                >
+                                  {column.label}
+                                </th>
+                              ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/10 text-zinc-200">
+                          {buildDataPortabilityExportSheet(
+                            activeDataPortabilityEntity,
+                          )
+                            .rows.slice(0, 6)
+                            .map((row, index) => (
+                              <tr key={`portability-export-${index}`}>
+                                {getPortabilityColumns(
+                                  activeDataPortabilityEntity,
+                                )
+                                  .slice(0, 8)
+                                  .map((column) => (
+                                    <td
+                                      key={column.key}
+                                      className="px-3 py-3"
+                                    >
+                                      {formatExportValueForPdf(
+                                        column.label,
+                                        row[column.label],
+                                      )}
+                                    </td>
+                                  ))}
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {activeDataPortabilityMode === "import" && (
+                  <div>
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          Import Preview
+                        </p>
+                        <h3 className="mt-1 text-2xl font-bold text-white">
+                          {dataPortabilityEntityLabels[activeDataPortabilityEntity]} Dry Run
+                        </h3>
+                        <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+                          Upload CSV or Excel files to parse, validate and
+                          preview import outcomes. Nothing is written until
+                          you review the dry run and confirm the import.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadDataPortabilityTemplate(
+                              activeDataPortabilityEntity,
+                              "xlsx",
+                            )
+                          }
+                          className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                        >
+                          Excel Template
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadDataPortabilityTemplate(
+                              activeDataPortabilityEntity,
+                              "csv",
+                            )
+                          }
+                          className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                        >
+                          CSV Template
+                        </button>
+                        <label className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]">
+                          Upload File
+                          <input
+                            type="file"
+                            accept=".csv,.txt,.xlsx"
+                            onChange={handleDataPortabilityImportFile}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {dataPortabilityImportStatus && (
+                      <div className="mt-5 rounded-2xl border border-emerald-300/25 bg-emerald-950/20 p-4 text-sm text-emerald-100">
+                        {dataPortabilityImportStatus}
+                      </div>
+                    )}
+
+                    {dataPortabilityImportError && (
+                      <div className="mt-5 rounded-2xl border border-red-300/30 bg-red-950/20 p-4 text-sm text-red-100">
+                        {dataPortabilityImportError}
+                      </div>
+                    )}
+
+                    {!dataPortabilityPreview ? (
+                      <div className="mt-6 rounded-[1.5rem] border border-dashed border-white/15 bg-zinc-950/65 p-8 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                          Dry-run mode
+                        </p>
+                        <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-zinc-400">
+                          Download a template, add your data, then upload it
+                          here to review validation errors, warnings,
+                          duplicates and Create / Update / Skip counts.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mt-6 space-y-5">
+                        <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-zinc-950 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-white">
+                              Preview ready
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              {dataPortabilityPreview.fileName} · review before importing
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDataPortabilityPreview(null);
+                                setDataPortabilityImportError("");
+                                setDataPortabilityImportStatus("");
+                                setDataPortabilityImportResult(null);
+                              }}
+                              disabled={isDataPortabilityImporting}
+                              className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={executeDataPortabilityImport}
+                              disabled={
+                                isDataPortabilityImporting ||
+                                dataPortabilityPreview.validRows === 0
+                              }
+                              className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {isDataPortabilityImporting
+                                ? "Importing..."
+                                : "Confirm Import"}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+                          {[
+                            ["Records Found", dataPortabilityPreview.rowsDetected],
+                            ["Valid", dataPortabilityPreview.validRows],
+                            ["Invalid", dataPortabilityPreview.invalidRows],
+                            ["Duplicate", dataPortabilityPreview.duplicateRows],
+                            ["Would Create", dataPortabilityPreview.wouldCreate],
+                            ["Would Update", dataPortabilityPreview.wouldUpdate],
+                            ["Would Skip", dataPortabilityPreview.wouldSkip],
+                          ].map(([label, value]) => (
+                            <div
+                              key={label}
+                              className="rounded-2xl border border-white/10 bg-zinc-950 p-4"
+                            >
+                              <p className="text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                                {label}
+                              </p>
+                              <p className="mt-2 text-xl font-bold text-white">
+                                {value}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {dataPortabilityPreview.missingRequiredColumns.length > 0 && (
+                          <div className="rounded-2xl border border-red-300/30 bg-red-950/20 p-4 text-sm text-red-100">
+                            Missing required columns:{" "}
+                            {dataPortabilityPreview.missingRequiredColumns.join(
+                              ", ",
+                            )}
+                          </div>
+                        )}
+
+                        {dataPortabilityPreview.issues.length > 0 && (
+                          <div className="rounded-2xl border border-amber-300/25 bg-amber-950/20 p-4">
+                            <p className="text-sm font-semibold text-amber-100">
+                              Validation messages
+                            </p>
+                            <div className="mt-3 max-h-44 overflow-y-auto text-sm text-amber-50">
+                              {dataPortabilityPreview.issues
+                                .slice(0, 18)
+                                .map((issue, index) => (
+                                  <p key={`${issue.rowNumber}-${issue.field}-${index}`}>
+                                    Row {issue.rowNumber} · {issue.field}:{" "}
+                                    {issue.message}
+                                  </p>
+                                ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="overflow-x-auto rounded-2xl border border-white/10">
+                          <table className="min-w-[900px] w-full text-left text-sm">
+                            <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C]">
+                              <tr>
+                                {[
+                                  "Row",
+                                  "Action",
+                                  "Status",
+                                  ...getPortabilityColumns(
+                                    activeDataPortabilityEntity,
+                                  )
+                                    .slice(0, 5)
+                                    .map((column) => column.label),
+                                ].map((heading) => (
+                                  <th
+                                    key={heading}
+                                    className="px-3 py-3 font-semibold"
+                                  >
+                                    {heading}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/10 text-zinc-200">
+                              {dataPortabilityPreview.rows
+                                .slice(0, 12)
+                                .map((row) => (
+                                  <tr key={row.rowNumber}>
+                                    <td className="px-3 py-3">
+                                      {row.rowNumber}
+                                    </td>
+                                    <td className="px-3 py-3">
+                                      {row.action}
+                                    </td>
+                                    <td className="px-3 py-3">
+                                      {row.valid ? "Valid" : "Invalid"}
+                                    </td>
+                                    {getPortabilityColumns(
+                                      activeDataPortabilityEntity,
+                                    )
+                                      .slice(0, 5)
+                                      .map((column) => (
+                                        <td
+                                          key={column.key}
+                                          className="px-3 py-3"
+                                        >
+                                          {row.values[column.key] ||
+                                            "Not recorded"}
+                                        </td>
+                                      ))}
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {dataPortabilityImportResult && (
+                          <div className="rounded-2xl border border-emerald-300/25 bg-emerald-950/20 p-5">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-emerald-100">
+                                  Import result recorded
+                                </p>
+                                <p className="mt-1 text-xs text-emerald-50/70">
+                                  Restore point {dataPortabilityImportResult.restorePointId}
+                                  {" "}· {dataPortabilityImportResult.durationMs}ms
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadDataPortabilityResultLog(
+                                    dataPortabilityImportResult,
+                                  )
+                                }
+                                className="rounded-full border border-emerald-200/30 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-50 transition hover:bg-emerald-100 hover:text-black"
+                              >
+                                Download Log
+                              </button>
+                            </div>
+                            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+                              {[
+                                ["Created", dataPortabilityImportResult.created],
+                                ["Updated", dataPortabilityImportResult.updated],
+                                ["Skipped", dataPortabilityImportResult.skipped],
+                                ["Failed", dataPortabilityImportResult.failed],
+                                ["Records", dataPortabilityImportResult.records],
+                              ].map(([label, value]) => (
+                                <div
+                                  key={label}
+                                  className="rounded-xl border border-white/10 bg-black/30 p-3"
+                                >
+                                  <p className="text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-emerald-100/70">
+                                    {label}
+                                  </p>
+                                  <p className="mt-1 text-lg font-bold text-white">
+                                    {value}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeDataPortabilityMode === "history" && (
+                  <div className="space-y-4">
+                    <article className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-6">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                        Import History
+                      </p>
+                      <h3 className="mt-3 text-2xl font-bold text-white">
+                        Completed Imports
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-zinc-400">
+                        Read-only audit trail for confirmed import runs in this
+                        admin workspace.
+                      </p>
+                      {dataPortabilityImportHistory.length === 0 ? (
+                        <div className="mt-5 rounded-2xl border border-dashed border-white/15 bg-black/30 p-6 text-sm text-zinc-400">
+                          No import history has been recorded yet.
+                        </div>
+                      ) : (
+                        <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
+                          <table className="min-w-[920px] w-full text-left text-sm">
+                            <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C]">
+                              <tr>
+                                {[
+                                  "Date",
+                                  "User",
+                                  "Dataset",
+                                  "File",
+                                  "Records",
+                                  "Created",
+                                  "Updated",
+                                  "Skipped",
+                                  "Failed",
+                                  "Duration",
+                                  "Status",
+                                  "Actions",
+                                ].map((heading) => (
+                                  <th key={heading} className="px-3 py-3 font-semibold">
+                                    {heading}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/10 text-zinc-200">
+                              {dataPortabilityImportHistory.map((entry) => (
+                                <tr key={`${entry.restorePointId}-${entry.completedAt}`}>
+                                  <td className="px-3 py-3">
+                                    {formatSouthAfricanTimestamp(
+                                      entry.completedAt,
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-3">{entry.user}</td>
+                                  <td className="px-3 py-3">
+                                    {dataPortabilityEntityLabels[entry.dataset]}
+                                  </td>
+                                  <td className="px-3 py-3">{entry.fileName}</td>
+                                  <td className="px-3 py-3">{entry.records}</td>
+                                  <td className="px-3 py-3">{entry.created}</td>
+                                  <td className="px-3 py-3">{entry.updated}</td>
+                                  <td className="px-3 py-3">{entry.skipped}</td>
+                                  <td className="px-3 py-3">{entry.failed}</td>
+                                  <td className="px-3 py-3">{entry.durationMs}ms</td>
+                                  <td className="px-3 py-3 capitalize">{entry.finalStatus.replace("_", " ")}</td>
+                                  <td className="px-3 py-3">
+                                    <div className="flex flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          downloadDataPortabilityResultLog({
+                                            auditTrail: [],
+                                            completedAt: entry.completedAt,
+                                            created: entry.created,
+                                            dataset: entry.dataset,
+                                            durationMs: entry.durationMs,
+                                            failed: entry.failed,
+                                            fileName: entry.fileName,
+                                            logRows: entry.logRows,
+                                            records: entry.records,
+                                            restorePointId: entry.restorePointId,
+                                            result: entry.result,
+                                            skipped: entry.skipped,
+                                            startedAt: entry.completedAt,
+                                            updated: entry.updated,
+                                            user: entry.user,
+                                          })
+                                        }
+                                        className="rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                                      >
+                                        Download Log
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void restoreDataPortabilityImport(entry)
+                                        }
+                                        disabled={
+                                          entry.finalStatus !== "success" ||
+                                          !entry.restorePointId
+                                        }
+                                        className="rounded-full border border-[#D8C36A]/35 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                                      >
+                                        Restore
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </article>
+                    <article className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-6">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                        Export History
+                      </p>
+                      <h3 className="mt-3 text-2xl font-bold text-white">
+                        Coming in Phase 19E
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-zinc-400">
+                        Export audit trails can be persisted once the production
+                        audit store is approved.
+                      </p>
+                    </article>
+                  </div>
+                )}
+              </div>
             </div>
           </section>
         )}
@@ -13762,77 +20341,133 @@ export default function AdminDashboardPage() {
                 className="mt-5 rounded-2xl border border-[#D8C36A]/25 bg-black/35 p-5"
               >
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
-                  <input
-                    required
-                    value={staffInviteForm.fullName}
-                    onChange={(event) =>
-                      setStaffInviteForm((form) => ({
-                        ...form,
-                        fullName: event.target.value,
-                      }))
-                    }
-                    placeholder="Full Name"
-                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm"
-                  />
-                  <input
-                    required
-                    type="email"
-                    value={staffInviteForm.email}
-                    onChange={(event) =>
-                      setStaffInviteForm((form) => ({
-                        ...form,
-                        email: event.target.value,
-                      }))
-                    }
-                    placeholder="Email"
-                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm"
-                  />
-                  <select
-                    value={staffInviteForm.role}
-                    onChange={(event) =>
-                      setStaffInviteForm((form) => ({
-                        ...form,
-                        role: event.target.value as AdminRole,
-                      }))
-                    }
-                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm"
-                  >
-                    {(staffRoles.length > 0
-                      ? staffRoles
-                      : userManagementRoles.map((role) => ({
-                          id: role,
-                          name: adminRoleLabels[role],
-                          role,
+                  <label className="grid gap-2">
+                    <span
+                      id="staff-create-name-label"
+                      className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400"
+                    >
+                      Name
+                    </span>
+                    <input
+                      aria-labelledby="staff-create-name-label"
+                      disabled={isStaffUserCreating}
+                      required
+                      value={staffInviteForm.fullName}
+                      onChange={(event) =>
+                        setStaffInviteForm((form) => ({
+                          ...form,
+                          fullName: event.target.value,
                         }))
-                    ).map((role) => (
-                      <option key={role.id} value={role.role}>
-                        {role.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={staffInviteForm.venueScope}
-                    onChange={(event) =>
-                      setStaffInviteForm((form) => ({
-                        ...form,
-                        venueScope: event.target.value,
-                      }))
-                    }
-                    placeholder="Venue Scope"
-                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm"
-                  />
+                      }
+                      placeholder="Full Name"
+                      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="grid gap-2">
+                    <span
+                      id="staff-create-email-label"
+                      className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400"
+                    >
+                      Email
+                    </span>
+                    <input
+                      aria-labelledby="staff-create-email-label"
+                      disabled={isStaffUserCreating}
+                      required
+                      type="email"
+                      value={staffInviteForm.email}
+                      onChange={(event) =>
+                        setStaffInviteForm((form) => ({
+                          ...form,
+                          email: event.target.value,
+                        }))
+                      }
+                      placeholder="Email"
+                      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="grid gap-2">
+                    <span
+                      id="staff-create-role-label"
+                      className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400"
+                    >
+                      Role
+                    </span>
+                    <select
+                      aria-labelledby="staff-create-role-label"
+                      disabled={isStaffUserCreating}
+                      value={staffInviteForm.role}
+                      onChange={(event) =>
+                        setStaffInviteForm((form) => ({
+                          ...form,
+                          role: event.target.value as AdminRole,
+                          venueScope:
+                            event.target.value === "super-admin"
+                              ? "all"
+                              : form.venueScope,
+                        }))
+                      }
+                      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {(staffRoles.length > 0
+                        ? staffRoles
+                        : userManagementRoles.map((role) => ({
+                            id: role,
+                            name: adminRoleLabels[role],
+                            role,
+                          }))
+                      ).map((role) => (
+                        <option key={role.id} value={role.role}>
+                          {role.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="grid gap-2">
+                    <span
+                      id="staff-create-location-label"
+                      className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400"
+                    >
+                      Location
+                    </span>
+                    <select
+                      aria-labelledby="staff-create-location-label"
+                      disabled={isStaffUserCreating}
+                      required
+                      value={staffInviteForm.venueScope}
+                      onChange={(event) =>
+                        setStaffInviteForm((form) => ({
+                          ...form,
+                          venueScope: event.target.value,
+                        }))
+                      }
+                      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <option value="">Select location</option>
+                      {staffLocationOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="submit"
-                    className="rounded-full bg-[#D8C36A] px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]"
+                    disabled={isStaffUserCreating}
+                    className="inline-flex items-center gap-2 rounded-full bg-[#D8C36A] px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Create Staff User
+                    {isStaffUserCreating && (
+                      <span className="h-3 w-3 rounded-full border-2 border-black/30 border-t-black motion-safe:animate-spin" />
+                    )}
+                    {isStaffUserCreating ? "Creating User..." : "Create Staff User"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsStaffInviteOpen(false)}
-                    className="rounded-full border border-white/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                    disabled={isStaffUserCreating}
+                    className="rounded-full border border-white/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Cancel
                   </button>
@@ -13874,10 +20509,7 @@ export default function AdminDashboardPage() {
                           {adminRoleLabels[profile.role] ?? "Staff"}
                         </p>
                         <p className="mt-2 text-xs text-zinc-500">
-                          Venue Scope:{" "}
-                          {profile.venueScope.length > 0
-                            ? profile.venueScope.join(", ")
-                            : "All venues"}
+                          Location: {getStaffVenueScopeLabel(profile.venueScope)}
                         </p>
                       </div>
 
@@ -13917,12 +20549,386 @@ export default function AdminDashboardPage() {
                               ? "Deactivate User"
                               : "Activate User"}
                           </button>
+                          <select
+                            value={
+                              normalizeStaffVenueScope(profile.venueScope)[0] ??
+                              ""
+                            }
+                            onChange={(event) =>
+                              void changeStaffProfileLocation(
+                                profile,
+                                event.target.value,
+                              )
+                            }
+                            className="rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-white"
+                          >
+                            <option value="" disabled>
+                              Select location
+                            </option>
+                            {staffLocationOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => openStaffDeleteModal(profile)}
+                            disabled={
+                              profile.userId === currentStaff.id ||
+                              (profile.active &&
+                                profile.role === "super-admin" &&
+                                activeSuperAdminCount <= 1)
+                            }
+                            title={
+                              profile.userId === currentStaff.id
+                                ? "You cannot delete your own active staff profile."
+                                : profile.active &&
+                                    profile.role === "super-admin" &&
+                                    activeSuperAdminCount <= 1
+                                  ? "The last active Super Admin cannot be deleted."
+                                  : "Delete this staff user."
+                            }
+                            className="rounded-full border border-red-300/35 px-3 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-red-200 transition hover:bg-red-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-red-200"
+                          >
+                            Delete User
+                          </button>
                         </div>
                       )}
                     </div>
                   </article>
                 ))
               )}
+            </div>
+          </section>
+        )}
+
+        {activeAdminTab === "settings" &&
+          activeSettingsTab === "audit" &&
+          canManageSettings &&
+          canViewAuditTrail && (
+          <section className="mb-10 rounded-2xl border border-white/10 bg-zinc-950 p-6 shadow-2xl shadow-black/25">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
+                  Audit Trail
+                </p>
+                <h2 className="text-2xl font-bold">
+                  Immutable Audit Trail
+                </h2>
+                <p className="mt-2 max-w-3xl text-zinc-400">
+                  Review critical staff and system actions with actor, entity,
+                  outcome, and before/after detail.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void refreshAuditTrail(auditPage)}
+                className="w-fit rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <label className="grid gap-2 text-sm text-zinc-400">
+                Date From
+                <input
+                  type="date"
+                  value={auditFilters.dateFrom}
+                  onChange={(event) =>
+                    updateAuditFilter("dateFrom", event.target.value)
+                  }
+                  className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-zinc-400">
+                Date To
+                <input
+                  type="date"
+                  value={auditFilters.dateTo}
+                  onChange={(event) =>
+                    updateAuditFilter("dateTo", event.target.value)
+                  }
+                  className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-zinc-400">
+                Staff Member
+                <select
+                  value={auditFilters.actorStaffProfileId}
+                  onChange={(event) =>
+                    updateAuditFilter("actorStaffProfileId", event.target.value)
+                  }
+                  className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+                >
+                  <option value="">All Staff</option>
+                  {staffProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-2 text-sm text-zinc-400">
+                Outcome
+                <select
+                  value={auditFilters.outcome}
+                  onChange={(event) =>
+                    updateAuditFilter(
+                      "outcome",
+                      event.target.value as AuditOutcome | "all",
+                    )
+                  }
+                  className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+                >
+                  <option value="all">All Outcomes</option>
+                  <option value="success">Success</option>
+                  <option value="blocked">Blocked</option>
+                  <option value="failed">Failed</option>
+                </select>
+              </label>
+              <label className="grid gap-2 text-sm text-zinc-400">
+                Action
+                <input
+                  value={auditFilters.action}
+                  onChange={(event) =>
+                    updateAuditFilter("action", event.target.value)
+                  }
+                  placeholder="booking.edit"
+                  className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-zinc-400">
+                Entity Type
+                <select
+                  value={auditFilters.entityType}
+                  onChange={(event) =>
+                    updateAuditFilter("entityType", event.target.value)
+                  }
+                  className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+                >
+                  <option value="">All Entities</option>
+                  <option value="booking">Booking</option>
+                  <option value="booking-lock">Booking Lock</option>
+                  <option value="customer">Customer</option>
+                  <option value="show">Show</option>
+                  <option value="staff">Staff</option>
+                  <option value="ticket">Ticket</option>
+                  <option value="data-portability-import">Data Import</option>
+                  <option value="data-portability-restore">Data Restore</option>
+                </select>
+              </label>
+              <label className="grid gap-2 text-sm text-zinc-400">
+                Location
+                <select
+                  value={auditFilters.location}
+                  onChange={(event) =>
+                    updateAuditFilter("location", event.target.value)
+                  }
+                  className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+                >
+                  <option value="all">All Locations</option>
+                  {staffLocationOptions
+                    .filter((option) => option.value !== "all")
+                    .map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="grid gap-2 text-sm text-zinc-400">
+                Reference / Search
+                <input
+                  value={auditFilters.search}
+                  onChange={(event) =>
+                    updateAuditFilter("search", event.target.value)
+                  }
+                  placeholder="Reference, staff, reason"
+                  className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+                />
+              </label>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-zinc-400">{auditStatus}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuditFilters({
+                    action: "",
+                    actorStaffProfileId: "",
+                    dateFrom: "",
+                    dateTo: "",
+                    entityReference: "",
+                    entityType: "",
+                    location: "all",
+                    outcome: "all",
+                    search: "",
+                  });
+                  setSelectedAuditEventId(null);
+                }}
+                className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+              >
+                Clear Filters
+              </button>
+            </div>
+
+            <div className="mt-6 overflow-x-auto rounded-2xl border border-white/10">
+              <table className="min-w-[980px] w-full text-left text-sm">
+                <thead className="bg-black/60 text-[0.65rem] uppercase tracking-[0.14em] text-zinc-500">
+                  <tr>
+                    <th className="px-4 py-3">Date & Time</th>
+                    <th className="px-4 py-3">Staff</th>
+                    <th className="px-4 py-3">Role</th>
+                    <th className="px-4 py-3">Action</th>
+                    <th className="px-4 py-3">Entity</th>
+                    <th className="px-4 py-3">Reference</th>
+                    <th className="px-4 py-3">Changed Fields</th>
+                    <th className="px-4 py-3">Outcome</th>
+                    <th className="px-4 py-3">Source</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {auditEvents.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-6 text-center text-zinc-500" colSpan={9}>
+                        No audit events match the selected filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    auditEvents.map((event) => (
+                      <tr
+                        key={event.id}
+                        className="cursor-pointer bg-zinc-950 transition hover:bg-zinc-900/80"
+                        onClick={() =>
+                          setSelectedAuditEventId((currentId) =>
+                            currentId === event.id ? null : event.id,
+                          )
+                        }
+                      >
+                        <td className="px-4 py-3 text-zinc-300">
+                          {formatSouthAfricanTimestamp(event.createdAt)}
+                        </td>
+                        <td className="px-4 py-3 text-white">
+                          {event.actorName ?? "System"}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400">
+                          {event.actorRole ?? "System"}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-[#F2D66C]">
+                          {event.action}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-300">
+                          {event.entityType}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-300">
+                          {event.entityReference}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400">
+                          {event.changedFields.length > 0
+                            ? event.changedFields.join(", ")
+                            : "None"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-[0.12em] ${
+                              event.outcome === "success"
+                                ? "border-emerald-300/40 bg-emerald-950/25 text-emerald-200"
+                                : event.outcome === "blocked"
+                                  ? "border-amber-300/40 bg-amber-950/25 text-amber-200"
+                                  : "border-red-300/40 bg-red-950/25 text-red-200"
+                            }`}
+                          >
+                            {event.outcome}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400">
+                          {event.sourceArea}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {selectedAuditEventId &&
+              auditEvents
+                .filter((event) => event.id === selectedAuditEventId)
+                .map((event) => (
+                  <article
+                    key={event.id}
+                    className="mt-5 rounded-2xl border border-[#D8C36A]/25 bg-black/40 p-5"
+                  >
+                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                          Event Detail
+                        </p>
+                        <h3 className="mt-2 text-xl font-bold text-white">
+                          {event.action} · {event.entityReference}
+                        </h3>
+                        <p className="mt-1 text-sm text-zinc-400">
+                          {event.reason ?? "No reason recorded."}
+                        </p>
+                      </div>
+                      <p className="text-xs text-zinc-500">
+                        Request {event.requestId ?? "Not recorded"}
+                      </p>
+                    </div>
+                    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                      <div className="rounded-xl border border-white/10 bg-zinc-950 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          Changed Fields
+                        </p>
+                        <p className="mt-2 text-sm text-zinc-300">
+                          {event.changedFields.length > 0
+                            ? event.changedFields.join(", ")
+                            : "None"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-zinc-950 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          Before
+                        </p>
+                        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs leading-5 text-zinc-300">
+                          {JSON.stringify(event.beforeValues, null, 2)}
+                        </pre>
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-zinc-950 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          After
+                        </p>
+                        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs leading-5 text-zinc-300">
+                          {JSON.stringify(event.afterValues, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                disabled={auditPage <= 1}
+                onClick={() => void refreshAuditTrail(Math.max(auditPage - 1, 1))}
+                className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
+                Page {auditPage} · {auditTotal} events
+              </p>
+              <button
+                type="button"
+                disabled={auditPage * 25 >= auditTotal}
+                onClick={() => void refreshAuditTrail(auditPage + 1)}
+                className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
             </div>
           </section>
         )}
@@ -14683,7 +21689,7 @@ export default function AdminDashboardPage() {
         )}
 
         {activeAdminTab === "overview" && (
-          <section className="mb-10">
+          <section className="mb-10 flex flex-col">
             <div className="mb-5 flex flex-col gap-4 lg:mb-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
@@ -14714,7 +21720,131 @@ export default function AdminDashboardPage() {
               </select>
             </div>
 
-            <div className="mb-6 overflow-hidden rounded-[1.5rem] border border-[#8D7A2F]/25 bg-[radial-gradient(circle_at_top,#17120A_0%,#080808_58%,#030303_100%)] p-3 shadow-2xl shadow-black/30 sm:mb-8 sm:rounded-[2rem] sm:p-5">
+            <div className="order-2 mb-6 overflow-hidden rounded-[1.5rem] border border-[#D8C36A]/25 bg-[radial-gradient(circle_at_top,#1D1608_0%,#080808_56%,#030303_100%)] p-4 shadow-2xl shadow-black/25 sm:mb-8 sm:rounded-[2rem] sm:p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
+                    System Status
+                  </p>
+                  <h3 className="zingara-heading mt-2 text-2xl font-bold">
+                    Platform Health
+                  </h3>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Live operational checks for the services that keep
+                    bookings, tickets, payments, and staff workflows running.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+                  <span
+                    className={`inline-flex w-fit rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                      systemStatus
+                        ? getSystemHealthBadgeClass(systemStatus.overallStatus)
+                        : "border-white/15 bg-black/35 text-zinc-300"
+                    }`}
+                  >
+                    {systemStatus
+                      ? getSystemHealthLabel(systemStatus.overallStatus)
+                      : isSystemStatusLoading
+                        ? "Checking"
+                        : "Not checked"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void refreshSystemStatus()}
+                    disabled={isSystemStatusLoading}
+                    className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {isSystemStatusLoading
+                      ? "Refreshing..."
+                      : "Refresh Status"}
+                  </button>
+                </div>
+              </div>
+
+              {systemStatusError && (
+                <p className="mt-4 rounded-2xl border border-red-300/25 bg-red-950/20 p-3 text-sm text-red-100">
+                  {systemStatusError}
+                </p>
+              )}
+
+              {systemStatus && (
+                <>
+                  <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    {[
+                      ["Version", systemStatus.platform.platformVersion],
+                      ["Build", systemStatus.platform.build],
+                      ["Environment", systemStatus.platform.environment],
+                      ["Current Staff", systemStatus.platform.currentStaff],
+                      ["Staff Logged In", systemStatus.platform.staffLoggedIn],
+                      [
+                        "Active Booking Locks",
+                        systemStatus.platform.activeBookingLocks.toString(),
+                      ],
+                      ["Current Database", systemStatus.platform.currentDatabase],
+                      [
+                        "Current Date/Time",
+                        formatSouthAfricanTimestamp(
+                          systemStatus.platform.currentDateTime,
+                        ),
+                      ],
+                      [
+                        "Last Successful Health Check",
+                        systemStatus.platform.lastSuccessfulHealthCheck
+                          ? formatSouthAfricanTimestamp(
+                              systemStatus.platform
+                                .lastSuccessfulHealthCheck,
+                            )
+                          : "Not available",
+                      ],
+                      ["Auto Refresh", systemStatus.platform.autoRefresh],
+                    ].map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="rounded-2xl border border-white/10 bg-black/35 p-4"
+                      >
+                        <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          {label}
+                        </p>
+                        <p className="mt-2 break-words text-sm font-semibold text-white">
+                          {value}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {systemStatus.checks.map((check) => (
+                      <article
+                        key={check.name}
+                        className="rounded-2xl border border-white/10 bg-zinc-950 p-4"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <p className="font-semibold text-white">
+                            {check.name}
+                          </p>
+                          <span
+                            className={`inline-flex rounded-full border px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.1em] ${getSystemHealthBadgeClass(check.status)}`}
+                          >
+                            {check.displayLabel ??
+                              getSystemHealthLabel(check.status)}
+                          </span>
+                        </div>
+                        <p className="mt-3 text-sm leading-6 text-zinc-400">
+                          {check.description}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+
+                  <p className="mt-4 text-xs text-zinc-500">
+                    Last refreshed{" "}
+                    {formatSouthAfricanTimestamp(systemStatus.generatedAt)}
+                  </p>
+                </>
+              )}
+            </div>
+
+            <div className="order-1 mb-6 overflow-hidden rounded-[1.5rem] border border-[#8D7A2F]/25 bg-[radial-gradient(circle_at_top,#17120A_0%,#080808_58%,#030303_100%)] p-3 shadow-2xl shadow-black/30 sm:mb-8 sm:rounded-[2rem] sm:p-5">
               <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
@@ -15106,7 +22236,7 @@ export default function AdminDashboardPage() {
             </div>
             </div>
 
-            <section className="rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-5 shadow-2xl shadow-black/25">
+            <section className="order-3 rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-5 shadow-2xl shadow-black/25">
               <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
@@ -15123,7 +22253,7 @@ export default function AdminDashboardPage() {
               </div>
 
               {canManageShows && (
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[180px_160px_1fr_auto]">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[160px_140px_minmax(180px,1fr)_minmax(190px,1fr)_minmax(180px,1fr)_auto]">
                           <input
                             type="date"
                             value={newShow.date}
@@ -15157,9 +22287,42 @@ export default function AdminDashboardPage() {
                             placeholder="Show label"
                             className="rounded-xl border border-white/15 bg-black px-4 py-3"
                           />
+                          <select
+                            required
+                            value={newShow.location}
+                            onChange={(event) =>
+                              setNewShow((currentShow) => ({
+                                ...currentShow,
+                                location: event.target.value as
+                                  | EntryLocationKey
+                                  | "",
+                              }))
+                            }
+                            className="rounded-xl border border-white/15 bg-black px-4 py-3"
+                            aria-label="Location"
+                          >
+                            <option value="">Location</option>
+                            {showLocationOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            value={newShow.address}
+                            onChange={(event) =>
+                              setNewShow((currentShow) => ({
+                                ...currentShow,
+                                address: event.target.value,
+                              }))
+                            }
+                            placeholder="Address"
+                            className="rounded-xl border border-white/15 bg-black px-4 py-3"
+                          />
                           <button
                             type="button"
                             onClick={createShow}
+                            disabled={!normalizeShowLocation(newShow.location)}
                             className="rounded-full bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-300"
                           >
                             Create Show
@@ -15193,8 +22356,20 @@ export default function AdminDashboardPage() {
                                 <p className="mt-1 text-sm text-zinc-400">
                                   {formatOperationalShowDate(show.date)} ·{" "}
                                   {getSouthAfricaShowTime(show)} ·{" "}
-                                  {show.venueName ?? venueConfig.venueName}
+                                  {show.location || normalizeShowLocation(show.venueName)
+                                    ? getShowLocationOption(
+                                        (show.location ??
+                                          normalizeShowLocation(
+                                            show.venueName,
+                                          )) as EntryLocationKey,
+                                      ).label
+                                    : "Location required"}
                                 </p>
+                                {show.address && (
+                                  <p className="mt-1 text-xs text-zinc-500">
+                                    Address: {show.address}
+                                  </p>
+                                )}
                                 {(show.description ||
                                   show.internalNotes ||
                                   linkedBookingCount > 0) && (
@@ -15321,13 +22496,39 @@ export default function AdminDashboardPage() {
                     />
                   </label>
                   <label className="text-sm text-zinc-400">
-                    Venue / Location
-                    <input
+                    Location
+                    <select
+                      required
                       value={showEditForm.venueName}
                       onChange={(event) =>
                         setShowEditForm((currentForm) => ({
                           ...currentForm,
-                          venueName: event.target.value,
+                          venueName: event.target.value as EntryLocationKey,
+                        }))
+                      }
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white"
+                    >
+                      <option value="">Select location</option>
+                      {showLocationOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {!normalizeShowLocation(showEditForm.venueName) && (
+                      <span className="mt-2 block text-xs font-semibold text-red-300">
+                        Select a valid Location before saving this show.
+                      </span>
+                    )}
+                  </label>
+                  <label className="text-sm text-zinc-400">
+                    Address
+                    <input
+                      value={showEditForm.address}
+                      onChange={(event) =>
+                        setShowEditForm((currentForm) => ({
+                          ...currentForm,
+                          address: event.target.value,
                         }))
                       }
                       className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white"
@@ -15401,6 +22602,7 @@ export default function AdminDashboardPage() {
                     <button
                       type="button"
                       onClick={duplicateEditedShow}
+                      disabled={!normalizeShowLocation(showEditForm.venueName)}
                       className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
                     >
                       Duplicate Show
@@ -15423,7 +22625,8 @@ export default function AdminDashboardPage() {
                   <button
                     type="button"
                     onClick={saveEditedShow}
-                    className="rounded-full bg-[#D8C36A] px-6 py-3 font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.2)] transition hover:bg-[#F2D66C]"
+                    disabled={!normalizeShowLocation(showEditForm.venueName)}
+                    className="rounded-full bg-[#D8C36A] px-6 py-3 font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.2)] transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Save Show
                   </button>
@@ -15721,7 +22924,7 @@ export default function AdminDashboardPage() {
                       <div className="mb-3 flex items-center justify-between gap-4">
                         <div>
                           <p className="font-semibold text-white">
-                            {showReport.show.date} ·{" "}
+                            {formatSouthAfricanDate(showReport.show.date)} ·{" "}
                             {getSouthAfricaShowTime(showReport.show)}
                           </p>
                           <p className="text-sm text-zinc-500">
@@ -16013,6 +23216,28 @@ export default function AdminDashboardPage() {
                   favourite zones, add-ons, promo usage, notes, VIP
                   tags, and communication history.
                 </p>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  {(
+                    [
+                      ["active", `Active ${activeCustomerCount}`],
+                      ["archived", `Archived ${archivedCustomerCount}`],
+                      ["all", `All ${customerProfiles.length}`],
+                    ] as Array<[CustomerArchiveFilter, string]>
+                  ).map(([filter, label]) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setCustomerArchiveFilter(filter)}
+                      className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                        customerArchiveFilter === filter
+                          ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                          : "border-white/15 text-zinc-300 hover:bg-white hover:text-black"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -16120,7 +23345,12 @@ export default function AdminDashboardPage() {
                       <button
                         key={profile.key}
                         type="button"
-                        onClick={() => setSelectedCustomerKey(profile.key)}
+                        onClick={() => {
+                          setSelectedCustomerKey(profile.key);
+                          setCustomerProfileReturnContext({
+                            source: "customers",
+                          });
+                        }}
                         className={`rounded-2xl border p-4 text-left transition ${
                           selectedCustomerKey === profile.key
                             ? "border-[#D8C36A]/70 bg-[#211708]"
@@ -16128,17 +23358,24 @@ export default function AdminDashboardPage() {
                         }`}
                       >
                         <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <p className="font-semibold text-white">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                            <p className="break-words font-semibold text-white">
                               {profile.customer.name || "Unnamed Guest"}
                             </p>
+                              {profile.archivedAt && (
+                                <span className="rounded-full border border-zinc-500/40 bg-zinc-900 px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-[0.1em] text-zinc-300">
+                                  Archived
+                                </span>
+                              )}
+                            </div>
                             <p className="mt-1 text-sm text-zinc-500">
                               {profile.customer.email ||
                                 profile.customer.phone ||
                                 "No contact details"}
                             </p>
                           </div>
-                          <p className="font-semibold text-[#D8C36A]">
+                          <p className="shrink-0 font-semibold text-[#D8C36A]">
                             {formatCurrency(profile.totalSpend)}
                           </p>
                         </div>
@@ -16165,18 +23402,18 @@ export default function AdminDashboardPage() {
               </div>
 
               {selectedCustomerProfile && (
-              <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
+              <div className="min-w-0 rounded-2xl border border-white/10 bg-black/35 p-5">
                   <div>
-                    <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
+                    <div className="flex flex-col gap-4 border-b border-white/10 pb-5 2xl:flex-row 2xl:items-start 2xl:justify-between">
+                      <div className="min-w-0 flex-1">
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
                           Customer Profile
                         </p>
-                        <h3 className="mt-2 text-4xl font-bold">
+                        <h3 className="mt-2 max-w-full break-words text-4xl font-bold leading-tight">
                           {selectedCustomerProfile.customer.name ||
                             "Unnamed Guest"}
                         </h3>
-                        <p className="mt-2 text-zinc-400">
+                        <p className="mt-2 break-words text-zinc-400">
                           {selectedCustomerProfile.customer.email ||
                             "No email"}{" "}
                           ·{" "}
@@ -16187,6 +23424,11 @@ export default function AdminDashboardPage() {
                           <span className="inline-flex rounded-full border border-[#D8C36A]/25 bg-[#D8C36A]/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#F2D66C]">
                             {selectedCustomerSourceLabel}
                           </span>
+                          {selectedCustomerProfile.archivedAt && (
+                            <span className="inline-flex rounded-full border border-zinc-500/40 bg-zinc-900 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-200">
+                              Archived
+                            </span>
+                          )}
                           {selectedCustomerRecordDiffers && (
                             <button
                               type="button"
@@ -16203,8 +23445,40 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[520px]">
-                        <div className="rounded-2xl border border-[#D8C36A]/20 bg-zinc-950 p-4">
+                      <div className="flex w-full flex-col gap-3 2xl:w-auto 2xl:items-end">
+                        <div className="flex flex-wrap gap-2 2xl:justify-end">
+                          <button
+                            type="button"
+                            onClick={returnFromCustomerProfile}
+                            className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                          >
+                            {customerProfileReturnContext.source === "bookings"
+                              ? "Back to Bookings"
+                              : "Back to Customers"}
+                          </button>
+                          {isSuperAdmin && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCustomerArchiveStatus(
+                                  selectedCustomerProfile,
+                                  !selectedCustomerProfile.archivedAt,
+                                )
+                              }
+                              className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                                selectedCustomerProfile.archivedAt
+                                  ? "border-emerald-300/40 text-emerald-200 hover:bg-emerald-300 hover:text-black"
+                                  : "border-red-300/35 text-red-100 hover:bg-red-200 hover:text-black"
+                              }`}
+                            >
+                              {selectedCustomerProfile.archivedAt
+                                ? "Restore Customer"
+                                : "Archive Customer"}
+                            </button>
+                          )}
+                        </div>
+                      <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-4 2xl:min-w-[520px]">
+                        <div className="min-h-[96px] rounded-2xl border border-[#D8C36A]/20 bg-zinc-950 p-4">
                           <p className="text-xs uppercase tracking-[0.14em] text-[#D8C36A]">
                             Spend
                           </p>
@@ -16214,7 +23488,7 @@ export default function AdminDashboardPage() {
                             )}
                           </p>
                         </div>
-                        <div className="rounded-2xl border border-white/10 bg-zinc-950 p-4">
+                        <div className="min-h-[96px] rounded-2xl border border-white/10 bg-zinc-950 p-4">
                           <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
                             Bookings
                           </p>
@@ -16222,7 +23496,7 @@ export default function AdminDashboardPage() {
                             {selectedCustomerProfile.totalBookings}
                           </p>
                         </div>
-                        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-950/15 p-4">
+                        <div className="min-h-[96px] rounded-2xl border border-emerald-400/20 bg-emerald-950/15 p-4">
                           <p className="text-xs uppercase tracking-[0.14em] text-emerald-300">
                             Attendance
                           </p>
@@ -16232,7 +23506,7 @@ export default function AdminDashboardPage() {
                             )}
                           </p>
                         </div>
-                        <div className="rounded-2xl border border-sky-400/20 bg-sky-950/15 p-4">
+                        <div className="min-h-[96px] rounded-2xl border border-sky-400/20 bg-sky-950/15 p-4">
                           <p className="text-xs uppercase tracking-[0.14em] text-sky-200">
                             Arrivals
                           </p>
@@ -16240,6 +23514,7 @@ export default function AdminDashboardPage() {
                             {selectedCustomerProfile.attendanceCount}
                           </p>
                         </div>
+                      </div>
                       </div>
                     </div>
 
@@ -16524,9 +23799,9 @@ export default function AdminDashboardPage() {
                                     {record.message}
                                   </p>
                                   <p className="mt-2 text-xs text-zinc-500">
-                                    {new Date(
+                                    {formatSouthAfricanTimestamp(
                                       record.sentAt,
-                                    ).toLocaleString()}
+                                    )}
                                   </p>
                                 </div>
                               ),
@@ -16722,24 +23997,18 @@ export default function AdminDashboardPage() {
                           <div className="mt-4 flex flex-wrap gap-2 text-xs uppercase tracking-[0.14em] text-zinc-500">
                             <span>
                               Joined{" "}
-                              {new Date(
-                                entry.createdAt,
-                              ).toLocaleString()}
+                              {formatSouthAfricanTimestamp(entry.createdAt)}
                             </span>
                             {entry.promotedAt && (
                               <span>
                                 Promoted{" "}
-                                {new Date(
-                                  entry.promotedAt,
-                                ).toLocaleString()}
+                                {formatSouthAfricanTimestamp(entry.promotedAt)}
                               </span>
                             )}
                             {entry.convertedAt && (
                               <span>
                                 Converted{" "}
-                                {new Date(
-                                  entry.convertedAt,
-                                ).toLocaleString()}
+                                {formatSouthAfricanTimestamp(entry.convertedAt)}
                               </span>
                             )}
                           </div>
@@ -16835,7 +24104,7 @@ export default function AdminDashboardPage() {
                   <span className="relative mt-2 block min-w-[280px]">
                     <span className="pointer-events-none absolute inset-y-0 left-4 right-10 z-10 flex items-center truncate text-sm font-semibold normal-case tracking-normal text-white">
                       {workflowShow
-                        ? `${workflowShow.date} · ${getSouthAfricaShowTime(workflowShow)}`
+                        ? `${formatSouthAfricanDate(workflowShow.date)} · ${getSouthAfricaShowTime(workflowShow)}`
                         : "Select show"}
                     </span>
                     <select
@@ -16852,7 +24121,7 @@ export default function AdminDashboardPage() {
                           value={show.id}
                           className="bg-black text-white"
                         >
-                          {show.label} · {show.date} ·{" "}
+                          {show.label} · {formatSouthAfricanDate(show.date)} ·{" "}
                           {getSouthAfricaShowTime(show)}
                         </option>
                       ))}
@@ -16876,38 +24145,6 @@ export default function AdminDashboardPage() {
                 {workflowStatus}
               </div>
             )}
-
-            <div className="mb-5 rounded-2xl border border-[#D8C36A]/25 bg-black/35 p-5">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                  Guest Notification Preview
-                </p>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    Preview the guest-facing browser notification
-                    experience for installed PWAs and supported
-                    browsers. Current permission:{" "}
-                    <span className="font-semibold text-white">
-                      {notificationPermission}
-                    </span>
-                    .
-                  </p>
-                  {notificationTestStatus && (
-                    <p className="mt-2 text-sm text-emerald-300">
-                      {notificationTestStatus}
-                    </p>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={sendTestBrowserNotification}
-                  className="min-w-[220px] whitespace-nowrap rounded-full bg-[#D8C36A] px-5 py-3 text-center text-sm font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.18)] transition hover:bg-[#F2D66C]"
-                >
-                  Send Test Notification
-                </button>
-              </div>
-            </div>
 
             <div className="mb-5 rounded-2xl border border-white/10 bg-black/35 p-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -16938,6 +24175,7 @@ export default function AdminDashboardPage() {
                       onClick={() =>
                         toggleNotificationPreference(preference)
                       }
+                      aria-pressed={isEnabled}
                       className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${
                         isEnabled
                           ? "border-[#D8C36A]/30 bg-[#D8C36A]/10"
@@ -17084,17 +24322,48 @@ export default function AdminDashboardPage() {
                     </label>
 
                     <div className="flex flex-wrap gap-2">
-                      {communicationVariableHints.map((variable) => (
-                        <span
-                          key={variable}
-                          className="rounded-full border border-[#D8C36A]/25 bg-black px-3 py-1 font-mono text-xs text-[#F2D66C]"
-                        >
-                          {"{{"}
-                          {variable}
-                          {"}}"}
-                        </span>
-                      ))}
+                      {communicationVariableHints.map((variable) => {
+                        const variableText = `{{${variable}}}`;
+                        const isCopied =
+                          copiedCommunicationVariable === variableText;
+
+                        return (
+                          <button
+                            key={variable}
+                            type="button"
+                            onClick={() =>
+                              void copyCommunicationVariable(variable)
+                            }
+                            onKeyDown={(event) => {
+                              if (
+                                event.key !== "Enter" &&
+                                event.key !== " "
+                              ) {
+                                return;
+                              }
+
+                              event.preventDefault();
+                              void copyCommunicationVariable(variable);
+                            }}
+                            aria-label={`Copy ${variableText}`}
+                            title={`Copy ${variableText}`}
+                            className={`inline-flex items-center justify-center rounded-full border px-3 py-1 font-mono text-xs transition focus:outline-none focus:ring-2 focus:ring-[#F2D66C]/60 ${
+                              isCopied
+                                ? "border-emerald-300/50 bg-emerald-300/10 text-emerald-200"
+                                : "border-[#D8C36A]/25 bg-black text-[#F2D66C] hover:border-[#F2D66C]/60 hover:bg-[#D8C36A]/10"
+                            }`}
+                          >
+                            {isCopied ? `${variableText} copied` : variableText}
+                          </button>
+                        );
+                      })}
                     </div>
+
+                    {communicationVariableCopyError && (
+                      <p className="text-xs font-semibold text-amber-200">
+                        {communicationVariableCopyError}
+                      </p>
+                    )}
 
                     <div className="flex flex-wrap gap-3">
                       <button
@@ -17151,11 +24420,13 @@ export default function AdminDashboardPage() {
                         </div>
                         <button
                           type="button"
-                          onClick={sendSelectedTemplateCommunication}
+                          onClick={openSelectedTemplateCommunicationConfirmation}
                           disabled={activeWorkflowBookings.length === 0}
-                          className="inline-flex min-w-[210px] max-w-full items-center justify-center whitespace-nowrap rounded-full bg-[#D8C36A] px-5 py-3 text-center text-sm font-bold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
+                          className="inline-flex min-h-[46px] w-full max-w-full items-center justify-center rounded-full bg-[#D8C36A] px-5 py-3 text-center text-sm font-bold leading-tight text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:min-w-[230px] sm:whitespace-nowrap"
                         >
-                          Send Communication
+                          <span className="block w-full text-center">
+                            Send
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -17274,7 +24545,7 @@ export default function AdminDashboardPage() {
                             </p>
                           </div>
                           <p className="text-xs text-zinc-500">
-                            {new Date(record.sentAt).toLocaleString()}
+                            {formatSouthAfricanTimestamp(record.sentAt)}
                           </p>
                         </div>
                         <p className="mt-3 line-clamp-2 text-sm text-zinc-300">
@@ -18135,8 +25406,10 @@ export default function AdminDashboardPage() {
                               ? `Linked into ${linkedParent.tableNumber}`
                               : tableOccupancy.booking
                               ? `${tableOccupancy.booking.customer.name || "Guest"} · ${tableOccupancy.booking.partySize} pax`
-                              : table.guestNotes ||
-                                "Available for allocation"}
+                              : tableOccupancy.state === "available"
+                                ? "Available for allocation"
+                                : table.guestNotes ||
+                                  "Available for allocation"}
                           </p>
 
                           {table.mergedFrom?.length && (
@@ -18591,50 +25864,22 @@ export default function AdminDashboardPage() {
                 Booking Management
               </p>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <h2 className="text-3xl font-bold">
-                  Bookings
-                </h2>
-
-                <label className="group relative block w-10 shrink-0 transition-all duration-300 focus-within:w-full sm:focus-within:w-80">
-                  <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-[#F2D66C] transition-all duration-300 group-focus-within:left-4 group-focus-within:translate-x-0">
-                    <svg
-                      aria-hidden="true"
-                      viewBox="0 0 24 24"
-                      className="h-5 w-5"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2.5"
-                    >
-                      <circle cx="11" cy="11" r="7" />
-                      <path d="m20 20-4.35-4.35" />
-                    </svg>
-                  </span>
-                  <input
-                    value={bookingSearch}
-                    onChange={(event) => {
-                      setBookingSearch(event.target.value);
-                      setBookingPage(1);
-                    }}
-                    aria-label="Search bookings"
-                    className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-0 text-sm text-transparent shadow-[0_0_18px_rgba(216,195,106,0.1)] transition-all duration-300 focus:border-[#D8C36A]/70 focus:pr-4 focus:text-white focus:outline-none"
-                  />
-                </label>
-              </div>
+              <h2 className="text-3xl font-bold">
+                Bookings
+              </h2>
             </div>
 
-            <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
-	                <label className="relative inline-flex">
+            <div className="mt-5 grid gap-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(13rem,1.1fr)_minmax(11rem,0.9fr)_minmax(11rem,0.9fr)_minmax(10rem,0.8fr)_minmax(14rem,1.2fr)]">
+	                <label className="relative block min-w-0">
+                    <span className="sr-only">Filter bookings by show</span>
 	                  <select
 	                    value={bookingShowFilter}
                     onChange={(event) => {
                       setBookingShowFilter(event.target.value);
                       setBookingPage(1);
                     }}
-                    className="appearance-none rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300"
+                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
                   >
                     <option value="all">All Shows</option>
                     {shows.map((show) => (
@@ -18643,12 +25888,13 @@ export default function AdminDashboardPage() {
                       </option>
                     ))}
                   </select>
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
-                    ▾
+	                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+	                    ▾
 	                  </span>
 	                </label>
 
-	                <label className="relative inline-flex">
+	                <label className="relative block min-w-0">
+                    <span className="sr-only">Filter bookings by source</span>
 	                  <select
 	                    value={bookingSourceFilter}
 	                    onChange={(event) => {
@@ -18657,7 +25903,7 @@ export default function AdminDashboardPage() {
 	                      );
 	                      setBookingPage(1);
 	                    }}
-	                    className="appearance-none rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300"
+	                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
 	                  >
 	                    <option value="all">All Sources</option>
 	                    {(
@@ -18673,13 +25919,37 @@ export default function AdminDashboardPage() {
 	                  </span>
 	                </label>
 
-	                <div className="relative">
+                <label className="relative block min-w-0">
+                  <span className="sr-only">Filter bookings by status</span>
+                  <select
+                    value={bookingStatusFilter}
+                    onChange={(event) => {
+                      setBookingStatusFilter(
+                        event.target.value as BookingStatus | "all",
+                      );
+                      setBookingPage(1);
+                    }}
+                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                  >
+                    <option value="all">All Statuses</option>
+                    {bookingStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {bookingStatusLabels[status]}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    ▾
+                  </span>
+                </label>
+
+	                <div className="relative min-w-0">
                   <button
                     type="button"
                     onClick={() =>
                       setIsBookingCalendarOpen((isOpen) => !isOpen)
                     }
-                    className="rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white"
+                    className="h-11 w-full rounded-full border border-white/15 bg-black/35 px-4 py-2 text-left text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white focus:border-[#D8C36A]/70 focus:outline-none"
                   >
                     {bookingDateFilter === "all"
                       ? "All Dates"
@@ -18761,10 +26031,75 @@ export default function AdminDashboardPage() {
                     </div>
                   )}
                 </div>
+
+                <label className="relative block min-w-0">
+                  <span className="sr-only">Search bookings</span>
+                  <span className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-[#F2D66C]">
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.5"
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m20 20-4.35-4.35" />
+                    </svg>
+                  </span>
+                  <input
+                    value={bookingSearch}
+                    onChange={(event) => {
+                      setBookingSearch(event.target.value);
+                      setBookingPage(1);
+                    }}
+                    aria-label="Search bookings"
+                    placeholder="Search bookings"
+                    className="h-11 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-4 text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition placeholder:text-zinc-500 focus:border-[#D8C36A]/70"
+                  />
+                </label>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <label className="flex cursor-pointer items-center gap-3 rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white">
+              <div className="flex flex-col gap-3 xl:flex-row xl:flex-wrap xl:items-center xl:justify-between">
+                <div className="flex min-w-0 flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
+                <div
+                  role="group"
+                  aria-label="Archive view"
+                  className="grid min-w-0 grid-cols-3 gap-1 overflow-x-auto rounded-full border border-white/15 bg-black/35 p-1"
+                >
+                  {(
+                    [
+                      ["active", "Active"],
+                      ["archived", "Archived"],
+                      ["all", "All"],
+                    ] as Array<[BookingArchiveFilter, string]>
+                  ).map(([filter, label]) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => {
+                        setBookingArchiveFilter(filter);
+                        setBookingPage(1);
+                      }}
+                      className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                        bookingArchiveFilter === filter
+                          ? "bg-[#D8C36A] text-black"
+                          : "text-zinc-300 hover:text-white"
+                      }`}
+                    >
+                      <span className="whitespace-nowrap">{label}</span>
+                    </button>
+                  ))}
+                </div>
+                <label
+                  className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                    hideCancelledBookings
+                      ? "border-[#D8C36A]/60 bg-[#D8C36A]/15 text-white"
+                      : "border-white/15 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
+                  }`}
+                >
                   <input
                     type="checkbox"
                     checked={hideCancelledBookings}
@@ -18772,16 +26107,57 @@ export default function AdminDashboardPage() {
                       setHideCancelledBookings(event.target.checked);
                       setBookingPage(1);
                     }}
-                    className="h-4 w-4 accent-[#D8C36A]"
+                    className="sr-only"
                   />
-                  Hide Cancelled
+                  <span
+                    aria-hidden="true"
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[0.7rem] font-bold ${
+                      hideCancelledBookings
+                        ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                        : "border-zinc-500 bg-black/60 text-transparent"
+                    }`}
+                  >
+                    ✓
+                  </span>
+                  <span className="whitespace-nowrap">Hide Cancelled</span>
                 </label>
+                {isSuperAdmin && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openBookingArchiveModal("filtered")}
+                      disabled={filteredArchivableBookings.length === 0}
+                      title="Archives every non-archived booking matching the current filters, across all pages."
+                      className="min-h-11 rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      <span className="whitespace-nowrap">
+                        Archive Filtered ({filteredArchivableBookings.length})
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openBookingArchiveModal("all")}
+                      disabled={allArchivableBookings.length === 0}
+                      title="Archives all non-archived bookings in your authorised scope, regardless of the current filters."
+                      className="min-h-11 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      <span className="whitespace-nowrap">
+                        Archive All Non-Archived ({allArchivableBookings.length})
+                      </span>
+                    </button>
+                  </div>
+                )}
+                </div>
 
-                <div className="grid grid-cols-2 rounded-full border border-white/15 bg-black/35 p-1">
+                <div
+                  role="group"
+                  aria-label="Bookings view mode"
+                  className="grid grid-cols-2 gap-1 rounded-full border border-white/15 bg-black/35 p-1"
+                >
                   {(
                     [
-                      ["list", "List View"],
-                      ["grid", "Grid View"],
+                      ["list", "List"],
+                      ["grid", "Grid"],
                     ] as Array<[BookingViewMode, string]>
                   ).map(([mode, label]) => (
                     <button
@@ -18789,15 +26165,15 @@ export default function AdminDashboardPage() {
                       type="button"
                       onClick={() => {
                         setBookingViewMode(mode);
-                        setExpandedBookingReference("");
+                        closeBookingDetails();
                       }}
-                      className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
+                      className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
                         bookingViewMode === mode
                           ? "bg-[#D8C36A] text-black"
                           : "text-zinc-300 hover:text-white"
                       }`}
                     >
-                      {label}
+                      <span className="whitespace-nowrap">{label}</span>
                     </button>
                   ))}
                 </div>
@@ -18812,14 +26188,23 @@ export default function AdminDashboardPage() {
                 <span className="font-semibold text-white">
                   {filteredBookings.length}
                 </span>{" "}
-                matching bookings
+                matching bookings ·{" "}
+                <span className="font-semibold text-white">
+                  {archivedBookingCount}
+                </span>{" "}
+                archived
               </p>
-	              {(bookingSearch || bookingSourceFilter !== "all") && (
+	              {(bookingSearch ||
+                  bookingSourceFilter !== "all" ||
+                  bookingStatusFilter !== "all" ||
+                  bookingArchiveFilter !== "active") && (
 	                <button
 	                  type="button"
 	                  onClick={() => {
 	                    setBookingSearch("");
 	                    setBookingSourceFilter("all");
+                      setBookingStatusFilter("all");
+                      setBookingArchiveFilter("active");
 	                    setBookingPage(1);
 	                  }}
                   className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
@@ -18874,6 +26259,11 @@ export default function AdminDashboardPage() {
 	                  tableCompatibilityWarnings[booking.reference];
 	                const isBookingExpanded =
 	                  expandedBookingReference === booking.reference;
+                    const bookingLock = getBookingEditLock(booking.reference);
+                    const bookingLockedByOther =
+                      Boolean(bookingLock) && !isOwnBookingLock(bookingLock);
+                    const bookingIsReadOnly =
+                      isBookingReadOnly(booking.reference);
 	                const corporateCompanyName =
 	                  getCorporateBookingCompanyName(booking);
 	                const isCorporateBooking =
@@ -18904,14 +26294,14 @@ export default function AdminDashboardPage() {
                     >
                       <button
                         type="button"
-                        onClick={() =>
-                          setExpandedBookingReference(
-                            (currentReference) =>
-                              currentReference === booking.reference
-                                ? ""
-                                : booking.reference,
-                          )
-                        }
+                        onClick={() => {
+                          if (isBookingExpanded) {
+                            closeBookingDetails();
+                            return;
+                          }
+
+                          setExpandedBookingReference(booking.reference);
+                        }}
                         className="min-w-0 text-left"
                       >
                         <div className="flex flex-wrap items-center gap-2">
@@ -18947,6 +26337,19 @@ export default function AdminDashboardPage() {
 	                              Corporate
 	                            </span>
 	                          )}
+                          {isArchivedBooking(booking) && (
+                            <span className="inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-zinc-400/35 bg-zinc-900/70 px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] text-zinc-200">
+                              Archived
+                            </span>
+                          )}
+                          {bookingLock && (
+                            <span
+                              title={`Currently editing: ${bookingLock.staffName} · ${bookingLock.staffRole}`}
+                              className="inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-sky-300/35 bg-sky-950/30 px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] text-sky-100"
+                            >
+                              Editing
+                            </span>
+                          )}
 	                          {(wastedSeats >= 4 || betterFitTable) && (
                             <span className="inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-amber-300/35 bg-amber-950/25 px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] text-amber-100">
                               Optimise
@@ -19011,7 +26414,10 @@ export default function AdminDashboardPage() {
                           <button
                             type="button"
                             onClick={() =>
-                              openCustomerProfile(booking.customer)
+                              openCustomerProfile(booking.customer, {
+                                bookingReference: booking.reference,
+                                source: "bookings",
+                              })
                             }
                             className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full border border-[#D8C36A]/40 px-3 py-2 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-4 sm:text-sm"
                           >
@@ -19032,18 +26438,29 @@ export default function AdminDashboardPage() {
                         </button>
 
                         {canManageBookings && (
-                          <button
-                            type="button"
-                            disabled={
-                              (booking.status ?? "confirmed") ===
-                              "cancelled"
-                            }
+                        <button
+                          type="button"
+                          disabled={
+                            bookingLockedByOther ||
+                            isArchivedBooking(booking) ||
+                            (booking.status ?? "confirmed") ===
+                            "cancelled"
+                          }
                             onClick={() =>
                               openCancellationModal(booking)
                             }
                             className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full border border-red-300/40 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-35 sm:px-4 sm:text-sm"
                           >
                             Cancel Booking
+                          </button>
+                        )}
+                        {isSuperAdmin && isArchivedBooking(booking) && (
+                          <button
+                            type="button"
+                            onClick={() => void restoreBooking(booking)}
+                            className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full border border-emerald-300/40 px-3 py-2 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-300 hover:text-black sm:px-4 sm:text-sm"
+                          >
+                            Restore
                           </button>
                         )}
                       </div>
@@ -19054,7 +26471,7 @@ export default function AdminDashboardPage() {
                         <button
                           type="button"
                           aria-label="Close booking details"
-                          onClick={() => setExpandedBookingReference("")}
+                          onClick={closeBookingDetails}
                           className="absolute inset-0 cursor-default"
                         />
                         <aside className="relative z-10 flex h-full w-full max-w-5xl flex-col overflow-hidden border border-[#D8C36A]/25 bg-zinc-950 text-white shadow-2xl shadow-black/50 md:h-[min(94vh,920px)] md:w-[min(96vw,1040px)] md:rounded-[2rem] xl:h-[min(92vh,920px)]">
@@ -19082,9 +26499,7 @@ export default function AdminDashboardPage() {
                             </div>
                             <button
                               type="button"
-                              onClick={() =>
-                                setExpandedBookingReference("")
-                              }
+                              onClick={closeBookingDetails}
                               className="shrink-0 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white hover:text-black sm:px-4 sm:text-sm"
                             >
                               Close
@@ -19112,7 +26527,7 @@ export default function AdminDashboardPage() {
                         {" · "}Outstanding{" "}
                         {formatCurrency(financials.balanceDue)}
                       </p>
-                      {(booking.addons ?? []).length > 0 && (
+                    {(booking.addons ?? []).length > 0 && (
                         <p className="mt-2 text-[#D8C36A]">
                           Add-ons:{" "}
                           {(booking.addons ?? [])
@@ -19122,8 +26537,151 @@ export default function AdminDashboardPage() {
                       )}
                     </div>
 
+                    {bookingLockedByOther && bookingLock && (
+                      <div className="mt-4 rounded-2xl border border-sky-300/30 bg-sky-950/20 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-200">
+                          This booking is currently being edited.
+                        </p>
+                        <div className="mt-3 grid grid-cols-1 gap-3 text-sm text-zinc-300 sm:grid-cols-2">
+                          <p>
+                            <span className="block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                              Currently editing
+                            </span>
+                            <span className="font-semibold text-white">
+                              {bookingLock.staffName}
+                            </span>
+                          </p>
+                          <p>
+                            <span className="block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                              Role
+                            </span>
+                            <span className="font-semibold text-white">
+                              {bookingLock.staffRole}
+                            </span>
+                          </p>
+                          <p>
+                            <span className="block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                              Started editing
+                            </span>
+                            <span className="font-semibold text-white">
+                              {formatSouthAfricanTimestamp(
+                                bookingLock.startedAt,
+                              )}
+                            </span>
+                          </p>
+                          <p>
+                            <span className="block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                              Last activity
+                            </span>
+                            <span className="font-semibold text-white">
+                              {formatSouthAfricanTimestamp(
+                                bookingLock.lastActivityAt,
+                              )}
+                            </span>
+                          </p>
+                        </div>
+                        {bookingLockStatus && (
+                          <p className="mt-3 text-sm text-sky-100">
+                            {bookingLockStatus}
+                          </p>
+                        )}
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void refreshBookingEditLocks(booking.reference)
+                            }
+                            className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-200 transition hover:bg-white hover:text-black"
+                          >
+                            Refresh
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBookingReadOnlyReferences(
+                                (currentReferences) =>
+                                  currentReferences.includes(
+                                    booking.reference,
+                                  )
+                                    ? currentReferences
+                                    : [
+                                        ...currentReferences,
+                                        booking.reference,
+                                      ],
+                              )
+                            }
+                            className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                          >
+                            View Read Only
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const result =
+                                await requestBookingEditTakeover({
+                                  lockId: bookingLock.id,
+                                });
+
+                              if (result.lock) {
+                                setBookingEditLocks((currentLocks) => [
+                                  ...currentLocks.filter(
+                                    (lock) => lock.id !== result.lock?.id,
+                                  ),
+                                  result.lock as BookingEditLock,
+                                ]);
+                              }
+
+                              setBookingLockStatus("Takeover requested.");
+                            }}
+                            className="rounded-full border border-sky-300/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-sky-100 transition hover:bg-sky-300 hover:text-black"
+                          >
+                            Request Takeover
+                          </button>
+                          {canForceBookingTakeover(bookingLock) && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const result =
+                                  await acquireBookingEditLock({
+                                    bookingReference: booking.reference,
+                                    force: true,
+                                    sessionId: bookingLockSessionId,
+                                  });
+
+                                if (result.status === "acquired" && result.lock) {
+                                  setActiveBookingEditLock(result.lock);
+                                  setBookingReadOnlyReferences(
+                                    (currentReferences) =>
+                                      currentReferences.filter(
+                                        (reference) =>
+                                          reference !== booking.reference,
+                                      ),
+                                  );
+                                  await refreshBookingEditLocks(
+                                    booking.reference,
+                                  );
+                                  setBookingLockStatus("");
+                                }
+                              }}
+                              className="rounded-full border border-amber-300/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-amber-100 transition hover:bg-amber-300 hover:text-black"
+                            >
+                              Force Takeover
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={closeBookingDetails}
+                            className="rounded-full border border-red-300/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-red-200 transition hover:bg-red-300 hover:text-black"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {(wastedSeats >= 4 || betterFitTable) &&
-                      canManageBookings && (
+                      canManageBookings &&
+                      !bookingIsReadOnly && (
                         <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4">
                           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-200">
                             Optimisation Warning
@@ -19206,7 +26764,7 @@ export default function AdminDashboardPage() {
                             )}
                           </div>
 
-                          {canManageCommunications && (
+                          {canManageCommunications && !bookingIsReadOnly && (
                             <div className="flex flex-wrap gap-2">
                               <button
                                 type="button"
@@ -19277,9 +26835,9 @@ export default function AdminDashboardPage() {
                                     {record.message}
                                   </p>
                                   <p className="mt-1 text-xs text-zinc-500">
-                                    {new Date(
+                                    {formatSouthAfricanTimestamp(
                                       record.sentAt,
-                                    ).toLocaleString()}
+                                    )}
                                   </p>
                                 </div>
                               ))}
@@ -19288,7 +26846,7 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
 
-                    {canManageCommunications && (
+                    {canManageCommunications && !bookingIsReadOnly && (
                       <div className="mt-3 min-w-0 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                           Custom Guest Message
@@ -19391,7 +26949,7 @@ export default function AdminDashboardPage() {
                       </div>
                     )}
 
-                    {canManageBookings ? (
+                    {canManageBookings && !bookingIsReadOnly ? (
                       <>
                         <div className="mt-4 min-w-0 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
                           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -19696,9 +27254,9 @@ export default function AdminDashboardPage() {
                                         </p>
                                       )}
                                       <p className="mt-1 text-xs text-zinc-500">
-                                        {new Date(
+                                        {formatSouthAfricanTimestamp(
                                           event.createdAt,
-                                        ).toLocaleString()}
+                                        )}
                                       </p>
                                     </div>
                                   ),
@@ -19796,6 +27354,109 @@ export default function AdminDashboardPage() {
         )}
         </div>
       </div>
+
+      {isWorkflowSendConfirmOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 p-4 text-white backdrop-blur-md">
+          <section className="w-full max-w-lg rounded-[1.5rem] border border-[#D8C36A]/30 bg-[radial-gradient(circle_at_top,#241A08_0%,#111111_48%,#050505_100%)] p-6 shadow-2xl shadow-black/40">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
+              Automated Workflows
+            </p>
+            <h2 className="mt-3 text-2xl font-bold">
+              Send Workflow?
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-zinc-300">
+              Are you sure you want to send this workflow to{" "}
+              <span className="font-semibold text-white">
+                {activeWorkflowBookings.length}
+              </span>{" "}
+              active booking
+              {activeWorkflowBookings.length === 1 ? "" : "s"} for{" "}
+              <span className="font-semibold text-white">
+                {getShowLabel(workflowShow)}
+              </span>
+              ?
+            </p>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={closeSelectedTemplateCommunicationConfirmation}
+                disabled={isWorkflowSending}
+                className="rounded-full border border-white/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={sendSelectedTemplateCommunication}
+                disabled={isWorkflowSending}
+                className="rounded-full bg-[#D8C36A] px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isWorkflowSending ? "Sending..." : "Yes, Send"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {staffDeleteProfile && currentStaff.role === "super-admin" && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 p-4 text-white backdrop-blur-md">
+          <section className="w-full max-w-xl rounded-[1.5rem] border border-red-300/25 bg-[radial-gradient(circle_at_top,#2A0D0D_0%,#101010_48%,#050505_100%)] p-6 shadow-2xl shadow-black/40">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-red-200">
+              Delete User
+            </p>
+            <h2 className="mt-3 text-2xl font-bold">
+              Remove staff login and profile?
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-zinc-300">
+              This removes the Supabase Auth login and linked staff profile for{" "}
+              <span className="font-semibold text-white">
+                {staffDeleteProfile.name}
+              </span>
+              . Bookings, communications, audit history, and operational records
+              are preserved.
+            </p>
+
+            <label className="mt-5 grid gap-2">
+              <span className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                Replacement owner
+              </span>
+              <select
+                value={staffDeleteReplacementUserId}
+                onChange={(event) =>
+                  setStaffDeleteReplacementUserId(event.target.value)
+                }
+                className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm"
+              >
+                <option value="">Select replacement owner</option>
+                {staffDeleteReplacementOptions.map((profile) => (
+                  <option key={profile.id} value={profile.userId}>
+                    {profile.name} · {adminRoleLabels[profile.role] ?? "Staff"}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={closeStaffDeleteModal}
+                className="rounded-full border border-white/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmStaffDelete()}
+                disabled={!staffDeleteReplacementUserId}
+                className="rounded-full border border-red-300/35 bg-red-300 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Delete User
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

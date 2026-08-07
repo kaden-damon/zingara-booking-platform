@@ -4,15 +4,20 @@ import Link from "next/link";
 import {
   type ReactNode,
   useEffect,
+  useRef,
   useState,
 } from "react";
-import QRCode from "qrcode";
 
 import PaymentBrandMarks from "../components/PaymentBrandMarks";
 import ScannableQrCode from "../components/ScannableQrCode";
 import {
   registerZingaraPushSubscription,
 } from "../../lib/browserNotifications";
+import {
+  createDownloadableTicketPdf,
+  resolveDownloadableTicketPdfInput,
+  TicketPdfDataError,
+} from "../../lib/ticketPdf";
 import { createBooking } from "../../lib/supabase/bookings";
 import { getShows } from "../../lib/supabase/shows";
 import { getVenueSettings } from "../../lib/supabase/venueSettings";
@@ -22,7 +27,9 @@ import {
   type CustomerInfo,
   type DemoBooking,
   type DemoTable,
+  type DemoVenueSettings,
   type DemoWaitlistEntry,
+  type GuestTicket,
   type PaymentOption,
   type PromoDiscountType,
   type DemoShow,
@@ -42,6 +49,7 @@ import {
   getStoredDemoTables,
   getTableAllocationDisplay,
   getTicketUrl,
+  normalizeShowLocation,
   seatingZones,
   storeDemoTables,
 } from "../../lib/zingaraDemo";
@@ -66,6 +74,18 @@ type PayFastCheckoutResponse = {
   mode?: "live" | "sandbox";
 };
 
+type TicketPayload = {
+  activeTicket: GuestTicket;
+  booking: DemoBooking;
+  show: DemoShow | null;
+  tableColour: {
+    background: string;
+    border: string;
+    label: string;
+  };
+  venueSettings: DemoVenueSettings;
+};
+
 type EntryLocationKey = "cape-town" | "johannesburg";
 
 type PostPaymentStatus =
@@ -85,11 +105,6 @@ type BookingStatusLookupRow = {
   payment_status: string;
   total_amount?: number;
 };
-
-const nightCourtArtworkUrl =
-  "https://static.wixstatic.com/media/e3c98c_c172ded85e4844a09eae769cda2d00c8~mv2.png/v1/fill/w_1536,h_1023,al_c,q_90,enc_avif,quality_auto/Night%20Court_Postcard.png";
-const springCourtArtworkUrl =
-  "https://static.wixstatic.com/media/e3c98c_41b1137d458441d1ac0c4df8de9f4dec~mv2.png/v1/fill/w_1536,h_1023,al_c,q_90,enc_avif,quality_auto/Spring%20Court_Postcard.png";
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
 
@@ -571,11 +586,8 @@ function getEntryLocationLabel(location: EntryLocationKey | null) {
   return location === "johannesburg" ? "Johannesburg" : "Cape Town";
 }
 
-function getShowVenueKey(show: DemoShow | undefined): EntryLocationKey {
-  return (show?.venueName ?? "cape-town").toLowerCase().includes("joburg") ||
-    (show?.venueName ?? "").toLowerCase().includes("johannesburg")
-    ? "johannesburg"
-    : "cape-town";
+function getShowVenueKey(show: DemoShow | undefined): EntryLocationKey | null {
+  return normalizeShowLocation(show?.location ?? show?.venueName);
 }
 
 function getShowTimeValue(show: DemoShow) {
@@ -612,136 +624,6 @@ function getCompactCustomerName(name: string) {
   }
 
   return `${nameParts[0]} ${nameParts[nameParts.length - 1][0]}.`;
-}
-
-function dataUrlToBytes(dataUrl: string) {
-  const base64 = dataUrl.split(",")[1] ?? "";
-  const binary = window.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return bytes;
-}
-
-function createImagePdfBlob(
-  jpegDataUrl: string,
-  imageWidth: number,
-  imageHeight: number,
-) {
-  const encoder = new TextEncoder();
-  const imageBytes = dataUrlToBytes(jpegDataUrl);
-  const pageWidth = imageWidth;
-  const pageHeight = imageHeight;
-  const chunks: BlobPart[] = [];
-  const offsets: number[] = [];
-  let byteLength = 0;
-
-  function addChunk(bytes: Uint8Array) {
-    const chunk = new ArrayBuffer(bytes.byteLength);
-    new Uint8Array(chunk).set(bytes);
-    chunks.push(chunk);
-    byteLength += bytes.length;
-  }
-
-  function addString(value: string) {
-    const bytes = encoder.encode(value);
-
-    addChunk(bytes);
-  }
-
-  function addBytes(bytes: Uint8Array) {
-    addChunk(bytes);
-  }
-
-  function addObject(id: number, body: () => void) {
-    offsets[id] = byteLength;
-    addString(`${id} 0 obj\n`);
-    body();
-    addString("\nendobj\n");
-  }
-
-  const content = `q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/Im0 Do\nQ`;
-
-  addString("%PDF-1.4\n");
-  addObject(1, () =>
-    addString("<< /Type /Catalog /Pages 2 0 R >>"),
-  );
-  addObject(2, () =>
-    addString("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
-  );
-  addObject(3, () =>
-    addString(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`,
-    ),
-  );
-  addObject(4, () => {
-    addString(
-      `<< /Type /XObject /Subtype /Image /Width ${imageWidth} /Height ${imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`,
-    );
-    addBytes(imageBytes);
-    addString("\nendstream");
-  });
-  addObject(5, () =>
-    addString(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`),
-  );
-
-  const xrefOffset = byteLength;
-
-  addString(`xref\n0 6\n0000000000 65535 f \n`);
-  for (let id = 1; id <= 5; id += 1) {
-    addString(`${String(offsets[id]).padStart(10, "0")} 00000 n \n`);
-  }
-  addString(
-    `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`,
-  );
-
-  return new Blob(chunks, { type: "application/pdf" });
-}
-
-function loadImage(src: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-
-    image.crossOrigin = "anonymous";
-    image.onload = () => resolve(image);
-    image.onerror = reject;
-    image.src = src;
-  });
-}
-
-function drawContainImage(
-  context: CanvasRenderingContext2D,
-  image: HTMLImageElement,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-) {
-  const imageRatio = image.width / image.height;
-  const targetRatio = width / height;
-  const drawWidth = imageRatio > targetRatio ? width : height * imageRatio;
-  const drawHeight = imageRatio > targetRatio ? width / imageRatio : height;
-  const drawX = x + (width - drawWidth) / 2;
-  const drawY = y + (height - drawHeight) / 2;
-
-  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
-}
-
-async function loadImageFromUrl(url: string) {
-  try {
-    const response = await fetch(url, { mode: "cors" });
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const image = await loadImage(objectUrl);
-
-    URL.revokeObjectURL(objectUrl);
-    return image;
-  } catch {
-    return null;
-  }
 }
 
 function getBookingInstallState() {
@@ -839,6 +721,8 @@ export default function BookingPage() {
   const [tables, setTables] = useState<DemoTable[]>(() =>
     defaultShows.flatMap((show) => createTablesForShow(show.id)),
   );
+  const confirmedSectionRef = useRef<HTMLElement | null>(null);
+  const hasScrolledToConfirmedRef = useRef(false);
   const venueConfig = venueSettings;
 
   const dynamicPriceMultiplier = getDynamicPriceMultiplier(
@@ -1477,6 +1361,25 @@ export default function BookingPage() {
     };
   }, [partySize, postPaymentBookingReference, postPaymentStatus, shows]);
 
+  useEffect(() => {
+    if (!bookingReference || !isConfirmationOpen) {
+      hasScrolledToConfirmedRef.current = false;
+      return;
+    }
+
+    if (hasScrolledToConfirmedRef.current) {
+      return;
+    }
+
+    hasScrolledToConfirmedRef.current = true;
+    window.requestAnimationFrame(() => {
+      confirmedSectionRef.current?.scrollIntoView({
+        block: "start",
+        behavior: "smooth",
+      });
+    });
+  }, [bookingReference, isConfirmationOpen]);
+
   function handleContinueBooking() {
     if (
       !selectedZone ||
@@ -1764,7 +1667,7 @@ export default function BookingPage() {
   }
 
   async function downloadTicketPdf() {
-    if (!bookingReference || !selectedShow || !selectedZone) {
+    if (!bookingReference) {
       return;
     }
 
@@ -1778,202 +1681,51 @@ export default function BookingPage() {
 
     ticketWindow.opener = null;
 
-    const canvas = document.createElement("canvas");
-    const width = 420;
-    const height = 760;
-    const context = canvas.getContext("2d");
+    try {
+      const ticketCode = createTicketCode(bookingReference);
+      const response = await fetch(
+        `/api/tickets/${encodeURIComponent(ticketCode)}`,
+        { cache: "no-store" },
+      );
+      const nextPayload = (await response.json()) as
+        | TicketPayload
+        | { error?: string };
 
-    if (!context) {
+      if (!response.ok || "error" in nextPayload) {
+        throw new Error("Ticket data could not be loaded.");
+      }
+
+      const ticketPayload = nextPayload as TicketPayload;
+      const pdfInput = resolveDownloadableTicketPdfInput({
+        booking: ticketPayload.booking,
+        show: ticketPayload.show,
+        tableColour: ticketPayload.tableColour,
+        ticket: ticketPayload.activeTicket,
+        venueSettings: ticketPayload.venueSettings,
+      });
+      const pdfBlob = await createDownloadableTicketPdf(pdfInput);
+      const ticketUrl = URL.createObjectURL(pdfBlob);
+
+      ticketWindow.location.href = ticketUrl;
+      window.setTimeout(() => URL.revokeObjectURL(ticketUrl), 30000);
+      setTicketDownloadStatus("Ticket opened in a new tab.");
+    } catch (error) {
       ticketWindow.close();
-      setTicketDownloadStatus("Unable to prepare ticket.");
-      return;
-    }
-
-    canvas.width = width;
-    canvas.height = height;
-    context.fillStyle = "#050505";
-    context.fillRect(0, 0, width, height);
-
-    const passX = 22;
-    const passY = 20;
-    const passWidth = 376;
-    const passHeight = 720;
-    const cardCenter = passX + passWidth / 2;
-    const locationLabel = getEntryLocationLabel(selectedEntryLocation);
-    const artworkUrl =
-      selectedEntryLocation === "johannesburg"
-        ? springCourtArtworkUrl
-        : nightCourtArtworkUrl;
-    const artwork = await loadImageFromUrl(artworkUrl);
-    const ticketCode = createTicketCode(bookingReference);
-    const zoneBackground =
-      selectedZone.colour.match(/bg-\[(#[0-9A-Fa-f]{6})\]/)?.[1] ??
-      "#111111";
-    const zoneBorder =
-      selectedZone.colour.match(/border-\[(#[0-9A-Fa-f]{6})\]/)?.[1] ??
-      "#D8C36A";
-
-    const gradient = context.createRadialGradient(
-      cardCenter,
-      95,
-      30,
-      cardCenter,
-      180,
-      520,
-    );
-
-    gradient.addColorStop(0, "#1B1209");
-    gradient.addColorStop(0.5, "#070707");
-    gradient.addColorStop(1, "#000000");
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, width, height);
-
-    context.strokeStyle = "#D8C36A";
-    context.lineWidth = 2;
-    context.strokeRect(passX, passY, passWidth, passHeight);
-
-    const logo = await loadImageFromUrl(
-      venueConfig.ticketBranding.ticketLogoUrl || venueConfig.logoUrl,
-    );
-
-    if (logo) {
-      const logoWidth = 118;
-      const logoHeight = Math.min((logo.height / logo.width) * logoWidth, 58);
-
-      context.drawImage(
-        logo,
-        cardCenter - logoWidth / 2,
-        42,
-        logoWidth,
-        logoHeight,
-      );
-    } else {
-      context.fillStyle = "#D8C36A";
-      context.font = "400 28px Georgia, serif";
-      context.textAlign = "center";
-      context.fillText("ZINGARA", cardCenter, 78);
-    }
-
-    context.fillStyle = "#D8C36A";
-    context.font = "700 20px Georgia, serif";
-    context.textAlign = "center";
-    context.fillText("ADMISSION PASS", cardCenter, 118);
-
-    const artworkY = 136;
-    const artworkHeight = 142;
-
-    context.fillStyle = "#000000";
-    context.fillRect(passX + 16, artworkY, passWidth - 32, artworkHeight);
-    if (artwork) {
-      drawContainImage(
-        context,
-        artwork,
-        passX + 18,
-        artworkY + 2,
-        passWidth - 36,
-        artworkHeight - 4,
+      if (error instanceof TicketPdfDataError) {
+        console.error("[Zingara ticket PDF] Missing ticket data", {
+          bookingReference,
+          missingFields: error.missingFields,
+        });
+      } else {
+        console.error("[Zingara ticket PDF] Ticket PDF generation failed", {
+          bookingReference,
+          error,
+        });
+      }
+      setTicketDownloadStatus(
+        "Ticket PDF could not be prepared. Please contact Guest Services.",
       );
     }
-    context.strokeStyle = "rgba(216,195,106,0.36)";
-    context.lineWidth = 1;
-    context.strokeRect(passX + 16, artworkY, passWidth - 32, artworkHeight);
-
-    context.fillStyle = "#FFFFFF";
-    context.font = "700 22px Georgia, serif";
-    context.fillText(customerInfo.name || "Guest", cardCenter, 316, passWidth - 48);
-    context.fillStyle = "#D8D8D8";
-    context.font = "400 15px sans-serif";
-    const [showDate, showTime] = getCompactShowDateTime(selectedShow).includes(
-      " · ",
-    )
-      ? getCompactShowDateTime(selectedShow).split(" · ")
-      : [getCompactShowDateTime(selectedShow), ""];
-    context.fillText(showDate, cardCenter, 342);
-    if (showTime) {
-      context.fillText(showTime, cardCenter, 364);
-    }
-
-    const qrValue = ticketCode;
-    const qrDataUrl = await QRCode.toDataURL(qrValue, {
-      color: { dark: "#000000", light: "#FFFFFF" },
-      errorCorrectionLevel: "M",
-      margin: 3,
-      scale: 8,
-      width: 190,
-    });
-    const qrImage = await loadImage(qrDataUrl);
-    const qrTop = 386;
-
-    context.fillStyle = "#FFFFFF";
-    context.fillRect(cardCenter - 101, qrTop, 202, 202);
-    context.drawImage(qrImage, cardCenter - 95, qrTop + 6, 190, 190);
-
-    const detailsTop = qrTop + 236;
-
-    context.fillStyle = "#D8C36A";
-    context.font = "700 16px sans-serif";
-    context.fillText(`Ticket 1 of ${partySize}`, cardCenter, detailsTop);
-    context.fillStyle = "#FFFFFF";
-    context.font = "700 15px sans-serif";
-    context.fillText(bookingReference, cardCenter, detailsTop + 25);
-    context.fillStyle = "#D8D8D8";
-    context.font = "400 12px monospace";
-    context.fillText(ticketCode, cardCenter, detailsTop + 45);
-    context.fillStyle = "#FFFFFF";
-    context.font = "700 14px sans-serif";
-    context.fillText(locationLabel, cardCenter, detailsTop + 72, passWidth - 50);
-    context.fillStyle = "#CFCFCF";
-    context.font = "400 13px sans-serif";
-    context.fillText(selectedZone.title, cardCenter, detailsTop + 93, passWidth - 50);
-    context.fillText(
-      `Table ${allocatedTableNumber ?? "Assigned"}`,
-      cardCenter,
-      detailsTop + 113,
-      passWidth - 50,
-    );
-
-    const detailLeft = passX + 34;
-    const detailRight = passX + passWidth - 34;
-
-    context.fillStyle = "rgba(216,195,106,0.08)";
-    context.fillRect(detailLeft, detailsTop + 130, detailRight - detailLeft, 36);
-    context.strokeStyle = zoneBorder;
-    context.lineWidth = 1.5;
-    context.strokeRect(detailLeft, detailsTop + 130, detailRight - detailLeft, 36);
-    context.fillStyle = zoneBackground;
-    context.beginPath();
-    context.arc(detailLeft + 22, detailsTop + 148, 8, 0, Math.PI * 2);
-    context.fill();
-    context.strokeStyle = zoneBorder;
-    context.stroke();
-
-    context.textAlign = "left";
-    context.fillStyle = "#FFFFFF";
-    context.font = "700 12px sans-serif";
-    context.fillText(
-      `${selectedZone.title} Colour`,
-      detailLeft + 39,
-      detailsTop + 153,
-      detailRight - detailLeft - 62,
-    );
-
-    context.textAlign = "center";
-    context.fillStyle = "#CFCFCF";
-    context.font = "400 12px sans-serif";
-    context.fillText(
-      "Present this ticket at the entrance",
-      cardCenter,
-      passY + passHeight - 22,
-      passWidth - 46,
-    );
-
-    const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.94);
-    const pdfBlob = createImagePdfBlob(jpegDataUrl, width, height);
-    const ticketUrl = URL.createObjectURL(pdfBlob);
-
-    ticketWindow.location.href = ticketUrl;
-    window.setTimeout(() => URL.revokeObjectURL(ticketUrl), 30000);
-    setTicketDownloadStatus("Ticket opened in a new tab.");
   }
 
   function renderVenueSvgHotspot({
@@ -2146,9 +1898,216 @@ export default function BookingPage() {
     );
   }
 
+  function renderConfirmedBookingExperience() {
+    if (!bookingReference || !selectedZone) {
+      return null;
+    }
+
+    const ticketCode = createTicketCode(bookingReference);
+    const venueLabel = getEntryLocationLabel(
+      selectedEntryLocation ?? getShowVenueKey(selectedShow),
+    );
+
+    return (
+      <section
+        ref={confirmedSectionRef}
+        className="relative z-10 mx-auto w-full max-w-3xl px-0 py-2 sm:py-6"
+      >
+        <div className="space-y-5 rounded-[1.5rem] border border-[#8D7A2F]/50 bg-[radial-gradient(circle_at_top,#2A1710_0%,#111_46%,#050505_100%)] p-3.5 shadow-[0_0_80px_rgba(216,195,106,0.18)] sm:space-y-6 sm:rounded-[2rem] sm:p-6">
+          <div className="rounded-xl border border-emerald-400/40 bg-emerald-950/30 p-3.5 sm:rounded-2xl sm:p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300 sm:text-sm">
+              Step 6 · Complete
+            </p>
+            <p className="mt-1 text-2xl font-bold text-white sm:text-3xl">
+              Booking Confirmed
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3">
+              <div>
+                <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
+                  Reference
+                </p>
+                <p className="mt-1 break-words font-mono text-sm font-bold sm:text-lg">
+                  {bookingReference}
+                </p>
+              </div>
+              <div>
+                <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
+                  Guests
+                </p>
+                <p className="mt-1 text-base font-bold sm:text-lg">
+                  {partySize}
+                </p>
+              </div>
+              <div>
+                <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
+                  Status
+                </p>
+                <p className="mt-1 text-base font-bold sm:text-lg">
+                  Confirmed
+                </p>
+              </div>
+              <div>
+                <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
+                  Payment
+                </p>
+                <p className="mt-1 text-base font-bold sm:text-lg">
+                  Confirmed
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[1.25rem] border border-[#D8C36A]/45 bg-black p-3 shadow-[0_0_45px_rgba(216,195,106,0.16)] sm:rounded-[1.5rem] sm:p-6">
+            <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(12rem,14rem)] md:items-start">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A] sm:text-sm sm:tracking-[0.24em]">
+                  Digital Ticket
+                </p>
+                <div
+                  aria-label={venueConfig.brandTitle}
+                  className="mt-2 h-10 w-32 bg-contain bg-left bg-no-repeat sm:h-16 sm:w-44"
+                  style={{
+                    backgroundImage: `url("${venueConfig.ticketBranding.ticketLogoUrl || venueConfig.logoUrl}")`,
+                  }}
+                />
+                <div className="mt-4 grid grid-cols-1 gap-2 text-xs leading-5 text-zinc-300 min-[390px]:grid-cols-2 sm:gap-3 sm:text-sm">
+                  <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Guest Name
+                    </span>
+                    <span className="mt-1 block font-semibold text-white">
+                      {customerInfo.name || "Guest"}
+                    </span>
+                  </p>
+                  <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Ticket Number
+                    </span>
+                    <span className="mt-1 block font-semibold text-white">
+                      Ticket 1 of {partySize}
+                    </span>
+                  </p>
+                  <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Booking Reference
+                    </span>
+                    <span className="mt-1 block break-words font-mono font-semibold text-white">
+                      {bookingReference}
+                    </span>
+                  </p>
+                  <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Show Date
+                    </span>
+                    <span className="mt-1 block font-semibold text-white">
+                      {selectedShow
+                        ? getCompactDateDisplay(selectedShow.date)
+                        : "Confirmed"}
+                    </span>
+                  </p>
+                  <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Show Time
+                    </span>
+                    <span className="mt-1 block font-semibold text-white">
+                      {selectedShow
+                        ? getSouthAfricaShowTime(selectedShow)
+                        : ""}
+                    </span>
+                  </p>
+                  <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Venue
+                    </span>
+                    <span className="mt-1 block font-semibold text-white">
+                      {venueLabel}
+                    </span>
+                  </p>
+                  <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Seating Zone
+                    </span>
+                    <span className="mt-1 block font-semibold text-white">
+                      {selectedZone.title}
+                    </span>
+                  </p>
+                  <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Table
+                    </span>
+                    <span className="mt-1 block font-semibold text-white">
+                      {allocatedTableNumber ?? "Assigned"}
+                    </span>
+                  </p>
+                  <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Table Colour
+                    </span>
+                    <span className="mt-1 flex items-center gap-2 font-semibold text-white">
+                      <span
+                        aria-hidden="true"
+                        className={`h-3 w-3 rounded-full border ${selectedZone.colour}`}
+                      />
+                      {selectedZone.title}
+                    </span>
+                  </p>
+                </div>
+                <p className="mt-4 break-all rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 font-mono text-[0.65rem] text-zinc-400 sm:text-sm">
+                  {ticketCode}
+                </p>
+              </div>
+
+              <div className="mx-auto w-full max-w-[15rem] md:max-w-none">
+                <ScannableQrCode
+                  value={ticketCode}
+                  label="Scannable live ticket QR code"
+                  logoUrl={venueConfig.faviconUrl}
+                  className="mx-auto w-full max-w-[15rem] p-4"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-2 sm:gap-3">
+              <a
+                href={getPlatformTicketUrl(bookingReference)}
+                className="inline-flex rounded-full border border-[#D8C36A]/40 px-4 py-2.5 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-5 sm:py-3 sm:text-sm"
+              >
+                View Digital Ticket
+              </a>
+              {partySize > 1 && (
+                <a
+                  href={`${getPlatformTicketUrl(bookingReference)}&customise=1`}
+                  className="inline-flex rounded-full border border-white/15 px-4 py-2.5 text-xs font-semibold text-zinc-300 transition hover:bg-white hover:text-black sm:px-5 sm:py-3 sm:text-sm"
+                >
+                  Customise Tickets
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={downloadTicketPdf}
+                className="inline-flex items-center gap-2 rounded-full bg-[#D8C36A] px-4 py-2.5 text-xs font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.22)] transition hover:bg-[#F2D66C] sm:px-5 sm:py-3 sm:text-sm"
+              >
+                <span aria-hidden="true">↓</span>
+                Download Ticket
+              </button>
+              {ticketDownloadStatus && (
+                <span className="text-sm font-semibold text-emerald-300">
+                  {ticketDownloadStatus}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <main className="relative isolate z-10 min-h-screen overflow-x-hidden bg-black px-3 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-6 text-white sm:px-6 sm:py-14 lg:py-16">
       {renderPostPaymentExperience()}
+      {bookingReference && isConfirmationOpen && selectedZone ? (
+        renderConfirmedBookingExperience()
+      ) : (
       <div className="relative z-10 mx-auto max-w-5xl">
         <h1 className="mb-3.5 text-left text-2xl font-bold min-[390px]:text-3xl sm:mb-4 sm:text-5xl lg:text-6xl">
           Book Your Experience
@@ -3223,6 +3182,7 @@ export default function BookingPage() {
           )}
         </div>
       </div>
+      )}
 
       {previewSeatingZone && activeBookingStep === 2 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-8 backdrop-blur-sm">
@@ -3329,7 +3289,7 @@ export default function BookingPage() {
         </div>
       )}
 
-      {isConfirmationOpen && selectedZone && (
+      {isConfirmationOpen && selectedZone && !bookingReference && (
         <div className="fixed inset-x-0 bottom-0 top-[6.9rem] z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-2.5 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-sm min-[390px]:top-[7.4rem] sm:inset-0 sm:z-50 sm:items-center sm:overflow-visible sm:px-6 sm:py-10">
           <div className="max-h-[calc(100dvh-8.65rem-env(safe-area-inset-bottom))] w-full max-w-3xl overflow-y-auto rounded-[1.5rem] border border-[#8D7A2F]/50 bg-[radial-gradient(circle_at_top,#2A1710_0%,#111_46%,#050505_100%)] p-3.5 shadow-[0_0_80px_rgba(216,195,106,0.18)] min-[390px]:max-h-[calc(100dvh-9.15rem-env(safe-area-inset-bottom))] sm:max-h-full sm:rounded-[2rem] sm:p-6">
             <div className="flex flex-row items-start justify-between gap-3 border-b border-[#8D7A2F]/30 pb-4 sm:pb-6">
