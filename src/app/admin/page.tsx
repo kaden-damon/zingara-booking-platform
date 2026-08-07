@@ -7648,7 +7648,7 @@ export default function AdminDashboardPage() {
         const nextLiveCustomers = await loadLiveCustomerRecords();
         const nextVenueSettings = await getVenueSettings();
         const nextWaitlist = await getWaitlistEntries();
-        const nextTables = getStoredDemoTables();
+        const nextTables = getStoredDemoTables(nextShows);
         const nextStaffProfiles = await getStaffProfiles();
         const nextStaffRoles = await getAvailableRoles();
         const nextPaymentRows = await getPayments();
@@ -9859,7 +9859,7 @@ export default function AdminDashboardPage() {
 
   function saveTables(nextTables: DemoTable[]) {
     setTables(nextTables);
-    storeDemoTables(nextTables);
+    storeDemoTables(nextTables, shows);
   }
 
   function saveBookings(nextBookings: DemoBooking[]) {
@@ -15567,7 +15567,7 @@ export default function AdminDashboardPage() {
 
     setShows(nextShows);
     setBookings(nextBookings);
-    setTables(getStoredDemoTables());
+    setTables(getStoredDemoTables(nextShows));
     setManifestLastRefreshedAt(new Date().toISOString());
     showWorkflowToast("✓ Refreshed · Manifest data updated");
   }

@@ -2989,16 +2989,15 @@ export function getStoredCommunicationTemplates() {
   }
 }
 
-export function getStoredDemoTables() {
+export function getStoredDemoTables(shows = getStoredDemoShows()) {
   if (typeof window === "undefined") {
-    return createSeededDemoTables();
+    return createSeededDemoTables(shows);
   }
 
   try {
     const storedTables = window.localStorage.getItem(
       demoTablesStorageKey,
     );
-    const shows = getStoredDemoShows();
     const parsedTables = storedTables
       ? (JSON.parse(storedTables) as unknown)
       : createSeededDemoTables(shows);
@@ -3073,10 +3072,13 @@ export function storeDemoBookings(bookings: DemoBooking[]) {
   );
 }
 
-export function storeDemoTables(tables: DemoTable[]) {
+export function storeDemoTables(
+  tables: DemoTable[],
+  shows = getStoredDemoShows(),
+) {
   const normalizedTables = normalizeTablesForShows(
     tables,
-    getStoredDemoShows(),
+    shows,
   );
 
   window.localStorage.setItem(

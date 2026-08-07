@@ -1016,7 +1016,7 @@ export default function BookingPage() {
 
     async function loadShowInventory() {
       const nextShows = await getShows();
-      const nextTables = getStoredDemoTables();
+      const nextTables = getStoredDemoTables(nextShows);
       const nextVenueSettings = await getVenueSettings();
       const nextGuestVisibleShows = nextShows.filter(isGuestVisibleShow);
 
@@ -1548,7 +1548,7 @@ export default function BookingPage() {
         customerName: customerInfo.name,
       });
 
-      storeDemoTables(nextTables);
+      storeDemoTables(nextTables, shows);
       setTables(nextTables);
       setAllocatedTableNumber(allocatedTable.tableNumber);
 
