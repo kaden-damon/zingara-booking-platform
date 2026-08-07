@@ -18,6 +18,7 @@ import {
   rolePermissions,
 } from "../../lib/zingaraAccess";
 import {
+  getBrowserNotificationPermission,
   getZingaraPushDeviceStatus,
   getStaffNotifications,
   markAllStaffNotificationsRead,
@@ -7409,6 +7410,8 @@ export default function AdminDashboardPage() {
     useState(false);
   const [isPushEnableSubmitting, setIsPushEnableSubmitting] =
     useState(false);
+  const [pushBrowserPermission, setPushBrowserPermission] =
+    useState<"default" | "denied" | "granted" | "unsupported" | null>(null);
   const [
     isPushOnboardingDismissed,
     setIsPushOnboardingDismissed,
@@ -7920,13 +7923,17 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     setNotificationPreferences(getStoredNotificationPreferences());
     setIsPushOnboardingDismissed(getPushOnboardingDismissed());
+    setPushBrowserPermission(getBrowserNotificationPermission());
   }, []);
 
   async function refreshPushDeviceStatus() {
     setIsPushDeviceStatusLoading(true);
 
     try {
-      setPushDeviceStatus(await getZingaraPushDeviceStatus());
+      const nextStatus = await getZingaraPushDeviceStatus();
+
+      setPushDeviceStatus(nextStatus);
+      setPushBrowserPermission(nextStatus.permission);
     } catch {
       setPushDeviceStatus({
         diagnostics: {
@@ -7946,6 +7953,7 @@ export default function AdminDashboardPage() {
         permission: "unsupported",
         status: "unsupported",
       });
+      setPushBrowserPermission("unsupported");
     } finally {
       setIsPushDeviceStatusLoading(false);
     }
@@ -9088,9 +9096,11 @@ export default function AdminDashboardPage() {
   const shouldShowPushOnboarding =
     Boolean(currentStaff) &&
     !isPushOnboardingDismissed &&
-    pushDeviceStatus?.status === "not-enabled" &&
-    pushDeviceStatus?.permission === "default" &&
-    !pushDeviceStatus?.hasActiveSubscription;
+    pushBrowserPermission === "default" &&
+    pushDeviceStatus?.status !== "unsupported";
+  const shouldShowPushOnboardingEnable =
+    shouldShowPushOnboarding &&
+    pushDeviceStatus?.status !== "ios-install-required";
 
   async function refreshStaffNotifications() {
     try {
@@ -16774,9 +16784,9 @@ export default function AdminDashboardPage() {
                   Stay up to date
                 </h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-300">
-                  Enable notifications to receive important Zingara updates for
-                  new bookings, cancellations, guest arrivals, waitlist activity
-                  and operational announcements.
+                  {pushDeviceStatus?.status === "ios-install-required"
+                    ? pushDeviceStatusCopy
+                    : "Enable notifications to receive important Zingara updates for new bookings, cancellations, guest arrivals, waitlist activity and operational announcements."}
                 </p>
               </div>
 
@@ -16788,16 +16798,22 @@ export default function AdminDashboardPage() {
                 >
                   Not Now
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void enableStaffPushNotifications()}
-                  disabled={isPushEnableSubmitting}
-                  className="rounded-full bg-[#D8C36A] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#F2D66C] disabled:cursor-wait disabled:opacity-70"
-                >
-                  {isPushEnableSubmitting
-                    ? "Enabling..."
-                    : "Enable Notifications"}
-                </button>
+                {shouldShowPushOnboardingEnable ? (
+                  <button
+                    type="button"
+                    onClick={() => void enableStaffPushNotifications()}
+                    disabled={isPushEnableSubmitting}
+                    className="rounded-full bg-[#D8C36A] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#F2D66C] disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {isPushEnableSubmitting
+                      ? "Enabling..."
+                      : "Enable Notifications"}
+                  </button>
+                ) : (
+                  <span className="rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-zinc-200">
+                    Add to Home Screen
+                  </span>
+                )}
               </div>
             </div>
           </section>
