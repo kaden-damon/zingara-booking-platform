@@ -26,11 +26,26 @@ export type BrowserNotificationDiagnostics = {
   userAgent: string;
 };
 
-type PushRegistrationResult = {
+export type PushRegistrationResult = {
   ok: boolean;
   permission: NotificationPermissionResult;
   reason?: string;
   subscriptionCount?: number;
+};
+
+export type PushDeviceStatus =
+  | "blocked"
+  | "enabled"
+  | "ios-install-required"
+  | "not-enabled"
+  | "unsupported";
+
+export type PushDeviceStatusResult = {
+  diagnostics: BrowserNotificationDiagnostics;
+  hasActiveSubscription: boolean;
+  message: string;
+  permission: NotificationPermissionResult;
+  status: PushDeviceStatus;
 };
 
 type PushRegistrationOptions = {
@@ -262,6 +277,103 @@ async function getPushPublicKey() {
   return payload.configured ? payload.publicKey ?? "" : "";
 }
 
+async function getReadyServiceWorkerRegistration() {
+  if (!("serviceWorker" in navigator)) {
+    return null;
+  }
+
+  try {
+    const existingRegistration =
+      (await navigator.serviceWorker.getRegistration("/")) ??
+      (await navigator.serviceWorker.register("/sw.js", {
+        scope: "/",
+        updateViaCache: "none",
+      }));
+
+    await existingRegistration.update().catch(() => {});
+
+    return await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<ServiceWorkerRegistration | null>((resolve) => {
+        window.setTimeout(() => resolve(existingRegistration), 3000);
+      }),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+export async function getZingaraPushDeviceStatus(): Promise<PushDeviceStatusResult> {
+  const diagnostics = getBrowserNotificationDiagnostics();
+  const permission = getBrowserNotificationPermission();
+
+  if (diagnostics.isIOS && !diagnostics.isStandalonePwa) {
+    return {
+      diagnostics,
+      hasActiveSubscription: false,
+      message:
+        "To receive Zingara notifications on iPhone, add the Zingara app to your Home Screen first, then open the installed app and enable notifications.",
+      permission,
+      status: "ios-install-required",
+    };
+  }
+
+  if (!diagnostics.hasNotificationApi) {
+    return {
+      diagnostics,
+      hasActiveSubscription: false,
+      message: "Push notifications are not supported in this browser.",
+      permission: "unsupported",
+      status: "unsupported",
+    };
+  }
+
+  if (!diagnostics.hasServiceWorker || !diagnostics.hasPushManager) {
+    return {
+      diagnostics,
+      hasActiveSubscription: false,
+      message: "Service worker push is not supported on this device.",
+      permission,
+      status: "unsupported",
+    };
+  }
+
+  if (permission === "denied") {
+    return {
+      diagnostics,
+      hasActiveSubscription: false,
+      message:
+        "Notifications are blocked for this device. Enable notifications in your browser or device settings to receive Zingara alerts.",
+      permission,
+      status: "blocked",
+    };
+  }
+
+  const registration = await getReadyServiceWorkerRegistration();
+  const subscription =
+    permission === "granted"
+      ? await registration?.pushManager.getSubscription()
+      : null;
+
+  if (subscription) {
+    return {
+      diagnostics,
+      hasActiveSubscription: true,
+      message: "Notifications Enabled",
+      permission,
+      status: "enabled",
+    };
+  }
+
+  return {
+    diagnostics,
+    hasActiveSubscription: false,
+    message: "Notifications Not Enabled",
+    permission,
+    status: "not-enabled",
+  };
+}
+
 export async function registerZingaraPushSubscription(
   options: PushRegistrationOptions = {},
 ): Promise<PushRegistrationResult> {
@@ -309,7 +421,16 @@ export async function registerZingaraPushSubscription(
   }
 
   try {
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await getReadyServiceWorkerRegistration();
+
+    if (!registration) {
+      return {
+        ok: false,
+        permission,
+        reason: "Service worker push is unsupported in this browser context.",
+      };
+    }
+
     const existingSubscription =
       await registration.pushManager.getSubscription();
     const subscription =

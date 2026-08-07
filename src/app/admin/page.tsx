@@ -18,12 +18,16 @@ import {
   rolePermissions,
 } from "../../lib/zingaraAccess";
 import {
+  getZingaraPushDeviceStatus,
   getStaffNotifications,
   markAllStaffNotificationsRead,
   markStaffNotificationRead,
+  registerZingaraPushSubscription,
   sendZingaraBrowserNotification,
   sendZingaraGuestPushNotification,
   sendZingaraStaffPushNotification,
+  type PushDeviceStatusResult,
+  type PushRegistrationResult,
   type StaffNotificationRecord,
   type ZingaraNotificationTrigger,
 } from "../../lib/browserNotifications";
@@ -292,6 +296,8 @@ type NotificationPreferenceKey = StaffNotificationRecord["trigger"];
 
 const notificationPreferenceStorageKey =
   "zingara-staff-notification-preferences";
+const pushOnboardingDismissedStorageKey =
+  "zingara-push-onboarding-dismissed";
 const notificationPreferenceLabels: Record<NotificationPreferenceKey, string> = {
   "booking-cancelled": "Booking Cancellations",
   "guest-checked-in": "Guest Check-ins",
@@ -7145,6 +7151,22 @@ function storeNotificationPreferences(
   }
 }
 
+function getPushOnboardingDismissed() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.sessionStorage.getItem(pushOnboardingDismissedStorageKey) === "true";
+}
+
+function storePushOnboardingDismissed() {
+  try {
+    window.sessionStorage.setItem(pushOnboardingDismissedStorageKey, "true");
+  } catch {
+    // Some private browsing contexts block session storage.
+  }
+}
+
 function getPlatformTicketUrl(reference: string) {
   const ticketUrl = getTicketUrl(reference);
 
@@ -7379,6 +7401,18 @@ export default function AdminDashboardPage() {
   >([]);
   const [notificationPreferences, setNotificationPreferences] =
     useState<Partial<Record<NotificationPreferenceKey, boolean>>>({});
+  const [pushDeviceStatus, setPushDeviceStatus] =
+    useState<PushDeviceStatusResult | null>(null);
+  const [pushEnableResult, setPushEnableResult] =
+    useState<PushRegistrationResult | null>(null);
+  const [isPushDeviceStatusLoading, setIsPushDeviceStatusLoading] =
+    useState(false);
+  const [isPushEnableSubmitting, setIsPushEnableSubmitting] =
+    useState(false);
+  const [
+    isPushOnboardingDismissed,
+    setIsPushOnboardingDismissed,
+  ] = useState(false);
   const [notificationCentreUserId, setNotificationCentreUserId] =
     useState("");
   const [isNotificationCentreOpen, setIsNotificationCentreOpen] =
@@ -7885,7 +7919,46 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     setNotificationPreferences(getStoredNotificationPreferences());
+    setIsPushOnboardingDismissed(getPushOnboardingDismissed());
   }, []);
+
+  async function refreshPushDeviceStatus() {
+    setIsPushDeviceStatusLoading(true);
+
+    try {
+      setPushDeviceStatus(await getZingaraPushDeviceStatus());
+    } catch {
+      setPushDeviceStatus({
+        diagnostics: {
+          displayModeStandalone: false,
+          hasNotificationApi: false,
+          hasPushManager: false,
+          hasServiceWorker: false,
+          isIOS: false,
+          isSecureContext: false,
+          isStandalonePwa: false,
+          navigatorStandalone: false,
+          permission: "unsupported",
+          userAgent: "",
+        },
+        hasActiveSubscription: false,
+        message: "Push notification status could not be checked.",
+        permission: "unsupported",
+        status: "unsupported",
+      });
+    } finally {
+      setIsPushDeviceStatusLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!currentStaff) {
+      setPushDeviceStatus(null);
+      return;
+    }
+
+    void refreshPushDeviceStatus();
+  }, [currentStaff]);
 
   useEffect(() => {
     if (!currentStaff) {
@@ -8992,6 +9065,32 @@ export default function AdminDashboardPage() {
         notificationCentreUserId || currentStaff?.id || "",
       ),
   ).length;
+  const pushDeviceStatusLabel =
+    pushDeviceStatus?.status === "enabled"
+      ? "Notifications Enabled"
+      : pushDeviceStatus?.status === "blocked"
+        ? "Notifications Blocked"
+        : pushDeviceStatus?.status === "unsupported" ||
+            pushDeviceStatus?.status === "ios-install-required"
+          ? "Push Not Supported"
+          : "Notifications Not Enabled";
+  const pushDeviceStatusCopy =
+    pushDeviceStatus?.message ??
+    "Enable notifications to receive important Zingara staff updates on this device.";
+  const canEnablePushNotifications =
+    Boolean(pushDeviceStatus) &&
+    !isPushDeviceStatusLoading &&
+    !isPushEnableSubmitting &&
+    pushDeviceStatus?.status !== "enabled" &&
+    pushDeviceStatus?.status !== "blocked" &&
+    pushDeviceStatus?.status !== "unsupported" &&
+    pushDeviceStatus?.status !== "ios-install-required";
+  const shouldShowPushOnboarding =
+    Boolean(currentStaff) &&
+    !isPushOnboardingDismissed &&
+    pushDeviceStatus?.status === "not-enabled" &&
+    pushDeviceStatus?.permission === "default" &&
+    !pushDeviceStatus?.hasActiveSubscription;
 
   async function refreshStaffNotifications() {
     try {
@@ -9040,6 +9139,30 @@ export default function AdminDashboardPage() {
 
       return nextPreferences;
     });
+  }
+
+  function dismissPushOnboarding() {
+    storePushOnboardingDismissed();
+    setIsPushOnboardingDismissed(true);
+  }
+
+  async function enableStaffPushNotifications() {
+    setIsPushEnableSubmitting(true);
+    setPushEnableResult(null);
+
+    try {
+      const result = await registerZingaraPushSubscription();
+
+      setPushEnableResult(result);
+      await refreshPushDeviceStatus();
+
+      if (result.ok) {
+        setIsPushOnboardingDismissed(true);
+        showWorkflowToast("Notifications enabled.");
+      }
+    } finally {
+      setIsPushEnableSubmitting(false);
+    }
   }
 
   function sendPreferredBrowserNotification(
@@ -16640,6 +16763,46 @@ export default function AdminDashboardPage() {
           })}
         </nav>
 
+        {shouldShowPushOnboarding && (
+          <section className="mb-8 rounded-[1.75rem] border border-[#D8C36A]/35 bg-[radial-gradient(circle_at_top_left,rgba(216,195,106,0.16),rgba(9,9,9,0.96)_48%,#050505_100%)] p-5 shadow-2xl shadow-[#8D7A2F]/10 print:hidden">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
+                  Staff Notifications
+                </p>
+                <h2 className="mt-2 text-2xl font-bold text-white">
+                  Stay up to date
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-300">
+                  Enable notifications to receive important Zingara updates for
+                  new bookings, cancellations, guest arrivals, waitlist activity
+                  and operational announcements.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={dismissPushOnboarding}
+                  className="rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-zinc-300 transition hover:border-white/40 hover:text-white"
+                >
+                  Not Now
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void enableStaffPushNotifications()}
+                  disabled={isPushEnableSubmitting}
+                  className="rounded-full bg-[#D8C36A] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#F2D66C] disabled:cursor-wait disabled:opacity-70"
+                >
+                  {isPushEnableSubmitting
+                    ? "Enabling..."
+                    : "Enable Notifications"}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
         {(activeAdminTab === "bookings" || activeAdminTab === "corporate") &&
           canViewBookingManagement && (
           <nav
@@ -24161,6 +24324,48 @@ export default function AdminDashboardPage() {
                 <span className="inline-flex w-fit rounded-full border border-white/10 bg-zinc-950 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-400">
                   Local Device
                 </span>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-[#D8C36A]/25 bg-zinc-950/70 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      {isPushDeviceStatusLoading
+                        ? "Checking notifications..."
+                        : pushDeviceStatusLabel}
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-zinc-400">
+                      {pushDeviceStatusCopy}
+                    </p>
+                    {pushEnableResult && !pushEnableResult.ok && (
+                      <p className="mt-2 text-sm font-semibold text-amber-200">
+                        {pushEnableResult.reason ??
+                          "Notifications could not be enabled."}
+                      </p>
+                    )}
+                  </div>
+
+                  {pushDeviceStatus?.status === "enabled" ? (
+                    <span className="inline-flex w-fit rounded-full border border-emerald-300/30 bg-emerald-950/30 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-emerald-200">
+                      Notifications Enabled
+                    </span>
+                  ) : canEnablePushNotifications ? (
+                    <button
+                      type="button"
+                      onClick={() => void enableStaffPushNotifications()}
+                      disabled={isPushEnableSubmitting}
+                      className="inline-flex w-fit items-center justify-center rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      {isPushEnableSubmitting
+                        ? "Enabling..."
+                        : "Enable Notifications"}
+                    </button>
+                  ) : (
+                    <span className="inline-flex w-fit rounded-full border border-white/10 bg-black/35 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-zinc-500">
+                      Browser Settings Required
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
