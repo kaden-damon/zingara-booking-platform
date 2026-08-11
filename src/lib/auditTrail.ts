@@ -13,7 +13,8 @@ export type AuditEntityType =
   | "security"
   | "show"
   | "staff"
-  | "ticket";
+  | "ticket"
+  | "workflow";
 
 export type AuditJsonValue =
   | AuditJsonValue[]

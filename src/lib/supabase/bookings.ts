@@ -80,6 +80,7 @@ type SupabaseCommunicationType =
   | "custom_message"
   | "operational_broadcast"
   | "payment_confirmation"
+  | "post_show_review"
   | "refund_notice"
   | "reservation_confirmed"
   | "reservation_pending"
@@ -222,6 +223,10 @@ function toCommunicationTrigger(
     return "show-reminder";
   }
 
+  if (type === "post_show_review") {
+    return "post-show-review";
+  }
+
   if (type === "refund_notice") {
     return "cancellation-refund";
   }
@@ -262,6 +267,10 @@ function toSupabaseType(
 
   if (trigger === "show-reminder") {
     return "show_reminder";
+  }
+
+  if (trigger === "post-show-review") {
+    return "post_show_review";
   }
 
   if (trigger === "cancellation-refund") {

@@ -36,6 +36,7 @@ const oneTimeCommunicationTypes = new Set([
   "complimentary_booking",
   "corporate_tentative_booking",
   "payment_confirmation",
+  "post_show_review",
   "refund_notice",
   "reservation_confirmed",
   "reservation_pending",

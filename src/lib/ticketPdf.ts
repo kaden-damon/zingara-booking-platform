@@ -5,6 +5,7 @@ import type {
   DemoVenueSettings,
   GuestTicket,
 } from "./zingaraDemo";
+import { resolveGuestVisibleTable } from "./guestTicketDisplay";
 import { normalizeShowLocation } from "./zingaraDemo";
 
 export const ticketPdfPage = {
@@ -352,7 +353,9 @@ function collectMissingPdfFields(source: DownloadableTicketPdfSource) {
     (ticket) => ticket.ticketCode === source.ticket.ticketCode,
   );
   const guestName = normalizeTicketText(source.ticket.fullName);
-  const tableNumber = normalizeTicketText(source.booking.tableNumber);
+  const tableNumber = normalizeTicketText(
+    resolveGuestVisibleTable(source.booking, source.ticket),
+  );
   const showDate = normalizeTicketText(source.show?.date);
   const ticketCode = normalizeTicketText(source.ticket.ticketCode);
   const zoneTitle = normalizeTicketText(source.booking.zoneTitle);
@@ -366,7 +369,7 @@ function collectMissingPdfFields(source: DownloadableTicketPdfSource) {
   if (!guestName) {
     missingFields.push("guest name");
   }
-  if (!tableNumber || isFallbackTableValue(tableNumber)) {
+  if (tableNumber && isFallbackTableValue(tableNumber)) {
     missingFields.push("table or seat");
   }
   if (!showDate) {
@@ -398,13 +401,16 @@ export function resolveDownloadableTicketPdfInput(
   }
 
   const location = resolveTicketLocation(source);
+  const tableNumber = normalizeTicketText(
+    resolveGuestVisibleTable(source.booking, source.ticket),
+  );
 
   return {
     courtName: location.courtName,
     guestName: normalizeTicketText(source.ticket.fullName),
     location: location.key,
     showDate: formatTicketDisplayDate(source.show?.date),
-    tableSeat: `Table ${normalizeTicketText(source.booking.tableNumber)}`,
+    tableSeat: tableNumber ? `Table ${tableNumber}` : "",
     ticketCode: normalizeTicketText(source.ticket.ticketCode),
     ticketIndex: source.ticket.index,
     ticketTotal: source.ticket.total,
@@ -430,7 +436,7 @@ export async function createDownloadableTicketPdf(
 
   const venueCopy = getVenueCopy(input.location);
   const guestName = requireTicketText("guest name", input.guestName);
-  const tableSeat = requireTicketText("table or seat", input.tableSeat);
+  const tableSeat = input.tableSeat.trim();
   const courtName = requireTicketText(
     "court name",
     input.courtName ?? venueCopy.courtName,
@@ -538,13 +544,15 @@ export async function createDownloadableTicketPdf(
     minSize: 28,
     weight: "400",
   });
-  context.fillStyle = "#D8C36A";
-  fitText(context, tableSeat, centre, 1220, 680, {
-    family: sansFont,
-    maxSize: 45,
-    minSize: 28,
-    weight: "700",
-  });
+  if (tableSeat) {
+    context.fillStyle = "#D8C36A";
+    fitText(context, tableSeat, centre, 1220, 680, {
+      family: sansFont,
+      maxSize: 45,
+      minSize: 28,
+      weight: "700",
+    });
+  }
   context.fillStyle = "#FFFFFF";
   fitText(context, courtName, centre, 1316, 720, {
     family: sansFont,

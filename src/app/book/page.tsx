@@ -700,7 +700,6 @@ export default function BookingPage() {
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [isIOSDevice, setIsIOSDevice] = useState(false);
-  const [isAndroidDevice, setIsAndroidDevice] = useState(false);
   const [isStandaloneApp, setIsStandaloneApp] = useState(false);
   const [showTicketReadyPrompt, setShowTicketReadyPrompt] =
     useState(true);
@@ -857,6 +856,8 @@ export default function BookingPage() {
     : customerDetailsComplete
       ? `${formatCurrency(amountDueNow)} Due`
       : "";
+  const shouldShowInstallOpportunity =
+    !isStandaloneApp && (Boolean(installPrompt) || isIOSDevice);
   const activeProgressIndex = bookingReference ? 5 : activeBookingStep;
   const bookingProgressSteps = [
     {
@@ -1146,7 +1147,6 @@ export default function BookingPage() {
     const installState = getBookingInstallState();
 
     setIsIOSDevice(installState.isIOS);
-    setIsAndroidDevice(installState.isAndroid);
     setIsStandaloneApp(installState.isStandalone);
 
     function handleBeforeInstallPrompt(event: Event) {
@@ -1588,11 +1588,6 @@ export default function BookingPage() {
   }
 
   async function installZingaraApp() {
-    if (isStandaloneApp) {
-      await enableTicketNotifications();
-      return;
-    }
-
     if (!installPrompt) {
       setInstallPromptStatus(
         isIOSDevice
@@ -1608,30 +1603,10 @@ export default function BookingPage() {
     setInstallPrompt(null);
 
     if (choice.outcome === "accepted") {
-      setInstallPromptStatus("App installed. Enable notifications next.");
-      await enableTicketNotifications();
+      setInstallPromptStatus("App installed.");
     } else {
       setInstallPromptStatus("You can install the app later from this ticket.");
     }
-  }
-
-  async function enableTicketNotifications() {
-    if (!bookingReference) {
-      return;
-    }
-
-    setInstallPromptStatus("Enabling notifications...");
-    const result = await registerZingaraPushSubscription({
-      bookingReference,
-      customerEmail: customerInfo.email,
-      customerName: customerInfo.name,
-    });
-
-    setInstallPromptStatus(
-      result.ok
-        ? "Notifications enabled for this booking."
-        : result.reason ?? "Notifications could not be enabled.",
-    );
   }
 
   function getZoneAvailability(option: SeatingOption) {
@@ -3511,6 +3486,57 @@ export default function BookingPage() {
                 </p>
               )}
 
+              <div className="rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3 text-sm leading-6 text-zinc-300 sm:rounded-2xl sm:p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                  PLEASE NOTE
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <li>Beverages are charged separately</li>
+                  <li>
+                    A 12.5% gratuity will be applied to beverages and
+                    the dinner portion of your tickets for bookings of 6
+                    or more
+                  </li>
+                </ul>
+              </div>
+
+              {shouldShowInstallOpportunity && (
+                <div className="rounded-xl border border-white/10 bg-black/25 p-3 sm:rounded-2xl sm:p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                        Get the Zingara App
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-zinc-300">
+                        Install Zingara for quick access to your
+                        booking, digital tickets and important show
+                        updates.
+                      </p>
+                      {isIOSDevice && !installPrompt && (
+                        <p className="mt-2 text-xs leading-5 text-zinc-400">
+                          To install Zingara on iPhone, tap Share and
+                          choose Add to Home Screen.
+                        </p>
+                      )}
+                    </div>
+                    {installPrompt && (
+                      <button
+                        type="button"
+                        onClick={() => void installZingaraApp()}
+                        className="shrink-0 rounded-full border border-[#D8C36A]/45 px-4 py-2.5 text-xs font-bold uppercase tracking-[0.14em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                      >
+                        Install App
+                      </button>
+                    )}
+                  </div>
+                  {installPromptStatus && (
+                    <p className="mt-3 text-sm font-semibold text-emerald-300">
+                      {installPromptStatus}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="rounded-xl border border-[#D8C36A]/20 bg-black/25 p-3 text-center sm:rounded-2xl sm:p-4">
                 <p className="text-center text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
                   Accepted Secure Payment Methods
@@ -3748,37 +3774,27 @@ export default function BookingPage() {
                     </div>
                   </div>
 
-                  {showTicketReadyPrompt && (
+                  {showTicketReadyPrompt && shouldShowInstallOpportunity && (
                     <div className="rounded-[1.25rem] border border-[#D8C36A]/40 bg-[radial-gradient(circle_at_top,#241B0A_0%,#111111_48%,#050505_100%)] p-4 shadow-[0_0_36px_rgba(216,195,106,0.14)] sm:rounded-[1.5rem] sm:p-5">
                       <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#F2D66C]">
-                        <span aria-hidden="true">🎟</span> DOWNLOAD APP
+                        Get the Zingara App
                       </p>
                       <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
-                        Install the Zingara App to receive booking
-                        updates, get event reminders, and access your
-                        ticket instantly.
+                        Install Zingara for quick access to your
+                        confirmed booking, digital tickets and important
+                        show updates.
                       </p>
 
-                      {isIOSDevice && !isStandaloneApp && (
+                      {isIOSDevice && !installPrompt && (
                         <div className="mt-4 rounded-2xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-300">
                           <p className="font-semibold text-white">
                             iPhone / iPad setup
                           </p>
-                          <ol className="mt-2 space-y-1 text-zinc-400">
-                            <li>1. Tap Share</li>
-                            <li>2. Add to Home Screen</li>
-                            <li>3. Open the app</li>
-                            <li>4. Enable notifications</li>
-                          </ol>
+                          <p className="mt-2 text-zinc-400">
+                            To install Zingara on iPhone, tap Share and
+                            choose Add to Home Screen.
+                          </p>
                         </div>
-                      )}
-
-                      {isAndroidDevice && !isStandaloneApp && (
-                        <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                          {installPrompt
-                            ? "Native install prompt available"
-                            : "Use your browser menu if the install prompt is not shown"}
-                        </p>
                       )}
 
                       {installPromptStatus && (
@@ -3788,15 +3804,15 @@ export default function BookingPage() {
                       )}
 
                       <div className="mt-4 flex flex-wrap gap-2 sm:gap-3">
-                        <button
-                          type="button"
-                          onClick={() => void installZingaraApp()}
-                          className="rounded-full bg-[#D8C36A] px-4 py-2.5 text-xs font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.2)] transition hover:bg-[#F2D66C] sm:px-5 sm:py-3 sm:text-sm"
-                        >
-                          {isStandaloneApp
-                            ? "Enable Notifications"
-                            : "Install App"}
-                        </button>
+                        {installPrompt && (
+                          <button
+                            type="button"
+                            onClick={() => void installZingaraApp()}
+                            className="rounded-full bg-[#D8C36A] px-4 py-2.5 text-xs font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.2)] transition hover:bg-[#F2D66C] sm:px-5 sm:py-3 sm:text-sm"
+                          >
+                            Install App
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setShowTicketReadyPrompt(false)}

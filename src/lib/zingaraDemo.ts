@@ -465,6 +465,7 @@ export type CommunicationTrigger =
   | "table-change"
   | "waitlist-promotion"
   | "show-reminder"
+  | "post-show-review"
   | "check-in-confirmation"
   | "cancellation-refund"
   | "ticket-resend"
@@ -1015,10 +1016,12 @@ export const communicationVariableHints = [
   "deposit_amount",
   "outstanding_balance",
   "seatingZone",
+  "location",
   "tableNumber",
   "partySize",
   "ticketUrl",
   "ticketCode",
+  "reviewUrl",
   "totalPrice",
   "amountPaid",
   "balanceDue",
@@ -1117,6 +1120,15 @@ export const defaultCommunicationTemplates: CommunicationTemplate[] = [
     subject: "Your Royal Countess dinner show is approaching",
     body: "Dear {{customerName}}, we look forward to welcoming you for {{showName}} at {{showTime}}. Table {{tableNumber}} is ready on your live ticket: {{ticketUrl}}",
     updatedAt: "2026-05-17T00:00:00.000Z",
+  },
+  {
+    id: "email-post-show-review",
+    channel: "email",
+    trigger: "post-show-review",
+    name: "Post-Show Review Request",
+    subject: "Rate your Zingara experience",
+    body: "Dear {{customerName}}, thank you for joining us at {{showName}}. We hope your evening with Zingara was unforgettable. We would be grateful if you shared your experience with us: {{reviewUrl}}",
+    updatedAt: "2026-08-11T00:00:00.000Z",
   },
   {
     id: "email-check-in-confirmation",

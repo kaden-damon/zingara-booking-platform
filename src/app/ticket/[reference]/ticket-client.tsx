@@ -8,6 +8,7 @@ import {
   resolveDownloadableTicketPdfInput,
   TicketPdfDataError,
 } from "../../../lib/ticketPdf";
+import { resolveGuestVisibleTable } from "../../../lib/guestTicketDisplay";
 import {
   type DemoBooking,
   type DemoShow,
@@ -113,6 +114,10 @@ export default function LiveTicketClient({
   const show = payload?.show ?? null;
   const guestTickets = booking?.guestTickets ?? [];
   const ticketState = getTicketState(booking, activeTicket);
+  const guestVisibleTable =
+    booking && activeTicket
+      ? resolveGuestVisibleTable(booking, activeTicket)
+      : "";
   const includedBookingFeeBreakdown = booking
     ? getIncludedBookingFeeBreakdown(
         Math.max(
@@ -500,6 +505,16 @@ export default function LiveTicketClient({
                     {booking.zoneTitle}
                   </p>
                 </div>
+                {guestVisibleTable && (
+                  <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Table
+                    </p>
+                    <p className="mt-2 font-semibold">
+                      {guestVisibleTable}
+                    </p>
+                  </div>
+                )}
                 <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                     Table Colour

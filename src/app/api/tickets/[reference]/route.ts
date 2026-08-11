@@ -14,6 +14,7 @@ import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
 } from "@/lib/email/communicationIdempotency";
+import { resolveGuestVisibleTable } from "@/lib/guestTicketDisplay";
 import { sendZingaraEmail } from "@/lib/email/smtp";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
@@ -82,6 +83,24 @@ function getTicketUrlForCode(ticketCode: string) {
 
 function getTicketQrPayload(ticketCode: string) {
   return ticketCode;
+}
+
+type TicketPayload = NonNullable<Awaited<ReturnType<typeof loadTicketPayload>>>;
+
+function getGuestFacingTicketPayload(payload: TicketPayload) {
+  const tableNumber = resolveGuestVisibleTable(
+    payload.booking,
+    payload.activeTicket,
+  );
+
+  return {
+    ...payload,
+    booking: {
+      ...payload.booking,
+      tableId: "",
+      tableNumber,
+    },
+  };
 }
 
 function toVenueSettings(row: SupabaseVenueSettingsRow | null | undefined) {
@@ -388,7 +407,7 @@ export async function GET(request: Request, context: TicketRouteContext) {
       return Response.json({ error: "Ticket not found." }, { status: 404 });
     }
 
-    return Response.json(payload);
+    return Response.json(getGuestFacingTicketPayload(payload));
   } catch (error) {
     console.error("[Zingara API] Failed to load live ticket", error);
 
@@ -454,7 +473,11 @@ export async function PATCH(request: Request, context: TicketRouteContext) {
       .update({ notes: serializeBookingNotes(nextBooking) })
       .eq("booking_reference", payload.booking.reference);
 
-    return Response.json(await loadTicketPayload(ticketCode, request.url));
+    const nextPayload = await loadTicketPayload(ticketCode, request.url);
+
+    return nextPayload
+      ? Response.json(getGuestFacingTicketPayload(nextPayload))
+      : Response.json({ error: "Ticket not found." }, { status: 404 });
   } catch (error) {
     console.error("[Zingara API] Failed to update live ticket", error);
 
@@ -527,7 +550,14 @@ export async function POST(request: Request, context: TicketRouteContext) {
         .eq("booking_reference", payload.booking.reference);
       await persistGuestTickets(request.url, payload.bookingId, nextBooking);
 
-      return Response.json(await loadTicketPayload(regeneratedTicketCode, request.url));
+      const nextPayload = await loadTicketPayload(
+        regeneratedTicketCode,
+        request.url,
+      );
+
+      return nextPayload
+        ? Response.json(getGuestFacingTicketPayload(nextPayload))
+        : Response.json({ error: "Ticket not found." }, { status: 404 });
     }
 
     if (body.action === "email" || body.action === "resend") {

@@ -713,6 +713,66 @@ type SystemStatusPayload = {
     staffLoggedIn: string;
   };
 };
+type AutomatedWorkflowKey = "pre_show_reminder" | "post_show_review";
+type AutomatedWorkflowConfiguration = {
+  activatedAt: string | null;
+  body: string;
+  capeTownReviewUrl: string;
+  enabled: boolean;
+  id: string | null;
+  johannesburgReviewUrl: string;
+  subject: string;
+  timingOffsetDays: number;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  workflowKey: AutomatedWorkflowKey;
+};
+type WorkflowDryRunSummary = {
+  alreadySent: number;
+  eligible: number;
+  excluded: number;
+  reasons: Record<string, number>;
+  scanned: number;
+  workflowKey: AutomatedWorkflowKey;
+};
+type WorkflowDryRunPayload = {
+  emailDispatch: "disabled";
+  generatedAt: string;
+  mode: "dry-run";
+  results: Record<AutomatedWorkflowKey, WorkflowDryRunSummary>;
+  timezone: "Africa/Johannesburg";
+};
+
+const defaultAutomatedWorkflowConfigurations: AutomatedWorkflowConfiguration[] = [
+  {
+    activatedAt: null,
+    body:
+      "Dear {{customerName}}, your Zingara experience is almost here. We look forward to welcoming you for {{showName}} on {{showDate}} at {{showTime}}. Booking reference: {{bookingRef}}. Location: {{location}}. Guests: {{guest_count}}. Seating zone: {{seatingZone}}. View your ticket: {{ticketUrl}}. Beverages are charged separately. A 12.5% gratuity will be applied to beverages and the dinner portion of your tickets for bookings of 6 or more.",
+    capeTownReviewUrl: "",
+    enabled: false,
+    id: null,
+    johannesburgReviewUrl: "",
+    subject: "Your Zingara experience is almost here ✨",
+    timingOffsetDays: 7,
+    updatedAt: null,
+    updatedBy: null,
+    workflowKey: "pre_show_reminder",
+  },
+  {
+    activatedAt: null,
+    body:
+      "Dear {{customerName}}, thank you for joining us at {{showName}}. We hope your evening with Zingara was unforgettable. We would be grateful if you shared your experience with us: {{reviewUrl}}",
+    capeTownReviewUrl: "",
+    enabled: false,
+    id: null,
+    johannesburgReviewUrl: "",
+    subject: "Rate your Zingara experience",
+    timingOffsetDays: 1,
+    updatedAt: null,
+    updatedBy: null,
+    workflowKey: "post_show_review",
+  },
+];
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "overview", label: "Dashboard" },
@@ -5864,6 +5924,7 @@ const communicationTriggerLabels: Record<
   "custom-message": "Custom Guest Message",
   "operational-broadcast": "Operational Broadcast",
   "payment-confirmation": "Payment Confirmation",
+  "post-show-review": "Post-Show Review",
   "reservation-confirmed": "Reservation Confirmed",
   "reservation-pending": "Reservation Pending",
   "show-reminder": "Reminder Before Show",
@@ -7306,6 +7367,17 @@ export default function AdminDashboardPage() {
     useState<CommunicationTemplate[]>(
       defaultCommunicationTemplates,
     );
+  const [automatedWorkflows, setAutomatedWorkflows] = useState<
+    AutomatedWorkflowConfiguration[]
+  >(defaultAutomatedWorkflowConfigurations);
+  const [workflowDryRun, setWorkflowDryRun] =
+    useState<WorkflowDryRunPayload | null>(null);
+  const [isWorkflowConfigLoading, setIsWorkflowConfigLoading] =
+    useState(false);
+  const [isWorkflowConfigSaving, setIsWorkflowConfigSaving] =
+    useState(false);
+  const [isWorkflowDryRunLoading, setIsWorkflowDryRunLoading] =
+    useState(false);
   const [venueSettings, setVenueSettings] =
     useState<DemoVenueSettings>(defaultVenueSettings);
   const [hasHydrated, setHasHydrated] = useState(false);
@@ -8078,6 +8150,18 @@ export default function AdminDashboardPage() {
     currentStaff?.role === "box-office" ||
     currentStaff?.role === "box-office-staff";
   const isFloorManager = currentStaff?.role === "floor-manager";
+
+  useEffect(() => {
+    if (
+      activeAdminTab !== "settings" ||
+      activeSettingsTab !== "workflows" ||
+      !isSuperAdmin
+    ) {
+      return;
+    }
+
+    void loadAutomatedWorkflows();
+  }, [activeAdminTab, activeSettingsTab, isSuperAdmin]);
 
   useEffect(() => {
     if (activeAdminTab !== "settings" || activeSettingsTab !== "audit") {
@@ -9425,6 +9509,86 @@ export default function AdminDashboardPage() {
       setSystemStatusError("System status could not be refreshed.");
     } finally {
       setIsSystemStatusLoading(false);
+    }
+  }
+
+  async function loadAutomatedWorkflows() {
+    if (!isSuperAdmin) {
+      return;
+    }
+
+    setIsWorkflowConfigLoading(true);
+
+    try {
+      const payload = await fetchSupabaseApi<{
+        workflows: AutomatedWorkflowConfiguration[];
+      }>("/api/admin/workflows");
+
+      setAutomatedWorkflows(payload.workflows);
+    } catch (error) {
+      console.error("[Zingara admin] Failed to load workflows", error);
+      showWorkflowToast("⚠ Could not load workflows");
+    } finally {
+      setIsWorkflowConfigLoading(false);
+    }
+  }
+
+  function updateAutomatedWorkflow(
+    workflowKey: AutomatedWorkflowKey,
+    updates: Partial<AutomatedWorkflowConfiguration>,
+  ) {
+    setAutomatedWorkflows((currentWorkflows) =>
+      currentWorkflows.map((workflow) =>
+        workflow.workflowKey === workflowKey
+          ? { ...workflow, ...updates }
+          : workflow,
+      ),
+    );
+  }
+
+  async function saveAutomatedWorkflows() {
+    if (!isSuperAdmin || isWorkflowConfigSaving) {
+      return;
+    }
+
+    setIsWorkflowConfigSaving(true);
+
+    try {
+      const payload = await fetchSupabaseApi<{
+        workflows: AutomatedWorkflowConfiguration[];
+      }>("/api/admin/workflows", {
+        body: { workflows: automatedWorkflows },
+        method: "PUT",
+      });
+
+      setAutomatedWorkflows(payload.workflows);
+      showWorkflowToast("✓ Saved · Workflows updated");
+    } catch (error) {
+      console.error("[Zingara admin] Failed to save workflows", error);
+      showWorkflowToast("⚠ Could not save workflows");
+    } finally {
+      setIsWorkflowConfigSaving(false);
+    }
+  }
+
+  async function runWorkflowDryRun() {
+    if (isWorkflowDryRunLoading) {
+      return;
+    }
+
+    setIsWorkflowDryRunLoading(true);
+
+    try {
+      const payload = await fetchSupabaseApi<WorkflowDryRunPayload>(
+        "/api/admin/workflows/dry-run",
+      );
+
+      setWorkflowDryRun(payload);
+    } catch (error) {
+      console.error("[Zingara admin] Failed to run workflow dry run", error);
+      showWorkflowToast("⚠ Could not run workflow dry-run");
+    } finally {
+      setIsWorkflowDryRunLoading(false);
     }
   }
 
@@ -24324,6 +24488,200 @@ export default function AdminDashboardPage() {
                 {workflowStatus}
               </div>
             )}
+
+            <div className="mb-5 rounded-2xl border border-[#D8C36A]/25 bg-black/35 p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                    Durable Scheduler Framework
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-zinc-400">
+                    Server-side workflow configuration for Vercel Cron.
+                    Both workflows remain disabled until a Super Admin
+                    intentionally enables them.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void loadAutomatedWorkflows()}
+                    disabled={!isSuperAdmin || isWorkflowConfigLoading}
+                    className="inline-flex min-w-[120px] items-center justify-center rounded-full border border-white/15 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {isWorkflowConfigLoading ? "Loading..." : "Refresh"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveAutomatedWorkflows()}
+                    disabled={!isSuperAdmin || isWorkflowConfigSaving}
+                    className="inline-flex min-w-[150px] items-center justify-center rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {isWorkflowConfigSaving ? "Saving..." : "Save Workflows"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void runWorkflowDryRun()}
+                    disabled={!isSuperAdmin || isWorkflowDryRunLoading}
+                    className="inline-flex min-w-[140px] items-center justify-center rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {isWorkflowDryRunLoading ? "Checking..." : "Dry Run"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {automatedWorkflows.map((workflow) => {
+                  const isReviewWorkflow =
+                    workflow.workflowKey === "post_show_review";
+                  const title = isReviewWorkflow
+                    ? "Post-Show Review Request"
+                    : "Pre-Show Reminder";
+                  const timingLabel = isReviewWorkflow
+                    ? "Days after show"
+                    : "Days before show";
+                  const dryRunSummary =
+                    workflowDryRun?.results[workflow.workflowKey];
+
+                  return (
+                    <article
+                      key={workflow.workflowKey}
+                      className="rounded-2xl border border-white/10 bg-zinc-950/70 p-5"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                            {title}
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-zinc-400">
+                            {isReviewWorkflow
+                              ? "Sends once to the booking contact only after persisted attendance evidence exists."
+                              : "Sends once to the booking contact before a confirmed, paid upcoming show."}
+                          </p>
+                          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                            Activation:{" "}
+                            <span className="normal-case tracking-normal text-zinc-300">
+                              {workflow.activatedAt
+                                ? new Date(workflow.activatedAt).toLocaleString(
+                                    "en-ZA",
+                                  )
+                                : "Not activated"}
+                            </span>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateAutomatedWorkflow(workflow.workflowKey, {
+                              enabled: !workflow.enabled,
+                            })
+                          }
+                          className={`inline-flex w-fit rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] transition ${
+                            workflow.enabled
+                              ? "border-emerald-300/40 bg-emerald-950/30 text-emerald-200"
+                              : "border-white/10 bg-black text-zinc-400"
+                          }`}
+                        >
+                          {workflow.enabled ? "Enabled" : "Disabled"}
+                        </button>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr]">
+                        <label className="text-sm text-zinc-400">
+                          {timingLabel}
+                          <input
+                            type="number"
+                            min={1}
+                            max={isReviewWorkflow ? 7 : 30}
+                            value={workflow.timingOffsetDays}
+                            onChange={(event) =>
+                              updateAutomatedWorkflow(workflow.workflowKey, {
+                                timingOffsetDays: Number(event.target.value),
+                              })
+                            }
+                            className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                          />
+                        </label>
+                        <label className="text-sm text-zinc-400">
+                          Subject
+                          <input
+                            value={workflow.subject}
+                            onChange={(event) =>
+                              updateAutomatedWorkflow(workflow.workflowKey, {
+                                subject: event.target.value,
+                              })
+                            }
+                            className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                          />
+                        </label>
+                      </div>
+
+                      <label className="mt-3 block text-sm text-zinc-400">
+                        Email body
+                        <textarea
+                          value={workflow.body}
+                          onChange={(event) =>
+                            updateAutomatedWorkflow(workflow.workflowKey, {
+                              body: event.target.value,
+                            })
+                          }
+                          rows={5}
+                          className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                        />
+                      </label>
+
+                      {isReviewWorkflow && (
+                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label className="text-sm text-zinc-400">
+                            Cape Town Review URL
+                            <input
+                              value={workflow.capeTownReviewUrl}
+                              onChange={(event) =>
+                                updateAutomatedWorkflow(workflow.workflowKey, {
+                                  capeTownReviewUrl: event.target.value,
+                                })
+                              }
+                              placeholder="https://..."
+                              className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                            />
+                          </label>
+                          <label className="text-sm text-zinc-400">
+                            Johannesburg Review URL
+                            <input
+                              value={workflow.johannesburgReviewUrl}
+                              onChange={(event) =>
+                                updateAutomatedWorkflow(workflow.workflowKey, {
+                                  johannesburgReviewUrl: event.target.value,
+                                })
+                              }
+                              placeholder="https://..."
+                              className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                            />
+                          </label>
+                        </div>
+                      )}
+
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/35 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                          Dry-Run Eligibility
+                        </p>
+                        {dryRunSummary ? (
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                            <span>Scanned: {dryRunSummary.scanned}</span>
+                            <span>Eligible: {dryRunSummary.eligible}</span>
+                            <span>Sent: {dryRunSummary.alreadySent}</span>
+                            <span>Excluded: {dryRunSummary.excluded}</span>
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-sm text-zinc-500">
+                            Run a dry-run to preview safe counts. No emails are sent.
+                          </p>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
 
             <div className="mb-5 rounded-2xl border border-white/10 bg-black/35 p-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">

@@ -220,15 +220,28 @@ export default function SetPasswordClient() {
         {(setupState === "ready" || setupState === "saving") && (
           <form onSubmit={savePassword} className="mt-8 space-y-5">
             {email && (
-              <p className="rounded-2xl border border-white/10 bg-black/45 px-4 py-3 text-center text-sm text-zinc-300">
-                {email}
-              </p>
+              <label className="block">
+                <span className="mb-2 block text-center text-[0.68rem] font-bold uppercase tracking-[0.2em] text-zinc-400">
+                  Username
+                </span>
+                <input
+                  id="staff-password-username"
+                  name="username"
+                  type="email"
+                  value={email}
+                  readOnly
+                  autoComplete="username"
+                  className="w-full rounded-2xl border border-white/10 bg-black/45 px-4 py-3 text-center text-sm text-zinc-300 outline-none"
+                />
+              </label>
             )}
             <label className="block">
               <span className="mb-2 block text-center text-[0.68rem] font-bold uppercase tracking-[0.2em] text-zinc-400">
                 New Password
               </span>
               <input
+                id="staff-new-password"
+                name="new-password"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -243,6 +256,8 @@ export default function SetPasswordClient() {
                 Confirm Password
               </span>
               <input
+                id="staff-confirm-password"
+                name="confirm-password"
                 type="password"
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
