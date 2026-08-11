@@ -133,6 +133,7 @@ import {
   type EntryLocationKey,
   type GuestTicket,
   type PaymentStatus,
+  type PromoDiscountType,
   type SeatingZone,
   type SeatingZoneId,
   type TicketState,
@@ -249,11 +250,6 @@ type OperationalReportType =
   | "revenue"
   | "waitlist"
   | "crm";
-type LegacyImportPreview = {
-  bookings: DemoBooking[];
-  crmRecords: DemoCustomerCrmRecord[];
-  errors: string[];
-};
 type TableOccupancyState =
   | "available"
   | "blocked"
@@ -513,6 +509,12 @@ type AdminTab =
   | "platform-operations"
   | "settings"
   | "academy";
+type AnalyticsSectionId =
+  | "per-show-revenue"
+  | "occupancy-trends"
+  | "addon-revenue"
+  | "promo-code-usage"
+  | "customer-value";
 type BookingArchiveFilter = "active" | "all" | "archived";
 type CustomerArchiveFilter = "active" | "all" | "archived";
 type BookingViewMode = "grid" | "list";
@@ -526,7 +528,43 @@ type OperationsTab =
   | "floor-manifest"
   | "financial-reports"
   | "export-centre";
-type SettingsTab = "audit" | "portability" | "staff" | "venue" | "workflows";
+type SettingsTab =
+  | "audit"
+  | "portability"
+  | "promo-codes"
+  | "staff"
+  | "venue"
+  | "workflows";
+type PromoAdminRecord = {
+  active: boolean;
+  code: string;
+  createdAt: string;
+  discountType: PromoDiscountType;
+  discountValue: number;
+  id: string;
+  location: string | null;
+  name: string;
+  redemptionCount: number;
+  showId: string | null;
+  status: string;
+  totalDiscountGiven: number;
+  updatedAt: string;
+  usageLimit: number | null;
+  validFrom: string | null;
+  validUntil: string | null;
+};
+type PromoAdminForm = {
+  active: boolean;
+  code: string;
+  discountType: PromoDiscountType;
+  discountValue: string;
+  location: string;
+  name: string;
+  showId: string;
+  usageLimit: string;
+  validFrom: string;
+  validUntil: string;
+};
 type AuditFilters = {
   action: string;
   actorStaffProfileId: string;
@@ -997,7 +1035,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "operations", label: "Operations" },
   { id: "customers", label: "Customers" },
   { id: "analytics", label: "Analytics" },
-  { id: "platform-operations", label: "Platform Operations" },
+  { id: "platform-operations", label: "System" },
   { id: "settings", label: "Settings" },
   { id: "academy", label: "🎓 Academy" },
 ];
@@ -6036,6 +6074,7 @@ const showOperationalStatusLabels: Record<
 const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "staff", label: "Staff" },
   { id: "venue", label: "Venue Configuration" },
+  { id: "promo-codes", label: "Promo Codes" },
   { id: "workflows", label: "Automated Workflows" },
   { id: "audit", label: "Audit Trail" },
   { id: "portability", label: "Portability" },
@@ -7046,66 +7085,6 @@ function createReportPdfBlob({
   return new Blob([pdf], { type: "application/pdf" });
 }
 
-function parseCsvRows(text: string) {
-  const rows: string[][] = [];
-  let field = "";
-  let row: string[] = [];
-  let isQuoted = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    const nextCharacter = text[index + 1];
-
-    if (character === '"' && isQuoted && nextCharacter === '"') {
-      field += '"';
-      index += 1;
-    } else if (character === '"') {
-      isQuoted = !isQuoted;
-    } else if (character === "," && !isQuoted) {
-      row.push(field.trim());
-      field = "";
-    } else if (
-      (character === "\n" || character === "\r") &&
-      !isQuoted
-    ) {
-      if (character === "\r" && nextCharacter === "\n") {
-        index += 1;
-      }
-      row.push(field.trim());
-      if (row.some(Boolean)) {
-        rows.push(row);
-      }
-      field = "";
-      row = [];
-    } else {
-      field += character;
-    }
-  }
-
-  row.push(field.trim());
-  if (row.some(Boolean)) {
-    rows.push(row);
-  }
-
-  if (rows.length < 2) {
-    return [];
-  }
-
-  const headers = rows[0].map((header) =>
-    header.trim().toLowerCase().replaceAll(/\s+/g, "_"),
-  );
-
-  return rows.slice(1).map((values) =>
-    headers.reduce(
-      (record, header, index) => ({
-        ...record,
-        [header]: values[index] ?? "",
-      }),
-      {} as Record<string, string>,
-    ),
-  );
-}
-
 function parseCsvTable(text: string) {
   const rows: string[][] = [];
   let field = "";
@@ -7711,6 +7690,9 @@ export default function AdminDashboardPage() {
     useState("");
   const [platformOperationsCleanupStatus, setPlatformOperationsCleanupStatus] =
     useState("");
+  const [openAnalyticsSections, setOpenAnalyticsSections] = useState<
+    AnalyticsSectionId[]
+  >(["per-show-revenue"]);
   const [activeOperationsTab, setActiveOperationsTab] =
     useState<OperationsTab>("dashboard");
   const [activeDataPortabilityEntity, setActiveDataPortabilityEntity] =
@@ -7731,6 +7713,26 @@ export default function AdminDashboardPage() {
     useState(false);
   const [activeSettingsTab, setActiveSettingsTab] =
     useState<SettingsTab>("staff");
+  const [promoCodes, setPromoCodes] = useState<PromoAdminRecord[]>([]);
+  const [promoCodeSearch, setPromoCodeSearch] = useState("");
+  const [promoCodeStatus, setPromoCodeStatus] = useState("");
+  const [promoCodeError, setPromoCodeError] = useState("");
+  const [isPromoCodeLoading, setIsPromoCodeLoading] = useState(false);
+  const [isPromoCodeSaving, setIsPromoCodeSaving] = useState(false);
+  const [editingPromoCodeId, setEditingPromoCodeId] =
+    useState<string | null>(null);
+  const [promoCodeForm, setPromoCodeForm] = useState<PromoAdminForm>({
+    active: true,
+    code: "",
+    discountType: "percentage",
+    discountValue: "",
+    location: "",
+    name: "",
+    showId: "",
+    usageLimit: "",
+    validFrom: "",
+    validUntil: "",
+  });
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [auditFilters, setAuditFilters] = useState<AuditFilters>({
     action: "",
@@ -7983,9 +7985,6 @@ export default function AdminDashboardPage() {
     useState<FinancialReportTab>("payments-received");
   const [financialLastRefreshedAt, setFinancialLastRefreshedAt] =
     useState(() => new Date().toISOString());
-  const [legacyImportPreview, setLegacyImportPreview] =
-    useState<LegacyImportPreview | null>(null);
-  const [legacyImportError, setLegacyImportError] = useState("");
   const [deleteCorporateRequestId, setDeleteCorporateRequestId] =
     useState("");
   const [
@@ -8527,6 +8526,18 @@ export default function AdminDashboardPage() {
   }, [activeAdminTab, activeSettingsTab, isSuperAdmin]);
 
   useEffect(() => {
+    if (
+      activeAdminTab !== "settings" ||
+      activeSettingsTab !== "promo-codes" ||
+      !isSuperAdmin
+    ) {
+      return;
+    }
+
+    void loadPromoCodes();
+  }, [activeAdminTab, activeSettingsTab, isSuperAdmin]);
+
+  useEffect(() => {
     if (activeAdminTab !== "settings" || activeSettingsTab !== "audit") {
       return;
     }
@@ -8537,7 +8548,7 @@ export default function AdminDashboardPage() {
   const activeBookingEditCount = bookingEditLocks.length;
 
   useEffect(() => {
-    if (activeAdminTab !== "overview" || !currentStaff) {
+    if (activeAdminTab !== "platform-operations" || !currentStaff || !isSuperAdmin) {
       return;
     }
 
@@ -8548,7 +8559,7 @@ export default function AdminDashboardPage() {
     }, 60000);
 
     return () => window.clearInterval(interval);
-  }, [activeAdminTab, currentStaff?.id]);
+  }, [activeAdminTab, currentStaff?.id, isSuperAdmin]);
 
   function isOwnBookingLock(lock?: BookingEditLock | null) {
     if (!lock || !currentStaff) {
@@ -9985,6 +9996,24 @@ export default function AdminDashboardPage() {
     }
   }
 
+  function scrollToPlatformHealth() {
+    void refreshSystemStatus();
+
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById("platform-health")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function toggleAnalyticsSection(sectionId: AnalyticsSectionId) {
+    setOpenAnalyticsSections((currentSections) =>
+      currentSections.includes(sectionId)
+        ? currentSections.filter((currentId) => currentId !== sectionId)
+        : [...currentSections, sectionId],
+    );
+  }
+
   async function loadAutomatedWorkflows() {
     if (!isSuperAdmin) {
       return;
@@ -10003,6 +10032,169 @@ export default function AdminDashboardPage() {
       showWorkflowToast("⚠ Could not load workflows");
     } finally {
       setIsWorkflowConfigLoading(false);
+    }
+  }
+
+  function resetPromoCodeForm() {
+    setEditingPromoCodeId(null);
+    setPromoCodeForm({
+      active: true,
+      code: "",
+      discountType: "percentage",
+      discountValue: "",
+      location: "",
+      name: "",
+      showId: "",
+      usageLimit: "",
+      validFrom: "",
+      validUntil: "",
+    });
+  }
+
+  async function loadPromoCodes() {
+    if (!isSuperAdmin) {
+      return;
+    }
+
+    setIsPromoCodeLoading(true);
+    setPromoCodeError("");
+
+    try {
+      const payload = await fetchSupabaseApi<{
+        promoCodes: PromoAdminRecord[];
+      }>("/api/admin/promo-codes");
+
+      setPromoCodes(payload.promoCodes);
+    } catch (error) {
+      console.error("[Zingara admin] Failed to load promo codes", error);
+      setPromoCodeError("Promo codes could not be loaded.");
+    } finally {
+      setIsPromoCodeLoading(false);
+    }
+  }
+
+  function editPromoCode(promo: PromoAdminRecord) {
+    setEditingPromoCodeId(promo.id);
+    setPromoCodeStatus("");
+    setPromoCodeError("");
+    setPromoCodeForm({
+      active: promo.active,
+      code: promo.code,
+      discountType: promo.discountType,
+      discountValue: String(promo.discountValue),
+      location: promo.location ?? "",
+      name: promo.name,
+      showId: promo.showId ?? "",
+      usageLimit: promo.usageLimit ? String(promo.usageLimit) : "",
+      validFrom: promo.validFrom ? promo.validFrom.slice(0, 16) : "",
+      validUntil: promo.validUntil ? promo.validUntil.slice(0, 16) : "",
+    });
+  }
+
+  function buildPromoCodePayload(active = promoCodeForm.active) {
+    return {
+      active,
+      code: promoCodeForm.code,
+      discountType: promoCodeForm.discountType,
+      discountValue: Number(promoCodeForm.discountValue),
+      location: promoCodeForm.location || null,
+      name: promoCodeForm.name,
+      showId: promoCodeForm.showId || null,
+      usageLimit: promoCodeForm.usageLimit
+        ? Number(promoCodeForm.usageLimit)
+        : null,
+      validFrom: promoCodeForm.validFrom
+        ? new Date(promoCodeForm.validFrom).toISOString()
+        : null,
+      validUntil: promoCodeForm.validUntil
+        ? new Date(promoCodeForm.validUntil).toISOString()
+        : null,
+    };
+  }
+
+  async function savePromoCode() {
+    if (!isSuperAdmin || isPromoCodeSaving) {
+      return;
+    }
+
+    setIsPromoCodeSaving(true);
+    setPromoCodeError("");
+    setPromoCodeStatus("Saving promo code...");
+
+    try {
+      const payload = await fetchSupabaseApi<{
+        promoCodes: PromoAdminRecord[];
+      }>("/api/admin/promo-codes", {
+        body: editingPromoCodeId
+          ? { ...buildPromoCodePayload(), id: editingPromoCodeId }
+          : buildPromoCodePayload(),
+        method: editingPromoCodeId ? "PUT" : "POST",
+      });
+
+      setPromoCodes(payload.promoCodes);
+      resetPromoCodeForm();
+      setPromoCodeStatus("Promo code saved.");
+    } catch (error) {
+      console.error("[Zingara admin] Failed to save promo code", error);
+      setPromoCodeError(
+        error instanceof Error ? error.message : "Promo code could not be saved.",
+      );
+      setPromoCodeStatus("");
+    } finally {
+      setIsPromoCodeSaving(false);
+    }
+  }
+
+  async function setPromoCodeActive(promo: PromoAdminRecord, active: boolean) {
+    if (!isSuperAdmin || isPromoCodeSaving) {
+      return;
+    }
+
+    setEditingPromoCodeId(promo.id);
+    setPromoCodeForm({
+      active,
+      code: promo.code,
+      discountType: promo.discountType,
+      discountValue: String(promo.discountValue),
+      location: promo.location ?? "",
+      name: promo.name,
+      showId: promo.showId ?? "",
+      usageLimit: promo.usageLimit ? String(promo.usageLimit) : "",
+      validFrom: promo.validFrom ? promo.validFrom.slice(0, 16) : "",
+      validUntil: promo.validUntil ? promo.validUntil.slice(0, 16) : "",
+    });
+    setIsPromoCodeSaving(true);
+    setPromoCodeError("");
+    setPromoCodeStatus(active ? "Reactivating promo code..." : "Disabling promo code...");
+
+    try {
+      const payload = await fetchSupabaseApi<{
+        promoCodes: PromoAdminRecord[];
+      }>("/api/admin/promo-codes", {
+        body: {
+          active,
+          code: promo.code,
+          discountType: promo.discountType,
+          discountValue: promo.discountValue,
+          id: promo.id,
+          location: promo.location,
+          name: promo.name,
+          showId: promo.showId,
+          usageLimit: promo.usageLimit,
+          validFrom: promo.validFrom,
+          validUntil: promo.validUntil,
+        },
+        method: "PUT",
+      });
+
+      setPromoCodes(payload.promoCodes);
+      resetPromoCodeForm();
+      setPromoCodeStatus(active ? "Promo code reactivated." : "Promo code disabled.");
+    } catch (error) {
+      console.error("[Zingara admin] Failed to update promo status", error);
+      setPromoCodeError("Promo code status could not be updated.");
+    } finally {
+      setIsPromoCodeSaving(false);
     }
   }
 
@@ -14026,167 +14218,6 @@ export default function AdminDashboardPage() {
     printWindow.print();
   }
 
-  function buildLegacyImportPreview(rows: Record<string, string>[]) {
-    const errors: string[] = [];
-    const crmRecordsByKey = new Map<string, DemoCustomerCrmRecord>();
-    const importedBookings = rows.flatMap((row, index) => {
-      const name =
-        row.customer_name || row.name || row.guest_name || "";
-      const email = row.email || row.email_address || "";
-      const phone = row.phone || row.phone_number || "";
-
-      if (!name && !email && !phone) {
-        errors.push(`Row ${index + 2}: missing customer identity.`);
-        return [];
-      }
-
-      const zone =
-        seatingZones.find(
-          (currentZone) =>
-            currentZone.title.toLowerCase() ===
-              (row.zone || row.seating_zone || "").toLowerCase() ||
-            (isValidSeatingZoneId(row.zone) &&
-              currentZone.id === row.zone),
-        ) ?? seatingZones[1];
-      const customer = { email, name: name || "Imported Guest", phone };
-      const customerKey = getCustomerKey(customer);
-      const vipTags = (row.vip_tags || row.tags || "")
-        .split(/[;|]/)
-        .map((tag) => tag.trim())
-        .filter(Boolean);
-
-      crmRecordsByKey.set(customerKey, {
-        customerKey,
-        notes: row.notes || row.booking_notes || "",
-        vipTags,
-        updatedAt: new Date().toISOString(),
-      });
-
-      const importedStatus = isValidBookingStatus(row.status)
-        ? row.status
-        : "completed";
-
-      return [
-        {
-          reference:
-            row.booking_reference ||
-            row.reference ||
-            `LEGACY-${Date.now()}-${index + 1}`,
-          showId: selectedShowId,
-          zoneId: zone.id,
-          zoneTitle: zone.title,
-          tableId: row.table_id || "legacy-import",
-          tableNumber: row.table || row.table_number || "Legacy",
-          partySize: Number(row.guests || row.party_size || 1),
-          bookingDate: row.booking_date || getShowLabel(selectedShow),
-          addons: [],
-          addonsTotal: 0,
-          subtotalPrice: Number(row.subtotal || row.total || 0),
-          discountAmount: Number(row.discount || 0),
-          totalPrice: Number(row.total || row.payment_total || 0),
-          pricePerPerson: 0,
-          paymentStatus: "fully-paid" as const,
-          amountPaid: Number(row.paid || row.payment_total || row.total || 0),
-          balanceDue: Number(row.balance || 0),
-          source: "admin" as const,
-          ticketCode: createTicketCode(
-            row.booking_reference ||
-              row.reference ||
-              `LEGACY-${Date.now()}-${index + 1}`,
-          ),
-          ticketIssuedAt: new Date().toISOString(),
-          customer,
-          status: importedStatus,
-          lifecycleHistory: [
-            {
-              id: `legacy-${index + 1}`,
-              toStatus: importedStatus,
-              note: "Imported from legacy booking data",
-              createdAt: new Date().toISOString(),
-            },
-          ],
-          operationalNotes: row.notes || row.booking_notes || "",
-          cancellationReason: "",
-          refundNotes: "",
-          communicationHistory: [],
-          createdAt: new Date().toISOString(),
-        } satisfies DemoBooking,
-      ];
-    });
-
-    return {
-      bookings: importedBookings,
-      crmRecords: Array.from(crmRecordsByKey.values()),
-      errors,
-    };
-  }
-
-  async function handleLegacyImportFile(
-    event: ChangeEvent<HTMLInputElement>,
-  ) {
-    const file = event.target.files?.[0];
-
-    setLegacyImportError("");
-    setLegacyImportPreview(null);
-
-    if (!file) {
-      return;
-    }
-
-    if (file.name.endsWith(".xlsx")) {
-      setLegacyImportError(
-        "XLSX files are accepted for legacy intake, but this lightweight preview currently needs the workbook exported as CSV before confirmation.",
-      );
-      return;
-    }
-
-    const text = await file.text();
-    const rows = parseCsvRows(text);
-
-    if (rows.length === 0) {
-      setLegacyImportError("No importable rows were found.");
-      return;
-    }
-
-    setLegacyImportPreview(buildLegacyImportPreview(rows));
-  }
-
-  function confirmLegacyImport() {
-    if (!legacyImportPreview || !canManageBookings) {
-      return;
-    }
-
-    const existingReferences = new Set(
-      bookings.map((booking) => booking.reference),
-    );
-    const nextBookings = [
-      ...legacyImportPreview.bookings.filter(
-        (booking) => !existingReferences.has(booking.reference),
-      ),
-      ...bookings,
-    ];
-    const crmByKey = new Map(
-      customerCrmRecords.map((record) => [record.customerKey, record]),
-    );
-
-    for (const record of legacyImportPreview.crmRecords) {
-      crmByKey.set(record.customerKey, {
-        ...crmByKey.get(record.customerKey),
-        ...record,
-        vipTags: Array.from(
-          new Set([
-            ...(crmByKey.get(record.customerKey)?.vipTags ?? []),
-            ...record.vipTags,
-          ]),
-        ),
-      });
-    }
-
-    saveBookings(nextBookings);
-    saveCustomerCrmRecords(Array.from(crmByKey.values()));
-    setLegacyImportPreview(null);
-  }
-
   function checkInGuest(booking: DemoBooking) {
     if (
       !canCheckInGuests ||
@@ -17283,6 +17314,128 @@ export default function AdminDashboardPage() {
       </section>
     );
   }
+
+  const systemHealthPanel = (
+    <section
+      id="platform-health"
+      className="scroll-mt-8 overflow-hidden rounded-[1.5rem] border border-[#D8C36A]/25 bg-[radial-gradient(circle_at_top,#1D1608_0%,#080808_56%,#030303_100%)] p-4 shadow-2xl shadow-black/25 sm:rounded-[2rem] sm:p-5"
+    >
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
+            Platform Health
+          </p>
+          <h3 className="zingara-heading mt-2 text-2xl font-bold">
+            System Status
+          </h3>
+          <p className="mt-2 text-sm text-zinc-400">
+            Live operational checks for the services that keep bookings,
+            tickets, payments, and staff workflows running.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+          <span
+            className={`inline-flex w-fit rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+              systemStatus
+                ? getSystemHealthBadgeClass(systemStatus.overallStatus)
+                : "border-white/15 bg-black/35 text-zinc-300"
+            }`}
+          >
+            {systemStatus
+              ? getSystemHealthLabel(systemStatus.overallStatus)
+              : isSystemStatusLoading
+                ? "Checking"
+                : "Not checked"}
+          </span>
+          <button
+            type="button"
+            onClick={() => void refreshSystemStatus()}
+            disabled={isSystemStatusLoading}
+            className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-wait disabled:opacity-60"
+          >
+            {isSystemStatusLoading ? "Refreshing..." : "Refresh Status"}
+          </button>
+        </div>
+      </div>
+
+      {systemStatusError && (
+        <p className="mt-4 rounded-2xl border border-red-300/25 bg-red-950/20 p-3 text-sm text-red-100">
+          {systemStatusError}
+        </p>
+      )}
+
+      {systemStatus && (
+        <>
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              ["Version", systemStatus.platform.platformVersion],
+              ["Build", systemStatus.platform.build],
+              ["Environment", systemStatus.platform.environment],
+              ["Current Staff", systemStatus.platform.currentStaff],
+              ["Staff Logged In", systemStatus.platform.staffLoggedIn],
+              [
+                "Active Booking Locks",
+                systemStatus.platform.activeBookingLocks.toString(),
+              ],
+              ["Current Database", systemStatus.platform.currentDatabase],
+              [
+                "Current Date/Time",
+                formatSouthAfricanTimestamp(
+                  systemStatus.platform.currentDateTime,
+                ),
+              ],
+              [
+                "Last Successful Health Check",
+                systemStatus.platform.lastSuccessfulHealthCheck
+                  ? formatSouthAfricanTimestamp(
+                      systemStatus.platform.lastSuccessfulHealthCheck,
+                    )
+                  : "Not available",
+              ],
+              ["Auto Refresh", systemStatus.platform.autoRefresh],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-2xl border border-white/10 bg-black/35 p-4"
+              >
+                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  {label}
+                </p>
+                <p className="mt-2 break-words text-sm font-semibold text-white">
+                  {value}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {systemStatus.checks.map((check) => (
+              <article
+                key={check.name}
+                className="rounded-2xl border border-white/10 bg-zinc-950 p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <p className="font-semibold text-white">{check.name}</p>
+                  <span
+                    className={`inline-flex rounded-full border px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.1em] ${getSystemHealthBadgeClass(check.status)}`}
+                  >
+                    {check.displayLabel ?? getSystemHealthLabel(check.status)}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-zinc-400">
+                  {check.description}
+                </p>
+              </article>
+            ))}
+          </div>
+
+          <p className="mt-4 text-xs text-zinc-500">
+            Last refreshed {formatSouthAfricanTimestamp(systemStatus.generatedAt)}
+          </p>
+        </>
+      )}
+    </section>
+  );
 
   if (!hasHydrated) {
     return (
@@ -21283,6 +21436,393 @@ export default function AdminDashboardPage() {
         )}
 
         {activeAdminTab === "settings" &&
+          activeSettingsTab === "promo-codes" &&
+          isSuperAdmin && (
+          <section className="mb-10 rounded-[2rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#1B1308_0%,#080808_52%,#030303_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
+            <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
+                  Settings
+                </p>
+                <h2 className="mt-2 text-3xl font-bold text-white">
+                  Promo Codes
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+                  Manage guest-facing promo codes. Booking totals are
+                  recalculated server-side before payment.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadPromoCodes()}
+                disabled={isPromoCodeLoading}
+                className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isPromoCodeLoading ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
+
+            {(promoCodeStatus || promoCodeError) && (
+              <div
+                className={`mt-5 rounded-2xl border p-4 text-sm ${
+                  promoCodeError
+                    ? "border-red-400/30 bg-red-950/25 text-red-100"
+                    : "border-emerald-300/25 bg-emerald-950/20 text-emerald-100"
+                }`}
+              >
+                {promoCodeError || promoCodeStatus}
+              </div>
+            )}
+
+            <div className="mt-6 grid gap-5 xl:grid-cols-[360px_1fr]">
+              <article className="rounded-[1.5rem] border border-white/10 bg-black/35 p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                  {editingPromoCodeId ? "Edit Promo Code" : "Create Promo Code"}
+                </p>
+                <div className="mt-4 grid gap-3">
+                  <label className="text-sm text-zinc-300">
+                    <span className="mb-1 block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                      Code
+                    </span>
+                    <input
+                      value={promoCodeForm.code}
+                      onChange={(event) =>
+                        setPromoCodeForm((form) => ({
+                          ...form,
+                          code: event.target.value.toUpperCase(),
+                        }))
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm uppercase text-white"
+                      placeholder="COUNTESS10"
+                    />
+                  </label>
+                  <label className="text-sm text-zinc-300">
+                    <span className="mb-1 block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                      Internal Name / Description
+                    </span>
+                    <input
+                      value={promoCodeForm.name}
+                      onChange={(event) =>
+                        setPromoCodeForm((form) => ({
+                          ...form,
+                          name: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white"
+                      placeholder="10% Royal Countess guest saving"
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm text-zinc-300">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                        Discount Type
+                      </span>
+                      <select
+                        value={promoCodeForm.discountType}
+                        onChange={(event) =>
+                          setPromoCodeForm((form) => ({
+                            ...form,
+                            discountType: event.target.value as PromoDiscountType,
+                          }))
+                        }
+                        className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white"
+                      >
+                        <option value="percentage">Percentage</option>
+                        <option value="fixed">Fixed Rand</option>
+                      </select>
+                    </label>
+                    <label className="text-sm text-zinc-300">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                        Discount Value
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={promoCodeForm.discountValue}
+                        onChange={(event) =>
+                          setPromoCodeForm((form) => ({
+                            ...form,
+                            discountValue: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white"
+                      />
+                    </label>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm text-zinc-300">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                        Valid From
+                      </span>
+                      <input
+                        type="datetime-local"
+                        value={promoCodeForm.validFrom}
+                        onChange={(event) =>
+                          setPromoCodeForm((form) => ({
+                            ...form,
+                            validFrom: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white"
+                      />
+                    </label>
+                    <label className="text-sm text-zinc-300">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                        Valid Until
+                      </span>
+                      <input
+                        type="datetime-local"
+                        value={promoCodeForm.validUntil}
+                        onChange={(event) =>
+                          setPromoCodeForm((form) => ({
+                            ...form,
+                            validUntil: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white"
+                      />
+                    </label>
+                  </div>
+                  <label className="text-sm text-zinc-300">
+                    <span className="mb-1 block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                      Usage Limit
+                    </span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={promoCodeForm.usageLimit}
+                      onChange={(event) =>
+                        setPromoCodeForm((form) => ({
+                          ...form,
+                          usageLimit: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white"
+                      placeholder="Unlimited"
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm text-zinc-300">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                        Location
+                      </span>
+                      <select
+                        value={promoCodeForm.location}
+                        onChange={(event) =>
+                          setPromoCodeForm((form) => ({
+                            ...form,
+                            location: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white"
+                      >
+                        <option value="">All Locations</option>
+                        {showLocationOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm text-zinc-300">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.14em] text-zinc-500">
+                        Show
+                      </span>
+                      <select
+                        value={promoCodeForm.showId}
+                        onChange={(event) =>
+                          setPromoCodeForm((form) => ({
+                            ...form,
+                            showId: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white"
+                      >
+                        <option value="">All Shows</option>
+                        {shows.map((show) => (
+                          <option key={show.id} value={show.id}>
+                            {show.label} · {show.date}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={promoCodeForm.active}
+                      onChange={(event) =>
+                        setPromoCodeForm((form) => ({
+                          ...form,
+                          active: event.target.checked,
+                        }))
+                      }
+                    />
+                    Active
+                  </label>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => void savePromoCode()}
+                      disabled={isPromoCodeSaving}
+                      className="rounded-full bg-[#D8C36A] px-5 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isPromoCodeSaving ? "Saving..." : "Save Promo Code"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetPromoCodeForm}
+                      disabled={isPromoCodeSaving}
+                      className="rounded-full border border-white/15 px-5 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              </article>
+
+              <article className="rounded-[1.5rem] border border-white/10 bg-black/35 p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                      Promo Library
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      {promoCodes.length} codes · usage includes confirmed
+                      persisted redemptions.
+                    </p>
+                  </div>
+                  <input
+                    value={promoCodeSearch}
+                    onChange={(event) => setPromoCodeSearch(event.target.value)}
+                    className="w-full rounded-full border border-white/10 bg-zinc-950 px-4 py-2 text-sm text-white sm:max-w-xs"
+                    placeholder="Search codes"
+                  />
+                </div>
+
+                <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
+                  <table className="min-w-[920px] w-full text-left text-sm">
+                    <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C]">
+                      <tr>
+                        {[
+                          "Code",
+                          "Name",
+                          "Discount",
+                          "Status",
+                          "Validity",
+                          "Usage",
+                          "Scope",
+                          "Actions",
+                        ].map((heading) => (
+                          <th key={heading} className="px-3 py-3 font-semibold">
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/10">
+                      {promoCodes
+                        .filter((promo) => {
+                          const search = promoCodeSearch.trim().toLowerCase();
+
+                          return (
+                            !search ||
+                            promo.code.toLowerCase().includes(search) ||
+                            promo.name.toLowerCase().includes(search)
+                          );
+                        })
+                        .map((promo) => {
+                          const locationLabel = promo.location
+                            ? getShowLocationOption(promo.location as EntryLocationKey).label
+                            : "All Locations";
+                          const showLabel =
+                            shows.find((show) => show.id === promo.showId)?.label ??
+                            "All Shows";
+
+                          return (
+                            <tr key={promo.id} className="text-zinc-300">
+                              <td className="px-3 py-3 font-semibold text-white">
+                                {promo.code}
+                              </td>
+                              <td className="px-3 py-3">{promo.name}</td>
+                              <td className="px-3 py-3">
+                                {promo.discountType === "percentage"
+                                  ? `${promo.discountValue}%`
+                                  : formatCurrency(promo.discountValue)}
+                              </td>
+                              <td className="px-3 py-3">
+                                <span className="rounded-full border border-[#D8C36A]/35 bg-[#D8C36A]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C]">
+                                  {promo.status}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-xs">
+                                <div>
+                                  From:{" "}
+                                  {promo.validFrom
+                                    ? formatSouthAfricanDate(promo.validFrom)
+                                    : "Any time"}
+                                </div>
+                                <div>
+                                  Until:{" "}
+                                  {promo.validUntil
+                                    ? formatSouthAfricanDate(promo.validUntil)
+                                    : "No expiry"}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3 text-xs">
+                                <div>
+                                  {promo.redemptionCount}
+                                  {promo.usageLimit
+                                    ? ` / ${promo.usageLimit}`
+                                    : " redemptions"}
+                                </div>
+                                <div className="text-emerald-200">
+                                  {formatCurrency(promo.totalDiscountGiven)}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3 text-xs">
+                                <div>{locationLabel}</div>
+                                <div className="text-zinc-500">{showLabel}</div>
+                              </td>
+                              <td className="px-3 py-3">
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => editPromoCode(promo)}
+                                    className="rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void setPromoCodeActive(promo, !promo.active)
+                                    }
+                                    disabled={isPromoCodeSaving}
+                                    className="rounded-full border border-[#D8C36A]/35 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    {promo.active ? "Disable" : "Reactivate"}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+                {promoCodes.length === 0 && !isPromoCodeLoading && (
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-zinc-950 p-6 text-sm text-zinc-400">
+                    No promo codes have been created yet.
+                  </div>
+                )}
+              </article>
+            </div>
+          </section>
+        )}
+
+        {activeAdminTab === "settings" &&
           activeSettingsTab === "staff" &&
           canManageSettings && (
           <section className="mb-10 rounded-2xl border border-white/10 bg-zinc-950 p-6 shadow-2xl shadow-black/25">
@@ -22685,14 +23225,14 @@ export default function AdminDashboardPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
-                  Platform Operations
+                  System
                 </p>
                 <h2 className="mt-2 text-3xl font-bold text-white sm:text-4xl">
-                  What is happening right now?
+                  Live Platform Activity
                 </h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-                  Privacy-safe telemetry for live platform presence, booking
-                  journeys, payment milestones, errors, and performance.
+                  Real-time activity, booking journeys, payments and technical
+                  events.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -22706,10 +23246,7 @@ export default function AdminDashboardPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveAdminTab("overview");
-                    void refreshSystemStatus();
-                  }}
+                  onClick={scrollToPlatformHealth}
                   className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
                 >
                   View System Status
@@ -22772,8 +23309,8 @@ export default function AdminDashboardPage() {
             {!platformOperations && !platformOperationsError && (
               <div className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-6 text-sm text-zinc-400">
                 {isPlatformOperationsLoading
-                  ? "Loading Platform Operations..."
-                  : "Platform Operations has not been refreshed yet."}
+                  ? "Loading System activity..."
+                  : "System activity has not been refreshed yet."}
               </div>
             )}
 
@@ -23212,15 +23749,20 @@ export default function AdminDashboardPage() {
                   </section>
                 </div>
 
-                <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-5">
+                {systemHealthPanel}
+
+                <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950/80 p-4">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
-                      <h3 className="text-xl font-bold text-white">
-                        Retention Cleanup
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                        System Maintenance
+                      </p>
+                      <h3 className="mt-1 text-lg font-bold text-white">
+                        Telemetry Retention
                       </h3>
                       <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-                        Sessions: 24h. Events: 30 days. Warning/error events:
-                        90 days. Incidents: 12 months. Rollups: 24 months.
+                        Telemetry retention is cleaned automatically according
+                        to the configured retention policy.
                       </p>
                       {platformOperationsCleanupStatus && (
                         <p className="mt-3 text-sm text-[#F2D66C]">
@@ -23233,7 +23775,7 @@ export default function AdminDashboardPage() {
                       onClick={() => void runPlatformTelemetryCleanup()}
                       className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                     >
-                      Run Cleanup
+                      Run Cleanup Now
                     </button>
                   </div>
                 </section>
@@ -23277,130 +23819,6 @@ export default function AdminDashboardPage() {
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div className="order-2 mb-6 overflow-hidden rounded-[1.5rem] border border-[#D8C36A]/25 bg-[radial-gradient(circle_at_top,#1D1608_0%,#080808_56%,#030303_100%)] p-4 shadow-2xl shadow-black/25 sm:mb-8 sm:rounded-[2rem] sm:p-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
-                    System Status
-                  </p>
-                  <h3 className="zingara-heading mt-2 text-2xl font-bold">
-                    Platform Health
-                  </h3>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    Live operational checks for the services that keep
-                    bookings, tickets, payments, and staff workflows running.
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
-                  <span
-                    className={`inline-flex w-fit rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
-                      systemStatus
-                        ? getSystemHealthBadgeClass(systemStatus.overallStatus)
-                        : "border-white/15 bg-black/35 text-zinc-300"
-                    }`}
-                  >
-                    {systemStatus
-                      ? getSystemHealthLabel(systemStatus.overallStatus)
-                      : isSystemStatusLoading
-                        ? "Checking"
-                        : "Not checked"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void refreshSystemStatus()}
-                    disabled={isSystemStatusLoading}
-                    className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {isSystemStatusLoading
-                      ? "Refreshing..."
-                      : "Refresh Status"}
-                  </button>
-                </div>
-              </div>
-
-              {systemStatusError && (
-                <p className="mt-4 rounded-2xl border border-red-300/25 bg-red-950/20 p-3 text-sm text-red-100">
-                  {systemStatusError}
-                </p>
-              )}
-
-              {systemStatus && (
-                <>
-                  <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    {[
-                      ["Version", systemStatus.platform.platformVersion],
-                      ["Build", systemStatus.platform.build],
-                      ["Environment", systemStatus.platform.environment],
-                      ["Current Staff", systemStatus.platform.currentStaff],
-                      ["Staff Logged In", systemStatus.platform.staffLoggedIn],
-                      [
-                        "Active Booking Locks",
-                        systemStatus.platform.activeBookingLocks.toString(),
-                      ],
-                      ["Current Database", systemStatus.platform.currentDatabase],
-                      [
-                        "Current Date/Time",
-                        formatSouthAfricanTimestamp(
-                          systemStatus.platform.currentDateTime,
-                        ),
-                      ],
-                      [
-                        "Last Successful Health Check",
-                        systemStatus.platform.lastSuccessfulHealthCheck
-                          ? formatSouthAfricanTimestamp(
-                              systemStatus.platform
-                                .lastSuccessfulHealthCheck,
-                            )
-                          : "Not available",
-                      ],
-                      ["Auto Refresh", systemStatus.platform.autoRefresh],
-                    ].map(([label, value]) => (
-                      <div
-                        key={label}
-                        className="rounded-2xl border border-white/10 bg-black/35 p-4"
-                      >
-                        <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                          {label}
-                        </p>
-                        <p className="mt-2 break-words text-sm font-semibold text-white">
-                          {value}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {systemStatus.checks.map((check) => (
-                      <article
-                        key={check.name}
-                        className="rounded-2xl border border-white/10 bg-zinc-950 p-4"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <p className="font-semibold text-white">
-                            {check.name}
-                          </p>
-                          <span
-                            className={`inline-flex rounded-full border px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.1em] ${getSystemHealthBadgeClass(check.status)}`}
-                          >
-                            {check.displayLabel ??
-                              getSystemHealthLabel(check.status)}
-                          </span>
-                        </div>
-                        <p className="mt-3 text-sm leading-6 text-zinc-400">
-                          {check.description}
-                        </p>
-                      </article>
-                    ))}
-                  </div>
-
-                  <p className="mt-4 text-xs text-zinc-500">
-                    Last refreshed{" "}
-                    {formatSouthAfricanTimestamp(systemStatus.generatedAt)}
-                  </p>
-                </>
-              )}
             </div>
 
             <div className="order-1 mb-6 overflow-hidden rounded-[1.5rem] border border-[#8D7A2F]/25 bg-[radial-gradient(circle_at_top,#17120A_0%,#080808_58%,#030303_100%)] p-3 shadow-2xl shadow-black/30 sm:mb-8 sm:rounded-[2rem] sm:p-5">
@@ -24420,7 +24838,12 @@ export default function AdminDashboardPage() {
 
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
-                <div className="mb-5 flex items-center justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={() => toggleAnalyticsSection("per-show-revenue")}
+                  className="mb-5 flex w-full items-center justify-between gap-4 text-left"
+                  aria-expanded={openAnalyticsSections.includes("per-show-revenue")}
+                >
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
                       Per-Show Revenue
@@ -24430,10 +24853,11 @@ export default function AdminDashboardPage() {
                     </h3>
                   </div>
                   <span className="rounded-full border border-[#D8C36A]/25 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#D8C36A]">
-                    {shows.length} Shows
+                    {shows.length} Shows · {openAnalyticsSections.includes("per-show-revenue") ? "⌃" : "⌄"}
                   </span>
-                </div>
+                </button>
 
+                {openAnalyticsSections.includes("per-show-revenue") && (
                 <div className="space-y-4">
                   {perShowAnalytics.map((showReport) => (
                     <div key={`revenue-${showReport.show.id}`}>
@@ -24464,16 +24888,30 @@ export default function AdminDashboardPage() {
                     </div>
                   ))}
                 </div>
+                )}
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  Occupancy Trends
-                </p>
-                <h3 className="zingara-heading mt-1 text-2xl font-bold">
-                  Reserved Capacity By Show
-                </h3>
+                <button
+                  type="button"
+                  onClick={() => toggleAnalyticsSection("occupancy-trends")}
+                  className="flex w-full items-center justify-between gap-4 text-left"
+                  aria-expanded={openAnalyticsSections.includes("occupancy-trends")}
+                >
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Occupancy Trends
+                    </p>
+                    <h3 className="zingara-heading mt-1 text-2xl font-bold">
+                      Reserved Capacity By Show
+                    </h3>
+                  </div>
+                  <span className="text-2xl text-[#D8C36A]">
+                    {openAnalyticsSections.includes("occupancy-trends") ? "⌃" : "⌄"}
+                  </span>
+                </button>
 
+                {openAnalyticsSections.includes("occupancy-trends") && (
                 <div className="mt-5 grid grid-cols-1 gap-4">
                   {perShowAnalytics.map((showReport) => (
                     <div
@@ -24509,16 +24947,30 @@ export default function AdminDashboardPage() {
                     </div>
                   ))}
                 </div>
+                )}
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  Add-On Revenue Breakdown
-                </p>
-                <h3 className="zingara-heading mt-1 text-2xl font-bold">
-                  Premium Upsells
-                </h3>
+                <button
+                  type="button"
+                  onClick={() => toggleAnalyticsSection("addon-revenue")}
+                  className="flex w-full items-center justify-between gap-4 text-left"
+                  aria-expanded={openAnalyticsSections.includes("addon-revenue")}
+                >
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Add-On Revenue Breakdown
+                    </p>
+                    <h3 className="zingara-heading mt-1 text-2xl font-bold">
+                      Premium Upsells
+                    </h3>
+                  </div>
+                  <span className="text-2xl text-[#D8C36A]">
+                    {openAnalyticsSections.includes("addon-revenue") ? "⌃" : "⌄"}
+                  </span>
+                </button>
 
+                {openAnalyticsSections.includes("addon-revenue") && (
                 <div className="mt-5 space-y-4">
                   {addonBreakdown.length === 0 ? (
                     <p className="rounded-2xl border border-white/10 bg-zinc-950 p-4 text-zinc-400">
@@ -24553,16 +25005,30 @@ export default function AdminDashboardPage() {
                     ))
                   )}
                 </div>
+                )}
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  Promo Code Usage
-                </p>
-                <h3 className="zingara-heading mt-1 text-2xl font-bold">
-                  Discounts & Redemptions
-                </h3>
+                <button
+                  type="button"
+                  onClick={() => toggleAnalyticsSection("promo-code-usage")}
+                  className="flex w-full items-center justify-between gap-4 text-left"
+                  aria-expanded={openAnalyticsSections.includes("promo-code-usage")}
+                >
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Promo Code Usage
+                    </p>
+                    <h3 className="zingara-heading mt-1 text-2xl font-bold">
+                      Discounts & Redemptions
+                    </h3>
+                  </div>
+                  <span className="text-2xl text-[#D8C36A]">
+                    {openAnalyticsSections.includes("promo-code-usage") ? "⌃" : "⌄"}
+                  </span>
+                </button>
 
+                {openAnalyticsSections.includes("promo-code-usage") && (
                 <div className="mt-5 grid grid-cols-1 gap-3">
                   {promoAnalytics.length === 0 ? (
                     <p className="rounded-2xl border border-white/10 bg-zinc-950 p-4 text-zinc-400">
@@ -24596,6 +25062,7 @@ export default function AdminDashboardPage() {
                     ))
                   )}
                 </div>
+                )}
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
@@ -24688,13 +25155,26 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  Customer Value
-                </p>
-                <h3 className="zingara-heading mt-1 text-2xl font-bold">
-                  Top CRM Profiles
-                </h3>
+                <button
+                  type="button"
+                  onClick={() => toggleAnalyticsSection("customer-value")}
+                  className="flex w-full items-center justify-between gap-4 text-left"
+                  aria-expanded={openAnalyticsSections.includes("customer-value")}
+                >
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Customer Value
+                    </p>
+                    <h3 className="zingara-heading mt-1 text-2xl font-bold">
+                      Top CRM Profiles
+                    </h3>
+                  </div>
+                  <span className="text-2xl text-[#D8C36A]">
+                    {openAnalyticsSections.includes("customer-value") ? "⌃" : "⌄"}
+                  </span>
+                </button>
 
+                {openAnalyticsSections.includes("customer-value") && (
                 <div className="mt-5 grid grid-cols-1 gap-3">
                   {topCustomerProfiles.length === 0 ? (
                     <p className="rounded-2xl border border-white/10 bg-zinc-950 p-4 text-zinc-400">
@@ -24727,6 +25207,7 @@ export default function AdminDashboardPage() {
                     ))
                   )}
                 </div>
+                )}
               </div>
             </div>
           </section>
@@ -24799,95 +25280,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             </div>
-
-            {canManageBookings && (
-              <div className="mb-6 rounded-2xl border border-white/10 bg-black/35 p-5">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Legacy Import
-                    </p>
-                    <h3 className="zingara-heading mt-1 text-2xl font-bold">
-                      Dineplan / Historical Booking Import
-                    </h3>
-                    <p className="mt-2 text-sm text-zinc-400">
-                      Upload CSV exports from legacy systems. XLSX files
-                      are accepted for intake, with validation guidance
-                      shown before any data is confirmed.
-                    </p>
-                  </div>
-                  <label className="rounded-full border border-[#D8C36A]/40 px-5 py-3 text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black">
-                    Choose CSV/XLSX
-                    <input
-                      type="file"
-                      accept=".csv,.tsv,.txt,.xls,.xlsx"
-                      onChange={handleLegacyImportFile}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-
-                {legacyImportError && (
-                  <div className="mt-4 rounded-2xl border border-red-300/30 bg-red-950/20 p-4 text-sm text-red-100">
-                    {legacyImportError}
-                  </div>
-                )}
-
-                {legacyImportPreview && (
-                  <div className="mt-5 rounded-2xl border border-white/10 bg-zinc-950 p-5">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="font-semibold text-white">
-                          Import Preview
-                        </p>
-                        <p className="mt-1 text-sm text-zinc-400">
-                          {legacyImportPreview.bookings.length} bookings ·{" "}
-                          {legacyImportPreview.crmRecords.length} CRM
-                          profiles · {legacyImportPreview.errors.length}{" "}
-                          validation notices
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={confirmLegacyImport}
-                        disabled={legacyImportPreview.bookings.length === 0}
-                        className="rounded-full bg-white px-5 py-3 font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Confirm Import
-                      </button>
-                    </div>
-                    {legacyImportPreview.errors.length > 0 && (
-                      <div className="mt-4 rounded-xl border border-amber-300/25 bg-amber-950/20 p-4 text-sm text-amber-100">
-                        {legacyImportPreview.errors.slice(0, 5).map(
-                          (error) => (
-                            <p key={error}>{error}</p>
-                          ),
-                        )}
-                      </div>
-                    )}
-                    <div className="mt-4 max-h-48 overflow-y-auto rounded-xl border border-white/10">
-                      {legacyImportPreview.bookings.slice(0, 8).map(
-                        (booking) => (
-                          <div
-                            key={booking.reference}
-                            className="border-b border-white/10 px-4 py-3 text-sm last:border-b-0"
-                          >
-                            <span className="font-semibold text-white">
-                              {booking.reference}
-                            </span>{" "}
-                            <span className="text-zinc-400">
-                              {booking.customer.name} ·{" "}
-                              {booking.zoneTitle} ·{" "}
-                              {formatCurrency(booking.totalPrice)}
-                            </span>
-                          </div>
-                        ),
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[420px_1fr]">
               <div className="flex h-[620px] flex-col self-start rounded-2xl border border-white/10 bg-black/35 p-5">
@@ -24963,12 +25355,12 @@ export default function AdminDashboardPage() {
               {selectedCustomerProfile && (
               <div className="min-w-0 rounded-2xl border border-white/10 bg-black/35 p-5">
                   <div>
-                    <div className="flex flex-col gap-4 border-b border-white/10 pb-5 2xl:flex-row 2xl:items-start 2xl:justify-between">
+                    <div className="flex flex-col gap-4 border-b border-white/10 pb-5">
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
                           Customer Profile
                         </p>
-                        <h3 className="mt-2 max-w-full break-words text-4xl font-bold leading-tight">
+                        <h3 className="mt-2 max-w-full break-words text-3xl font-bold leading-tight sm:text-4xl">
                           {selectedCustomerProfile.customer.name ||
                             "Unnamed Guest"}
                         </h3>
@@ -25004,8 +25396,8 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
 
-                      <div className="flex w-full flex-col gap-3 2xl:w-auto 2xl:items-end">
-                        <div className="flex flex-wrap gap-2 2xl:justify-end">
+                      <div className="flex w-full flex-col gap-3">
+                        <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
                             onClick={returnFromCustomerProfile}
@@ -25036,40 +25428,40 @@ export default function AdminDashboardPage() {
                             </button>
                           )}
                         </div>
-                      <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-4 2xl:min-w-[520px]">
-                        <div className="min-h-[96px] rounded-2xl border border-[#D8C36A]/20 bg-zinc-950 p-4">
+                      <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-4">
+                        <div className="min-h-[84px] rounded-2xl border border-[#D8C36A]/20 bg-zinc-950 p-3 sm:p-4">
                           <p className="text-xs uppercase tracking-[0.14em] text-[#D8C36A]">
                             Spend
                           </p>
-                          <p className="mt-2 text-xl font-bold">
+                          <p className="mt-2 text-lg font-bold sm:text-xl">
                             {formatCurrency(
                               selectedCustomerProfile.totalSpend,
                             )}
                           </p>
                         </div>
-                        <div className="min-h-[96px] rounded-2xl border border-white/10 bg-zinc-950 p-4">
+                        <div className="min-h-[84px] rounded-2xl border border-white/10 bg-zinc-950 p-3 sm:p-4">
                           <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
                             Bookings
                           </p>
-                          <p className="mt-2 text-xl font-bold">
+                          <p className="mt-2 text-lg font-bold sm:text-xl">
                             {selectedCustomerProfile.totalBookings}
                           </p>
                         </div>
-                        <div className="min-h-[96px] rounded-2xl border border-emerald-400/20 bg-emerald-950/15 p-4">
+                        <div className="min-h-[84px] rounded-2xl border border-emerald-400/20 bg-emerald-950/15 p-3 sm:p-4">
                           <p className="text-xs uppercase tracking-[0.14em] text-emerald-300">
                             Attendance
                           </p>
-                          <p className="mt-2 text-xl font-bold">
+                          <p className="mt-2 text-lg font-bold sm:text-xl">
                             {formatPercent(
                               selectedCustomerProfile.attendanceFrequency,
                             )}
                           </p>
                         </div>
-                        <div className="min-h-[96px] rounded-2xl border border-sky-400/20 bg-sky-950/15 p-4">
+                        <div className="min-h-[84px] rounded-2xl border border-sky-400/20 bg-sky-950/15 p-3 sm:p-4">
                           <p className="text-xs uppercase tracking-[0.14em] text-sky-200">
                             Arrivals
                           </p>
-                          <p className="mt-2 text-xl font-bold">
+                          <p className="mt-2 text-lg font-bold sm:text-xl">
                             {selectedCustomerProfile.attendanceCount}
                           </p>
                         </div>

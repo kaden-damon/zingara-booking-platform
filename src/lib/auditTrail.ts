@@ -10,6 +10,7 @@ export type AuditEntityType =
   | "data-portability-restore"
   | "data-portability-export"
   | "payment"
+  | "promo-code"
   | "security"
   | "show"
   | "staff"

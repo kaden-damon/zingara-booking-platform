@@ -523,7 +523,9 @@ export type DemoBooking = {
   corporatePaymentLinkSentAt?: string;
   corporatePaymentToken?: string;
   promoCode?: string;
+  promoCodeId?: string;
   promoLabel?: string;
+  promoLocation?: EntryLocationKey;
   source?: BookingSource;
   ticketCode?: string;
   ticketIssuedAt?: string;

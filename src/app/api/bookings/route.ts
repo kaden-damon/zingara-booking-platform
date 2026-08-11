@@ -6,15 +6,21 @@ import {
   type CommunicationTrigger,
   type CustomerInfo,
   type DemoBooking,
+  type DemoVenueSettings,
   type PaymentStatus,
+  defaultVenueSettings,
+  normalizeShowLocation,
+  seatingZones,
   createTicketCode,
   getBookingTicketState,
   getTicketUrl,
 } from "@/lib/zingaraDemo";
+import { calculatePublicBookingPricing } from "@/lib/pricing";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
 } from "@/lib/email/communicationIdempotency";
+import { validatePromoCode } from "@/lib/supabase/promoCodes";
 import { sendZingaraEmail } from "@/lib/email/smtp";
 import {
   recordPlatformEventBestEffort,
@@ -106,6 +112,7 @@ type SupabaseShowRow = {
   id: string;
   notes: string | null;
   time: string;
+  venue: string | null;
 };
 
 type BookingTableReservationClaim = {
@@ -489,11 +496,20 @@ async function getSupabaseShowId(
   supabase: SupabaseClient,
   booking: DemoBooking,
 ) {
+  return (await getSupabaseShowRow(supabase, booking))?.id;
+}
+
+async function getSupabaseShowRow(
+  supabase: SupabaseClient,
+  booking: DemoBooking,
+) {
   if (!booking.showId) {
     return undefined;
   }
 
-  const { data, error } = await supabase.from("shows").select("id,date,time,notes");
+  const { data, error } = await supabase
+    .from("shows")
+    .select("id,date,time,notes,venue");
 
   if (error) {
     throw error;
@@ -511,7 +527,7 @@ async function getSupabaseShowId(
         show.time.slice(0, 5) === bookingDateTime.time),
   );
 
-  return matchedShow?.id;
+  return matchedShow;
 }
 
 function getBookingPayload(
@@ -520,7 +536,7 @@ function getBookingPayload(
   showId: string,
   tableId: string | null = null,
 ) {
-  return {
+  const payload: Record<string, unknown> = {
     addons_total: booking.addonsTotal ?? 0,
     amount_paid: booking.amountPaid ?? 0,
     balance_outstanding: booking.balanceDue ?? 0,
@@ -545,6 +561,13 @@ function getBookingPayload(
     table_id: tableId,
     total_amount: booking.totalPrice,
   };
+
+  if (booking.promoCodeId) {
+    payload.promo_code_id = booking.promoCodeId;
+    payload.promo_location = booking.promoLocation ?? null;
+  }
+
+  return payload;
 }
 
 function getPaymentPayload(booking: DemoBooking, bookingId: string) {
@@ -720,6 +743,17 @@ function normalizeReservationClaims(
 
 function isPublicPayFastReservation(booking: DemoBooking) {
   return booking.source === "online" && isAwaitingExternalPayment(booking);
+}
+
+function isPromoReservationError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : String(error ?? "");
+
+  return /promo code/i.test(message);
 }
 
 async function reservePublicBookingWithTable(
@@ -946,6 +980,116 @@ async function syncCommunications(
   }
 }
 
+async function loadVenueSettings(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("venue_settings")
+    .select("settings")
+    .eq("venue_key", defaultVenueSettings.venueId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    ...defaultVenueSettings,
+    ...(((data as { settings?: DemoVenueSettings | null } | null)?.settings ??
+      {}) as Partial<DemoVenueSettings>),
+  };
+}
+
+async function getRemainingSeatsForServerPricing(
+  supabase: SupabaseClient,
+  showId: string,
+  booking: DemoBooking,
+) {
+  const { data, error } = await supabase
+    .from("show_tables")
+    .select("capacity")
+    .eq("show_id", showId)
+    .eq("section", booking.zoneTitle)
+    .eq("status", "available")
+    .is("booking_id", null);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).reduce(
+    (total, row) => total + Math.max(Number(row.capacity) || 0, 0),
+    0,
+  );
+}
+
+async function withAuthoritativePublicPricing(
+  supabase: SupabaseClient,
+  booking: DemoBooking,
+  show: SupabaseShowRow,
+): Promise<DemoBooking> {
+  const zone = seatingZones.find((candidate) => candidate.id === booking.zoneId);
+
+  if (!zone) {
+    throw new Error("Unknown seating zone.");
+  }
+
+  const settings = await loadVenueSettings(supabase);
+  const remainingSeats = await getRemainingSeatsForServerPricing(
+    supabase,
+    show.id,
+    booking,
+  );
+  const preliminaryPricing = calculatePublicBookingPricing({
+    addons: booking.addons,
+    partySize: booking.partySize,
+    paymentOption: booking.paymentOption,
+    remainingSeats,
+    settings,
+    zoneId: booking.zoneId,
+  });
+  const location = normalizeShowLocation(show.venue);
+  const promo = await validatePromoCode(supabase, {
+    code: booking.promoCode,
+    location,
+    showId: show.id,
+    subtotal: preliminaryPricing.subtotal,
+  });
+  const pricing = calculatePublicBookingPricing({
+    addons: booking.addons,
+    partySize: booking.partySize,
+    paymentOption: booking.paymentOption,
+    promo: promo.status === "valid" ? promo : null,
+    remainingSeats,
+    settings,
+    zoneId: booking.zoneId,
+  });
+  const lifecycleHistory = (booking.lifecycleHistory ?? []).map((event) => ({
+    ...event,
+    note:
+      event.note === "Online booking created"
+        ? "Online booking created with server-authoritative pricing"
+        : event.note,
+  }));
+
+  return {
+    ...booking,
+    addons: pricing.addons,
+    addonsTotal: pricing.addonsTotal,
+    balanceDue: pricing.total,
+    depositPercentage: pricing.depositPercentage,
+    discountAmount: pricing.discountAmount,
+    lifecycleHistory,
+    paymentOption: booking.paymentOption === "deposit" ? "deposit" : "full",
+    pricePerPerson: pricing.pricePerPerson,
+    promoCode: promo.status === "valid" ? promo.code : undefined,
+    promoCodeId: promo.status === "valid" ? promo.promoCodeId : undefined,
+    promoLabel: promo.status === "valid" ? promo.description : undefined,
+    promoLocation: location ?? undefined,
+    serviceFeeAmount: pricing.serviceFeeAmount,
+    subtotalPrice: pricing.subtotal,
+    totalPrice: pricing.total,
+  };
+}
+
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const supabase = getServiceClient();
@@ -962,7 +1106,7 @@ export async function POST(request: Request) {
       booking?: DemoBooking;
       journeyId?: string | null;
     };
-    const booking = body.booking;
+    let booking = body.booking;
     const journeyId =
       typeof body.journeyId === "string" ? body.journeyId : null;
 
@@ -1032,9 +1176,10 @@ export async function POST(request: Request) {
     }
 
     const customerId = await upsertCustomer(supabase, booking.customer);
-    const showId = await getSupabaseShowId(supabase, booking);
+    const show = await getSupabaseShowRow(supabase, booking);
+    const showId = show?.id;
 
-    if (!customerId || !showId) {
+    if (!customerId || !show) {
       console.error("[Zingara API] Failed to map booking relations", {
         bookingDate: booking.bookingDate,
         bookingReference: booking.reference,
@@ -1049,12 +1194,16 @@ export async function POST(request: Request) {
       );
     }
 
+    if (booking.source === "online" && isAwaitingExternalPayment(booking)) {
+      booking = await withAuthoritativePublicPricing(supabase, booking, show);
+    }
+
     if (isPublicPayFastReservation(booking)) {
       const reservation = await reservePublicBookingWithTable(
         supabase,
         booking as BookingWithReservationClaims,
         customerId,
-        showId,
+        show.id,
       );
 
       if (reservation.error) {
@@ -1100,7 +1249,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const bookingId = await upsertBooking(supabase, booking, customerId, showId);
+    const bookingId = await upsertBooking(supabase, booking, customerId, show.id);
 
     if (!bookingId) {
       recordPlatformFailureEventBestEffort(
@@ -1133,7 +1282,7 @@ export async function POST(request: Request) {
 
     await syncLifecycleEvents(supabase, booking, bookingId);
     if (!isAwaitingExternalPayment(booking)) {
-      await syncCommunications(supabase, booking, bookingId, customerId, showId);
+      await syncCommunications(supabase, booking, bookingId, customerId, show.id);
       console.info("[Zingara push diagnostics] New booking trigger queued", {
         bookingReference: booking.reference,
       });
@@ -1163,6 +1312,16 @@ export async function POST(request: Request) {
       ticketId,
     });
   } catch (error) {
+    if (isPromoReservationError(error)) {
+      return Response.json(
+        {
+          error:
+            "That promo code is no longer available for this booking. Please refresh your payment summary and try again.",
+        },
+        { status: 409 },
+      );
+    }
+
     console.error("[Zingara API] Booking transaction failed", error);
     recordPlatformFailureEventBestEffort(
       {

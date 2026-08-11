@@ -14,6 +14,16 @@ import {
   registerZingaraPushSubscription,
 } from "../../lib/browserNotifications";
 import {
+  bookingAddons,
+  getDiscountAmount,
+  getDynamicPriceMultiplier,
+  getRemainingSeatsForZone,
+  legacyPromoCodes,
+  normalizePromoCode,
+  serviceFeeGuestThreshold,
+  serviceFeeRate,
+} from "../../lib/pricing";
+import {
   getBookingJourneyId,
   trackPlatformEvent,
   upsertPlatformPresence,
@@ -60,12 +70,6 @@ import {
 } from "../../lib/zingaraDemo";
 
 type SeatingOption = SeatingZone;
-type PromoCode = {
-  code: string;
-  description: string;
-  discountType: PromoDiscountType;
-  value: number;
-};
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -77,6 +81,13 @@ type PayFastCheckoutResponse = {
   error?: string;
   fields?: Record<string, boolean | number | string | null | undefined>;
   mode?: "live" | "sandbox";
+};
+
+type PromoValidationPreview = {
+  code: string | null;
+  description: string | null;
+  discountAmount: number;
+  status: string;
 };
 
 type BookingTableReservationClaim = {
@@ -238,30 +249,6 @@ const bookingCalendarLegend = bookingCalendarStatusOrder.map(
     status,
   }),
 );
-const bookingAddons: BookingAddon[] = [
-  {
-    id: "vip-champagne",
-    name: "VIP Champagne Package",
-    price: 1250,
-  },
-  {
-    id: "premium-wine",
-    name: "Premium Wine Pairing",
-    price: 890,
-  },
-  {
-    id: "birthday-celebration",
-    name: "Birthday Celebration Package",
-    price: 750,
-  },
-  {
-    id: "backstage-experience",
-    name: "Backstage Experience",
-    price: 1500,
-  },
-];
-const serviceFeeGuestThreshold = 6;
-const serviceFeeRate = 0.125;
 const boothsHotspotPath =
   "M198.92 0a198.92 198.92 0 1 0 0 397.84a198.92 198.92 0 1 0 0 -397.84ZM198.06 34.72a164.17 164.17 0 1 0 0 328.34a164.17 164.17 0 1 0 0 -328.34Z";
 const middleRingHotspotPath =
@@ -275,27 +262,6 @@ const royalBalconyUpperHotspotPath =
 const royalBalconyLowerHotspotPath =
   "M390.95,250.95c-13.84,51.19-47.58,94.2-92.43,120.19h175.44v-120.19h-83Z";
 
-const promoCodes: PromoCode[] = [
-  {
-    code: "COUNTESS10",
-    description: "10% Royal Countess guest saving",
-    discountType: "percentage",
-    value: 10,
-  },
-  {
-    code: "ROYAL500",
-    description: "R500 private table credit",
-    discountType: "fixed",
-    value: 500,
-  },
-  {
-    code: "STAGE15",
-    description: "15% elevated stage celebration rate",
-    discountType: "percentage",
-    value: 15,
-  },
-];
-
 function isAvailableForParty(
   option: SeatingOption,
   guests: number,
@@ -308,18 +274,7 @@ function getRemainingSeats(
   selectedShowId: string,
   tables: DemoTable[],
 ) {
-  return tables
-    .filter(
-      (table) =>
-        table.showId === selectedShowId &&
-        table.zoneId === option.id &&
-        table.status === "available",
-    )
-    .reduce(
-      (remainingSeats, table) =>
-        remainingSeats + table.seatCapacity,
-      0,
-    );
+  return getRemainingSeatsForZone(option, selectedShowId, tables);
 }
 
 function isAvailableForBooking(
@@ -434,52 +389,10 @@ function formatCurrency(amount: number) {
   return `R${amount.toLocaleString()}`;
 }
 
-function getDynamicPriceMultiplier(
-  selectedZone: SeatingOption | null,
-  selectedShowId: string,
-  tables: DemoTable[],
-  partySize: number,
-) {
-  if (!selectedZone || !selectedShowId) {
-    return 1;
-  }
-
-  const remainingSeats = getRemainingSeats(
-    selectedZone,
-    selectedShowId,
-    tables,
-  );
-
-  if (remainingSeats > 0 && remainingSeats <= partySize * 2) {
-    return 1.12;
-  }
-
-  if (partySize >= 8) {
-    return 0.95;
-  }
-
-  return 1;
-}
-
 function getPromoCode(code: string) {
-  const normalizedCode = code.trim().toUpperCase();
+  const normalizedCode = normalizePromoCode(code);
 
-  return promoCodes.find((promo) => promo.code === normalizedCode);
-}
-
-function getDiscountAmount(
-  promoCode: PromoCode | undefined,
-  subtotal: number,
-) {
-  if (!promoCode) {
-    return 0;
-  }
-
-  if (promoCode.discountType === "percentage") {
-    return Math.round(subtotal * (promoCode.value / 100));
-  }
-
-  return Math.min(promoCode.value, subtotal);
+  return legacyPromoCodes.find((promo) => promo.code === normalizedCode);
 }
 
 function getMonthKey(dateValue: string) {
@@ -728,6 +641,10 @@ export default function BookingPage() {
   const [hasAcceptedBookingTerms, setHasAcceptedBookingTerms] =
     useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [promoValidationPreview, setPromoValidationPreview] =
+    useState<PromoValidationPreview | null>(null);
+  const [isPromoValidationLoading, setIsPromoValidationLoading] =
+    useState(false);
   const [selectedAddonIds] = useState<string[]>([]);
   const [tables, setTables] = useState<DemoTable[]>(() =>
     defaultShows.flatMap((show) => createTablesForShow(show.id)),
@@ -739,9 +656,10 @@ export default function BookingPage() {
 
   const dynamicPriceMultiplier = getDynamicPriceMultiplier(
     selectedZone,
-    selectedShowId,
-    tables,
     partySize,
+    selectedZone && selectedShowId
+      ? getRemainingSeats(selectedZone, selectedShowId, tables)
+      : undefined,
   );
   const configuredZonePrice = selectedZone
     ? getConfiguredZonePrice(venueConfig, selectedZone)
@@ -761,11 +679,21 @@ export default function BookingPage() {
   const includedBookingFeeBreakdown =
     getIncludedBookingFeeBreakdown(seatingSubtotal);
   const subtotal = seatingSubtotal + addonsTotal;
-  const appliedPromoCode = getPromoCode(promoCodeInput);
-  const discountAmount = getDiscountAmount(
-    appliedPromoCode,
-    subtotal,
-  );
+  const fallbackPromoCode = getPromoCode(promoCodeInput);
+  const appliedPromoCode =
+    promoValidationPreview?.status === "valid"
+      ? {
+          code: promoValidationPreview.code ?? normalizePromoCode(promoCodeInput),
+          description:
+            promoValidationPreview.description ?? "Promo code accepted",
+          discountType: "fixed" as const,
+          value: promoValidationPreview.discountAmount,
+        }
+      : fallbackPromoCode;
+  const discountAmount =
+    promoValidationPreview?.status === "valid"
+      ? promoValidationPreview.discountAmount
+      : getDiscountAmount(fallbackPromoCode, subtotal);
   const discountedSubtotal = Math.max(subtotal - discountAmount, 0);
   const serviceFeeAmount =
     partySize >= serviceFeeGuestThreshold
@@ -784,6 +712,61 @@ export default function BookingPage() {
   const selectedShow = shows.find(
     (show) => show.id === selectedShowId,
   );
+
+  useEffect(() => {
+    const code = normalizePromoCode(promoCodeInput);
+
+    if (!code || !selectedShow || subtotal <= 0) {
+      setPromoValidationPreview(null);
+      setIsPromoValidationLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      setIsPromoValidationLoading(true);
+      fetch("/api/promo-codes/validate", {
+        body: JSON.stringify({
+          code,
+          location: selectedEntryLocation,
+          showId: selectedShow.id,
+          subtotal,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error("Promo validation failed.");
+          }
+
+          return (await response.json()) as PromoValidationPreview;
+        })
+        .then((preview) => {
+          setPromoValidationPreview(preview);
+        })
+        .catch((error) => {
+          if (!controller.signal.aborted) {
+            console.warn("[Zingara Booking] Promo validation unavailable", error);
+            setPromoValidationPreview(null);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setIsPromoValidationLoading(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [promoCodeInput, selectedEntryLocation, selectedShow, subtotal]);
+
   const guestVisibleShows = shows.filter(isGuestVisibleShow);
   const locationVisibleShows = selectedEntryLocation
     ? guestVisibleShows.filter(
@@ -3299,13 +3282,28 @@ export default function BookingPage() {
                         className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm uppercase sm:px-4 sm:py-3 sm:text-base"
                       />
                       {promoCodeInput &&
-                        (appliedPromoCode ? (
+                        (isPromoValidationLoading ? (
+                          <span className="mt-2 block text-sm text-zinc-300">
+                            Checking promo code...
+                          </span>
+                        ) : appliedPromoCode ? (
                           <span className="mt-2 block text-sm text-emerald-300">
                             {appliedPromoCode.description}
                           </span>
                         ) : (
                           <span className="mt-2 block text-sm text-amber-200">
-                            Promo code not recognized.
+                            {promoValidationPreview?.status === "expired"
+                              ? "Promo code has expired."
+                              : promoValidationPreview?.status ===
+                                  "usage_exhausted"
+                                ? "Promo code has reached its usage limit."
+                                : promoValidationPreview?.status ===
+                                    "scheduled"
+                                  ? "Promo code is not active yet."
+                                  : promoValidationPreview?.status ===
+                                      "not_applicable"
+                                    ? "Promo code is not available for this booking."
+                                    : "Promo code not recognized."}
                           </span>
                         ))}
                     </label>

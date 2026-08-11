@@ -14,6 +14,7 @@ import {
   rateLimitResponse,
 } from "@/lib/rateLimit";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import type { DemoBooking } from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,14 @@ type CheckoutAttemptResult = {
   status?: "blocked" | "missing" | "ready";
 };
 
+type CheckoutBookingRow = {
+  balance_outstanding: number | null;
+  notes: string | null;
+  total_amount: number | null;
+};
+
+const bookingMetadataPrefix = "__zingara_booking_meta__:";
+
 function splitName(name: string | undefined) {
   const trimmedName = name?.trim() ?? "";
   const [firstName = "", ...surnameParts] = trimmedName.split(/\s+/);
@@ -53,6 +62,51 @@ function splitName(name: string | undefined) {
 
 function normalizePhone(phone: string | undefined) {
   return phone?.replace(/[^\d+]/g, "") || undefined;
+}
+
+function parseBookingMetadata(notes: string | null) {
+  if (!notes?.startsWith(bookingMetadataPrefix)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(notes.slice(bookingMetadataPrefix.length)) as DemoBooking;
+  } catch {
+    return null;
+  }
+}
+
+async function getAuthoritativeCheckoutAmount(
+  serviceClient: NonNullable<ReturnType<typeof getServiceClient>>,
+  bookingReference: string,
+) {
+  const { data, error } = await serviceClient
+    .from("bookings")
+    .select("balance_outstanding,total_amount,notes")
+    .eq("booking_reference", bookingReference)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  const row = data as CheckoutBookingRow | null;
+  const metadata = parseBookingMetadata(row?.notes ?? null);
+  const balanceOutstanding = Math.max(Number(row?.balance_outstanding) || 0, 0);
+  const totalAmount = Math.max(Number(row?.total_amount) || 0, 0);
+
+  if (
+    metadata?.paymentOption === "deposit" &&
+    typeof metadata.depositPercentage === "number" &&
+    metadata.depositPercentage > 0
+  ) {
+    return Math.min(
+      balanceOutstanding || totalAmount,
+      Math.round(totalAmount * (metadata.depositPercentage / 100)),
+    );
+  }
+
+  return balanceOutstanding || totalAmount;
 }
 
 export async function POST(request: Request) {
@@ -209,6 +263,25 @@ export async function POST(request: Request) {
       );
     }
 
+    const authoritativeAmount = await getAuthoritativeCheckoutAmount(
+      serviceClient,
+      body.bookingReference,
+    );
+
+    if (authoritativeAmount <= 0) {
+      return Response.json(
+        { error: "This booking has no payable balance." },
+        { status: 409 },
+      );
+    }
+
+    if (Math.abs(authoritativeAmount - body.amount) > 0.01) {
+      console.warn("[Zingara PayFast] Ignoring client checkout amount mismatch", {
+        bookingReference: body.bookingReference,
+        requestedAmount: body.amount,
+      });
+    }
+
     const config = getPayFastConfig();
     if (!config.configured) {
       recordPlatformFailureEventBestEffort(
@@ -252,7 +325,7 @@ export async function POST(request: Request) {
     const { firstName, lastName } = splitName(body.customer?.name);
     const paymentData = createPayFastPaymentData(
       {
-        amount: body.amount,
+        amount: authoritativeAmount,
         cellNumber: normalizePhone(body.customer?.phone),
         customString1: body.bookingReference,
         customString2: body.section,
