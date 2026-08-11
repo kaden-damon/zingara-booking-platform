@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { sanitizeEmailHtml } from "@/lib/email/html";
 
 const APPLICATION_EMAIL_SENDER = {
   address: "bookings@zingara.co.za",
@@ -6,6 +7,7 @@ const APPLICATION_EMAIL_SENDER = {
 } as const;
 
 type EmailSendInput = {
+  html?: string | null;
   message: string;
   subject?: string | null;
   to?: string | null;
@@ -64,6 +66,7 @@ function getEmailConfig() {
 }
 
 export async function sendZingaraEmail({
+  html,
   message,
   subject,
   to,
@@ -102,7 +105,7 @@ export async function sendZingaraEmail({
         address: config.fromAddress,
         name: config.fromName,
       },
-      html: toHtmlMessage(message),
+      html: html ? sanitizeEmailHtml(html) : toHtmlMessage(message),
       subject: subject?.trim() || "Zingara booking update",
       text: message,
       to: recipient,

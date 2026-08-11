@@ -1,4 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  containsHtmlMarkup,
+  htmlToPlainText,
+  sanitizeEmailHtml,
+} from "@/lib/email/html";
 import { sendZingaraEmail } from "@/lib/email/smtp";
 import {
   findDuplicateSentCommunication,
@@ -103,6 +108,7 @@ type TicketRow = {
 type EligibleWorkflowBooking = {
   booking: BookingRow;
   customer: CustomerRow;
+  html?: string;
   message: string;
   recipient: string;
   redactedRecipient: string;
@@ -117,8 +123,32 @@ export const controlledWorkflowRecipient = "kaden@kaden.co.za";
 export const defaultWorkflowConfigurations: AutomatedWorkflowConfiguration[] = [
   {
     activatedAt: null,
-    body:
-      "Dear {{customerName}}, your Zingara experience is almost here. We look forward to welcoming you for {{showName}} on {{showDate}} at {{showTime}}. Booking reference: {{bookingRef}}. Location: {{location}}. Guests: {{guest_count}}. Seating zone: {{seatingZone}}. View your ticket: {{ticketUrl}}. Beverages are charged separately. A 12.5% gratuity will be applied to beverages and the dinner portion of your tickets for bookings of 6 or more.",
+    body: `Dear {{customerName}},
+
+The curtain is almost ready to rise — your Zingara experience is just around the corner.
+
+We look forward to welcoming you to {{showName}} on {{showDate}} at {{showTime}}.
+
+Your booking details
+
+Booking reference: {{bookingRef}}
+Location: {{location}}
+Guests: {{guest_count}}
+Seating zone: {{seatingZone}}
+
+Everything you need for the evening is available on your digital ticket:
+
+{{ticketUrl}}
+
+Please note:
+
+Beverages are charged separately.
+
+A 12.5% gratuity will be applied to beverages and the dinner portion of your tickets for bookings of 6 or more.
+
+We can't wait to welcome you into the world of Zingara.
+
+The Zingara Team`,
     capeTownReviewUrl: "",
     enabled: false,
     id: null,
@@ -131,8 +161,21 @@ export const defaultWorkflowConfigurations: AutomatedWorkflowConfiguration[] = [
   },
   {
     activatedAt: null,
-    body:
-      "Dear {{customerName}}, thank you for joining us at {{showName}}. We hope your evening with Zingara was unforgettable. We would be grateful if you shared your experience with us: {{reviewUrl}}",
+    body: `Dear {{customerName}},
+
+Thank you for joining us for {{showName}}.
+
+We hope your evening with Zingara was filled with a little magic, a little mischief, and plenty to remember.
+
+We'd love to hear about your experience. Your feedback means a great deal to our team and helps us continue creating unforgettable evenings for our guests.
+
+Rate your Zingara experience:
+
+{{reviewUrl}}
+
+Thank you for being part of the Zingara experience. We hope to welcome you back again soon.
+
+The Zingara Team`,
     capeTownReviewUrl: "",
     enabled: false,
     id: null,
@@ -375,6 +418,27 @@ function renderWorkflowTemplate(
   );
 }
 
+function renderWorkflowEmailContent(
+  template: string,
+  booking: BookingRow,
+  customer: CustomerRow,
+  show: ShowRow,
+  extras: Record<string, string | number> = {},
+) {
+  const rendered = renderWorkflowTemplate(template, booking, customer, show, extras);
+
+  if (!containsHtmlMarkup(rendered)) {
+    return { html: undefined, message: rendered };
+  }
+
+  const html = sanitizeEmailHtml(rendered);
+
+  return {
+    html,
+    message: htmlToPlainText(html),
+  };
+}
+
 function createSummary(workflowKey: AutomatedWorkflowKey): WorkflowSummary {
   return {
     alreadySent: 0,
@@ -529,10 +593,19 @@ function evaluateWorkflow(
         ? { reviewUrl: getReviewUrlForShow(config, show) }
         : {};
 
+    const emailContent = renderWorkflowEmailContent(
+      config.body,
+      booking,
+      customer,
+      show,
+      extras,
+    );
+
     eligible.push({
       booking,
       customer,
-      message: renderWorkflowTemplate(config.body, booking, customer, show, extras),
+      html: emailContent.html,
+      message: emailContent.message,
       recipient,
       redactedRecipient: redactEmail(recipient),
       show,
@@ -706,6 +779,7 @@ export async function runAutomatedWorkflows(
       }
 
       const sendResult = await sendZingaraEmail({
+        html: item.html,
         message: item.message,
         subject: item.subject,
         to: item.recipient,
