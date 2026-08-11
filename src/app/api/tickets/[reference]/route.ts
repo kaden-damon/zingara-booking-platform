@@ -7,6 +7,7 @@ import {
   defaultVenueSettings,
   getGuestTicketsForBooking,
   getTicketUrl,
+  normalizeShowLocation,
   normalizeTicketReference,
   seatingZones,
 } from "@/lib/zingaraDemo";
@@ -16,6 +17,14 @@ import {
 } from "@/lib/email/communicationIdempotency";
 import { resolveGuestVisibleTable } from "@/lib/guestTicketDisplay";
 import { sendZingaraEmail } from "@/lib/email/smtp";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+} from "@/lib/rateLimit";
+import {
+  recordPlatformFailureEventBestEffort,
+  recoverPlatformIncidentBestEffort,
+} from "@/lib/platformTelemetry";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
@@ -385,6 +394,11 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
       .maybeSingle(),
   ]);
 
+  const show = showRow as (DemoShow & { name?: string; venue?: string | null }) | null;
+  const showLocation = normalizeShowLocation(
+    show?.location ?? show?.venue ?? show?.venueName,
+  );
+
   return {
     activeTicket,
     bookingId: bookingRow.id,
@@ -392,24 +406,97 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
       ...booking,
       guestTickets,
     },
-    show: showRow as (DemoShow & { name?: string }) | null,
+    show: show
+      ? {
+          ...show,
+          location: showLocation ?? show.location,
+        }
+      : null,
     tableColour: getTableColour(booking),
     venueSettings: toVenueSettings(venueRow as SupabaseVenueSettingsRow | null),
   };
 }
 
 export async function GET(request: Request, context: TicketRouteContext) {
+  const supabase = getServiceClient();
+
   try {
     const { reference } = await context.params;
+    const lookupLimit = await checkRateLimit(
+      request,
+      {
+        limit: 120,
+        scope: "ticket_lookup_ip",
+        windowSeconds: 60,
+      },
+      [],
+      supabase,
+    );
+
+    if (!lookupLimit.allowed) {
+      return rateLimitResponse(
+        lookupLimit.retryAfterSeconds,
+        {
+          operation: "load_live_ticket",
+          route: "/api/tickets/[reference]",
+          safeFingerprint: "ticket_lookup_rate_limited_ip",
+        },
+        supabase,
+      );
+    }
+
+    const referenceLimit = await checkRateLimit(
+      request,
+      {
+        limit: 20,
+        scope: "ticket_lookup_reference",
+        windowSeconds: 300,
+      },
+      [reference],
+      supabase,
+    );
+
+    if (!referenceLimit.allowed) {
+      return rateLimitResponse(
+        referenceLimit.retryAfterSeconds,
+        {
+          operation: "load_live_ticket",
+          route: "/api/tickets/[reference]",
+          safeFingerprint: "ticket_lookup_rate_limited_reference",
+        },
+        supabase,
+      );
+    }
+
     const payload = await loadTicketPayload(reference, request.url);
 
     if (!payload) {
       return Response.json({ error: "Ticket not found." }, { status: 404 });
     }
 
+    recoverPlatformIncidentBestEffort(
+      {
+        fingerprint: "ticket_lookup_unavailable",
+        service: "BOOKING API",
+        summary: "Live ticket lookup recovered.",
+      },
+      supabase,
+    );
+
     return Response.json(getGuestFacingTicketPayload(payload));
   } catch (error) {
     console.error("[Zingara API] Failed to load live ticket", error);
+    recordPlatformFailureEventBestEffort(
+      {
+        operation: "load_live_ticket",
+        route: "/api/tickets/[reference]",
+        safeFingerprint: "ticket_lookup_unavailable",
+        service: "BOOKING API",
+        statusCode: 500,
+        summary: "Live ticket lookup failures are recurring.",
+      },
+      supabase,
+    );
 
     return Response.json(
       { error: "Ticket could not be loaded." },
@@ -436,6 +523,29 @@ export async function PATCH(request: Request, context: TicketRouteContext) {
       mobile?: string;
       ticketCode?: string;
     };
+    const actionLimit = await checkRateLimit(
+      request,
+      {
+        limit: 12,
+        scope: "ticket_update_reference",
+        windowSeconds: 300,
+      },
+      [reference, body.ticketCode],
+      supabase,
+    );
+
+    if (!actionLimit.allowed) {
+      return rateLimitResponse(
+        actionLimit.retryAfterSeconds,
+        {
+          operation: "update_live_ticket",
+          route: "/api/tickets/[reference]",
+          safeFingerprint: "ticket_update_rate_limited_reference",
+        },
+        supabase,
+      );
+    }
+
     const payload = await loadTicketPayload(reference, request.url);
 
     if (!payload) {
@@ -504,6 +614,29 @@ export async function POST(request: Request, context: TicketRouteContext) {
       action?: "email" | "regenerate" | "resend";
       ticketCode?: string;
     };
+    const actionLimit = await checkRateLimit(
+      request,
+      {
+        limit: 10,
+        scope: "ticket_action_reference",
+        windowSeconds: 300,
+      },
+      [reference, body.ticketCode, body.action],
+      supabase,
+    );
+
+    if (!actionLimit.allowed) {
+      return rateLimitResponse(
+        actionLimit.retryAfterSeconds,
+        {
+          operation: "ticket_action",
+          route: "/api/tickets/[reference]",
+          safeFingerprint: "ticket_action_rate_limited_reference",
+        },
+        supabase,
+      );
+    }
+
     const payload = await loadTicketPayload(
       body.ticketCode ?? reference,
       request.url,

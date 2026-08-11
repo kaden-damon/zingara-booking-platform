@@ -3,6 +3,10 @@ import {
   loadWaitlistEntries,
   persistWaitlistEntries,
 } from "@/lib/supabase/waitlistServer";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+} from "@/lib/rateLimit";
 import { type DemoWaitlistEntry } from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +20,8 @@ export async function GET() {
 
   if (!serviceClient) {
     return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
+      { error: "Waitlist is temporarily unavailable." },
+      { status: 503 },
     );
   }
 
@@ -56,6 +60,53 @@ export async function POST(request: Request) {
       return Response.json(
         { error: "A waitlist entry is required." },
         { status: 400 },
+      );
+    }
+
+    const primaryEntry = entries[0];
+    const ipLimit = await checkRateLimit(
+      request,
+      {
+        limit: 20,
+        scope: "waitlist_ip",
+        windowSeconds: 300,
+      },
+      [primaryEntry?.showId],
+      serviceClient,
+    );
+
+    if (!ipLimit.allowed) {
+      return rateLimitResponse(
+        ipLimit.retryAfterSeconds,
+        {
+          operation: "save_waitlist_entry",
+          route: "/api/waitlist",
+          safeFingerprint: "waitlist_rate_limited_ip",
+        },
+        serviceClient,
+      );
+    }
+
+    const contactLimit = await checkRateLimit(
+      request,
+      {
+        limit: 6,
+        scope: "waitlist_contact",
+        windowSeconds: 600,
+      },
+      [primaryEntry?.customer.email, primaryEntry?.customer.phone],
+      serviceClient,
+    );
+
+    if (!contactLimit.allowed) {
+      return rateLimitResponse(
+        contactLimit.retryAfterSeconds,
+        {
+          operation: "save_waitlist_entry",
+          route: "/api/waitlist",
+          safeFingerprint: "waitlist_rate_limited_contact",
+        },
+        serviceClient,
       );
     }
 

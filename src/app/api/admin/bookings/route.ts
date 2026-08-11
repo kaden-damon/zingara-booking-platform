@@ -14,6 +14,7 @@ import type {
   BookingStatus,
   DemoBooking,
 } from "@/lib/zingaraDemo";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
@@ -321,6 +322,31 @@ async function ensureNoConflictingBookingLock(
   );
 }
 
+async function releaseTableClaimsForBookings(
+  supabase: SupabaseClient,
+  bookingIds: string[],
+) {
+  const uniqueBookingIds = [...new Set(bookingIds.filter(Boolean))];
+
+  if (uniqueBookingIds.length === 0) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from("show_tables")
+    .update({
+      booking_id: null,
+      status: "available",
+      updated_at: new Date().toISOString(),
+    })
+    .in("booking_id", uniqueBookingIds)
+    .eq("status", "booked");
+
+  if (error) {
+    throw error;
+  }
+}
+
 async function runBookingTransaction(request: Request, body?: unknown) {
   const requestBody = body ?? (await request.json());
   const bookingReference =
@@ -548,6 +574,8 @@ async function persistBookingCancellation(request: Request) {
       throw updateError;
     }
 
+    await releaseTableClaimsForBookings(supabase, [existingBooking.id]);
+
     const latestCancellationEvent = booking.lifecycleHistory?.find(
       (event) => event.toStatus === "cancelled",
     );
@@ -720,6 +748,13 @@ async function setBookingArchiveState(
 
   if (updateError) {
     throw updateError;
+  }
+
+  if (options.archive) {
+    await releaseTableClaimsForBookings(
+      auth.serviceClient,
+      rowsToChange.map((row) => row.id),
+    );
   }
 
   try {

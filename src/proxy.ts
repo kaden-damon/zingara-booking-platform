@@ -178,6 +178,19 @@ function passwordPage(request: NextRequest, error = false) {
   );
 }
 
+function isFormContentType(contentType: string | null) {
+  const normalized = contentType?.split(";")[0]?.trim().toLowerCase();
+
+  return (
+    normalized === "application/x-www-form-urlencoded" ||
+    normalized === "multipart/form-data"
+  );
+}
+
+function isApiRequest(request: NextRequest) {
+  return request.nextUrl.pathname.startsWith("/api/");
+}
+
 export async function proxy(request: NextRequest) {
   const sitePassword = process.env.SITE_PASSWORD;
 
@@ -197,6 +210,17 @@ export async function proxy(request: NextRequest) {
   }
 
   if (request.method === "POST") {
+    if (!isFormContentType(request.headers.get("content-type"))) {
+      if (isApiRequest(request)) {
+        return Response.json(
+          { error: "Password gate authentication is required." },
+          { status: 401 },
+        );
+      }
+
+      return passwordPage(request, true);
+    }
+
     const formData = await request.formData();
     const password = formData.get("password");
 

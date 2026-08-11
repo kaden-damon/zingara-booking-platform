@@ -5,6 +5,14 @@ import {
   getGuestTicketsForBooking,
   normalizeShowLocation,
 } from "@/lib/zingaraDemo";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+} from "@/lib/rateLimit";
+import {
+  recordPlatformFailureEventBestEffort,
+  recoverPlatformIncidentBestEffort,
+} from "@/lib/platformTelemetry";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +72,20 @@ function normalizeEmail(value: string | null | undefined) {
 
 function normalizePhone(value: string | null | undefined) {
   return value?.replace(/\D/g, "") ?? "";
+}
+
+function normalizePhoneForLookup(value: string | null | undefined) {
+  const digits = normalizePhone(value);
+
+  if (/^0[6-8]\d{8}$/.test(digits)) {
+    return `27${digits.slice(1)}`;
+  }
+
+  if (/^27[6-8]\d{8}$/.test(digits)) {
+    return digits;
+  }
+
+  return digits;
 }
 
 function parseBookingNotes(notes: string | null) {
@@ -206,9 +228,9 @@ function isVerified(
 
   if (body.verificationType === "mobile") {
     return (
-      normalizePhone(body.mobileNumber) !== "" &&
-      normalizePhone(body.mobileNumber) ===
-        normalizePhone(getCustomerPhone(booking, customer))
+      normalizePhoneForLookup(body.mobileNumber) !== "" &&
+      normalizePhoneForLookup(body.mobileNumber) ===
+        normalizePhoneForLookup(getCustomerPhone(booking, customer))
     );
   }
 
@@ -221,7 +243,7 @@ export async function POST(request: Request) {
   if (!supabase) {
     return Response.json(
       { error: "Booking lookup is temporarily unavailable." },
-      { status: 500 },
+      { status: 503 },
     );
   }
 
@@ -233,6 +255,54 @@ export async function POST(request: Request) {
       return Response.json(
         { error: genericNotFoundMessage },
         { status: 404 },
+      );
+    }
+
+    const ipLimit = await checkRateLimit(
+      request,
+      {
+        limit: 30,
+        scope: "find_booking_ip",
+        windowSeconds: 300,
+      },
+      [],
+      supabase,
+    );
+
+    if (!ipLimit.allowed) {
+      return rateLimitResponse(
+        ipLimit.retryAfterSeconds,
+        {
+          bookingReference,
+          operation: "find_booking",
+          route: "/api/find-booking",
+          safeFingerprint: "find_booking_rate_limited_ip",
+        },
+        supabase,
+      );
+    }
+
+    const referenceLimit = await checkRateLimit(
+      request,
+      {
+        limit: 8,
+        scope: "find_booking_reference",
+        windowSeconds: 300,
+      },
+      [bookingReference],
+      supabase,
+    );
+
+    if (!referenceLimit.allowed) {
+      return rateLimitResponse(
+        referenceLimit.retryAfterSeconds,
+        {
+          bookingReference,
+          operation: "find_booking",
+          route: "/api/find-booking",
+          safeFingerprint: "find_booking_rate_limited_reference",
+        },
+        supabase,
       );
     }
 
@@ -316,6 +386,15 @@ export async function POST(request: Request) {
     const customerEmail = getCustomerEmail(metadataBooking, customerRow);
     const customerPhone = getCustomerPhone(metadataBooking, customerRow);
 
+    recoverPlatformIncidentBestEffort(
+      {
+        fingerprint: "find_booking_unavailable",
+        service: "BOOKING API",
+        summary: "Find My Booking recovered.",
+      },
+      supabase,
+    );
+
     return Response.json({
       booking: {
         balanceDue:
@@ -348,6 +427,17 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("[Zingara API] Failed to find booking", error);
+    recordPlatformFailureEventBestEffort(
+      {
+        operation: "find_booking",
+        route: "/api/find-booking",
+        safeFingerprint: "find_booking_unavailable",
+        service: "BOOKING API",
+        statusCode: 500,
+        summary: "Find My Booking lookup failures are recurring.",
+      },
+      supabase,
+    );
 
     return Response.json(
       { error: "Booking lookup is temporarily unavailable." },

@@ -224,6 +224,14 @@ type CustomMessageForms = Record<
     subject: string;
   }
 >;
+type CustomMessageSendState = Record<
+  string,
+  {
+    isSending: boolean;
+    message: string;
+    tone: "error" | "success";
+  }
+>;
 type BroadcastForm = {
   channel: CommunicationChannel;
   message: string;
@@ -502,6 +510,7 @@ type AdminTab =
   | "operations"
   | "customers"
   | "analytics"
+  | "platform-operations"
   | "settings"
   | "academy";
 type BookingArchiveFilter = "active" | "all" | "archived";
@@ -717,6 +726,137 @@ type SystemStatusPayload = {
     staffLoggedIn: string;
   };
 };
+type PlatformOperationsPeriod = "24h" | "30d" | "7d" | "today";
+type PlatformOperationsSession = {
+  currentArea: string;
+  currentStage: string;
+  displayName: string;
+  journeyId: string | null;
+  lastSeenAt: string;
+  role: string | null;
+  sessionId: string;
+  sessionType: "public" | "staff";
+  startedAt: string;
+};
+type PlatformOperationsTimelineEvent = {
+  bookingReference: string | null;
+  createdAt: string;
+  deploymentId: string | null;
+  durationMs: number | null;
+  eventType: string;
+  id: string;
+  journeyId: string | null;
+  label: string;
+  operation: string | null;
+  route: string | null;
+  safeFingerprint: string | null;
+  severity: string;
+  statusCode: number | null;
+};
+type PlatformOperationsJourney = {
+  bookingReference: string | null;
+  currentStage: string;
+  eventCount: number;
+  journeyId: string;
+  lastActivity: string | null;
+  startedAt: string | null;
+  status: "Abandoned" | "Active" | "Awaiting Payment" | "Completed" | "Failed";
+  timeline: PlatformOperationsTimelineEvent[];
+};
+type PlatformOperationsIncident = {
+  affected_count: number;
+  deployment_id: string | null;
+  fingerprint: string | null;
+  id: string;
+  recovered_at: string | null;
+  service: string;
+  started_at: string;
+  status: string;
+  summary: string;
+};
+type PlatformOperationsPayload = {
+  activeNowThreshold: string;
+  activeSessions: PlatformOperationsSession[];
+  errors: PlatformOperationsTimelineEvent[];
+  filters: {
+    booking: string;
+    limit: number;
+    period: PlatformOperationsPeriod;
+    severity: string;
+  };
+  funnel: {
+    abandoned: number;
+    bookingCompleted: number;
+    bookingsReserved: number;
+    conversion: {
+      checkoutToReserved: number | null;
+      reservedToPaid: number | null;
+      startedToCheckout: number | null;
+      startedToCompleted: number | null;
+    };
+    failed: number;
+    journeyCount: number;
+    journeysStarted: number;
+    paymentConfirmed: number;
+    paymentInitiated: number;
+    reachedCheckout: number;
+    reachedSeating: number;
+  };
+  healthHistory: {
+    currentSystemStatusSource: string;
+    incidents: PlatformOperationsIncident[];
+    message: string;
+  };
+  incidents: PlatformOperationsIncident[];
+  journeys: PlatformOperationsJourney[];
+  overview: {
+    activeNow: number;
+    atCheckout: number;
+    awaitingPayment: number;
+    bookingJourneys: number;
+    platformStatus: string;
+    publicGuests: number;
+    recentErrors: number;
+    staffOnline: number;
+  };
+  payments: {
+    awaitingPayment: number;
+    checkoutPreparationFailures: number;
+    confirmed: number;
+    failed: number;
+    milestones: Array<{
+      bookingReference: string;
+      milestones: Array<{ label: string; status: string }>;
+      paymentStatus: string;
+    }>;
+    recentItnFailures: number;
+  };
+  performance: Array<{
+    averageMs: number | null;
+    errorCount: number;
+    key: string;
+    label: string;
+    p50Ms: number | null;
+    p95Ms: number | null;
+    p99Ms: number | null;
+    requestCount: number;
+  }>;
+  recentTechnicalEvents: PlatformOperationsTimelineEvent[];
+  reservationConflicts: {
+    count: number;
+    rate: number | null;
+    rows: Array<{
+      bookingReference: string | null;
+      createdAt: string;
+      journeyId: string | null;
+      route: string | null;
+      statusCode: number | null;
+    }>;
+  };
+  retention: {
+    strategy: Record<string, string>;
+  };
+};
 type AutomatedWorkflowKey = "pre_show_reminder" | "post_show_review";
 type AutomatedWorkflowConfiguration = {
   activatedAt: string | null;
@@ -857,6 +997,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "operations", label: "Operations" },
   { id: "customers", label: "Customers" },
   { id: "analytics", label: "Analytics" },
+  { id: "platform-operations", label: "Platform Operations" },
   { id: "settings", label: "Settings" },
   { id: "academy", label: "🎓 Academy" },
 ];
@@ -6284,6 +6425,63 @@ function formatSouthAfricanTimestamp(
   return `${formatSouthAfricanDate(parsedDate)} ${formatSouthAfricanTime(parsedDate)}`;
 }
 
+function formatRelativeActivity(value: string | null | undefined) {
+  if (!value) {
+    return "Not recorded";
+  }
+
+  const elapsedSeconds = Math.max(
+    Math.floor((Date.now() - new Date(value).getTime()) / 1000),
+    0,
+  );
+
+  if (!Number.isFinite(elapsedSeconds)) {
+    return "Not recorded";
+  }
+
+  if (elapsedSeconds < 60) {
+    return `${elapsedSeconds}s ago`;
+  }
+
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+
+  return `${elapsedHours}h ago`;
+}
+
+function formatDurationMs(value: number | null | undefined) {
+  if (typeof value !== "number") {
+    return "Not recorded";
+  }
+
+  return `${value.toLocaleString()} ms`;
+}
+
+function getPlatformOperationsStatusClass(status: string) {
+  if (status === "Completed" || status === "Recorded") {
+    return "border-emerald-300/35 bg-emerald-950/30 text-emerald-200";
+  }
+
+  if (status === "Failed" || status === "Attention" || status === "error") {
+    return "border-red-300/35 bg-red-950/30 text-red-200";
+  }
+
+  if (
+    status === "Abandoned" ||
+    status === "Awaiting Payment" ||
+    status === "warning"
+  ) {
+    return "border-amber-300/35 bg-amber-950/30 text-amber-200";
+  }
+
+  return "border-[#D8C36A]/35 bg-[#1A1208] text-[#F2D66C]";
+}
+
 function getSystemHealthLabel(status: SystemHealthStatus) {
   if (status === "healthy") {
     return "🟢 Healthy";
@@ -7467,6 +7665,8 @@ export default function AdminDashboardPage() {
   );
   const [customMessageForms, setCustomMessageForms] =
     useState<CustomMessageForms>({});
+  const [customMessageSendState, setCustomMessageSendState] =
+    useState<CustomMessageSendState>({});
   const [broadcastForm, setBroadcastForm] =
     useState<BroadcastForm>({
       channel: "email",
@@ -7492,6 +7692,25 @@ export default function AdminDashboardPage() {
   const [isSystemStatusLoading, setIsSystemStatusLoading] =
     useState(false);
   const [systemStatusError, setSystemStatusError] = useState("");
+  const [platformOperations, setPlatformOperations] =
+    useState<PlatformOperationsPayload | null>(null);
+  const [isPlatformOperationsLoading, setIsPlatformOperationsLoading] =
+    useState(false);
+  const [platformOperationsError, setPlatformOperationsError] = useState("");
+  const [platformOperationsPeriod, setPlatformOperationsPeriod] =
+    useState<PlatformOperationsPeriod>("today");
+  const [platformOperationsSeverity, setPlatformOperationsSeverity] =
+    useState("all");
+  const [platformOperationsBookingSearch, setPlatformOperationsBookingSearch] =
+    useState("");
+  const [
+    selectedPlatformOperationsJourneyId,
+    setSelectedPlatformOperationsJourneyId,
+  ] = useState("");
+  const [selectedPlatformOperationsErrorId, setSelectedPlatformOperationsErrorId] =
+    useState("");
+  const [platformOperationsCleanupStatus, setPlatformOperationsCleanupStatus] =
+    useState("");
   const [activeOperationsTab, setActiveOperationsTab] =
     useState<OperationsTab>("dashboard");
   const [activeDataPortabilityEntity, setActiveDataPortabilityEntity] =
@@ -7777,34 +7996,53 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     let isMounted = true;
+    let activeAdminSession: AdminSession | null = null;
 
-    async function loadDemoData() {
+    async function loadAdminData() {
+      if (!activeAdminSession) {
+        return;
+      }
+
       const nextAdminSession = await getSupabaseAdminSession();
 
       if (!isMounted) {
         return;
       }
 
+      activeAdminSession = nextAdminSession;
       setCurrentStaff(nextAdminSession);
 
       if (!nextAdminSession) {
-        setHasHydrated(true);
         return;
       }
 
       try {
-        const nextShows = await getShows();
-        const nextBookings = await getBookings();
-        const nextCorporateRequests = await getCorporateRequests();
-        const nextCommunicationTemplates = await getTemplates();
-        const nextCustomerCrm = await getCustomers();
-        const nextLiveCustomers = await loadLiveCustomerRecords();
-        const nextVenueSettings = await getVenueSettings();
-        const nextWaitlist = await getWaitlistEntries();
+        const [
+          nextShows,
+          nextBookings,
+          nextCorporateRequests,
+          nextCommunicationTemplates,
+          nextCustomerCrm,
+          nextLiveCustomers,
+          nextVenueSettings,
+          nextWaitlist,
+          nextStaffProfiles,
+          nextStaffRoles,
+          nextPaymentRows,
+        ] = await Promise.all([
+          getShows(),
+          getBookings(),
+          getCorporateRequests(),
+          getTemplates(),
+          getCustomers(),
+          loadLiveCustomerRecords(),
+          getVenueSettings(),
+          getWaitlistEntries(),
+          getStaffProfiles(),
+          getAvailableRoles(),
+          getPayments(),
+        ]);
         const nextTables = getStoredDemoTables(nextShows);
-        const nextStaffProfiles = await getStaffProfiles();
-        const nextStaffRoles = await getAvailableRoles();
-        const nextPaymentRows = await getPayments();
 
         console.log("[Zingara show management] show reloaded", {
           showCount: nextShows.length,
@@ -7854,85 +8092,105 @@ export default function AdminDashboardPage() {
         setPaymentRows(nextPaymentRows);
       } catch (error) {
         console.error("[Zingara admin] Failed to load dashboard data", error);
-      } finally {
-        if (isMounted) {
-          setHasHydrated(true);
-        }
       }
     }
 
-    const hydrationTimer = window.setTimeout(loadDemoData, 0);
+    async function restoreAdminSession() {
+      const nextAdminSession = await getSupabaseAdminSession();
 
-    window.addEventListener("storage", loadDemoData);
+      if (!isMounted) {
+        return;
+      }
+
+      activeAdminSession = nextAdminSession;
+      setCurrentStaff(nextAdminSession);
+      setHasHydrated(true);
+
+      if (nextAdminSession) {
+        void loadAdminData();
+      }
+    }
+
+    function reloadAdminData() {
+      void loadAdminData();
+    }
+
+    function reloadAdminSession() {
+      void restoreAdminSession();
+    }
+
+    const hydrationTimer = window.setTimeout(restoreAdminSession, 0);
+
+    window.addEventListener("storage", reloadAdminSession);
     window.addEventListener(
       "zingara-demo-bookings-updated",
-      loadDemoData,
+      reloadAdminData,
     );
     window.addEventListener(
       "zingara-demo-corporate-requests-updated",
-      loadDemoData,
+      reloadAdminData,
     );
-    window.addEventListener(adminAuthChangedEvent, loadDemoData);
+    window.addEventListener(adminAuthChangedEvent, reloadAdminSession);
     window.addEventListener(
       "zingara-demo-shows-updated",
-      loadDemoData,
+      reloadAdminData,
     );
     window.addEventListener(
       "zingara-demo-tables-updated",
-      loadDemoData,
+      reloadAdminData,
     );
     window.addEventListener(
       "zingara-demo-waitlist-updated",
-      loadDemoData,
+      reloadAdminData,
     );
     window.addEventListener(
       "zingara-demo-customer-crm-updated",
-      loadDemoData,
+      reloadAdminData,
     );
     window.addEventListener(
       "zingara-demo-communication-templates-updated",
-      loadDemoData,
+      reloadAdminData,
     );
     window.addEventListener(
       "zingara-demo-venue-settings-updated",
-      loadDemoData,
+      reloadAdminData,
     );
 
     return () => {
       isMounted = false;
-      window.removeEventListener("storage", loadDemoData);
+      window.removeEventListener("storage", reloadAdminSession);
       window.removeEventListener(
         "zingara-demo-bookings-updated",
-        loadDemoData,
+        reloadAdminData,
       );
       window.removeEventListener(
         "zingara-demo-corporate-requests-updated",
-        loadDemoData,
+        reloadAdminData,
       );
-      window.removeEventListener(adminAuthChangedEvent, loadDemoData);
+      window.removeEventListener(adminAuthChangedEvent, reloadAdminSession);
       window.removeEventListener(
         "zingara-demo-shows-updated",
-        loadDemoData,
+        reloadAdminData,
       );
       window.removeEventListener(
         "zingara-demo-tables-updated",
-        loadDemoData,
+        reloadAdminData,
       );
       window.removeEventListener(
         "zingara-demo-waitlist-updated",
-        loadDemoData,
+        reloadAdminData,
       );
       window.removeEventListener(
         "zingara-demo-customer-crm-updated",
-        loadDemoData,
+        reloadAdminData,
       );
       window.removeEventListener(
         "zingara-demo-communication-templates-updated",
-        loadDemoData,
+        reloadAdminData,
       );
       window.removeEventListener(
         "zingara-demo-venue-settings-updated",
-        loadDemoData,
+        reloadAdminData,
       );
       window.clearTimeout(hydrationTimer);
     };
@@ -8231,6 +8489,30 @@ export default function AdminDashboardPage() {
     currentStaff?.role === "box-office" ||
     currentStaff?.role === "box-office-staff";
   const isFloorManager = currentStaff?.role === "floor-manager";
+
+  useEffect(() => {
+    if (
+      activeAdminTab !== "platform-operations" ||
+      !currentStaff ||
+      !isSuperAdmin
+    ) {
+      return;
+    }
+
+    void refreshPlatformOperations();
+    const intervalId = window.setInterval(() => {
+      void refreshPlatformOperations();
+    }, 30_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    activeAdminTab,
+    currentStaff,
+    isSuperAdmin,
+    platformOperationsBookingSearch,
+    platformOperationsPeriod,
+    platformOperationsSeverity,
+  ]);
 
   useEffect(() => {
     if (
@@ -9624,6 +9906,82 @@ export default function AdminDashboardPage() {
       setSystemStatusError("System status could not be refreshed.");
     } finally {
       setIsSystemStatusLoading(false);
+    }
+  }
+
+  async function refreshPlatformOperations() {
+    if (!currentStaff || !isSuperAdmin) {
+      return;
+    }
+
+    setIsPlatformOperationsLoading(true);
+    setPlatformOperationsError("");
+
+    try {
+      const searchParams = new URLSearchParams({
+        limit: "75",
+        period: platformOperationsPeriod,
+        severity: platformOperationsSeverity,
+      });
+      const bookingSearch = platformOperationsBookingSearch.trim();
+
+      if (bookingSearch) {
+        searchParams.set("booking", bookingSearch);
+      }
+
+      const payload = await fetchSupabaseApi<PlatformOperationsPayload>(
+        `/api/admin/platform-operations?${searchParams.toString()}`,
+      );
+
+      setPlatformOperations(payload);
+      setSelectedPlatformOperationsJourneyId((currentId) =>
+        currentId && payload.journeys.some((journey) => journey.journeyId === currentId)
+          ? currentId
+          : (payload.journeys[0]?.journeyId ?? ""),
+      );
+      setSelectedPlatformOperationsErrorId((currentId) =>
+        currentId && payload.errors.some((event) => event.id === currentId)
+          ? currentId
+          : (payload.errors[0]?.id ?? ""),
+      );
+    } catch (error) {
+      console.error("[Zingara admin] Failed to load Platform Operations", error);
+      setPlatformOperationsError(
+        "Platform Operations telemetry could not be refreshed.",
+      );
+    } finally {
+      setIsPlatformOperationsLoading(false);
+    }
+  }
+
+  async function runPlatformTelemetryCleanup() {
+    if (!isSuperAdmin) {
+      return;
+    }
+
+    setPlatformOperationsCleanupStatus("Running retention cleanup...");
+
+    try {
+      const result = await fetchSupabaseApi<{
+        cleanup: Record<string, number>;
+      }>("/api/admin/platform-operations", {
+        body: { action: "cleanup" },
+        method: "POST",
+      });
+      const deletedTotal = Object.values(result.cleanup).reduce(
+        (total, value) => total + value,
+        0,
+      );
+
+      setPlatformOperationsCleanupStatus(
+        `Retention cleanup complete · ${deletedTotal} expired telemetry rows removed.`,
+      );
+      await refreshPlatformOperations();
+    } catch (error) {
+      console.error("[Zingara admin] Telemetry retention cleanup failed", error);
+      setPlatformOperationsCleanupStatus(
+        "Retention cleanup could not be completed.",
+      );
     }
   }
 
@@ -14588,32 +14946,169 @@ export default function AdminDashboardPage() {
     );
   }
 
-  function sendCustomGuestMessage(booking: DemoBooking) {
+  async function persistCustomGuestCommunication(
+    booking: DemoBooking,
+    record: DemoBooking["communicationHistory"][number],
+    deliveryStatus?: "failed" | "sent",
+  ) {
+    return fetchSupabaseApi<{
+      deduped?: boolean;
+      row: { status?: "failed" | "sent" } | null;
+    }>("/api/admin/communications", {
+      body: {
+        booking,
+        deliveryStatus,
+        record,
+      },
+      method: "POST",
+    });
+  }
+
+  async function sendCustomGuestMessage(booking: DemoBooking) {
     const form = customMessageForms[booking.reference];
     const message = form?.message.trim();
+    const channel = form?.channel ?? "email";
+    const subject = form?.subject.trim() || "Zingara guest message";
 
     if (!canManageCommunications || !message) {
       return;
     }
 
-    sendWorkflowCommunication(
+    if (channel === "sms") {
+      setCustomMessageSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message: "Future SMS is not available yet.",
+          tone: "error",
+        },
+      }));
+      return;
+    }
+
+    setCustomMessageSendState((currentState) => ({
+      ...currentState,
+      [booking.reference]: {
+        isSending: true,
+        message:
+          channel === "push"
+            ? "Sending push notification..."
+            : "Sending email...",
+        tone: "success",
+      },
+    }));
+
+    const communicationRecord = createWorkflowCommunication(
       booking,
       "custom-message",
-      form.channel,
+      channel,
       {
         message,
-        subject: form.subject.trim() || "Zingara guest message",
+        subject,
         updateSummary: message,
       },
     );
-    setCustomMessageForms((currentForms) => ({
-      ...currentForms,
-      [booking.reference]: {
-        channel: form.channel,
-        message: "",
-        subject: "",
-      },
-    }));
+
+    try {
+      if (channel === "email") {
+        const result = await persistCustomGuestCommunication(
+          booking,
+          communicationRecord,
+        );
+
+        if (result.row?.status !== "sent") {
+          throw new Error("Email could not be delivered.");
+        }
+
+        setBookings((currentBookings) =>
+          appendCommunicationToBookings(
+            currentBookings,
+            booking.reference,
+            () => communicationRecord,
+          ),
+        );
+        setCustomMessageSendState((currentState) => ({
+          ...currentState,
+          [booking.reference]: {
+            isSending: false,
+            message: "Email sent successfully.",
+            tone: "success",
+          },
+        }));
+      } else {
+        const pushResult = await sendZingaraGuestPushNotification(
+          "custom-message",
+          {
+            bookingReference: booking.reference,
+            message,
+            title: subject,
+          },
+        );
+
+        if (!pushResult.ok) {
+          await persistCustomGuestCommunication(
+            booking,
+            communicationRecord,
+            "failed",
+          );
+          setCustomMessageSendState((currentState) => ({
+            ...currentState,
+            [booking.reference]: {
+              isSending: false,
+              message:
+                (pushResult.subscriptionCount ?? 0) === 0
+                  ? "No active push subscription is available for this guest."
+                  : "Push notification could not be sent.",
+              tone: "error",
+            },
+          }));
+          return;
+        }
+
+        await persistCustomGuestCommunication(
+          booking,
+          communicationRecord,
+          "sent",
+        );
+        setBookings((currentBookings) =>
+          appendCommunicationToBookings(
+            currentBookings,
+            booking.reference,
+            () => communicationRecord,
+          ),
+        );
+        setCustomMessageSendState((currentState) => ({
+          ...currentState,
+          [booking.reference]: {
+            isSending: false,
+            message: "Push notification sent successfully.",
+            tone: "success",
+          },
+        }));
+      }
+
+      setCustomMessageForms((currentForms) => ({
+        ...currentForms,
+        [booking.reference]: {
+          channel,
+          message: "",
+          subject: "",
+        },
+      }));
+    } catch (error) {
+      console.error("[Zingara Admin] Custom guest message failed", error);
+      setCustomMessageSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message:
+            channel === "push"
+              ? "Push notification could not be sent."
+              : "Email could not be sent.",
+          tone: "error",
+        },
+      }));
+    }
   }
 
   function showWorkflowToast(message: string) {
@@ -17051,9 +17546,11 @@ export default function AdminDashboardPage() {
 
         <nav
           aria-label="Admin sections"
-          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-7 lg:rounded-[2rem]"
+          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-8 lg:rounded-[2rem]"
         >
-          {adminTabs.map((tab) => {
+          {adminTabs
+            .filter((tab) => tab.id !== "platform-operations" || isSuperAdmin)
+            .map((tab) => {
             const isActive =
               activeAdminTab === tab.id ||
               (tab.id === "bookings" && activeAdminTab === "corporate");
@@ -22180,6 +22677,573 @@ export default function AdminDashboardPage() {
               </div>
 
             </div>
+          </section>
+        )}
+
+        {activeAdminTab === "platform-operations" && isSuperAdmin && (
+          <section className="mb-10 space-y-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
+                  Platform Operations
+                </p>
+                <h2 className="mt-2 text-3xl font-bold text-white sm:text-4xl">
+                  What is happening right now?
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+                  Privacy-safe telemetry for live platform presence, booking
+                  journeys, payment milestones, errors, and performance.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void refreshPlatformOperations()}
+                  disabled={isPlatformOperationsLoading}
+                  className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-wait disabled:opacity-60"
+                >
+                  {isPlatformOperationsLoading ? "Refreshing..." : "Refresh Now"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveAdminTab("overview");
+                    void refreshSystemStatus();
+                  }}
+                  className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                >
+                  View System Status
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 rounded-[1.5rem] border border-white/10 bg-zinc-950/80 p-4 md:grid-cols-4">
+              <label className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                Period
+                <select
+                  value={platformOperationsPeriod}
+                  onChange={(event) =>
+                    setPlatformOperationsPeriod(
+                      event.target.value as PlatformOperationsPeriod,
+                    )
+                  }
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black px-3 py-2 text-sm normal-case tracking-normal text-white"
+                >
+                  <option value="today">Today</option>
+                  <option value="24h">Last 24 Hours</option>
+                  <option value="7d">7 Days</option>
+                  <option value="30d">30 Days</option>
+                </select>
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                Severity
+                <select
+                  value={platformOperationsSeverity}
+                  onChange={(event) =>
+                    setPlatformOperationsSeverity(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black px-3 py-2 text-sm normal-case tracking-normal text-white"
+                >
+                  <option value="all">All</option>
+                  <option value="info">Info</option>
+                  <option value="warning">Warning</option>
+                  <option value="error">Error</option>
+                </select>
+              </label>
+              <label className="md:col-span-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                Booking Reference
+                <input
+                  value={platformOperationsBookingSearch}
+                  onChange={(event) =>
+                    setPlatformOperationsBookingSearch(event.target.value)
+                  }
+                  placeholder="Optional booking reference"
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black px-3 py-2 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
+                />
+              </label>
+            </div>
+
+            {platformOperationsError && (
+              <p className="rounded-2xl border border-red-300/25 bg-red-950/20 p-4 text-sm text-red-100">
+                {platformOperationsError}
+              </p>
+            )}
+
+            {!platformOperations && !platformOperationsError && (
+              <div className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-6 text-sm text-zinc-400">
+                {isPlatformOperationsLoading
+                  ? "Loading Platform Operations..."
+                  : "Platform Operations has not been refreshed yet."}
+              </div>
+            )}
+
+            {platformOperations && (
+              <>
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-8">
+                  {[
+                    ["ACTIVE NOW", platformOperations.overview.activeNow],
+                    ["PUBLIC GUESTS", platformOperations.overview.publicGuests],
+                    ["STAFF ONLINE", platformOperations.overview.staffOnline],
+                    ["BOOKING JOURNEYS", platformOperations.overview.bookingJourneys],
+                    ["AT CHECKOUT", platformOperations.overview.atCheckout],
+                    ["AWAITING PAYMENT", platformOperations.overview.awaitingPayment],
+                    ["PLATFORM STATUS", platformOperations.overview.platformStatus],
+                    ["RECENT ERRORS", platformOperations.overview.recentErrors],
+                  ].map(([label, value]) => (
+                    <article
+                      key={label}
+                      className="rounded-2xl border border-[#D8C36A]/20 bg-black/50 p-4"
+                    >
+                      <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                        {label}
+                      </p>
+                      <p className="mt-2 text-xl font-bold text-white">
+                        {value}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+                  <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-xl font-bold text-white">
+                          Live Activity
+                        </h3>
+                        <p className="mt-1 text-sm text-zinc-500">
+                          Active means last seen within the previous 3 minutes.
+                        </p>
+                      </div>
+                      <span className="rounded-full border border-[#D8C36A]/25 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#F2D66C]">
+                        Bounded
+                      </span>
+                    </div>
+                    <div className="mt-4 max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+                      {platformOperations.activeSessions.length === 0 ? (
+                        <p className="rounded-2xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-400">
+                          No active sessions right now.
+                        </p>
+                      ) : (
+                        platformOperations.activeSessions.map((session) => (
+                          <article
+                            key={session.sessionId}
+                            className="rounded-2xl border border-white/10 bg-black/35 p-4"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <p className="font-semibold text-white">
+                                  {session.displayName}
+                                </p>
+                                <p className="mt-1 text-sm text-zinc-400">
+                                  {session.currentArea} · {session.currentStage}
+                                </p>
+                                {session.role && (
+                                  <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[#D8C36A]">
+                                    {adminRoleLabels[session.role as AdminRole] ??
+                                      session.role}
+                                  </p>
+                                )}
+                              </div>
+                              <p className="text-xs text-zinc-500">
+                                Last active {formatRelativeActivity(session.lastSeenAt)}
+                              </p>
+                            </div>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-5">
+                    <h3 className="text-xl font-bold text-white">
+                      Journey Funnel
+                    </h3>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      Telemetry has only recently been enabled, so historical
+                      journey data is limited.
+                    </p>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      {[
+                        ["Journeys Started", platformOperations.funnel.journeysStarted],
+                        ["Reached Seating", platformOperations.funnel.reachedSeating],
+                        ["Reached Checkout", platformOperations.funnel.reachedCheckout],
+                        ["Bookings Reserved", platformOperations.funnel.bookingsReserved],
+                        ["Payment Initiated", platformOperations.funnel.paymentInitiated],
+                        ["Payment Confirmed", platformOperations.funnel.paymentConfirmed],
+                        ["Booking Completed", platformOperations.funnel.bookingCompleted],
+                        ["Failed", platformOperations.funnel.failed],
+                      ].map(([label, value]) => (
+                        <div
+                          key={label}
+                          className="rounded-2xl border border-white/10 bg-black/35 p-3"
+                        >
+                          <p className="text-[0.65rem] uppercase tracking-[0.12em] text-zinc-500">
+                            {label}
+                          </p>
+                          <p className="mt-1 text-lg font-bold text-white">
+                            {value}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      {[
+                        ["Started → Checkout", platformOperations.funnel.conversion.startedToCheckout],
+                        ["Checkout → Reserved", platformOperations.funnel.conversion.checkoutToReserved],
+                        ["Reserved → Paid", platformOperations.funnel.conversion.reservedToPaid],
+                        ["Started → Completed", platformOperations.funnel.conversion.startedToCompleted],
+                      ].map(([label, value]) => (
+                        <div
+                          key={label}
+                          className="rounded-2xl border border-[#D8C36A]/20 bg-[#1A1208]/50 p-3"
+                        >
+                          <p className="text-[0.65rem] uppercase tracking-[0.12em] text-zinc-500">
+                            {label}
+                          </p>
+                          <p className="mt-1 text-lg font-bold text-[#F2D66C]">
+                            {typeof value === "number" ? `${value}%` : "Insufficient data"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+
+                <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row">
+                    <div className="lg:w-1/3">
+                      <h3 className="text-xl font-bold text-white">
+                        Booking Journeys
+                      </h3>
+                      <div className="mt-4 max-h-[32rem] space-y-3 overflow-y-auto pr-1">
+                        {platformOperations.journeys.length === 0 ? (
+                          <p className="rounded-2xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-400">
+                            No booking journeys in this period.
+                          </p>
+                        ) : (
+                          platformOperations.journeys.map((journey) => (
+                            <button
+                              key={journey.journeyId}
+                              type="button"
+                              onClick={() =>
+                                setSelectedPlatformOperationsJourneyId(
+                                  journey.journeyId,
+                                )
+                              }
+                              className={`w-full rounded-2xl border p-4 text-left transition ${
+                                selectedPlatformOperationsJourneyId ===
+                                journey.journeyId
+                                  ? "border-[#D8C36A]/50 bg-[#1A1208]"
+                                  : "border-white/10 bg-black/35 hover:border-white/25"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-white">
+                                    {journey.bookingReference ?? "Anonymous journey"}
+                                  </p>
+                                  <p className="mt-1 text-xs text-zinc-500">
+                                    {journey.currentStage}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`rounded-full border px-2 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.1em] ${getPlatformOperationsStatusClass(journey.status)}`}
+                                >
+                                  {journey.status}
+                                </span>
+                              </div>
+                              <p className="mt-2 text-xs text-zinc-500">
+                                Last activity {formatRelativeActivity(journey.lastActivity)}
+                              </p>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                    <div className="lg:flex-1">
+                      {(() => {
+                        const selectedJourney =
+                          platformOperations.journeys.find(
+                            (journey) =>
+                              journey.journeyId ===
+                              selectedPlatformOperationsJourneyId,
+                          ) ?? platformOperations.journeys[0];
+
+                        if (!selectedJourney) {
+                          return (
+                            <div className="rounded-2xl border border-white/10 bg-black/35 p-5 text-sm text-zinc-400">
+                              Select a journey to view its technical timeline.
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.18em] text-[#D8C36A]">
+                                  Journey Drill-Down
+                                </p>
+                                <h3 className="mt-2 text-2xl font-bold text-white">
+                                  {selectedJourney.bookingReference ??
+                                    "Anonymous journey"}
+                                </h3>
+                              </div>
+                              {selectedJourney.bookingReference && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveAdminTab("bookings");
+                                    setBookingSearch(
+                                      selectedJourney.bookingReference ?? "",
+                                    );
+                                  }}
+                                  className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                                >
+                                  Open Booking
+                                </button>
+                              )}
+                            </div>
+                            <div className="mt-5 space-y-3">
+                              {selectedJourney.timeline.map((event) => (
+                                <article
+                                  key={event.id}
+                                  className="rounded-2xl border border-white/10 bg-zinc-950 p-4"
+                                >
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <p className="font-semibold text-white">
+                                        {event.label}
+                                      </p>
+                                      <p className="mt-1 text-xs text-zinc-500">
+                                        {formatSouthAfricanTimestamp(event.createdAt)}
+                                      </p>
+                                    </div>
+                                    <span
+                                      className={`rounded-full border px-3 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.1em] ${getPlatformOperationsStatusClass(event.severity)}`}
+                                    >
+                                      {event.severity}
+                                    </span>
+                                  </div>
+                                  <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-zinc-400 sm:grid-cols-3">
+                                    <span>Route: {event.route ?? "Not recorded"}</span>
+                                    <span>Operation: {event.operation ?? "Not recorded"}</span>
+                                    <span>Duration: {formatDurationMs(event.durationMs)}</span>
+                                  </div>
+                                </article>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </section>
+
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                  <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-5">
+                    <h3 className="text-xl font-bold text-white">
+                      Payments & Checkout
+                    </h3>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      {[
+                        ["Awaiting Payment", platformOperations.payments.awaitingPayment],
+                        ["Confirmed", platformOperations.payments.confirmed],
+                        ["Failed", platformOperations.payments.failed],
+                        ["ITN Failures", platformOperations.payments.recentItnFailures],
+                        ["Checkout Failures", platformOperations.payments.checkoutPreparationFailures],
+                      ].map(([label, value]) => (
+                        <div
+                          key={label}
+                          className="rounded-2xl border border-white/10 bg-black/35 p-3"
+                        >
+                          <p className="text-[0.65rem] uppercase tracking-[0.12em] text-zinc-500">
+                            {label}
+                          </p>
+                          <p className="mt-1 text-lg font-bold text-white">
+                            {value}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 max-h-80 space-y-3 overflow-y-auto pr-1">
+                      {platformOperations.payments.milestones.length === 0 ? (
+                        <p className="rounded-2xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-400">
+                          No payment milestones recorded in this period.
+                        </p>
+                      ) : (
+                        platformOperations.payments.milestones.map((payment) => (
+                          <article
+                            key={payment.bookingReference}
+                            className="rounded-2xl border border-white/10 bg-black/35 p-4"
+                          >
+                            <p className="font-semibold text-white">
+                              {payment.bookingReference}
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {payment.milestones.map((milestone) => (
+                                <span
+                                  key={milestone.label}
+                                  className={`rounded-full border px-2 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.08em] ${getPlatformOperationsStatusClass(milestone.status)}`}
+                                >
+                                  {milestone.label}: {milestone.status}
+                                </span>
+                              ))}
+                            </div>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-5">
+                    <h3 className="text-xl font-bold text-white">
+                      Errors & Incidents
+                    </h3>
+                    <div className="mt-4 max-h-80 space-y-3 overflow-y-auto pr-1">
+                      {platformOperations.errors.length === 0 ? (
+                        <p className="rounded-2xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-400">
+                          No failed booking journeys in this period.
+                        </p>
+                      ) : (
+                        platformOperations.errors.map((event) => (
+                          <button
+                            key={event.id}
+                            type="button"
+                            onClick={() => setSelectedPlatformOperationsErrorId(event.id)}
+                            className={`w-full rounded-2xl border p-4 text-left ${
+                              selectedPlatformOperationsErrorId === event.id
+                                ? "border-red-300/40 bg-red-950/20"
+                                : "border-white/10 bg-black/35"
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <p className="font-semibold text-white">
+                                {event.operation ?? event.eventType}
+                              </p>
+                              <span className="text-xs text-zinc-500">
+                                {formatRelativeActivity(event.createdAt)}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-xs text-zinc-400">
+                              {event.route ?? "Route not recorded"} ·{" "}
+                              {event.safeFingerprint ?? "No fingerprint"}
+                            </p>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                    {(() => {
+                      const selectedError = platformOperations.errors.find(
+                        (event) => event.id === selectedPlatformOperationsErrorId,
+                      );
+
+                      if (!selectedError) {
+                        return null;
+                      }
+
+                      return (
+                        <div className="mt-4 rounded-2xl border border-red-300/25 bg-black/35 p-4 text-sm text-zinc-300">
+                          <p className="font-semibold text-white">
+                            Safe Diagnostic Detail
+                          </p>
+                          <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+                            <span>Time: {formatSouthAfricanTimestamp(selectedError.createdAt)}</span>
+                            <span>Route: {selectedError.route ?? "Not recorded"}</span>
+                            <span>Operation: {selectedError.operation ?? "Not recorded"}</span>
+                            <span>Status: {selectedError.statusCode ?? "Not recorded"}</span>
+                            <span>Fingerprint: {selectedError.safeFingerprint ?? "Not recorded"}</span>
+                            <span>Booking: {selectedError.bookingReference ?? "Not recorded"}</span>
+                            <span>Journey: {selectedError.journeyId ?? "Not recorded"}</span>
+                            <span>Duration: {formatDurationMs(selectedError.durationMs)}</span>
+                            <span>Deployment: {selectedError.deploymentId ?? "Not recorded"}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </section>
+                </div>
+
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+                  <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-5">
+                    <h3 className="text-xl font-bold text-white">
+                      Health History
+                    </h3>
+                    <p className="mt-3 rounded-2xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-400">
+                      {platformOperations.healthHistory.message}
+                    </p>
+                  </section>
+                  <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-5">
+                    <h3 className="text-xl font-bold text-white">
+                      Performance
+                    </h3>
+                    <div className="mt-4 space-y-3">
+                      {platformOperations.performance.map((metric) => (
+                        <div
+                          key={metric.key}
+                          className="rounded-2xl border border-white/10 bg-black/35 p-4"
+                        >
+                          <p className="font-semibold text-white">
+                            {metric.label}
+                          </p>
+                          <p className="mt-2 text-xs text-zinc-400">
+                            {metric.requestCount} requests · Avg{" "}
+                            {formatDurationMs(metric.averageMs)} · p50{" "}
+                            {formatDurationMs(metric.p50Ms)} · p95{" "}
+                            {formatDurationMs(metric.p95Ms)} · p99{" "}
+                            {formatDurationMs(metric.p99Ms)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-5">
+                    <h3 className="text-xl font-bold text-white">
+                      Reservation Conflicts
+                    </h3>
+                    <p className="mt-3 text-3xl font-bold text-white">
+                      {platformOperations.reservationConflicts.count}
+                    </p>
+                    <p className="mt-2 text-sm text-zinc-400">
+                      Expected table-contention 409s are tracked as booking
+                      pressure, not system errors.
+                    </p>
+                  </section>
+                </div>
+
+                <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950 p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <h3 className="text-xl font-bold text-white">
+                        Retention Cleanup
+                      </h3>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+                        Sessions: 24h. Events: 30 days. Warning/error events:
+                        90 days. Incidents: 12 months. Rollups: 24 months.
+                      </p>
+                      {platformOperationsCleanupStatus && (
+                        <p className="mt-3 text-sm text-[#F2D66C]">
+                          {platformOperationsCleanupStatus}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void runPlatformTelemetryCleanup()}
+                      className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                    >
+                      Run Cleanup
+                    </button>
+                  </div>
+                </section>
+
+                <p className="text-xs text-zinc-500">
+                  Auto-refreshes every 30 seconds while this console is open.
+                  Dashboard refresh does not create telemetry events.
+                </p>
+              </>
+            )}
           </section>
         )}
 
@@ -27853,14 +28917,37 @@ export default function AdminDashboardPage() {
                             sendCustomGuestMessage(booking)
                           }
                           disabled={
+                            customMessageSendState[booking.reference]
+                              ?.isSending ||
                             !customMessageForms[
                               booking.reference
                             ]?.message.trim()
                           }
                           className="mt-3 rounded-full bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-35"
                         >
-                          Send Custom Message
+                          {customMessageSendState[booking.reference]
+                            ?.isSending
+                            ? "Sending..."
+                            : "Send Custom Message"}
                         </button>
+                        {customMessageSendState[booking.reference]
+                          ?.message && (
+                          <p
+                            className={`mt-2 text-xs font-semibold ${
+                              customMessageSendState[
+                                booking.reference
+                              ]?.tone === "success"
+                                ? "text-emerald-200"
+                                : "text-red-200"
+                            }`}
+                          >
+                            {
+                              customMessageSendState[
+                                booking.reference
+                              ]?.message
+                            }
+                          </p>
+                        )}
                       </div>
                     )}
 

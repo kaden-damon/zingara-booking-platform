@@ -20,7 +20,9 @@ import {
   getBookingTicketState,
   getCompactShowDateTime,
   getIncludedBookingFeeBreakdown,
+  getShowLocationOption,
   getTicketStateClasses,
+  normalizeShowLocation,
 } from "../../../lib/zingaraDemo";
 
 type LiveTicketClientProps = {
@@ -128,6 +130,12 @@ export default function LiveTicketClient({
       )
     : null;
   const paymentStatus = booking ? getPaymentStatus(booking) : undefined;
+  const showLocation = normalizeShowLocation(
+    show?.location ?? show?.venueName,
+  );
+  const ticketLocationOption = showLocation
+    ? getShowLocationOption(showLocation)
+    : null;
 
   function isTicketActionBusy(ticketCode: string) {
     const status = ticketActionStatus[ticketCode] ?? "";
@@ -497,6 +505,26 @@ export default function LiveTicketClient({
                     {getCompactShowDateTime(show ?? undefined)}
                   </p>
                 </div>
+                {ticketLocationOption && (
+                  <>
+                    <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                        Location
+                      </p>
+                      <p className="mt-2 font-semibold">
+                        {ticketLocationOption.city}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                        Court
+                      </p>
+                      <p className="mt-2 font-semibold">
+                        {ticketLocationOption.courtName}
+                      </p>
+                    </div>
+                  </>
+                )}
                 <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                     Seating

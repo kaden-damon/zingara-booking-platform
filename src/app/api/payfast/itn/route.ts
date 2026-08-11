@@ -12,10 +12,6 @@ import {
   type DemoShow,
   type PaymentOption,
 } from "@/lib/zingaraDemo";
-import {
-  findDuplicateSentCommunication,
-  insertCommunicationPayload,
-} from "@/lib/email/communicationIdempotency";
 import { sendZingaraEmail } from "@/lib/email/smtp";
 import { getPayFastConfig } from "@/lib/payfast/config";
 import {
@@ -26,6 +22,7 @@ import {
   verifyPayFastSourceIp,
   type PayFastItnData,
 } from "@/lib/payfast/itn";
+import { recordPlatformEventBestEffort } from "@/lib/platformTelemetry";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import {
   sendGuestPushNotification,
@@ -51,11 +48,6 @@ type BookingRow = {
 
 type PaymentStatus = "deposit_paid" | "fully_paid";
 
-type PaymentRow = {
-  id: string;
-  payment_status: string;
-};
-
 type TemplateRow = {
   active: boolean;
   body: string;
@@ -72,6 +64,22 @@ type ShowRow = {
   id: string;
   name: string;
   time: string;
+};
+
+type PayFastCoreResult = {
+  booking_id?: string;
+  payment_id?: string;
+  status:
+    | "already_confirmed"
+    | "duplicate_provider_transaction"
+    | "missing"
+    | "processed";
+  was_confirmed?: boolean;
+};
+
+type CommunicationClaimResult = {
+  communication_id?: string;
+  status: "claimed" | "failed" | "sending" | "sent";
 };
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
@@ -286,16 +294,8 @@ async function loadTemplates(supabase: SupabaseClient) {
   return (data as TemplateRow[] | null)?.map(toTemplate) ?? defaultCommunicationTemplates;
 }
 
-async function upsertPayment(
-  supabase: SupabaseClient,
-  bookingId: string,
-  booking: DemoBooking,
-  status: PaymentStatus,
-  amount: number,
-  paymentType: "deposit" | "full_payment",
-  data: PayFastItnData,
-) {
-  const notes = [
+function createPayFastPaymentNotes(data: PayFastItnData) {
+  return [
     `PayFast payment_status: ${data.payment_status ?? "UNKNOWN"}`,
     data.pf_payment_id ? `PayFast transaction: ${data.pf_payment_id}` : "",
     data.amount_gross ? `Gross: ${data.amount_gross}` : "",
@@ -304,52 +304,39 @@ async function upsertPayment(
   ]
     .filter(Boolean)
     .join("\n");
-  const payload = {
-    amount,
-    booking_id: bookingId,
-    method: "payfast",
-    notes,
-    payment_status: status,
-    payment_type: paymentType,
-    processed_at: new Date().toISOString(),
-    reference: booking.reference,
-  };
-  const { data: rows, error: loadError } = await supabase
-    .from("payments")
-    .select("id,payment_status")
-    .eq("booking_id", bookingId)
-    .limit(1);
+}
 
-  if (loadError) {
-    throw loadError;
-  }
-
-  const existing = (rows?.[0] as PaymentRow | undefined) ?? null;
-
-  if (existing) {
-    const { error } = await supabase
-      .from("payments")
-      .update(payload)
-      .eq("id", existing.id);
-
-    if (error) {
-      throw error;
-    }
-
-    return existing.id;
-  }
-
-  const { data: inserted, error } = await supabase
-    .from("payments")
-    .insert(payload)
-    .select("id")
-    .maybeSingle();
+async function confirmPaymentCore(
+  supabase: SupabaseClient,
+  booking: DemoBooking,
+  status: PaymentStatus,
+  amount: number,
+  paymentType: "deposit" | "full_payment",
+  amountPaid: number,
+  balanceDue: number,
+  data: PayFastItnData,
+  updatedBooking: DemoBooking,
+) {
+  const { data: coreResult, error } = await supabase.rpc(
+    "confirm_payfast_payment_core",
+    {
+      p_amount: amount,
+      p_amount_paid: amountPaid,
+      p_balance_outstanding: balanceDue,
+      p_booking_notes: serializeBookingMetadata(updatedBooking),
+      p_booking_reference: booking.reference,
+      p_payment_notes: createPayFastPaymentNotes(data),
+      p_payment_status: status,
+      p_payment_type: paymentType,
+      p_provider_transaction_id: data.pf_payment_id ?? null,
+    },
+  );
 
   if (error) {
     throw error;
   }
 
-  return (inserted as { id?: string } | null)?.id;
+  return coreResult as PayFastCoreResult;
 }
 
 async function ensureTicket(
@@ -388,6 +375,20 @@ async function ensureTicket(
     .maybeSingle();
 
   if (error) {
+    if (error.code === "23505") {
+      const { data: duplicate, error: reloadError } = await supabase
+        .from("tickets")
+        .select("id")
+        .eq("ticket_code", ticketCode)
+        .maybeSingle();
+
+      if (reloadError) {
+        throw reloadError;
+      }
+
+      return (duplicate as { id?: string } | null)?.id;
+    }
+
     throw error;
   }
 
@@ -404,41 +405,22 @@ async function ensureLifecycleEvent(
     toStatus: string;
   },
 ) {
-  const { data: rows, error: loadError } = await supabase
-    .from("booking_lifecycle_events")
-    .select("id")
-    .eq("booking_id", bookingId)
-    .eq("to_status", event.toStatus)
-    .eq("note", event.note)
-    .limit(1);
-
-  if (loadError) {
-    throw loadError;
-  }
-
-  const existingId = (rows?.[0] as { id?: string } | undefined)?.id;
-
-  if (existingId) {
-    return existingId;
-  }
-
-  const { data, error } = await supabase
-    .from("booking_lifecycle_events")
-    .insert({
-      booking_id: bookingId,
-      created_at: event.createdAt,
-      from_status: event.fromStatus,
-      note: event.note,
-      to_status: event.toStatus,
-    })
-    .select("id")
-    .maybeSingle();
+  const { data, error } = await supabase.rpc(
+    "ensure_booking_lifecycle_event_once",
+    {
+      p_booking_id: bookingId,
+      p_created_at: event.createdAt,
+      p_from_status: event.fromStatus ?? null,
+      p_note: event.note,
+      p_to_status: event.toStatus,
+    },
+  );
 
   if (error) {
     throw error;
   }
 
-  return (data as { id?: string } | null)?.id;
+  return data as string | null;
 }
 
 async function recordFailedItn(
@@ -479,21 +461,26 @@ async function ensureCommunication(
     templateId: template.id,
     trigger,
   });
-  const basePayload = {
-    booking_id: bookingId,
-    channel: "email",
-    customer_id: customerId,
-    message: record.message,
-    sent_at: record.sentAt,
-    show_id: showId,
-    status: "sent" as const,
-    subject: record.subject ?? null,
-    type,
-  };
-  const duplicateRow = await findDuplicateSentCommunication(supabase, basePayload);
+  const { data: claimData, error: claimError } = await supabase.rpc(
+    "claim_email_communication_once",
+    {
+      p_booking_id: bookingId,
+      p_customer_id: customerId,
+      p_message: record.message,
+      p_show_id: showId,
+      p_subject: record.subject ?? null,
+      p_type: type,
+    },
+  );
 
-  if (duplicateRow) {
-    return duplicateRow.id;
+  if (claimError) {
+    throw claimError;
+  }
+
+  const claim = claimData as CommunicationClaimResult;
+
+  if (claim.status !== "claimed") {
+    return claim.communication_id ?? null;
   }
 
   const result = await sendZingaraEmail({
@@ -501,10 +488,24 @@ async function ensureCommunication(
     subject: record.subject,
     to: booking.customer.email,
   });
-  const data = await insertCommunicationPayload(supabase, {
-    ...basePayload,
-    status: result.ok ? "sent" : "failed",
-  });
+
+  if (!claim.communication_id) {
+    throw new Error("Communication claim did not return an id");
+  }
+
+  const { data, error } = await supabase
+    .from("communications")
+    .update({
+      sent_at: result.ok ? record.sentAt : null,
+      status: result.ok ? "sent" : "failed",
+    })
+    .eq("id", claim.communication_id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
 
   return (data as { id?: string } | null)?.id;
 }
@@ -533,43 +534,47 @@ async function confirmPayment(
     paymentDate?: string;
     transactionReference?: string;
   };
-  const wasConfirmed =
-    row.booking_status === "confirmed" &&
-    row.payment_status !== "pending_payment";
-
-  const { error: bookingError } = await supabase
-    .from("bookings")
-    .update({
-      amount_paid: outcome.amountPaid,
-      balance_outstanding: outcome.balanceDue,
-      booking_status: "confirmed",
-      notes: serializeBookingMetadata(updatedBooking),
-      payment_status: outcome.paymentStatus,
-      updated_at: now,
-    })
-    .eq("id", row.id);
-
-  if (bookingError) {
-    throw bookingError;
-  }
-
-  await upsertPayment(
+  const coreResult = await confirmPaymentCore(
     supabase,
-    row.id,
-    updatedBooking,
+    booking,
     outcome.paymentStatus,
     outcome.amountPaid,
     outcome.paymentType,
+    outcome.amountPaid,
+    outcome.balanceDue,
     data,
+    updatedBooking,
   );
-  await ensureTicket(supabase, row.id, updatedBooking);
-  await ensureLifecycleEvent(supabase, row.id, {
+
+  if (
+    coreResult.status === "duplicate_provider_transaction" ||
+    coreResult.status === "missing"
+  ) {
+    console.error("[Zingara PayFast] ITN core confirmation blocked", {
+      bookingReference: booking.reference,
+      status: coreResult.status,
+    });
+
+    return {
+      bookingReference: booking.reference,
+      status: coreResult.status,
+      ticketCode,
+      wasConfirmed: Boolean(coreResult.was_confirmed),
+    };
+  }
+
+  const bookingId = coreResult.booking_id ?? row.id;
+  const wasConfirmed =
+    coreResult.status === "already_confirmed" || Boolean(coreResult.was_confirmed);
+
+  await ensureTicket(supabase, bookingId, updatedBooking);
+  await ensureLifecycleEvent(supabase, bookingId, {
     createdAt: now,
     fromStatus: "pending_payment",
     note: `PayFast payment received: ${data.pf_payment_id ?? data.m_payment_id}`,
     toStatus: "confirmed",
   });
-  await ensureLifecycleEvent(supabase, row.id, {
+  await ensureLifecycleEvent(supabase, bookingId, {
     createdAt: now,
     fromStatus: "pending_payment",
     note: "Booking confirmed after PayFast ITN validation",
@@ -582,7 +587,7 @@ async function confirmPayment(
 
   await ensureCommunication(
     supabase,
-    row.id,
+    bookingId,
     row.customer_id,
     row.show_id,
     updatedBooking,
@@ -592,7 +597,7 @@ async function confirmPayment(
   );
   await ensureCommunication(
     supabase,
-    row.id,
+    bookingId,
     row.customer_id,
     row.show_id,
     updatedBooking,
@@ -622,6 +627,7 @@ async function confirmPayment(
 
   return {
     bookingReference: updatedBooking.reference,
+    status: coreResult.status,
     ticketCode,
     wasConfirmed,
   };
@@ -720,6 +726,57 @@ export async function POST(request: Request) {
     }
 
     const result = await confirmPayment(supabase, bookingRow, booking, data);
+
+    if (
+      result.status === "duplicate_provider_transaction" ||
+      result.status === "missing"
+    ) {
+      await recordFailedItn(
+        supabase,
+        bookingRow.id,
+        `PayFast core confirmation ${result.status}`,
+      );
+
+      return Response.json({ ok: false, result, validation }, { status: 200 });
+    }
+
+    const journeyId =
+      typeof (booking as unknown as { journeyId?: unknown }).journeyId === "string"
+        ? (booking as unknown as { journeyId: string }).journeyId
+        : null;
+
+    recordPlatformEventBestEffort(
+      {
+        bookingReference: result.bookingReference,
+        durationMs: Date.now() - startedAt,
+        eventType: "payment_confirmed",
+        journeyId,
+        metadata: {
+          paymentStatus: data.payment_status ?? null,
+          source: "payfast-itn",
+        },
+        operation: "confirm_payfast_itn",
+        route: "/api/payfast/itn",
+        statusCode: 200,
+      },
+      supabase,
+    );
+    recordPlatformEventBestEffort(
+      {
+        bookingReference: result.bookingReference,
+        durationMs: Date.now() - startedAt,
+        eventType: "booking_completed",
+        journeyId,
+        metadata: {
+          paymentStatus: data.payment_status ?? null,
+          source: "payfast-itn",
+        },
+        operation: "complete_booking_from_itn",
+        route: "/api/payfast/itn",
+        statusCode: 200,
+      },
+      supabase,
+    );
 
     return Response.json(
       {

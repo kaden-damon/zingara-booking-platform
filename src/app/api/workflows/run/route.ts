@@ -1,4 +1,5 @@
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { cleanupPlatformTelemetry } from "@/lib/platformTelemetry";
 import {
   runAutomatedWorkflows,
   type AutomatedWorkflowKey,
@@ -28,6 +29,18 @@ function isAuthorisedCronRequest(request: Request) {
   return getBearerToken(request) === configuredSecret;
 }
 
+function shouldRunDailyTelemetryCleanup() {
+  const johannesburgHour = Number(
+    new Intl.DateTimeFormat("en-ZA", {
+      hour: "2-digit",
+      hour12: false,
+      timeZone: "Africa/Johannesburg",
+    }).format(new Date()),
+  );
+
+  return johannesburgHour === 3;
+}
+
 export async function GET(request: Request) {
   if (!isAuthorisedCronRequest(request)) {
     return Response.json({ error: "Unauthorised workflow runner." }, { status: 401 });
@@ -55,9 +68,25 @@ export async function GET(request: Request) {
       mode,
       workflowKey,
     });
+    let telemetryCleanup: Awaited<ReturnType<typeof cleanupPlatformTelemetry>> =
+      null;
+
+    if (!workflowKey && shouldRunDailyTelemetryCleanup()) {
+      try {
+        telemetryCleanup = await cleanupPlatformTelemetry(serviceClient);
+      } catch (cleanupError) {
+        console.error("[Zingara Workflows] Telemetry cleanup failed", {
+          message:
+            cleanupError instanceof Error
+              ? cleanupError.message
+              : "Unknown error",
+        });
+      }
+    }
 
     return Response.json({
       ...result,
+      telemetryCleanup,
     });
   } catch (error) {
     console.error("[Zingara Workflows] Workflow dry-run failed", error);

@@ -403,7 +403,7 @@ export default function FindBookingPage() {
                   inputMode="tel"
                   value={mobileNumber}
                   onChange={(event) => setMobileNumber(event.target.value)}
-                  placeholder="+27..."
+                  placeholder="083 123 4567"
                   className="mt-2 w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-base text-white outline-none transition placeholder:text-zinc-600 focus:border-[#D8C36A]"
                 />
               </label>

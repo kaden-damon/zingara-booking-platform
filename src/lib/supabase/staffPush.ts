@@ -28,6 +28,7 @@ export type StaffPushTrigger =
   | "waitlist-promotion";
 
 export type GuestPushTrigger =
+  | "custom-message"
   | "payment-received"
   | "reservation-cancelled"
   | "reservation-confirmed"
@@ -76,6 +77,8 @@ export type StaffNotificationRecord = {
 
 type GuestPushInput = {
   bookingReference?: string;
+  body?: string;
+  title?: string;
   trigger: GuestPushTrigger;
 };
 
@@ -201,6 +204,10 @@ function getStaffNotificationUrl(input: StaffPushInput) {
 }
 
 function getGuestMessage(input: GuestPushInput) {
+  if (input.trigger === "custom-message") {
+    return input.body?.trim() || "You have a new message from Zingara.";
+  }
+
   if (input.trigger === "reservation-confirmed") {
     return `Your booking ${input.bookingReference ?? ""} has been confirmed.`;
   }
@@ -523,7 +530,7 @@ export async function sendGuestPushNotification(input: GuestPushInput) {
   const payload = JSON.stringify({
     body: getGuestMessage(input),
     tag: `zingara-guest-${input.trigger}-${input.bookingReference ?? "booking"}`,
-    title: "The Royal Countess Zingara",
+    title: input.title?.trim() || "The Royal Countess Zingara",
     url: input.bookingReference
       ? `/ticket/${encodeURIComponent(input.bookingReference)}`
       : "/book",

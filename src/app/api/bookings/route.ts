@@ -16,6 +16,15 @@ import {
   insertCommunicationPayload,
 } from "@/lib/email/communicationIdempotency";
 import { sendZingaraEmail } from "@/lib/email/smtp";
+import {
+  recordPlatformEventBestEffort,
+  recordPlatformFailureEventBestEffort,
+  recoverPlatformIncidentBestEffort,
+} from "@/lib/platformTelemetry";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+} from "@/lib/rateLimit";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -97,6 +106,26 @@ type SupabaseShowRow = {
   id: string;
   notes: string | null;
   time: string;
+};
+
+type BookingTableReservationClaim = {
+  capacity: number;
+  primary?: boolean;
+  section: string;
+  tableCode: string;
+};
+
+type BookingWithReservationClaims = DemoBooking & {
+  reservationTableClaims?: BookingTableReservationClaim[];
+};
+
+type ReservePublicBookingResult = {
+  booking_id?: string;
+  claimed_table_ids?: string[];
+  payment_id?: string;
+  status?: "already_exists" | "conflict" | "success";
+  table_code?: string;
+  table_id?: string;
 };
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
@@ -350,22 +379,21 @@ function isSameCommunication(
   );
 }
 
-function isSameLifecycleEvent(
-  row: {
-    booking_id: string;
-    created_at: string;
-    from_status: SupabaseBookingStatus | null;
-    note: string | null;
-    to_status: SupabaseBookingStatus;
-  },
+async function ensureLifecycleEventOnce(
+  supabase: SupabaseClient,
   payload: ReturnType<typeof getLifecyclePayload>,
 ) {
-  return (
-    row.booking_id === payload.booking_id &&
-    row.from_status === payload.from_status &&
-    row.note === payload.note &&
-    row.to_status === payload.to_status
-  );
+  const { error } = await supabase.rpc("ensure_booking_lifecycle_event_once", {
+    p_booking_id: payload.booking_id,
+    p_created_at: payload.created_at,
+    p_from_status: payload.from_status,
+    p_note: payload.note,
+    p_to_status: payload.to_status,
+  });
+
+  if (error) {
+    throw error;
+  }
 }
 
 async function upsertCustomer(
@@ -376,28 +404,36 @@ async function upsertCustomer(
   const customerKey = payload.preferences.customerKey;
   const mobile = customer.phone?.replace(/\D/g, "");
 
-  const { data: rows, error: loadError } = await supabase
-    .from("customers")
-    .select("id,email,mobile,first_name,surname,preferences")
-    .or(
-      [
-        payload.email ? `email.eq.${payload.email}` : "",
-        mobile ? `mobile.eq.${customer.phone.trim()}` : "",
-      ]
-        .filter(Boolean)
-        .join(","),
-    );
+  async function loadMatchingCustomer() {
+    const filters = [
+      payload.email ? `email.eq.${payload.email}` : "",
+      mobile ? `mobile.eq.${customer.phone.trim()}` : "",
+    ]
+      .filter(Boolean)
+      .join(",");
 
-  if (loadError) {
-    throw loadError;
+    if (!filters) {
+      return undefined;
+    }
+
+    const { data: rows, error: loadError } = await supabase
+      .from("customers")
+      .select("id,email,mobile,first_name,surname,preferences")
+      .or(filters);
+
+    if (loadError) {
+      throw loadError;
+    }
+
+    return ((rows ?? []) as SupabaseCustomerRow[]).find(
+      (row) =>
+        row.preferences?.customerKey === customerKey ||
+        (payload.email && row.email === payload.email) ||
+        (mobile && row.mobile?.replace(/\D/g, "") === mobile),
+    );
   }
 
-  const existingCustomer = ((rows ?? []) as SupabaseCustomerRow[]).find(
-    (row) =>
-      row.preferences?.customerKey === customerKey ||
-      (payload.email && row.email === payload.email) ||
-      (mobile && row.mobile?.replace(/\D/g, "") === mobile),
-  );
+  const existingCustomer = await loadMatchingCustomer();
 
   if (existingCustomer) {
     const { data, error } = await supabase
@@ -421,6 +457,28 @@ async function upsertCustomer(
     .maybeSingle();
 
   if (error) {
+    if (error.code === "23505") {
+      const concurrentlyInsertedCustomer = await loadMatchingCustomer();
+
+      if (concurrentlyInsertedCustomer) {
+        const { data: updatedCustomer, error: updateError } = await supabase
+          .from("customers")
+          .update(payload)
+          .eq("id", concurrentlyInsertedCustomer.id)
+          .select("id")
+          .maybeSingle();
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        return (
+          (updatedCustomer as { id: string } | null)?.id ??
+          concurrentlyInsertedCustomer.id
+        );
+      }
+    }
+
     throw error;
   }
 
@@ -460,6 +518,7 @@ function getBookingPayload(
   booking: DemoBooking,
   customerId: string,
   showId: string,
+  tableId: string | null = null,
 ) {
   return {
     addons_total: booking.addonsTotal ?? 0,
@@ -483,7 +542,7 @@ function getBookingPayload(
     service_fee: booking.serviceFeeAmount ?? 0,
     show_id: showId,
     subtotal_amount: booking.subtotalPrice ?? booking.totalPrice,
-    table_id: null,
+    table_id: tableId,
     total_amount: booking.totalPrice,
   };
 }
@@ -621,6 +680,133 @@ async function upsertBooking(
   return (data as { id?: string } | null)?.id;
 }
 
+function normalizeReservationClaims(
+  booking: BookingWithReservationClaims,
+): BookingTableReservationClaim[] {
+  const rawClaims = Array.isArray(booking.reservationTableClaims)
+    ? booking.reservationTableClaims
+    : [];
+  const claims = rawClaims
+    .map((claim) => ({
+      capacity: Math.max(Math.trunc(Number(claim.capacity) || 0), 1),
+      primary: Boolean(claim.primary),
+      section: claim.section?.trim() || booking.zoneTitle,
+      tableCode: claim.tableCode?.trim(),
+    }))
+    .filter((claim) => Boolean(claim.tableCode));
+  const dedupedClaims = Array.from(
+    new Map(claims.map((claim) => [claim.tableCode, claim])).values(),
+  );
+
+  if (dedupedClaims.length > 0) {
+    return dedupedClaims.some((claim) => claim.primary)
+      ? dedupedClaims
+      : [{ ...dedupedClaims[0], primary: true }, ...dedupedClaims.slice(1)];
+  }
+
+  const tableCode = booking.tableNumber?.trim();
+
+  return tableCode
+    ? [
+        {
+          capacity: booking.partySize,
+          primary: true,
+          section: booking.zoneTitle,
+          tableCode,
+        },
+      ]
+    : [];
+}
+
+function isPublicPayFastReservation(booking: DemoBooking) {
+  return booking.source === "online" && isAwaitingExternalPayment(booking);
+}
+
+async function reservePublicBookingWithTable(
+  supabase: SupabaseClient,
+  booking: BookingWithReservationClaims,
+  customerId: string,
+  showId: string,
+) {
+  const claims = normalizeReservationClaims(booking);
+
+  if (claims.length === 0) {
+    return {
+      error: Response.json(
+        { error: "A table reservation is required before checkout." },
+        { status: 409 },
+      ),
+    };
+  }
+
+  const primaryClaim = claims.find((claim) => claim.primary) ?? claims[0];
+  const bookingForReservation =
+    primaryClaim.tableCode === booking.tableNumber
+      ? booking
+      : {
+          ...booking,
+          tableId: primaryClaim.tableCode,
+          tableNumber: primaryClaim.tableCode,
+        };
+  const bookingPayload = getBookingPayload(
+    bookingForReservation,
+    customerId,
+    showId,
+  );
+  const paymentPayload = getPaymentPayload(
+    bookingForReservation,
+    "00000000-0000-0000-0000-000000000000",
+  );
+  const { data, error } = await supabase.rpc(
+    "reserve_public_booking_table",
+    {
+      p_booking_payload: bookingPayload,
+      p_payment_payload: paymentPayload,
+      p_show_id: showId,
+      p_table_claims: claims.map((claim) => ({
+        capacity: claim.capacity,
+        section: claim.section,
+        table_code: claim.tableCode,
+      })),
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  const result = data as ReservePublicBookingResult | null;
+
+  if (result?.status === "conflict") {
+    return {
+      error: Response.json(
+        {
+          error:
+            "That table has just been reserved by another guest. We're refreshing the available seating for you.",
+          tableCode: result.table_code,
+        },
+        { status: 409 },
+      ),
+    };
+  }
+
+  if (result?.status !== "success" && result?.status !== "already_exists") {
+    return {
+      error: Response.json(
+        { error: "Table reservation could not be completed." },
+        { status: 409 },
+      ),
+    };
+  }
+
+  return {
+    bookingId: result.booking_id,
+    paymentId: result.payment_id,
+    tableId: result.table_id,
+    tableNumber: primaryClaim.tableCode,
+  };
+}
+
 async function upsertPayment(
   supabase: SupabaseClient,
   booking: DemoBooking,
@@ -718,38 +904,11 @@ async function syncLifecycleEvents(
     return;
   }
 
-  const { data: rows, error: loadError } = await supabase
-    .from("booking_lifecycle_events")
-    .select("booking_id,created_at,from_status,note,to_status")
-    .eq("booking_id", bookingId);
-
-  if (loadError) {
-    throw loadError;
-  }
-
-  const existingRows = (rows ?? []) as Array<{
-    booking_id: string;
-    created_at: string;
-    from_status: SupabaseBookingStatus | null;
-    note: string | null;
-    to_status: SupabaseBookingStatus;
-  }>;
-  const payloads = (booking.lifecycleHistory ?? [])
-    .map((event) => getLifecyclePayload(event, bookingId))
-    .filter(
-      (payload) => !existingRows.some((row) => isSameLifecycleEvent(row, payload)),
+  for (const event of booking.lifecycleHistory ?? []) {
+    await ensureLifecycleEventOnce(
+      supabase,
+      getLifecyclePayload(event, bookingId),
     );
-
-  if (payloads.length === 0) {
-    return;
-  }
-
-  const { error } = await supabase
-    .from("booking_lifecycle_events")
-    .insert(payloads);
-
-  if (error) {
-    throw error;
   }
 }
 
@@ -788,23 +947,87 @@ async function syncCommunications(
 }
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
   const supabase = getServiceClient();
 
   if (!supabase) {
     return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
+      { error: "Booking is temporarily unavailable. Please try again shortly." },
+      { status: 503 },
     );
   }
 
   try {
-    const body = (await request.json()) as { booking?: DemoBooking };
+    const body = (await request.json()) as {
+      booking?: DemoBooking;
+      journeyId?: string | null;
+    };
     const booking = body.booking;
+    const journeyId =
+      typeof body.journeyId === "string" ? body.journeyId : null;
 
     if (!booking?.reference || !booking.customer || !booking.showId) {
       return Response.json(
         { error: "A valid booking payload is required." },
         { status: 400 },
+      );
+    }
+
+    const ipLimit = await checkRateLimit(
+      request,
+      {
+        limit: 45,
+        scope: "public_booking_create_ip",
+        windowSeconds: 60,
+      },
+      [booking.showId],
+      supabase,
+    );
+
+    if (!ipLimit.allowed) {
+      return rateLimitResponse(
+        ipLimit.retryAfterSeconds,
+        {
+          bookingReference: booking.reference,
+          journeyId,
+          metadata: {
+            section: booking.zoneTitle,
+            source: "online",
+          },
+          operation: "create_booking",
+          route: "/api/bookings",
+          safeFingerprint: "booking_create_rate_limited_ip",
+        },
+        supabase,
+      );
+    }
+
+    const referenceLimit = await checkRateLimit(
+      request,
+      {
+        limit: 3,
+        scope: "public_booking_create_reference",
+        windowSeconds: 300,
+      },
+      [booking.reference],
+      supabase,
+    );
+
+    if (!referenceLimit.allowed) {
+      return rateLimitResponse(
+        referenceLimit.retryAfterSeconds,
+        {
+          bookingReference: booking.reference,
+          journeyId,
+          metadata: {
+            section: booking.zoneTitle,
+            source: "online",
+          },
+          operation: "create_booking",
+          route: "/api/bookings",
+          safeFingerprint: "booking_create_rate_limited_reference",
+        },
+        supabase,
       );
     }
 
@@ -826,9 +1049,77 @@ export async function POST(request: Request) {
       );
     }
 
+    if (isPublicPayFastReservation(booking)) {
+      const reservation = await reservePublicBookingWithTable(
+        supabase,
+        booking as BookingWithReservationClaims,
+        customerId,
+        showId,
+      );
+
+      if (reservation.error) {
+        return reservation.error;
+      }
+
+      if (reservation.bookingId) {
+        await syncLifecycleEvents(supabase, booking, reservation.bookingId);
+      }
+
+      recordPlatformEventBestEffort(
+        {
+          bookingReference: booking.reference,
+          durationMs: Date.now() - startedAt,
+          eventType: "booking_reserved",
+          journeyId,
+          metadata: {
+            section: booking.zoneTitle,
+            source: "online",
+          },
+          operation: "reserve_public_booking_table",
+          route: "/api/bookings",
+          statusCode: 200,
+        },
+        supabase,
+      );
+      recoverPlatformIncidentBestEffort(
+        {
+          fingerprint: "booking_create_unavailable",
+          service: "BOOKING API",
+          summary: "Public booking creation recovered.",
+        },
+        supabase,
+      );
+
+      return Response.json({
+        bookingId: reservation.bookingId,
+        customerId,
+        paymentId: reservation.paymentId,
+        tableId: reservation.tableId,
+        tableNumber: reservation.tableNumber,
+        ticketId: null,
+      });
+    }
+
     const bookingId = await upsertBooking(supabase, booking, customerId, showId);
 
     if (!bookingId) {
+      recordPlatformFailureEventBestEffort(
+        {
+          bookingReference: booking.reference,
+          journeyId,
+          metadata: {
+            section: booking.zoneTitle,
+            source: "online",
+          },
+          operation: "create_booking",
+          route: "/api/bookings",
+          safeFingerprint: "booking_create_unavailable",
+          service: "BOOKING API",
+          statusCode: 500,
+          summary: "Public booking creation failures are recurring.",
+        },
+        supabase,
+      );
       return Response.json(
         { error: "Booking could not be created." },
         { status: 500 },
@@ -856,6 +1147,14 @@ export async function POST(request: Request) {
         });
       });
     }
+    recoverPlatformIncidentBestEffort(
+      {
+        fingerprint: "booking_create_unavailable",
+        service: "BOOKING API",
+        summary: "Public booking creation recovered.",
+      },
+      supabase,
+    );
 
     return Response.json({
       bookingId,
@@ -865,6 +1164,17 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("[Zingara API] Booking transaction failed", error);
+    recordPlatformFailureEventBestEffort(
+      {
+        operation: "create_booking",
+        route: "/api/bookings",
+        safeFingerprint: "booking_create_unavailable",
+        service: "BOOKING API",
+        statusCode: 500,
+        summary: "Public booking creation failures are recurring.",
+      },
+      supabase,
+    );
 
     return Response.json(
       { error: "Booking transaction failed." },

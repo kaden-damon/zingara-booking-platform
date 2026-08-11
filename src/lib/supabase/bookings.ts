@@ -642,13 +642,26 @@ export async function getSupabaseBookingId(reference: string) {
   }
 }
 
-export async function createBooking(booking: DemoBooking) {
-  await fetchSupabaseApi("/api/bookings", {
-    body: { booking },
+export type CreateBookingResult = {
+  bookingId?: string;
+  customerId?: string;
+  paymentId?: string;
+  tableId?: string;
+  tableNumber?: string;
+  ticketId?: string | null;
+};
+
+export async function createBooking(booking: DemoBooking, journeyId?: string | null) {
+  const result = await fetchSupabaseApi<CreateBookingResult>("/api/bookings", {
+    body: { booking, journeyId },
     method: "POST",
   });
 
-  return booking;
+  return {
+    ...booking,
+    tableId: result.tableId ?? booking.tableId,
+    tableNumber: result.tableNumber ?? booking.tableNumber,
+  };
 }
 
 export async function updateBooking(booking: DemoBooking) {

@@ -14,6 +14,11 @@ import {
   registerZingaraPushSubscription,
 } from "../../lib/browserNotifications";
 import {
+  getBookingJourneyId,
+  trackPlatformEvent,
+  upsertPlatformPresence,
+} from "../../lib/browserPlatformTelemetry";
+import {
   createDownloadableTicketPdf,
   resolveDownloadableTicketPdfInput,
   TicketPdfDataError,
@@ -72,6 +77,13 @@ type PayFastCheckoutResponse = {
   error?: string;
   fields?: Record<string, boolean | number | string | null | undefined>;
   mode?: "live" | "sandbox";
+};
+
+type BookingTableReservationClaim = {
+  capacity: number;
+  primary?: boolean;
+  section: string;
+  tableCode: string;
 };
 
 type TicketPayload = {
@@ -721,6 +733,7 @@ export default function BookingPage() {
     defaultShows.flatMap((show) => createTablesForShow(show.id)),
   );
   const confirmedSectionRef = useRef<HTMLElement | null>(null);
+  const trackedTelemetryEventsRef = useRef<Set<string>>(new Set());
   const hasScrolledToConfirmedRef = useRef(false);
   const venueConfig = venueSettings;
 
@@ -859,6 +872,56 @@ export default function BookingPage() {
   const shouldShowInstallOpportunity =
     !isStandaloneApp && (Boolean(installPrompt) || isIOSDevice);
   const activeProgressIndex = bookingReference ? 5 : activeBookingStep;
+
+  function trackTelemetryEventOnce(
+    key: string,
+    input: Parameters<typeof trackPlatformEvent>[0],
+  ) {
+    if (trackedTelemetryEventsRef.current.has(key)) {
+      return;
+    }
+
+    trackedTelemetryEventsRef.current.add(key);
+    trackPlatformEvent(input);
+  }
+
+  function getTelemetryStage() {
+    if (postPaymentStatus === "confirming") {
+      return "Awaiting Payment Confirmation";
+    }
+
+    if (postPaymentStatus === "cancelled" || postPaymentStatus === "failed") {
+      return "PayFast Return";
+    }
+
+    if (bookingReference) {
+      return "Booking Complete";
+    }
+
+    if (isPayFastRedirecting) {
+      return "Redirecting to PayFast";
+    }
+
+    if (activeBookingStep === 4) {
+      return "Checkout";
+    }
+
+    if (activeBookingStep === 3) {
+      return "Booking Details";
+    }
+
+    if (activeBookingStep === 2) {
+      return "Selecting Seating";
+    }
+
+    if (activeBookingStep === 1) {
+      return "Selecting Party Size";
+    }
+
+    return selectedEntryLocation ? "Selecting Date" : "Selecting Location";
+  }
+
+  const telemetryStage = getTelemetryStage();
   const bookingProgressSteps = [
     {
       isActive: activeProgressIndex === 0,
@@ -1199,20 +1262,133 @@ export default function BookingPage() {
       setPostPaymentBookingReference(booking ?? "");
       setPostPaymentStatus("cancelled");
       setPaymentRedirectStatus("");
+      trackPlatformEvent({
+        bookingReference: booking,
+        eventType: "payfast_returned",
+        metadata: {
+          paymentState,
+          stage: "PayFast Return",
+        },
+      });
     }
 
     if (paymentState === "failed") {
       setPostPaymentBookingReference(booking ?? "");
       setPostPaymentStatus("failed");
       setPaymentRedirectStatus("");
+      trackPlatformEvent({
+        bookingReference: booking,
+        eventType: "payfast_returned",
+        metadata: {
+          paymentState,
+          stage: "PayFast Return",
+        },
+      });
     }
 
     if (paymentState === "return") {
       setPostPaymentBookingReference(booking ?? "");
       setPostPaymentStatus(booking ? "confirming" : "timeout");
       setPaymentRedirectStatus("");
+      trackPlatformEvent({
+        bookingReference: booking,
+        eventType: "payfast_returned",
+        metadata: {
+          paymentState,
+          stage: "Awaiting Payment Confirmation",
+        },
+      });
     }
   }, []);
+
+  useEffect(() => {
+    trackTelemetryEventOnce("journey-started", {
+      eventType: "journey_started",
+      metadata: {
+        source: "public-booking",
+        stage: "Browsing Shows",
+      },
+    });
+  }, []);
+
+  useEffect(() => {
+    upsertPlatformPresence({
+      currentArea: "Book",
+      currentStage: telemetryStage,
+      metadata: {
+        location: selectedEntryLocation,
+        stage: telemetryStage,
+      },
+    });
+  }, [
+    selectedEntryLocation,
+    telemetryStage,
+  ]);
+
+  useEffect(() => {
+    if (!selectedEntryLocation) {
+      return;
+    }
+
+    trackTelemetryEventOnce(`location:${selectedEntryLocation}`, {
+      eventType: "location_selected",
+      metadata: {
+        location: selectedEntryLocation,
+      },
+    });
+  }, [selectedEntryLocation]);
+
+  useEffect(() => {
+    if (!selectedShowId || !selectedShow) {
+      return;
+    }
+
+    trackTelemetryEventOnce(`show:${selectedShowId}`, {
+      eventType: "show_selected",
+      metadata: {
+        location: getShowVenueKey(selectedShow),
+      },
+    });
+  }, [selectedShow, selectedShowId]);
+
+  useEffect(() => {
+    if (!selectedZone) {
+      return;
+    }
+
+    trackTelemetryEventOnce(`seating:${selectedZone.id}`, {
+      eventType: "seating_selected",
+      metadata: {
+        section: selectedZone.title,
+      },
+    });
+  }, [selectedZone]);
+
+  useEffect(() => {
+    if (!customerDetailsComplete) {
+      return;
+    }
+
+    trackTelemetryEventOnce("guest-details-completed", {
+      eventType: "guest_details_completed",
+      metadata: {
+        stage: "Booking Details",
+      },
+    });
+  }, [customerDetailsComplete]);
+
+  useEffect(() => {
+    if (activeBookingStep !== 4 || !isConfirmationOpen) {
+      return;
+    }
+
+    trackTelemetryEventOnce("checkout-viewed", {
+      eventType: "checkout_viewed",
+      metadata: {
+        stage: "Checkout",
+      },
+    });
+  }, [activeBookingStep, isConfirmationOpen]);
 
   useEffect(() => {
     if (!selectedEntryLocation) {
@@ -1472,6 +1648,7 @@ export default function BookingPage() {
     setPaymentRedirectStatus("Preparing secure PayFast checkout...");
 
     const allocatedTable = tableAllocation.table;
+    const journeyId = getBookingJourneyId();
     let reference = "";
 
     try {
@@ -1504,6 +1681,7 @@ export default function BookingPage() {
       pricePerPerson: dynamicPricePerPerson,
       paymentOption,
       paymentStatus: "pending-payment" as const,
+      journeyId,
       depositPercentage,
       amountPaid: 0,
       balanceDue: total,
@@ -1532,6 +1710,14 @@ export default function BookingPage() {
       refundNotes: "",
       communicationHistory: [],
       createdAt,
+      reservationTableClaims: tableAllocation.sourceTables.map(
+        (table, index): BookingTableReservationClaim => ({
+          capacity: table.seatCapacity,
+          primary: index === 0,
+          section: selectedZone.title,
+          tableCode: table.tableNumber,
+        }),
+      ),
     };
     const nextTables = applyTableAllocation(
       tables,
@@ -1541,7 +1727,7 @@ export default function BookingPage() {
     );
 
     try {
-      await createBooking(booking);
+      const persistedBooking = await createBooking(booking, journeyId);
       await registerZingaraPushSubscription({
         bookingReference: reference,
         customerEmail: customerInfo.email,
@@ -1550,7 +1736,9 @@ export default function BookingPage() {
 
       storeDemoTables(nextTables, shows);
       setTables(nextTables);
-      setAllocatedTableNumber(allocatedTable.tableNumber);
+      setAllocatedTableNumber(
+        persistedBooking.tableNumber ?? allocatedTable.tableNumber,
+      );
 
       const response = await fetch("/api/payfast/checkout", {
         body: JSON.stringify({
@@ -1559,6 +1747,7 @@ export default function BookingPage() {
           customer: customerInfo,
           itemDescription: `${selectedShow.label} · ${selectedZone.title} · ${partySize} guests`,
           itemName: "The Royal Countess Zingara Booking",
+          journeyId,
           section: selectedZone.title,
         }),
         headers: {
@@ -1575,14 +1764,59 @@ export default function BookingPage() {
       }
 
       setPaymentRedirectStatus("Redirecting to secure PayFast checkout...");
+      trackPlatformEvent({
+        bookingReference: reference,
+        eventType: "payment_initiated",
+        journeyId,
+        metadata: {
+          section: selectedZone.title,
+          stage: "Redirecting to PayFast",
+        },
+      });
       submitPayFastCheckoutForm(checkout.actionUrl, checkout.fields);
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : "PayFast checkout could not be prepared.";
+      const isAvailabilityConflict = message
+        .toLowerCase()
+        .includes("reserved by another guest");
 
-      setPaymentRedirectStatus(`Payment could not be started. ${message}`);
+      if (isAvailabilityConflict) {
+        setTables((currentTables) =>
+          currentTables.map((table) =>
+            tableAllocation.sourceTables.some(
+              (sourceTable) => sourceTable.id === table.id,
+            )
+              ? {
+                  ...table,
+                  bookingReference: "Recently reserved",
+                  status: "booked" as const,
+                }
+              : table,
+          ),
+        );
+      }
+
+      setPaymentRedirectStatus(
+        isAvailabilityConflict
+          ? message
+          : `Payment could not be started. ${message}`,
+      );
+      trackPlatformEvent({
+        bookingReference: reference || null,
+        eventType: "journey_failed",
+        journeyId,
+        metadata: {
+          stage: "Checkout",
+          status: isAvailabilityConflict ? "availability-conflict" : "checkout-failed",
+        },
+        operation: "prepare_payfast_checkout",
+        safeFingerprint: isAvailabilityConflict
+          ? "public_booking_availability_conflict"
+          : "public_booking_checkout_failed",
+      });
       setIsPayFastRedirecting(false);
     }
   }

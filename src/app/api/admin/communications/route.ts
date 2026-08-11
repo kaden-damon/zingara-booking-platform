@@ -122,9 +122,10 @@ function toSupabaseChannel(
 async function getEmailDeliveryStatus(
   record: CommunicationRecord,
   recipient?: string | null,
+  deliveryStatus?: "failed" | "sent",
 ) {
   if (record.channel !== "email") {
-    return "sent" as const;
+    return deliveryStatus ?? ("sent" as const);
   }
 
   const result = await sendZingaraEmail({
@@ -282,6 +283,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       booking?: DemoBooking;
       corporateRequest?: CorporateRequest;
+      deliveryStatus?: "failed" | "sent";
       record?: CommunicationRecord;
     };
 
@@ -309,6 +311,7 @@ export async function POST(request: Request) {
     const status = await getEmailDeliveryStatus(
       body.record,
       getCommunicationRecipient(body.record, context),
+      body.deliveryStatus,
     );
     const data = await insertCommunicationPayload(supabase, {
       ...payload,

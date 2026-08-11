@@ -71,6 +71,7 @@ export type StaffPushTrigger =
   | "waitlist-promotion";
 
 export type GuestPushTrigger =
+  | "custom-message"
   | "payment-received"
   | "reservation-cancelled"
   | "reservation-confirmed"
@@ -472,12 +473,14 @@ export async function registerZingaraPushSubscription(
 
 export async function sendZingaraGuestPushNotification(
   trigger: GuestPushTrigger,
-  options: { bookingReference: string },
+  options: { bookingReference: string; message?: string; title?: string },
 ) {
   try {
     return await fetchSupabaseApi<PushTestResult>("/api/guest-push", {
       body: {
         bookingReference: options.bookingReference,
+        message: options.message,
+        title: options.title,
         trigger,
       },
       method: "POST",
