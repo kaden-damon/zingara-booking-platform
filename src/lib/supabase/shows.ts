@@ -1,5 +1,6 @@
 import {
   type DemoShow,
+  type EntryLocationKey,
   getStoredDemoShows,
   normalizeShowLocation,
   storeDemoShows,
@@ -208,4 +209,47 @@ export async function replaceShows(shows: DemoShow[]) {
     console.error("[Zingara Supabase] Failed to persist shows", error);
     return shows;
   }
+}
+
+export type BulkShowScheduleInput = {
+  address: string;
+  dateFrom: string;
+  dateTo: string;
+  defaultStatus: NonNullable<DemoShow["operationalStatus"]>;
+  description: string;
+  daysOfWeek: number[];
+  location: EntryLocationKey;
+  tagline: string;
+  time: string;
+  title: string;
+  weekdayStatusOverrides?: Partial<
+    Record<number, NonNullable<DemoShow["operationalStatus"]>>
+  >;
+};
+
+export type BulkShowScheduleResult = {
+  activeCount: number;
+  created: DemoShow[];
+  createdCount: number;
+  disabledCount: number;
+  existing: DemoShow[];
+  existingCount: number;
+  skippedCount: number;
+  tableRowsCreated: number;
+  totalCandidates: number;
+  wouldCreate?: number;
+};
+
+export async function previewBulkShowSchedule(input: BulkShowScheduleInput) {
+  return fetchSupabaseApi<BulkShowScheduleResult>("/api/admin/shows/bulk", {
+    body: { mode: "preview", schedule: input },
+    method: "POST",
+  });
+}
+
+export async function createBulkShowSchedule(input: BulkShowScheduleInput) {
+  return fetchSupabaseApi<BulkShowScheduleResult>("/api/admin/shows/bulk", {
+    body: { mode: "create", schedule: input },
+    method: "POST",
+  });
 }

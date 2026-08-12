@@ -103,7 +103,11 @@ import {
   staffLocationOptions,
 } from "../../lib/staffLocations";
 import {
+  type BulkShowScheduleInput,
+  type BulkShowScheduleResult,
+  createBulkShowSchedule,
   getShows,
+  previewBulkShowSchedule,
   replaceShows,
 } from "../../lib/supabase/shows";
 import { createTicketValidation } from "../../lib/supabase/ticketValidations";
@@ -184,6 +188,20 @@ type NewShowForm = {
   label: string;
   location: EntryLocationKey | "";
 };
+type BulkShowScheduleForm = {
+  address: string;
+  dateFrom: string;
+  dateTo: string;
+  defaultStatus: NonNullable<DemoShow["operationalStatus"]>;
+  description: string;
+  daysOfWeek: number[];
+  location: EntryLocationKey | "";
+  tagline: string;
+  time: string;
+  title: string;
+  tuesdayDisabled: boolean;
+};
+type ShowCalendarLocationFilter = "all" | EntryLocationKey;
 type ShowEditForm = {
   address: string;
   date: string;
@@ -6248,6 +6266,15 @@ const floorZoneFilterLabels: Partial<Record<FloorZoneFilter, string>> = {
   "royal-booths": "Booths",
 };
 const bookingCalendarWeekdays = ["S", "M", "T", "W", "T", "F", "S"];
+const showScheduleWeekdayOptions = [
+  { label: "Sun", value: 0 },
+  { label: "Mon", value: 1 },
+  { label: "Tue", value: 2 },
+  { label: "Wed", value: 3 },
+  { label: "Thu", value: 4 },
+  { label: "Fri", value: 5 },
+  { label: "Sat", value: 6 },
+];
 const bookingCalendarMonths = [
   "January",
   "February",
@@ -6264,6 +6291,46 @@ const bookingCalendarMonths = [
 ];
 
 const bookingPageSize = 5;
+
+const defaultBulkShowScheduleForm: BulkShowScheduleForm = {
+  address: "",
+  dateFrom: "",
+  dateTo: "",
+  defaultStatus: "active",
+  description: "",
+  daysOfWeek: [2, 3, 4, 5, 6, 0],
+  location: "",
+  tagline: "",
+  time: "",
+  title: "",
+  tuesdayDisabled: true,
+};
+
+function getShowCalendarLocationDisplay(location: EntryLocationKey) {
+  const option = getShowLocationOption(location);
+
+  return {
+    alias: location === "johannesburg" ? "JHB" : "CPT",
+    courtName: option.courtName,
+    searchAlias:
+      location === "johannesburg"
+        ? "JHB Johannesburg The Spring Court"
+        : "CPT Cape Town The Night Court",
+  };
+}
+
+function getCurrentShowCalendarMonth() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    month: "2-digit",
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+  }).formatToParts(new Date());
+
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+
+  return year && month ? `${year}-${month}` : new Date().toISOString().slice(0, 7);
+}
 
 const operationalReportLabels: Record<OperationalReportType, string> = {
   bookings: "Booking Manifest",
@@ -8012,6 +8079,15 @@ export default function AdminDashboardPage() {
   const [staffDeleteReplacementUserId, setStaffDeleteReplacementUserId] =
     useState("");
   const [shows, setShows] = useState<DemoShow[]>(defaultShows);
+  const [isShowsLoading, setIsShowsLoading] = useState(false);
+  const [showLoadError, setShowLoadError] = useState("");
+  const [showCalendarMonth, setShowCalendarMonth] = useState(
+    getCurrentShowCalendarMonth,
+  );
+  const [showCalendarLocationFilter, setShowCalendarLocationFilter] =
+    useState<ShowCalendarLocationFilter>("all");
+  const [showSearch, setShowSearch] = useState("");
+  const [openShowFinancialPopupId, setOpenShowFinancialPopupId] = useState("");
   const [selectedShowId, setSelectedShowId] = useState(
     defaultShows[0]?.id ?? "",
   );
@@ -8031,6 +8107,16 @@ export default function AdminDashboardPage() {
     label: "",
     location: "",
   });
+  const [bulkShowScheduleForm, setBulkShowScheduleForm] =
+    useState<BulkShowScheduleForm>(defaultBulkShowScheduleForm);
+  const [bulkShowPreview, setBulkShowPreview] =
+    useState<BulkShowScheduleResult | null>(null);
+  const [bulkShowStatus, setBulkShowStatus] = useState("");
+  const [bulkShowError, setBulkShowError] = useState("");
+  const [isBulkShowPreviewing, setIsBulkShowPreviewing] =
+    useState(false);
+  const [isBulkShowCreating, setIsBulkShowCreating] =
+    useState(false);
   const [editingShowId, setEditingShowId] = useState("");
   const [showDeleteConfirmationId, setShowDeleteConfirmationId] =
     useState("");
@@ -8141,6 +8227,9 @@ export default function AdminDashboardPage() {
         return;
       }
 
+      setIsShowsLoading(true);
+      setShowLoadError("");
+
       const nextAdminSession = await getSupabaseAdminSession();
 
       if (!isMounted) {
@@ -8228,8 +8317,14 @@ export default function AdminDashboardPage() {
         setStaffProfiles(nextStaffProfiles);
         setStaffRoles(nextStaffRoles);
         setPaymentRows(nextPaymentRows);
+        setShowLoadError("");
       } catch (error) {
         console.error("[Zingara admin] Failed to load dashboard data", error);
+        setShowLoadError("Shows could not be loaded. Try again.");
+      } finally {
+        if (isMounted) {
+          setIsShowsLoading(false);
+        }
       }
     }
 
@@ -10481,6 +10576,152 @@ export default function AdminDashboardPage() {
           : show,
       ),
     );
+  }
+
+  function getBulkSchedulePayload(): BulkShowScheduleInput | null {
+    const location = normalizeShowLocation(bulkShowScheduleForm.location);
+
+    if (
+      !location ||
+      !bulkShowScheduleForm.dateFrom ||
+      !bulkShowScheduleForm.dateTo ||
+      !bulkShowScheduleForm.time ||
+      bulkShowScheduleForm.daysOfWeek.length === 0 ||
+      !bulkShowScheduleForm.title.trim()
+    ) {
+      return null;
+    }
+
+    return {
+      address: bulkShowScheduleForm.address.trim(),
+      dateFrom: bulkShowScheduleForm.dateFrom,
+      dateTo: bulkShowScheduleForm.dateTo,
+      defaultStatus: bulkShowScheduleForm.defaultStatus,
+      description: bulkShowScheduleForm.description.trim(),
+      daysOfWeek: bulkShowScheduleForm.daysOfWeek,
+      location,
+      tagline: bulkShowScheduleForm.tagline.trim(),
+      time: bulkShowScheduleForm.time,
+      title: bulkShowScheduleForm.title.trim(),
+      weekdayStatusOverrides: bulkShowScheduleForm.tuesdayDisabled
+        ? { 2: "inactive" }
+        : {},
+    };
+  }
+
+  function applyBulkSchedulePreset(location: EntryLocationKey) {
+    if (location === "johannesburg") {
+      setBulkShowScheduleForm({
+        address: "30 Sunnyside Road, Birnam, Melrose Arch",
+        dateFrom: "2026-09-01",
+        dateTo: "2026-12-31",
+        defaultStatus: "active",
+        description:
+          "Step into a world where theatre, performance art, and decadent dining intertwine in a dazzling spectacle. A smorgasbord of international stars and homegrown talent will envelop you in wonder, tempting your tastebuds, stirring your soul, and igniting your imagination.",
+        daysOfWeek: [2, 3, 4, 5, 6, 0],
+        location,
+        tagline: "JOBURG'S MOST MAGICAL ESCAPE",
+        time: "18:00",
+        title: "Zingara Johannesburg, The Royal Countess Dinner Show",
+        tuesdayDisabled: true,
+      });
+      setBulkShowPreview(null);
+      setBulkShowStatus("");
+      setBulkShowError("");
+      return;
+    }
+
+    setBulkShowScheduleForm({
+      address: "25 Century Blvd, Century City, Cape Town, 7441, South Africa",
+      dateFrom: "2026-10-05",
+      dateTo: "2027-03-31",
+      defaultStatus: "active",
+      description:
+        "While many of the things you love about Zingara remain - the atmosphere, the spectacle, the unforgettable hospitality, this season is an entirely new production, created from the ground up.",
+      daysOfWeek: [2, 3, 4, 5, 6, 0],
+      location,
+      tagline: "A New Chapter Awaits",
+      time: "17:00",
+      title: "Zingara Cape Town, The Royal Countess Dinner Show",
+      tuesdayDisabled: true,
+    });
+    setBulkShowPreview(null);
+    setBulkShowStatus("");
+    setBulkShowError("");
+  }
+
+  function toggleBulkScheduleDay(day: number) {
+    setBulkShowScheduleForm((currentForm) => {
+      const hasDay = currentForm.daysOfWeek.includes(day);
+
+      return {
+        ...currentForm,
+        daysOfWeek: hasDay
+          ? currentForm.daysOfWeek.filter((value) => value !== day)
+          : [...currentForm.daysOfWeek, day].sort((left, right) => left - right),
+      };
+    });
+    setBulkShowPreview(null);
+  }
+
+  async function previewBulkSchedule() {
+    const payload = getBulkSchedulePayload();
+
+    if (!canManageShows || !payload) {
+      setBulkShowError("Complete the schedule details before previewing.");
+      return;
+    }
+
+    setIsBulkShowPreviewing(true);
+    setBulkShowError("");
+    setBulkShowStatus("Previewing schedule...");
+
+    try {
+      const result = await previewBulkShowSchedule(payload);
+
+      setBulkShowPreview(result);
+      setBulkShowStatus(
+        `${result.totalCandidates} shows checked · ${result.wouldCreate ?? result.createdCount} to create · ${result.skippedCount} existing skipped.`,
+      );
+    } catch (error) {
+      console.error("[Zingara show management] Bulk preview failed", error);
+      setBulkShowError("Schedule preview could not be generated.");
+      setBulkShowStatus("");
+    } finally {
+      setIsBulkShowPreviewing(false);
+    }
+  }
+
+  async function confirmBulkScheduleCreation() {
+    const payload = getBulkSchedulePayload();
+
+    if (!canManageShows || !payload || !bulkShowPreview) {
+      return;
+    }
+
+    setIsBulkShowCreating(true);
+    setBulkShowError("");
+    setBulkShowStatus("Creating missing shows...");
+
+    try {
+      const result = await createBulkShowSchedule(payload);
+      const nextShows = await getShows();
+      const nextTables = getStoredDemoTables(nextShows);
+
+      setShows(nextShows);
+      setTables(nextTables);
+      setBulkShowPreview(result);
+      setBulkShowStatus(
+        `Created ${result.createdCount} shows · skipped ${result.skippedCount} existing · seeded ${result.tableRowsCreated} table rows.`,
+      );
+      window.dispatchEvent(new CustomEvent("zingara-demo-shows-updated"));
+    } catch (error) {
+      console.error("[Zingara show management] Bulk create failed", error);
+      setBulkShowError("Schedule could not be created.");
+      setBulkShowStatus("");
+    } finally {
+      setIsBulkShowCreating(false);
+    }
   }
 
   function openShowEditor(show: DemoShow) {
@@ -16979,6 +17220,162 @@ export default function AdminDashboardPage() {
     ? bookings.filter((booking) => booking.showId === editingShow.id)
         .length
     : 0;
+  const showCalendarMonthStart = new Date(`${showCalendarMonth}-01T00:00:00`);
+  const showCalendarMonthLabel = `${bookingCalendarMonths[showCalendarMonthStart.getMonth()]} ${showCalendarMonthStart.getFullYear()}`;
+  const showCalendarDaysInMonth = new Date(
+    showCalendarMonthStart.getFullYear(),
+    showCalendarMonthStart.getMonth() + 1,
+    0,
+  ).getDate();
+  const showCalendarStartOffset = showCalendarMonthStart.getDay();
+  const showCalendarCells = [
+    ...Array.from({ length: showCalendarStartOffset }, () => null),
+    ...Array.from(
+      { length: showCalendarDaysInMonth },
+      (_, index) => index + 1,
+    ),
+  ];
+  const setShowCalendarMonthOffset = (offset: number) => {
+    const nextDate = new Date(showCalendarMonthStart);
+
+    nextDate.setMonth(nextDate.getMonth() + offset);
+    setShowCalendarMonth(nextDate.toISOString().slice(0, 7));
+  };
+  const showCalendarMonthPrefix = `${showCalendarMonth}-`;
+  const getShowLocation = (show: DemoShow) =>
+    normalizeShowLocation(show.location ?? show.venueName);
+  const visibleShowCalendarShows = shows
+    .filter((show) => {
+      const location = getShowLocation(show);
+
+      return (
+        show.date.startsWith(showCalendarMonthPrefix) &&
+        (showCalendarLocationFilter === "all" ||
+          location === showCalendarLocationFilter)
+      );
+    })
+    .sort((left, right) =>
+      `${left.date}T${left.time || "00:00"}`.localeCompare(
+        `${right.date}T${right.time || "00:00"}`,
+      ),
+    );
+  const getCalendarShowsForDay = (day: number) =>
+    visibleShowCalendarShows.filter(
+      (show) => show.date === `${showCalendarMonthPrefix}${String(day).padStart(2, "0")}`,
+    );
+  const getShowOccupancyChips = (show: DemoShow) =>
+    floorManagementZones.map((zone) => {
+      const zoneTables = getZoneTables(tables, show.id, zone.id);
+      const activeTables = zoneTables.filter(
+        (table) => table.status !== "disabled",
+      );
+      const occupiedSeats = activeTables.reduce((total, table) => {
+        const occupancy = getTableOccupancy(table, activeBookingsForOperations);
+
+        return occupancy.booking
+          ? total + (occupancy.booking.partySize || table.seatCapacity)
+          : total;
+      }, 0);
+      const capacity = activeTables.reduce(
+        (total, table) => total + table.seatCapacity,
+        0,
+      );
+
+      return {
+        capacity,
+        label: zone.title,
+        occupiedSeats: Math.min(occupiedSeats, capacity),
+        zoneId: zone.id,
+      };
+    });
+  const getShowFinancialSummary = (show: DemoShow) => {
+    const showBookings = activeBookingsForOperations.filter(
+      (booking) => booking.showId === show.id,
+    );
+    const activeShowBookings = showBookings.filter(
+      (booking) =>
+        !["cancelled", "refunded", "waitlisted"].includes(
+          booking.status ?? "confirmed",
+        ),
+    );
+    const showBookingReferences = new Set(
+      activeShowBookings.map((booking) => booking.reference),
+    );
+    const showBookingIds = new Set(
+      activeShowBookings.flatMap((booking) => {
+        const row = paymentRows.find(
+          (payment) => payment.reference === booking.reference,
+        );
+
+        return row?.booking_id ? [row.booking_id] : [];
+      }),
+    );
+    const relevantPayments = paymentRows.filter(
+      (payment) =>
+        showBookingReferences.has(payment.reference ?? "") ||
+        showBookingIds.has(payment.booking_id),
+    );
+    const paid = relevantPayments
+      .filter(
+        (payment) =>
+          ["deposit_paid", "fully_paid"].includes(payment.payment_status) &&
+          payment.payment_type !== "refund",
+      )
+      .reduce((total, payment) => total + Math.max(payment.amount ?? 0, 0), 0);
+    const refunded = relevantPayments
+      .filter(
+        (payment) =>
+          payment.payment_status === "refunded" ||
+          payment.payment_type === "refund",
+      )
+      .reduce((total, payment) => total + Math.max(payment.amount ?? 0, 0), 0);
+    const unpaid = activeShowBookings.reduce(
+      (total, booking) => total + getBookingFinancials(booking).balanceDue,
+      0,
+    );
+    const depositPayments = relevantPayments.filter(
+      (payment) =>
+        payment.payment_type === "deposit" &&
+        payment.payment_status === "deposit_paid",
+    );
+
+    return {
+      credit: null as number | null,
+      depositCount: depositPayments.length,
+      depositTotal: depositPayments.reduce(
+        (total, payment) => total + Math.max(payment.amount ?? 0, 0),
+        0,
+      ),
+      paid,
+      refunded,
+      unpaid,
+    };
+  };
+  const showSearchTerm = showSearch.trim().toLowerCase();
+  const showSearchResults = showSearchTerm
+    ? shows
+        .filter((show) => {
+          const location = getShowLocation(show);
+          const status = showOperationalStatusLabels[
+            show.operationalStatus ?? "active"
+          ];
+
+          return [
+            show.date,
+            formatOperationalShowDate(show.date),
+            show.label,
+            show.address ?? "",
+            show.venueName ?? "",
+            location ? getShowLocationOption(location).label : "",
+            location ? getShowCalendarLocationDisplay(location).searchAlias : "",
+            status,
+          ]
+            .join(" ")
+            .toLowerCase()
+            .includes(showSearchTerm);
+        })
+        .slice(0, 12)
+    : [];
   const floorFilterDates = Array.from(
     new Set(shows.map((show) => show.date).filter(Boolean)),
   ).sort();
@@ -25009,175 +25406,591 @@ export default function AdminDashboardPage() {
               </div>
 
               {canManageShows && (
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[160px_140px_minmax(180px,1fr)_minmax(190px,1fr)_minmax(180px,1fr)_auto]">
-                          <input
-                            type="date"
-                            value={newShow.date}
-                            onChange={(event) =>
-                              setNewShow((currentShow) => ({
-                                ...currentShow,
-                                date: event.target.value,
-                              }))
-                            }
-                            className="rounded-xl border border-white/15 bg-black px-4 py-3"
-                          />
-                          <input
-                            type="time"
-                            value={newShow.time}
-                            onChange={(event) =>
-                              setNewShow((currentShow) => ({
-                                ...currentShow,
-                                time: event.target.value,
-                              }))
-                            }
-                            className="rounded-xl border border-white/15 bg-black px-4 py-3"
-                          />
-                          <input
-                            value={newShow.label}
-                            onChange={(event) =>
-                              setNewShow((currentShow) => ({
-                                ...currentShow,
-                                label: event.target.value,
-                              }))
-                            }
-                            placeholder="Show label"
-                            className="rounded-xl border border-white/15 bg-black px-4 py-3"
-                          />
+                <div className="space-y-4">
+                  <details className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                    <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                      Create Show Schedule
+                    </summary>
+                    <div className="mt-4 space-y-4">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => applyBulkSchedulePreset("johannesburg")}
+                          className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
+                        >
+                          Johannesburg Schedule
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyBulkSchedulePreset("cape-town")}
+                          className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
+                        >
+                          Cape Town Schedule
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                        <label className="text-sm text-zinc-400">
+                          Location
                           <select
-                            required
-                            value={newShow.location}
+                            value={bulkShowScheduleForm.location}
                             onChange={(event) =>
-                              setNewShow((currentShow) => ({
-                                ...currentShow,
-                                location: event.target.value as
-                                  | EntryLocationKey
-                                  | "",
+                              setBulkShowScheduleForm((form) => ({
+                                ...form,
+                                location: event.target.value as EntryLocationKey | "",
                               }))
                             }
-                            className="rounded-xl border border-white/15 bg-black px-4 py-3"
-                            aria-label="Location"
+                            className="mt-2 w-full rounded-xl border border-white/15 bg-black px-4 py-3 text-white"
                           >
-                            <option value="">Location</option>
+                            <option value="">Select location</option>
                             {showLocationOptions.map((option) => (
                               <option key={option.value} value={option.value}>
                                 {option.label}
                               </option>
                             ))}
                           </select>
+                        </label>
+                        <label className="text-sm text-zinc-400">
+                          Date From
                           <input
-                            value={newShow.address}
+                            type="date"
+                            value={bulkShowScheduleForm.dateFrom}
                             onChange={(event) =>
-                              setNewShow((currentShow) => ({
-                                ...currentShow,
+                              setBulkShowScheduleForm((form) => ({
+                                ...form,
+                                dateFrom: event.target.value,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-xl border border-white/15 bg-black px-4 py-3 text-white"
+                          />
+                        </label>
+                        <label className="text-sm text-zinc-400">
+                          Date To
+                          <input
+                            type="date"
+                            value={bulkShowScheduleForm.dateTo}
+                            onChange={(event) =>
+                              setBulkShowScheduleForm((form) => ({
+                                ...form,
+                                dateTo: event.target.value,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-xl border border-white/15 bg-black px-4 py-3 text-white"
+                          />
+                        </label>
+                        <label className="text-sm text-zinc-400">
+                          Time
+                          <input
+                            type="time"
+                            value={bulkShowScheduleForm.time}
+                            onChange={(event) =>
+                              setBulkShowScheduleForm((form) => ({
+                                ...form,
+                                time: event.target.value,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-xl border border-white/15 bg-black px-4 py-3 text-white"
+                          />
+                        </label>
+                        <label className="lg:col-span-2 text-sm text-zinc-400">
+                          Title
+                          <input
+                            value={bulkShowScheduleForm.title}
+                            onChange={(event) =>
+                              setBulkShowScheduleForm((form) => ({
+                                ...form,
+                                title: event.target.value,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-xl border border-white/15 bg-black px-4 py-3 text-white"
+                          />
+                        </label>
+                        <label className="lg:col-span-3 text-sm text-zinc-400">
+                          Address
+                          <input
+                            value={bulkShowScheduleForm.address}
+                            onChange={(event) =>
+                              setBulkShowScheduleForm((form) => ({
+                                ...form,
                                 address: event.target.value,
                               }))
                             }
-                            placeholder="Address"
-                            className="rounded-xl border border-white/15 bg-black px-4 py-3"
+                            className="mt-2 w-full rounded-xl border border-white/15 bg-black px-4 py-3 text-white"
                           />
+                        </label>
+                        <label className="text-sm text-zinc-400">
+                          Tagline
+                          <input
+                            value={bulkShowScheduleForm.tagline}
+                            onChange={(event) =>
+                              setBulkShowScheduleForm((form) => ({
+                                ...form,
+                                tagline: event.target.value,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-xl border border-white/15 bg-black px-4 py-3 text-white"
+                          />
+                        </label>
+                        <label className="lg:col-span-2 text-sm text-zinc-400">
+                          Description
+                          <textarea
+                            value={bulkShowScheduleForm.description}
+                            onChange={(event) =>
+                              setBulkShowScheduleForm((form) => ({
+                                ...form,
+                                description: event.target.value,
+                              }))
+                            }
+                            rows={3}
+                            className="mt-2 w-full rounded-xl border border-white/15 bg-black px-4 py-3 text-white"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {showScheduleWeekdayOptions.map((day) => (
+                          <button
+                            key={day.value}
+                            type="button"
+                            onClick={() => toggleBulkScheduleDay(day.value)}
+                            className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                              bulkShowScheduleForm.daysOfWeek.includes(day.value)
+                                ? "border-[#D8C36A]/50 bg-[#D8C36A]/15 text-[#F2D66C]"
+                                : "border-white/10 text-zinc-500 hover:border-white/25 hover:text-white"
+                            }`}
+                          >
+                            {day.label}
+                          </button>
+                        ))}
+                        <label className="ml-0 flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 sm:ml-2">
+                          <input
+                            type="checkbox"
+                            checked={bulkShowScheduleForm.tuesdayDisabled}
+                            onChange={(event) =>
+                              setBulkShowScheduleForm((form) => ({
+                                ...form,
+                                tuesdayDisabled: event.target.checked,
+                              }))
+                            }
+                          />
+                          Tuesday Disabled
+                        </label>
+                      </div>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="text-sm text-zinc-400">
+                          {bulkShowStatus || "Preview before creating missing shows."}
+                          {bulkShowError && (
+                            <span className="ml-2 font-semibold text-red-300">
+                              {bulkShowError}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            onClick={createShow}
-                            disabled={!normalizeShowLocation(newShow.location)}
-                            className="rounded-full bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-300"
+                            onClick={previewBulkSchedule}
+                            disabled={isBulkShowPreviewing || isBulkShowCreating}
+                            className="rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold text-zinc-200 transition hover:bg-white hover:text-black disabled:opacity-50"
                           >
-                            Create Show
+                            {isBulkShowPreviewing ? "Previewing..." : "Preview Schedule"}
                           </button>
+                          <button
+                            type="button"
+                            onClick={confirmBulkScheduleCreation}
+                            disabled={
+                              !bulkShowPreview ||
+                              isBulkShowCreating ||
+                              isBulkShowPreviewing
+                            }
+                            className="rounded-full bg-[#D8C36A] px-5 py-2.5 text-sm font-bold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isBulkShowCreating ? "Creating..." : "Create Missing Shows"}
+                          </button>
+                        </div>
+                      </div>
+                      {bulkShowPreview && (
+                        <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                          {[
+                            [
+                              "Shows to create",
+                              bulkShowPreview.createdCount ||
+                                bulkShowPreview.wouldCreate ||
+                                0,
+                            ],
+                            ["Existing skipped", bulkShowPreview.skippedCount],
+                            ["Disabled shows", bulkShowPreview.disabledCount],
+                            ["Active shows", bulkShowPreview.activeCount],
+                            ["Tables seeded", bulkShowPreview.tableRowsCreated],
+                          ].map(([label, value]) => (
+                            <div
+                              key={label}
+                              className="rounded-2xl border border-white/10 bg-black/35 p-3"
+                            >
+                              <p className="text-[0.65rem] uppercase tracking-[0.14em] text-zinc-500">
+                                {label}
+                              </p>
+                              <p className="mt-1 text-xl font-bold text-white">
+                                {value}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </details>
+
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-[160px_140px_minmax(180px,1fr)_minmax(190px,1fr)_minmax(180px,1fr)_auto]">
+                    <input
+                      type="date"
+                      value={newShow.date}
+                      onChange={(event) =>
+                        setNewShow((currentShow) => ({
+                          ...currentShow,
+                          date: event.target.value,
+                        }))
+                      }
+                      className="rounded-xl border border-white/15 bg-black px-4 py-3"
+                    />
+                    <input
+                      type="time"
+                      value={newShow.time}
+                      onChange={(event) =>
+                        setNewShow((currentShow) => ({
+                          ...currentShow,
+                          time: event.target.value,
+                        }))
+                      }
+                      className="rounded-xl border border-white/15 bg-black px-4 py-3"
+                    />
+                    <input
+                      value={newShow.label}
+                      onChange={(event) =>
+                        setNewShow((currentShow) => ({
+                          ...currentShow,
+                          label: event.target.value,
+                        }))
+                      }
+                      placeholder="Show label"
+                      className="rounded-xl border border-white/15 bg-black px-4 py-3"
+                    />
+                    <select
+                      required
+                      value={newShow.location}
+                      onChange={(event) =>
+                        setNewShow((currentShow) => ({
+                          ...currentShow,
+                          location: event.target.value as EntryLocationKey | "",
+                        }))
+                      }
+                      className="rounded-xl border border-white/15 bg-black px-4 py-3"
+                      aria-label="Location"
+                    >
+                      <option value="">Location</option>
+                      {showLocationOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      value={newShow.address}
+                      onChange={(event) =>
+                        setNewShow((currentShow) => ({
+                          ...currentShow,
+                          address: event.target.value,
+                        }))
+                      }
+                      placeholder="Address"
+                      className="rounded-xl border border-white/15 bg-black px-4 py-3"
+                    />
+                    <button
+                      type="button"
+                      onClick={createShow}
+                      disabled={!normalizeShowLocation(newShow.location)}
+                      className="rounded-full bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Create Show
+                    </button>
+                  </div>
                 </div>
               )}
 
-              <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
-                        {shows.map((show) => {
-                          const linkedBookingCount = bookings.filter(
-                            (booking) => booking.showId === show.id,
-                          ).length;
+              <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowCalendarMonthOffset(-1)}
+                    className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
+                  >
+                    ‹
+                  </button>
+                  <p className="min-w-56 text-center text-sm font-bold uppercase tracking-[0.2em] text-white">
+                    {showCalendarMonthLabel}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowCalendarMonthOffset(1)}
+                    className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
+                  >
+                    ›
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:min-w-[520px]">
+                  <select
+                    value={showCalendarLocationFilter}
+                    onChange={(event) =>
+                      setShowCalendarLocationFilter(
+                        event.target.value as ShowCalendarLocationFilter,
+                      )
+                    }
+                    className="rounded-xl border border-white/15 bg-black px-4 py-3 text-sm text-white"
+                  >
+                    <option value="all">All Locations</option>
+                    {showLocationOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={showSearch}
+                    onChange={(event) => setShowSearch(event.target.value)}
+                    placeholder="Search shows"
+                    className="rounded-xl border border-white/15 bg-black px-4 py-3 text-sm text-white"
+                  />
+                </div>
+              </div>
 
-                          return (
+              {showSearchTerm && (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-black/35 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                    Search Results
+                  </p>
+                  {showSearchResults.length === 0 ? (
+                    <p className="mt-3 text-sm text-zinc-400">No shows found.</p>
+                  ) : (
+                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                      {showSearchResults.map((show) => (
+                        <button
+                          key={`show-search-${show.id}`}
+                          type="button"
+                          onClick={() => {
+                            setSelectedShowId(show.id);
+                            setShowCalendarMonth(show.date.slice(0, 7));
+                            openShowEditor(show);
+                          }}
+                          className="rounded-2xl border border-white/10 bg-zinc-950/80 p-3 text-left transition hover:border-[#D8C36A]/45"
+                        >
+                          <p className="font-semibold text-white">{show.label}</p>
+                          <p className="mt-1 text-xs text-zinc-400">
+                            {formatOperationalShowDate(show.date)} ·{" "}
+                            {getSouthAfricaShowTime(show)} ·{" "}
+                            {getShowLocation(show)
+                              ? getShowLocationOption(getShowLocation(show) as EntryLocationKey).label
+                              : "Location required"}
+                          </p>
+                          <span className="mt-2 inline-flex rounded-full border border-white/10 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-300">
+                            {showOperationalStatusLabels[show.operationalStatus ?? "active"]}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-5">
+                {isShowsLoading ? (
+                  <div className="rounded-2xl border border-white/10 bg-black/35 p-8 text-center text-sm text-zinc-300">
+                    <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-[#D8C36A] border-t-transparent" />
+                    Loading shows...
+                  </div>
+                ) : showLoadError ? (
+                  <div className="flex flex-col gap-3 rounded-2xl border border-red-300/25 bg-red-950/20 p-5 text-sm text-red-100 sm:flex-row sm:items-center sm:justify-between">
+                    <span>{showLoadError}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("zingara-demo-shows-updated"),
+                        )
+                      }
+                      className="rounded-full border border-red-200/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-red-50 transition hover:bg-red-100 hover:text-red-950"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : visibleShowCalendarShows.length === 0 ? (
+                  <div className="rounded-2xl border border-white/10 bg-black/35 p-8 text-center text-sm text-zinc-400">
+                    No shows scheduled for this month.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-7">
+                    {bookingCalendarWeekdays.map((weekday, index) => (
+                      <div
+                        key={`show-calendar-weekday-${weekday}-${index}`}
+                        className="hidden rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-center text-[0.65rem] font-bold uppercase tracking-[0.16em] text-zinc-300 md:block"
+                      >
+                        {weekday}
+                      </div>
+                    ))}
+                    {showCalendarCells.map((day, index) => {
+                      if (!day) {
+                        return (
                           <div
-                            key={`dashboard-show-${show.id}`}
-                            className="rounded-2xl border border-white/10 bg-black/35 p-4"
-                          >
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                <p className="font-semibold text-white">
-                                  {show.label}
-                                </p>
-                                  {show.archivedAt && (
-                                    <span className="rounded-full border border-zinc-600 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-400">
-                                      Archived
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="mt-1 text-sm text-zinc-400">
-                                  {formatOperationalShowDate(show.date)} ·{" "}
-                                  {getSouthAfricaShowTime(show)} ·{" "}
-                                  {show.location || normalizeShowLocation(show.venueName)
-                                    ? getShowLocationOption(
-                                        (show.location ??
-                                          normalizeShowLocation(
-                                            show.venueName,
-                                          )) as EntryLocationKey,
-                                      ).label
-                                    : "Location required"}
-                                </p>
-                                {show.address && (
-                                  <p className="mt-1 text-xs text-zinc-500">
-                                    Address: {show.address}
-                                  </p>
-                                )}
-                                {(show.description ||
-                                  show.internalNotes ||
-                                  linkedBookingCount > 0) && (
-                                  <p className="mt-2 text-xs text-zinc-500">
-                                    {show.description ||
-                                      show.internalNotes ||
-                                      `${linkedBookingCount} linked bookings`}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2">
-                              <select
-                                value={show.operationalStatus ?? "active"}
-                                onChange={(event) =>
-                                  updateShowOperationalStatus(
-                                    show.id,
-                                    event.target
-                                      .value as NonNullable<
-                                      DemoShow["operationalStatus"]
-                                    >,
-                                  )
-                                }
-                                className="rounded-full border border-white/15 bg-zinc-950 px-4 py-2 text-sm font-semibold text-zinc-300"
-                              >
-                                {(
-                                  Object.keys(
-                                    showOperationalStatusLabels,
-                                  ) as Array<
-                                    NonNullable<
-                                      DemoShow["operationalStatus"]
-                                    >
-                                  >
-                                ).map((status) => (
-                                  <option key={status} value={status}>
-                                    {showOperationalStatusLabels[status]}
-                                  </option>
-                                ))}
-                              </select>
-                              {canManageShows && (
-                                <button
-                                  type="button"
-                                  onClick={() => openShowEditor(show)}
-                                  className="rounded-full border border-[#D8C36A]/30 px-4 py-2 text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
-                                >
-                                  Edit Show
-                                </button>
-                              )}
-                              </div>
-                            </div>
+                            key={`show-calendar-empty-${index}`}
+                            className="hidden min-h-32 md:block"
+                          />
+                        );
+                      }
+
+                      const dayShows = getCalendarShowsForDay(day);
+
+                      return (
+                        <div
+                          key={`show-calendar-day-${day}`}
+                          className="min-h-32 rounded-2xl border border-white/10 bg-black/35 p-3"
+                        >
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <span className="text-lg font-bold text-white">
+                              {day}
+                            </span>
+                            <span className="text-[0.65rem] uppercase tracking-[0.12em] text-zinc-500 md:hidden">
+                              {
+                                bookingCalendarWeekdays[
+                                  new Date(
+                                    `${showCalendarMonthPrefix}${String(day).padStart(2, "0")}T00:00:00`,
+                                  ).getDay()
+                                ]
+                              }
+                            </span>
                           </div>
-                          );
-                        })}
+                          <div className="space-y-2">
+                            {dayShows.map((show) => {
+                              const status = show.operationalStatus ?? "active";
+                              const isDisabled = status === "inactive";
+                              const location = getShowLocation(show);
+                              const locationDisplay = location
+                                ? getShowCalendarLocationDisplay(location)
+                                : null;
+                              const financials = getShowFinancialSummary(show);
+
+                              return (
+                                <div
+                                  key={`show-calendar-${show.id}`}
+                                  className={`group relative rounded-xl border p-3 ${
+                                    isDisabled
+                                      ? "border-zinc-700 bg-zinc-950/65 opacity-75"
+                                      : "border-[#8D7A2F]/30 bg-zinc-950/90"
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenShowFinancialPopupId("");
+                                      setSelectedShowId(show.id);
+                                      openShowEditor(show);
+                                    }}
+                                    className="block w-full pr-10 text-left"
+                                  >
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <span className="text-xs font-semibold text-white">
+                                        {getSouthAfricaShowTime(show)}
+                                      </span>
+                                      <span className="rounded-full border border-white/10 px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-[0.1em] text-zinc-300">
+                                        {showOperationalStatusLabels[status]}
+                                      </span>
+                                    </div>
+                                    <p className="mt-1 text-sm font-semibold leading-tight text-[#F2D66C]">
+                                      {locationDisplay ? (
+                                        <>
+                                          {locationDisplay.alias} —<br />
+                                          {locationDisplay.courtName}
+                                        </>
+                                      ) : (
+                                        "Location required"
+                                      )}
+                                    </p>
+                                  </button>
+                                  <div className="absolute right-2 top-2 z-20">
+                                    <button
+                                      type="button"
+                                      aria-label={`Show financial summary for ${show.label}`}
+                                      title="Show financial summary"
+                                      aria-expanded={openShowFinancialPopupId === show.id}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setOpenShowFinancialPopupId((currentId) =>
+                                          currentId === show.id ? "" : show.id,
+                                        );
+                                      }}
+                                      onMouseDown={(event) => event.stopPropagation()}
+                                      className="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8C36A]/35 bg-black/85 text-sm font-bold text-[#F2D66C] shadow-lg shadow-black/40 transition hover:border-[#F2D66C] hover:bg-[#D8C36A] hover:text-black focus:outline-none focus:ring-2 focus:ring-[#F2D66C]"
+                                    >
+                                      R
+                                    </button>
+                                    <div
+                                      className={`absolute top-10 z-50 w-56 max-w-[78vw] rounded-2xl border border-[#D8C36A]/35 bg-black/95 p-3 text-xs text-zinc-300 shadow-2xl shadow-black transition duration-150 ${
+                                        index % 7 >= 5
+                                          ? "right-0"
+                                          : "left-1/2 -translate-x-1/2 md:left-auto md:right-0 md:translate-x-0"
+                                      } ${
+                                        openShowFinancialPopupId === show.id
+                                          ? "pointer-events-auto opacity-100"
+                                          : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                                      }`}
+                                    >
+                                      <p className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                                        Financial Summary
+                                      </p>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <span>Credit</span>
+                                        <span className="text-right">Not recorded</span>
+                                        <span>Paid</span>
+                                        <span className="text-right">{formatCurrency(financials.paid)}</span>
+                                        <span>Unpaid</span>
+                                        <span className="text-right">{formatCurrency(financials.unpaid)}</span>
+                                        <span>Refunded</span>
+                                        <span className="text-right">{formatCurrency(financials.refunded)}</span>
+                                        <span>Deposits</span>
+                                        <span className="text-right">
+                                          {financials.depositCount} · {formatCurrency(financials.depositTotal)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="mt-3 flex flex-wrap gap-1.5">
+                                    {getShowOccupancyChips(show).map((chip) => {
+                                      const ratio =
+                                        chip.capacity > 0
+                                          ? chip.occupiedSeats / chip.capacity
+                                          : 0;
+                                      const chipTone =
+                                        ratio >= 1
+                                          ? "border-red-300/40 bg-red-950/30 text-red-200"
+                                          : ratio >= 0.75
+                                            ? "border-amber-300/35 bg-amber-950/25 text-amber-100"
+                                            : "border-white/10 bg-black/35 text-zinc-300";
+
+                                      return (
+                                        <span
+                                          key={`${show.id}-${chip.zoneId}`}
+                                          className={`rounded-full border px-2 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.08em] ${chipTone}`}
+                                          title={`${chip.label} ${chip.occupiedSeats}/${chip.capacity}`}
+                                        >
+                                          {chip.label.split(" ").map((part) => part[0]).join("")}{" "}
+                                          {chip.occupiedSeats}/{chip.capacity}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </section>
           </section>
@@ -25204,7 +26017,7 @@ export default function AdminDashboardPage() {
                   onClick={closeShowEditor}
                   className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
                 >
-                  Close
+                  Back to Calendar
                 </button>
               </div>
 
