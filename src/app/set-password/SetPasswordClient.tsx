@@ -12,6 +12,7 @@ const setupIntentKey = "zingara-password-setup-intent";
 const storedAuthFragmentKey = "zingara-supabase-auth-fragment";
 
 type SetupState = "checking" | "ready" | "invalid" | "saving" | "saved";
+type SetupIntent = "invite" | "recovery" | "unknown";
 
 function getAuthParams() {
   const search = new URLSearchParams(window.location.search);
@@ -55,6 +56,9 @@ export default function SetPasswordClient() {
   const [error, setError] = useState("");
   const [password, setPassword] = useState("");
   const [setupState, setSetupState] = useState<SetupState>("checking");
+  const [setupType, setSetupType] = useState<SetupIntent>("unknown");
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +75,7 @@ export default function SetPasswordClient() {
       const intent = readSetupIntent();
 
       if (intent?.error) {
+        setSetupType(intent.type === "invite" ? "invite" : "recovery");
         setError(intent.error);
         setSetupState("invalid");
         return;
@@ -92,6 +97,7 @@ export default function SetPasswordClient() {
           setupIntentKey,
           JSON.stringify({ type: type ?? "recovery" }),
         );
+        setSetupType(type === "invite" ? "invite" : "recovery");
       } else if (accessToken && refreshToken) {
         const { error: sessionError } = await supabase.auth.setSession({
           access_token: accessToken,
@@ -108,9 +114,18 @@ export default function SetPasswordClient() {
           setupIntentKey,
           JSON.stringify({ type: type ?? "invite" }),
         );
+        setSetupType(type === "recovery" ? "recovery" : "invite");
       }
 
       clearAuthUrl();
+
+      const resolvedIntent = readSetupIntent();
+
+      if (resolvedIntent?.type === "invite") {
+        setSetupType("invite");
+      } else if (resolvedIntent?.type === "recovery") {
+        setSetupType("recovery");
+      }
 
       const { data, error: sessionError } = await supabase.auth.getSession();
 
@@ -198,10 +213,12 @@ export default function SetPasswordClient() {
               fontFamily: "var(--font-zingara-subheading), Georgia, serif",
             }}
           >
-            Set Password
+            {setupType === "recovery" ? "Reset Password" : "Set Password"}
           </h1>
           <p className="mt-3 text-sm leading-6 text-zinc-400">
-            Create your password, then sign in to the Zingara Admin dashboard.
+            {setupType === "recovery"
+              ? "Create a new password, then sign in to the Zingara Admin dashboard."
+              : "Create your password, then sign in to the Zingara Admin dashboard."}
           </p>
         </div>
 
@@ -212,8 +229,16 @@ export default function SetPasswordClient() {
         )}
 
         {setupState === "invalid" && (
-          <div className="mt-8 rounded-2xl border border-red-300/30 bg-red-950/25 px-4 py-4 text-sm text-red-100">
-            {error || "This password setup link is invalid or has expired."}
+          <div className="mt-8 space-y-4 rounded-2xl border border-red-300/30 bg-red-950/25 px-4 py-4 text-center text-sm text-red-100">
+            <p>
+              {error || "This password setup link is invalid or has expired."}
+            </p>
+            <a
+              href="/admin"
+              className="inline-flex rounded-full border border-red-100/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-red-50 transition hover:bg-red-100 hover:text-black"
+            >
+              Request a new reset link
+            </a>
           </div>
         )}
 
@@ -239,33 +264,61 @@ export default function SetPasswordClient() {
               <span className="mb-2 block text-center text-[0.68rem] font-bold uppercase tracking-[0.2em] text-zinc-400">
                 New Password
               </span>
-              <input
-                id="staff-new-password"
-                name="new-password"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="new-password"
-                minLength={8}
-                required
-                className="w-full border border-[#D8C36A]/35 bg-black/70 px-4 py-3 text-center text-white outline-none transition focus:border-[#D8C36A] focus:ring-2 focus:ring-[#D8C36A]/20"
-              />
+              <span className="relative block">
+                <input
+                  id="staff-new-password"
+                  name="new-password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                  className="w-full border border-[#D8C36A]/35 bg-black/70 px-4 py-3 pr-14 text-center text-white outline-none transition focus:border-[#D8C36A] focus:ring-2 focus:ring-[#D8C36A]/20"
+                />
+                <button
+                  type="button"
+                  aria-label={showPassword ? "Hide Password" : "Show Password"}
+                  aria-pressed={showPassword}
+                  onClick={() =>
+                    setShowPassword((currentValue) => !currentValue)
+                  }
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-white/10 px-2 py-1 text-xs font-semibold text-zinc-300 transition hover:border-[#D8C36A]/40 hover:text-[#F2D66C] focus:outline-none focus:ring-2 focus:ring-[#D8C36A]/30"
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </span>
             </label>
             <label className="block">
               <span className="mb-2 block text-center text-[0.68rem] font-bold uppercase tracking-[0.2em] text-zinc-400">
                 Confirm Password
               </span>
-              <input
-                id="staff-confirm-password"
-                name="confirm-password"
-                type="password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                autoComplete="new-password"
-                minLength={8}
-                required
-                className="w-full border border-[#D8C36A]/35 bg-black/70 px-4 py-3 text-center text-white outline-none transition focus:border-[#D8C36A] focus:ring-2 focus:ring-[#D8C36A]/20"
-              />
+              <span className="relative block">
+                <input
+                  id="staff-confirm-password"
+                  name="confirm-password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                  className="w-full border border-[#D8C36A]/35 bg-black/70 px-4 py-3 pr-14 text-center text-white outline-none transition focus:border-[#D8C36A] focus:ring-2 focus:ring-[#D8C36A]/20"
+                />
+                <button
+                  type="button"
+                  aria-label={
+                    showConfirmPassword ? "Hide Password" : "Show Password"
+                  }
+                  aria-pressed={showConfirmPassword}
+                  onClick={() =>
+                    setShowConfirmPassword((currentValue) => !currentValue)
+                  }
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-white/10 px-2 py-1 text-xs font-semibold text-zinc-300 transition hover:border-[#D8C36A]/40 hover:text-[#F2D66C] focus:outline-none focus:ring-2 focus:ring-[#D8C36A]/30"
+                >
+                  {showConfirmPassword ? "Hide" : "Show"}
+                </button>
+              </span>
             </label>
             {error && (
               <p className="rounded-2xl border border-red-300/30 bg-red-950/25 px-4 py-3 text-center text-sm font-semibold text-red-100">
@@ -284,7 +337,7 @@ export default function SetPasswordClient() {
 
         {setupState === "saved" && (
           <div className="mt-8 rounded-2xl border border-emerald-300/30 bg-emerald-950/25 px-4 py-4 text-center text-sm font-semibold text-emerald-100">
-            Password saved. Redirecting to Admin Login...
+            Password updated successfully. Redirecting to Admin Login...
           </div>
         )}
       </section>

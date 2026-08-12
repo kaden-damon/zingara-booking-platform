@@ -75,6 +75,35 @@ export async function signOutAdmin() {
   }
 }
 
+export async function requestAdminPasswordReset(email: string) {
+  const response = await fetch("/api/admin/password-reset", {
+    body: JSON.stringify({ email }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    message?: string;
+  };
+
+  if (!response.ok) {
+    return {
+      error: payload.error ?? "Password reset request could not be submitted.",
+      message: "",
+    };
+  }
+
+  return {
+    error: "",
+    message:
+      payload.message ??
+      "If an account exists for that email address, a password reset link has been sent.",
+  };
+}
+
 export async function updateAdminPassword(password: string) {
   const supabase = getSupabaseClient();
 

@@ -83,6 +83,13 @@ type PayFastCheckoutResponse = {
   mode?: "live" | "sandbox";
 };
 
+type ZeroValueCompletionResponse = {
+  booking?: DemoBooking;
+  error?: string;
+  status?: "already_confirmed" | "confirmed" | string;
+  ticketCode?: string;
+};
+
 type PromoValidationPreview = {
   code: string | null;
   description: string | null;
@@ -383,6 +390,10 @@ function createWaitlistReference() {
   return `WLT-${Date.now().toString(36).toUpperCase()}-${Math.floor(
     Math.random() * 900 + 100,
   )}`;
+}
+
+function getCurrencyCents(value: number) {
+  return Math.round(Math.max(Number(value) || 0, 0) * 100);
 }
 
 function formatCurrency(amount: number) {
@@ -1624,7 +1635,11 @@ export default function BookingPage() {
     }
 
     setIsPayFastRedirecting(true);
-    setPaymentRedirectStatus("Preparing secure PayFast checkout...");
+    setPaymentRedirectStatus(
+      getCurrencyCents(amountDueNow) === 0
+        ? "Completing your booking..."
+        : "Preparing secure PayFast checkout...",
+    );
 
     const allocatedTable = tableAllocation.table;
     const journeyId = getBookingJourneyId();
@@ -1713,6 +1728,54 @@ export default function BookingPage() {
       setAllocatedTableNumber(
         persistedBooking.tableNumber ?? allocatedTable.tableNumber,
       );
+
+      if (getCurrencyCents(amountDueNow) === 0) {
+        const response = await fetch("/api/bookings/complete-zero-value", {
+          body: JSON.stringify({
+            bookingReference: reference,
+            journeyId,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+        });
+        const completion = (await response.json()) as ZeroValueCompletionResponse;
+
+        if (!response.ok || !completion.booking) {
+          throw new Error(
+            completion.error ?? "Booking could not be completed.",
+          );
+        }
+
+        const confirmedBooking = completion.booking;
+
+        setBookingReference(confirmedBooking.reference);
+        setCustomerInfo(confirmedBooking.customer ?? customerInfo);
+        setCustomerNotes(confirmedBooking.operationalNotes ?? customerNotes);
+        setPaymentOption(confirmedBooking.paymentOption ?? paymentOption);
+        setAllocatedTableNumber(
+          confirmedBooking.tableNumber ??
+            persistedBooking.tableNumber ??
+            allocatedTable.tableNumber,
+        );
+        setPaymentRedirectStatus("");
+        setShowTicketReadyPrompt(true);
+        setActiveBookingStep(4);
+        setIsConfirmationOpen(true);
+        trackPlatformEvent({
+          bookingReference: confirmedBooking.reference,
+          eventType: "payment_initiated",
+          journeyId,
+          metadata: {
+            section: selectedZone.title,
+            stage: "Zero-value booking completed",
+            source: "zero-value-promo",
+          },
+        });
+        setIsPayFastRedirecting(false);
+        return;
+      }
 
       const response = await fetch("/api/payfast/checkout", {
         body: JSON.stringify({
@@ -4104,12 +4167,17 @@ export default function BookingPage() {
                   />
                 )}
                 {isPayFastRedirecting
-                  ? "Processing Secure Payment..."
-                  : "Confirm Booking"}
+                  ? getCurrencyCents(amountDueNow) === 0
+                    ? "Completing Booking..."
+                    : "Processing Secure Payment..."
+                  : getCurrencyCents(amountDueNow) === 0
+                    ? "Complete Booking"
+                    : "Confirm Booking"}
               </button>
               <p className="text-center text-xs leading-5 text-zinc-500">
-                Secure online payment. Digital tickets and confirmation email
-                are sent after PayFast confirms payment.
+                {getCurrencyCents(amountDueNow) === 0
+                  ? "Your booking will be completed securely. Digital tickets and confirmation email are sent after confirmation."
+                  : "Secure online payment. Digital tickets and confirmation email are sent after PayFast confirms payment."}
               </p>
             </form>
           </div>

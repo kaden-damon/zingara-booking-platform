@@ -42,19 +42,27 @@ export default function AuthRedirectHandler() {
       }
 
       const existingSession = await supabase.auth.getSession();
+      const { accessToken, code, refreshToken, type } = getAuthParams();
 
       if (existingSession.data.session?.user) {
-        if (
-          window.location.hash ||
-          window.location.search.includes("code=") ||
-          window.sessionStorage.getItem(storedAuthFragmentKey)
-        ) {
+        if (isPasswordSetupType(type) && (code || accessToken || refreshToken)) {
+          window.sessionStorage.setItem(
+            setupIntentKey,
+            JSON.stringify({
+              createdAt: new Date().toISOString(),
+              type,
+            }),
+          );
+          cleanAuthUrl();
+          window.location.replace("/set-password");
+          return;
+        }
+
+        if (window.location.hash || code || window.sessionStorage.getItem(storedAuthFragmentKey)) {
           cleanAuthUrl();
         }
         return;
       }
-
-      const { accessToken, code, refreshToken, type } = getAuthParams();
 
       if (!code && (!accessToken || !refreshToken)) {
         return;

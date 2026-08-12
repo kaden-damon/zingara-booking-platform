@@ -61,6 +61,7 @@ import type {
 import {
   adminAuthChangedEvent,
   getAdminAuthSession,
+  requestAdminPasswordReset,
   signInAdmin,
   signOutAdmin,
 } from "../../lib/supabase/auth";
@@ -7984,6 +7985,12 @@ export default function AdminDashboardPage() {
     username: "",
   });
   const [loginError, setLoginError] = useState("");
+  const [isPasswordResetOpen, setIsPasswordResetOpen] = useState(false);
+  const [passwordResetEmail, setPasswordResetEmail] = useState("");
+  const [passwordResetMessage, setPasswordResetMessage] = useState("");
+  const [passwordResetError, setPasswordResetError] = useState("");
+  const [isPasswordResetSubmitting, setIsPasswordResetSubmitting] =
+    useState(false);
   const [staffProfiles, setStaffProfiles] = useState<
     StaffManagementProfile[]
   >([]);
@@ -9894,6 +9901,27 @@ export default function AdminDashboardPage() {
       password: "",
       username: "",
     });
+  }
+
+  async function sendPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordResetError("");
+    setPasswordResetMessage("");
+    setIsPasswordResetSubmitting(true);
+
+    try {
+      const result = await requestAdminPasswordReset(passwordResetEmail);
+
+      if (result.error) {
+        setPasswordResetError(result.error);
+      } else {
+        setPasswordResetMessage(result.message);
+      }
+    } catch {
+      setPasswordResetError("Password reset could not be submitted.");
+    } finally {
+      setIsPasswordResetSubmitting(false);
+    }
   }
 
   async function logout() {
@@ -17990,62 +18018,140 @@ export default function AdminDashboardPage() {
             }}
           />
           <h1 className="mt-6 text-3xl font-bold uppercase sm:text-5xl">
-            Admin Login
+            {isPasswordResetOpen ? "Reset Password" : "Admin Login"}
           </h1>
           <p className="mt-3 text-sm font-semibold uppercase tracking-[0.28em] text-[#D8C36A]">
             Staff Access
           </p>
 
-          <form
-            onSubmit={login}
-            className="mt-8 grid grid-cols-1 gap-4 text-left"
-          >
-            <label>
-              <span className="mb-2 block text-center text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                Username
-              </span>
-              <input
-                value={loginForm.username}
-                onChange={(event) =>
-                  setLoginForm((currentForm) => ({
-                    ...currentForm,
-                    username: event.target.value,
-                  }))
-                }
-                className="w-full rounded-full border border-zinc-700 bg-black px-4 py-3 text-base sm:px-5 sm:py-4 sm:text-lg"
-              />
-            </label>
-
-            <label>
-              <span className="mb-2 block text-center text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                Password
-              </span>
-              <input
-                type="password"
-                value={loginForm.password}
-                onChange={(event) =>
-                  setLoginForm((currentForm) => ({
-                    ...currentForm,
-                    password: event.target.value,
-                  }))
-                }
-                className="w-full rounded-full border border-zinc-700 bg-black px-4 py-3 text-base sm:px-5 sm:py-4 sm:text-lg"
-              />
-            </label>
-
-            {loginError && (
-              <p className="rounded-2xl border border-red-400/30 bg-red-950/30 px-5 py-4 text-red-200">
-                {loginError}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              className="rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 sm:px-8 sm:py-4 sm:text-lg"
+          {isPasswordResetOpen ? (
+            <form
+              onSubmit={sendPasswordReset}
+              className="mt-8 grid grid-cols-1 gap-4 text-left"
             >
-              Enter Dashboard
-            </button>
-          </form>
+              <p className="text-center text-sm leading-6 text-zinc-400">
+                Enter your staff email address and we&apos;ll send you a
+                secure link to create a new password.
+              </p>
+              <label>
+                <span className="mb-2 block text-center text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                  Email
+                </span>
+                <input
+                  type="email"
+                  value={passwordResetEmail}
+                  onChange={(event) =>
+                    setPasswordResetEmail(event.target.value)
+                  }
+                  autoComplete="username"
+                  required
+                  className="w-full rounded-full border border-zinc-700 bg-black px-4 py-3 text-base sm:px-5 sm:py-4 sm:text-lg"
+                />
+              </label>
+
+              {passwordResetMessage && (
+                <p className="rounded-2xl border border-emerald-400/30 bg-emerald-950/30 px-5 py-4 text-center text-sm font-semibold text-emerald-100">
+                  {passwordResetMessage}
+                </p>
+              )}
+
+              {passwordResetError && (
+                <p className="rounded-2xl border border-red-400/30 bg-red-950/30 px-5 py-4 text-red-200">
+                  {passwordResetError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={isPasswordResetSubmitting}
+                className="rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-60 sm:px-8 sm:py-4 sm:text-lg"
+              >
+                {isPasswordResetSubmitting
+                  ? "Sending..."
+                  : "Send Reset Link"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPasswordResetOpen(false);
+                  setPasswordResetError("");
+                  setPasswordResetMessage("");
+                }}
+                className="rounded-full border border-[#D8C36A]/35 px-6 py-3 text-base font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-8 sm:py-4 sm:text-lg"
+              >
+                Back to Login
+              </button>
+            </form>
+          ) : (
+            <form
+              onSubmit={login}
+              className="mt-8 grid grid-cols-1 gap-4 text-left"
+            >
+              <label>
+                <span className="mb-2 block text-center text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                  Username
+                </span>
+                <input
+                  value={loginForm.username}
+                  onChange={(event) =>
+                    setLoginForm((currentForm) => ({
+                      ...currentForm,
+                      username: event.target.value,
+                    }))
+                  }
+                  autoComplete="username"
+                  className="w-full rounded-full border border-zinc-700 bg-black px-4 py-3 text-base sm:px-5 sm:py-4 sm:text-lg"
+                />
+              </label>
+
+              <label>
+                <span className="mb-2 block text-center text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                  Password
+                </span>
+                <input
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(event) =>
+                    setLoginForm((currentForm) => ({
+                      ...currentForm,
+                      password: event.target.value,
+                    }))
+                  }
+                  autoComplete="current-password"
+                  className="w-full rounded-full border border-zinc-700 bg-black px-4 py-3 text-base sm:px-5 sm:py-4 sm:text-lg"
+                />
+              </label>
+
+              <div className="-mt-1 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPasswordResetOpen(true);
+                    setPasswordResetEmail(loginForm.username.trim());
+                    setPasswordResetError("");
+                    setPasswordResetMessage("");
+                  }}
+                  className="text-sm font-semibold text-[#D8C36A] underline-offset-4 transition hover:text-[#F2D66C] hover:underline"
+                >
+                  Forgot Password?
+                </button>
+              </div>
+
+              {loginError && (
+                <p className="rounded-2xl border border-red-400/30 bg-red-950/30 px-5 py-4 text-red-200">
+                  {loginError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                className="rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 sm:px-8 sm:py-4 sm:text-lg"
+              >
+                Enter Dashboard
+              </button>
+            </form>
+          )}
 
         </section>
       </main>
