@@ -17236,10 +17236,12 @@ export default function AdminDashboardPage() {
     ),
   ];
   const setShowCalendarMonthOffset = (offset: number) => {
-    const nextDate = new Date(showCalendarMonthStart);
+    const [year, month] = showCalendarMonth.split("-").map(Number);
+    const nextDate = new Date(year, month - 1 + offset, 1);
 
-    nextDate.setMonth(nextDate.getMonth() + offset);
-    setShowCalendarMonth(nextDate.toISOString().slice(0, 7));
+    setShowCalendarMonth(
+      `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, "0")}`,
+    );
   };
   const showCalendarMonthPrefix = `${showCalendarMonth}-`;
   const getShowLocation = (show: DemoShow) =>
@@ -17302,24 +17304,20 @@ export default function AdminDashboardPage() {
       activeShowBookings.map((booking) => booking.reference),
     );
     const showBookingIds = new Set(
-      activeShowBookings.flatMap((booking) => {
-        const row = paymentRows.find(
-          (payment) => payment.reference === booking.reference,
-        );
-
-        return row?.booking_id ? [row.booking_id] : [];
-      }),
+      activeShowBookings
+        .map((booking) => booking.supabaseBookingId)
+        .filter(Boolean),
     );
     const relevantPayments = paymentRows.filter(
       (payment) =>
         showBookingReferences.has(payment.reference ?? "") ||
-        showBookingIds.has(payment.booking_id),
+        showBookingIds.has(payment.booking_id ?? ""),
     );
     const paid = relevantPayments
       .filter(
         (payment) =>
           ["deposit_paid", "fully_paid"].includes(payment.payment_status) &&
-          payment.payment_type !== "refund",
+          !["comp", "refund"].includes(payment.payment_type),
       )
       .reduce((total, payment) => total + Math.max(payment.amount ?? 0, 0), 0);
     const refunded = relevantPayments
@@ -25900,17 +25898,22 @@ export default function AdminDashboardPage() {
                                       </span>
                                     </div>
                                     <p className="mt-1 text-sm font-semibold leading-tight text-[#F2D66C]">
-                                      {locationDisplay ? (
-                                        <>
-                                          {locationDisplay.alias} —<br />
-                                          {locationDisplay.courtName}
-                                        </>
-                                      ) : (
-                                        "Location required"
-                                      )}
+                                      {locationDisplay
+                                        ? locationDisplay.alias
+                                        : "Location required"}
                                     </p>
                                   </button>
-                                  <div className="absolute right-2 top-2 z-20">
+                                  <div
+                                    className="absolute right-2 top-2 z-20"
+                                    onMouseEnter={() =>
+                                      setOpenShowFinancialPopupId(show.id)
+                                    }
+                                    onMouseLeave={() =>
+                                      setOpenShowFinancialPopupId((currentId) =>
+                                        currentId === show.id ? "" : currentId,
+                                      )
+                                    }
+                                  >
                                     <button
                                       type="button"
                                       aria-label={`Show financial summary for ${show.label}`}
@@ -25923,6 +25926,12 @@ export default function AdminDashboardPage() {
                                         );
                                       }}
                                       onMouseDown={(event) => event.stopPropagation()}
+                                      onFocus={() => setOpenShowFinancialPopupId(show.id)}
+                                      onBlur={() =>
+                                        setOpenShowFinancialPopupId((currentId) =>
+                                          currentId === show.id ? "" : currentId,
+                                        )
+                                      }
                                       className="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8C36A]/35 bg-black/85 text-sm font-bold text-[#F2D66C] shadow-lg shadow-black/40 transition hover:border-[#F2D66C] hover:bg-[#D8C36A] hover:text-black focus:outline-none focus:ring-2 focus:ring-[#F2D66C]"
                                     >
                                       R
@@ -25935,23 +25944,20 @@ export default function AdminDashboardPage() {
                                       } ${
                                         openShowFinancialPopupId === show.id
                                           ? "pointer-events-auto opacity-100"
-                                          : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                                          : "pointer-events-none opacity-0"
                                       }`}
                                     >
-                                      <p className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                                        Financial Summary
-                                      </p>
-                                      <div className="grid grid-cols-2 gap-2">
-                                        <span>Credit</span>
-                                        <span className="text-right">Not recorded</span>
-                                        <span>Paid</span>
-                                        <span className="text-right">{formatCurrency(financials.paid)}</span>
-                                        <span>Unpaid</span>
-                                        <span className="text-right">{formatCurrency(financials.unpaid)}</span>
-                                        <span>Refunded</span>
-                                        <span className="text-right">{formatCurrency(financials.refunded)}</span>
-                                        <span>Deposits</span>
-                                        <span className="text-right">
+                                      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+                                        <span className="text-zinc-400">Credit</span>
+                                        <span className="text-right text-zinc-100">Not recorded</span>
+                                        <span className="text-zinc-400">Paid</span>
+                                        <span className="text-right text-zinc-100">{formatCurrency(financials.paid)}</span>
+                                        <span className="text-zinc-400">Unpaid</span>
+                                        <span className="text-right text-zinc-100">{formatCurrency(financials.unpaid)}</span>
+                                        <span className="text-zinc-400">Refunded</span>
+                                        <span className="text-right text-zinc-100">{formatCurrency(financials.refunded)}</span>
+                                        <span className="text-zinc-400">Deposits</span>
+                                        <span className="text-right text-zinc-100">
                                           {financials.depositCount} · {formatCurrency(financials.depositTotal)}
                                         </span>
                                       </div>

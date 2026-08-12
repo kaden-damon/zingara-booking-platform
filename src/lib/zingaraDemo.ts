@@ -499,6 +499,7 @@ export type BookingLifecycleEvent = {
   createdAt: string;
 };
 export type DemoBooking = {
+  supabaseBookingId?: string;
   reference: string;
   showId?: string;
   zoneId: SeatingZoneId;

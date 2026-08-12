@@ -536,6 +536,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       balanceDue: row.balance_outstanding,
       paymentStatus: toDemoPaymentStatus(row.payment_status),
       status: toDemoBookingStatus(row.booking_status),
+      supabaseBookingId: row.id,
       totalPrice: row.total_amount,
     };
 
@@ -577,6 +578,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     showId: await getLegacyShowId(row.show_id),
     source: row.booking_source as DemoBooking["source"],
     status: toDemoBookingStatus(row.booking_status),
+    supabaseBookingId: row.id,
     subtotalPrice: row.subtotal_amount,
     tableId: row.table_id ?? "supabase-table",
     tableNumber: "Internal",
