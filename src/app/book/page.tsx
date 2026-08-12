@@ -629,6 +629,7 @@ export default function BookingPage() {
   const [showTicketReadyPrompt, setShowTicketReadyPrompt] =
     useState(true);
   const [installPromptStatus, setInstallPromptStatus] = useState("");
+  const [bookingUpdatesStatus, setBookingUpdatesStatus] = useState("");
   const [paymentOption, setPaymentOption] =
     useState<PaymentOption>("full");
   const [paymentRedirectStatus, setPaymentRedirectStatus] = useState("");
@@ -1582,11 +1583,6 @@ export default function BookingPage() {
     };
 
     await createWaitlistEntry(entry);
-    void registerZingaraPushSubscription({
-      bookingReference: reference,
-      customerEmail: waitlistInfo.email,
-      customerName: waitlistInfo.name,
-    });
     setWaitlistReference(reference);
   }
 
@@ -1711,11 +1707,6 @@ export default function BookingPage() {
 
     try {
       const persistedBooking = await createBooking(booking, journeyId);
-      await registerZingaraPushSubscription({
-        bookingReference: reference,
-        customerEmail: customerInfo.email,
-        customerName: customerInfo.name,
-      });
 
       storeDemoTables(nextTables, shows);
       setTables(nextTables);
@@ -1824,6 +1815,30 @@ export default function BookingPage() {
     } else {
       setInstallPromptStatus("You can install the app later from this ticket.");
     }
+  }
+
+  async function enableBookingUpdates() {
+    if (!bookingReference) {
+      return;
+    }
+
+    setBookingUpdatesStatus("Preparing booking updates...");
+
+    const result = await registerZingaraPushSubscription({
+      bookingReference,
+      customerEmail: customerInfo.email,
+      customerName: customerInfo.name,
+    });
+
+    if (result.ok) {
+      setBookingUpdatesStatus("Booking updates enabled on this device.");
+      return;
+    }
+
+    setBookingUpdatesStatus(
+      result.reason ??
+        "Booking updates could not be enabled on this device.",
+    );
   }
 
   function getZoneAvailability(option: SeatingOption) {
@@ -4045,6 +4060,15 @@ export default function BookingPage() {
                             Install App
                           </button>
                         )}
+                        {!(isIOSDevice && !isStandaloneApp) && (
+                          <button
+                            type="button"
+                            onClick={() => void enableBookingUpdates()}
+                            className="rounded-full border border-[#D8C36A]/45 px-4 py-2.5 text-xs font-bold uppercase tracking-[0.14em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-5 sm:py-3 sm:text-sm"
+                          >
+                            Get Booking Updates
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setShowTicketReadyPrompt(false)}
@@ -4053,6 +4077,11 @@ export default function BookingPage() {
                           Maybe Later
                         </button>
                       </div>
+                      {bookingUpdatesStatus && (
+                        <p className="mt-3 text-sm font-semibold text-emerald-300">
+                          {bookingUpdatesStatus}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

@@ -33,11 +33,13 @@ export type GuestPushTrigger =
   | "reservation-cancelled"
   | "reservation-confirmed"
   | "reservation-pending-payment"
+  | "ticket-resend"
   | "waitlist-promoted";
 
 type PushSubscriptionRecord = {
   audience?: "guest" | "staff";
   bookingReference?: string;
+  bookingReferences?: string[];
   customerEmail?: string;
   endpoint: string;
   expirationTime?: number | null;
@@ -220,11 +222,21 @@ function getGuestMessage(input: GuestPushInput) {
     return "Your booking is awaiting payment.";
   }
 
+  if (input.trigger === "ticket-resend") {
+    return "Your Zingara ticket is ready to view.";
+  }
+
   if (input.trigger === "waitlist-promoted") {
     return "A seat is now available for your booking.";
   }
 
   return "Your booking has been cancelled.";
+}
+
+function getGuestNotificationUrl(input: GuestPushInput) {
+  return input.bookingReference
+    ? `/ticket/${encodeURIComponent(input.bookingReference)}`
+    : "/book";
 }
 
 function getPushSubscriptions(row: VenueSettingsRow | null) {
@@ -233,6 +245,79 @@ function getPushSubscriptions(row: VenueSettingsRow | null) {
   return Array.isArray(subscriptions)
     ? (subscriptions as PushSubscriptionRecord[])
     : [];
+}
+
+function isSubscriptionLinkedToBooking(
+  subscription: PushSubscriptionRecord,
+  bookingReference?: string,
+) {
+  if (!bookingReference) {
+    return false;
+  }
+
+  return (
+    subscription.bookingReference === bookingReference ||
+    (subscription.bookingReferences ?? []).includes(bookingReference)
+  );
+}
+
+function dedupeSubscriptionsByEndpoint(
+  subscriptions: PushSubscriptionRecord[],
+) {
+  return Array.from(
+    new Map(
+      subscriptions.map((subscription) => [
+        subscription.endpoint,
+        subscription,
+      ]),
+    ).values(),
+  );
+}
+
+function isPermanentPushFailure(reason: unknown) {
+  const statusCode =
+    typeof reason === "object" && reason !== null
+      ? (reason as { statusCode?: unknown }).statusCode
+      : undefined;
+
+  return statusCode === 404 || statusCode === 410;
+}
+
+async function removePushSubscriptionsByEndpoint(endpoints: string[]) {
+  if (endpoints.length === 0) {
+    return;
+  }
+
+  const { row, serviceClient } = await loadVenueSettingsRow();
+
+  if (!serviceClient) {
+    return;
+  }
+
+  const endpointSet = new Set(endpoints);
+  const nextSubscriptions = getPushSubscriptions(row).filter(
+    (subscription) => !endpointSet.has(subscription.endpoint),
+  );
+  const operationalConfig = {
+    ...(row?.operational_config ?? {}),
+    pushSubscriptions: nextSubscriptions,
+  };
+  const { error } = await serviceClient
+    .from("venue_settings")
+    .upsert(
+      {
+        branding: row?.branding ?? {},
+        name: row?.name ?? defaultVenueSettings.venueName,
+        operational_config: operationalConfig,
+        settings: row?.settings ?? defaultVenueSettings,
+        venue_key: row?.venue_key ?? defaultVenueKey,
+      },
+      { onConflict: "venue_key" },
+    );
+
+  if (error) {
+    throw error;
+  }
 }
 
 function getStaffNotifications(row: VenueSettingsRow | null) {
@@ -436,6 +521,23 @@ export async function sendStaffPushNotification(input: StaffPushInput) {
     }
   });
 
+  const expiredEndpoints = results.flatMap((result, index) =>
+    result.status === "rejected" && isPermanentPushFailure(result.reason)
+      ? [subscriptions[index].endpoint]
+      : [],
+  );
+
+  if (expiredEndpoints.length > 0) {
+    try {
+      await removePushSubscriptionsByEndpoint(expiredEndpoints);
+    } catch (error) {
+      console.error(
+        "[Zingara push] Failed to remove expired staff subscriptions",
+        error,
+      );
+    }
+  }
+
   return {
     failed,
     ok: sent > 0,
@@ -497,10 +599,12 @@ export async function sendGuestPushNotification(input: GuestPushInput) {
   }
 
   const allSubscriptions = getPushSubscriptions(data as VenueSettingsRow | null);
-  const subscriptions = allSubscriptions.filter(
-    (subscription) =>
-      subscription.audience === "guest" &&
-      subscription.bookingReference === input.bookingReference,
+  const subscriptions = dedupeSubscriptionsByEndpoint(
+    allSubscriptions.filter(
+      (subscription) =>
+        subscription.audience === "guest" &&
+        isSubscriptionLinkedToBooking(subscription, input.bookingReference),
+    ),
   );
 
   console.info("[Zingara push diagnostics] Guest subscription filter complete", {
@@ -531,9 +635,7 @@ export async function sendGuestPushNotification(input: GuestPushInput) {
     body: getGuestMessage(input),
     tag: `zingara-guest-${input.trigger}-${input.bookingReference ?? "booking"}`,
     title: input.title?.trim() || "The Royal Countess Zingara",
-    url: input.bookingReference
-      ? `/ticket/${encodeURIComponent(input.bookingReference)}`
-      : "/book",
+    url: getGuestNotificationUrl(input),
   });
   const results = await Promise.allSettled(
     subscriptions.map((subscription) =>
@@ -555,6 +657,23 @@ export async function sendGuestPushNotification(input: GuestPushInput) {
       console.error("[Zingara push] Guest push delivery failed", result.reason);
     }
   });
+
+  const expiredEndpoints = results.flatMap((result, index) =>
+    result.status === "rejected" && isPermanentPushFailure(result.reason)
+      ? [subscriptions[index].endpoint]
+      : [],
+  );
+
+  if (expiredEndpoints.length > 0) {
+    try {
+      await removePushSubscriptionsByEndpoint(expiredEndpoints);
+    } catch (error) {
+      console.error(
+        "[Zingara push] Failed to remove expired guest subscriptions",
+        error,
+      );
+    }
+  }
 
   return {
     failed,

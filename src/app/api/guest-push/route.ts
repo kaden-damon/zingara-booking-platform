@@ -20,6 +20,7 @@ const guestPushTriggers = new Set<GuestPushTrigger>([
   "reservation-cancelled",
   "reservation-confirmed",
   "reservation-pending-payment",
+  "ticket-resend",
   "waitlist-promoted",
 ]);
 

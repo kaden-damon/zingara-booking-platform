@@ -3,17 +3,20 @@ import type { PayFastConfig, PayFastMode } from "./types";
 const payFastUrls: Record<
   PayFastMode,
   {
+    apiUrl: string;
     onsiteProcessUrl: string;
     processUrl: string;
     validateUrl: string;
   }
 > = {
   live: {
+    apiUrl: "https://api.payfast.co.za",
     onsiteProcessUrl: "https://www.payfast.co.za/onsite/process",
     processUrl: "https://www.payfast.co.za/eng/process",
     validateUrl: "https://www.payfast.co.za/eng/query/validate",
   },
   sandbox: {
+    apiUrl: "https://api.payfast.co.za",
     onsiteProcessUrl: "https://sandbox.payfast.co.za/onsite/process",
     processUrl: "https://sandbox.payfast.co.za/eng/process",
     validateUrl: "https://sandbox.payfast.co.za/eng/query/validate",
@@ -41,10 +44,12 @@ export function getPayFastConfig(
   const returnUrl = readEnvValue(env, "PAYFAST_RETURN_URL");
   const cancelUrl = readEnvValue(env, "PAYFAST_CANCEL_URL");
   const notifyUrl = readEnvValue(env, "PAYFAST_NOTIFY_URL");
+  const apiUrlOverride = readEnvValue(env, "PAYFAST_API_URL");
   const urls = payFastUrls[mode];
 
   return {
     cancelUrl,
+    apiUrl: apiUrlOverride || urls.apiUrl,
     configured: Boolean(
       merchantId &&
         merchantKey &&

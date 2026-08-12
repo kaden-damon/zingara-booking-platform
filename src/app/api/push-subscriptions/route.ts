@@ -15,6 +15,7 @@ const defaultVenueKey = defaultVenueSettings.venueId || "zingara-cape-town";
 type PushSubscriptionRecord = {
   audience?: "guest" | "staff";
   bookingReference?: string;
+  bookingReferences?: string[];
   createdAt: string;
   customerEmail?: string;
   customerName?: string;
@@ -111,10 +112,12 @@ function normalizeSubscription(
   }
 
   const now = new Date().toISOString();
+  const bookingReference = guestContext?.bookingReference?.trim();
 
   return {
     audience: staffContext ? "staff" : "guest",
-    bookingReference: guestContext?.bookingReference,
+    bookingReference,
+    bookingReferences: bookingReference ? [bookingReference] : [],
     createdAt: now,
     customerEmail: guestContext?.customerEmail,
     customerName: guestContext?.customerName,
@@ -142,6 +145,24 @@ function normalizeSubscription(
     userAgent: request.headers.get("user-agent") ?? undefined,
     userId: staffContext?.userId,
   };
+}
+
+function mergeBookingReferences(
+  existingSubscription: PushSubscriptionRecord | undefined,
+  nextSubscription: PushSubscriptionRecord,
+) {
+  return Array.from(
+    new Set(
+      [
+        ...(existingSubscription?.bookingReferences ?? []),
+        existingSubscription?.bookingReference,
+        ...(nextSubscription.bookingReferences ?? []),
+        nextSubscription.bookingReference,
+      ]
+        .map((reference) => reference?.trim())
+        .filter((reference): reference is string => Boolean(reference)),
+    ),
+  );
 }
 
 async function getStaffContext(request: Request) {
@@ -239,6 +260,10 @@ export async function POST(request: Request) {
       (currentSubscription) =>
         currentSubscription.endpoint === subscription.endpoint,
     );
+    const bookingReferences = mergeBookingReferences(
+      existingSubscription,
+      subscription,
+    );
     const nextSubscriptions = [
       ...existingSubscriptions.filter(
         (currentSubscription) =>
@@ -246,7 +271,23 @@ export async function POST(request: Request) {
       ),
       {
         ...subscription,
+        audience:
+          bookingReferences.length > 0
+            ? "guest"
+            : (subscription.audience ?? existingSubscription?.audience),
+        bookingReferences,
         createdAt: existingSubscription?.createdAt ?? subscription.createdAt,
+        customerEmail:
+          subscription.customerEmail ?? existingSubscription?.customerEmail,
+        customerName:
+          subscription.customerName ?? existingSubscription?.customerName,
+        role: subscription.role ?? existingSubscription?.role,
+        staffEmail:
+          subscription.staffEmail ?? existingSubscription?.staffEmail,
+        staffName: subscription.staffName ?? existingSubscription?.staffName,
+        staffProfileId:
+          subscription.staffProfileId ?? existingSubscription?.staffProfileId,
+        userId: subscription.userId ?? existingSubscription?.userId,
       },
     ];
     const operationalConfig = {

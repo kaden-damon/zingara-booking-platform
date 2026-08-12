@@ -32,6 +32,7 @@ type SupabasePaymentRow = {
   payment_status: SupabasePaymentStatus;
   payment_type: SupabasePaymentType;
   processed_at: string | null;
+  provider_transaction_id?: string | null;
   reference: string | null;
 };
 
@@ -75,9 +76,12 @@ function getPaymentType(booking: DemoBooking): SupabasePaymentType {
   return booking.paymentOption === "deposit" ? "deposit" : "full_payment";
 }
 
-function getPaymentAmount(booking: DemoBooking) {
+function getPaymentAmount(
+  booking: DemoBooking,
+  existingPayment?: SupabasePaymentRow | null,
+) {
   if (booking.paymentStatus === "refunded" || booking.status === "refunded") {
-    return 0;
+    return existingPayment?.amount ?? booking.amountPaid ?? 0;
   }
 
   if (booking.paymentStatus === "comp-vip") {
@@ -87,15 +91,33 @@ function getPaymentAmount(booking: DemoBooking) {
   return booking.amountPaid ?? 0;
 }
 
-function toPaymentPayload(booking: DemoBooking, bookingId: string) {
+function toPaymentPayload(
+  booking: DemoBooking,
+  bookingId: string,
+  existingPayment?: SupabasePaymentRow | null,
+) {
+  const isRefunded =
+    booking.paymentStatus === "refunded" || booking.status === "refunded";
+  const refundNotes = [
+    existingPayment?.notes ?? "",
+    booking.refundNotes
+      ? `Internal refund recorded: ${booking.refundNotes}`
+      : "Internal refund recorded.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   return {
-    amount: getPaymentAmount(booking),
+    amount: getPaymentAmount(booking, existingPayment),
     booking_id: bookingId,
-    method: "platform",
-    notes: booking.refundNotes || booking.paymentOption || null,
+    method: isRefunded ? existingPayment?.method ?? "platform" : "platform",
+    notes: isRefunded ? refundNotes : booking.refundNotes || booking.paymentOption || null,
     payment_status: toSupabasePaymentStatus(booking.paymentStatus),
     payment_type: getPaymentType(booking),
-    processed_at: new Date().toISOString(),
+    processed_at: isRefunded
+      ? existingPayment?.processed_at ?? new Date().toISOString()
+      : new Date().toISOString(),
+    provider_transaction_id: existingPayment?.provider_transaction_id ?? null,
     reference: booking.reference,
   };
 }

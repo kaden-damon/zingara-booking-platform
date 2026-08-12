@@ -76,6 +76,7 @@ export type GuestPushTrigger =
   | "reservation-cancelled"
   | "reservation-confirmed"
   | "reservation-pending-payment"
+  | "ticket-resend"
   | "waitlist-promoted";
 
 export type StaffNotificationRecord = {

@@ -1380,11 +1380,12 @@ const gettingStartedLessons: AcademyArticle[] = [
       "Guests choose Cape Town or Johannesburg before entering the booking or lookup journey.",
       "Book Your Experience opens the standard booking flow for the selected location.",
       "Find My Booking opens the secure lookup flow for an existing booking.",
-      "Use Dashboard for the live overview, notifications, System Status, quick actions, and search.",
+      "Use Dashboard for the live overview, notifications, quick actions, and search.",
       "Use Bookings to view, update, cancel, archive, and open guest reservations.",
       "Use Operations for Dashboard, Floor, Check-In, Waitlist, Daily Manifest, Floor Manifest, Financial Reports, and Exports.",
       "Use Customers to view CRM profiles, preferences, notes, spend, booking history, and customer archive status.",
-      "Use Settings for Staff, Venue, Automated Workflows, Audit Trail, and Data Portability.",
+      "Use Settings for Staff, Venue, Promo Codes, Automated Guest Journeys, Notification Preferences, Audit Trail, and Data Portability.",
+      "Use System for Super Admin platform health, live activity, checkout visibility, errors, performance, and maintenance.",
       "Use Academy for training, refresher lessons, and workflow guidance.",
     ],
     id: "navigating-the-platform",
@@ -1397,6 +1398,7 @@ const gettingStartedLessons: AcademyArticle[] = [
       "Start with the guest question, then choose the matching section.",
       "If a guest is returning to pay or retrieve tickets, Find My Booking is usually the right path.",
       "If a section is missing, it may not be part of your role.",
+      "System, Data Portability, Promo Codes, and refund controls are restricted to authorised roles.",
       "Use Academy search if you know the task but not where it lives.",
     ],
     title: "Navigating the Platform",
@@ -1831,17 +1833,19 @@ const bookingLessons: AcademyArticle[] = [
     howTo: [
       "Open the booking details.",
       "Confirm the guest email address.",
-      "Choose the ticket resend action.",
-      "Check communication history to confirm the resend was recorded.",
+      "Use Resend Ticket for the current ticket or Resend Confirmation for the current booking confirmation.",
+      "Use Push Ticket only when the guest has an active booking-update subscription.",
+      "Check Communication History to confirm the result was recorded.",
     ],
     id: "resending-tickets",
-    keywords: ["resend", "ticket", "email", "qr"],
+    keywords: ["resend", "ticket", "email", "qr", "resend confirmation", "push ticket"],
     moduleId: "bookings",
-    purpose: "Send the guest another copy of their ticket when they cannot find the original.",
+    purpose: "Send the guest another copy of their ticket or confirmation when they cannot find the original.",
     relatedActions: ["bookings", "tickets", "communications"],
     related: ["Downloading Tickets", "Booking Confirmation"],
     tips: [
       "Confirm the email address before resending.",
+      "Push Ticket is not guaranteed; use email if no active guest subscription is available.",
       "If the guest is at the door, use ticket lookup or check-in support as needed.",
     ],
     title: "Resending Tickets",
@@ -1950,6 +1954,36 @@ const bookingLessons: AcademyArticle[] = [
     ],
     title: "Booking Statuses",
     whenToUse: "Use this whenever you review a reservation or answer a guest query.",
+  },
+  {
+    category: "Bookings",
+    commonMistakes: [
+      "Using manual payment controls to bypass the normal guest checkout.",
+      "Marking a booking paid without authorisation or supporting context.",
+      "Assuming Refund Booking completes the finance process without approval and follow-up.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Open the booking details and review the payment state, booking status, and communication history.",
+      "Use Mark Deposit Paid only for an approved manual or operational deposit process.",
+      "Use Mark Paid only when authorised to record the full balance as paid outside normal PayFast confirmation.",
+      "Use Comp Booking only when the booking is intentionally complimentary; confirm because the guest balance becomes R0.",
+      "Use Refund Booking only as a Super Admin action with a reason and password confirmation.",
+      "Follow the current finance process for refunds; do not promise automatic money movement unless leadership confirms it is active.",
+    ],
+    id: "payment-controls",
+    keywords: ["payment controls", "mark deposit paid", "mark paid", "comp booking", "refund booking", "manual payment"],
+    moduleId: "bookings",
+    purpose: "Use payment controls safely when authorised staff need to record a manual payment state, complimentary booking, or refund process.",
+    relatedActions: ["bookings"],
+    related: ["Payment Types", "Booking Statuses"],
+    tips: [
+      "PayFast remains the normal online payment path for guests.",
+      "Manual payment controls affect the booking record and should be used sparingly.",
+      "Refund Booking is restricted to Super Admins and requires confirmation.",
+    ],
+    title: "Payment Controls",
+    whenToUse: "Use this when a payment state must be changed by authorised staff rather than normal guest checkout.",
   },
   {
     category: "Bookings",
@@ -2475,9 +2509,10 @@ const crmGuestLessons: AcademyArticle[] = [
     difficulty: "beginner",
     howTo: [
       "Open Customers from the admin navigation.",
+      "Use Profile Directory to browse Active, Archived, or All customer records.",
       "Search for the guest by name, email, phone number, or booking reference.",
       "Open the matching profile.",
-      "Review bookings, communication history, preferences, notes, and spend before taking action.",
+      "Review spend, bookings, attendance, arrivals, relationship notes, preferences, VIP or CRM information, and communication history before taking action.",
     ],
     id: "crm-overview",
     keywords: ["crm", "customers", "guests", "profiles"],
@@ -2487,6 +2522,7 @@ const crmGuestLessons: AcademyArticle[] = [
     related: ["Searching for Guests", "Viewing Guest History"],
     tips: [
       "CRM is the best place to understand returning guests.",
+      "Archived customers are hidden from normal CRM work but remain linked to bookings and history.",
       "Check the profile before adding new notes or sending follow-up.",
     ],
     title: "CRM Overview",
@@ -2555,8 +2591,9 @@ const crmGuestLessons: AcademyArticle[] = [
     howTo: [
       "Open the guest profile.",
       "Review booking history for past and current reservations.",
+      "Use the profile cards for spend, bookings, attendance, and arrivals.",
       "Check communication history for recent messages.",
-      "Review notes and preferences before making changes.",
+      "Review relationship notes, preferences, VIP or CRM information, and booking notes before making changes.",
     ],
     id: "viewing-guest-history",
     keywords: ["history", "guest history", "bookings", "communications"],
@@ -2566,6 +2603,7 @@ const crmGuestLessons: AcademyArticle[] = [
     related: ["Viewing Previous Bookings", "Guest Communication History"],
     tips: [
       "Returning guests may have preferences that affect service.",
+      "Use profile metrics as a guide, then open the bookings for exact operational detail.",
       "Read notes before adding new ones.",
     ],
     title: "Viewing Guest History",
@@ -3121,19 +3159,21 @@ const communicationLessons: AcademyArticle[] = [
     howTo: [
       "Open the guest, booking, or communications area.",
       "Confirm the recipient details.",
+      "Choose Email for the current booking contact or Push Notification for a guest with an active subscription.",
       "Write or review the message.",
       "Send the message.",
       "Check communication history for the new record.",
     ],
     id: "sending-guest-messages",
-    keywords: ["guest message", "custom message", "send"],
+    keywords: ["guest message", "custom message", "send", "email", "push notification"],
     moduleId: "communications",
-    purpose: "Send a direct message to a guest when a booking or service update needs personal attention.",
+    purpose: "Send a direct email or targeted push message to a guest when a booking or service update needs personal attention.",
     relatedActions: ["communications", "crm"],
     related: ["Using Templates", "Viewing Communication History"],
     tips: [
       "Keep guest messages short, warm, and specific.",
       "Include the booking reference when it helps the guest identify the reservation.",
+      "If no active push subscription is available, use email instead.",
     ],
     title: "Sending Guest Messages",
     whenToUse: "Use this when a guest needs an individual update that is not covered by an automatic message.",
@@ -3146,7 +3186,7 @@ const communicationLessons: AcademyArticle[] = [
     ],
     difficulty: "beginner",
     howTo: [
-      "Open Settings, then Automated Workflows.",
+      "Open Settings, then Automated Guest Journeys.",
       "Select the template type.",
       "Review the subject and message body.",
       "Use variables where supported.",
@@ -3157,7 +3197,7 @@ const communicationLessons: AcademyArticle[] = [
     moduleId: "communications",
     purpose: "Use templates to keep common communication consistent and professional.",
     relatedActions: ["communications"],
-    related: ["Automated Workflows", "Booking Confirmation Emails"],
+    related: ["Automated Guest Journeys", "Booking Confirmation Emails"],
     tips: [
       "Templates affect future messages, so edit carefully.",
       "Use preview to check how variables appear in the final message.",
@@ -3173,24 +3213,25 @@ const communicationLessons: AcademyArticle[] = [
     ],
     difficulty: "intermediate",
     howTo: [
-      "Open Settings, then Automated Workflows.",
-      "Select the correct show.",
-      "Choose the template or workflow action.",
-      "Review or edit the message.",
-      "Send the communication and confirm history updates.",
+      "Open Settings, then Automated Guest Journeys.",
+      "Review Pre-Show Reminder or Post-Show Review Request.",
+      "Check whether the workflow is enabled or disabled.",
+      "Review timing, subject, HTML-capable body, preview recipients, and preview email.",
+      "For post-show reviews, confirm review URLs are present before enabling.",
+      "Do not assume these workflows are active unless the workflow shows Enabled.",
     ],
     id: "automated-workflows",
-    keywords: ["automated workflows", "show reminders", "templates", "history"],
+    keywords: ["automated guest journeys", "show reminders", "review request", "templates", "history", "html"],
     moduleId: "communications",
-    purpose: "Use Automated Workflows to send operational messages, reminders, and template-based communications for a selected show.",
+    purpose: "Understand the automated guest journey messages used for pre-show reminders and post-show review requests.",
     relatedActions: ["communications"],
     related: ["Using Templates", "Broadcast Messages"],
     tips: [
-      "Always confirm the selected show at the top of the workflow.",
-      "Check history after sending to confirm the action was recorded.",
+      "Both workflows can remain disabled until leadership is ready to activate them.",
+      "Preview recipients before enabling a workflow.",
     ],
-    title: "Automated Workflows",
-    whenToUse: "Use this when sending show reminders, template messages, or show-specific operational communication.",
+    title: "Automated Guest Journeys",
+    whenToUse: "Use this when reviewing reminder or review-request communication setup.",
   },
   {
     category: "Communications",
@@ -3200,7 +3241,7 @@ const communicationLessons: AcademyArticle[] = [
     ],
     difficulty: "intermediate",
     howTo: [
-      "Open Automated Workflows.",
+      "Open Settings, then Automated Guest Journeys.",
       "Select the show or audience context.",
       "Write the broadcast message.",
       "Review the wording carefully.",
@@ -3211,7 +3252,7 @@ const communicationLessons: AcademyArticle[] = [
     moduleId: "communications",
     purpose: "Send one message to a group of guests or operational audience when the same update applies to everyone.",
     relatedActions: ["communications"],
-    related: ["Automated Workflows", "Viewing Communication History"],
+    related: ["Automated Guest Journeys", "Viewing Communication History"],
     tips: [
       "Use broadcasts for clear group updates, not personal guest issues.",
       "Keep the message precise and easy to act on.",
@@ -3308,9 +3349,10 @@ const communicationLessons: AcademyArticle[] = [
     ],
     difficulty: "intermediate",
     howTo: [
-      "Confirm the app or PWA has notification permission.",
-      "Use the configured notification triggers for booking, payment, waitlist, corporate, or operational events.",
-      "Review Notification Preferences when checking staff notification setup.",
+      "Confirm whether the staff device or guest device has notification permission.",
+      "Use Notification Preferences for staff device status and category preferences.",
+      "Remember that guests can opt into Get Booking Updates after booking.",
+      "For guests, push delivery requires an active subscription and may depend on an installed Home Screen app on iPhone.",
       "Review the Notification Centre for in-app records.",
     ],
     id: "push-notifications",
@@ -3318,10 +3360,11 @@ const communicationLessons: AcademyArticle[] = [
     moduleId: "communications",
     purpose: "Use push notifications and the Notification Centre to keep staff and guests aware of important events.",
     relatedActions: ["communications"],
-    related: ["Automated Workflows", "Communication Statuses"],
+    related: ["Automated Guest Journeys", "Communication Statuses"],
     tips: [
       "Push works best for timely alerts, not detailed explanations.",
       "Email remains important for formal guest communication.",
+      "A missing guest subscription is not automatically a platform fault.",
     ],
     title: "Push Notifications",
     whenToUse: "Use this when checking notification readiness or explaining why an alert did or did not appear.",
@@ -3337,7 +3380,8 @@ const communicationLessons: AcademyArticle[] = [
       "Open the guest, booking, corporate request, or communications area.",
       "Review the communication history.",
       "Check timestamp, subject, channel, status, and preview.",
-      "Use the history before sending or resending a message.",
+      "Use the history before sending or deliberately resending a message.",
+      "Treat Communication History as a record of activity, not a queue waiting to send.",
     ],
     id: "viewing-communication-history",
     keywords: ["history", "communication history", "sent", "failed"],
@@ -3347,6 +3391,8 @@ const communicationLessons: AcademyArticle[] = [
     related: ["Sending Guest Messages", "Communication Statuses"],
     tips: [
       "History protects the guest from duplicate messages.",
+      "Statuses such as Sent, Failed, or unavailable explain the recorded outcome.",
+      "Push may be unavailable when the guest has no active subscription.",
       "Use it during handovers so the next person understands the conversation.",
     ],
     title: "Viewing Communication History",
@@ -3356,23 +3402,24 @@ const communicationLessons: AcademyArticle[] = [
     category: "Communications",
     commonMistakes: [
       "Assuming every message was delivered because the button was clicked.",
-      "Ignoring failed or pending statuses.",
+      "Ignoring failed or unavailable statuses.",
     ],
     difficulty: "beginner",
     howTo: [
       "Open communication history.",
       "Find the message record.",
       "Check the status, channel, and timestamp.",
-      "If a message failed, review the guest details and use the correct resend or follow-up process.",
+      "If a message failed or was unavailable, review the guest details and use the correct resend or follow-up process.",
     ],
     id: "communication-statuses",
     keywords: ["status", "sent", "failed", "pending", "channel"],
     moduleId: "communications",
-    purpose: "Understand whether a communication was sent, failed, or still needs attention.",
+    purpose: "Understand whether a communication was sent, failed, or could not be delivered through the selected channel.",
     relatedActions: ["communications"],
     related: ["Viewing Communication History", "Payment Confirmation Emails"],
     tips: [
       "A saved history record is not always the same as a successfully delivered message.",
+      "For push, unavailable usually means there is no active subscription for that recipient.",
       "Escalate repeated failures to a manager or Super Admin.",
     ],
     title: "Communication Statuses",
@@ -3473,7 +3520,7 @@ const ticketCheckInLessons: AcademyArticle[] = [
     difficulty: "beginner",
     howTo: [
       "Open the booking or live ticket.",
-      "Confirm the guest name, show date, seating section, and booking reference.",
+      "Confirm the guest name, show date, location, court, seating section, table colour, ticket status, and booking reference.",
       "Check the ticket number, such as Ticket 2 of 6, when a booking has multiple guests.",
       "Use Open Live Ticket or Download Ticket when the guest needs access.",
       "Check the ticket status before relying on it for entry.",
@@ -3487,6 +3534,8 @@ const ticketCheckInLessons: AcademyArticle[] = [
     tips: [
       "Digital tickets should match the current booking record.",
       "The table colour helps staff recognise the guest's seating zone quickly.",
+      "The guest live ticket hides the table number before check-in; do not promise an exact table before the guest is checked in.",
+      "After check-in, the authoritative table number may display where the guest experience supports it.",
       "If details look wrong, review the booking before sharing the ticket.",
     ],
     title: "Digital Tickets",
@@ -3639,7 +3688,8 @@ const ticketCheckInLessons: AcademyArticle[] = [
     difficulty: "beginner",
     howTo: [
       "Open the live ticket or the individual guest ticket.",
-      "Confirm the guest name, ticket number, booking reference, date, seating zone, table, and table colour.",
+      "Confirm the guest name, ticket number, booking reference, date, location, court, seating zone, and table colour.",
+      "Use the live ticket status and check-in state to understand whether the table number should be visible to the guest.",
       "Select Download Ticket.",
       "Open or share the Admission Pass PDF for that specific ticket.",
       "Check that the QR code is large and easy to scan.",
@@ -3668,17 +3718,19 @@ const ticketCheckInLessons: AcademyArticle[] = [
       "Open the live ticket view.",
       "Expand the individual guest ticket that needs attention.",
       "Edit guest name, email, or mobile before the event if the ticket has not been checked in.",
-      "Use Email Ticket, Resend Ticket, or Download Ticket for that specific guest.",
+      "Use Email Ticket, Resend Ticket, Push Ticket, or Download Ticket for that specific guest.",
+      "Use Push Ticket only when the guest has an active booking-update subscription.",
       "Regenerate only the affected ticket when a fresh QR code is required.",
     ],
     id: "guest-ticket-management",
-    keywords: ["guest ticket management", "email ticket", "resend ticket", "regenerate ticket", "edit ticket"],
+    keywords: ["guest ticket management", "email ticket", "resend ticket", "push ticket", "regenerate ticket", "edit ticket"],
     moduleId: "tickets-check-in",
     purpose: "Manage individual guest ticket details and actions without affecting the rest of the booking.",
     relatedActions: ["tickets", "communications"],
     related: ["Ticket Customisation", "Admission Pass PDF"],
     tips: [
       "Checked-in tickets are read-only.",
+      "Communication History records whether email or push actions were sent, failed, or unavailable.",
       "Regeneration should be used carefully because it replaces only one guest ticket.",
     ],
     title: "Guest Ticket Management",
@@ -3749,7 +3801,8 @@ const ticketCheckInLessons: AcademyArticle[] = [
       "Open the booking details.",
       "Confirm the guest email address.",
       "Use Email Ticket or Resend Ticket for the correct individual guest ticket.",
-      "Check communication history to confirm the resend was recorded.",
+      "Use Push Ticket only when the guest has an active subscription.",
+      "Check Communication History to confirm whether the action was sent, failed, or unavailable.",
       "Ask the guest to check their inbox and spam folder if needed.",
     ],
     id: "ticket-check-in-resending-tickets",
@@ -4424,6 +4477,8 @@ const staffPermissionLessons: AcademyArticle[] = [
       "Enter the staff member's details.",
       "Select the correct role and venue scope.",
       "Create the user and confirm the staff profile appears.",
+      "The invited staff member follows the invitation to Set Password, creates a password, then signs in with their email address.",
+      "After first login, they can set up notifications where applicable.",
     ],
     id: "staff-invitations",
     keywords: ["staff invitations", "create user", "auth", "profile"],
@@ -4433,6 +4488,7 @@ const staffPermissionLessons: AcademyArticle[] = [
     related: ["Creating Staff Users", "Password Resets"],
     tips: [
       "Confirm the role before creating the account.",
+      "Staff may use a password manager when creating or saving their password.",
       "If staff cannot log in, check their active status and profile role.",
     ],
     title: "Staff Invitations",
@@ -4448,8 +4504,9 @@ const staffPermissionLessons: AcademyArticle[] = [
     howTo: [
       "Confirm the staff member is using the correct email address.",
       "Check that their staff profile is active.",
-      "Use the approved password reset process when access needs to be restored.",
-      "Ask the user to log in again after reset is complete.",
+      "For new staff, use the invitation link to open Set Password and create the password.",
+      "For existing staff, use the approved password reset process when access needs to be restored.",
+      "Ask the user to log in again with their email address after setup or reset is complete.",
     ],
     id: "password-resets",
     keywords: ["password", "reset", "login", "access"],
@@ -4459,6 +4516,7 @@ const staffPermissionLessons: AcademyArticle[] = [
     related: ["Staff Invitations", "Security Best Practices"],
     tips: [
       "Check active status before assuming the password is the problem.",
+      "Password managers are supported and can reduce typing mistakes.",
       "Never ask staff to share their password.",
     ],
     title: "Password Resets",
@@ -4533,7 +4591,7 @@ const settingsLessons: AcademyArticle[] = [
     difficulty: "intermediate",
     howTo: [
       "Open Settings from the admin navigation.",
-      "Choose the relevant area: Staff, Venue, or Automated Workflows.",
+      "Choose the relevant area: Staff, Venue, Promo Codes, Automated Guest Journeys, Notification Preferences, Audit Trail, or Data Portability.",
       "Review the current values before editing.",
       "Save changes and confirm the update appears where expected.",
       "Tell affected staff if the change affects daily operations.",
@@ -4541,11 +4599,12 @@ const settingsLessons: AcademyArticle[] = [
     id: "settings-overview",
     keywords: ["settings", "configuration", "venue", "workflows"],
     moduleId: "settings",
-    purpose: "Use Settings to manage platform configuration that affects staff, venue details, communication templates, and operational workflows.",
+    purpose: "Use Settings to manage platform configuration that affects staff, venue details, promo codes, communication templates, notifications, imports, and operational workflows.",
     relatedActions: ["staff", "communications"],
     related: ["Venue Configuration", "Communication Templates"],
     tips: [
       "Settings are shared across the platform, so change them carefully.",
+      "Some settings are Super Admin-only and may be hidden from other roles.",
       "When in doubt, ask a Super Admin before saving.",
     ],
     title: "Settings Overview",
@@ -4611,7 +4670,7 @@ const settingsLessons: AcademyArticle[] = [
     ],
     difficulty: "intermediate",
     howTo: [
-      "Open Settings, then Automated Workflows.",
+      "Open Settings, then Automated Guest Journeys.",
       "Choose the template to review.",
       "Edit the subject or message body carefully.",
       "Use preview to check the final message.",
@@ -4622,7 +4681,7 @@ const settingsLessons: AcademyArticle[] = [
     moduleId: "settings",
     purpose: "Manage standard communication wording used for bookings, payments, corporate enquiries, reminders, and broadcasts.",
     relatedActions: ["communications"],
-    related: ["Automated Workflows", "Email Configuration"],
+    related: ["Automated Guest Journeys", "Email Configuration"],
     tips: [
       "Templates should sound polished and clear.",
       "Keep variables in place when they provide booking-specific details.",
@@ -4634,54 +4693,58 @@ const settingsLessons: AcademyArticle[] = [
     category: "Settings",
     commonMistakes: [
       "Sending workflow messages for the wrong selected show.",
-      "Forgetting to check communication history after sending.",
+      "Enabling a workflow before previewing recipients and wording.",
     ],
     difficulty: "intermediate",
     howTo: [
-      "Open Settings, then Automated Workflows.",
-      "Select the relevant show.",
-      "Choose the template, reminder, or broadcast workflow.",
-      "Review the message.",
-      "Send and confirm success feedback or history entry.",
+      "Open Settings, then Automated Guest Journeys.",
+      "Review Pre-Show Reminder or Post-Show Review Request.",
+      "Set timing, subject, and the HTML-capable email body.",
+      "Use Preview Recipients and Preview Email before enabling.",
+      "Add review URLs before enabling a post-show review request.",
+      "Use Enable or Disable Workflow deliberately and confirm the current state.",
     ],
     id: "settings-automated-workflows",
-    keywords: ["automated workflows", "reminders", "broadcast", "show selector"],
+    keywords: ["automated guest journeys", "reminders", "review request", "html email", "preview recipients", "review url"],
     moduleId: "settings",
-    purpose: "Use workflow settings to manage show-specific communications and operational messaging.",
+    purpose: "Use Automated Guest Journeys to manage pre-show reminder and post-show review request wording before activation.",
     relatedActions: ["communications"],
-    related: ["Communication Templates", "Push Notification Settings"],
+    related: ["Communication Templates", "Notification Preferences"],
     tips: [
-      "The selected show controls the workflow context.",
-      "Use history to confirm what was sent.",
+      "Both guest journeys may remain disabled until leadership approves activation.",
+      "Do not enable a post-show review workflow until the review URLs are correct.",
     ],
-    title: "Automated Workflows",
-    whenToUse: "Use this when sending reminders, communications, or broadcasts from Settings.",
+    title: "Automated Guest Journeys",
+    whenToUse: "Use this when a Super Admin reviews reminder or review-request configuration.",
   },
   {
     category: "Settings",
     commonMistakes: [
       "Expecting notifications before permission has been allowed.",
-      "Assuming every staff role receives every notification.",
+      "Assuming every staff role or guest device receives every notification.",
     ],
     difficulty: "intermediate",
     howTo: [
-      "Open the notification or workflow area where notification actions are available.",
-      "Check whether the browser or installed app has notification permission.",
-      "Review Notification Preferences for local device delivery.",
+      "Open Settings, then Notification Preferences where your role allows it.",
+      "Check device notification status.",
+      "Enable notifications if the browser or installed app asks for permission.",
+      "Review category preferences for the alerts you want on this device.",
+      "If notifications are blocked, update browser or device settings before trying again.",
       "Review the Notification Centre for in-app records.",
-      "Confirm the right staff roles should receive the alert.",
+      "For guests, remember that booking updates are guest-controlled and may require Home Screen installation on iPhone.",
     ],
     id: "push-notification-settings",
     keywords: ["push notifications", "notification centre", "test notification"],
     moduleId: "settings",
-    purpose: "Understand how staff notification readiness is checked from the admin experience.",
+    purpose: "Understand how device notification status, category preferences, and guest subscriptions affect push delivery.",
     relatedActions: ["communications"],
-    related: ["Automated Workflows", "Push Notifications"],
+    related: ["Automated Guest Journeys", "Push Notifications"],
     tips: [
-      "Push notifications depend on device permission.",
+      "Push notifications depend on device permission and the recipient's active subscription.",
       "Use the Notification Centre if a push alert is missed.",
+      "A guest without an active subscription should be contacted by email instead.",
     ],
-    title: "Push Notification Settings",
+    title: "Notification Preferences",
     whenToUse: "Use this when checking whether staff notifications are ready and visible.",
   },
   {
@@ -4738,6 +4801,34 @@ const settingsLessons: AcademyArticle[] = [
     ],
     title: "Payment Gateway Settings",
     whenToUse: "Use this when reviewing payment behaviour, payment status, or finance-facing booking details.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
+      "Sharing an example promo code without confirming it is approved for use.",
+      "Changing a promo code without checking dates, limits, and location or show scope.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Open Settings, then Promo Codes.",
+      "Review existing codes, status, validity dates, usage limits, discount type, and applicable location or show.",
+      "Create or edit codes only when authorised.",
+      "Choose percentage or fixed Rand discount carefully.",
+      "Disable or reactivate codes when their campaign state changes.",
+      "Use usage and redemption information before extending or reusing a code.",
+    ],
+    id: "promo-code-management",
+    keywords: ["promo codes", "discount", "percentage", "fixed rand", "usage limits", "redemption"],
+    moduleId: "settings",
+    purpose: "Use Promo Codes to manage approved discounts while keeping booking pricing authoritative and consistent.",
+    relatedActions: ["bookings"],
+    related: ["Payment Gateway Settings", "Analytics Overview"],
+    tips: [
+      "COUNTESS10, ROYAL500, and STAGE15 are examples of code formats, not automatic permission to distribute them.",
+      "The platform calculates final pricing from the saved promo settings.",
+    ],
+    title: "Promo Code Management",
+    whenToUse: "Use this when a Super Admin needs to view, create, edit, disable, reactivate, or review promo code usage.",
   },
   {
     category: "Settings",
@@ -4834,16 +4925,18 @@ const analyticsReportingLessons: AcademyArticle[] = [
       "Open Analytics or review dashboard reporting cards.",
       "Confirm the date, show, or reporting context.",
       "Read the headline metrics first.",
+      "Expand or collapse Per-Show Revenue, Occupancy Trends, Add-On Revenue Breakdown, Promo Code Usage, and Customer Value as needed.",
       "Open related bookings, guests, or communications when more detail is needed.",
     ],
     id: "analytics-overview",
-    keywords: ["analytics", "reporting", "metrics", "overview"],
+    keywords: ["analytics", "reporting", "metrics", "overview", "per-show revenue", "occupancy trends", "promo code usage", "customer value"],
     moduleId: "analytics-reporting",
     purpose: "Use Analytics & Reporting to understand booking activity, revenue, attendance, guest demand, and operational performance.",
     relatedActions: ["bookings", "crm"],
     related: ["Dashboard Metrics", "Booking Reports"],
     tips: [
       "Start with the question you need answered.",
+      "Collapsed sections keep the page easier to scan during service.",
       "Use reports to guide decisions, then check the source records before taking action.",
     ],
     title: "Analytics Overview",
@@ -5294,18 +5387,20 @@ const findMyBookingLessons: AcademyArticle[] = [
     howTo: [
       "Ask the guest for their booking reference.",
       "Ask for the same email address or mobile number used on the booking.",
+      "Accept South African mobile formats such as 083..., 2783..., or +2783... when they match the booking.",
       "Enter both values together.",
       "If verification fails, use the standard message and do not reveal which value failed.",
       "Ask the guest to check their confirmation message and try again.",
     ],
     id: "booking-verification",
-    keywords: ["verification", "popia", "privacy", "booking reference", "email", "mobile"],
+    keywords: ["verification", "popia", "privacy", "booking reference", "email", "mobile", "south african mobile", "083", "2783"],
     moduleId: "find-my-booking",
     purpose: "Protect guest privacy by verifying the booking before showing details.",
     relatedActions: ["bookings"],
     related: ["Finding an Existing Booking", "Security & POPIA"],
     tips: [
       "Never confirm whether a reference, email, or mobile exists on its own.",
+      "Do not weaken verification because a mobile number was entered in a different South African format.",
       "Verification is designed so future OTP checks can be added without changing the guest journey.",
     ],
     title: "Booking Verification",
@@ -5439,12 +5534,13 @@ const platformAdministrationLessons: AcademyArticle[] = [
     id: "data-portability-overview",
     keywords: ["data portability", "export", "import preview", "dry run", "csv", "xlsx"],
     moduleId: "platform-administration",
-    purpose: "Use Data Portability to safely export and prepare booking or customer import files without changing records during preview.",
+    purpose: "Use Settings > Data Portability as the authoritative place for booking and customer export, preview, validation, import, and restore workflows.",
     relatedActions: [],
     related: ["Transactional Import", "Restore Points & Import History"],
     tips: [
       "Preview is read-only until an authorised import is confirmed.",
       "Use templates so column names match the importer exactly.",
+      "Do not use old customer import paths; Data Portability is the current import and export area.",
     ],
     title: "Data Portability Overview",
     whenToUse: "Use this when preparing booking or customer data for export, validation, or controlled import.",
@@ -5535,30 +5631,58 @@ const platformAdministrationLessons: AcademyArticle[] = [
   {
     category: "Platform Administration",
     commonMistakes: [
-      "Ignoring local configuration warnings that are clearly marked.",
-      "Assuming System Status sends test emails, push notifications, or payments.",
+      "Looking for Platform Health on Dashboard after it has moved to System.",
+      "Assuming Platform Health sends test emails, push notifications, or payments.",
     ],
     difficulty: "intermediate",
     howTo: [
-      "Open Dashboard.",
-      "Review System Status below the dashboard widget canvas.",
-      "Check Overall Platform Status first.",
+      "Open System from the admin navigation.",
+      "Review Platform Health.",
+      "Check Overall Platform Health first.",
       "Review Database, Bookings, Customers, Audit Trail, Data Portability, Payments, Email, Push, Ticket Engine, QR Validation, and Booking Locks.",
       "Read Platform Information for Version, Build, Environment, Current Staff, Active Booking Locks, Current Database, Current Date/Time, Last Successful Health Check, and Auto Refresh.",
       "Use Refresh Status for an immediate health check.",
     ],
     id: "system-health-dashboard",
-    keywords: ["system status", "platform health", "health check", "last successful health check", "auto refresh"],
+    keywords: ["system", "platform health", "health check", "healthy", "warning", "refresh status", "last successful health check", "auto refresh"],
     moduleId: "platform-administration",
-    purpose: "Use System Status to confirm the main platform services are reachable without triggering payments, emails, pushes, or workflow changes.",
+    purpose: "Use System > Platform Health to confirm the main platform services are reachable without triggering payments, emails, pushes, or workflow changes.",
     relatedActions: [],
-    related: ["Dashboard Overview", "Audit Trail"],
+    related: ["System Area", "Audit Trail"],
     tips: [
-      "A local PayFast configuration warning can be expected in local development.",
-      "Critical database or booking failures should be escalated immediately.",
+      "Healthy means the service appears ready; Warning means staff should review the message and escalate if it affects operations.",
+      "Critical database, booking, payment, ticket, or lock warnings should be escalated immediately.",
     ],
-    title: "System Health Dashboard",
+    title: "Platform Health",
     whenToUse: "Use this at the start of a shift, before rollout checks, or when the platform feels unhealthy.",
+  },
+  {
+    category: "Platform Administration",
+    commonMistakes: [
+      "Opening System for routine booking work.",
+      "Sharing System details with staff who do not need Super Admin access.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Open System from the admin navigation as a Super Admin.",
+      "Use Live Platform Activity to understand current activity.",
+      "Review Booking Journeys for public booking progress and drop-off context.",
+      "Use Payments & Checkout for checkout visibility and payment-related operational signals.",
+      "Review Errors & Incidents, Health History, and Performance when the platform needs investigation.",
+      "Use System Maintenance only for approved operational maintenance tasks.",
+    ],
+    id: "system-area",
+    keywords: ["system", "live platform activity", "booking journeys", "payments checkout", "errors incidents", "health history", "performance", "system maintenance"],
+    moduleId: "platform-administration",
+    purpose: "Understand the Super Admin-only System area used for platform health, live activity, incidents, performance, and maintenance.",
+    relatedActions: [],
+    related: ["Platform Health", "Audit Trail"],
+    tips: [
+      "System is for health and technical operations, not normal guest service.",
+      "Use practical status messages and timestamps; do not look for credentials or configuration values in Academy.",
+    ],
+    title: "System Area",
+    whenToUse: "Use this when a Super Admin needs to check platform health, activity, incidents, or maintenance status.",
   },
   {
     category: "Platform Administration",
@@ -5568,25 +5692,24 @@ const platformAdministrationLessons: AcademyArticle[] = [
     ],
     difficulty: "intermediate",
     howTo: [
-      "Open Settings, then Automated Workflows.",
-      "Select the correct show or workflow context.",
-      "Review the template subject, body, variables, and recipient preview.",
-      "Use send controls only when the recipient set is correct.",
-      "Check Communications and Audit Trail after sending.",
+      "Open Settings, then Automated Guest Journeys where authorised.",
+      "Review the workflow subject, body, variables, preview recipients, and preview email.",
+      "Confirm the workflow is enabled only when the recipient set and timing are correct.",
+      "Check Communications and Audit Trail after workflow sends occur.",
       "Use failed communication retry paths deliberately rather than refreshing repeatedly.",
     ],
     id: "automated-workflows-and-template-variables",
-    keywords: ["automated workflows", "template variables", "send safety", "communication templates"],
+    keywords: ["automated guest journeys", "template variables", "send safety", "communication templates"],
     moduleId: "platform-administration",
-    purpose: "Use automated workflows safely so one staff action sends only the intended communication.",
+    purpose: "Use automated guest journey templates safely so the intended communication reaches the intended recipients.",
     relatedActions: ["communications"],
     related: ["Communication Templates", "Audit Trail"],
     tips: [
       "Template variables keep guest and booking information accurate.",
       "One logical action should create one intended email per recipient and type.",
     ],
-    title: "Automated Workflows & Template Variables",
-    whenToUse: "Use this before sending reminders, broadcasts, workflow emails, or staff-facing operational messages.",
+    title: "Automated Guest Journeys & Template Variables",
+    whenToUse: "Use this before reviewing reminder or review-request messages.",
   },
   {
     category: "Platform Administration",
@@ -5607,7 +5730,7 @@ const platformAdministrationLessons: AcademyArticle[] = [
     moduleId: "platform-administration",
     purpose: "Help staff understand how in-app notifications and device push preferences work together.",
     relatedActions: ["communications"],
-    related: ["Push Notifications", "System Health Dashboard"],
+    related: ["Push Notifications", "Platform Health"],
     tips: [
       "Push notifications depend on the current device and browser permission.",
       "The Notification Centre remains the reliable place to review platform alerts.",
@@ -5681,7 +5804,7 @@ const faqLessons: AcademyArticle[] = [
       "Open the booking details.",
       "Confirm the guest email address.",
       "Check ticket status and communication history.",
-      "Use the ticket resend action.",
+      "Use Resend Ticket, Resend Confirmation, or Push Ticket only when it matches the guest's need.",
       "Ask the guest to check inbox, spam, and promotions folders.",
     ],
     id: "guest-did-not-receive-ticket",
@@ -5692,6 +5815,7 @@ const faqLessons: AcademyArticle[] = [
     related: ["Resending Tickets", "Guest Communication History"],
     tips: [
       "Confirm the email aloud when helping by phone.",
+      "Push Ticket requires an active guest subscription; email remains the fallback.",
       "Use Open Live Ticket if the guest needs immediate access at the venue.",
     ],
     title: "A guest did not receive their ticket",
@@ -5822,7 +5946,7 @@ const faqLessons: AcademyArticle[] = [
     moduleId: "faq",
     purpose: "Help staff troubleshoot missing push notifications without interrupting operations.",
     relatedActions: ["communications"],
-    related: ["Push Notifications", "Push Notification Settings"],
+    related: ["Push Notifications", "Notification Preferences"],
     tips: [
       "Push notifications depend on both platform setup and device permission.",
       "The Notification Centre remains useful even if a push alert is missed.",
@@ -7944,6 +8068,14 @@ export default function AdminDashboardPage() {
   const [cancellingBookingReference, setCancellingBookingReference] =
     useState("");
   const [isCancellingBooking, setIsCancellingBooking] = useState(false);
+  const [compBookingReference, setCompBookingReference] = useState("");
+  const [isCompBookingProcessing, setIsCompBookingProcessing] =
+    useState(false);
+  const [refundBookingReference, setRefundBookingReference] = useState("");
+  const [isRefundBookingProcessing, setIsRefundBookingProcessing] =
+    useState(false);
+  const [refundBookingReason, setRefundBookingReason] = useState("");
+  const [refundAdminPassword, setRefundAdminPassword] = useState("");
   const [cancellationReason, setCancellationReason] = useState<
     (typeof cancellationReasons)[number]
   >(cancellationReasons[0]);
@@ -8260,8 +8392,17 @@ export default function AdminDashboardPage() {
 
       const targetUrl =
         typeof event.data.url === "string" ? event.data.url : "/admin";
+      const url = new URL(targetUrl, window.location.origin);
 
       handleAdminDeepLink(targetUrl);
+
+      if (
+        url.origin === window.location.origin &&
+        `${url.pathname}${url.search}` !==
+          `${window.location.pathname}${window.location.search}`
+      ) {
+        window.history.pushState(null, "", `${url.pathname}${url.search}`);
+      }
     }
 
     navigator.serviceWorker?.addEventListener(
@@ -11464,19 +11605,71 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    saveBookings(
-      appendCommunicationToBookings(
-        bookings,
-        booking.reference,
-        (currentBooking) =>
-          createWorkflowCommunication(
-            currentBooking,
-            trigger,
-            channel,
-            extras,
-          ),
-      ),
+    const record = createWorkflowCommunication(
+      booking,
+      trigger,
+      channel,
+      extras,
     );
+
+    if (channel === "push") {
+      void persistCustomGuestCommunication(booking, record, "failed")
+        .then((result) => {
+          setBookings((currentBookings) =>
+            appendCommunicationToBookings(
+              currentBookings,
+              booking.reference,
+              () => ({
+                ...record,
+                id: result.row?.id ?? record.id,
+                sentAt:
+                  result.row?.sent_at ??
+                  result.row?.created_at ??
+                  record.sentAt,
+              }),
+            ),
+          );
+          showWorkflowToast(
+            "No active push subscription is available for this guest.",
+          );
+        })
+        .catch((error) => {
+          console.error("[Zingara Admin] Push communication save failed", error);
+          showWorkflowToast("⚠ Push notification could not be sent.");
+        });
+      return;
+    }
+
+    void persistCustomGuestCommunication(booking, record)
+      .then((result) => {
+        const status = result.row?.status ?? (result.deduped ? "sent" : null);
+
+        setBookings((currentBookings) =>
+          appendCommunicationToBookings(
+            currentBookings,
+            booking.reference,
+            () => ({
+              ...record,
+              id: result.row?.id ?? record.id,
+              sentAt:
+                result.row?.sent_at ??
+                result.row?.created_at ??
+                record.sentAt,
+            }),
+          ),
+        );
+
+        if (status === "sent") {
+          showWorkflowToast("✓ Email sent successfully.");
+          return;
+        }
+
+        showWorkflowToast("⚠ Email could not be sent.");
+      })
+      .catch((error) => {
+        console.error("[Zingara Admin] Communication send failed", error);
+        showWorkflowToast("⚠ Email could not be sent.");
+      });
   }
 
   function createWaitlistPromotionCommunication(
@@ -12072,6 +12265,41 @@ export default function AdminDashboardPage() {
     saveTables(releaseBookingTableFromList(tables, booking));
   }
 
+  function getPayFastPaymentForBooking(booking: DemoBooking) {
+    return paymentRows.find(
+      (row) =>
+        row.reference === booking.reference &&
+        row.method === "payfast" &&
+        Boolean(row.provider_transaction_id),
+    );
+  }
+
+  function getRefundUnavailableReason(booking: DemoBooking) {
+    const financials = getBookingFinancials(booking);
+
+    if (!isSuperAdmin) {
+      return "Super Admin access is required.";
+    }
+
+    if (booking.status === "refunded" || booking.paymentStatus === "refunded") {
+      return "This booking is already marked as refunded.";
+    }
+
+    if (booking.paymentStatus === "comp-vip") {
+      return "Complimentary bookings cannot be refunded through PayFast.";
+    }
+
+    if ((financials.amountPaid ?? 0) <= 0) {
+      return "Only bookings with a recorded payment can be refunded.";
+    }
+
+    if (!getPayFastPaymentForBooking(booking)) {
+      return "This booking does not have a refundable PayFast transaction.";
+    }
+
+    return "";
+  }
+
   function createLifecycleEvent(
     booking: DemoBooking,
     toStatus: BookingStatus,
@@ -12445,7 +12673,7 @@ export default function AdminDashboardPage() {
     }
   }
 
-  function updateBookingPayment(
+  async function updateBookingPayment(
     booking: DemoBooking,
     paymentStatus: PaymentStatus,
   ) {
@@ -12453,6 +12681,11 @@ export default function AdminDashboardPage() {
       if (isBookingReadOnly(booking.reference)) {
         showWorkflowToast("This booking is currently being edited.");
       }
+      return;
+    }
+
+    if (paymentStatus === "refunded") {
+      openRefundBookingConfirmation(booking);
       return;
     }
 
@@ -12476,17 +12709,11 @@ export default function AdminDashboardPage() {
                 amountPaid: 0,
                 balanceDue: 0,
               }
-            : paymentStatus === "refunded"
-              ? {
-                  amountPaid: 0,
-                  balanceDue: 0,
-                }
               : {
                   amountPaid: 0,
                   balanceDue: financials.totalPrice,
                 };
-    const nextStatus =
-      paymentStatus === "refunded" ? ("refunded" as const) : booking.status;
+    const nextStatus = booking.status;
     const paymentLifecycleNote =
       paymentStatus === "fully-paid" || paymentStatus === "deposit-paid"
         ? `Payment received: ${paymentStatusLabels[paymentStatus]}.`
@@ -12498,16 +12725,7 @@ export default function AdminDashboardPage() {
       ...paymentUpdates,
       paymentStatus,
       lifecycleHistory:
-        paymentStatus === "refunded"
-          ? [
-              createLifecycleEvent(
-                booking,
-                "refunded",
-                booking.refundNotes || "Refund marked by box office",
-              ),
-              ...(booking.lifecycleHistory ?? []),
-            ]
-          : paymentLifecycleNote
+        paymentLifecycleNote
             ? [
                 createLifecycleEvent(
                   booking,
@@ -12517,16 +12735,11 @@ export default function AdminDashboardPage() {
                 ...(booking.lifecycleHistory ?? []),
               ]
           : booking.lifecycleHistory,
-      refundNotes:
-        paymentStatus === "refunded"
-          ? booking.refundNotes || "Refund marked by box office"
-          : booking.refundNotes,
+      refundNotes: booking.refundNotes,
       status: nextStatus,
     };
     const paymentCommunicationTrigger =
-      paymentStatus === "refunded"
-        ? ("cancellation-refund" as const)
-        : paymentStatus === "comp-vip"
+      paymentStatus === "comp-vip"
           ? ("complimentary-booking" as const)
           : ("payment-confirmation" as const);
     const paymentRecord = createWorkflowCommunication(
@@ -12538,34 +12751,258 @@ export default function AdminDashboardPage() {
       },
     );
 
-    if (paymentStatus === "refunded") {
-      releaseBookingTable(booking);
+    const nextBooking = {
+      ...updatedBooking,
+      communicationHistory: [
+        paymentRecord,
+        ...(booking.communicationHistory ?? []),
+      ],
+    };
+
+    setBookings((currentBookings) =>
+      currentBookings.map((currentBooking) =>
+        currentBooking.reference === booking.reference
+          ? nextBooking
+          : currentBooking,
+      ),
+    );
+
+    try {
+      await persistAdminBookingState(nextBooking);
+      showWorkflowToast("✓ Booking updated successfully.");
+      void sendPreferredBrowserNotification(
+        "new-booking",
+        "booking-updated",
+      );
+
+      if (paymentStatus === "fully-paid" || paymentStatus === "deposit-paid") {
+        const [guestPushResult, staffPushResult] = await Promise.all([
+          sendZingaraGuestPushNotification("payment-received", {
+            bookingReference: booking.reference,
+          }),
+          sendZingaraStaffPushNotification("payment-received", {
+            bookingReference: booking.reference,
+          }),
+        ]);
+
+        if (!guestPushResult.ok && !staffPushResult.ok) {
+          showWorkflowToast(
+            "✓ Booking updated successfully. No active push subscription is available.",
+          );
+        } else {
+          showWorkflowToast("✓ Push notification sent successfully.");
+        }
+      }
+  } catch (error) {
+      console.error("[Zingara Admin] Payment update failed", error);
+      setBookings(await getBookings());
+      showWorkflowToast("⚠ Booking update could not be saved.");
+    }
+  }
+
+  function openRefundBookingConfirmation(booking: DemoBooking) {
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      if (isBookingReadOnly(booking.reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
+      return;
     }
 
-    saveBookings(
-      bookings.map((currentBooking) =>
+    const unavailableReason = getRefundUnavailableReason(booking);
+
+    if (unavailableReason) {
+      showWorkflowToast(unavailableReason);
+      return;
+    }
+
+    setRefundBookingReference(booking.reference);
+    setRefundAdminPassword("");
+    setRefundBookingReason(booking.refundNotes ?? "");
+  }
+
+  function closeRefundBookingConfirmation() {
+    if (isRefundBookingProcessing) {
+      return;
+    }
+
+    setRefundBookingReference("");
+    setRefundAdminPassword("");
+    setRefundBookingReason("");
+  }
+
+  async function confirmRefundBooking() {
+    if (isRefundBookingProcessing || !refundBookingReference) {
+      return;
+    }
+
+    const booking = bookings.find(
+      (currentBooking) => currentBooking.reference === refundBookingReference,
+    );
+    const reason = refundBookingReason.trim();
+
+    if (!booking) {
+      closeRefundBookingConfirmation();
+      return;
+    }
+
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      showWorkflowToast("This booking is currently being edited.");
+      return;
+    }
+
+    const password = refundAdminPassword;
+    const unavailableReason = getRefundUnavailableReason(booking);
+
+    if (unavailableReason) {
+      showWorkflowToast(unavailableReason);
+      return;
+    }
+
+    if (!reason) {
+      showWorkflowToast("Add a refund reason before recording the refund.");
+      return;
+    }
+
+    if (!password) {
+      showWorkflowToast("Password confirmation failed.");
+      return;
+    }
+
+    setIsRefundBookingProcessing(true);
+
+    try {
+      const result = await fetchSupabaseApi<{
+        message?: string;
+        refund?: { amount: number; providerRefundId?: string | null; status: string };
+      }>("/api/admin/bookings/refund", {
+        body: {
+          bookingReference: booking.reference,
+          password,
+          reason,
+        },
+        method: "POST",
+      });
+
+      saveTables(releaseBookingTableFromList(tables, booking));
+      setBookings(await getBookings());
+      setPaymentRows(await getPayments());
+      setRefundBookingReference("");
+      setRefundAdminPassword("");
+      setRefundBookingReason("");
+      showWorkflowToast(result.message ?? "Refund processed successfully.");
+    } catch (error) {
+      console.error("[Zingara Admin] Refund recording failed", error);
+      setBookings(await getBookings());
+      showWorkflowToast(
+        error instanceof Error
+          ? error.message
+          : "Refund could not be processed. No changes were made to the booking.",
+      );
+    } finally {
+      setIsRefundBookingProcessing(false);
+    }
+  }
+
+  function openCompBookingConfirmation(booking: DemoBooking) {
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      if (isBookingReadOnly(booking.reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
+      return;
+    }
+
+    setCompBookingReference(booking.reference);
+  }
+
+  function closeCompBookingConfirmation() {
+    if (isCompBookingProcessing) {
+      return;
+    }
+
+    setCompBookingReference("");
+  }
+
+  async function confirmCompBooking() {
+    if (isCompBookingProcessing || !compBookingReference) {
+      return;
+    }
+
+    const booking = bookings.find(
+      (currentBooking) => currentBooking.reference === compBookingReference,
+    );
+
+    if (!booking) {
+      setCompBookingReference("");
+      return;
+    }
+
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      showWorkflowToast("This booking is currently being edited.");
+      return;
+    }
+
+    const updatedBooking = {
+      ...booking,
+      amountPaid: 0,
+      balanceDue: 0,
+      paymentStatus: "comp-vip" as const,
+      lifecycleHistory: [
+        createLifecycleEvent(
+          booking,
+          booking.status,
+          "Comp booking marked by box office.",
+        ),
+        ...(booking.lifecycleHistory ?? []),
+      ],
+    };
+    const compRecord = createWorkflowCommunication(
+      updatedBooking,
+      "complimentary-booking",
+      "email",
+      {
+        updateSummary: `Payment status changed to ${paymentStatusLabels["comp-vip"]}.`,
+      },
+    );
+
+    setIsCompBookingProcessing(true);
+    setBookings((currentBookings) =>
+      currentBookings.map((currentBooking) =>
         currentBooking.reference === booking.reference
           ? {
               ...updatedBooking,
               communicationHistory: [
-                paymentRecord,
-                ...(currentBooking.communicationHistory ?? []),
+                compRecord,
+                ...(booking.communicationHistory ?? []),
               ],
             }
           : currentBooking,
       ),
     );
-    void sendPreferredBrowserNotification(
-      "new-booking",
-      "booking-updated",
-    );
-    if (paymentStatus === "fully-paid" || paymentStatus === "deposit-paid") {
-      void sendZingaraGuestPushNotification("payment-received", {
-        bookingReference: booking.reference,
-      });
-      void sendZingaraStaffPushNotification("payment-received", {
-        bookingReference: booking.reference,
-      });
+
+    try {
+      await persistAdminBookingState(updatedBooking);
+      const result = await persistCustomGuestCommunication(
+        updatedBooking,
+        compRecord,
+      );
+      const status = result.row?.status ?? (result.deduped ? "sent" : null);
+
+      setBookings(await getBookings());
+      setCompBookingReference("");
+
+      if (result.deduped) {
+        showWorkflowToast("✓ Booking updated successfully. Email already sent.");
+      } else if (status === "sent") {
+        showWorkflowToast("✓ Booking updated successfully. Email sent successfully.");
+      } else {
+        showWorkflowToast("✓ Booking updated successfully. Email could not be sent.");
+      }
+    } catch (error) {
+      console.error("[Zingara Admin] Comp booking failed", error);
+      setBookings(await getBookings());
+      showWorkflowToast("⚠ Booking update could not be saved.");
+    } finally {
+      setIsCompBookingProcessing(false);
     }
   }
 
@@ -14950,10 +15387,73 @@ export default function AdminDashboardPage() {
     });
   }
 
-  function sendTicket(
+  async function sendTicket(
     booking: DemoBooking,
     channel: CommunicationChannel,
   ) {
+    if (channel === "push") {
+      const ticketRecord = createWorkflowCommunication(
+        booking,
+        "ticket-resend",
+        "push",
+        {
+          message: `Push ticket sent to registered app devices · Live ticket ${getTicketUrl(booking.reference)}`,
+          updateSummary: `Ticket resent by ${currentStaff?.name ?? "staff"}.`,
+        },
+      );
+
+      try {
+        const pushResult = await sendZingaraGuestPushNotification(
+          "ticket-resend",
+          {
+            bookingReference: booking.reference,
+            message: ticketRecord.message,
+            title: "Your Zingara ticket is ready",
+          },
+        );
+
+        if (!pushResult.ok) {
+          await persistCustomGuestCommunication(
+            booking,
+            ticketRecord,
+            "failed",
+          );
+          showWorkflowToast(
+            (pushResult.subscriptionCount ?? 0) === 0
+              ? "No active push subscription is available for this guest."
+              : "Push notification could not be sent.",
+          );
+          return;
+        }
+
+        const result = await persistCustomGuestCommunication(
+          booking,
+          ticketRecord,
+          "sent",
+        );
+
+        setBookings((currentBookings) =>
+          appendCommunicationToBookings(
+            currentBookings,
+            booking.reference,
+            () => ({
+              ...ticketRecord,
+              id: result.row?.id ?? ticketRecord.id,
+              sentAt:
+                result.row?.sent_at ??
+                result.row?.created_at ??
+                ticketRecord.sentAt,
+            }),
+          ),
+        );
+        showWorkflowToast("✓ Push notification sent successfully.");
+      } catch (error) {
+        console.error("[Zingara Admin] Ticket push failed", error);
+        showWorkflowToast("⚠ Push notification could not be sent.");
+      }
+      return;
+    }
+
     sendWorkflowCommunication(booking, "ticket-resend", channel, {
       message: `${communicationChannelLabels[channel]} ticket sent to ${
         channel === "email"
@@ -14984,7 +15484,12 @@ export default function AdminDashboardPage() {
   ) {
     return fetchSupabaseApi<{
       deduped?: boolean;
-      row: { status?: "failed" | "sent" } | null;
+      row: {
+        created_at?: string | null;
+        id?: string;
+        sent_at?: string | null;
+        status?: "failed" | "sent";
+      } | null;
     }>("/api/admin/communications", {
       body: {
         booking,
@@ -14993,6 +15498,19 @@ export default function AdminDashboardPage() {
       },
       method: "POST",
     });
+  }
+
+  async function persistAdminBookingState(booking: DemoBooking) {
+    await fetchSupabaseApi<{ row: unknown }>("/api/admin/bookings", {
+      body: {
+        action: "update-state",
+        booking,
+      },
+      method: "PATCH",
+    });
+    await updatePayment(booking);
+    await updateTicket(booking);
+    setBookings(await getBookings());
   }
 
   async function sendCustomGuestMessage(booking: DemoBooking) {
@@ -19173,6 +19691,161 @@ export default function AdminDashboardPage() {
                       {isCancellingBooking
                         ? "Cancelling..."
                         : "Confirm Cancellation"}
+                    </button>
+                  </div>
+                </section>
+              </div>
+            );
+          })()}
+
+        {refundBookingReference &&
+          (() => {
+            const refundBooking = bookings.find(
+              (booking) => booking.reference === refundBookingReference,
+            );
+            const refundFinancials = refundBooking
+              ? getBookingFinancials(refundBooking)
+              : null;
+
+            return (
+              <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
+                <section className="w-full max-w-xl rounded-[2rem] border border-red-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-red-200">
+                    Refund Booking
+                  </p>
+                  <h2 className="mt-3 text-2xl font-bold">
+                    {refundBooking?.customer.name ?? "Refund Booking"}
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-zinc-300">
+                    This will submit a real PayFast refund after Super Admin
+                    password confirmation. The booking is only marked refunded
+                    after PayFast accepts the refund.
+                  </p>
+                  {refundBooking && refundFinancials && (
+                    <p className="mt-3 rounded-2xl border border-white/10 bg-black/35 p-3 text-sm text-zinc-400">
+                      Booking {refundBooking.reference} · Original payment{" "}
+                      {formatCurrency(refundFinancials.amountPaid)} · Available
+                      to refund {formatCurrency(refundFinancials.amountPaid)}
+                    </p>
+                  )}
+
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-zinc-300">
+                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Refund type
+                    </span>
+                    <p className="mt-2 font-semibold text-white">
+                      Full PayFast refund
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-zinc-500">
+                      The refund amount is resolved from the original PayFast
+                      payment record. Partial refunds are not available yet.
+                    </p>
+                  </div>
+
+                  <label className="mt-5 block">
+                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Refund reason
+                    </span>
+                    <textarea
+                      value={refundBookingReason}
+                      onChange={(event) =>
+                        setRefundBookingReason(event.target.value)
+                      }
+                      rows={3}
+                      disabled={isRefundBookingProcessing}
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-red-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Record the approved refund context."
+                    />
+                  </label>
+
+                  <label className="mt-5 block">
+                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Super Admin confirmation
+                    </span>
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      value={refundAdminPassword}
+                      onChange={(event) =>
+                        setRefundAdminPassword(event.target.value)
+                      }
+                      disabled={isRefundBookingProcessing}
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-red-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Enter your password to authorise this refund."
+                    />
+                  </label>
+
+                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={closeRefundBookingConfirmation}
+                      disabled={isRefundBookingProcessing}
+                      className="rounded-full border border-white/20 px-5 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void confirmRefundBooking()}
+                      disabled={
+                        isRefundBookingProcessing ||
+                        !refundBookingReason.trim() ||
+                        !refundAdminPassword
+                      }
+                      className="rounded-full border border-red-300/45 bg-red-300 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isRefundBookingProcessing
+                        ? "Processing refund..."
+                        : "Process Refund"}
+                    </button>
+                  </div>
+                </section>
+              </div>
+            );
+          })()}
+
+        {compBookingReference &&
+          (() => {
+            const compBooking = bookings.find(
+              (booking) => booking.reference === compBookingReference,
+            );
+
+            return (
+              <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
+                <section className="w-full max-w-lg rounded-[2rem] border border-purple-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-purple-200">
+                    Comp Booking?
+                  </p>
+                  <h2 className="mt-3 text-2xl font-bold">
+                    {compBooking?.customer.name ?? "Complimentary Booking"}
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-zinc-300">
+                    This will mark the booking as complimentary and set the
+                    outstanding guest balance to R0.
+                  </p>
+                  {compBooking && (
+                    <p className="mt-3 rounded-2xl border border-white/10 bg-black/35 p-3 text-sm text-zinc-400">
+                      {compBooking.reference} · {compBooking.partySize} guests ·{" "}
+                      {compBooking.zoneTitle}
+                    </p>
+                  )}
+
+                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={closeCompBookingConfirmation}
+                      disabled={isCompBookingProcessing}
+                      className="rounded-full border border-white/20 px-5 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void confirmCompBooking()}
+                      disabled={isCompBookingProcessing}
+                      className="rounded-full border border-purple-300/45 bg-purple-300 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-purple-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isCompBookingProcessing ? "Comping..." : "Comp Booking"}
                     </button>
                   </div>
                 </section>
@@ -28616,6 +29289,8 @@ export default function AdminDashboardPage() {
             >
               {paginatedBookings.map((booking) => {
                 const financials = getBookingFinancials(booking);
+                const refundUnavailableReason =
+                  getRefundUnavailableReason(booking);
                 const currentTable = tables.find(
                   (table) => table.id === booking.tableId,
                 );
@@ -29383,18 +30058,18 @@ export default function AdminDashboardPage() {
                               >
                                 Mark Paid
                               </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateBookingPayment(
-                                    booking,
-                                    "comp-vip",
-                                  )
-                                }
-                                className="rounded-full border border-purple-300/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-purple-100 transition hover:bg-purple-300 hover:text-black"
-                              >
-                                Comp Booking
-                              </button>
+	                              <button
+	                                type="button"
+	                                onClick={() =>
+	                                  openCompBookingConfirmation(booking)
+	                                }
+	                                disabled={isCompBookingProcessing}
+	                                className="rounded-full border border-purple-300/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-purple-100 transition hover:bg-purple-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+	                              >
+	                                {isCompBookingProcessing
+	                                  ? "Comping..."
+	                                  : "Comp Booking"}
+	                              </button>
                               <button
                                 type="button"
                                 onClick={() =>
@@ -29403,9 +30078,16 @@ export default function AdminDashboardPage() {
                                     "refunded",
                                   )
                                 }
-                                className="rounded-full border border-red-300/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-red-100 transition hover:bg-red-300 hover:text-black"
+                                disabled={
+                                  isRefundBookingProcessing ||
+                                  Boolean(refundUnavailableReason)
+                                }
+                                title={refundUnavailableReason || undefined}
+                                className="rounded-full border border-red-300/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-red-100 transition hover:bg-red-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                Refund Booking
+                                {isRefundBookingProcessing
+                                  ? "Processing..."
+                                  : "Refund Booking"}
                               </button>
                             </div>
                           </div>

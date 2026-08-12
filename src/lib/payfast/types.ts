@@ -12,6 +12,7 @@ export type PayFastFieldValue = boolean | number | string | null | undefined;
 export type PayFastData = Record<string, PayFastFieldValue>;
 
 export type PayFastConfig = {
+  apiUrl: string;
   cancelUrl: string;
   configured: boolean;
   merchantId: string;

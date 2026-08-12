@@ -50,6 +50,14 @@ type SupabaseBookingStatus =
   | "refunded"
   | "waitlisted";
 
+type SupabasePaymentStatus =
+  | "cancelled"
+  | "comp_vip"
+  | "deposit_paid"
+  | "fully_paid"
+  | "pending_payment"
+  | "refunded";
+
 function toSupabaseBookingStatus(status: BookingStatus): SupabaseBookingStatus {
   if (status === "pending-payment" || status === "pending") {
     return "pending_payment";
@@ -64,6 +72,26 @@ function toSupabaseBookingStatus(status: BookingStatus): SupabaseBookingStatus {
   }
 
   return status;
+}
+
+function toSupabasePaymentStatus(status?: DemoBooking["paymentStatus"]): SupabasePaymentStatus {
+  if (status === "deposit-paid") {
+    return "deposit_paid";
+  }
+
+  if (status === "fully-paid") {
+    return "fully_paid";
+  }
+
+  if (status === "comp-vip") {
+    return "comp_vip";
+  }
+
+  if (status === "refunded") {
+    return "refunded";
+  }
+
+  return "pending_payment";
 }
 
 function serializeBookingNotes(booking: DemoBooking) {
@@ -658,6 +686,162 @@ async function persistBookingCancellation(request: Request) {
   }
 }
 
+async function persistBookingStateUpdate(request: Request, body: {
+  booking?: DemoBooking;
+}) {
+  const supabase = getRouteClient();
+
+  if (!supabase) {
+    return Response.json(
+      { error: "Supabase service role is not configured." },
+      { status: 500 },
+    );
+  }
+
+  try {
+    const booking = body.booking;
+
+    if (!booking?.reference) {
+      return Response.json(
+        { error: "A booking payload is required." },
+        { status: 400 },
+      );
+    }
+
+    const lockError = await ensureNoConflictingBookingLock(
+      request,
+      booking.reference,
+    );
+
+    if (lockError) {
+      return lockError;
+    }
+
+    const { data: beforeBooking, error: beforeError } = await supabase
+      .from("bookings")
+      .select(bookingSelect)
+      .eq("booking_reference", booking.reference)
+      .maybeSingle();
+
+    if (beforeError) {
+      throw beforeError;
+    }
+
+    if (!beforeBooking) {
+      return Response.json(
+        { error: "Booking could not be resolved." },
+        { status: 404 },
+      );
+    }
+
+    if ((beforeBooking as { archived_at?: string | null }).archived_at) {
+      const actor = await getAuditActor(request);
+
+      await tryRecordAuditEvent(supabase, actor.staffProfile, actor.user, {
+        action: "booking.edit",
+        entityId: (beforeBooking as { id?: string }).id ?? null,
+        entityReference: booking.reference,
+        entityType: "booking",
+        outcome: "blocked",
+        reason: "Archived bookings must be restored before editing.",
+        request,
+        sourceArea: "Bookings",
+      });
+
+      return Response.json(
+        { error: "Archived bookings must be restored before editing." },
+        { status: 409 },
+      );
+    }
+
+    const bookingId = (beforeBooking as { id: string }).id;
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from("bookings")
+      .update({
+        amount_paid: booking.amountPaid ?? 0,
+        balance_outstanding: booking.balanceDue ?? 0,
+        booking_status: toSupabaseBookingStatus(booking.status),
+        notes: serializeBookingNotes(booking),
+        payment_status: toSupabasePaymentStatus(booking.paymentStatus),
+      })
+      .eq("id", bookingId)
+      .select(bookingSelect)
+      .maybeSingle();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    if (
+      toSupabaseBookingStatus(booking.status) === "refunded" ||
+      toSupabasePaymentStatus(booking.paymentStatus) === "refunded"
+    ) {
+      await releaseTableClaimsForBookings(supabase, [bookingId]);
+    }
+
+    for (const event of booking.lifecycleHistory ?? []) {
+      const payload = toLifecyclePayload(event, bookingId);
+      let existingEventQuery = supabase
+        .from("booking_lifecycle_events")
+        .select("id")
+        .eq("booking_id", bookingId)
+        .eq("note", payload.note)
+        .eq("to_status", payload.to_status)
+        .limit(1);
+
+      existingEventQuery = payload.from_status
+        ? existingEventQuery.eq("from_status", payload.from_status)
+        : existingEventQuery.is("from_status", null);
+
+      const { data: existingEvents, error: eventLoadError } =
+        await existingEventQuery;
+
+      if (eventLoadError) {
+        throw eventLoadError;
+      }
+
+      if (!existingEvents?.length) {
+        const { error: eventInsertError } = await supabase
+          .from("booking_lifecycle_events")
+          .insert(payload);
+
+        if (eventInsertError) {
+          throw eventInsertError;
+        }
+      }
+    }
+
+    const actor = await getAuditActor(request);
+    const diff = diffAuditFields(
+      beforeBooking as Record<string, unknown>,
+      updatedBooking as Record<string, unknown>,
+      bookingAuditFields,
+    );
+
+    await recordAuditEvent(supabase, actor.staffProfile, actor.user, {
+      action: "booking.edit",
+      afterValues: diff.afterValues,
+      beforeValues: diff.beforeValues,
+      changedFields: diff.changedFields,
+      entityId: bookingId,
+      entityReference: booking.reference,
+      entityType: "booking",
+      outcome: "success",
+      request,
+      sourceArea: "Bookings",
+    });
+
+    return Response.json({ row: updatedBooking });
+  } catch (error) {
+    console.error("[Zingara API] Failed to persist booking state update", error);
+
+    return Response.json(
+      { error: "Booking update could not be saved." },
+      { status: 500 },
+    );
+  }
+}
+
 async function setBookingArchiveState(
   request: Request,
   options: {
@@ -855,6 +1039,10 @@ export async function PATCH(request: Request) {
         method: request.method,
       }),
     );
+  }
+
+  if (body.action === "update-state") {
+    return persistBookingStateUpdate(request, body);
   }
 
   if (body.action === "archive" || body.action === "restore") {

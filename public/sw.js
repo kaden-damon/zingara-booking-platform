@@ -88,6 +88,12 @@ self.addEventListener("notificationclick", (event) => {
             url: targetUrl,
           });
 
+          if ("navigate" in appClient && appClient.url !== targetUrl) {
+            return appClient.navigate(targetUrl).then((client) =>
+              client ? client.focus() : self.clients.openWindow(targetUrl),
+            );
+          }
+
           return appClient.focus();
         }
 
