@@ -1,0 +1,246 @@
+import crypto from "crypto";
+import {
+  createExistingBookingPayFastCheckout,
+} from "@/lib/payfast/checkout";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DemoBooking } from "@/lib/zingaraDemo";
+
+export const bookingMetadataPrefix = "__zingara_booking_meta__:";
+
+export type PaymentLinkBookingRow = {
+  amount_paid: number | null;
+  balance_outstanding: number | null;
+  booking_reference: string;
+  booking_source: string | null;
+  booking_status: string;
+  customer_id: string;
+  id: string;
+  notes: string | null;
+  payment_status: string;
+  section: string | null;
+  show_id: string;
+  total_amount: number | null;
+};
+
+export type PaymentLinkCustomerRow = {
+  email: string | null;
+  first_name: string | null;
+  mobile: string | null;
+  surname: string | null;
+};
+
+export type PaymentLinkShowRow = {
+  date: string;
+  id: string;
+  name: string;
+  time: string;
+  venue: string | null;
+};
+
+export type PaymentLinkRecordRow = {
+  booking_id: string;
+  booking_reference: string;
+  expires_at: string;
+  id: string;
+  status: "active" | "expired" | "revoked" | "used";
+};
+
+export type PaymentLinkCheckoutResult =
+  | {
+      actionUrl: string;
+      fields: Record<string, boolean | number | string | null | undefined>;
+      mode: "live" | "sandbox";
+      status: "payfast";
+    }
+  | {
+      bookingReference: string;
+      status: "zero_value";
+    }
+  | {
+      bookingReference: string;
+      status: "already_paid";
+    };
+
+export function parseBookingMetadata(notes: string | null) {
+  if (!notes?.startsWith(bookingMetadataPrefix)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(notes.slice(bookingMetadataPrefix.length)) as DemoBooking;
+  } catch {
+    return null;
+  }
+}
+
+export function hashPaymentLinkToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+export function createPaymentLinkToken() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+export function getPaymentLinkUrl(request: Request, token: string) {
+  const url = new URL(request.url);
+
+  return `${url.origin}/payment/${encodeURIComponent(token)}`;
+}
+
+export function getOutstandingAmount(row: PaymentLinkBookingRow) {
+  return Math.max(
+    Number(row.balance_outstanding ?? row.total_amount ?? 0) || 0,
+    0,
+  );
+}
+
+export function isBookingPaymentLinkEligible(row: PaymentLinkBookingRow) {
+  if (["cancelled", "refunded", "completed"].includes(row.booking_status)) {
+    return false;
+  }
+
+  if (["fully_paid", "comp_vip", "cancelled", "refunded"].includes(row.payment_status)) {
+    return false;
+  }
+
+  return true;
+}
+
+export function getCustomerName(customer: PaymentLinkCustomerRow | null) {
+  return [customer?.first_name, customer?.surname]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+export async function loadBookingForPaymentLink(
+  supabase: SupabaseClient,
+  bookingReference: string,
+) {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(
+      "id,customer_id,show_id,booking_reference,booking_source,booking_status,payment_status,total_amount,amount_paid,balance_outstanding,section,notes",
+    )
+    .eq("booking_reference", bookingReference)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as PaymentLinkBookingRow | null;
+}
+
+export async function loadCustomerForPaymentLink(
+  supabase: SupabaseClient,
+  customerId: string,
+) {
+  const { data, error } = await supabase
+    .from("customers")
+    .select("first_name,surname,email,mobile")
+    .eq("id", customerId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as PaymentLinkCustomerRow | null;
+}
+
+export async function loadShowForPaymentLink(
+  supabase: SupabaseClient,
+  showId: string,
+) {
+  const { data, error } = await supabase
+    .from("shows")
+    .select("id,name,date,time,venue")
+    .eq("id", showId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as PaymentLinkShowRow | null;
+}
+
+export async function loadActivePaymentLink(
+  supabase: SupabaseClient,
+  token: string,
+) {
+  const tokenHash = hashPaymentLinkToken(token.trim());
+  const { data, error } = await supabase
+    .from("booking_payment_links")
+    .select("id,booking_id,booking_reference,status,expires_at")
+    .eq("token_hash", tokenHash)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as PaymentLinkRecordRow | null;
+}
+
+export async function expirePaymentLink(
+  supabase: SupabaseClient,
+  linkId: string,
+) {
+  await supabase
+    .from("booking_payment_links")
+    .update({
+      status: "expired",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", linkId)
+    .eq("status", "active");
+}
+
+export async function createPayFastCheckoutForBookingLink(
+  supabase: SupabaseClient,
+  row: PaymentLinkBookingRow,
+  customer: PaymentLinkCustomerRow | null,
+): Promise<PaymentLinkCheckoutResult> {
+  const outstandingAmount = getOutstandingAmount(row);
+
+  if (outstandingAmount <= 0 || row.payment_status === "fully_paid") {
+    return row.payment_status === "pending_payment"
+      ? {
+          bookingReference: row.booking_reference,
+          status: "zero_value",
+        }
+      : {
+          bookingReference: row.booking_reference,
+          status: "already_paid",
+        };
+  }
+
+  const booking = parseBookingMetadata(row.notes);
+  const checkout = await createExistingBookingPayFastCheckout(supabase, {
+    amount: outstandingAmount,
+    bookingReference: row.booking_reference,
+    customer: {
+      email: customer?.email ?? booking?.customer.email,
+      name: getCustomerName(customer) || booking?.customer.name,
+      phone: customer?.mobile ?? booking?.customer.phone,
+    },
+    itemDescription: `Zingara booking payment ${row.booking_reference}`,
+    itemName: "The Royal Countess Zingara Booking",
+    section: row.section ?? booking?.zoneTitle,
+  });
+
+  if ("error" in checkout) {
+    throw Object.assign(new Error(checkout.error), {
+      status: checkout.status,
+    });
+  }
+
+  return {
+    actionUrl: checkout.actionUrl,
+    fields: checkout.fields,
+    mode: checkout.mode,
+    status: "payfast",
+  };
+}

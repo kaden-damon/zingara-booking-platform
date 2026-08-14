@@ -107,7 +107,7 @@ function passwordPage(request: NextRequest, error = false) {
         border: 1px solid rgba(216, 195, 106, 0.36);
         background: rgba(0, 0, 0, 0.72);
         color: var(--text);
-        padding: 0.95rem 1rem;
+        padding: 0.95rem 4.5rem 0.95rem 1rem;
         border-radius: 0;
         font: inherit;
         outline: none;
@@ -133,6 +133,30 @@ function passwordPage(request: NextRequest, error = false) {
         filter: brightness(1.05);
         transform: translateY(-1px);
       }
+      .password-field {
+        position: relative;
+      }
+      .password-toggle {
+        position: absolute;
+        top: 50%;
+        right: 0.75rem;
+        width: auto;
+        margin: 0;
+        border: 1px solid rgba(255, 250, 240, 0.14);
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.5);
+        color: rgba(255, 250, 240, 0.8);
+        padding: 0.35rem 0.55rem;
+        font-size: 0.7rem;
+        letter-spacing: 0.08em;
+        transform: translateY(-50%);
+      }
+      .password-toggle:hover {
+        border-color: rgba(216, 195, 106, 0.5);
+        color: var(--gold);
+        filter: none;
+        transform: translateY(-50%);
+      }
       .error {
         margin-top: 1rem;
         color: #ffb4a8;
@@ -147,7 +171,10 @@ function passwordPage(request: NextRequest, error = false) {
         <h1>Private Preview</h1>
         <form method="post" action="${escapeHtml(action)}">
           <label for="site-password">Password</label>
-          <input id="site-password" name="password" type="password" autocomplete="current-password" autofocus required />
+          <div class="password-field">
+            <input id="site-password" name="password" type="password" autocomplete="current-password" autofocus required />
+            <button class="password-toggle" type="button" aria-label="Show Password" aria-pressed="false">Show</button>
+          </div>
           <button type="submit">Enter</button>
           ${errorMarkup}
         </form>
@@ -164,6 +191,20 @@ function passwordPage(request: NextRequest, error = false) {
             "zingara-supabase-auth-fragment",
             fragment,
           );
+        }
+        const passwordInput = document.getElementById("site-password");
+        const passwordToggle = document.querySelector(".password-toggle");
+        if (passwordInput && passwordToggle) {
+          passwordToggle.addEventListener("click", () => {
+            const isVisible = passwordInput.getAttribute("type") === "text";
+            passwordInput.setAttribute("type", isVisible ? "password" : "text");
+            passwordToggle.textContent = isVisible ? "Show" : "Hide";
+            passwordToggle.setAttribute(
+              "aria-label",
+              isVisible ? "Show Password" : "Hide Password",
+            );
+            passwordToggle.setAttribute("aria-pressed", String(!isVisible));
+          });
         }
       })();
     </script>

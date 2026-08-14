@@ -61,6 +61,7 @@ import {
   getCompactShowDateTime,
   getSouthAfricaShowTime,
   getIncludedBookingFeeBreakdown,
+  getPublicSaleableTables,
   getStoredDemoTables,
   getTableAllocationDisplay,
   getTicketUrl,
@@ -1075,7 +1076,7 @@ export default function BookingPage() {
 
     async function loadShowInventory() {
       const nextShows = await getShows();
-      const nextTables = getStoredDemoTables(nextShows);
+      const nextTables = getPublicSaleableTables(getStoredDemoTables(nextShows));
       const nextVenueSettings = await getVenueSettings();
       const nextGuestVisibleShows = nextShows.filter(isGuestVisibleShow);
 

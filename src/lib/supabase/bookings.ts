@@ -6,7 +6,11 @@ import {
   type CommunicationTrigger,
   type DemoBooking,
   type PaymentStatus,
+  type SeatingZoneId,
   createTicketCode,
+  defaultTables,
+  getDisplayZoneTitle,
+  isValidSeatingZoneId,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
 import { fetchSupabaseApi } from "./apiClient";
@@ -114,7 +118,19 @@ type SupabaseLifecycleEventRow = {
 
 type SupabaseBookingAggregateRow = SupabaseBookingRow & {
   communication_rows?: SupabaseCommunicationRow[];
+  customer_row?: {
+    email: string | null;
+    first_name: string | null;
+    id: string;
+    mobile: string | null;
+    surname: string | null;
+  } | null;
   lifecycle_event_rows?: SupabaseLifecycleEventRow[];
+  table_row?: {
+    id: string;
+    section: string | null;
+    table_code: string;
+  } | null;
 };
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
@@ -190,6 +206,79 @@ function toDemoPaymentStatus(status: SupabasePaymentStatus): PaymentStatus {
   }
 
   return "pending-payment";
+}
+
+function normalizeBookingSection(section?: string | null): SeatingZoneId {
+  const normalized = section?.trim().toLowerCase() ?? "";
+
+  if (isValidSeatingZoneId(normalized)) {
+    return normalized;
+  }
+
+  if (
+    normalized === "private booth" ||
+    normalized === "private booths" ||
+    normalized === "royal booth" ||
+    normalized === "royal booths" ||
+    normalized === "booth" ||
+    normalized === "booths"
+  ) {
+    return "royal-booths";
+  }
+
+  if (normalized === "middle ring") {
+    return "middle-ring";
+  }
+
+  if (normalized === "golden circle") {
+    return "golden-circle";
+  }
+
+  if (normalized === "royal balcony") {
+    return "royal-balcony";
+  }
+
+  if (normalized === "elevated stage") {
+    return "elevated-stage";
+  }
+
+  return "middle-ring";
+}
+
+function getDemoTableId(
+  showReference: string,
+  zoneId: SeatingZoneId,
+  tableCode: string,
+) {
+  const matchingDefaultTable = defaultTables.find(
+    (table) => table.zoneId === zoneId && table.tableNumber === tableCode,
+  );
+
+  if (matchingDefaultTable) {
+    return `${showReference}-${matchingDefaultTable.id}`;
+  }
+
+  const normalizedCode = tableCode
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return `${showReference}-${zoneId}-${normalizedCode || "table"}`;
+}
+
+function getCustomerName(
+  customer?: SupabaseBookingAggregateRow["customer_row"],
+) {
+  const fullName = [
+    customer?.first_name?.trim(),
+    customer?.surname?.trim(),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  return fullName || "Imported Guest";
 }
 
 function toCommunicationTrigger(
@@ -547,9 +636,17 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
         row.communication_rows,
       ),
       lifecycleHistory: mergeLifecycleHistory(booking, row.lifecycle_event_rows),
+      zoneTitle: getDisplayZoneTitle(booking.zoneId, booking.zoneTitle),
     };
   }
 
+  const showReference = await getLegacyShowId(row.show_id);
+  const zoneId = normalizeBookingSection(row.table_row?.section ?? row.section);
+  const zoneTitle = getDisplayZoneTitle(zoneId, row.section ?? undefined);
+  const floorAssignmentRequired = !row.table_id;
+  const tableNumber = floorAssignmentRequired
+    ? "Requires floor assignment"
+    : row.table_row?.table_code ?? "Assigned table";
   const booking: DemoBooking = {
     addons: [],
     addonsTotal: row.addons_total,
@@ -562,9 +659,9 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     communicationHistory: [],
     createdAt: row.created_at,
     customer: {
-      email: "",
-      name: "Supabase Guest",
-      phone: "",
+      email: row.customer_row?.email ?? "",
+      name: getCustomerName(row.customer_row),
+      phone: row.customer_row?.mobile ?? "",
     },
     discountAmount: row.discount_amount,
     lifecycleHistory: [],
@@ -575,17 +672,19 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       row.guest_count > 0 ? Math.round(row.total_amount / row.guest_count) : 0,
     reference: row.booking_reference,
     serviceFeeAmount: row.service_fee,
-    showId: await getLegacyShowId(row.show_id),
+    showId: showReference,
     source: row.booking_source as DemoBooking["source"],
     status: toDemoBookingStatus(row.booking_status),
     supabaseBookingId: row.id,
     subtotalPrice: row.subtotal_amount,
-    tableId: row.table_id ?? "supabase-table",
-    tableNumber: "Internal",
+    tableId: row.table_id
+      ? getDemoTableId(showReference, zoneId, tableNumber)
+      : "requires-floor-assignment",
+    tableNumber,
     ticketCode: createTicketCode(row.booking_reference),
     totalPrice: row.total_amount,
-    zoneId: "middle-ring",
-    zoneTitle: row.section ?? "Middle Ring",
+    zoneId,
+    zoneTitle,
   };
 
   return {

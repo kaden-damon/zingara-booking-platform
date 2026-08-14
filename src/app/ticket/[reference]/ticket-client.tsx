@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import ScannableQrCode from "../../components/ScannableQrCode";
+import { registerZingaraPushSubscription } from "../../../lib/browserNotifications";
 import {
   createDownloadableTicketPdf,
   resolveDownloadableTicketPdfInput,
@@ -105,6 +106,7 @@ export default function LiveTicketClient({
   const [ticketActionStatus, setTicketActionStatus] =
     useState<Record<string, string>>({});
   const [hasAutoDownloaded, setHasAutoDownloaded] = useState(false);
+  const [bookingUpdatesStatus, setBookingUpdatesStatus] = useState("");
   const venueConfig = payload?.venueSettings ?? defaultVenueSettings;
   const booking = payload?.booking ?? null;
   const activeTicket = payload?.activeTicket ?? null;
@@ -241,6 +243,27 @@ export default function LiveTicketClient({
 
     window.location.assign("/admin");
   };
+
+  async function enableBookingUpdates() {
+    if (!booking) {
+      return;
+    }
+
+    setBookingUpdatesStatus("Preparing booking updates...");
+
+    const result = await registerZingaraPushSubscription({
+      bookingReference: booking.reference,
+      customerEmail: booking.customer.email,
+      customerName: booking.customer.name,
+    });
+
+    setBookingUpdatesStatus(
+      result.ok
+        ? "Booking updates enabled on this device."
+        : result.reason ??
+            "Booking updates could not be enabled on this device.",
+    );
+  }
 
   async function saveTicket(ticket: GuestTicket) {
     const form = ticketForms[ticket.ticketCode];
@@ -442,7 +465,21 @@ export default function LiveTicketClient({
                 Customise Tickets
               </button>
             )}
+            {booking && (
+              <button
+                type="button"
+                onClick={() => void enableBookingUpdates()}
+                className="rounded-full border border-[#D8C36A]/40 px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+              >
+                Get Booking Updates
+              </button>
+            )}
           </div>
+          {bookingUpdatesStatus && (
+            <p className="mt-4 text-sm font-semibold text-emerald-300">
+              {bookingUpdatesStatus}
+            </p>
+          )}
         </div>
 
         {isLoading ? (

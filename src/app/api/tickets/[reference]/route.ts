@@ -5,6 +5,8 @@ import {
   type GuestTicket,
   createGuestTicketCode,
   defaultVenueSettings,
+  getDisplayZoneTitle,
+  getZoneSectionLookupTitles,
   getGuestTicketsForBooking,
   getTicketUrl,
   normalizeShowLocation,
@@ -130,7 +132,13 @@ function toVenueSettings(row: SupabaseVenueSettingsRow | null | undefined) {
 function getTableColour(booking: DemoBooking) {
   const zone =
     seatingZones.find((item) => item.id === booking.zoneId) ??
-    seatingZones.find((item) => item.title === booking.zoneTitle);
+    seatingZones.find((item) => {
+      const normalizedBookingZoneTitle = booking.zoneTitle.trim().toLowerCase();
+
+      return getZoneSectionLookupTitles(item.id, item.title)
+        .map((title) => title.toLowerCase())
+        .includes(normalizedBookingZoneTitle);
+    });
 
   if (!zone) {
     return {
@@ -164,7 +172,7 @@ function getTableColour(booking: DemoBooking) {
     "royal-booths": {
       background: "#5B001B",
       border: "#A34063",
-      label: "Royal Booths Ruby",
+      label: "Private Booths Ruby",
     },
   };
 
@@ -360,7 +368,7 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
     tableNumber: "Internal",
     totalPrice: 0,
     zoneId: "middle-ring",
-    zoneTitle: bookingRow.section ?? "Middle Ring",
+    zoneTitle: getDisplayZoneTitle(undefined, bookingRow.section ?? "Middle Ring"),
   } satisfies DemoBooking;
   const booking = await persistGuestTickets(
     requestUrl,

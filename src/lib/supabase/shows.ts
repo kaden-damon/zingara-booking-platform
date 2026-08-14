@@ -1,4 +1,5 @@
 import {
+  type DemoTable,
   type DemoShow,
   type EntryLocationKey,
   getStoredDemoShows,
@@ -132,6 +133,7 @@ function toDemoShow(row: SupabaseShowRow): DemoShow {
     label: row.name,
     location: location ?? undefined,
     operationalStatus: toDemoStatus(row.status),
+    supabaseId: row.id,
     time: row.time.slice(0, 5),
     venueName: row.venue,
   };
@@ -149,21 +151,63 @@ function toSupabaseShow(show: DemoShow): SupabaseShowWrite {
   };
 }
 
-export async function getShows() {
-  try {
-    const payload = await fetchSupabaseApi<{ shows: DemoShow[] }>(
-      "/api/admin/shows",
-    );
+export type ShowsWithTables = {
+  shows: DemoShow[];
+  tables: DemoTable[];
+  tablesLoaded: boolean;
+};
+export type ShowTableScope = {
+  tableLocation?: EntryLocationKey | "all";
+  tableMonth?: string;
+  tableShow?: string;
+};
 
-    if (!payload.shows || payload.shows.length === 0) {
-      return getStoredDemoShows();
+export async function getShowsWithTables(
+  scope: ShowTableScope = {},
+): Promise<ShowsWithTables> {
+  try {
+    const searchParams = new URLSearchParams();
+
+    if (scope.tableMonth) {
+      searchParams.set("tableMonth", scope.tableMonth);
     }
 
-    return payload.shows;
+    if (scope.tableLocation) {
+      searchParams.set("tableLocation", scope.tableLocation);
+    }
+
+    if (scope.tableShow) {
+      searchParams.set("tableShow", scope.tableShow);
+    }
+
+    const queryString = searchParams.toString();
+    const payload = await fetchSupabaseApi<{
+      shows?: DemoShow[];
+      tables?: DemoTable[];
+    }>(`/api/admin/shows${queryString ? `?${queryString}` : ""}`);
+    const shows =
+      payload.shows && payload.shows.length > 0
+        ? payload.shows
+        : getStoredDemoShows();
+
+    return {
+      shows,
+      tables: payload.tables ?? [],
+      tablesLoaded: Array.isArray(payload.tables),
+    };
   } catch (error) {
     console.error("[Zingara Supabase] Failed to load shows", error);
-    return getStoredDemoShows();
+
+    return {
+      shows: getStoredDemoShows(),
+      tables: [],
+      tablesLoaded: false,
+    };
   }
+}
+
+export async function getShows() {
+  return (await getShowsWithTables()).shows;
 }
 
 export async function createShow(show: DemoShow) {
@@ -207,7 +251,36 @@ export async function replaceShows(shows: DemoShow[]) {
     return payload.shows ?? shows;
   } catch (error) {
     console.error("[Zingara Supabase] Failed to persist shows", error);
-    return shows;
+    throw error;
+  }
+}
+
+export async function replaceShowsWithLock(
+  shows: DemoShow[],
+  lock: {
+    lockId?: string;
+    lockSessionId?: string;
+    lockShowReference?: string;
+  },
+) {
+  storeDemoShows(shows);
+
+  try {
+    const payload = await fetchSupabaseApi<{ shows: DemoShow[] }>(
+      "/api/admin/shows",
+      {
+        body: {
+          ...lock,
+          shows,
+        },
+        method: "PUT",
+      },
+    );
+
+    return payload.shows ?? shows;
+  } catch (error) {
+    console.error("[Zingara Supabase] Failed to persist shows", error);
+    throw error;
   }
 }
 

@@ -15,6 +15,7 @@ import {
   type PaymentStatus,
   createTicketCode,
   getShowLocationOption,
+  getZoneSectionLookupTitles,
   seatingZones,
 } from "@/lib/zingaraDemo";
 
@@ -51,13 +52,120 @@ type ShowRow = {
   venue: string;
 };
 type TableRow = {
+  availability_scope?: "operational" | "public" | null;
+  capacity: number;
+  booking_id: string | null;
   id: string;
   section: string;
   show_id: string;
+  status: string;
   table_code: string;
 };
 
+type MutableImportTableRow = TableRow & {
+  reservedByImportRow?: number;
+};
+type ImportTableResolution = {
+  overflowCapacity?: number;
+  overflowTableCode?: string;
+  table: MutableImportTableRow | null;
+  type: "existing" | "overflow" | "unallocated";
+};
+
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
+const showMetadataPrefix = "__zingara_show_meta__:";
+const dataPortabilityOperatorEmail = "kaden@kaden.co.za";
+const controlledDineplanImportShowId = "8ff85be9-8604-4ae7-b746-46f8f310f4b4";
+const controlledDineplanImportDate = "2026-09-18";
+const controlledDineplanImportLocation = "johannesburg";
+const controlledDineplanImportReferenceSet = new Set([
+  "7qq5nc",
+  "c2j4nc",
+  "l2j4nc",
+  "sr87nc",
+  "kr1lpc",
+  "kj53nc",
+  "h264nc",
+  "5h29nc",
+  "rrn3nc",
+  "5sd3mc",
+  "07bznc",
+  "8ws1nc",
+  "04t7nc",
+  "kf88nc",
+  "4fh3pc",
+  "87ytpc",
+  "b6j1nc",
+  "6hv4nc",
+  "cfgwpc",
+  "f458nc",
+  "90kypc",
+  "g3r5nc",
+  "1z70nc",
+  "km0spc",
+  "3tw4nc",
+  "0mx1nc",
+  "rqhypc",
+  "1qkwnc",
+  "63v1nc",
+  "ylnznc",
+  "l2l3pc",
+  "jkkznc",
+  "xr37nc",
+  "chh3pc",
+  "184bpc",
+  "3j64nc",
+  "0fk7nc",
+  "xh8vnc",
+  "4ny9nc",
+  "qfpgpc",
+  "wwvfpc",
+  "0m06nc",
+  "cy7ypc",
+  "xsbgpc",
+  "dh9zpc",
+  "zxggpc",
+  "2jbfpc",
+  "wcbcpc",
+  "pm5fpc",
+  "n4y2pc",
+  "sylxnc",
+  "7q6fpc",
+  "zzlgpc",
+  "qsz9nc",
+  "2792pc",
+  "0v97nc",
+  "xs69nc",
+]);
+
+function isAllowedDataPortabilityOperator(
+  staffProfile: { email?: string | null } | null,
+) {
+  return (
+    staffProfile?.email?.trim().toLowerCase() === dataPortabilityOperatorEmail
+  );
+}
+
+async function recordBlockedDataPortabilityOperator(
+  serviceClient: NonNullable<
+    Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]
+  >,
+  staffProfile: NonNullable<
+    Awaited<ReturnType<typeof requireActiveStaff>>["staffProfile"]
+  >,
+  request: Request,
+) {
+  await tryRecordAuditEvent(serviceClient, staffProfile, null, {
+    action: "data-portability.access",
+    entityReference: "imports",
+    entityType: "data-portability-import",
+    outcome: "blocked",
+    reason:
+      "Data Portability execution is temporarily restricted to the designated migration operator.",
+    request,
+    sourceArea: "Data Portability",
+  });
+}
 
 const bookingStatusMap: Record<string, BookingStatus> = {
   cancelled: "cancelled",
@@ -90,6 +198,205 @@ const paymentStatusMap: Record<string, PaymentStatus> = {
 
 function normalizeValue(value?: string | null) {
   return value?.trim().toLowerCase() ?? "";
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
+function getLegacyShowId(notes: string | null) {
+  if (!notes?.startsWith(showMetadataPrefix)) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(notes.slice(showMetadataPrefix.length)) as {
+      legacyId?: string;
+    };
+
+    return parsed.legacyId?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function normalizeImportTimeValue(value?: string | null) {
+  const trimmedValue = value?.trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
+  const directMatch = trimmedValue.match(/\b(\d{1,2})[:hH](\d{2})\b/);
+
+  if (directMatch) {
+    return `${directMatch[1].padStart(2, "0")}:${directMatch[2]}`;
+  }
+
+  const hourOnlyMatch = trimmedValue.match(/\b(\d{1,2})\b/);
+
+  if (
+    hourOnlyMatch &&
+    trimmedValue.replace(/\D/g, "") === hourOnlyMatch[1]
+  ) {
+    return `${hourOnlyMatch[1].padStart(2, "0")}:00`;
+  }
+
+  const parsedDate = new Date(trimmedValue);
+
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return `${String(parsedDate.getHours()).padStart(2, "0")}:${String(
+      parsedDate.getMinutes(),
+    ).padStart(2, "0")}`;
+  }
+
+  return "";
+}
+
+function normalizeShowTime(value: string) {
+  return normalizeImportTimeValue(value) || value.slice(0, 5);
+}
+
+function getSourceTime(values: Record<string, string>) {
+  return normalizeImportTimeValue(
+    values.show_time ||
+      values.time ||
+      values.showtime ||
+      values.performance_time ||
+      values.session_time ||
+      values.reservation_time ||
+      "",
+  );
+}
+
+function getZoneAliases(zone: (typeof seatingZones)[number]) {
+  return [zone.id, ...getZoneSectionLookupTitles(zone.id, zone.title)].map(
+    normalizeValue,
+  );
+}
+
+function getTableSortValue(value: string) {
+  return value.replace(/\d+/g, (match) => match.padStart(6, "0"));
+}
+
+function findBestImportTable(
+  tableRows: MutableImportTableRow[],
+  showId: string,
+  zone: (typeof seatingZones)[number],
+  partySize: number,
+) {
+  return tableRows
+    .filter(
+      (table) =>
+        table.show_id === showId &&
+        getZoneAliases(zone).includes(normalizeValue(table.section)) &&
+        !table.booking_id &&
+        !table.reservedByImportRow &&
+        normalizeValue(table.status) !== "booked" &&
+        normalizeValue(table.status) !== "blocked" &&
+        normalizeValue(table.status) !== "unavailable" &&
+        Number(table.capacity) >= partySize,
+    )
+    .sort(
+      (left, right) =>
+        Number(left.capacity) - Number(right.capacity) ||
+        getTableSortValue(left.table_code).localeCompare(
+          getTableSortValue(right.table_code),
+        ),
+    )[0] ?? null;
+}
+
+function getImportTableCodeParts(tableCode: string) {
+  const match = tableCode.match(/^([A-Z]+)(\d+)$/i);
+
+  return match
+    ? {
+        prefix: match[1].toUpperCase(),
+        sequence: Number(match[2]),
+      }
+    : null;
+}
+
+function getNextOverflowTableCode(
+  tableRows: MutableImportTableRow[],
+  showId: string,
+  zone: (typeof seatingZones)[number],
+) {
+  const zoneRows = tableRows.filter(
+    (table) =>
+      table.show_id === showId &&
+      getZoneAliases(zone).includes(normalizeValue(table.section)),
+  );
+  const prefixCounts = new Map<string, number>();
+  let highestSequence = 0;
+
+  zoneRows.forEach((table) => {
+    const parts = getImportTableCodeParts(table.table_code);
+
+    if (!parts) {
+      return;
+    }
+
+    prefixCounts.set(parts.prefix, (prefixCounts.get(parts.prefix) ?? 0) + 1);
+  });
+
+  const prefix =
+    [...prefixCounts.entries()].sort(
+      (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+    )[0]?.[0] ??
+    zone.id
+      .split("-")
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") ??
+    "T";
+
+  zoneRows.forEach((table) => {
+    const parts = getImportTableCodeParts(table.table_code);
+
+    if (parts?.prefix === prefix) {
+      highestSequence = Math.max(highestSequence, parts.sequence);
+    }
+  });
+
+  return `${prefix}${highestSequence + 1}`;
+}
+
+function resolveDineplanImportTable(
+  tableRows: MutableImportTableRow[],
+  row: PreviewRow,
+  show: ShowRow,
+  zone: (typeof seatingZones)[number],
+  partySize: number,
+): ImportTableResolution {
+  const allocationState = normalizeValue(row.values.allocation_state);
+  const floorAssignmentRequired =
+    normalizeValue(row.values.floor_assignment_required) === "yes" ||
+    allocationState === "requires floor assignment";
+
+  if (floorAssignmentRequired) {
+    return {
+      table: null,
+      type: "unallocated",
+    };
+  }
+
+  const matchedTable = findBestImportTable(tableRows, show.id, zone, partySize);
+
+  if (matchedTable) {
+    matchedTable.reservedByImportRow = row.rowNumber;
+
+    return {
+      table: matchedTable,
+      type: "existing",
+    };
+  }
+
+  return {
+    table: null,
+    type: "unallocated",
+  };
 }
 
 function hashImportRows(rows: PreviewRow[]) {
@@ -153,8 +460,106 @@ function getNumericValue(value?: string, fallback = 0) {
   return Number.isFinite(parsedValue) ? parsedValue : fallback;
 }
 
+function formatMoneyValue(value: number) {
+  const normalizedValue = Math.max(
+    Math.round((Number.isFinite(value) ? value : 0) * 100) / 100,
+    0,
+  );
+
+  return Number.isInteger(normalizedValue)
+    ? String(normalizedValue)
+    : normalizedValue.toFixed(2);
+}
+
+function getDineplanFinancialValues(values: Record<string, string>) {
+  const bookingTotal = getNumericValue(values.booking_total);
+  const sourceTotalPaid = getNumericValue(
+    values.source_total_paid,
+    getNumericValue(values.amount_paid),
+  );
+  const sourceTotalRefunded = getNumericValue(
+    values.source_total_refunded,
+    0,
+  );
+  const netPaid = Math.max(sourceTotalPaid - sourceTotalRefunded, 0);
+  const balanceDue = Math.max(bookingTotal - netPaid, 0);
+  const paymentStatus =
+    bookingTotal <= 0
+      ? "comp-vip"
+      : sourceTotalRefunded > 0 && netPaid <= 0
+        ? "refunded"
+        : netPaid >= bookingTotal
+          ? "fully-paid"
+          : netPaid > 0
+            ? "deposit-paid"
+            : "pending-payment";
+
+  return {
+    amountPaid: formatMoneyValue(netPaid),
+    balanceDue: formatMoneyValue(balanceDue),
+    bookingTotal: formatMoneyValue(bookingTotal),
+    paymentStatus,
+    sourceTotalPaid: formatMoneyValue(sourceTotalPaid),
+    sourceTotalRefunded: formatMoneyValue(sourceTotalRefunded),
+  };
+}
+
 function getBooleanValue(value?: string) {
   return ["1", "true", "yes", "y"].includes(normalizeValue(value));
+}
+
+function assertControlledDineplanExecution(rows: PreviewRow[]) {
+  if (rows.length !== controlledDineplanImportReferenceSet.size) {
+    throw new Error("Controlled Dineplan import is restricted to the approved 18 September batch.");
+  }
+
+  const seenReferences = new Set<string>();
+
+  rows.forEach((row) => {
+    const values = row.values;
+    const reference = normalizeValue(values.booking_reference);
+    const sourceFormat = normalizeValue(values.source_format);
+    const location = getLocation(values.location);
+    const showDate = values.show_date?.trim();
+
+    if (!row.valid || row.action === "Skip") {
+      throw new Error("Controlled Dineplan import rows must be valid executable rows.");
+    }
+
+    if (sourceFormat !== "dineplan legacy export") {
+      throw new Error("Controlled import is restricted to Dineplan legacy rows.");
+    }
+
+    if (!controlledDineplanImportReferenceSet.has(reference)) {
+      throw new Error(`Unexpected Dineplan source reference ${values.booking_reference}.`);
+    }
+
+    if (seenReferences.has(reference)) {
+      throw new Error(`Duplicate Dineplan source reference ${values.booking_reference}.`);
+    }
+
+    seenReferences.add(reference);
+
+    if (location !== controlledDineplanImportLocation) {
+      throw new Error("Controlled Dineplan import is restricted to Johannesburg.");
+    }
+
+    if (showDate !== controlledDineplanImportDate) {
+      throw new Error("Controlled Dineplan import is restricted to 2026-09-18.");
+    }
+  });
+}
+
+function assertControlledDineplanEnrichment(rows: PreviewRow[]) {
+  rows.forEach((row) => {
+    if (row.values.resolved_show_id !== controlledDineplanImportShowId) {
+      throw new Error("Controlled Dineplan import resolved to an unexpected show.");
+    }
+
+    if (normalizeValue(row.values.proposed_overflow_table) === "yes") {
+      throw new Error("Controlled Dineplan import cannot create overflow tables.");
+    }
+  });
 }
 
 function splitName(value?: string) {
@@ -192,16 +597,75 @@ function getLocation(value?: string): EntryLocationKey | null {
 }
 
 function getShowAliases(show: ShowRow) {
+  const time = normalizeShowTime(show.time);
+
   return [
     show.id,
     show.name,
     show.date,
+    time,
     `${show.name} ${show.date}`,
+    `${show.name} ${show.date} ${time}`,
   ].map(normalizeValue);
 }
 
 function getShowLabel(show: ShowRow) {
   return `${show.name} · ${show.date} · ${show.time.slice(0, 5)}`;
+}
+
+function resolveImportShow(values: Record<string, string>, showRows: ShowRow[]) {
+  const isDineplanRow =
+    normalizeValue(values.source_format) === "dineplan legacy export";
+  const showValue = isDineplanRow ? "" : normalizeValue(values.show);
+  const showDate = values.show_date?.trim();
+  const location = getLocation(values.location);
+  const sourceTime = getSourceTime(values);
+  const baseCandidates = showRows.filter((show) => {
+    const showLocation = getLocation(show.venue);
+
+    return (
+      (showValue ? getShowAliases(show).includes(showValue) : true) &&
+      (showDate ? show.date === showDate : true) &&
+      (location ? showLocation === location : true)
+    );
+  });
+  const exactTimeCandidates = sourceTime
+    ? baseCandidates.filter((show) => normalizeShowTime(show.time) === sourceTime)
+    : baseCandidates;
+
+  if (!showValue && !isDineplanRow) {
+    throw new Error("Show is required.");
+  }
+
+  if (!showDate) {
+    throw new Error("Show Date is required.");
+  }
+
+  if (!location) {
+    throw new Error("Location must be Cape Town or Johannesburg.");
+  }
+
+  if (baseCandidates.length === 0) {
+    throw new Error("No matching show was found for this show/date/location.");
+  }
+
+  if (sourceTime && exactTimeCandidates.length === 1) {
+    return exactTimeCandidates[0];
+  }
+
+  if (sourceTime && exactTimeCandidates.length > 1) {
+    throw new Error("Multiple shows match this source time.");
+  }
+
+  if (sourceTime && baseCandidates.length > 1) {
+    throw new Error("Source time does not match a single available show.");
+  }
+
+  if (!sourceTime && baseCandidates.length > 1) {
+    throw new Error("Multiple shows match this date/location. Add Show Time.");
+  }
+
+  return baseCandidates[0];
 }
 
 function serializeBooking(booking: DemoBooking) {
@@ -227,9 +691,15 @@ function buildDemoBooking(row: PreviewRow, show: ShowRow, table: TableRow | null
   const paymentStatus = getBooleanValue(values.complimentary_flag)
     ? "comp-vip"
     : paymentStatusMap[normalizeValue(values.payment_status)] ?? "pending-payment";
-  const location = getLocation(values.location) ?? "cape-town";
+  const location = getLocation(values.location) ?? getLocation(show.venue);
+
+  if (!location) {
+    throw new Error("Booking location could not be resolved.");
+  }
+
   const locationOption = getShowLocationOption(location);
   const now = new Date().toISOString();
+  const tableNumber = table?.table_code ?? values.table?.trim() ?? "Not recorded";
 
   return {
     addons: [],
@@ -258,8 +728,8 @@ function buildDemoBooking(row: PreviewRow, show: ShowRow, table: TableRow | null
     source: getBooleanValue(values.corporate_flag) ? "corporate-direct" : "admin",
     status: bookingStatusMap[normalizeValue(values.booking_status)] ?? "pending-payment",
     subtotalPrice: totalPrice,
-    tableId: table?.id ?? "imported-table",
-    tableNumber: table?.table_code ?? values.table?.trim() ?? "Not recorded",
+    tableId: table?.id ?? tableNumber,
+    tableNumber,
     ticketCode: createTicketCode(reference),
     ticketIssuedAt: now,
     totalPrice,
@@ -304,7 +774,9 @@ async function enrichRowsForTransaction(
   const [{ data: shows, error: showsError }, { data: tables, error: tablesError }] =
     await Promise.all([
       serviceClient.from("shows").select("id,name,date,time,venue,notes"),
-      serviceClient.from("show_tables").select("id,show_id,table_code,section"),
+      serviceClient
+        .from("show_tables")
+        .select("*"),
     ]);
 
   if (showsError) {
@@ -316,7 +788,9 @@ async function enrichRowsForTransaction(
   }
 
   const showRows = (shows ?? []) as ShowRow[];
-  const tableRows = (tables ?? []) as TableRow[];
+  const tableRows = ((tables ?? []) as TableRow[]).map((table) => ({
+    ...table,
+  })) satisfies MutableImportTableRow[];
 
   return rows.map((row) => {
     if (!row.valid || row.action === "Skip") {
@@ -324,40 +798,80 @@ async function enrichRowsForTransaction(
     }
 
     const values = row.values;
-    const showValue = normalizeValue(values.show);
-    const showDate = values.show_date?.trim();
-    const location = getLocation(values.location);
-    const matchedShow = showRows.find((show) => {
-      const showLocation = getLocation(show.venue);
+    const isDineplanRow =
+      normalizeValue(values.source_format) === "dineplan legacy export";
+    const matchedShow = resolveImportShow(values, showRows);
+    const zone = seatingZones.find(
+      (candidate) => getZoneAliases(candidate).includes(normalizeValue(values.seating_zone)),
+    );
 
-      return (
-        (showValue ? getShowAliases(show).includes(showValue) : true) &&
-        (showDate ? show.date === showDate : true) &&
-        (location ? showLocation === location : true)
-      );
-    });
-
-    if (!matchedShow) {
-      throw new Error(`Row ${row.rowNumber}: referenced show is no longer valid.`);
+    if (!zone) {
+      throw new Error(`Row ${row.rowNumber}: referenced seating zone is not valid.`);
     }
 
-    const matchedTable =
-      tableRows.find(
-        (table) =>
-          table.show_id === matchedShow.id &&
-          normalizeValue(table.table_code) === normalizeValue(values.table),
-      ) ?? null;
-    const booking = buildDemoBooking(row, matchedShow, matchedTable);
+    const partySize = Math.max(1, Math.round(getNumericValue(values.number_of_guests, 1)));
+    const tableResolution = isDineplanRow
+      ? resolveDineplanImportTable(tableRows, row, matchedShow, zone, partySize)
+      : {
+          table:
+            tableRows.find(
+              (table) =>
+                table.show_id === matchedShow.id &&
+                getZoneAliases(zone).includes(normalizeValue(table.section)) &&
+                normalizeValue(table.table_code) === normalizeValue(values.table),
+            ) ?? null,
+          type: "existing" as const,
+        };
+
+    if (!isDineplanRow && !tableResolution.table) {
+      throw new Error(
+        `Row ${row.rowNumber}: referenced table is not valid for the resolved show and seating zone.`,
+      );
+    }
+
+    const dineplanFinancials = isDineplanRow
+      ? getDineplanFinancialValues(values)
+      : null;
+    const authoritativeValues = dineplanFinancials
+      ? {
+          ...values,
+          amount_paid: dineplanFinancials.amountPaid,
+          balance_due: dineplanFinancials.balanceDue,
+          booking_total: dineplanFinancials.bookingTotal,
+          payment_status: dineplanFinancials.paymentStatus,
+          source_total_paid: dineplanFinancials.sourceTotalPaid,
+          source_total_refunded: dineplanFinancials.sourceTotalRefunded,
+        }
+      : values;
+    const booking = buildDemoBooking(
+      {
+        ...row,
+        values: authoritativeValues,
+      },
+      matchedShow,
+      tableResolution.table,
+    );
 
     return {
       ...row,
       values: {
-        ...values,
+        ...authoritativeValues,
         resolved_booking_source: booking.source ?? "admin",
-        resolved_booking_status: toSupabaseBookingStatus(values.booking_status),
-        resolved_payment_status: toSupabasePaymentStatus(values.payment_status),
+        resolved_booking_status: toSupabaseBookingStatus(
+          authoritativeValues.booking_status,
+        ),
+        resolved_payment_status: toSupabasePaymentStatus(
+          authoritativeValues.payment_status,
+        ),
         resolved_show_id: matchedShow.id,
-        resolved_table_id: matchedTable?.id ?? "",
+        resolved_table_id:
+          tableResolution.table?.id ?? "",
+        resolved_table_number:
+          tableResolution.table?.table_code ?? "",
+        floor_assignment_required:
+          tableResolution.type === "unallocated" ? "Yes" : "No",
+        proposed_overflow_capacity: "",
+        proposed_overflow_table: "No",
         serialized_booking: serializeBooking(booking),
       },
     };
@@ -385,7 +899,112 @@ export async function GET(request: Request) {
     return Response.json({ error: "Super Admin access is required." }, { status: 403 });
   }
 
+  if (!isAllowedDataPortabilityOperator(staffProfile)) {
+    await recordBlockedDataPortabilityOperator(
+      serviceClient,
+      staffProfile,
+      request,
+    );
+
+    return Response.json(
+      {
+        error:
+          "Data Portability execution is temporarily restricted to the designated migration operator.",
+      },
+      { status: 403 },
+    );
+  }
+
   try {
+    const url = new URL(request.url);
+    const requestedShowIds = url.searchParams
+      .getAll("showIds")
+      .flatMap((value) => value.split(","))
+      .map((showId) => showId.trim())
+      .filter(Boolean);
+
+    if (requestedShowIds.length > 0) {
+      try {
+        const uniqueShowIds = [...new Set(requestedShowIds)].slice(0, 50);
+        const uuidShowIds = uniqueShowIds.filter(isUuid);
+        const legacyShowIds = uniqueShowIds.filter((showId) => !isUuid(showId));
+        let resolvedShowIds = uuidShowIds;
+        const showMappings = uuidShowIds.map((showId) => ({
+          requestedShowId: showId,
+          supabaseShowId: showId,
+        }));
+
+        if (legacyShowIds.length > 0) {
+          const safeLegacyShowIds = legacyShowIds
+            .map((showId) => showId.replace(/[^\w-]/g, ""))
+            .filter(Boolean);
+          const { data: showRows, error: showsError } = await serviceClient
+            .from("shows")
+            .select("id,notes")
+            .or(
+              [
+                ...safeLegacyShowIds.map(
+                  (showId) => `notes.ilike.*${showId}*`,
+                ),
+              ].join(","),
+            );
+
+          if (showsError) {
+            throw showsError;
+          }
+
+          resolvedShowIds = [
+            ...resolvedShowIds,
+            ...((showRows ?? []) as Array<{ id: string; notes: string | null }>)
+              .flatMap((show) => {
+                const legacyShowId = getLegacyShowId(show.notes);
+
+                if (!legacyShowIds.includes(legacyShowId)) {
+                  return [];
+                }
+
+                showMappings.push({
+                  requestedShowId: legacyShowId,
+                  supabaseShowId: show.id,
+                });
+
+                return [show.id];
+              }),
+          ];
+        }
+
+        resolvedShowIds = [...new Set(resolvedShowIds)];
+
+        if (resolvedShowIds.length === 0) {
+          return Response.json({ showMappings, tables: [] });
+        }
+
+        const { data, error: tablesError } = await serviceClient
+          .from("show_tables")
+          .select("*")
+          .in("show_id", resolvedShowIds)
+          .order("show_id", { ascending: true })
+          .order("section", { ascending: true })
+          .order("table_code", { ascending: true });
+
+        if (tablesError) {
+          throw tablesError;
+        }
+
+        return Response.json({ showMappings, tables: data ?? [] });
+      } catch (tableLoadError) {
+        console.error(
+          "[Zingara data portability] Failed to load import table snapshot",
+          tableLoadError,
+        );
+
+        return Response.json(
+          { error: "Authoritative table inventory could not be loaded." },
+          { status: 500 },
+        );
+      }
+    }
+
     const rows = await getImportHistory(serviceClient);
 
     return Response.json({ rows });
@@ -418,6 +1037,22 @@ export async function POST(request: Request) {
     });
 
     return Response.json({ error: "Super Admin access is required." }, { status: 403 });
+  }
+
+  if (!isAllowedDataPortabilityOperator(staffProfile)) {
+    await recordBlockedDataPortabilityOperator(
+      serviceClient,
+      staffProfile,
+      request,
+    );
+
+    return Response.json(
+      {
+        error:
+          "Data Portability execution is temporarily restricted to the designated migration operator.",
+      },
+      { status: 403 },
+    );
   }
 
   let auditContext: {
@@ -515,12 +1150,29 @@ export async function POST(request: Request) {
       );
     }
 
+    const isControlledDineplanImport =
+      body.dataset === "bookings" &&
+      body.rows.every(
+        (row) =>
+          normalizeValue(row.values.source_format) ===
+          "dineplan legacy export",
+      );
+
+    if (isControlledDineplanImport) {
+      assertControlledDineplanExecution(body.rows);
+    }
+
     const previewHash = hashImportRows(body.rows);
     const enrichedRows = await enrichRowsForTransaction(
       serviceClient,
       body.dataset,
       body.rows,
     );
+
+    if (isControlledDineplanImport) {
+      assertControlledDineplanEnrichment(enrichedRows);
+    }
+
     const enrichedHash = hashImportRows(enrichedRows);
 
     if (!previewHash || enrichedRows.length !== body.rows.length) {

@@ -1,5 +1,11 @@
 import {
+  type DemoTable,
   type DemoShow,
+  type TableAvailabilityScope,
+  type SeatingZoneId,
+  type TableStatus,
+  defaultTables,
+  isValidSeatingZoneId,
   normalizeShowLocation,
 } from "@/lib/zingaraDemo";
 import {
@@ -34,6 +40,22 @@ type SupabaseShowRow = {
   venue: string;
 };
 
+type SupabaseShowTableRow = {
+  availability_scope?: TableAvailabilityScope | null;
+  booking_id: string | null;
+  capacity: number | null;
+  id: string;
+  section: string | null;
+  show_id: string;
+  status: string | null;
+  table_code: string;
+};
+
+type SupabaseBookingReferenceRow = {
+  booking_reference: string;
+  id: string;
+};
+
 type SupabaseShowWrite = {
   date: string;
   description: string | null;
@@ -45,6 +67,23 @@ type SupabaseShowWrite = {
 };
 
 const metadataPrefix = "__zingara_show_meta__:";
+const staleLockMs = 5 * 60 * 1000;
+const sectionAliases: Record<string, SeatingZoneId> = {
+  booth: "royal-booths",
+  booths: "royal-booths",
+  "elevated stage": "elevated-stage",
+  "elevated-stage": "elevated-stage",
+  "golden circle": "golden-circle",
+  "golden-circle": "golden-circle",
+  "middle ring": "middle-ring",
+  "middle-ring": "middle-ring",
+  "private booth": "royal-booths",
+  "private booths": "royal-booths",
+  "royal balcony": "royal-balcony",
+  "royal booths": "royal-booths",
+  "royal-balcony": "royal-balcony",
+  "royal-booths": "royal-booths",
+};
 const showAuditFields = [
   "name",
   "description",
@@ -125,6 +164,10 @@ function parseShowNotes(notes: string | null) {
   }
 }
 
+function getShowReference(row: SupabaseShowRow) {
+  return parseShowNotes(row.notes).legacyId || row.id;
+}
+
 function serializeShowNotes(show: DemoShow) {
   return `${metadataPrefix}${JSON.stringify({
     address: show.address ?? "",
@@ -148,6 +191,7 @@ function toDemoShow(row: SupabaseShowRow): DemoShow {
     label: row.name,
     location: location ?? undefined,
     operationalStatus: toDemoStatus(row.status),
+    supabaseId: row.id,
     time: row.time.slice(0, 5),
     venueName: row.venue,
   };
@@ -162,6 +206,81 @@ function toSupabaseShow(show: DemoShow): SupabaseShowWrite {
     status: show.archivedAt ? "archived" : toSupabaseStatus(show.operationalStatus),
     time: show.time,
     venue: normalizeShowLocation(show.location ?? show.venueName) ?? "",
+  };
+}
+
+function normalizeShowTableSection(section: string | null): SeatingZoneId | null {
+  const normalizedSection = (section ?? "").trim().toLowerCase();
+
+  if (isValidSeatingZoneId(normalizedSection)) {
+    return normalizedSection;
+  }
+
+  return sectionAliases[normalizedSection] ?? null;
+}
+
+function toDemoTableStatus(status: string | null): TableStatus {
+  if (status === "booked") {
+    return "booked";
+  }
+
+  return status === "disabled" ? "disabled" : "available";
+}
+
+function getDemoTableId(
+  showReference: string,
+  zoneId: SeatingZoneId,
+  tableCode: string,
+) {
+  const matchingDefaultTable = defaultTables.find(
+    (table) => table.zoneId === zoneId && table.tableNumber === tableCode,
+  );
+
+  if (matchingDefaultTable) {
+    return `${showReference}-${matchingDefaultTable.id}`;
+  }
+
+  const normalizedCode = tableCode
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return `${showReference}-${zoneId}-${normalizedCode || "table"}`;
+}
+
+function toDemoTable(
+  row: SupabaseShowTableRow,
+  showReferenceById: Map<string, string>,
+  bookingReferenceById: Map<string, string>,
+): DemoTable | null {
+  const showReference = showReferenceById.get(row.show_id);
+  const zoneId = normalizeShowTableSection(row.section);
+
+  if (!showReference || !zoneId) {
+    return null;
+  }
+
+  const status = toDemoTableStatus(row.status);
+  const capacity = Number.isFinite(Number(row.capacity))
+    ? Number(row.capacity)
+    : 0;
+
+  return {
+    availabilityScope: row.availability_scope ?? "public",
+    baseGuestNotes: "",
+    baseSeatCapacity: capacity,
+    baseStatus: status === "disabled" ? "disabled" : "available",
+    bookingReference: row.booking_id
+      ? bookingReferenceById.get(row.booking_id)
+      : undefined,
+    guestNotes: "",
+    id: getDemoTableId(showReference, zoneId, row.table_code),
+    seatCapacity: capacity,
+    showId: showReference,
+    status,
+    tableNumber: row.table_code,
+    zoneId,
   };
 }
 
@@ -185,11 +304,258 @@ async function loadShowRows() {
   return (data ?? []) as SupabaseShowRow[];
 }
 
-export async function GET() {
-  try {
-    const shows = (await loadShowRows()).map(toDemoShow);
+async function loadShowTableRows(showIds: string[]) {
+  if (showIds.length === 0) {
+    return [];
+  }
 
-    return Response.json({ shows });
+  const serviceClient = getServiceClient();
+
+  if (!serviceClient) {
+    throw new Error("Supabase service role is not configured.");
+  }
+
+  const rows: SupabaseShowTableRow[] = [];
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await serviceClient
+      .from("show_tables")
+      .select("*")
+      .in("show_id", showIds)
+      .order("show_id", { ascending: true })
+      .order("section", { ascending: true })
+      .order("table_code", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      throw error;
+    }
+
+    const pageRows = (data ?? []) as SupabaseShowTableRow[];
+
+    rows.push(...pageRows);
+
+    if (pageRows.length < pageSize) {
+      break;
+    }
+  }
+
+  return rows;
+}
+
+function getScopedShowRowsForTables(
+  showRows: SupabaseShowRow[],
+  tableMonth: string | null,
+  tableLocation: string | null,
+  tableShow: string | null,
+) {
+  const normalizedTableShow = tableShow?.trim();
+
+  return showRows.filter((row) => {
+    const location = normalizeShowLocation(row.venue);
+    const showReference = getShowReference(row);
+
+    return (
+      (!normalizedTableShow ||
+        row.id === normalizedTableShow ||
+        showReference === normalizedTableShow) &&
+      (!tableMonth || row.date.startsWith(`${tableMonth}-`)) &&
+      (!tableLocation ||
+        tableLocation === "all" ||
+        location === tableLocation)
+    );
+  });
+}
+
+async function loadBookingReferences(bookingIds: string[]) {
+  const uniqueBookingIds = [...new Set(bookingIds.filter(Boolean))];
+
+  if (uniqueBookingIds.length === 0) {
+    return new Map<string, string>();
+  }
+
+  const serviceClient = getServiceClient();
+
+  if (!serviceClient) {
+    throw new Error("Supabase service role is not configured.");
+  }
+
+  const { data, error } = await serviceClient
+    .from("bookings")
+    .select("id,booking_reference")
+    .in("id", uniqueBookingIds);
+
+  if (error) {
+    throw error;
+  }
+
+  return new Map(
+    ((data ?? []) as SupabaseBookingReferenceRow[]).map((row) => [
+      row.id,
+      row.booking_reference,
+    ]),
+  );
+}
+
+async function expireStaleShowLocks(
+  serviceClient: NonNullable<
+    Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]
+  >,
+) {
+  await serviceClient
+    .from("show_edit_locks")
+    .update({
+      release_reason: "heartbeat-timeout",
+      released_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .is("released_at", null)
+    .lt(
+      "last_activity_at",
+      new Date(Date.now() - staleLockMs).toISOString(),
+    );
+}
+
+async function ensureNoConflictingShowLocks(
+  request: Request,
+  auth: Awaited<ReturnType<typeof requireActiveStaff>>,
+  changedShowReferences: string[],
+  lockId?: string,
+  sessionId?: string,
+) {
+  if (!auth.serviceClient) {
+    return null;
+  }
+
+  const uniqueReferences = [...new Set(changedShowReferences.filter(Boolean))];
+
+  if (uniqueReferences.length === 0) {
+    return null;
+  }
+
+  await expireStaleShowLocks(auth.serviceClient);
+
+  const { data: activeLocks, error } = await auth.serviceClient
+    .from("show_edit_locks")
+    .select(
+      "id,show_id,show_reference,staff_profile_id,staff_name,staff_role,session_id,last_activity_at,started_at",
+    )
+    .in("show_reference", uniqueReferences)
+    .is("released_at", null);
+
+  if (error) {
+    if (error.code === "42P01" || error.code === "PGRST205") {
+      console.warn(
+        "[Zingara API] show_edit_locks table is unavailable; show lock enforcement skipped until migration is applied.",
+      );
+
+      return null;
+    }
+
+    console.error("[Zingara API] Failed to verify show edit lock", error);
+
+    return Response.json(
+      { error: "Show edit lock could not be verified." },
+      { status: 500 },
+    );
+  }
+
+  const conflictingLock = (activeLocks ?? []).find((lock) => {
+    if (lockId && sessionId) {
+      return lock.id !== lockId || lock.session_id !== sessionId;
+    }
+
+    return lock.staff_profile_id !== auth.staffProfile?.id;
+  });
+
+  if (!conflictingLock) {
+    return null;
+  }
+
+  await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+    action: "show.write-blocked-by-lock",
+    beforeValues: pickAuditFields(conflictingLock as Record<string, unknown>, [
+      "show_reference",
+      "staff_name",
+      "staff_role",
+      "last_activity_at",
+      "started_at",
+    ]),
+    entityId: (conflictingLock as { show_id?: string }).show_id,
+    entityReference:
+      (conflictingLock as { show_reference?: string }).show_reference ??
+      "unknown-show",
+    entityType: "show",
+    outcome: "blocked",
+    reason: "A valid show edit lock exists for another staff member.",
+    request,
+    sourceArea: "Shows",
+  });
+
+  return Response.json(
+    {
+      error: "This show is currently being edited.",
+      lock: conflictingLock,
+    },
+    { status: 409 },
+  );
+}
+
+function findDuplicateActiveShow(
+  show: DemoShow,
+  existingRows: SupabaseShowRow[],
+) {
+  const location = normalizeShowLocation(show.location ?? show.venueName);
+
+  if (!location) {
+    return null;
+  }
+
+  return (
+    existingRows.find((row) => {
+      const existingReference = getShowReference(row);
+      const existingTime = row.time.slice(0, 5);
+
+      return (
+        existingReference !== show.id &&
+        row.status !== "archived" &&
+        normalizeShowLocation(row.venue) === location &&
+        row.date === show.date &&
+        existingTime === show.time
+      );
+    }) ?? null
+  );
+}
+
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const tableMonth = url.searchParams.get("tableMonth");
+    const tableLocation = url.searchParams.get("tableLocation");
+    const tableShow = url.searchParams.get("tableShow");
+    const showRows = await loadShowRows();
+    const shows = showRows.map(toDemoShow);
+    const showReferenceById = new Map(
+      showRows.map((row, index) => [row.id, shows[index].id]),
+    );
+    const tableShowRows = getScopedShowRowsForTables(
+      showRows,
+      tableMonth,
+      tableLocation,
+      tableShow,
+    );
+    const tableRows = await loadShowTableRows(
+      tableShowRows.map((row) => row.id),
+    );
+    const bookingReferenceById = await loadBookingReferences(
+      tableRows.flatMap((row) => (row.booking_id ? [row.booking_id] : [])),
+    );
+    const tables = tableRows
+      .map((row) => toDemoTable(row, showReferenceById, bookingReferenceById))
+      .filter((table): table is DemoTable => Boolean(table));
+
+    return Response.json({ shows, tables });
   } catch (error) {
     console.error("[Zingara API] Failed to load shows", error);
 
@@ -205,7 +571,12 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as { shows?: DemoShow[] };
+    const body = (await request.json()) as {
+      lockId?: string;
+      lockSessionId?: string;
+      lockShowReference?: string;
+      shows?: DemoShow[];
+    };
     const shows = body.shows ?? [];
 
     if (
@@ -221,9 +592,59 @@ export async function PUT(request: Request) {
 
     const existingRows = await loadShowRows();
     const existingRowsByDemoId = new Map(
-      existingRows.map((row) => [parseShowNotes(row.notes).legacyId || row.id, row]),
+      existingRows.map((row) => [getShowReference(row), row]),
     );
     const nextShowIds = new Set(shows.map((show) => show.id));
+    const changedShowReferences = shows.flatMap((show) => {
+      const existingRow = existingRowsByDemoId.get(show.id);
+
+      if (!existingRow) {
+        return [];
+      }
+
+      const beforeShow = toDemoShow(existingRow);
+      const nextPayload = toSupabaseShow(show);
+      const beforePayload = toSupabaseShow(beforeShow);
+      const changed =
+        nextPayload.date !== beforePayload.date ||
+        nextPayload.description !== beforePayload.description ||
+        nextPayload.name !== beforePayload.name ||
+        nextPayload.notes !== beforePayload.notes ||
+        nextPayload.status !== beforePayload.status ||
+        nextPayload.time !== beforePayload.time ||
+        nextPayload.venue !== beforePayload.venue;
+
+      return changed ? [show.id] : [];
+    });
+    const removedShowReferences = existingRows
+      .map(getShowReference)
+      .filter((showReference) => !nextShowIds.has(showReference));
+    const lockResponse = await ensureNoConflictingShowLocks(
+      request,
+      auth,
+      [...changedShowReferences, ...removedShowReferences],
+      body.lockId,
+      body.lockSessionId,
+    );
+
+    if (lockResponse) {
+      return lockResponse;
+    }
+
+    for (const show of shows) {
+      const duplicateShow = findDuplicateActiveShow(show, existingRows);
+
+      if (duplicateShow) {
+        return Response.json(
+          {
+            error:
+              "A show already exists for this location, date and time.",
+            duplicateShowReference: getShowReference(duplicateShow),
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     await Promise.all(
       shows.map((show) => {
@@ -241,7 +662,7 @@ export async function PUT(request: Request) {
     );
 
     const removedRows = existingRows.filter((row) => {
-      const demoId = parseShowNotes(row.notes).legacyId || row.id;
+      const demoId = getShowReference(row);
 
       return !nextShowIds.has(demoId);
     });
@@ -264,7 +685,7 @@ export async function PUT(request: Request) {
     const persistedShows = persistedRows.map(toDemoShow);
     const existingRowsById = new Map(existingRows.map((row) => [row.id, row]));
     const persistedRowsByDemoId = new Map(
-      persistedRows.map((row) => [parseShowNotes(row.notes).legacyId || row.id, row]),
+      persistedRows.map((row) => [getShowReference(row), row]),
     );
 
     try {
@@ -305,7 +726,7 @@ export async function PUT(request: Request) {
               : ["name", "date", "time", "venue"],
           entityId: afterRow.id,
           entityLocation: normalizeShowLocation(afterRow.venue) ?? null,
-          entityReference: parseShowNotes(afterRow.notes).legacyId || afterRow.id,
+          entityReference: getShowReference(afterRow),
           entityType: "show",
           outcome: "success",
           request,
@@ -325,7 +746,7 @@ export async function PUT(request: Request) {
           ]),
           entityId: removedRow.id,
           entityLocation: normalizeShowLocation(removedRow.venue) ?? null,
-          entityReference: parseShowNotes(removedRow.notes).legacyId || removedRow.id,
+          entityReference: getShowReference(removedRow),
           entityType: "show",
           outcome: "success",
           reason: "Show removed from admin show set.",

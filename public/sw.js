@@ -66,10 +66,20 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = new URL(
-    event.notification.data?.url ?? "/book",
-    self.location.origin,
-  ).href;
+  let targetUrl = new URL("/book", self.location.origin).href;
+
+  try {
+    const requestedUrl = new URL(
+      event.notification.data?.url ?? "/book",
+      self.location.origin,
+    );
+
+    if (requestedUrl.origin === self.location.origin) {
+      targetUrl = requestedUrl.href;
+    }
+  } catch {
+    targetUrl = new URL("/book", self.location.origin).href;
+  }
 
   event.waitUntil(
     self.clients

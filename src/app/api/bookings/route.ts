@@ -9,6 +9,8 @@ import {
   type DemoVenueSettings,
   type PaymentStatus,
   defaultVenueSettings,
+  getDisplayZoneTitle,
+  getZoneSectionLookupTitles,
   normalizeShowLocation,
   seatingZones,
   createTicketCode,
@@ -134,6 +136,22 @@ type ReservePublicBookingResult = {
   table_code?: string;
   table_id?: string;
 };
+
+function normalizeReservationClaimSection(
+  section: string | null | undefined,
+  fallbackZoneTitle: string,
+) {
+  const rawSection = section?.trim() || fallbackZoneTitle;
+  const matchedZone = seatingZones.find(
+    (zone) =>
+      zone.id === rawSection ||
+      getZoneSectionLookupTitles(zone.id, zone.title)
+        .map((title) => title.toLowerCase())
+        .includes(rawSection.toLowerCase()),
+  );
+
+  return matchedZone?.id ?? rawSection;
+}
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
 const showMetadataPrefix = "__zingara_show_meta__:";
@@ -554,7 +572,7 @@ function getBookingPayload(
     guest_count: booking.partySize,
     notes: serializeBookingNotes(booking),
     payment_status: toSupabasePaymentStatus(booking.paymentStatus),
-    section: booking.zoneTitle,
+    section: getDisplayZoneTitle(booking.zoneId, booking.zoneTitle),
     service_fee: booking.serviceFeeAmount ?? 0,
     show_id: showId,
     subtotal_amount: booking.subtotalPrice ?? booking.totalPrice,
@@ -713,7 +731,10 @@ function normalizeReservationClaims(
     .map((claim) => ({
       capacity: Math.max(Math.trunc(Number(claim.capacity) || 0), 1),
       primary: Boolean(claim.primary),
-      section: claim.section?.trim() || booking.zoneTitle,
+      section: normalizeReservationClaimSection(
+        claim.section,
+        booking.zoneTitle,
+      ),
       tableCode: claim.tableCode?.trim(),
     }))
     .filter((claim) => Boolean(claim.tableCode));
@@ -734,7 +755,10 @@ function normalizeReservationClaims(
         {
           capacity: booking.partySize,
           primary: true,
-          section: booking.zoneTitle,
+          section: normalizeReservationClaimSection(
+            booking.zoneId,
+            booking.zoneTitle,
+          ),
           tableCode,
         },
       ]
@@ -1003,12 +1027,19 @@ async function getRemainingSeatsForServerPricing(
   showId: string,
   booking: DemoBooking,
 ) {
+  const zone = seatingZones.find((candidate) => candidate.id === booking.zoneId);
+
+  if (!zone) {
+    throw new Error("Unknown seating zone.");
+  }
+
   const { data, error } = await supabase
     .from("show_tables")
     .select("capacity")
     .eq("show_id", showId)
-    .eq("section", booking.zoneTitle)
+    .in("section", getZoneSectionLookupTitles(zone.id, booking.zoneTitle))
     .eq("status", "available")
+    .eq("availability_scope", "public")
     .is("booking_id", null);
 
   if (error) {

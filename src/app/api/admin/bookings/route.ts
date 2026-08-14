@@ -144,6 +144,12 @@ export async function GET(request: Request) {
   const bookingIds = rows
     .map((booking) => booking.id)
     .filter((id): id is string => Boolean(id));
+  const customerIds = rows
+    .map((booking) => booking.customer_id)
+    .filter((id): id is string => Boolean(id));
+  const tableIds = rows
+    .map((booking) => booking.table_id)
+    .filter((id): id is string => Boolean(id));
 
   if (bookingIds.length === 0) {
     return Response.json({ rows });
@@ -152,6 +158,8 @@ export async function GET(request: Request) {
   const [
     { data: communications, error: communicationsError },
     { data: lifecycleEvents, error: lifecycleError },
+    { data: customers, error: customersError },
+    { data: tables, error: tablesError },
   ] = await Promise.all([
     serviceClient
       .from("communications")
@@ -165,6 +173,18 @@ export async function GET(request: Request) {
       .select("id,booking_id,from_status,to_status,note,reason,changed_by,created_at")
       .in("booking_id", bookingIds)
       .order("created_at", { ascending: false }),
+    customerIds.length > 0
+      ? serviceClient
+          .from("customers")
+          .select("id,first_name,surname,email,mobile")
+          .in("id", customerIds)
+      : Promise.resolve({ data: [], error: null }),
+    tableIds.length > 0
+      ? serviceClient
+          .from("show_tables")
+          .select("id,table_code,section")
+          .in("id", tableIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (communicationsError) {
@@ -178,6 +198,20 @@ export async function GET(request: Request) {
     console.error(
       "[Zingara API] Failed to load booking lifecycle aggregate",
       lifecycleError,
+    );
+  }
+
+  if (customersError) {
+    console.error(
+      "[Zingara API] Failed to load booking customer aggregate",
+      customersError,
+    );
+  }
+
+  if (tablesError) {
+    console.error(
+      "[Zingara API] Failed to load booking table aggregate",
+      tablesError,
     );
   }
 
@@ -207,11 +241,41 @@ export async function GET(request: Request) {
     ]);
   }
 
+  const customersById = new Map<string, unknown>();
+
+  for (const customer of customers ?? []) {
+    if (
+      customer &&
+      typeof customer === "object" &&
+      "id" in customer &&
+      typeof (customer as { id?: unknown }).id === "string"
+    ) {
+      customersById.set((customer as { id: string }).id, customer);
+    }
+  }
+
+  const tablesById = new Map<string, unknown>();
+
+  for (const table of tables ?? []) {
+    if (
+      table &&
+      typeof table === "object" &&
+      "id" in table &&
+      typeof (table as { id?: unknown }).id === "string"
+    ) {
+      tablesById.set((table as { id: string }).id, table);
+    }
+  }
+
   return Response.json({
     rows: rows.map((booking) => ({
       ...booking,
       communication_rows: communicationsByBookingId.get(booking.id) ?? [],
+      customer_row: customersById.get(booking.customer_id) ?? null,
       lifecycle_event_rows: lifecycleByBookingId.get(booking.id) ?? [],
+      table_row: booking.table_id
+        ? tablesById.get(booking.table_id) ?? null
+        : null,
     })),
   });
 }

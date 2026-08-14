@@ -83,6 +83,8 @@ const tableSectionToZoneId: Record<string, string> = {
   "Elevated Stage": "elevated-stage",
   "Golden Circle": "golden-circle",
   "Middle Ring": "middle-ring",
+  "Private Booth": "royal-booths",
+  "Private Booths": "royal-booths",
   "Royal Balcony": "royal-balcony",
   "Royal Booths": "royal-booths",
 };

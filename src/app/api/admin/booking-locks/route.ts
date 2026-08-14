@@ -29,6 +29,19 @@ type BookingEditLockRow = {
   takeover_requested_by_name?: string | null;
 };
 
+type StaffProfileRoleRow = {
+  name?: string | null;
+};
+
+type StaffProfileWithRoleRow = {
+  active: boolean;
+  email: string;
+  full_name: string;
+  id: string;
+  roles?: StaffProfileRoleRow | StaffProfileRoleRow[] | null;
+  user_id: string;
+};
+
 function isLockStale(lock: Pick<BookingEditLockRow, "last_activity_at">) {
   return Date.now() - new Date(lock.last_activity_at).getTime() > staleLockMs;
 }
@@ -55,6 +68,14 @@ function toClientLock(lock: BookingEditLockRow) {
 }
 
 function getStaffRole(staffProfile: Awaited<ReturnType<typeof requireActiveStaff>>["staffProfile"]) {
+  const role = Array.isArray(staffProfile?.roles)
+    ? staffProfile?.roles[0]
+    : staffProfile?.roles;
+
+  return getAdminRoleFromName(role?.name);
+}
+
+function getStaffRoleFromRow(staffProfile: StaffProfileWithRoleRow | null) {
   const role = Array.isArray(staffProfile?.roles)
     ? staffProfile?.roles[0]
     : staffProfile?.roles;
@@ -458,6 +479,37 @@ export async function POST(request: Request) {
       return Response.json({ error: "Lock ID is required." }, { status: 400 });
     }
 
+    const existingLock = await serviceClient
+      .from("booking_edit_locks")
+      .select("*")
+      .eq("id", lockId)
+      .is("released_at", null)
+      .maybeSingle();
+
+    if (existingLock.error) {
+      throw existingLock.error;
+    }
+
+    const activeLock = existingLock.data as BookingEditLockRow | null;
+
+    if (!activeLock) {
+      return Response.json({ status: "missing" });
+    }
+
+    if (activeLock.staff_profile_id === staffProfile.id) {
+      return Response.json(
+        { error: "You already own this booking edit lock." },
+        { status: 409 },
+      );
+    }
+
+    if (activeLock.takeover_requested_by === staffProfile.id) {
+      return Response.json({
+        lock: toClientLock(activeLock),
+        status: "blocked",
+      });
+    }
+
     const { data: updatedLock, error: updateError } = await serviceClient
       .from("booking_edit_locks")
       .update({
@@ -495,6 +547,207 @@ export async function POST(request: Request) {
     return Response.json({
       lock: updatedLock ? toClientLock(updatedLock as BookingEditLockRow) : undefined,
       status: "blocked",
+    });
+  }
+
+  if (action === "accept-takeover" || action === "decline-takeover") {
+    const lockId = body.lockId?.trim();
+
+    if (!lockId) {
+      return Response.json({ error: "Lock ID is required." }, { status: 400 });
+    }
+
+    const { data: activeLock, error: loadError } = await serviceClient
+      .from("booking_edit_locks")
+      .select("*")
+      .eq("id", lockId)
+      .is("released_at", null)
+      .maybeSingle();
+
+    if (loadError) {
+      throw loadError;
+    }
+
+    const lock = activeLock as BookingEditLockRow | null;
+
+    if (!lock) {
+      return Response.json({ status: "missing" });
+    }
+
+    if (lock.staff_profile_id !== staffProfile.id) {
+      await tryRecordAuditEvent(serviceClient, staffProfile, user, {
+        action:
+          action === "accept-takeover"
+            ? "booking-lock.takeover-accept"
+            : "booking-lock.takeover-decline",
+        beforeValues: pickAuditFields(lock, [
+          "booking_reference",
+          "staff_name",
+          "staff_role",
+          "takeover_requested_by_name",
+        ]),
+        entityId: lock.booking_id,
+        entityReference: lock.booking_reference,
+        entityType: "booking-lock",
+        outcome: "blocked",
+        reason: "Only the current lock owner may resolve takeover requests.",
+        request,
+        sourceArea: "Bookings",
+      });
+
+      return Response.json(
+        { error: "Only the current editor can resolve this takeover request." },
+        { status: 403 },
+      );
+    }
+
+    if (!lock.takeover_requested_by) {
+      return Response.json(
+        { error: "No pending takeover request exists for this lock." },
+        { status: 409 },
+      );
+    }
+
+    if (lock.takeover_requested_by === staffProfile.id) {
+      return Response.json(
+        { error: "You cannot approve your own takeover request." },
+        { status: 403 },
+      );
+    }
+
+    if (action === "decline-takeover") {
+      const { data: declinedLock, error: declineError } = await serviceClient
+        .from("booking_edit_locks")
+        .update({
+          takeover_requested_at: null,
+          takeover_requested_by: null,
+          takeover_requested_by_name: null,
+          updated_at: now,
+        })
+        .eq("id", lock.id)
+        .eq("staff_profile_id", staffProfile.id)
+        .is("released_at", null)
+        .select("*")
+        .maybeSingle();
+
+      if (declineError) {
+        throw declineError;
+      }
+
+      await tryRecordAuditEvent(serviceClient, staffProfile, user, {
+        action: "booking-lock.takeover-decline",
+        beforeValues: pickAuditFields(lock, [
+          "booking_reference",
+          "staff_name",
+          "staff_role",
+          "takeover_requested_by_name",
+        ]),
+        changedFields: [
+          "takeover_requested_at",
+          "takeover_requested_by",
+          "takeover_requested_by_name",
+        ],
+        entityId: lock.booking_id,
+        entityReference: lock.booking_reference,
+        entityType: "booking-lock",
+        outcome: "success",
+        request,
+        sourceArea: "Bookings",
+      });
+
+      return Response.json({
+        lock: declinedLock
+          ? toClientLock(declinedLock as BookingEditLockRow)
+          : undefined,
+        status: "declined",
+      });
+    }
+
+    const { data: requesterProfile, error: requesterError } =
+      await serviceClient
+        .from("staff_profiles")
+        .select("id,user_id,full_name,email,role_id,active,roles(name)")
+        .eq("id", lock.takeover_requested_by)
+        .maybeSingle();
+
+    if (requesterError) {
+      throw requesterError;
+    }
+
+    const requester = requesterProfile as StaffProfileWithRoleRow | null;
+
+    if (!requester?.active) {
+      return Response.json(
+        { error: "The requesting staff profile is no longer active." },
+        { status: 409 },
+      );
+    }
+
+    const requesterRole = getStaffRoleFromRow(requester);
+    const requesterRoleLabel = requesterRole
+      .split("-")
+      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+      .join(" ");
+
+    const { data: acceptedLock, error: acceptError } = await serviceClient
+      .from("booking_edit_locks")
+      .update({
+        last_activity_at: now,
+        session_id: `takeover-${lock.id}-${now}`,
+        staff_name: requester.full_name || requester.email,
+        staff_profile_id: requester.id,
+        staff_role: requesterRoleLabel,
+        staff_user_id: requester.user_id,
+        takeover_requested_at: null,
+        takeover_requested_by: null,
+        takeover_requested_by_name: null,
+        updated_at: now,
+      })
+      .eq("id", lock.id)
+      .eq("staff_profile_id", staffProfile.id)
+      .is("released_at", null)
+      .select("*")
+      .maybeSingle();
+
+    if (acceptError) {
+      throw acceptError;
+    }
+
+    await tryRecordAuditEvent(serviceClient, staffProfile, user, {
+      action: "booking-lock.takeover-accept",
+      afterValues: pickAuditFields(acceptedLock as Record<string, unknown>, [
+        "booking_reference",
+        "staff_name",
+        "staff_role",
+      ]),
+      beforeValues: pickAuditFields(lock, [
+        "booking_reference",
+        "staff_name",
+        "staff_role",
+        "takeover_requested_by_name",
+      ]),
+      changedFields: [
+        "staff_name",
+        "staff_role",
+        "staff_profile_id",
+        "staff_user_id",
+        "takeover_requested_at",
+        "takeover_requested_by",
+        "takeover_requested_by_name",
+      ],
+      entityId: lock.booking_id,
+      entityReference: lock.booking_reference,
+      entityType: "booking-lock",
+      outcome: "success",
+      request,
+      sourceArea: "Bookings",
+    });
+
+    return Response.json({
+      lock: acceptedLock
+        ? toClientLock(acceptedLock as BookingEditLockRow)
+        : undefined,
+      status: "accepted",
     });
   }
 

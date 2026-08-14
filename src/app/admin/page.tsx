@@ -4,6 +4,7 @@ import {
   type ChangeEvent,
   type FormEvent,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -38,6 +39,7 @@ import {
   getBookingEditLocks,
   heartbeatBookingEditLock,
   releaseBookingEditLock,
+  resolveBookingEditTakeover,
   requestBookingEditTakeover,
 } from "../../lib/supabase/bookingLocks";
 import {
@@ -106,10 +108,18 @@ import {
   type BulkShowScheduleInput,
   type BulkShowScheduleResult,
   createBulkShowSchedule,
-  getShows,
+  getShowsWithTables,
   previewBulkShowSchedule,
   replaceShows,
+  replaceShowsWithLock,
 } from "../../lib/supabase/shows";
+import {
+  type ShowEditLock,
+  acquireShowEditLock,
+  getShowEditLocks,
+  heartbeatShowEditLock,
+  releaseShowEditLock,
+} from "../../lib/supabase/showLocks";
 import { createTicketValidation } from "../../lib/supabase/ticketValidations";
 import { updateTicket } from "../../lib/supabase/tickets";
 import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
@@ -160,11 +170,13 @@ import {
   getShowLabel,
   getShowLocationOption,
   getZoneById,
+  getZoneSectionLookupTitles,
   getStoredDemoTables,
   getSouthAfricaShowTime,
   getTicketUrl,
   getGuestTicketsForBooking,
   renderCommunicationTemplate,
+  applyBookingOccupancyToTables,
   isOperationallyActiveBooking,
   normalizeShowLocation,
   normalizeTicketReference,
@@ -245,6 +257,14 @@ type CustomMessageForms = Record<
   }
 >;
 type CustomMessageSendState = Record<
+  string,
+  {
+    isSending: boolean;
+    message: string;
+    tone: "error" | "success";
+  }
+>;
+type PaymentLinkSendState = Record<
   string,
   {
     isSending: boolean;
@@ -634,12 +654,21 @@ type ExportSheet = {
 type DataPortabilityEntity = "bookings" | "customers";
 type DataPortabilityMode = "export" | "history" | "import";
 type DataPortabilityImportAction = "Create" | "Skip" | "Update";
+type DataPortabilitySourceFormat = "dineplan-legacy" | "zingara-template";
+type DataPortabilitySourceLocation = EntryLocationKey | "";
 type DataPortabilityImportIssue = {
   field: string;
   message: string;
   rowNumber: number;
   severity: "error" | "warning";
 };
+type DataPortabilityAllocationState =
+  | "AUTO_ALLOCATED_EXISTING"
+  | "AUTO_ALLOCATED_OVERFLOW"
+  | "EXPLICIT_TABLE"
+  | "NOT_APPLICABLE"
+  | "REQUIRES_FLOOR_ASSIGNMENT"
+  | "UNRESOLVED";
 type DataPortabilityPreviewRow = {
   action: DataPortabilityImportAction;
   errors: string[];
@@ -649,19 +678,162 @@ type DataPortabilityPreviewRow = {
   warnings: string[];
 };
 type DataPortabilityImportPreview = {
+  allocationSummary?: Array<{
+    count: number;
+    label: string;
+    tone: "error" | "info" | "neutral" | "success" | "warning";
+  }>;
+  ambiguousGuestMatches?: number;
+  autoAllocatedRows?: number;
+  capacityConflictSummary?: Array<{
+    affectedRows: number;
+    capacity: number;
+    date: string;
+    existingPax: number;
+    legacyPax: number;
+    location: string;
+    requiredPax: number;
+    resolvedLabel: string;
+    shortagePax: number;
+    zone: string;
+  }>;
+  overflowPlanSummary?: Array<{
+    date: string;
+    location: string;
+    proposedSeats: number;
+    proposedTables: number;
+    resolvedLabel: string;
+    rows: number;
+    zone: string;
+  }>;
   duplicateRows: number;
   entity: DataPortabilityEntity;
   fileName: string;
+  guestMatches?: number;
   headers: string[];
   invalidRows: number;
   issues: DataPortabilityImportIssue[];
   missingRequiredColumns: string[];
+  noGuestListRows?: number;
+  performanceSummary?: Array<{
+    bookingCount: number;
+    compactLabel: string;
+    date: string;
+    location: string;
+    resolvedLabel: string;
+    scopeKey: string;
+    status: "Ambiguous" | "Resolved" | "Unresolved";
+    time: string;
+  }>;
+  requiresFloorAssignmentRows?: number;
   rows: DataPortabilityPreviewRow[];
   rowsDetected: number;
+  sourceFormat: DataPortabilitySourceFormat;
+  unmatchedGuests?: number;
   validRows: number;
   wouldCreate: number;
   wouldSkip: number;
   wouldUpdate: number;
+};
+type DataPortabilityGuestListState = {
+  fileName: string;
+  records: DineplanGuestListRecord[];
+};
+type DataPortabilityImportSourceState = {
+  entity: DataPortabilityEntity;
+  fileName: string;
+  parsed: {
+    headers: string[];
+    records: Record<string, string>[];
+    sourceFormat?: DataPortabilitySourceFormat;
+  };
+};
+type DataPortabilityReviewFilter =
+  | "all"
+  | "auto-allocated"
+  | "blocking"
+  | "capacity-conflict"
+  | "floor-assignment"
+  | "valid";
+type DataPortabilityGuestMatchFilter =
+  | "all"
+  | "ambiguous"
+  | "matched"
+  | "unmatched";
+const controlledDineplanImportDate = "2026-09-18";
+const controlledDineplanImportLocation = "johannesburg";
+const controlledDineplanImportReferenceSet = new Set([
+  "7qq5nc",
+  "c2j4nc",
+  "l2j4nc",
+  "sr87nc",
+  "kr1lpc",
+  "kj53nc",
+  "h264nc",
+  "5h29nc",
+  "rrn3nc",
+  "5sd3mc",
+  "07bznc",
+  "8ws1nc",
+  "04t7nc",
+  "kf88nc",
+  "4fh3pc",
+  "87ytpc",
+  "b6j1nc",
+  "6hv4nc",
+  "cfgwpc",
+  "f458nc",
+  "90kypc",
+  "g3r5nc",
+  "1z70nc",
+  "km0spc",
+  "3tw4nc",
+  "0mx1nc",
+  "rqhypc",
+  "1qkwnc",
+  "63v1nc",
+  "ylnznc",
+  "l2l3pc",
+  "jkkznc",
+  "xr37nc",
+  "chh3pc",
+  "184bpc",
+  "3j64nc",
+  "0fk7nc",
+  "xh8vnc",
+  "4ny9nc",
+  "qfpgpc",
+  "wwvfpc",
+  "0m06nc",
+  "cy7ypc",
+  "xsbgpc",
+  "dh9zpc",
+  "zxggpc",
+  "2jbfpc",
+  "wcbcpc",
+  "pm5fpc",
+  "n4y2pc",
+  "sylxnc",
+  "7q6fpc",
+  "zzlgpc",
+  "qsz9nc",
+  "2792pc",
+  "0v97nc",
+  "xs69nc",
+]);
+type DataPortabilityTableSnapshotRow = {
+  availability_scope?: "operational" | "public" | null;
+  booking_id: string | null;
+  capacity: number;
+  id: string;
+  section: string;
+  show_id: string;
+  status: string;
+  table_code: string;
+};
+type DataPortabilityTableSnapshotShowMapping = {
+  requestedShowId: string;
+  supabaseShowId: string;
 };
 type DataPortabilityImportLogRow = {
   action: DataPortabilityImportAction;
@@ -973,7 +1145,7 @@ const automatedWorkflowSampleVariables: Record<string, string> = {
   guest_count: "2",
   location: "Cape Town — The Night Court",
   reviewUrl: "https://book.zingara.co.za",
-  seatingZone: "Royal Booths",
+  seatingZone: "Private Booths",
   showDate: "09/08/2026",
   showName: "The Royal Countess",
   showTime: "19:30",
@@ -1069,13 +1241,14 @@ const dataPortabilityColumns: Record<
     { example: "Standard", key: "booking_type", label: "Booking Type", required: true },
     { example: "The Royal Countess", key: "show", label: "Show", required: true },
     { example: "2026-08-09", key: "show_date", label: "Show Date", required: true },
+    { example: "17:00", key: "show_time", label: "Show Time" },
     { example: "Cape Town — The Night Court", key: "location", label: "Location", required: true },
     { example: "2026-08-01", key: "booking_date", label: "Booking Date", required: true },
     { example: "Guest Example", key: "customer_name", label: "Customer Name", required: true },
     { example: "guest@example.com", key: "customer_email", label: "Customer Email" },
     { example: "+27 21 000 0000", key: "customer_phone", label: "Customer Phone" },
     { example: "2", key: "number_of_guests", label: "Number of Guests", required: true },
-    { example: "Royal Booths", key: "seating_zone", label: "Seating Zone", required: true },
+    { example: "Private Booths", key: "seating_zone", label: "Seating Zone", required: true },
     { example: "B2", key: "table", label: "Table", required: true },
     { example: "1100", key: "booking_total", label: "Booking Total", required: true },
     { example: "550", key: "amount_paid", label: "Amount Paid", required: true },
@@ -6263,7 +6436,14 @@ const floorZoneFilterLabels: Partial<Record<FloorZoneFilter, string>> = {
   "golden-circle": "Golden Circle",
   "middle-ring": "Middle Ring",
   "royal-balcony": "Royal Balcony",
-  "royal-booths": "Booths",
+  "royal-booths": "Private Booths",
+};
+const showCalendarZoneAbbreviations: Partial<Record<SeatingZoneId, string>> = {
+  "elevated-stage": "ES",
+  "golden-circle": "GC",
+  "middle-ring": "MR",
+  "royal-balcony": "RB",
+  "royal-booths": "PB",
 };
 const bookingCalendarWeekdays = ["S", "M", "T", "W", "T", "F", "S"];
 const showScheduleWeekdayOptions = [
@@ -6506,6 +6686,19 @@ function getZoneStats(
     remainingSeats: totalCapacity - bookedSeats,
     totalCapacity,
   };
+}
+
+function mergeTablesForShows(
+  currentTables: DemoTable[],
+  nextTables: DemoTable[],
+  showIds: string[],
+) {
+  const showIdSet = new Set(showIds);
+
+  return [
+    ...currentTables.filter((table) => !table.showId || !showIdSet.has(table.showId)),
+    ...nextTables,
+  ];
 }
 
 function getTableOccupancy(
@@ -6755,6 +6948,268 @@ function formatOperationalShowDate(date: string) {
   ];
 
   return `${Number(day)} ${monthNames[Number(month) - 1] ?? month} ${year}`;
+}
+
+function formatFloorShowSelectorDate(date: string) {
+  const [year, month, day] = date.split("-");
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+
+  return `${String(Number(day)).padStart(2, "0")} ${monthNames[Number(month) - 1] ?? month} ${year}`;
+}
+
+function getFloorShowSelectorLabel(show: DemoShow) {
+  const location = normalizeShowLocation(show.location ?? show.venueName);
+  const locationLabel = location
+    ? getShowCalendarLocationDisplay(location).alias
+    : "LOC";
+
+  return `${locationLabel} · ${formatFloorShowSelectorDate(show.date)} · ${getSouthAfricaShowTime(show)}`;
+}
+
+type PerformanceCalendarSelectorProps = {
+  buttonClassName?: string;
+  emptyLabel?: string;
+  label?: string;
+  onSelect: (showId: string) => void;
+  selectedShowId: string;
+  shows: DemoShow[];
+};
+
+function PerformanceCalendarSelector({
+  buttonClassName,
+  emptyLabel = "No active performances",
+  label = "Selected Performance",
+  onSelect,
+  selectedShowId,
+  shows,
+}: PerformanceCalendarSelectorProps) {
+  const popupId = useId();
+  const sortedShows = useMemo(
+    () =>
+      [...shows].sort((left, right) => {
+        const chronological = `${left.date}T${left.time || "00:00"}`.localeCompare(
+          `${right.date}T${right.time || "00:00"}`,
+        );
+
+        if (chronological !== 0) {
+          return chronological;
+        }
+
+        const leftLocation =
+          normalizeShowLocation(left.location ?? left.venueName) ?? "";
+        const rightLocation =
+          normalizeShowLocation(right.location ?? right.venueName) ?? "";
+
+        return (
+          leftLocation.localeCompare(rightLocation) ||
+          left.id.localeCompare(right.id)
+        );
+      }),
+    [shows],
+  );
+  const selectedShow =
+    sortedShows.find((show) => show.id === selectedShowId) ?? sortedShows[0];
+  const [isOpen, setIsOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(
+    () => selectedShow?.date.slice(0, 7) ?? getCurrentShowCalendarMonth(),
+  );
+  const [selectedDate, setSelectedDate] = useState(
+    () => selectedShow?.date ?? "",
+  );
+
+  useEffect(() => {
+    if (!selectedShow) {
+      return;
+    }
+
+    setSelectedDate(selectedShow.date);
+    setCalendarMonth(selectedShow.date.slice(0, 7));
+  }, [selectedShow?.id, selectedShow?.date]);
+
+  const calendarAnchorDate = new Date(`${calendarMonth}-01T00:00:00`);
+  const calendarMonthStart = new Date(
+    calendarAnchorDate.getFullYear(),
+    calendarAnchorDate.getMonth(),
+    1,
+  );
+  const calendarDaysInMonth = new Date(
+    calendarMonthStart.getFullYear(),
+    calendarMonthStart.getMonth() + 1,
+    0,
+  ).getDate();
+  const calendarStartOffset = calendarMonthStart.getDay();
+  const calendarCells = [
+    ...Array.from({ length: calendarStartOffset }, () => null),
+    ...Array.from({ length: calendarDaysInMonth }, (_, index) => index + 1),
+  ];
+  const calendarMonthLabel = `${bookingCalendarMonths[calendarMonthStart.getMonth()]} ${calendarMonthStart.getFullYear()}`;
+  const selectedDateShows = selectedDate
+    ? sortedShows.filter((show) => show.date === selectedDate)
+    : [];
+  const setCalendarMonthOffset = (offset: number) => {
+    const [year, month] = calendarMonth.split("-").map(Number);
+    const nextDate = new Date(year, month - 1 + offset, 1);
+
+    setCalendarMonth(
+      `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, "0")}`,
+    );
+  };
+  const selectDate = (dateValue: string) => {
+    const dateShows = sortedShows.filter((show) => show.date === dateValue);
+
+    setSelectedDate(dateValue);
+
+    if (dateShows.length === 1) {
+      onSelect(dateShows[0].id);
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        aria-controls={popupId}
+        onClick={() => setIsOpen((current) => !current)}
+        className={
+          buttonClassName ??
+          "mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-left text-white transition hover:border-[#D8C36A]/60 focus:border-[#D8C36A]/70 focus:outline-none"
+        }
+      >
+        {selectedShow ? getFloorShowSelectorLabel(selectedShow) : emptyLabel}
+      </button>
+
+      {isOpen && (
+        <div
+          id={popupId}
+          className="absolute left-0 top-[calc(100%+0.5rem)] z-40 w-[21rem] max-w-[86vw] rounded-[1.5rem] border border-[#D8C36A]/25 bg-zinc-950 p-4 shadow-2xl shadow-black/50"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setCalendarMonthOffset(-1)}
+              className="grid h-8 w-8 place-items-center rounded-full border border-white/15 text-lg text-zinc-300 transition hover:border-[#D8C36A] hover:text-[#F2D66C]"
+              aria-label={`Previous ${label.toLowerCase()} month`}
+            >
+              ‹
+            </button>
+            <p className="text-sm font-semibold text-white">
+              {calendarMonthLabel}
+            </p>
+            <button
+              type="button"
+              onClick={() => setCalendarMonthOffset(1)}
+              className="grid h-8 w-8 place-items-center rounded-full border border-white/15 text-lg text-zinc-300 transition hover:border-[#D8C36A] hover:text-[#F2D66C]"
+              aria-label={`Next ${label.toLowerCase()} month`}
+            >
+              ›
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+            {bookingCalendarWeekdays.map((weekday, index) => (
+              <span key={`${popupId}-weekday-${weekday}-${index}`}>
+                {weekday}
+              </span>
+            ))}
+          </div>
+          <div className="mt-2 grid grid-cols-7 gap-1">
+            {calendarCells.map((day, index) => {
+              if (!day) {
+                return (
+                  <span
+                    key={`${popupId}-empty-${index}`}
+                    className="aspect-square"
+                  />
+                );
+              }
+
+              const dateValue = `${calendarMonthStart.getFullYear()}-${String(
+                calendarMonthStart.getMonth() + 1,
+              ).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+              const showsForDate = sortedShows.filter(
+                (show) => show.date === dateValue,
+              );
+              const isAvailable = showsForDate.length > 0;
+              const isSelected = selectedDate === dateValue;
+
+              return (
+                <button
+                  key={`${popupId}-${dateValue}`}
+                  type="button"
+                  disabled={!isAvailable}
+                  onClick={() => selectDate(dateValue)}
+                  title={
+                    isAvailable
+                      ? `${showsForDate.length} active performance${showsForDate.length === 1 ? "" : "s"}`
+                      : "No active performance"
+                  }
+                  className={`aspect-square rounded-xl text-sm font-semibold transition ${
+                    isSelected
+                      ? "bg-[#D8C36A] text-black"
+                      : isAvailable
+                        ? "border border-[#D8C36A]/25 bg-[#D8C36A]/10 text-[#F2D66C] hover:bg-[#D8C36A]/20"
+                        : "bg-white/[0.03] text-zinc-700"
+                  }`}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+          {selectedDateShows.length > 1 && (
+            <div className="mt-4 border-t border-white/10 pt-3">
+              <p className="mb-2 text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                Choose Performance
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {selectedDateShows.map((show) => {
+                  const location = normalizeShowLocation(
+                    show.location ?? show.venueName,
+                  );
+                  const locationLabel = location
+                    ? getShowCalendarLocationDisplay(location).alias
+                    : "LOC";
+                  const isSelected = selectedShowId === show.id;
+
+                  return (
+                    <button
+                      key={`${popupId}-performance-${show.id}`}
+                      type="button"
+                      onClick={() => {
+                        onSelect(show.id);
+                        setIsOpen(false);
+                      }}
+                      className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
+                        isSelected
+                          ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                          : "border-white/15 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/60 hover:text-white"
+                      }`}
+                    >
+                      {locationLabel} · {getSouthAfricaShowTime(show)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function createZingaraUserEmail(
@@ -7333,15 +7788,605 @@ function normalizePortabilityKey(value: string) {
     .replaceAll(/^_|_$/g, "");
 }
 
+function normalizePortabilityLookupValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function isExcelSerialNumber(value: string) {
+  return /^\d+(\.\d+)?$/.test(value.trim());
+}
+
+function parseExcelSerialDate(value: number) {
+  const excelEpoch = Date.UTC(1899, 11, 30);
+
+  return new Date(excelEpoch + value * 86400000);
+}
+
+function formatImportDateValue(value?: string | null) {
+  const trimmedValue = value?.trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
+  if (isExcelSerialNumber(trimmedValue)) {
+    const parsedDate = parseExcelSerialDate(Number(trimmedValue));
+
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return parsedDate.toISOString().slice(0, 10);
+    }
+  }
+
+  const directDateMatch = trimmedValue.match(
+    /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/,
+  );
+
+  if (directDateMatch) {
+    const [, day, month, year] = directDateMatch;
+    const fullYear = year.length === 2 ? `20${year}` : year;
+
+    return `${fullYear}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  const parsedDate = new Date(trimmedValue);
+
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return parsedDate.toISOString().slice(0, 10);
+  }
+
+  return trimmedValue;
+}
+
+function formatImportTimeValue(value?: string | null) {
+  const trimmedValue = value?.trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
+  if (isExcelSerialNumber(trimmedValue)) {
+    const numericValue = Number(trimmedValue);
+    const fractionalDay = numericValue % 1;
+    const totalMinutes = Math.round(fractionalDay * 24 * 60);
+    const hours = Math.floor(totalMinutes / 60) % 24;
+    const minutes = totalMinutes % 60;
+
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  }
+
+  const directMatch = trimmedValue.match(/\b(\d{1,2})[:hH](\d{2})\b/);
+
+  if (directMatch) {
+    return `${directMatch[1].padStart(2, "0")}:${directMatch[2]}`;
+  }
+
+  const hourOnlyMatch = trimmedValue.match(/\b(\d{1,2})\b/);
+
+  if (
+    hourOnlyMatch &&
+    trimmedValue.replace(/\D/g, "") === hourOnlyMatch[1]
+  ) {
+    return `${hourOnlyMatch[1].padStart(2, "0")}:00`;
+  }
+
+  return trimmedValue;
+}
+
+function getImportMoneyValue(value?: string | null) {
+  const trimmedValue = value?.trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
+  const parsedValue = Number(trimmedValue.replace(/[^\d.-]/g, ""));
+
+  return Number.isFinite(parsedValue) ? String(parsedValue) : "";
+}
+
+function getImportMoneyNumber(value?: string | null) {
+  return Number(getImportMoneyValue(value) || 0);
+}
+
+function formatImportMoneyNumber(value: number) {
+  const normalizedValue = Math.max(
+    Math.round((Number.isFinite(value) ? value : 0) * 100) / 100,
+    0,
+  );
+
+  return Number.isInteger(normalizedValue)
+    ? String(normalizedValue)
+    : normalizedValue.toFixed(2);
+}
+
+function getDineplanValue(record: Record<string, string>, key: string) {
+  return record[normalizePortabilityKey(key)]?.trim() ?? "";
+}
+
+function isDineplanLegacyHeaders(headers: string[]) {
+  const headerKeys = new Set(headers.map(normalizePortabilityKey));
+  const dineplanHeaderMatches = [
+    "booking_reference",
+    "booking_type",
+    "source",
+    "last_modified",
+    "created",
+    "last_modified_by",
+    "booking_status",
+    "booking_date",
+    "booking_month",
+    "time",
+    "seating_area",
+    "covers",
+    "table_s",
+    "guest_name",
+    "requested_amount",
+    "total_paid",
+    "total_refunded",
+    "total_balance",
+  ].filter((key) => headerKeys.has(key));
+
+  return (
+    headerKeys.has("booking_reference") &&
+    headerKeys.has("guest_name") &&
+    headerKeys.has("covers") &&
+    headerKeys.has("seating_area") &&
+    headerKeys.has("time") &&
+    dineplanHeaderMatches.length >= 6
+  );
+}
+
+type DineplanGuestListRecord = {
+  company: string;
+  email: string;
+  emailOptIn: string;
+  firstName: string;
+  fullName: string;
+  notes: string;
+  phone: string;
+  smsOptIn: string;
+  sourceId: string;
+  surname: string;
+};
+
+function isDineplanGuestListHeaders(headers: string[]) {
+  const headerKeys = new Set(headers.map(normalizePortabilityKey));
+
+  return (
+    (headerKeys.has("first_name") || headerKeys.has("firstname")) &&
+    (headerKeys.has("last_name") ||
+      headerKeys.has("surname") ||
+      headerKeys.has("lastname")) &&
+    (headerKeys.has("contact_number") ||
+      headerKeys.has("phone") ||
+      headerKeys.has("mobile") ||
+      headerKeys.has("email"))
+  );
+}
+
+function getDineplanGuestListValue(
+  record: Record<string, string>,
+  ...keys: string[]
+) {
+  for (const key of keys) {
+    const value = record[normalizePortabilityKey(key)]?.trim();
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function normalizeDineplanPersonKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function parseDineplanGuestList(
+  parsed: { headers: string[]; records: Record<string, string>[] },
+) {
+  if (!isDineplanGuestListHeaders(parsed.headers)) {
+    throw new Error("Upload a Dineplan Guest List export with First Name, Last Name and contact columns.");
+  }
+
+  return parsed.records
+    .map((record) => {
+      const firstName = getDineplanGuestListValue(
+        record,
+        "First Name",
+        "Firstname",
+      );
+      const surname = getDineplanGuestListValue(
+        record,
+        "Last Name",
+        "Surname",
+        "Lastname",
+      );
+
+      return {
+        company: getDineplanGuestListValue(record, "Company"),
+        email: getDineplanGuestListValue(record, "Email"),
+        emailOptIn: getDineplanGuestListValue(
+          record,
+          "Email Opt In",
+          "Email Opt-In",
+          "Email OptIn",
+        ),
+        firstName,
+        fullName: [firstName, surname].filter(Boolean).join(" ").trim(),
+        notes: [
+          getDineplanGuestListValue(record, "Notes"),
+          getDineplanGuestListValue(record, "Guest Notes"),
+          getDineplanGuestListValue(record, "Tags"),
+        ]
+          .filter(Boolean)
+          .join(" | "),
+        phone: getDineplanGuestListValue(
+          record,
+          "Contact Number",
+          "Phone",
+          "Mobile",
+          "Cell",
+        ),
+        smsOptIn: getDineplanGuestListValue(
+          record,
+          "SMS Opt In",
+          "Sms Opt In",
+          "SMS Opt-In",
+          "Sms OptIn",
+        ),
+        sourceId: getDineplanGuestListValue(
+          record,
+          "Guest ID",
+          "Customer ID",
+          "Dineplan Guest ID",
+          "ID",
+        ),
+        surname,
+      } satisfies DineplanGuestListRecord;
+    })
+    .filter((record) => record.firstName || record.surname || record.email || record.phone);
+}
+
+function getConsentStatus(value: string) {
+  const normalizedValue = normalizePortabilityLookupValue(value);
+
+  if (["yes", "y", "true", "1", "opted in", "subscribed"].includes(normalizedValue)) {
+    return "Yes";
+  }
+
+  if (["no", "n", "false", "0", "opted out", "unsubscribed"].includes(normalizedValue)) {
+    return "No";
+  }
+
+  return "Unknown";
+}
+
+function maskContactAvailability(value: string) {
+  return value.trim() ? "Available" : "Not available";
+}
+
+function getReservationGuestMatch(
+  sourceGuestName: string,
+  sourceGuestId: string,
+  guestList: DineplanGuestListRecord[] | null,
+) {
+  if (!guestList) {
+    return {
+      status: "NO GUEST LIST",
+      candidates: [] as DineplanGuestListRecord[],
+      match: null as DineplanGuestListRecord | null,
+    };
+  }
+
+  if (sourceGuestId.trim()) {
+    const idCandidates = guestList.filter(
+      (guest) =>
+        normalizePortabilityLookupValue(guest.sourceId) ===
+        normalizePortabilityLookupValue(sourceGuestId),
+    );
+
+    if (idCandidates.length === 1) {
+      return {
+        status: "MATCHED",
+        candidates: idCandidates,
+        match: idCandidates[0],
+      };
+    }
+
+    if (idCandidates.length > 1) {
+      return {
+        status: "AMBIGUOUS",
+        candidates: idCandidates,
+        match: null as DineplanGuestListRecord | null,
+      };
+    }
+  }
+
+  const nameParts = sourceGuestName.trim().split(/\s+/).filter(Boolean);
+  const firstName = normalizeDineplanPersonKey(nameParts[0] ?? "");
+  const surnameInitial =
+    normalizeDineplanPersonKey(nameParts[1] ?? "").charAt(0) || "";
+
+  if (!firstName || !surnameInitial) {
+    return {
+      status: "NO MATCH",
+      candidates: [] as DineplanGuestListRecord[],
+      match: null as DineplanGuestListRecord | null,
+    };
+  }
+
+  const candidates = guestList.filter(
+    (guest) =>
+      normalizeDineplanPersonKey(guest.firstName) === firstName &&
+      normalizeDineplanPersonKey(guest.surname).startsWith(surnameInitial),
+  );
+
+  if (candidates.length === 1) {
+    return {
+      status: "MATCHED",
+      candidates,
+      match: candidates[0],
+    };
+  }
+
+  return {
+    status: candidates.length > 1 ? "AMBIGUOUS" : "NO MATCH",
+    candidates,
+    match: null as DineplanGuestListRecord | null,
+  };
+}
+
+function normalizeDineplanStatus(value: string) {
+  const normalizedValue = normalizePortabilityLookupValue(value);
+
+  if (normalizedValue.includes("cancel")) {
+    return "Cancelled";
+  }
+
+  if (normalizedValue.includes("no show")) {
+    return "No Show";
+  }
+
+  if (normalizedValue.includes("deposit required")) {
+    return "Pending Payment";
+  }
+
+  if (normalizedValue.includes("active")) {
+    return "Confirmed";
+  }
+
+  return value || "Pending Payment";
+}
+
+function normalizeDineplanPaymentStatus(record: Record<string, string>) {
+  const status = normalizePortabilityLookupValue(getDineplanValue(record, "Booking Status"));
+  const bookingTotal = getImportMoneyNumber(getDineplanValue(record, "Requested Amount"));
+  const totalPaid = getImportMoneyNumber(getDineplanValue(record, "Total Paid"));
+  const totalRefunded = getImportMoneyNumber(getDineplanValue(record, "Total Refunded"));
+  const netPaid = Math.max(totalPaid - totalRefunded, 0);
+
+  if (status.includes("deposit required")) {
+    return "Pending Payment";
+  }
+
+  if (bookingTotal <= 0) {
+    return "Comp/VIP";
+  }
+
+  if (totalRefunded > 0 && netPaid <= 0) {
+    return "Refunded";
+  }
+
+  if (netPaid >= bookingTotal) {
+    return "Fully Paid";
+  }
+
+  if (netPaid > 0) {
+    return "Deposit Paid";
+  }
+
+  return "Pending Payment";
+}
+
+function normalizeDineplanSeatingArea(value: string) {
+  const normalizedValue = normalizePortabilityLookupValue(value);
+  const withoutPrice = value.replace(/\s*r\s*\d+(\.\d{1,2})?\s*pp\b/i, "").trim();
+
+  if (normalizedValue.includes("golden circle")) {
+    return "Golden Circle";
+  }
+
+  if (normalizedValue.includes("middle ring")) {
+    return "Middle Ring";
+  }
+
+  if (
+    normalizedValue.includes("private raised booth") ||
+    normalizedValue.includes("private booth") ||
+    normalizedValue.includes("royal booth")
+  ) {
+    return "Private Booths";
+  }
+
+  if (
+    normalizedValue.includes("royal balcony") ||
+    normalizedValue.includes("balcony")
+  ) {
+    return "Royal Balcony";
+  }
+
+  return withoutPrice || value;
+}
+
+function getDineplanTableValue(record: Record<string, string>) {
+  return (
+    getDineplanValue(record, "Table(s)") ||
+    getDineplanValue(record, "Tables") ||
+    getDineplanValue(record, "Table")
+  );
+}
+
+function getDineplanAnyValue(record: Record<string, string>, keys: string[]) {
+  for (const key of keys) {
+    const value = getDineplanValue(record, key);
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function normalizeDineplanRecord(
+  record: Record<string, string>,
+  sourceLocation: DataPortabilitySourceLocation,
+) {
+  const bookingDate = formatImportDateValue(getDineplanValue(record, "Booking Date"));
+  const showTime = formatImportTimeValue(getDineplanValue(record, "Time"));
+  const requestedAmount = getImportMoneyNumber(getDineplanValue(record, "Requested Amount"));
+  const totalPaid = getImportMoneyNumber(getDineplanValue(record, "Total Paid"));
+  const totalRefunded = getImportMoneyNumber(getDineplanValue(record, "Total Refunded"));
+  const netPaid = Math.max(totalPaid - totalRefunded, 0);
+  const balanceDue = Math.max(requestedAmount - netPaid, 0);
+  const legacyTotalBalance = getImportMoneyValue(
+    getDineplanValue(record, "Total Balance"),
+  );
+  const sourceReference = getDineplanValue(record, "Booking Reference");
+
+  return {
+    booking_date:
+      formatImportDateValue(getDineplanValue(record, "Created")) || bookingDate,
+    booking_reference: sourceReference
+      ? `DP-${sourceReference.replace(/[^A-Za-z0-9-]/g, "").toUpperCase()}`
+      : "",
+    booking_status: normalizeDineplanStatus(
+      getDineplanValue(record, "Booking Status"),
+    ),
+    booking_total: formatImportMoneyNumber(requestedAmount),
+    booking_type: getDineplanValue(record, "Booking Type") || "Standard",
+    corporate_flag: getDineplanValue(record, "Company") ? "Yes" : "No",
+    customer_email: "",
+    customer_name:
+      getDineplanValue(record, "Guest Name") ||
+      getDineplanValue(record, "Company") ||
+      getDineplanValue(record, "Group Name"),
+    customer_phone: "",
+    guest_notes: [
+      getDineplanValue(record, "Booking Notes"),
+      getDineplanValue(record, "Guest Notes"),
+      getDineplanValue(record, "Special Requests"),
+      getDineplanValue(record, "Payment Notes"),
+      legacyTotalBalance
+        ? `Legacy Total Balance: R${legacyTotalBalance}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" | "),
+    location: sourceLocation,
+    number_of_guests: getDineplanValue(record, "Covers"),
+    payment_status: normalizeDineplanPaymentStatus(record),
+    seating_zone: normalizeDineplanSeatingArea(
+      getDineplanValue(record, "Seating Area"),
+    ),
+    show: "Dineplan Legacy Export",
+    show_date: bookingDate,
+    show_time: showTime,
+    source_booking_reference: sourceReference,
+    source_date: bookingDate,
+    source_format: "Dineplan Legacy Export",
+    source_guest_id: getDineplanAnyValue(record, [
+      "Guest ID",
+      "Customer ID",
+      "Dineplan Guest ID",
+    ]),
+    source_legacy_total_balance: legacyTotalBalance,
+    source_total_paid: formatImportMoneyNumber(totalPaid),
+    source_total_refunded: formatImportMoneyNumber(totalRefunded),
+    source_seating_area: getDineplanValue(record, "Seating Area"),
+    source_table: getDineplanTableValue(record),
+    source_time: showTime,
+    table: getDineplanTableValue(record),
+    amount_paid: formatImportMoneyNumber(netPaid),
+    balance_due: formatImportMoneyNumber(balanceDue),
+  };
+}
+
+function normalizePortabilityParsedTable(
+  parsed: { headers: string[]; records: Record<string, string>[] },
+  entity: DataPortabilityEntity,
+  sourceLocation: DataPortabilitySourceLocation,
+) {
+  if (entity !== "bookings" || !isDineplanLegacyHeaders(parsed.headers)) {
+    return {
+      ...parsed,
+      sourceFormat: "zingara-template" as DataPortabilitySourceFormat,
+    };
+  }
+
+  return {
+    headers: dataPortabilityColumns.bookings.map((column) => column.label),
+    records: parsed.records.map((record) =>
+      normalizeDineplanRecord(record, sourceLocation),
+    ),
+    sourceFormat: "dineplan-legacy" as DataPortabilitySourceFormat,
+  };
+}
+
 function parsePortabilityTable(rows: string[][]) {
   if (rows.length < 2) {
     return { headers: rows[0] ?? [], records: [] };
   }
 
   const knownHeaderKeys = new Set(
-    Object.values(dataPortabilityColumns)
-      .flat()
-      .map((column) => column.key),
+    [
+      ...Object.values(dataPortabilityColumns)
+        .flat()
+        .map((column) => column.key),
+      "booking_month",
+      "cancelled",
+      "company",
+      "contact_number",
+      "covers",
+      "created",
+      "deleted",
+      "dineplan_guest_id",
+      "email",
+      "email_opt_in",
+      "email_optin",
+      "first_name",
+      "firstname",
+      "guest_name",
+      "guest_id",
+      "last_modified",
+      "last_modified_by",
+      "last_name",
+      "lastname",
+      "mobile",
+      "no_show",
+      "phone",
+      "payment_notes",
+      "requested_amount",
+      "seating_area",
+      "sms_opt_in",
+      "sms_optin",
+      "source",
+      "special_requests",
+      "surname",
+      "table_s",
+      "time",
+      "total_balance",
+      "total_paid",
+      "total_refunded",
+    ],
   );
   const headerRowIndex = rows.findIndex((row) =>
     row.filter((cell) => knownHeaderKeys.has(normalizePortabilityKey(cell)))
@@ -7460,6 +8505,23 @@ function getXmlText(node: Element | null) {
   return node?.textContent ?? "";
 }
 
+function getXlsxColumnIndex(cellReference: string | null) {
+  const columnReference = cellReference?.match(/[A-Z]+/i)?.[0] ?? "";
+
+  if (!columnReference) {
+    return -1;
+  }
+
+  return columnReference
+    .toUpperCase()
+    .split("")
+    .reduce(
+      (index, character) =>
+        index * 26 + character.charCodeAt(0) - "A".charCodeAt(0) + 1,
+      0,
+    ) - 1;
+}
+
 async function parseXlsxTable(file: File) {
   const files = await readXlsxFiles(file);
   const workbookXml = files.get("xl/workbook.xml");
@@ -7503,33 +8565,70 @@ async function parseXlsxTable(file: File) {
     : [];
   const worksheet = parser.parseFromString(worksheetXml, "application/xml");
 
-  return Array.from(worksheet.getElementsByTagName("row")).map((row) =>
-    Array.from(row.getElementsByTagName("c")).map((cell) => {
+  return Array.from(worksheet.getElementsByTagName("row")).map((row) => {
+    const cells = Array.from(row.getElementsByTagName("c"));
+    const values: string[] = [];
+
+    cells.forEach((cell, fallbackIndex) => {
       const type = cell.getAttribute("t");
+      const columnIndex = getXlsxColumnIndex(cell.getAttribute("r"));
+      const resolvedIndex = columnIndex >= 0 ? columnIndex : fallbackIndex;
+      let cellValue = "";
 
       if (type === "inlineStr") {
-        return getXmlText(cell.getElementsByTagName("t")[0]).trim();
+        cellValue = getXmlText(cell.getElementsByTagName("t")[0]).trim();
+      } else {
+        const value = getXmlText(cell.getElementsByTagName("v")[0]).trim();
+
+        cellValue = type === "s" ? sharedStrings[Number(value)] ?? "" : value;
       }
 
-      const value = getXmlText(cell.getElementsByTagName("v")[0]).trim();
+      values[resolvedIndex] = cellValue;
+    });
 
-      return type === "s" ? sharedStrings[Number(value)] ?? "" : value;
-    }),
-  );
+    return values.map((value) => value ?? "");
+  });
 }
 
-async function parsePortabilityFile(file: File) {
+async function parsePortabilityFile(
+  file: File,
+  entity: DataPortabilityEntity,
+  sourceLocation: DataPortabilitySourceLocation,
+) {
   const fileName = file.name.toLowerCase();
 
   if (fileName.endsWith(".csv") || fileName.endsWith(".txt")) {
-    return parsePortabilityTable(parseCsvTable(await file.text()));
+    return normalizePortabilityParsedTable(
+      parsePortabilityTable(parseCsvTable(await file.text())),
+      entity,
+      sourceLocation,
+    );
   }
 
   if (fileName.endsWith(".xlsx")) {
-    return parsePortabilityTable(await parseXlsxTable(file));
+    return normalizePortabilityParsedTable(
+      parsePortabilityTable(await parseXlsxTable(file)),
+      entity,
+      sourceLocation,
+    );
   }
 
   throw new Error("Upload a CSV or XLSX file.");
+}
+
+async function parseDineplanGuestListFile(file: File) {
+  const fileName = file.name.toLowerCase();
+  let parsed: { headers: string[]; records: Record<string, string>[] };
+
+  if (fileName.endsWith(".csv") || fileName.endsWith(".txt")) {
+    parsed = parsePortabilityTable(parseCsvTable(await file.text()));
+  } else if (fileName.endsWith(".xlsx")) {
+    parsed = parsePortabilityTable(await parseXlsxTable(file));
+  } else {
+    throw new Error("Upload a Dineplan Guest List CSV or XLSX file.");
+  }
+
+  return parseDineplanGuestList(parsed);
 }
 
 function isValidPortabilityEmail(value: string) {
@@ -7550,6 +8649,10 @@ function isValidPortabilityNumber(value: string) {
 
 function isLikelyBookingReference(value: string) {
   return /^[A-Z0-9][A-Z0-9-]{3,}$/i.test(value.trim());
+}
+
+function getImportTableSortValue(value: string) {
+  return value.replace(/\d+/g, (match) => match.padStart(6, "0"));
 }
 
 function formatPercent(value: number) {
@@ -7838,6 +8941,8 @@ export default function AdminDashboardPage() {
     useState<CustomMessageForms>({});
   const [customMessageSendState, setCustomMessageSendState] =
     useState<CustomMessageSendState>({});
+  const [paymentLinkSendState, setPaymentLinkSendState] =
+    useState<PaymentLinkSendState>({});
   const [broadcastForm, setBroadcastForm] =
     useState<BroadcastForm>({
       channel: "email",
@@ -7891,18 +8996,148 @@ export default function AdminDashboardPage() {
     useState<DataPortabilityEntity>("bookings");
   const [activeDataPortabilityMode, setActiveDataPortabilityMode] =
     useState<DataPortabilityMode>("export");
+  const [dataPortabilitySourceLocation, setDataPortabilitySourceLocation] =
+    useState<DataPortabilitySourceLocation>("");
+  const [dataPortabilityGuestList, setDataPortabilityGuestList] =
+    useState<DataPortabilityGuestListState | null>(null);
+  const [dataPortabilityImportSource, setDataPortabilityImportSource] =
+    useState<DataPortabilityImportSourceState | null>(null);
   const [dataPortabilityPreview, setDataPortabilityPreview] =
     useState<DataPortabilityImportPreview | null>(null);
+  const [dataPortabilityImportScope, setDataPortabilityImportScope] =
+    useState("all");
+  const [dataPortabilityReviewFilter, setDataPortabilityReviewFilter] =
+    useState<DataPortabilityReviewFilter>("all");
+  const [
+    dataPortabilityGuestMatchFilter,
+    setDataPortabilityGuestMatchFilter,
+  ] = useState<DataPortabilityGuestMatchFilter>("all");
+  const [
+    dataPortabilityPerformanceFilter,
+    setDataPortabilityPerformanceFilter,
+  ] = useState("all");
   const [dataPortabilityImportError, setDataPortabilityImportError] =
     useState("");
   const [dataPortabilityImportStatus, setDataPortabilityImportStatus] =
     useState("");
+  const [
+    dataPortabilityHistoryWarning,
+    setDataPortabilityHistoryWarning,
+  ] = useState("");
   const [dataPortabilityImportHistory, setDataPortabilityImportHistory] =
     useState<DataPortabilityImportHistoryEntry[]>([]);
   const [dataPortabilityImportResult, setDataPortabilityImportResult] =
     useState<DataPortabilityImportResult | null>(null);
   const [isDataPortabilityImporting, setIsDataPortabilityImporting] =
     useState(false);
+  const dataPortabilityImportScopeOptions = useMemo(() => {
+    if (
+      !dataPortabilityPreview ||
+      dataPortabilityPreview.sourceFormat !== "dineplan-legacy"
+    ) {
+      return [];
+    }
+
+    return (dataPortabilityPreview.performanceSummary ?? []).map((item) => ({
+      bookingCount: item.bookingCount,
+      label: `${item.compactLabel} — ${item.bookingCount} booking${
+        item.bookingCount === 1 ? "" : "s"
+      }`,
+      status: item.status,
+      value: item.scopeKey,
+    }));
+  }, [dataPortabilityPreview]);
+  const dataPortabilityPerformanceOptions = useMemo(() => {
+    if (
+      !dataPortabilityPreview ||
+      dataPortabilityPreview.sourceFormat !== "dineplan-legacy"
+    ) {
+      return [];
+    }
+
+    return (dataPortabilityPreview.performanceSummary ?? []).map((item) => ({
+      label: item.compactLabel,
+      value: item.resolvedLabel,
+    }));
+  }, [dataPortabilityPreview]);
+  const dataPortabilityVisibleRows = useMemo(() => {
+    if (!dataPortabilityPreview) {
+      return [];
+    }
+
+    return dataPortabilityPreview.rows.filter((row) => {
+      const allocationState = row.values.allocation_state ?? "";
+      const guestMatchStatus = row.values.guest_match_status ?? "";
+      const performanceLabel = row.values.resolved_show_label || "Unresolved";
+
+      if (dataPortabilityReviewFilter === "valid" && !row.valid) {
+        return false;
+      }
+
+      if (
+        dataPortabilityReviewFilter === "blocking" &&
+        row.errors.length === 0
+      ) {
+        return false;
+      }
+
+      if (
+        dataPortabilityReviewFilter === "capacity-conflict" &&
+        !row.values.capacity_status?.startsWith("Overflow required:")
+      ) {
+        return false;
+      }
+
+      if (
+        dataPortabilityReviewFilter === "floor-assignment" &&
+        allocationState !== "Requires floor assignment"
+      ) {
+        return false;
+      }
+
+      if (
+        dataPortabilityReviewFilter === "auto-allocated" &&
+        allocationState !== "Assigned to Existing Table"
+      ) {
+        return false;
+      }
+
+      if (
+        dataPortabilityGuestMatchFilter === "matched" &&
+        guestMatchStatus !== "MATCHED"
+      ) {
+        return false;
+      }
+
+      if (
+        dataPortabilityGuestMatchFilter === "ambiguous" &&
+        guestMatchStatus !== "AMBIGUOUS"
+      ) {
+        return false;
+      }
+
+      if (
+        dataPortabilityGuestMatchFilter === "unmatched" &&
+        guestMatchStatus !== "NO MATCH"
+      ) {
+        return false;
+      }
+
+      if (
+        dataPortabilityPerformanceFilter !== "all" &&
+        performanceLabel !== dataPortabilityPerformanceFilter
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [
+    dataPortabilityGuestMatchFilter,
+    dataPortabilityPerformanceFilter,
+    dataPortabilityPreview,
+    dataPortabilityReviewFilter,
+  ]);
   const [activeSettingsTab, setActiveSettingsTab] =
     useState<SettingsTab>("staff");
   const [promoCodes, setPromoCodes] = useState<PromoAdminRecord[]>([]);
@@ -8041,8 +9276,6 @@ export default function AdminDashboardPage() {
     useState<BookingSource | "all">("all");
   const [isBookingCalendarOpen, setIsBookingCalendarOpen] =
     useState(false);
-  const [isFloorCalendarOpen, setIsFloorCalendarOpen] =
-    useState(false);
   const [hideCancelledConcierge, setHideCancelledConcierge] =
     useState(true);
   const [conciergeStatusFilter, setConciergeStatusFilter] =
@@ -8052,6 +9285,7 @@ export default function AdminDashboardPage() {
     username: "",
   });
   const [loginError, setLoginError] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [isPasswordResetOpen, setIsPasswordResetOpen] = useState(false);
   const [passwordResetEmail, setPasswordResetEmail] = useState("");
   const [passwordResetMessage, setPasswordResetMessage] = useState("");
@@ -8091,6 +9325,7 @@ export default function AdminDashboardPage() {
   const [selectedShowId, setSelectedShowId] = useState(
     defaultShows[0]?.id ?? "",
   );
+  const [checkInSelectedShowId, setCheckInSelectedShowId] = useState("");
   const [workflowShowId, setWorkflowShowId] = useState(
     defaultShows[0]?.id ?? "",
   );
@@ -8147,17 +9382,29 @@ export default function AdminDashboardPage() {
   const [bookingEditLocks, setBookingEditLocks] = useState<
     BookingEditLock[]
   >([]);
+  const [showEditLocks, setShowEditLocks] = useState<ShowEditLock[]>([]);
   const [activeBookingEditLock, setActiveBookingEditLock] =
     useState<BookingEditLock | null>(null);
+  const [activeShowEditLock, setActiveShowEditLock] =
+    useState<ShowEditLock | null>(null);
   const [bookingReadOnlyReferences, setBookingReadOnlyReferences] =
     useState<string[]>([]);
+  const [showReadOnlyReferences, setShowReadOnlyReferences] =
+    useState<string[]>([]);
   const [bookingLockStatus, setBookingLockStatus] = useState("");
+  const [showLockStatus, setShowLockStatus] = useState("");
   const [bookingLockSessionId] = useState(() =>
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `booking-lock-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
+  const [showLockSessionId] = useState(() =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `show-lock-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   const activeBookingEditLockRef = useRef<BookingEditLock | null>(null);
+  const activeShowEditLockRef = useRef<ShowEditLock | null>(null);
   const [cancellingBookingReference, setCancellingBookingReference] =
     useState("");
   const [isCancellingBooking, setIsCancellingBooking] = useState(false);
@@ -8169,6 +9416,8 @@ export default function AdminDashboardPage() {
     useState(false);
   const [refundBookingReason, setRefundBookingReason] = useState("");
   const [refundAdminPassword, setRefundAdminPassword] = useState("");
+  const [showRefundAdminPassword, setShowRefundAdminPassword] =
+    useState(false);
   const [cancellationReason, setCancellationReason] = useState<
     (typeof cancellationReasons)[number]
   >(cancellationReasons[0]);
@@ -8245,7 +9494,7 @@ export default function AdminDashboardPage() {
 
       try {
         const [
-          nextShows,
+          nextShowPayload,
           nextBookings,
           nextCorporateRequests,
           nextCommunicationTemplates,
@@ -8257,7 +9506,10 @@ export default function AdminDashboardPage() {
           nextStaffRoles,
           nextPaymentRows,
         ] = await Promise.all([
-          getShows(),
+          getShowsWithTables({
+            tableLocation: showCalendarLocationFilter,
+            tableMonth: showCalendarMonth,
+          }),
           getBookings(),
           getCorporateRequests(),
           getTemplates(),
@@ -8269,7 +9521,11 @@ export default function AdminDashboardPage() {
           getAvailableRoles(),
           getPayments(),
         ]);
-        const nextTables = getStoredDemoTables(nextShows);
+        const nextShows = nextShowPayload.shows;
+        const nextTables =
+          nextShowPayload.tablesLoaded
+            ? applyBookingOccupancyToTables(nextShowPayload.tables, nextBookings)
+            : getStoredDemoTables(nextShows);
 
         console.log("[Zingara show management] show reloaded", {
           showCount: nextShows.length,
@@ -8725,6 +9981,8 @@ export default function AdminDashboardPage() {
     canManageBookings || canCheckInGuests;
   const canViewStaffOperations = canCheckInGuests;
   const isSuperAdmin = currentStaff?.role === "super-admin";
+  const canExecuteDataPortability =
+    currentStaff?.email?.trim().toLowerCase() === "kaden@kaden.co.za";
   const isVenueManager = currentStaff?.role === "venue-manager";
   const canViewAuditTrail = isSuperAdmin || isVenueManager;
   const isBoxOfficeStaff =
@@ -8815,10 +10073,25 @@ export default function AdminDashboardPage() {
     );
   }
 
+  function isOwnShowLock(lock?: ShowEditLock | null) {
+    if (!lock || !currentStaff) {
+      return false;
+    }
+
+    return (
+      lock.staffUserId === currentStaff.id ||
+      lock.sessionId === showLockSessionId
+    );
+  }
+
   function getBookingEditLock(reference: string) {
     return bookingEditLocks.find(
       (lock) => lock.bookingReference === reference,
     );
+  }
+
+  function getShowEditLock(reference: string) {
+    return showEditLocks.find((lock) => lock.showReference === reference);
   }
 
   function isBookingReadOnly(reference: string) {
@@ -8835,6 +10108,14 @@ export default function AdminDashboardPage() {
   }
 
   function canForceBookingTakeover(lock?: BookingEditLock | null) {
+    return Boolean(
+      lock?.isStale &&
+        (currentStaff?.role === "super-admin" ||
+          currentStaff?.role === "venue-manager"),
+    );
+  }
+
+  function canForceShowTakeover(lock?: ShowEditLock | null) {
     return Boolean(
       lock?.isStale &&
         (currentStaff?.role === "super-admin" ||
@@ -8867,6 +10148,75 @@ export default function AdminDashboardPage() {
     }
   }
 
+  function upsertBookingEditLock(lock: BookingEditLock) {
+    setBookingEditLocks((currentLocks) => [
+      ...currentLocks.filter((currentLock) => currentLock.id !== lock.id),
+      lock,
+    ]);
+  }
+
+  async function resolveBookingTakeover(
+    lock: BookingEditLock,
+    action: "accept-takeover" | "decline-takeover",
+  ) {
+    try {
+      const result = await resolveBookingEditTakeover({
+        action,
+        lockId: lock.id,
+      });
+
+      if (result.lock) {
+        upsertBookingEditLock(result.lock);
+      } else {
+        await refreshBookingEditLocks(lock.bookingReference);
+      }
+
+      if (action === "accept-takeover" && result.status === "accepted") {
+        setActiveBookingEditLock(null);
+        activeBookingEditLockRef.current = null;
+        setBookingReadOnlyReferences((currentReferences) =>
+          currentReferences.includes(lock.bookingReference)
+            ? currentReferences
+            : [...currentReferences, lock.bookingReference],
+        );
+        setBookingLockStatus("Takeover accepted. Editing access transferred.");
+        return;
+      }
+
+      if (action === "decline-takeover" && result.status === "declined") {
+        setBookingLockStatus("Takeover request declined.");
+      }
+    } catch (error) {
+      console.error("[Zingara Admin] Failed to resolve takeover", error);
+      setBookingLockStatus("Takeover request could not be resolved.");
+    }
+  }
+
+  async function refreshShowEditLocks(reference?: string) {
+    if (!currentStaff) {
+      setShowEditLocks([]);
+      return;
+    }
+
+    try {
+      const locks = await getShowEditLocks(reference);
+
+      setShowEditLocks((currentLocks) => {
+        if (!reference) {
+          return locks;
+        }
+
+        const remainingLocks = currentLocks.filter(
+          (lock) => lock.showReference !== reference,
+        );
+
+        return [...remainingLocks, ...locks];
+      });
+    } catch (error) {
+      console.error("[Zingara Admin] Failed to refresh show locks", error);
+    }
+  }
+
   async function releaseCurrentBookingLock(reason = "closed") {
     const lock = activeBookingEditLockRef.current;
 
@@ -8889,14 +10239,58 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function releaseCurrentShowLock(reason = "closed") {
+    const lock = activeShowEditLockRef.current;
+
+    if (!lock) {
+      return;
+    }
+
+    activeShowEditLockRef.current = null;
+    setActiveShowEditLock(null);
+
+    try {
+      await releaseShowEditLock({
+        lockId: lock.id,
+        reason,
+        sessionId: showLockSessionId,
+      });
+      await refreshShowEditLocks(lock.showReference);
+    } catch (error) {
+      console.error("[Zingara Admin] Failed to release show lock", error);
+    }
+  }
+
   function closeBookingDetails() {
     void releaseCurrentBookingLock("closed");
     setExpandedBookingReference("");
   }
 
+  function closeShowEditor() {
+    void releaseCurrentShowLock("closed");
+    setEditingShowId("");
+    setShowDeleteConfirmationId("");
+    setShowReadOnlyReferences([]);
+    setShowLockStatus("");
+    setShowEditForm({
+      address: "",
+      date: "",
+      description: "",
+      internalNotes: "",
+      label: "",
+      operationalStatus: "active",
+      time: "",
+      venueName: "",
+    });
+  }
+
   useEffect(() => {
     activeBookingEditLockRef.current = activeBookingEditLock;
   }, [activeBookingEditLock]);
+
+  useEffect(() => {
+    activeShowEditLockRef.current = activeShowEditLock;
+  }, [activeShowEditLock]);
 
   useEffect(() => {
     if (!currentStaff) {
@@ -8909,6 +10303,22 @@ export default function AdminDashboardPage() {
     void refreshBookingEditLocks();
     const timer = window.setInterval(() => {
       void refreshBookingEditLocks();
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, [currentStaff?.id]);
+
+  useEffect(() => {
+    if (!currentStaff) {
+      setShowEditLocks([]);
+      setActiveShowEditLock(null);
+      activeShowEditLockRef.current = null;
+      return;
+    }
+
+    void refreshShowEditLocks();
+    const timer = window.setInterval(() => {
+      void refreshShowEditLocks();
     }, 30000);
 
     return () => window.clearInterval(timer);
@@ -8992,6 +10402,97 @@ export default function AdminDashboardPage() {
   ]);
 
   useEffect(() => {
+    if (!expandedBookingReference || !currentStaff) {
+      return;
+    }
+
+    const lock = getBookingEditLock(expandedBookingReference);
+
+    if (lock && isOwnBookingLock(lock)) {
+      setActiveBookingEditLock(lock);
+      setBookingReadOnlyReferences((currentReferences) =>
+        currentReferences.filter(
+          (reference) => reference !== expandedBookingReference,
+        ),
+      );
+    }
+  }, [
+    bookingEditLocks,
+    bookingLockSessionId,
+    currentStaff?.id,
+    expandedBookingReference,
+  ]);
+
+  useEffect(() => {
+    if (!editingShowId || !currentStaff || !canManageShows) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    async function acquireLock() {
+      setShowLockStatus("Checking editing presence...");
+
+      try {
+        const result = await acquireShowEditLock({
+          sessionId: showLockSessionId,
+          showReference: editingShowId,
+        });
+
+        if (isCancelled) {
+          return;
+        }
+
+        if (result.status === "acquired" && result.lock) {
+          setActiveShowEditLock(result.lock);
+          setShowReadOnlyReferences((currentReferences) =>
+            currentReferences.filter((reference) => reference !== editingShowId),
+          );
+          setShowLockStatus("");
+          await refreshShowEditLocks(editingShowId);
+          return;
+        }
+
+        if (result.lock) {
+          setShowEditLocks((currentLocks) => [
+            ...currentLocks.filter(
+              (lock) => lock.showReference !== result.lock?.showReference,
+            ),
+            result.lock as ShowEditLock,
+          ]);
+        }
+
+        setShowReadOnlyReferences((currentReferences) =>
+          currentReferences.includes(editingShowId)
+            ? currentReferences
+            : [...currentReferences, editingShowId],
+        );
+        setShowLockStatus(
+          result.status === "missing"
+            ? "Show could not be found for locking."
+            : "This show is currently being edited.",
+        );
+      } catch (error) {
+        console.error("[Zingara Admin] Failed to acquire show lock", error);
+        setShowReadOnlyReferences((currentReferences) =>
+          currentReferences.includes(editingShowId)
+            ? currentReferences
+            : [...currentReferences, editingShowId],
+        );
+        setShowLockStatus(
+          "Show editing is temporarily unavailable. Opened read only.",
+        );
+      }
+    }
+
+    void acquireLock();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [canManageShows, currentStaff?.id, editingShowId, showLockSessionId]);
+
+  useEffect(() => {
     if (!activeBookingEditLock || !expandedBookingReference) {
       return;
     }
@@ -9004,11 +10505,20 @@ export default function AdminDashboardPage() {
         });
 
         if (result.status === "acquired" && result.lock) {
-          setActiveBookingEditLock(result.lock);
-          setBookingEditLocks((currentLocks) => [
-            ...currentLocks.filter((lock) => lock.id !== result.lock?.id),
-            result.lock as BookingEditLock,
-          ]);
+          if (isOwnBookingLock(result.lock)) {
+            setActiveBookingEditLock(result.lock);
+            upsertBookingEditLock(result.lock);
+          } else {
+            setActiveBookingEditLock(null);
+            activeBookingEditLockRef.current = null;
+            upsertBookingEditLock(result.lock);
+            setBookingReadOnlyReferences((currentReferences) =>
+              currentReferences.includes(expandedBookingReference)
+                ? currentReferences
+                : [...currentReferences, expandedBookingReference],
+            );
+            setBookingLockStatus("Editing access was transferred.");
+          }
         } else {
           setActiveBookingEditLock(null);
           activeBookingEditLockRef.current = null;
@@ -9026,6 +10536,42 @@ export default function AdminDashboardPage() {
 
     return () => window.clearInterval(timer);
   }, [activeBookingEditLock?.id, bookingLockSessionId, expandedBookingReference]);
+
+  useEffect(() => {
+    if (!activeShowEditLock || !editingShowId) {
+      return;
+    }
+
+    const timer = window.setInterval(async () => {
+      try {
+        const result = await heartbeatShowEditLock({
+          lockId: activeShowEditLock.id,
+          sessionId: showLockSessionId,
+        });
+
+        if (result.status === "acquired" && result.lock) {
+          setActiveShowEditLock(result.lock);
+          setShowEditLocks((currentLocks) => [
+            ...currentLocks.filter((lock) => lock.id !== result.lock?.id),
+            result.lock as ShowEditLock,
+          ]);
+        } else {
+          setActiveShowEditLock(null);
+          activeShowEditLockRef.current = null;
+          setShowReadOnlyReferences((currentReferences) =>
+            currentReferences.includes(editingShowId)
+              ? currentReferences
+              : [...currentReferences, editingShowId],
+          );
+          setShowLockStatus("Editing access was released.");
+        }
+      } catch (error) {
+        console.error("[Zingara Admin] Failed to heartbeat show lock", error);
+      }
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, [activeShowEditLock?.id, editingShowId, showLockSessionId]);
 
   useEffect(() => {
     function releaseOnUnload() {
@@ -9048,12 +10594,140 @@ export default function AdminDashboardPage() {
   }, [bookingLockSessionId]);
 
   useEffect(() => {
+    function releaseOnUnload() {
+      const lock = activeShowEditLockRef.current;
+
+      if (!lock) {
+        return;
+      }
+
+      void releaseShowEditLock({
+        lockId: lock.id,
+        reason: "tab-closed",
+        sessionId: showLockSessionId,
+      }).catch(() => undefined);
+    }
+
+    window.addEventListener("beforeunload", releaseOnUnload);
+
+    return () => window.removeEventListener("beforeunload", releaseOnUnload);
+  }, [showLockSessionId]);
+
+  useEffect(() => {
     if (!hasHydrated || !canViewDataPortability) {
       return;
     }
 
     void refreshDataPortabilityHistory();
   }, [canViewDataPortability, hasHydrated]);
+
+  useEffect(() => {
+    if (!hasHydrated || !currentStaff) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    async function refreshCalendarTables() {
+      try {
+        const [nextShowPayload, nextBookings] = await Promise.all([
+          getShowsWithTables({
+            tableLocation: showCalendarLocationFilter,
+            tableMonth: showCalendarMonth,
+          }),
+          getBookings(),
+        ]);
+
+        if (isCancelled) {
+          return;
+        }
+
+        setShows(nextShowPayload.shows);
+        setBookings(nextBookings);
+        setTables(
+          nextShowPayload.tablesLoaded
+            ? applyBookingOccupancyToTables(nextShowPayload.tables, nextBookings)
+            : getStoredDemoTables(nextShowPayload.shows),
+        );
+      } catch (error) {
+        console.error("[Zingara admin] Failed to refresh calendar tables", error);
+      }
+    }
+
+    void refreshCalendarTables();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    currentStaff,
+    hasHydrated,
+    showCalendarLocationFilter,
+    showCalendarMonth,
+  ]);
+
+  useEffect(() => {
+    if (
+      !hasHydrated ||
+      !currentStaff ||
+      activeAdminTab !== "operations" ||
+      activeOperationsTab !== "floor" ||
+      !selectedShowId
+    ) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    async function refreshSelectedFloorTables() {
+      try {
+        const [nextShowPayload, nextBookings] = await Promise.all([
+          getShowsWithTables({
+            tableShow: selectedShowId,
+          }),
+          getBookings(),
+        ]);
+
+        if (isCancelled) {
+          return;
+        }
+
+        const selectedShowTables = nextShowPayload.tablesLoaded
+          ? applyBookingOccupancyToTables(
+              nextShowPayload.tables,
+              nextBookings,
+            )
+          : getStoredDemoTables(nextShowPayload.shows).filter(
+              (table) => table.showId === selectedShowId,
+            );
+
+        setShows(nextShowPayload.shows);
+        setBookings(nextBookings);
+        setTables((currentTables) =>
+          mergeTablesForShows(currentTables, selectedShowTables, [
+            selectedShowId,
+          ]),
+        );
+      } catch (error) {
+        console.error(
+          "[Zingara admin] Failed to refresh selected floor tables",
+          error,
+        );
+      }
+    }
+
+    void refreshSelectedFloorTables();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    activeAdminTab,
+    activeOperationsTab,
+    currentStaff,
+    hasHydrated,
+    selectedShowId,
+  ]);
 
   const canViewOperationsWorkspace = Boolean(
     isSuperAdmin ||
@@ -9349,6 +11023,42 @@ export default function AdminDashboardPage() {
       .toLowerCase()
       .includes(manifestSearchTerm);
   });
+  const isUnresolvedTableValue = (value?: string | null) => {
+    const normalized = value?.trim().toLowerCase() ?? "";
+
+    return (
+      !normalized ||
+      normalized === "not recorded" ||
+      normalized === "internal" ||
+      normalized === "pending" ||
+      normalized === "unassigned" ||
+      normalized === "requires floor assignment"
+    );
+  };
+  const getManifestBookingTableLabel = (booking: DemoBooking) =>
+    isUnresolvedTableValue(booking.tableNumber) ||
+    isUnresolvedTableValue(booking.tableId)
+      ? "Requires floor assignment"
+      : booking.tableNumber;
+  const getUnallocatedManifestBookingsForZone = (
+    zone: SeatingZone,
+    zoneTables: DemoTable[],
+  ) =>
+    manifestBookings.filter((booking) => {
+      if (booking.zoneId !== zone.id) {
+        return false;
+      }
+
+      const matchingTable = zoneTables.find(
+        (table) =>
+          table.id === booking.tableId ||
+          table.tableNumber === booking.tableNumber ||
+          table.bookingReference === booking.reference ||
+          table.bookingReference === booking.supabaseBookingId,
+      );
+
+      return !matchingTable && getManifestBookingTableLabel(booking) === "Requires floor assignment";
+    });
   const sortedDailyManifestBookings = [...manifestBookings].sort(
     (left, right) => {
       if (dailyManifestSort === "guest-name") {
@@ -9372,9 +11082,11 @@ export default function AdminDashboardPage() {
         );
       }
 
-      return left.tableNumber.localeCompare(right.tableNumber, undefined, {
-        numeric: true,
-      });
+      return getManifestBookingTableLabel(left).localeCompare(
+        getManifestBookingTableLabel(right),
+        undefined,
+        { numeric: true },
+      );
     },
   );
   const manifestSummary = manifestBookings.reduce(
@@ -9712,6 +11424,38 @@ export default function AdminDashboardPage() {
     ["Total Bookings", monthlyIncomeSummary.bookingCount.toString()],
     ["Total Guests", monthlyIncomeSummary.guestCount.toString()],
   ];
+  const floorSelectorShows = [...shows].sort((left, right) => {
+    const chronological = `${left.date}T${left.time || "00:00"}`.localeCompare(
+      `${right.date}T${right.time || "00:00"}`,
+    );
+
+    if (chronological !== 0) {
+      return chronological;
+    }
+
+    const leftLocation =
+      normalizeShowLocation(left.location ?? left.venueName) ?? "";
+    const rightLocation =
+      normalizeShowLocation(right.location ?? right.venueName) ?? "";
+
+    return (
+      leftLocation.localeCompare(rightLocation) ||
+      left.id.localeCompare(right.id)
+    );
+  });
+  const floorSelectableShows = floorSelectorShows.filter((show) => {
+    const status = show.operationalStatus ?? "active";
+
+    return !show.archivedAt && status === "active";
+  });
+  const todayCheckInShows = floorSelectableShows.filter(
+    (show) => show.date === southAfricaToday,
+  );
+  const effectiveCheckInShow =
+    todayCheckInShows.find((show) => show.id === checkInSelectedShowId) ??
+    todayCheckInShows[0] ??
+    null;
+  const effectiveCheckInShowId = effectiveCheckInShow?.id ?? "";
 
   useEffect(() => {
     if (permittedManifestLocations.length === 0) {
@@ -9750,6 +11494,21 @@ export default function AdminDashboardPage() {
       setSelectedShowId(manifestSelectedShow.id);
     }
   }, [activeOperationsTab, manifestSelectedShow, selectedShowId]);
+
+  useEffect(() => {
+    if (todayCheckInShows.length === 0) {
+      if (checkInSelectedShowId) {
+        setCheckInSelectedShowId("");
+      }
+      return;
+    }
+
+    if (
+      !todayCheckInShows.some((show) => show.id === checkInSelectedShowId)
+    ) {
+      setCheckInSelectedShowId(todayCheckInShows[0].id);
+    }
+  }, [checkInSelectedShowId, todayCheckInShows]);
 
   const venueConfig = venueSettings;
   const visibleStaffNotifications = staffNotifications.filter(
@@ -10705,11 +12464,24 @@ export default function AdminDashboardPage() {
 
     try {
       const result = await createBulkShowSchedule(payload);
-      const nextShows = await getShows();
-      const nextTables = getStoredDemoTables(nextShows);
+      const nextShowPayload = await getShowsWithTables({
+        tableLocation: showCalendarLocationFilter,
+        tableMonth: showCalendarMonth,
+      });
+      const nextShows = nextShowPayload.shows;
+      const nextTables =
+        nextShowPayload.tablesLoaded
+          ? applyBookingOccupancyToTables(nextShowPayload.tables, bookings)
+          : getStoredDemoTables(nextShows);
 
       setShows(nextShows);
-      setTables(nextTables);
+      setTables((currentTables) =>
+        mergeTablesForShows(
+          currentTables,
+          nextTables,
+          nextShowPayload.shows.map((show) => show.id),
+        ),
+      );
       setBulkShowPreview(result);
       setBulkShowStatus(
         `Created ${result.createdCount} shows · skipped ${result.skippedCount} existing · seeded ${result.tableRowsCreated} table rows.`,
@@ -10729,22 +12501,7 @@ export default function AdminDashboardPage() {
     setShowEditForm(getShowEditForm(show));
   }
 
-  function closeShowEditor() {
-    setEditingShowId("");
-    setShowDeleteConfirmationId("");
-    setShowEditForm({
-      address: "",
-      date: "",
-      description: "",
-      internalNotes: "",
-      label: "",
-      operationalStatus: "active",
-      time: "",
-      venueName: "",
-    });
-  }
-
-  function saveEditedShow() {
+  async function saveEditedShow() {
     console.log("[Zingara show management] save button clicked", {
       editingShowId,
       form: showEditForm,
@@ -10756,7 +12513,10 @@ export default function AdminDashboardPage() {
       !showEditForm.date ||
       !showEditForm.time ||
       !showEditForm.label.trim() ||
-      !normalizeShowLocation(showEditForm.venueName)
+      !normalizeShowLocation(showEditForm.venueName) ||
+      !activeShowEditLock ||
+      activeShowEditLock.showReference !== editingShowId ||
+      showReadOnlyReferences.includes(editingShowId)
     ) {
       console.log("[Zingara show management] save blocked", {
         canManageShows,
@@ -10765,6 +12525,7 @@ export default function AdminDashboardPage() {
         hasLabel: Boolean(showEditForm.label.trim()),
         hasTime: Boolean(showEditForm.time),
         hasLocation: Boolean(normalizeShowLocation(showEditForm.venueName)),
+        hasLock: Boolean(activeShowEditLock),
       });
       return;
     }
@@ -10803,18 +12564,35 @@ export default function AdminDashboardPage() {
         : booking,
     );
 
-    saveShows(nextShows);
+    try {
+      const persistedShows = await replaceShowsWithLock(nextShows, {
+        lockId: activeShowEditLock.id,
+        lockSessionId: showLockSessionId,
+        lockShowReference: editingShowId,
+      });
+
+      setShows(persistedShows);
+      showWorkflowToast("✓ Saved · Show updated");
+    } catch (error) {
+      console.error("[Zingara show management] show save failed", error);
+      showWorkflowToast("⚠ Could not save show. Refresh locks and try again.");
+      await refreshShowEditLocks(editingShowId);
+      return;
+    }
+
     saveBookings(nextBookings);
+    await releaseCurrentShowLock("saved");
     closeShowEditor();
   }
 
-  function duplicateEditedShow() {
+  async function duplicateEditedShow() {
     if (
       !canManageShows ||
       !editingShowId ||
       !showEditForm.date ||
       !showEditForm.time ||
-      !normalizeShowLocation(showEditForm.venueName)
+      !normalizeShowLocation(showEditForm.venueName) ||
+      showReadOnlyReferences.includes(editingShowId)
     ) {
       return;
     }
@@ -10839,33 +12617,71 @@ export default function AdminDashboardPage() {
       venueName: showLocation,
     };
 
-    saveShows([...shows, duplicateShow]);
+    try {
+      const persistedShows = await replaceShows([...shows, duplicateShow]);
+
+      setShows(persistedShows);
+      showWorkflowToast("✓ Saved · Show duplicated");
+    } catch (error) {
+      console.error("[Zingara show management] duplicate failed", error);
+      showWorkflowToast("⚠ Could not duplicate show.");
+      return;
+    }
+
     saveTables([...tables, ...createTablesForShow(duplicateId)]);
     setSelectedShowId(duplicateId);
     closeShowEditor();
   }
 
-  function archiveEditedShow() {
-    if (!canManageShows || !editingShowId) {
+  async function archiveEditedShow() {
+    if (
+      !canManageShows ||
+      !editingShowId ||
+      !activeShowEditLock ||
+      activeShowEditLock.showReference !== editingShowId ||
+      showReadOnlyReferences.includes(editingShowId)
+    ) {
       return;
     }
 
-    saveShows(
-      shows.map((show) =>
-        show.id === editingShowId
-          ? {
-              ...show,
-              archivedAt: new Date().toISOString(),
-              operationalStatus: "inactive",
-            }
-          : show,
-      ),
+    const nextShows = shows.map((show) =>
+      show.id === editingShowId
+        ? {
+            ...show,
+            archivedAt: new Date().toISOString(),
+            operationalStatus: "inactive" as const,
+          }
+        : show,
     );
+
+    try {
+      const persistedShows = await replaceShowsWithLock(nextShows, {
+        lockId: activeShowEditLock.id,
+        lockSessionId: showLockSessionId,
+        lockShowReference: editingShowId,
+      });
+
+      setShows(persistedShows);
+      showWorkflowToast("✓ Saved · Show archived");
+    } catch (error) {
+      console.error("[Zingara show management] archive failed", error);
+      showWorkflowToast("⚠ Could not archive show.");
+      await refreshShowEditLocks(editingShowId);
+      return;
+    }
+
+    await releaseCurrentShowLock("archived");
     closeShowEditor();
   }
 
   function deleteEditedShow() {
-    if (!canManageShows || !editingShowId) {
+    if (
+      !canManageShows ||
+      !editingShowId ||
+      !activeShowEditLock ||
+      activeShowEditLock.showReference !== editingShowId ||
+      showReadOnlyReferences.includes(editingShowId)
+    ) {
       return;
     }
 
@@ -10878,11 +12694,16 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    deleteShowById(editingShowId);
+    void deleteShowById(editingShowId);
   }
 
-  function deleteShowById(showId: string) {
-    if (!canManageShows) {
+  async function deleteShowById(showId: string) {
+    if (
+      !canManageShows ||
+      !activeShowEditLock ||
+      activeShowEditLock.showReference !== showId ||
+      showReadOnlyReferences.includes(showId)
+    ) {
       return;
     }
 
@@ -10890,7 +12711,22 @@ export default function AdminDashboardPage() {
       (show) => show.id !== showId,
     );
 
-    saveShows(remainingShows);
+    try {
+      const persistedShows = await replaceShowsWithLock(remainingShows, {
+        lockId: activeShowEditLock.id,
+        lockSessionId: showLockSessionId,
+        lockShowReference: showId,
+      });
+
+      setShows(persistedShows);
+      showWorkflowToast("✓ Saved · Show deleted");
+    } catch (error) {
+      console.error("[Zingara show management] delete failed", error);
+      showWorkflowToast("⚠ Could not delete show.");
+      await refreshShowEditLocks(showId);
+      return;
+    }
+
     saveTables(
       tables.filter((table) => table.showId !== showId),
     );
@@ -10904,6 +12740,7 @@ export default function AdminDashboardPage() {
         ? remainingShows[0]?.id ?? ""
         : currentShowId,
     );
+    await releaseCurrentShowLock("deleted");
     closeShowEditor();
   }
 
@@ -11766,8 +13603,14 @@ export default function AdminDashboardPage() {
           })),
         });
       })
-      .catch(() => {
-        showWorkflowToast("⚠ Could not save");
+      .catch((error) => {
+        console.error("[Zingara show management] show persist failed", error);
+        showWorkflowToast(
+          error instanceof Error && error.message
+            ? `⚠ ${error.message}`
+            : "⚠ Could not save",
+        );
+        void refreshShowEditLocks();
       });
   }
 
@@ -13512,7 +15355,7 @@ export default function AdminDashboardPage() {
           Guests: booking.partySize,
           "Payment Status": paymentStatusLabels[financials.paymentStatus],
           Section: booking.zoneTitle,
-          "Table Number": booking.tableNumber,
+          "Table Number": getManifestBookingTableLabel(booking),
         };
       }),
       summary: [
@@ -13554,7 +15397,7 @@ export default function AdminDashboardPage() {
         manifestSelectedShow?.id ?? selectedShowId,
         zone.id,
       );
-      const rows = zoneTables
+      const tableRows = zoneTables
         .filter((table) => {
           const occupancy = getTableOccupancy(table, bookings);
 
@@ -13593,6 +15436,31 @@ export default function AdminDashboardPage() {
             "Table Number": table.tableNumber,
           };
         });
+      const unallocatedRows = getUnallocatedManifestBookingsForZone(
+        zone,
+        zoneTables,
+      ).map((booking) => {
+        const financials = getBookingFinancials(booking);
+        const paymentStatus = getBookingPaymentStatus(booking);
+
+        return {
+          "Balance Due": financials.balanceDue,
+          "Bar Credit": "Not recorded",
+          "Booking Reference": booking.reference,
+          "Booking Status": bookingStatusLabels[booking.status ?? "confirmed"],
+          "Check-In Status": getManifestCheckInStatus(booking),
+          "Deposit Paid": financials.amountPaid,
+          "Gratuity Paid": "Not recorded",
+          "Guest Name": booking.customer.name || "Unnamed Guest",
+          "Guest Notes": booking.operationalNotes || "Not recorded",
+          Guests: booking.partySize,
+          "Payment Status": paymentStatusLabels[paymentStatus],
+          Section: zone.title,
+          Status: "Requires floor assignment",
+          "Table Number": "Requires floor assignment",
+        };
+      });
+      const rows = [...tableRows, ...unallocatedRows];
 
       return withRowsOrEmpty({
         columns,
@@ -13913,6 +15781,7 @@ export default function AdminDashboardPage() {
         "Seating Zone": booking.zoneTitle,
         Show: show ? getShowLabel(show) : booking.bookingDate || "Not recorded",
         "Show Date": show ? parseExportDate(show.date) : "Not recorded",
+        "Show Time": show ? getSouthAfricaShowTime(show) : "—",
         Table: booking.tableNumber,
       };
     });
@@ -14056,29 +15925,723 @@ export default function AdminDashboardPage() {
     return value.trim().toLowerCase();
   }
 
+  function normalizeImportTimeValue(value?: string | null) {
+    const trimmedValue = value?.trim();
+
+    if (!trimmedValue) {
+      return "";
+    }
+
+    const directMatch = trimmedValue.match(/\b(\d{1,2})[:hH](\d{2})\b/);
+
+    if (directMatch) {
+      return `${directMatch[1].padStart(2, "0")}:${directMatch[2]}`;
+    }
+
+    const hourOnlyMatch = trimmedValue.match(/\b(\d{1,2})\b/);
+
+    if (
+      hourOnlyMatch &&
+      trimmedValue.replace(/\D/g, "") === hourOnlyMatch[1]
+    ) {
+      return `${hourOnlyMatch[1].padStart(2, "0")}:00`;
+    }
+
+    const parsedDate = new Date(trimmedValue);
+
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return formatSouthAfricanTime(parsedDate);
+    }
+
+    return "";
+  }
+
+  function getImportSourceTime(record: Record<string, string>) {
+    const timeValue =
+      record.show_time ||
+      record.time ||
+      record.showtime ||
+      record.performance_time ||
+      record.session_time ||
+      record.reservation_time ||
+      "";
+
+    return normalizeImportTimeValue(timeValue);
+  }
+
+  function normalizeImportLocationValue(value?: string | null) {
+    const normalizedValue = normalizeImportLookupValue(value ?? "");
+
+    if (
+      normalizedValue === "cape-town" ||
+      normalizedValue === "cape town" ||
+      normalizedValue === "capetown" ||
+      normalizedValue === "cpt" ||
+      normalizedValue === "cape town — the night court" ||
+      normalizedValue === "cape town - the night court"
+    ) {
+      return "cape-town";
+    }
+
+    if (
+      normalizedValue === "johannesburg" ||
+      normalizedValue === "joburg" ||
+      normalizedValue === "jhb" ||
+      normalizedValue === "johannesburg — the spring court" ||
+      normalizedValue === "johannesburg - the spring court"
+    ) {
+      return "johannesburg";
+    }
+
+    return null;
+  }
+
   function getShowImportAliases(show: DemoShow) {
     return [
       show.id,
       show.label,
       getShowLabel(show),
       show.date,
+      getSouthAfricaShowTime(show),
       `${show.label} ${show.date}`,
+      `${show.label} ${show.date} ${getSouthAfricaShowTime(show)}`,
     ]
       .filter(Boolean)
       .map((value) => normalizeImportLookupValue(String(value)));
   }
 
+  function getImportShowLocationLabel(location: EntryLocationKey) {
+    return getShowLocationOption(location).label;
+  }
+
+  function getImportPerformanceLocationAlias(value: string) {
+    const location = normalizeShowLocation(value);
+
+    if (location) {
+      return getShowCalendarLocationDisplay(location).alias;
+    }
+
+    const normalizedValue = normalizeImportLookupValue(value);
+
+    if (normalizedValue.includes("joburg") || normalizedValue.includes("johannesburg")) {
+      return "JHB";
+    }
+
+    if (normalizedValue.includes("cape")) {
+      return "CPT";
+    }
+
+    return "LOC";
+  }
+
+  function getCompactImportPerformanceLabel({
+    date,
+    location,
+    time,
+  }: {
+    date: string;
+    location: string;
+    time: string;
+  }) {
+    return `${getImportPerformanceLocationAlias(location)} • ${
+      date ? formatFloorShowSelectorDate(date) : "Date TBC"
+    } • ${time || "Time TBC"}`;
+  }
+
+  function getImportShowDisplay(show: DemoShow) {
+    const location = normalizeShowLocation(show.location ?? show.venueName);
+    const locationLabel = location
+      ? getImportShowLocationLabel(location)
+      : "Unknown location";
+
+    return `${locationLabel} · ${formatOperationalShowDate(show.date)} · ${getSouthAfricaShowTime(show)}`;
+  }
+
+  function getDineplanImportScopeKey(record: Record<string, string>) {
+    const showResolution = resolveImportShow(record);
+    const show = showResolution.show;
+    const location = record.location || "";
+    const date = record.source_date || record.show_date || show?.date || "";
+    const time =
+      show ? getSouthAfricaShowTime(show) : record.source_time || record.show_time || "";
+    const showId = show?.supabaseId ?? show?.id ?? "";
+
+    return `${location}|${date}|${time}|${showId}`;
+  }
+
+  function getImportZoneAliases(zone: SeatingZone) {
+    return [zone.id, ...getZoneSectionLookupTitles(zone.id, zone.title)].map(
+      normalizeImportLookupValue,
+    );
+  }
+
+  function isImportAllocatableTable(table: DataPortabilityTableSnapshotRow) {
+    const status = normalizeImportLookupValue(table.status);
+
+    return (
+      !table.booking_id &&
+      status !== "booked" &&
+      status !== "blocked" &&
+      status !== "unavailable"
+    );
+  }
+
+  function toImportDemoTable(
+    table: DataPortabilityTableSnapshotRow,
+    zone: SeatingZone,
+  ): DemoTable {
+    return {
+      availabilityScope: table.availability_scope ?? "public",
+      bookingReference: table.booking_id ?? undefined,
+      guestNotes: "",
+      id: table.id,
+      seatCapacity: Number(table.capacity) || 0,
+      showId: table.show_id,
+      status: isImportAllocatableTable(table) ? "available" : "booked",
+      tableNumber: table.table_code,
+      zoneId: zone.id,
+    };
+  }
+
+  function getImportShowKeys(show: DemoShow) {
+    return [
+      show.id,
+      show.supabaseId ?? "",
+    ].filter(Boolean);
+  }
+
+  function getImportCapacityKey(show: DemoShow, zone: SeatingZone) {
+    return `${show.supabaseId ?? show.id}|${zone.id}`;
+  }
+
+  function getImportCapacityBookingShowIds(show: DemoShow) {
+    return new Set(getImportShowKeys(show));
+  }
+
+  function getDineplanCapacityStatus(record: Record<string, string>) {
+    return getImportBookingStatus(record.booking_status ?? "");
+  }
+
+  function isDineplanCapacityConsumingRecord(record: Record<string, string>) {
+    const status = getDineplanCapacityStatus(record);
+
+    return status !== "cancelled" && status !== "no-show";
+  }
+
+  function getDataPortabilityAllocationLabel(
+    state: DataPortabilityAllocationState,
+  ) {
+    if (state === "AUTO_ALLOCATED_EXISTING") {
+      return "Assigned to Existing Table";
+    }
+
+    if (state === "AUTO_ALLOCATED_OVERFLOW") {
+      return "Requires floor assignment";
+    }
+
+    if (state === "EXPLICIT_TABLE") {
+      return "Explicit table";
+    }
+
+    if (state === "NOT_APPLICABLE") {
+      return "Not applicable";
+    }
+
+    if (state === "REQUIRES_FLOOR_ASSIGNMENT") {
+      return "Requires floor assignment";
+    }
+
+    return "Unresolved";
+  }
+
+  type DineplanOverflowPlan = {
+    capacity: number;
+    date: string;
+    location: string;
+    resolvedLabel: string;
+    rowNumber?: number;
+    tableNumber: string;
+    zone: string;
+  };
+
+  type DineplanAllocationSimulationResult = {
+    isOverflow: boolean;
+    overflowPlan?: DineplanOverflowPlan;
+    table: DemoTable;
+  };
+
+  function getImportTableCodeParts(tableNumber: string) {
+    const match = tableNumber.match(/^([A-Z]+)(\d+)$/i);
+
+    return match
+      ? {
+          prefix: match[1].toUpperCase(),
+          sequence: Number(match[2]),
+        }
+      : undefined;
+  }
+
+  function getDineplanOverflowTableNumber(
+    showTables: DemoTable[],
+    plannedTables: DemoTable[],
+    zone: SeatingZone,
+  ) {
+    const zoneTables = [...showTables, ...plannedTables].filter(
+      (table) => table.zoneId === zone.id,
+    );
+    const prefixCounts = new Map<string, number>();
+    let fallbackPrefix = zone.id
+      .split("-")
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("");
+    let highestSequence = 0;
+
+    zoneTables.forEach((table) => {
+      const parts = getImportTableCodeParts(table.tableNumber);
+
+      if (!parts) {
+        return;
+      }
+
+      prefixCounts.set(parts.prefix, (prefixCounts.get(parts.prefix) ?? 0) + 1);
+    });
+
+    const preferredPrefix =
+      [...prefixCounts.entries()].sort(
+        (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+      )[0]?.[0] ?? fallbackPrefix;
+
+    fallbackPrefix = preferredPrefix || "T";
+
+    zoneTables.forEach((table) => {
+      const parts = getImportTableCodeParts(table.tableNumber);
+
+      if (parts?.prefix === fallbackPrefix) {
+        highestSequence = Math.max(highestSequence, parts.sequence);
+      }
+    });
+
+    return `${fallbackPrefix}${highestSequence + 1}`;
+  }
+
+  function buildDineplanCapacityGroups(
+    records: Record<string, string>[],
+    tableSnapshotPayload?: {
+      showMappings: DataPortabilityTableSnapshotShowMapping[];
+      tables: DataPortabilityTableSnapshotRow[];
+    } | null,
+  ) {
+    const capacities = new Map<string, number>();
+    const conflictMetadata = new Map<
+      string,
+      {
+        affectedRows: number;
+        date: string;
+        location: string;
+        resolvedLabel: string;
+        zone: string;
+      }
+    >();
+    const existingActivePax = new Map<string, number>();
+    const incomingActivePax = new Map<string, number>();
+    const conflicts = new Set<string>();
+    const showIdAliases = new Map<string, string[]>();
+
+    tableSnapshotPayload?.showMappings.forEach((mapping) => {
+      const aliases = showIdAliases.get(mapping.supabaseShowId) ?? [];
+
+      showIdAliases.set(mapping.supabaseShowId, [
+        ...new Set([
+          ...aliases,
+          mapping.requestedShowId,
+          mapping.supabaseShowId,
+        ]),
+      ]);
+    });
+
+    tableSnapshotPayload?.tables.forEach((table) => {
+      const zone = seatingZones.find((candidate) =>
+        getImportZoneAliases(candidate).includes(
+          normalizeImportLookupValue(table.section),
+        ),
+      );
+
+      if (!zone) {
+        return;
+      }
+
+      const key = `${table.show_id}|${zone.id}`;
+      const nextCapacity =
+        (capacities.get(key) ?? 0) + (Number(table.capacity) || 0);
+
+      capacities.set(key, nextCapacity);
+      (showIdAliases.get(table.show_id) ?? []).forEach((alias) => {
+        capacities.set(`${alias}|${zone.id}`, nextCapacity);
+      });
+    });
+
+    records.forEach((record) => {
+      const showResolution = resolveImportShow(record);
+      const zone = resolveImportZone(record);
+
+      if (
+        !showResolution.show ||
+        !zone ||
+        !isDineplanCapacityConsumingRecord(record)
+      ) {
+        return;
+      }
+
+      const key = getImportCapacityKey(showResolution.show, zone);
+      const partySize = Math.max(
+        1,
+        Math.round(getImportNumber(record.number_of_guests ?? "", 1)),
+      );
+      const existingMetadata = conflictMetadata.get(key);
+
+      incomingActivePax.set(key, (incomingActivePax.get(key) ?? 0) + partySize);
+      conflictMetadata.set(key, {
+        affectedRows: (existingMetadata?.affectedRows ?? 0) + 1,
+        date: record.source_date || record.show_date || "",
+        location: record.location || "",
+        resolvedLabel: getImportShowDisplay(showResolution.show),
+        zone: zone.title,
+      });
+    });
+
+    records.forEach((record) => {
+      const showResolution = resolveImportShow(record);
+      const zone = resolveImportZone(record);
+
+      if (!showResolution.show || !zone) {
+        return;
+      }
+
+      const key = getImportCapacityKey(showResolution.show, zone);
+
+      if (existingActivePax.has(key)) {
+        return;
+      }
+
+      const showIds = getImportCapacityBookingShowIds(showResolution.show);
+      const existingPax = bookings.reduce((total, booking) => {
+        if (
+          !showIds.has(booking.showId ?? "") ||
+          booking.zoneId !== zone.id ||
+          !isOperationallyActiveBooking(booking)
+        ) {
+          return total;
+        }
+
+        return total + booking.partySize;
+      }, 0);
+
+      existingActivePax.set(key, existingPax);
+    });
+
+    incomingActivePax.forEach((incomingPax, key) => {
+      const capacity = capacities.get(key) ?? 0;
+      const existingPax = existingActivePax.get(key) ?? 0;
+
+      if (capacity > 0 && existingPax + incomingPax > capacity) {
+        conflicts.add(key);
+      }
+    });
+
+    return {
+      capacities,
+      conflicts,
+      conflictMetadata,
+      existingActivePax,
+      incomingActivePax,
+    };
+  }
+
+  async function loadDataPortabilityTableSnapshots(showIds: string[]) {
+    const uniqueShowIds = [...new Set(showIds.filter(Boolean))];
+
+    if (uniqueShowIds.length === 0) {
+      return {
+        showMappings: [],
+        tables: [],
+      };
+    }
+
+    const queryString = new URLSearchParams({
+      showIds: uniqueShowIds.join(","),
+    }).toString();
+    const payload = await fetchSupabaseApi<{
+      showMappings?: DataPortabilityTableSnapshotShowMapping[];
+      tables?: DataPortabilityTableSnapshotRow[];
+    }>(`/api/admin/data-portability/imports?${queryString}`);
+
+    return {
+      showMappings: payload.showMappings ?? [],
+      tables: payload.tables ?? [],
+    };
+  }
+
+  function createDineplanAllocationSimulator(
+    tableSnapshotPayload: {
+      showMappings: DataPortabilityTableSnapshotShowMapping[];
+      tables: DataPortabilityTableSnapshotRow[];
+    },
+  ) {
+    const simulatedTablesByShow = new Map<string, DemoTable[]>();
+    const tableSnapshots = tableSnapshotPayload.tables;
+    const tableKeyAliases = new Map<string, string[]>();
+
+    tableSnapshotPayload.showMappings.forEach((mapping) => {
+      const aliases = tableKeyAliases.get(mapping.supabaseShowId) ?? [];
+
+      tableKeyAliases.set(mapping.supabaseShowId, [
+        ...new Set([
+          ...aliases,
+          mapping.requestedShowId,
+          mapping.supabaseShowId,
+        ]),
+      ]);
+    });
+
+    tableSnapshots.forEach((table) => {
+      const zone = seatingZones.find((candidate) =>
+        getImportZoneAliases(candidate).includes(
+          normalizeImportLookupValue(table.section),
+        ),
+      );
+
+      if (!zone) {
+        return;
+      }
+
+      const tablesForShow = simulatedTablesByShow.get(table.show_id) ?? [];
+
+      tablesForShow.push(toImportDemoTable(table, zone));
+      simulatedTablesByShow.set(table.show_id, tablesForShow);
+    });
+
+    simulatedTablesByShow.forEach((showTables, showId) => {
+      const sortedShowTables = [...showTables].sort((left, right) =>
+          getImportTableSortValue(left.tableNumber).localeCompare(
+            getImportTableSortValue(right.tableNumber),
+          ),
+        );
+      const showAliases = tableKeyAliases.get(showId) ?? [showId];
+
+      showAliases.forEach((showAlias) => {
+        simulatedTablesByShow.set(showAlias, sortedShowTables);
+      });
+    });
+
+    const applyTablesToAliases = (showId: string, nextShowTables: DemoTable[]) => {
+      const showAliases = [
+        showId,
+        ...(tableKeyAliases.get(showId) ?? []),
+      ];
+
+      tableKeyAliases.forEach((aliases, supabaseShowId) => {
+        if (aliases.includes(showId)) {
+          showAliases.push(supabaseShowId, ...aliases);
+        }
+      });
+
+      [...new Set(showAliases)].forEach((showAlias) => {
+        simulatedTablesByShow.set(showAlias, nextShowTables);
+      });
+    };
+
+    const allocate = (
+      record: Record<string, string>,
+      show: DemoShow | undefined,
+      zone: SeatingZone | undefined,
+      rowNumber?: number,
+    ): DineplanAllocationSimulationResult | null | undefined => {
+      if (!show || !zone) {
+        return undefined;
+      }
+
+      const allocationShowId = show.supabaseId ?? show.id;
+      const showTables = simulatedTablesByShow.get(allocationShowId);
+
+      if (!showTables) {
+        return null;
+      }
+
+      const partySize = Math.max(
+        1,
+        Math.round(getImportNumber(record.number_of_guests ?? "", 1)),
+      );
+      const allocation = findBestTableAllocation(
+        showTables,
+        allocationShowId,
+        zone.id,
+        partySize,
+      );
+
+      if (allocation) {
+        const consumedTableIds = new Set([
+          allocation.table.id,
+          ...allocation.sourceTables.map((table) => table.id),
+        ]);
+        const nextShowTables = showTables.map((table) =>
+          consumedTableIds.has(table.id)
+            ? {
+                ...table,
+                bookingReference:
+                  record.booking_reference?.trim() || "dry-run-simulated",
+                status: "booked" as const,
+              }
+            : table,
+        );
+
+        applyTablesToAliases(allocationShowId, nextShowTables);
+
+        return {
+          isOverflow: false,
+          table: allocation.table,
+        };
+      }
+
+      return undefined;
+    };
+
+    allocate.getOverflowPlans = () => [];
+
+    return allocate;
+  }
+
+  function resolveImportShow(record: Record<string, string>) {
+    const isDineplanRecord =
+      normalizeImportLookupValue(record.source_format ?? "") ===
+      "dineplan legacy export";
+    const showValue = isDineplanRecord
+      ? ""
+      : normalizeImportLookupValue(record.show ?? "");
+    const showDate = record.show_date?.trim();
+    const sourceTime = getImportSourceTime(record);
+    const location = normalizeImportLocationValue(record.location);
+    const baseCandidates = shows.filter((show) => {
+      const aliases = getShowImportAliases(show);
+
+      return (
+        (showValue ? aliases.includes(showValue) : true) &&
+        (showDate ? show.date === showDate : true) &&
+        (location ? show.location === location : true)
+      );
+    });
+    const activeCandidates = baseCandidates.filter(
+      (show) => !show.archivedAt && show.operationalStatus !== "inactive",
+    );
+    const candidates = activeCandidates.length > 0 ? activeCandidates : baseCandidates;
+    const exactTimeCandidates = sourceTime
+      ? candidates.filter((show) => getSouthAfricaShowTime(show) === sourceTime)
+      : candidates;
+    const matchedShow =
+      sourceTime && exactTimeCandidates.length > 0
+        ? exactTimeCandidates[0]
+        : candidates.length === 1
+          ? candidates[0]
+          : undefined;
+    const warnings: string[] = [];
+    const errors: string[] = [];
+
+    if (!showValue && !isDineplanRecord) {
+      errors.push("Show is required.");
+    }
+    if (!showDate) {
+      errors.push("Show Date is required.");
+    }
+    if (!location) {
+      errors.push("Location must be Cape Town or Johannesburg.");
+    }
+    if (showValue && showDate && location && candidates.length === 0) {
+      errors.push("No matching active show was found for this show/date/location.");
+    }
+    if (sourceTime && exactTimeCandidates.length > 1) {
+      errors.push("Multiple shows match this source time. Use a more specific show value.");
+    }
+    if (!sourceTime && candidates.length > 1) {
+      errors.push("Multiple shows match this date/location. Add Show Time.");
+    }
+    if (sourceTime && exactTimeCandidates.length === 0 && candidates.length > 1) {
+      errors.push("Source time does not match an available show, and the date/location has multiple candidates.");
+    }
+    if (sourceTime && matchedShow) {
+      const matchedTime = getSouthAfricaShowTime(matchedShow);
+
+      if (matchedTime !== sourceTime) {
+        warnings.push(
+          `Legacy source time ${sourceTime} will map to ${getImportShowDisplay(matchedShow)}.`,
+        );
+      }
+    }
+    if (matchedShow) {
+      warnings.push(`Resolved show: ${getImportShowDisplay(matchedShow)}.`);
+    }
+
+    return {
+      candidates,
+      errors,
+      show: matchedShow,
+      sourceTime,
+      warnings,
+    };
+  }
+
+  function getDineplanFallbackAllocation(
+    record: Record<string, string>,
+    show: DemoShow | undefined,
+    zone: SeatingZone | undefined,
+  ): DineplanAllocationSimulationResult | undefined {
+    const allocation = getDineplanAutoAllocation(record, show, zone);
+
+    return allocation
+      ? {
+          isOverflow: false,
+          table: allocation.table,
+        }
+      : undefined;
+  }
+
   function buildDataPortabilityPreview(
     entity: DataPortabilityEntity,
     fileName: string,
-    parsed: { headers: string[]; records: Record<string, string>[] },
+    parsed: {
+      headers: string[];
+      records: Record<string, string>[];
+      sourceFormat?: DataPortabilitySourceFormat;
+    },
+    dineplanAllocate?: ReturnType<typeof createDineplanAllocationSimulator>,
+    dineplanGuestList?: DineplanGuestListRecord[] | null,
+    dineplanTableSnapshotPayload?: {
+      showMappings: DataPortabilityTableSnapshotShowMapping[];
+      tables: DataPortabilityTableSnapshotRow[];
+    } | null,
+    options?: {
+      importScope?: string;
+    },
   ): DataPortabilityImportPreview {
     const columns = getPortabilityColumns(entity);
+    const sourceFormat = parsed.sourceFormat ?? "zingara-template";
+    const importScope = options?.importScope ?? "all";
+    const records =
+      entity === "bookings" &&
+      sourceFormat === "dineplan-legacy" &&
+      importScope !== "all"
+        ? parsed.records.filter(
+            (record) => getDineplanImportScopeKey(record) === importScope,
+          )
+        : parsed.records;
     const receivedColumnKeys = new Set(
       parsed.headers.map((header) => normalizePortabilityKey(header)),
     );
     const missingRequiredColumns = columns
-      .filter((column) => column.required && !receivedColumnKeys.has(column.key))
+      .filter(
+        (column) =>
+          sourceFormat === "zingara-template" &&
+          column.required &&
+          !receivedColumnKeys.has(column.key),
+      )
       .map((column) => column.label);
     const issues: DataPortabilityImportIssue[] = [];
     const existingBookingReferences = new Set(
@@ -14113,18 +16676,26 @@ export default function AdminDashboardPage() {
       "johannesburg - the spring court",
     ]);
     const zoneAliases = new Set(
-      seatingZones.flatMap((zone) => [
-        normalizeImportLookupValue(zone.id),
-        normalizeImportLookupValue(zone.title),
-      ]),
+      seatingZones.flatMap((zone) =>
+        getZoneSectionLookupTitles(zone.id, zone.title).map(
+          normalizeImportLookupValue,
+        ),
+      ),
     );
     const tableAliases = new Set(
       tables.map((table) => normalizeImportLookupValue(table.tableNumber)),
     );
     const seenBookingReferences = new Set<string>();
     const seenCustomerKeys = new Set<string>();
+    const dineplanCapacityGroups =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? buildDineplanCapacityGroups(
+            records,
+            dineplanTableSnapshotPayload,
+          )
+        : null;
 
-    const rows = parsed.records.map((record, index) => {
+    const rows = records.map((record, index) => {
       const rowNumber = index + 2;
       const errors: string[] = [];
       const warnings: string[] = [];
@@ -14151,6 +16722,118 @@ export default function AdminDashboardPage() {
         const location = record.location ?? "";
         const zone = record.seating_zone ?? "";
         const table = record.table ?? "";
+        const isDineplanRecord = sourceFormat === "dineplan-legacy";
+        const showResolution = resolveImportShow(record);
+        const guestMatch = isDineplanRecord
+          ? getReservationGuestMatch(
+              record.customer_name ?? "",
+              record.source_guest_id ?? "",
+              dineplanGuestList ?? null,
+            )
+          : null;
+        const resolvedZone = zone ? resolveImportZone(record) : undefined;
+        const capacityKey =
+          isDineplanRecord && showResolution.show && resolvedZone
+            ? getImportCapacityKey(showResolution.show, resolvedZone)
+            : "";
+        const isCapacityConsumingDineplanRecord =
+          isDineplanRecord && isDineplanCapacityConsumingRecord(record);
+        const isCapacityBlocked =
+          Boolean(capacityKey) &&
+          Boolean(dineplanCapacityGroups?.conflicts.has(capacityKey));
+        const suggestedAllocation = isDineplanRecord
+            ? !isCapacityConsumingDineplanRecord
+              ? undefined
+            : dineplanAllocate
+            ? dineplanAllocate(record, showResolution.show, resolvedZone, rowNumber)
+            : getDineplanFallbackAllocation(record, showResolution.show, resolvedZone)
+          : undefined;
+        const resolvedTable =
+          !isDineplanRecord && showResolution.show && resolvedZone
+            ? findImportTable(record, showResolution.show.id, resolvedZone.id)
+            : undefined;
+        const resolvedValues = {
+          ...record,
+          allocation_mode: isDineplanRecord
+            ? "Auto-assign best-fit"
+            : "Explicit table",
+          resolved_show_id: showResolution.show?.id ?? "",
+          resolved_show_label: showResolution.show
+            ? getImportShowDisplay(showResolution.show)
+            : "",
+          resolved_show_time: showResolution.show
+            ? getSouthAfricaShowTime(showResolution.show)
+            : "",
+          resolved_source_time: showResolution.sourceTime,
+          resolved_table_id:
+            resolvedTable?.id ?? suggestedAllocation?.table.id ?? "",
+          resolved_table_number:
+            resolvedTable?.tableNumber ??
+            (isDineplanRecord
+              ? suggestedAllocation?.table.tableNumber ?? ""
+              : ""),
+          resolved_zone_id: resolvedZone?.id ?? "",
+          resolved_zone_title: resolvedZone?.title ?? "",
+          allocation_state: getDataPortabilityAllocationLabel(
+            isDineplanRecord
+            ? !isCapacityConsumingDineplanRecord
+                ? "NOT_APPLICABLE"
+                : suggestedAllocation
+                    ? "AUTO_ALLOCATED_EXISTING"
+                    : showResolution.show && resolvedZone
+                      ? "REQUIRES_FLOOR_ASSIGNMENT"
+                      : "UNRESOLVED"
+              : "EXPLICIT_TABLE",
+          ),
+          capacity_status:
+            isDineplanRecord && capacityKey
+              ? isCapacityBlocked
+                ? `Overflow required: ${
+                    (dineplanCapacityGroups?.existingActivePax.get(capacityKey) ??
+                      0) +
+                    (dineplanCapacityGroups?.incomingActivePax.get(capacityKey) ??
+                      0)
+                  } guests / ${
+                    dineplanCapacityGroups?.capacities.get(capacityKey) ?? 0
+                  } standard seats`
+                : "Within configured zone capacity"
+              : "",
+          floor_assignment_required:
+            isDineplanRecord &&
+            isCapacityConsumingDineplanRecord &&
+            showResolution.show &&
+            resolvedZone &&
+            !suggestedAllocation
+              ? "Yes"
+              : "No",
+          guest_match_status: guestMatch?.status ?? "",
+          guest_match_candidates: guestMatch
+            ? String(guestMatch.candidates.length)
+            : "",
+          matched_guest_name: guestMatch?.match?.fullName ?? "",
+          matched_email_available: guestMatch?.match
+            ? maskContactAvailability(guestMatch.match.email)
+            : "",
+          matched_mobile_available: guestMatch?.match
+            ? maskContactAvailability(guestMatch.match.phone)
+            : "",
+          matched_email_consent: guestMatch?.match
+            ? getConsentStatus(guestMatch.match.emailOptIn)
+            : "",
+          matched_sms_consent: guestMatch?.match
+            ? getConsentStatus(guestMatch.match.smsOptIn)
+            : "",
+          suggested_table:
+            suggestedAllocation?.table.tableNumber ??
+            (isDineplanRecord
+              ? isCapacityConsumingDineplanRecord
+                ? "Requires floor assignment"
+                : "Not applicable"
+              : ""),
+          proposed_overflow_table:
+            "No",
+          proposed_overflow_capacity: "",
+        };
 
         if (!reference) {
           addIssue("Booking Reference", "Required.");
@@ -14170,7 +16853,13 @@ export default function AdminDashboardPage() {
         if (!record.customer_name) {
           addIssue("Customer Name", "Required.");
         }
-        if (!email && !phone) {
+        if (sourceFormat === "dineplan-legacy" && !record.location) {
+          addIssue(
+            "Source Location",
+            "Select JHB or CPT before uploading a Dineplan legacy export.",
+          );
+        }
+        if (!isDineplanRecord && !email && !phone) {
           addIssue("Customer Email", "Email or phone is required.");
         }
         if (!isValidPortabilityEmail(email)) {
@@ -14192,28 +16881,105 @@ export default function AdminDashboardPage() {
             }
           },
         );
-        if (showValue && !showAliases.has(normalizeImportLookupValue(showValue))) {
-          addIssue("Show", "Unknown show.", "warning");
+        showResolution.errors.forEach((message) => addIssue("Show", message));
+        showResolution.warnings.forEach((message) =>
+          addIssue("Show", message, "warning"),
+        );
+        if (
+          showValue &&
+          !showAliases.has(normalizeImportLookupValue(showValue)) &&
+          !showResolution.show
+        ) {
+          addIssue("Show", "Unknown show.");
         }
         if (
           location &&
           !locationAliases.has(normalizeImportLookupValue(location))
         ) {
-          addIssue("Location", "Unknown location.", "warning");
+          addIssue("Location", "Unknown location.");
         }
         if (zone && !zoneAliases.has(normalizeImportLookupValue(zone))) {
-          addIssue("Seating Zone", "Unknown seating zone.", "warning");
+          addIssue("Seating Zone", "Unknown seating zone.");
         }
-        if (table && !tableAliases.has(normalizeImportLookupValue(table))) {
-          addIssue("Table", "Unknown table.", "warning");
+        if (zone && !resolvedZone) {
+          addIssue("Seating Zone", "No matching seating zone was found.");
+        }
+        if (!isDineplanRecord && table && !tableAliases.has(normalizeImportLookupValue(table))) {
+          addIssue("Table", "Unknown table.");
+        }
+        if (!isDineplanRecord && table && showResolution.show && resolvedZone && !resolvedTable) {
+          addIssue(
+            "Table",
+            "No matching table was found for the resolved show and seating zone.",
+          );
         }
         if (
-          (email && !existingCustomerEmails.has(email.trim().toLowerCase())) ||
-          (phone && !existingCustomerPhones.has(normalizeCustomerPhone(phone)))
+          isDineplanRecord &&
+          showResolution.show &&
+          resolvedZone &&
+          isCapacityConsumingDineplanRecord &&
+          suggestedAllocation === null
+        ) {
+          addIssue(
+            "Allocation",
+            "Authoritative table inventory could not be loaded for the resolved show.",
+          );
+        }
+        if (
+          isDineplanRecord &&
+          showResolution.show &&
+          resolvedZone &&
+          isCapacityConsumingDineplanRecord &&
+          isCapacityBlocked
+        ) {
+          addIssue(
+            "Capacity Health",
+            `Resolved performance/zone needs operational overflow: ${
+              (dineplanCapacityGroups?.existingActivePax.get(capacityKey) ??
+                0) +
+              (dineplanCapacityGroups?.incomingActivePax.get(capacityKey) ??
+                0)
+            } guests against ${
+              dineplanCapacityGroups?.capacities.get(capacityKey) ?? 0
+            } standard online seats. This is a grouped preflight warning, not an individual row rejection.`,
+            "warning",
+          );
+        }
+        if (
+          isDineplanRecord &&
+          showResolution.show &&
+          resolvedZone &&
+          isCapacityConsumingDineplanRecord &&
+          suggestedAllocation === undefined
+        ) {
+          addIssue(
+            "Floor Assignment",
+            "Booking entitlement is valid, but no existing or permitted overflow table fit is available. Import would require manual Floor assignment.",
+            "warning",
+          );
+        }
+        if (isDineplanRecord && !isCapacityConsumingDineplanRecord) {
+          addIssue(
+            "Allocation",
+            "Cancelled or no-show legacy booking will import without consuming table allocation.",
+            "warning",
+          );
+        }
+        if (isDineplanRecord) {
+          addIssue(
+            "Table",
+            `Source table ${table || "not recorded"} retained as legacy metadata; Zingara allocation uses authoritative table inventory only.`,
+            "warning",
+          );
+        }
+        if (
+          !isDineplanRecord &&
+          ((email && !existingCustomerEmails.has(email.trim().toLowerCase())) ||
+            (phone && !existingCustomerPhones.has(normalizeCustomerPhone(phone))))
         ) {
           addIssue(
             "Customer",
-            "Unknown customer; Phase 19D.2 will decide whether to create or link.",
+            "Unknown customer; review whether the confirmed import should create or link this record.",
             "warning",
           );
         }
@@ -14230,7 +16996,7 @@ export default function AdminDashboardPage() {
           errors,
           rowNumber,
           valid,
-          values: record,
+          values: resolvedValues,
           warnings,
         };
       }
@@ -14285,19 +17051,189 @@ export default function AdminDashboardPage() {
         warnings,
       };
     });
+    const performanceSummary =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? Array.from(
+            rows
+              .reduce((summary, row) => {
+                const values = row.values as Record<string, string>;
+                const date = values.source_date || values.show_date || "";
+                const time =
+                  values.resolved_show_time ||
+                  values.source_time ||
+                  values.show_time ||
+                  "";
+                const location = values.location || "";
+                const resolvedLabel = values.resolved_show_label || "Unresolved";
+                const scopeKey = getDineplanImportScopeKey(values);
+                const compactLabel = getCompactImportPerformanceLabel({
+                  date,
+                  location,
+                  time,
+                });
+                const key = `${scopeKey}|${resolvedLabel}`;
+                const existing = summary.get(key);
+                const rowStatus = values.resolved_show_id
+                  ? "Resolved"
+                  : row.errors.some((error) => error.includes("multiple matching shows"))
+                    ? "Ambiguous"
+                    : "Unresolved";
+
+                if (existing) {
+                  existing.bookingCount += 1;
+                  if (existing.status !== "Unresolved") {
+                    existing.status =
+                      existing.status === "Ambiguous" || rowStatus === "Ambiguous"
+                        ? "Ambiguous"
+                        : rowStatus;
+                  }
+                } else {
+                  summary.set(key, {
+                    bookingCount: 1,
+                    compactLabel,
+                    date,
+                    location,
+                    resolvedLabel,
+                    scopeKey,
+                    status: rowStatus,
+                    time,
+                  });
+                }
+
+                return summary;
+              }, new Map<string, NonNullable<DataPortabilityImportPreview["performanceSummary"]>[number]>())
+              .values(),
+          ).sort((first, second) =>
+            `${getImportPerformanceLocationAlias(first.location)} ${first.date} ${first.time}`.localeCompare(
+              `${getImportPerformanceLocationAlias(second.location)} ${second.date} ${second.time}`,
+            ),
+          )
+        : undefined;
+    const guestMatches =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? rows.filter((row) => row.values.guest_match_status === "MATCHED").length
+        : undefined;
+    const ambiguousGuestMatches =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? rows.filter((row) => row.values.guest_match_status === "AMBIGUOUS").length
+        : undefined;
+    const unmatchedGuests =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? rows.filter((row) => row.values.guest_match_status === "NO MATCH").length
+        : undefined;
+    const noGuestListRows =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? rows.filter((row) => row.values.guest_match_status === "NO GUEST LIST").length
+        : undefined;
+    const autoAllocatedRows =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? rows.filter(
+            (row) => row.values.allocation_state === "Assigned to Existing Table",
+          ).length
+        : undefined;
+    const existingAllocatedRows =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? rows.filter(
+            (row) => row.values.allocation_state === "Assigned to Existing Table",
+          ).length
+        : undefined;
+    const requiresFloorAssignmentRows =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? rows.filter(
+            (row) =>
+              row.values.allocation_state === "Requires floor assignment",
+          ).length
+        : undefined;
+    const capacityConflictSummary =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? Array.from(dineplanCapacityGroups?.conflicts ?? [])
+            .map((key) => {
+              const metadata =
+                dineplanCapacityGroups?.conflictMetadata.get(key);
+              const legacyPax =
+                dineplanCapacityGroups?.incomingActivePax.get(key) ?? 0;
+              const existingPax =
+                dineplanCapacityGroups?.existingActivePax.get(key) ?? 0;
+              const capacity = dineplanCapacityGroups?.capacities.get(key) ?? 0;
+              const requiredPax = legacyPax + existingPax;
+
+              return {
+                affectedRows: metadata?.affectedRows ?? 0,
+                capacity,
+                date: metadata?.date ?? "",
+                existingPax,
+                legacyPax,
+                location: metadata?.location ?? "",
+                requiredPax,
+                resolvedLabel: metadata?.resolvedLabel ?? "Resolved show",
+                shortagePax: Math.max(requiredPax - capacity, 0),
+                zone: metadata?.zone ?? "Unknown zone",
+              };
+            })
+            .sort((left, right) =>
+              `${left.date} ${left.zone}`.localeCompare(
+                `${right.date} ${right.zone}`,
+              ),
+          )
+        : undefined;
+    const overflowPlanSummary = undefined;
+    const allocationSummary =
+      entity === "bookings" && sourceFormat === "dineplan-legacy"
+        ? [
+            {
+              count: existingAllocatedRows ?? 0,
+              label: "Assigned To Existing Tables",
+              tone: "success" as const,
+            },
+            {
+              count: requiresFloorAssignmentRows ?? 0,
+              label: "Requires Floor Assignment",
+              tone:
+                (requiresFloorAssignmentRows ?? 0) > 0
+                  ? ("warning" as const)
+                  : ("neutral" as const),
+            },
+            {
+              count: capacityConflictSummary?.length ?? 0,
+              label: "Over-Capacity Zones",
+              tone:
+                (capacityConflictSummary?.length ?? 0) > 0
+                  ? ("warning" as const)
+                  : ("neutral" as const),
+            },
+            {
+              count: rows.filter(
+                (row) => row.values.allocation_state === "Not applicable",
+              ).length,
+              label: "No Allocation Required",
+              tone: "info" as const,
+            },
+          ]
+        : undefined;
 
     return {
+      allocationSummary,
+      ambiguousGuestMatches,
+      autoAllocatedRows,
+      capacityConflictSummary,
       duplicateRows: rows.filter((row) =>
         row.errors.some((error) => error.includes("Duplicate row")),
       ).length,
       entity,
       fileName,
+      guestMatches,
       headers: parsed.headers,
       invalidRows: rows.filter((row) => !row.valid).length,
       issues,
       missingRequiredColumns,
+      noGuestListRows,
+      overflowPlanSummary,
+      performanceSummary,
+      requiresFloorAssignmentRows,
       rows,
       rowsDetected: rows.length,
+      sourceFormat,
+      unmatchedGuests,
       validRows: rows.filter((row) => row.valid).length,
       wouldCreate: rows.filter((row) => row.action === "Create").length,
       wouldSkip: rows.filter((row) => row.action === "Skip").length,
@@ -14312,29 +17248,191 @@ export default function AdminDashboardPage() {
 
     setDataPortabilityImportError("");
     setDataPortabilityImportStatus("");
-    setDataPortabilityPreview(null);
 
     if (!file) {
       return;
     }
 
     try {
-      const parsed = await parsePortabilityFile(file);
+      const parsed = await parsePortabilityFile(
+        file,
+        activeDataPortabilityEntity,
+        dataPortabilitySourceLocation,
+      );
+      const importSource: DataPortabilityImportSourceState = {
+        entity: activeDataPortabilityEntity,
+        fileName: file.name,
+        parsed,
+      };
+      let dineplanAllocate:
+        | ReturnType<typeof createDineplanAllocationSimulator>
+        | undefined;
+      let dineplanTableSnapshots:
+        | {
+            showMappings: DataPortabilityTableSnapshotShowMapping[];
+            tables: DataPortabilityTableSnapshotRow[];
+          }
+        | undefined;
+
+      if (
+        activeDataPortabilityEntity === "bookings" &&
+        parsed.sourceFormat === "dineplan-legacy"
+      ) {
+        const resolvedShowIds = [
+          ...new Set(
+            parsed.records
+              .map((record) => {
+                const show = resolveImportShow(record).show;
+
+                return show ? show.supabaseId ?? show.id : "";
+              })
+              .filter(Boolean),
+          ),
+        ];
+        dineplanTableSnapshots =
+          await loadDataPortabilityTableSnapshots(resolvedShowIds);
+
+        dineplanAllocate =
+          createDineplanAllocationSimulator(dineplanTableSnapshots);
+      }
+
       const preview = buildDataPortabilityPreview(
         activeDataPortabilityEntity,
         file.name,
         parsed,
+        dineplanAllocate,
+        dataPortabilityGuestList?.records ?? null,
+        dineplanTableSnapshots,
+        { importScope: "all" },
       );
 
+      setDataPortabilityImportSource(importSource);
       setDataPortabilityPreview(preview);
+      setDataPortabilityImportScope("all");
+      setDataPortabilityReviewFilter("all");
+      setDataPortabilityGuestMatchFilter("all");
+      setDataPortabilityPerformanceFilter("all");
+      setDataPortabilityImportResult(null);
       setDataPortabilityImportStatus(
-        `${preview.rowsDetected} row${preview.rowsDetected === 1 ? "" : "s"} parsed. Dry-run preview only.`,
+        `${preview.rowsDetected} row${preview.rowsDetected === 1 ? "" : "s"} parsed for dry run. No data has been written.`,
       );
     } catch (error) {
       setDataPortabilityImportError(
         error instanceof Error
           ? error.message
           : "The file could not be parsed.",
+      );
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function handleDataPortabilityImportScopeChange(importScope: string) {
+    if (!dataPortabilityImportSource) {
+      setDataPortabilityImportScope(importScope);
+      return;
+    }
+
+    setDataPortabilityImportError("");
+    setDataPortabilityImportStatus("");
+    setDataPortabilityImportScope(importScope);
+
+    try {
+      let dineplanAllocate:
+        | ReturnType<typeof createDineplanAllocationSimulator>
+        | undefined;
+      let dineplanTableSnapshots:
+        | {
+            showMappings: DataPortabilityTableSnapshotShowMapping[];
+            tables: DataPortabilityTableSnapshotRow[];
+          }
+        | undefined;
+
+      if (
+        dataPortabilityImportSource.entity === "bookings" &&
+        dataPortabilityImportSource.parsed.sourceFormat === "dineplan-legacy"
+      ) {
+        const scopedRecords =
+          importScope === "all"
+            ? dataPortabilityImportSource.parsed.records
+            : dataPortabilityImportSource.parsed.records.filter(
+                (record) => getDineplanImportScopeKey(record) === importScope,
+              );
+        const resolvedShowIds = [
+          ...new Set(
+            scopedRecords
+              .map((record) => {
+                const show = resolveImportShow(record).show;
+
+                return show ? show.supabaseId ?? show.id : "";
+              })
+              .filter(Boolean),
+          ),
+        ];
+
+        dineplanTableSnapshots =
+          await loadDataPortabilityTableSnapshots(resolvedShowIds);
+        dineplanAllocate =
+          createDineplanAllocationSimulator(dineplanTableSnapshots);
+      }
+
+      const preview = buildDataPortabilityPreview(
+        dataPortabilityImportSource.entity,
+        dataPortabilityImportSource.fileName,
+        dataPortabilityImportSource.parsed,
+        dineplanAllocate,
+        dataPortabilityGuestList?.records ?? null,
+        dineplanTableSnapshots,
+        { importScope },
+      );
+
+      setDataPortabilityPreview(preview);
+      setDataPortabilityReviewFilter("all");
+      setDataPortabilityGuestMatchFilter("all");
+      setDataPortabilityPerformanceFilter("all");
+      setDataPortabilityImportResult(null);
+      setDataPortabilityImportStatus(
+        importScope === "all"
+          ? `${preview.rowsDetected} row${preview.rowsDetected === 1 ? "" : "s"} parsed for full-month dry run. No data has been written.`
+          : `${preview.rowsDetected} row${preview.rowsDetected === 1 ? "" : "s"} parsed for selected import scope. No data has been written.`,
+      );
+    } catch (error) {
+      setDataPortabilityImportError(
+        error instanceof Error
+          ? error.message
+          : "The selected import scope could not be recalculated.",
+      );
+    }
+  }
+
+  async function handleDineplanGuestListFile(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+
+    setDataPortabilityImportError("");
+    setDataPortabilityImportStatus("");
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const records = await parseDineplanGuestListFile(file);
+
+      setDataPortabilityGuestList({ fileName: file.name, records });
+      setDataPortabilityImportSource(null);
+      setDataPortabilityImportScope("all");
+      setDataPortabilityPreview(null);
+      setDataPortabilityImportResult(null);
+      setDataPortabilityImportStatus(
+        `${records.length} Dineplan guest list row${records.length === 1 ? "" : "s"} loaded for the next dry run. No data has been written.`,
+      );
+    } catch (error) {
+      setDataPortabilityImportError(
+        error instanceof Error
+          ? error.message
+          : "The guest list file could not be parsed.",
       );
     } finally {
       event.target.value = "";
@@ -14388,19 +17486,7 @@ export default function AdminDashboardPage() {
   }
 
   function findImportShow(record: Record<string, string>) {
-    const showValue = normalizeImportLookupValue(record.show ?? "");
-    const showDate = record.show_date?.trim();
-    const location = normalizeShowLocation(record.location);
-
-    return shows.find((show) => {
-      const aliases = getShowImportAliases(show);
-
-      return (
-        (showValue ? aliases.includes(showValue) : true) &&
-        (showDate ? show.date === showDate : true) &&
-        (location ? show.location === location : true)
-      );
-    });
+    return resolveImportShow(record).show;
   }
 
   function findImportZone(record: Record<string, string>) {
@@ -14408,10 +17494,27 @@ export default function AdminDashboardPage() {
 
     return (
       seatingZones.find(
-        (zone) =>
-          normalizeImportLookupValue(zone.id) === zoneValue ||
-          normalizeImportLookupValue(zone.title) === zoneValue,
+        (zone) => {
+          const aliases = [
+            zone.id,
+            ...getZoneSectionLookupTitles(zone.id, zone.title),
+          ].map(normalizeImportLookupValue);
+
+          return aliases.includes(zoneValue);
+        },
       ) ?? seatingZones[0]
+    );
+  }
+
+  function resolveImportZone(record: Record<string, string>) {
+    const zoneValue = normalizeImportLookupValue(record.seating_zone ?? "");
+
+    if (!zoneValue) {
+      return undefined;
+    }
+
+    return seatingZones.find((zone) =>
+      getImportZoneAliases(zone).includes(zoneValue),
     );
   }
 
@@ -14434,6 +17537,23 @@ export default function AdminDashboardPage() {
           table.zoneId === zoneId &&
           normalizeImportLookupValue(table.tableNumber) === tableValue,
       )
+    );
+  }
+
+  function getDineplanAutoAllocation(
+    record: Record<string, string>,
+    show: DemoShow | undefined,
+    zone: SeatingZone | undefined,
+  ) {
+    if (!show || !zone) {
+      return undefined;
+    }
+
+    return findBestTableAllocation(
+      tables,
+      show.id,
+      zone.id,
+      Math.max(1, Math.round(getImportNumber(record.number_of_guests ?? "", 1))),
     );
   }
 
@@ -14564,6 +17684,90 @@ export default function AdminDashboardPage() {
     };
   }
 
+  function getDataPortabilityPreviewColumns(entity: DataPortabilityEntity) {
+    if (entity === "bookings" && dataPortabilityPreview?.sourceFormat === "dineplan-legacy") {
+      return [
+        { key: "source_booking_reference", label: "Source Reference" },
+        { key: "customer_name", label: "Customer Name" },
+        { key: "guest_match_status", label: "Guest Match" },
+        { key: "matched_guest_name", label: "Matched Guest" },
+        { key: "matched_email_available", label: "Email" },
+        { key: "matched_mobile_available", label: "Mobile" },
+        { key: "matched_email_consent", label: "Email Consent" },
+        { key: "matched_sms_consent", label: "SMS Consent" },
+        { key: "number_of_guests", label: "Guests" },
+        { key: "source_date", label: "Source Date" },
+        { key: "source_time", label: "Source Time" },
+        { key: "source_seating_area", label: "Source Seating" },
+        { key: "source_table", label: "Source Table" },
+        { key: "resolved_show_label", label: "Resolved Show" },
+        { key: "resolved_zone_title", label: "Resolved Zone" },
+        { key: "allocation_mode", label: "Allocation" },
+        { key: "allocation_state", label: "Allocation State" },
+        { key: "suggested_table", label: "Suggested Table" },
+        { key: "capacity_status", label: "Capacity" },
+        { key: "floor_assignment_required", label: "Floor Assignment" },
+        { key: "booking_status", label: "Booking Status" },
+        { key: "payment_status", label: "Payment Status" },
+        { key: "booking_total", label: "Booking Total" },
+        { key: "amount_paid", label: "Paid" },
+        { key: "source_total_refunded", label: "Refunded" },
+        { key: "balance_due", label: "Balance Due" },
+        { key: "source_legacy_total_balance", label: "Legacy Total Balance" },
+      ];
+    }
+
+    const sourceColumns = getPortabilityColumns(entity)
+      .slice(0, 5)
+      .map((column) => ({ key: column.key, label: column.label }));
+
+    if (entity !== "bookings") {
+      return sourceColumns;
+    }
+
+    return [
+      ...sourceColumns,
+      { key: "resolved_show_label", label: "Resolved Show" },
+      { key: "resolved_zone_title", label: "Resolved Zone" },
+      { key: "resolved_table_number", label: "Resolved Table" },
+    ];
+  }
+
+  function isControlledDineplanImportPreview() {
+    if (
+      !dataPortabilityPreview ||
+      dataPortabilityPreview.entity !== "bookings" ||
+      dataPortabilityPreview.sourceFormat !== "dineplan-legacy" ||
+      dataPortabilityPreview.invalidRows > 0 ||
+      dataPortabilityPreview.rows.length !==
+        controlledDineplanImportReferenceSet.size
+    ) {
+      return false;
+    }
+
+    const seenReferences = new Set<string>();
+
+    return dataPortabilityPreview.rows.every((row) => {
+      const reference = row.values.booking_reference?.trim().toLowerCase() ?? "";
+
+      if (
+        !row.valid ||
+        row.action === "Skip" ||
+        !controlledDineplanImportReferenceSet.has(reference) ||
+        seenReferences.has(reference)
+      ) {
+        return false;
+      }
+
+      seenReferences.add(reference);
+
+      return (
+        row.values.show_date === controlledDineplanImportDate &&
+        row.values.location === controlledDineplanImportLocation
+      );
+    });
+  }
+
   function downloadDataPortabilityResultLog(result: DataPortabilityImportResult) {
     const sheet: ExportSheet = {
       columns: [
@@ -14653,6 +17857,7 @@ export default function AdminDashboardPage() {
 
   async function refreshDataPortabilityHistory() {
     try {
+      setDataPortabilityHistoryWarning("");
       const payload = await fetchSupabaseApi<{
         rows: DataPortabilityImportHistoryApiRow[];
       }>("/api/admin/data-portability/imports");
@@ -14662,6 +17867,9 @@ export default function AdminDashboardPage() {
       );
     } catch (error) {
       console.error("[Zingara data portability] History load failed", error);
+      setDataPortabilityHistoryWarning(
+        "Import history could not be loaded. Dry Run remains available.",
+      );
     }
   }
 
@@ -14676,13 +17884,49 @@ export default function AdminDashboardPage() {
     setDataPortabilityImportResult(null);
 
     try {
+      let dineplanAllocate:
+        | ReturnType<typeof createDineplanAllocationSimulator>
+        | undefined;
+      let dineplanTableSnapshots:
+        | {
+            showMappings: DataPortabilityTableSnapshotShowMapping[];
+            tables: DataPortabilityTableSnapshotRow[];
+          }
+        | undefined;
+
+      if (
+        dataPortabilityPreview.entity === "bookings" &&
+        dataPortabilityPreview.sourceFormat === "dineplan-legacy"
+      ) {
+        const resolvedShowIds = [
+          ...new Set(
+            dataPortabilityPreview.rows
+              .map((row) => {
+                const show = resolveImportShow(row.values).show;
+
+                return show ? show.supabaseId ?? show.id : "";
+              })
+              .filter(Boolean),
+          ),
+        ];
+        dineplanTableSnapshots =
+          await loadDataPortabilityTableSnapshots(resolvedShowIds);
+
+        dineplanAllocate =
+          createDineplanAllocationSimulator(dineplanTableSnapshots);
+      }
+
       const revalidatedPreview = buildDataPortabilityPreview(
         dataPortabilityPreview.entity,
         dataPortabilityPreview.fileName,
         {
           headers: dataPortabilityPreview.headers,
           records: dataPortabilityPreview.rows.map((row) => row.values),
+          sourceFormat: dataPortabilityPreview.sourceFormat,
         },
+        dineplanAllocate,
+        dataPortabilityGuestList?.records ?? null,
+        dineplanTableSnapshots,
       );
       const previewSignature = JSON.stringify(
         dataPortabilityPreview.rows.map((row) => ({
@@ -15656,6 +18900,66 @@ export default function AdminDashboardPage() {
     });
   }
 
+  function assignFloorQueuedBooking(booking: DemoBooking) {
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      if (isBookingReadOnly(booking.reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
+      return;
+    }
+
+    if (!booking.showId) {
+      showWorkflowToast("This booking does not have a resolved performance.");
+      return;
+    }
+
+    const allocation = findBestTableAllocation(
+      tables,
+      booking.showId,
+      booking.zoneId,
+      booking.partySize,
+    );
+
+    if (!allocation) {
+      showWorkflowToast(
+        "No suitable existing table is available. Create or merge an operational table before assigning this booking.",
+      );
+      return;
+    }
+
+    const nextZone = getZoneById(allocation.table.zoneId);
+
+    if (!nextZone) {
+      showWorkflowToast("The suggested table zone could not be resolved.");
+      return;
+    }
+
+    saveTables(
+      applyTableAllocation(
+        releaseBookingTableFromList(tables, booking),
+        allocation,
+        booking.reference,
+        booking.customer.name,
+      ),
+    );
+    saveBookings(
+      bookings.map((currentBooking) =>
+        currentBooking.reference === booking.reference
+          ? {
+              ...currentBooking,
+              tableId: allocation.table.id,
+              tableNumber: allocation.table.tableNumber,
+              zoneId: nextZone.id,
+              zoneTitle: nextZone.title,
+            }
+          : currentBooking,
+      ),
+    );
+    showWorkflowToast(
+      `Assigned ${booking.reference} to ${allocation.table.tableNumber}.`,
+    );
+  }
+
   async function sendTicket(
     booking: DemoBooking,
     channel: CommunicationChannel,
@@ -15780,6 +19084,119 @@ export default function AdminDashboardPage() {
     await updatePayment(booking);
     await updateTicket(booking);
     setBookings(await getBookings());
+  }
+
+  function canSendCustomerPaymentLink(booking: DemoBooking) {
+    const financials = getBookingFinancials(booking);
+
+    if (!canManageBookings || !canManageCommunications) {
+      return false;
+    }
+
+    if (booking.status === "cancelled" || booking.status === "refunded") {
+      return false;
+    }
+
+    if (financials.paymentStatus === "fully-paid") {
+      return false;
+    }
+
+    if (financials.paymentStatus === "comp-vip") {
+      return false;
+    }
+
+    return Boolean(booking.customer.email?.trim());
+  }
+
+  async function sendCustomerPaymentLink(booking: DemoBooking) {
+    if (!canSendCustomerPaymentLink(booking)) {
+      setPaymentLinkSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message: "This booking is not eligible for a payment link.",
+          tone: "error",
+        },
+      }));
+      return;
+    }
+
+    setPaymentLinkSendState((currentState) => ({
+      ...currentState,
+      [booking.reference]: {
+        isSending: true,
+        message: "Sending secure payment link...",
+        tone: "success",
+      },
+    }));
+
+    try {
+      const result = await fetchSupabaseApi<{
+        deduped?: boolean;
+        row?: {
+          created_at?: string | null;
+          id?: string;
+          message?: string;
+          sent_at?: string | null;
+          status?: "failed" | "sent";
+          subject?: string | null;
+        } | null;
+      }>("/api/admin/bookings/payment-link", {
+        body: {
+          bookingReference: booking.reference,
+        },
+        method: "POST",
+      });
+
+      if (result.row?.status !== "sent" && !result.deduped) {
+        throw new Error("Payment link email could not be sent.");
+      }
+
+      if (result.row) {
+        const sentAt =
+          result.row.sent_at ?? result.row.created_at ?? new Date().toISOString();
+
+        setBookings((currentBookings) =>
+          appendCommunicationToBookings(
+            currentBookings,
+            booking.reference,
+            () => ({
+              channel: "email",
+              id: result.row?.id ?? `${booking.reference}-payment-link-${sentAt}`,
+              message: result.row?.message ?? "Secure payment link sent.",
+              sentAt,
+              subject:
+                result.row?.subject ?? `Secure payment link for ${booking.reference}`,
+              trigger: "custom-message",
+            }),
+          ),
+        );
+      }
+
+      setPaymentLinkSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message: result.deduped
+            ? "Payment link was already sent."
+            : "Payment link sent successfully.",
+          tone: "success",
+        },
+      }));
+    } catch (error) {
+      console.error("[Zingara Admin] Payment link send failed", error);
+      setPaymentLinkSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message:
+            error instanceof Error
+              ? error.message
+              : "Payment link could not be sent.",
+          tone: "error",
+        },
+      }));
+    }
   }
 
   async function sendCustomGuestMessage(booking: DemoBooking) {
@@ -16662,6 +20079,21 @@ export default function AdminDashboardPage() {
     return companyNote?.replace(/^company:\s*/i, "").trim() ?? "";
   }
 
+  function getBookingPerformanceLabel(booking: DemoBooking) {
+    const show = getBookingShow(booking);
+
+    if (!show) {
+      return booking.bookingDate || "Show not recorded";
+    }
+
+    const location = normalizeShowLocation(show.location ?? show.venueName);
+    const locationLabel = location
+      ? getShowLocationOption(location).city
+      : show.venueName || "Location not recorded";
+
+    return `${locationLabel} · ${formatSouthAfricanDate(show.date)} · ${getSouthAfricaShowTime(show)}`;
+  }
+
   function getCorporateLinkedBooking(request: CorporateRequest) {
     return request.linkedBookingReference
       ? bookings.find(
@@ -16871,6 +20303,24 @@ export default function AdminDashboardPage() {
   const activeShowBookings = selectedShowBookings.filter(
     isOperationallyActiveBooking,
   );
+  const selectedShowFloorAssignmentBookings = activeShowBookings
+    .filter(
+      (booking) =>
+        booking.showId === selectedShowId &&
+        getManifestBookingTableLabel(booking) ===
+          "Requires floor assignment",
+    )
+    .sort(
+      (left, right) =>
+        left.zoneTitle.localeCompare(right.zoneTitle) ||
+        left.customer.name.localeCompare(right.customer.name) ||
+        left.reference.localeCompare(right.reference),
+    );
+  const selectedShowFloorAssignmentPax =
+    selectedShowFloorAssignmentBookings.reduce(
+      (total, booking) => total + booking.partySize,
+      0,
+    );
   const checkedInBookings = activeShowBookings.filter(
     (booking) => (booking.status ?? "confirmed") === "checked-in",
   );
@@ -16913,7 +20363,38 @@ export default function AdminDashboardPage() {
       .includes("vip"),
   ).length;
   const staffSearchTerm = staffSearch.trim().toLowerCase();
-  const staffBookings = selectedShowBookings.filter((booking) => {
+  const checkInShowBookings = effectiveCheckInShowId
+    ? activeBookingsForOperations.filter(
+        (booking) => booking.showId === effectiveCheckInShowId,
+      )
+    : [];
+  const activeCheckInBookings = checkInShowBookings.filter(
+    isOperationallyActiveBooking,
+  );
+  const checkedInCheckInBookings = activeCheckInBookings.filter(
+    (booking) => (booking.status ?? "confirmed") === "checked-in",
+  );
+  const checkInReservedGuests = activeCheckInBookings.reduce(
+    (total, booking) => total + booking.partySize,
+    0,
+  );
+  const checkInArrivedGuests = checkedInCheckInBookings.reduce(
+    (total, booking) => total + booking.partySize,
+    0,
+  );
+  const checkInShowCapacity = effectiveCheckInShowId
+    ? seatingZones.reduce(
+        (total, zone) =>
+          total +
+          getZoneStats(tables, effectiveCheckInShowId, zone).totalCapacity,
+        0,
+      )
+    : 0;
+  const checkInOccupancyPercent =
+    checkInShowCapacity > 0
+      ? Math.round((checkInArrivedGuests / checkInShowCapacity) * 100)
+      : 0;
+  const checkInStaffBookings = checkInShowBookings.filter((booking) => {
     const status = booking.status ?? "confirmed";
 
     if (hideCancelledConcierge && status === "cancelled") {
@@ -17189,24 +20670,41 @@ export default function AdminDashboardPage() {
   }
 
   async function refreshManifestData() {
-    const [nextShows, nextBookings] = await Promise.all([
-      getShows(),
+    const [nextShowPayload, nextBookings] = await Promise.all([
+      getShowsWithTables({
+        tableShow: manifestSelectedShow?.id ?? selectedShowId,
+      }),
       getBookings(),
     ]);
+    const nextShows = nextShowPayload.shows;
+    const nextTables =
+      nextShowPayload.tablesLoaded
+        ? applyBookingOccupancyToTables(nextShowPayload.tables, nextBookings)
+        : getStoredDemoTables(nextShows);
 
     setShows(nextShows);
     setBookings(nextBookings);
-    setTables(getStoredDemoTables(nextShows));
+    setTables((currentTables) =>
+      mergeTablesForShows(
+        currentTables,
+        nextTables,
+        nextShowPayload.shows.map((show) => show.id),
+      ),
+    );
     setManifestLastRefreshedAt(new Date().toISOString());
     showWorkflowToast("✓ Refreshed · Manifest data updated");
   }
 
   async function refreshFinancialReportData() {
-    const [nextShows, nextBookings, nextPayments] = await Promise.all([
-      getShows(),
+    const [nextShowPayload, nextBookings, nextPayments] = await Promise.all([
+      getShowsWithTables({
+        tableLocation: showCalendarLocationFilter,
+        tableMonth: showCalendarMonth,
+      }),
       getBookings(),
       getPayments(),
     ]);
+    const nextShows = nextShowPayload.shows;
 
     setShows(nextShows);
     setBookings(nextBookings);
@@ -17216,6 +20714,14 @@ export default function AdminDashboardPage() {
   }
 
   const editingShow = shows.find((show) => show.id === editingShowId);
+  const editingShowLock = editingShowId
+    ? getShowEditLock(editingShowId)
+    : undefined;
+  const isEditingShowReadOnly = Boolean(
+    editingShowId &&
+      (showReadOnlyReferences.includes(editingShowId) ||
+        (editingShowLock && !isOwnShowLock(editingShowLock))),
+  );
   const editingShowLinkedBookings = editingShow
     ? bookings.filter((booking) => booking.showId === editingShow.id)
         .length
@@ -17374,37 +20880,6 @@ export default function AdminDashboardPage() {
         })
         .slice(0, 12)
     : [];
-  const floorFilterDates = Array.from(
-    new Set(shows.map((show) => show.date).filter(Boolean)),
-  ).sort();
-  const floorDateSet = useMemo(
-    () => new Set(floorFilterDates),
-    [floorFilterDates],
-  );
-  const floorCalendarAnchorDate =
-    selectedShow && floorDateSet.has(selectedShow.date)
-      ? new Date(`${selectedShow.date}T00:00:00`)
-      : floorFilterDates[0]
-        ? new Date(`${floorFilterDates[0]}T00:00:00`)
-        : new Date();
-  const floorCalendarMonthStart = new Date(
-    floorCalendarAnchorDate.getFullYear(),
-    floorCalendarAnchorDate.getMonth(),
-    1,
-  );
-  const floorCalendarDaysInMonth = new Date(
-    floorCalendarMonthStart.getFullYear(),
-    floorCalendarMonthStart.getMonth() + 1,
-    0,
-  ).getDate();
-  const floorCalendarStartOffset = floorCalendarMonthStart.getDay();
-  const floorCalendarCells = [
-    ...Array.from({ length: floorCalendarStartOffset }, () => null),
-    ...Array.from(
-      { length: floorCalendarDaysInMonth },
-      (_, index) => index + 1,
-    ),
-  ];
   const selectedShowDateLabel = selectedShow
     ? formatOperationalShowDate(selectedShow.date)
     : "No date selected";
@@ -18504,18 +21979,33 @@ export default function AdminDashboardPage() {
                 <span className="mb-2 block text-center text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                   Password
                 </span>
-                <input
-                  type="password"
-                  value={loginForm.password}
-                  onChange={(event) =>
-                    setLoginForm((currentForm) => ({
-                      ...currentForm,
-                      password: event.target.value,
-                    }))
-                  }
-                  autoComplete="current-password"
-                  className="w-full rounded-full border border-zinc-700 bg-black px-4 py-3 text-base sm:px-5 sm:py-4 sm:text-lg"
-                />
+                <span className="relative block">
+                  <input
+                    type={showLoginPassword ? "text" : "password"}
+                    value={loginForm.password}
+                    onChange={(event) =>
+                      setLoginForm((currentForm) => ({
+                        ...currentForm,
+                        password: event.target.value,
+                      }))
+                    }
+                    autoComplete="current-password"
+                    className="w-full rounded-full border border-zinc-700 bg-black px-4 py-3 pr-16 text-base sm:px-5 sm:py-4 sm:pr-20 sm:text-lg"
+                  />
+                  <button
+                    type="button"
+                    aria-label={
+                      showLoginPassword ? "Hide Password" : "Show Password"
+                    }
+                    aria-pressed={showLoginPassword}
+                    onClick={() =>
+                      setShowLoginPassword((currentValue) => !currentValue)
+                    }
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-white/10 px-2 py-1 text-xs font-semibold text-zinc-300 transition hover:border-[#D8C36A]/40 hover:text-[#F2D66C] focus:outline-none focus:ring-2 focus:ring-[#D8C36A]/30"
+                  >
+                    {showLoginPassword ? "Hide" : "Show"}
+                  </button>
+                </span>
               </label>
 
               <div className="-mt-1 flex justify-center">
@@ -20263,17 +23753,37 @@ export default function AdminDashboardPage() {
                     <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
                       Super Admin confirmation
                     </span>
-                    <input
-                      type="password"
-                      autoComplete="current-password"
-                      value={refundAdminPassword}
-                      onChange={(event) =>
-                        setRefundAdminPassword(event.target.value)
-                      }
-                      disabled={isRefundBookingProcessing}
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-red-300/70 disabled:cursor-not-allowed disabled:opacity-50"
-                      placeholder="Enter your password to authorise this refund."
-                    />
+                    <span className="relative mt-2 block">
+                      <input
+                        type={showRefundAdminPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        value={refundAdminPassword}
+                        onChange={(event) =>
+                          setRefundAdminPassword(event.target.value)
+                        }
+                        disabled={isRefundBookingProcessing}
+                        className="w-full rounded-2xl border border-white/15 bg-black px-4 py-3 pr-16 text-white outline-none transition focus:border-red-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+                        placeholder="Enter your password to authorise this refund."
+                      />
+                      <button
+                        type="button"
+                        aria-label={
+                          showRefundAdminPassword
+                            ? "Hide Password"
+                            : "Show Password"
+                        }
+                        aria-pressed={showRefundAdminPassword}
+                        onClick={() =>
+                          setShowRefundAdminPassword(
+                            (currentValue) => !currentValue,
+                          )
+                        }
+                        disabled={isRefundBookingProcessing}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-white/10 px-2 py-1 text-xs font-semibold text-zinc-300 transition hover:border-[#D8C36A]/40 hover:text-[#F2D66C] focus:outline-none focus:ring-2 focus:ring-[#D8C36A]/30 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {showRefundAdminPassword ? "Hide" : "Show"}
+                      </button>
+                    </span>
                   </label>
 
                   <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -20958,22 +24468,14 @@ export default function AdminDashboardPage() {
               </label>
 
               <label className="text-sm text-zinc-400 xl:col-span-2">
-                Show
-                <select
-                  value={manifestSelectedShow?.id ?? ""}
-                  onChange={(event) => setSelectedShowId(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
-                >
-                  {permittedManifestShows.length === 0 ? (
-                    <option value="">No permitted shows</option>
-                  ) : (
-                    permittedManifestShows.map((show) => (
-                      <option key={show.id} value={show.id}>
-                        {show.label} · {formatOperationalShowDate(show.date)}
-                      </option>
-                    ))
-                  )}
-                </select>
+                Performance
+                <PerformanceCalendarSelector
+                  emptyLabel="No permitted performances"
+                  label="Manifest Performance"
+                  onSelect={setSelectedShowId}
+                  selectedShowId={manifestSelectedShow?.id ?? ""}
+                  shows={permittedManifestShows}
+                />
               </label>
 
               <label className="text-sm text-zinc-400">
@@ -21178,7 +24680,9 @@ export default function AdminDashboardPage() {
                           </td>
                           <td className="px-3 py-3">{booking.partySize}</td>
                           <td className="px-3 py-3">{booking.zoneTitle}</td>
-                          <td className="px-3 py-3">{booking.tableNumber}</td>
+                          <td className="px-3 py-3">
+                            {getManifestBookingTableLabel(booking)}
+                          </td>
                           <td className="px-3 py-3">
                             {bookingStatusLabels[
                               booking.status ?? "confirmed"
@@ -21235,6 +24739,8 @@ export default function AdminDashboardPage() {
                     manifestSelectedShow.id,
                     zone.id,
                   );
+                  const unallocatedZoneBookings =
+                    getUnallocatedManifestBookingsForZone(zone, zoneTables);
                   const visibleZoneTables = zoneTables.filter((table) => {
                     const occupancy = getTableOccupancy(table, bookings);
 
@@ -21258,13 +24764,17 @@ export default function AdminDashboardPage() {
                     (table) =>
                       getTableOccupancy(table, bookings).state === "available",
                   );
+                  const unallocatedGuestCount = unallocatedZoneBookings.reduce(
+                    (total, booking) => total + booking.partySize,
+                    0,
+                  );
                   const sectionGuestCount = sectionOccupied.reduce(
                     (total, table) =>
                       total +
                       (getTableOccupancy(table, bookings).booking?.partySize ??
                         0),
                     0,
-                  );
+                  ) + unallocatedGuestCount;
                   const sectionOutstanding = sectionOccupied.reduce(
                     (total, table) => {
                       const booking = getTableOccupancy(table, bookings).booking;
@@ -21273,6 +24783,10 @@ export default function AdminDashboardPage() {
                         ? total + getBookingFinancials(booking).balanceDue
                         : total;
                     },
+                    0,
+                  ) + unallocatedZoneBookings.reduce(
+                    (total, booking) =>
+                      total + getBookingFinancials(booking).balanceDue,
                     0,
                   );
 
@@ -21290,6 +24804,9 @@ export default function AdminDashboardPage() {
                             {sectionOccupied.length} occupied ·{" "}
                             {sectionVacant.length} vacant ·{" "}
                             {sectionGuestCount} guests
+                            {unallocatedZoneBookings.length > 0
+                              ? ` · ${unallocatedZoneBookings.length} requires floor assignment`
+                              : ""}
                             {canViewOperationsFinancials
                               ? ` · ${formatCurrency(sectionOutstanding)} outstanding`
                               : ""}
@@ -21414,6 +24931,86 @@ export default function AdminDashboardPage() {
                               </article>
                             );
                           })}
+                        </div>
+                      )}
+
+                      {unallocatedZoneBookings.length > 0 && (
+                        <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-950/10 p-4 print:border-zinc-300 print:bg-white">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-200 print:text-zinc-700">
+                            Requires Floor Assignment
+                          </p>
+                          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-2">
+                            {unallocatedZoneBookings.map((booking) => {
+                              const financials = getBookingFinancials(booking);
+                              const paymentStatus =
+                                getBookingPaymentStatus(booking);
+                              const hasBalance = financials.balanceDue > 0;
+
+                              return (
+                                <article
+                                  key={`floor-manifest-unallocated-${booking.reference}`}
+                                  className={`break-inside-avoid rounded-2xl border p-4 ${
+                                    hasBalance
+                                      ? "border-amber-300/35 bg-amber-950/15"
+                                      : "border-[#D8C36A]/30 bg-[#D8C36A]/10"
+                                  } print:border-zinc-300 print:bg-white`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                                        Table
+                                      </p>
+                                      <p className="mt-1 text-xl font-bold text-white print:text-black">
+                                        Requires floor assignment
+                                      </p>
+                                    </div>
+                                    <span className="rounded-full border border-amber-300/35 bg-amber-950/20 px-3 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.1em] text-amber-100">
+                                      Unallocated
+                                    </span>
+                                  </div>
+                                  <div className="mt-4 space-y-2 text-sm text-zinc-300 print:text-zinc-800">
+                                    <p className="font-semibold text-white print:text-black">
+                                      {booking.customer.name ||
+                                        "Unnamed Guest"}
+                                    </p>
+                                    <p>
+                                      {booking.partySize} guests ·{" "}
+                                      {booking.reference}
+                                    </p>
+                                    <p>
+                                      Status:{" "}
+                                      {
+                                        bookingStatusLabels[
+                                          booking.status ?? "confirmed"
+                                        ]
+                                      }{" "}
+                                      · {getManifestCheckInStatus(booking)}
+                                    </p>
+                                    <p>
+                                      Payment:{" "}
+                                      {paymentStatusLabels[paymentStatus]}
+                                    </p>
+                                    <p>
+                                      Deposit paid:{" "}
+                                      {formatCurrency(financials.amountPaid)}
+                                    </p>
+                                    <p>
+                                      Balance due:{" "}
+                                      {formatCurrency(financials.balanceDue)}
+                                    </p>
+                                    <p>Payment notes: Not recorded</p>
+                                    <p>Bar credit: Not recorded</p>
+                                    <p>Gratuity paid: Not recorded</p>
+                                    <p>
+                                      Guest notes:{" "}
+                                      {booking.operationalNotes ||
+                                        "Requires floor assignment"}
+                                    </p>
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
                         </div>
                       )}
                     </section>
@@ -21564,20 +25161,30 @@ export default function AdminDashboardPage() {
                 </select>
               </label>
 
-              <label className="text-sm text-zinc-400">
+              <label className="text-sm text-zinc-400 xl:col-span-2">
                 Show
-                <select
-                  value={financialShowFilter}
-                  onChange={(event) => setFinancialShowFilter(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
-                >
-                  <option value="all">All Shows</option>
-                  {financialShows.map((show) => (
-                    <option key={show.id} value={show.id}>
-                      {show.label} · {formatOperationalShowDate(show.date)}
-                    </option>
-                  ))}
-                </select>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[9rem_1fr]">
+                  <button
+                    type="button"
+                    onClick={() => setFinancialShowFilter("all")}
+                    className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                      financialShowFilter === "all"
+                        ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                        : "border-zinc-700 bg-black text-zinc-300 hover:border-[#D8C36A]/60 hover:text-white"
+                    }`}
+                  >
+                    All Shows
+                  </button>
+                  <PerformanceCalendarSelector
+                    emptyLabel="Select performance"
+                    label="Financial Report Performance"
+                    onSelect={setFinancialShowFilter}
+                    selectedShowId={
+                      financialShowFilter === "all" ? "" : financialShowFilter
+                    }
+                    shows={financialShows}
+                  />
+                </div>
               </label>
 
               <label className="text-sm text-zinc-400">
@@ -21942,6 +25549,25 @@ export default function AdminDashboardPage() {
               </p>
             </div>
 
+            <div className="mt-6 rounded-[1.5rem] border border-[#D8C36A]/20 bg-black/35 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                Manifest Export Performance
+              </p>
+              <p className="mt-2 text-sm text-zinc-400">
+                Daily and Floor Manifest exports use this selected
+                performance.
+              </p>
+              <div className="mt-4 max-w-xl">
+                <PerformanceCalendarSelector
+                  emptyLabel="No permitted performances"
+                  label="Export Performance"
+                  onSelect={setSelectedShowId}
+                  selectedShowId={manifestSelectedShow?.id ?? ""}
+                  shows={permittedManifestShows}
+                />
+              </div>
+            </div>
+
             <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {(
                 [
@@ -22054,8 +25680,8 @@ export default function AdminDashboardPage() {
                 Bookings & Customers
               </h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-                Export clean operational records and preview future imports
-                safely. Phase 19D.1 performs validation and dry-runs only.
+                Export operational records or safely preview and import booking
+                and customer data.
               </p>
             </div>
 
@@ -22073,6 +25699,9 @@ export default function AdminDashboardPage() {
                       type="button"
                       onClick={() => {
                         setActiveDataPortabilityEntity(entity);
+                        setDataPortabilityGuestList(null);
+                        setDataPortabilityImportSource(null);
+                        setDataPortabilityImportScope("all");
                         setDataPortabilityPreview(null);
                         setDataPortabilityImportError("");
                         setDataPortabilityImportStatus("");
@@ -22138,7 +25767,8 @@ export default function AdminDashboardPage() {
                               "xlsx",
                             )
                           }
-                          className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]"
+                          disabled={!canExecuteDataPortability}
+                          className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45"
                         >
                           Export Excel
                         </button>
@@ -22150,12 +25780,19 @@ export default function AdminDashboardPage() {
                               "csv",
                             )
                           }
-                          className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                          disabled={!canExecuteDataPortability}
+                          className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
                         >
                           Export CSV
                         </button>
                       </div>
                     </div>
+                    {!canExecuteDataPortability && (
+                      <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-950/15 p-4 text-sm text-amber-100">
+                        Data Portability export execution is temporarily
+                        restricted to the designated migration operator.
+                      </div>
+                    )}
 
                     <div className="mt-6 overflow-x-auto rounded-2xl border border-white/10">
                       <table className="min-w-[980px] w-full text-left text-sm">
@@ -22244,15 +25881,175 @@ export default function AdminDashboardPage() {
                         >
                           CSV Template
                         </button>
-                        <label className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]">
-                          Upload File
+                        <label
+                          className={`rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] ${
+                            canExecuteDataPortability
+                              ? ""
+                              : "cursor-not-allowed opacity-45"
+                          }`}
+                        >
+                          Upload Reservations
                           <input
                             type="file"
                             accept=".csv,.txt,.xlsx"
                             onChange={handleDataPortabilityImportFile}
+                            disabled={!canExecuteDataPortability}
                             className="hidden"
                           />
                         </label>
+                      </div>
+                    </div>
+                    {!canExecuteDataPortability && (
+                      <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-950/15 p-4 text-sm text-amber-100">
+                        Data Portability import execution is temporarily
+                        restricted to the designated migration operator.
+                      </div>
+                    )}
+
+                    <div className="mt-5 grid gap-3 rounded-[1.5rem] border border-white/10 bg-zinc-950/70 p-4 lg:grid-cols-[220px_1fr] lg:items-center">
+                      <label
+                        htmlFor="data-portability-source-location"
+                        className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400"
+                      >
+                        Source Location
+                      </label>
+                      <div>
+                        <select
+                          id="data-portability-source-location"
+                          value={dataPortabilitySourceLocation}
+                          onChange={(event) => {
+                            setDataPortabilitySourceLocation(
+                              event.target.value as DataPortabilitySourceLocation,
+                            );
+                            setDataPortabilityGuestList(null);
+                            setDataPortabilityImportSource(null);
+                            setDataPortabilityImportScope("all");
+                            setDataPortabilityPreview(null);
+                            setDataPortabilityImportResult(null);
+                            setDataPortabilityImportStatus("");
+                            setDataPortabilityImportError("");
+                          }}
+                          className="w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-sm text-white outline-none transition focus:border-[#D8C36A]"
+                        >
+                          <option value="">Select for Dineplan exports</option>
+                          <option value="johannesburg">
+                            JHB — Johannesburg
+                          </option>
+                          <option value="cape-town">CPT — Cape Town</option>
+                        </select>
+                        <p className="mt-2 text-xs leading-5 text-zinc-500">
+                          Required when a Dineplan export has no explicit
+                          Zingara location column. Native Zingara templates may
+                          continue using their Location column.
+                        </p>
+                      </div>
+                    </div>
+
+                    {activeDataPortabilityEntity === "bookings" && (
+                      <div className="mt-5 grid gap-3 rounded-[1.5rem] border border-white/10 bg-zinc-950/70 p-4 lg:grid-cols-[220px_1fr] lg:items-center">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                            Guest List
+                          </p>
+                          <p className="mt-1 text-[0.68rem] uppercase tracking-[0.12em] text-zinc-600">
+                            Optional enrichment
+                          </p>
+                        </div>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm text-zinc-300">
+                              {dataPortabilityGuestList
+                                ? `${dataPortabilityGuestList.fileName} · ${dataPortabilityGuestList.records.length} guests loaded`
+                                : "Upload the matching Dineplan Guest List export to preview contact and consent enrichment."}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-zinc-500">
+                              The guest list is used for dry-run matching only.
+                              It does not write customer data or send communications.
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {dataPortabilityGuestList && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDataPortabilityGuestList(null);
+                                  setDataPortabilityImportSource(null);
+                                  setDataPortabilityImportScope("all");
+                                  setDataPortabilityPreview(null);
+                                  setDataPortabilityImportResult(null);
+                                  setDataPortabilityImportStatus("");
+                                  setDataPortabilityImportError("");
+                                }}
+                                className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+                              >
+                                Clear Guest List
+                              </button>
+                            )}
+                            <label className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black">
+                              Upload Guest List
+                              <input
+                                type="file"
+                                accept=".csv,.txt,.xlsx"
+                                onChange={handleDineplanGuestListFile}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {dataPortabilityHistoryWarning && (
+                      <div className="mt-5 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4 text-sm text-amber-100">
+                        {dataPortabilityHistoryWarning}
+                      </div>
+                    )}
+
+                    <div className="mt-5 rounded-[1.5rem] border border-sky-300/30 bg-sky-950/20 p-5">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-100">
+                            Dry Run
+                          </p>
+                          <p className="mt-2 text-lg font-bold uppercase tracking-[0.08em] text-white">
+                            No data will be written
+                          </p>
+                          <p className="mt-1 text-lg font-bold uppercase tracking-[0.08em] text-white">
+                            No communications will be sent
+                          </p>
+                          <p className="mt-3 max-w-2xl text-sm leading-6 text-sky-50/75">
+                            Upload a file to validate show, seating, table and
+                            booking mappings before confirming an import.
+                          </p>
+                        </div>
+                        <div className="grid min-w-[15rem] grid-cols-3 gap-2 text-center text-[0.65rem] font-semibold uppercase tracking-[0.1em]">
+                          {[
+                            ["1", "Upload"],
+                            ["2", "Review Dry Run"],
+                            ["3", "Confirm Import"],
+                          ].map(([step, label], index) => {
+                            const isActive =
+                              (index === 0 && !dataPortabilityPreview) ||
+                              (index === 1 && dataPortabilityPreview && !dataPortabilityImportResult) ||
+                              (index === 2 && dataPortabilityImportResult);
+
+                            return (
+                              <div
+                                key={step}
+                                className={`rounded-2xl border px-3 py-3 ${
+                                  isActive
+                                    ? "border-[#D8C36A]/60 bg-[#D8C36A]/15 text-[#F2D66C]"
+                                    : "border-white/10 bg-black/25 text-zinc-400"
+                                }`}
+                              >
+                                <span className="mx-auto grid h-6 w-6 place-items-center rounded-full bg-black/40 text-xs">
+                                  {step}
+                                </span>
+                                <span className="mt-2 block">{label}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
 
@@ -22271,7 +26068,7 @@ export default function AdminDashboardPage() {
                     {!dataPortabilityPreview ? (
                       <div className="mt-6 rounded-[1.5rem] border border-dashed border-white/15 bg-zinc-950/65 p-8 text-center">
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
-                          Dry-run mode
+                          Waiting for file
                         </p>
                         <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-zinc-400">
                           Download a template, add your data, then upload it
@@ -22289,15 +26086,27 @@ export default function AdminDashboardPage() {
                             <p className="mt-1 text-xs text-zinc-500">
                               {dataPortabilityPreview.fileName} · review before importing
                             </p>
+                            <p className="mt-2 inline-flex rounded-full border border-sky-300/30 bg-sky-950/30 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-sky-100">
+                              Source Format:{" "}
+                              {dataPortabilityPreview.sourceFormat ===
+                              "dineplan-legacy"
+                                ? "Dineplan Legacy Export"
+                                : "Zingara Import Template"}
+                            </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
                               onClick={() => {
                                 setDataPortabilityPreview(null);
+                                setDataPortabilityImportSource(null);
+                                setDataPortabilityImportScope("all");
                                 setDataPortabilityImportError("");
                                 setDataPortabilityImportStatus("");
                                 setDataPortabilityImportResult(null);
+                                setDataPortabilityReviewFilter("all");
+                                setDataPortabilityGuestMatchFilter("all");
+                                setDataPortabilityPerformanceFilter("all");
                               }}
                               disabled={isDataPortabilityImporting}
                               className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
@@ -22308,41 +26117,492 @@ export default function AdminDashboardPage() {
                               type="button"
                               onClick={executeDataPortabilityImport}
                               disabled={
+                                !canExecuteDataPortability ||
                                 isDataPortabilityImporting ||
-                                dataPortabilityPreview.validRows === 0
+                                dataPortabilityPreview.validRows === 0 ||
+                                dataPortabilityPreview.invalidRows > 0 ||
+                                (dataPortabilityPreview.sourceFormat ===
+                                  "dineplan-legacy" &&
+                                  !isControlledDineplanImportPreview())
                               }
                               className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
+                              title={
+                                dataPortabilityPreview.sourceFormat ===
+                                "dineplan-legacy"
+                                  ? isControlledDineplanImportPreview()
+                                    ? "Controlled 18 September Dineplan import only."
+                                    : "Dineplan legacy previews are dry-run only outside the approved 18 September batch."
+                                  : undefined
+                              }
                             >
                               {isDataPortabilityImporting
                                 ? "Importing..."
-                                : "Confirm Import"}
+                                : dataPortabilityPreview.sourceFormat ===
+                                    "dineplan-legacy"
+                                  ? isControlledDineplanImportPreview()
+                                    ? "Confirm 18 Sep Import"
+                                    : "Dry Run Only"
+                                  : "Confirm Import"}
                             </button>
                           </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
                           {[
-                            ["Records Found", dataPortabilityPreview.rowsDetected],
-                            ["Valid", dataPortabilityPreview.validRows],
-                            ["Invalid", dataPortabilityPreview.invalidRows],
-                            ["Duplicate", dataPortabilityPreview.duplicateRows],
-                            ["Would Create", dataPortabilityPreview.wouldCreate],
-                            ["Would Update", dataPortabilityPreview.wouldUpdate],
-                            ["Would Skip", dataPortabilityPreview.wouldSkip],
-                          ].map(([label, value]) => (
+                            {
+                              label: "Errors",
+                              tone:
+                                dataPortabilityPreview.invalidRows > 0
+                                  ? "error"
+                                  : "neutral",
+                              value: dataPortabilityPreview.invalidRows,
+                            },
+                            {
+                              label: "Warnings",
+                              tone:
+                                dataPortabilityPreview.issues.some(
+                                  (issue) => issue.severity === "warning",
+                                )
+                                  ? "warning"
+                                  : "neutral",
+                              value: dataPortabilityPreview.issues.filter(
+                                (issue) => issue.severity === "warning",
+                              ).length,
+                            },
+                            {
+                              label: "Create",
+                              tone: "success",
+                              value: dataPortabilityPreview.wouldCreate,
+                            },
+                            {
+                              label: "Update",
+                              tone: "info",
+                              value: dataPortabilityPreview.wouldUpdate,
+                            },
+                            {
+                              label: "Skip",
+                              tone:
+                                dataPortabilityPreview.wouldSkip > 0
+                                  ? "warning"
+                                  : "neutral",
+                              value: dataPortabilityPreview.wouldSkip,
+                            },
+                            {
+                              label: "Records",
+                              tone: "neutral",
+                              value: dataPortabilityPreview.rowsDetected,
+                            },
+                            {
+                              label: "Duplicates",
+                              tone:
+                                dataPortabilityPreview.duplicateRows > 0
+                                  ? "warning"
+                                  : "neutral",
+                              value: dataPortabilityPreview.duplicateRows,
+                            },
+                            ...(dataPortabilityPreview.sourceFormat ===
+                            "dineplan-legacy"
+                              ? [
+                                  {
+                                    label: "Guest Matches",
+                                    tone: "success",
+                                    value:
+                                      dataPortabilityPreview.guestMatches ?? 0,
+                                  },
+                                  {
+                                    label: "Ambiguous Guests",
+                                    tone:
+                                      (dataPortabilityPreview
+                                        .ambiguousGuestMatches ?? 0) > 0
+                                        ? "warning"
+                                        : "neutral",
+                                    value:
+                                      dataPortabilityPreview
+                                        .ambiguousGuestMatches ?? 0,
+                                  },
+                                  {
+                                    label: "Unmatched Guests",
+                                    tone:
+                                      (dataPortabilityPreview.unmatchedGuests ??
+                                        0) > 0
+                                        ? "warning"
+                                        : "neutral",
+                                    value:
+                                      dataPortabilityPreview.unmatchedGuests ??
+                                      0,
+                                  },
+                                  {
+                                    label: "No Guest List",
+                                    tone:
+                                      (dataPortabilityPreview.noGuestListRows ??
+                                        0) > 0
+                                        ? "warning"
+                                        : "neutral",
+                                    value:
+                                      dataPortabilityPreview.noGuestListRows ??
+                                      0,
+                                  },
+                                ]
+                              : []),
+                          ].map((item) => (
                             <div
-                              key={label}
-                              className="rounded-2xl border border-white/10 bg-zinc-950 p-4"
+                              key={item.label}
+                              className={`rounded-2xl border p-4 ${
+                                item.tone === "error"
+                                  ? "border-red-300/35 bg-red-950/25"
+                                  : item.tone === "warning"
+                                    ? "border-amber-300/35 bg-amber-950/25"
+                                    : item.tone === "success"
+                                      ? "border-emerald-300/30 bg-emerald-950/20"
+                                      : item.tone === "info"
+                                        ? "border-sky-300/30 bg-sky-950/20"
+                                        : "border-white/10 bg-zinc-950"
+                              }`}
                             >
-                              <p className="text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                                {label}
+                              <p
+                                className={`text-[0.62rem] font-semibold uppercase tracking-[0.12em] ${
+                                  item.tone === "error"
+                                    ? "text-red-100"
+                                    : item.tone === "warning"
+                                      ? "text-amber-100"
+                                      : item.tone === "success"
+                                        ? "text-emerald-100"
+                                        : item.tone === "info"
+                                          ? "text-sky-100"
+                                          : "text-zinc-500"
+                                }`}
+                              >
+                                {item.label}
                               </p>
                               <p className="mt-2 text-xl font-bold text-white">
-                                {value}
+                                {item.value}
                               </p>
                             </div>
                           ))}
                         </div>
+
+                        {dataPortabilityPreview.sourceFormat ===
+                          "dineplan-legacy" && (
+                          <div className="space-y-4">
+                            {dataPortabilityPreview.allocationSummary && (
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                                {dataPortabilityPreview.allocationSummary.map(
+                                  (item) => (
+                                    <div
+                                      key={item.label}
+                                      className={`rounded-2xl border p-4 ${
+                                        item.tone === "error"
+                                          ? "border-red-300/35 bg-red-950/25"
+                                          : item.tone === "warning"
+                                            ? "border-amber-300/35 bg-amber-950/25"
+                                            : item.tone === "success"
+                                              ? "border-emerald-300/30 bg-emerald-950/20"
+                                              : item.tone === "info"
+                                                ? "border-sky-300/30 bg-sky-950/20"
+                                                : "border-white/10 bg-zinc-950"
+                                      }`}
+                                    >
+                                      <p className="text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                                        {item.label}
+                                      </p>
+                                      <p className="mt-2 text-xl font-bold text-white">
+                                        {item.count}
+                                      </p>
+                                    </div>
+                                  ),
+                                )}
+                              </div>
+                            )}
+
+                            <div className="rounded-2xl border border-white/10 bg-zinc-950 p-4">
+                              <div className="mb-4 rounded-2xl border border-[#D8C36A]/20 bg-black/35 p-4">
+                                <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C]">
+                                  Import Scope
+                                  <select
+                                    value={dataPortabilityImportScope}
+                                    onChange={(event) =>
+                                      void handleDataPortabilityImportScopeChange(
+                                        event.target.value,
+                                      )
+                                    }
+                                    className="mt-2 w-full rounded-xl border border-[#D8C36A]/20 bg-black px-3 py-2 text-sm normal-case tracking-normal text-white"
+                                  >
+                                    <option value="all">
+                                      Full month dry-run / review only
+                                    </option>
+                                    {dataPortabilityImportScopeOptions.map(
+                                      (option) => (
+                                        <option
+                                          key={option.value}
+                                          value={option.value}
+                                        >
+                                          {option.label}
+                                        </option>
+                                      ),
+                                    )}
+                                  </select>
+                                </label>
+                                <p className="mt-3 text-xs leading-5 text-zinc-400">
+                                  Import Scope determines which source rows are
+                                  included in validation, allocation
+                                  simulation, guest matching and eventual
+                                  Confirm Import payload. The filters below
+                                  only review rows inside the selected scope.
+                                </p>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                                  Review
+                                  <select
+                                    value={dataPortabilityReviewFilter}
+                                    onChange={(event) =>
+                                      setDataPortabilityReviewFilter(
+                                        event.target
+                                          .value as DataPortabilityReviewFilter,
+                                      )
+                                    }
+                                    className="mt-2 w-full rounded-xl border border-white/10 bg-black px-3 py-2 text-sm normal-case tracking-normal text-white"
+                                  >
+                                    <option value="all">All rows</option>
+                                    <option value="valid">Valid</option>
+                                    <option value="blocking">
+                                      Blocking errors
+                                    </option>
+                                    <option value="capacity-conflict">
+                                      Overflow zones
+                                    </option>
+                                    <option value="floor-assignment">
+                                      Requires floor assignment
+                                    </option>
+                                    <option value="auto-allocated">
+                                      Allocated
+                                    </option>
+                                  </select>
+                                </label>
+                                <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                                  Guest
+                                  <select
+                                    value={dataPortabilityGuestMatchFilter}
+                                    onChange={(event) =>
+                                      setDataPortabilityGuestMatchFilter(
+                                        event.target
+                                          .value as DataPortabilityGuestMatchFilter,
+                                      )
+                                    }
+                                    className="mt-2 w-full rounded-xl border border-white/10 bg-black px-3 py-2 text-sm normal-case tracking-normal text-white"
+                                  >
+                                    <option value="all">All guest matches</option>
+                                    <option value="matched">Matched</option>
+                                    <option value="ambiguous">Ambiguous</option>
+                                    <option value="unmatched">Unmatched</option>
+                                  </select>
+                                </label>
+                                <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                                  Performance
+                                  <select
+                                    value={dataPortabilityPerformanceFilter}
+                                    onChange={(event) =>
+                                      setDataPortabilityPerformanceFilter(
+                                        event.target.value,
+                                      )
+                                    }
+                                    className="mt-2 w-full rounded-xl border border-white/10 bg-black px-3 py-2 text-sm normal-case tracking-normal text-white"
+                                  >
+                                    <option value="all">All performances</option>
+                                    {dataPortabilityPerformanceOptions.map(
+                                      (option) => (
+                                        <option
+                                          key={option.value}
+                                          value={option.value}
+                                        >
+                                          {option.label}
+                                        </option>
+                                      ),
+                                    )}
+                                  </select>
+                                </label>
+                              </div>
+                              <p className="mt-3 text-xs text-zinc-500">
+                                Showing {dataPortabilityVisibleRows.length} of{" "}
+                                {dataPortabilityPreview.rowsDetected} dry-run
+                                rows in this import scope. Review filters do
+                                not change Create / Update / Skip totals.
+                              </p>
+                            </div>
+
+                            {dataPortabilityPreview.capacityConflictSummary &&
+                              dataPortabilityPreview.capacityConflictSummary
+                                .length > 0 && (
+                                <div className="rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4">
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                                    <div>
+                                      <p className="text-sm font-semibold text-amber-100">
+                                        Capacity Health Review
+                                      </p>
+                                      <p className="mt-1 text-xs leading-5 text-amber-50/75">
+                                        These performance/zone groups exceed
+                                        standard online inventory and require
+                                        floor allocation review. No additional
+                                        tables are created or written during
+                                        this dry run.
+                                      </p>
+                                    </div>
+                                    <p className="text-xs uppercase tracking-[0.12em] text-amber-100/75">
+                                      {
+                                        dataPortabilityPreview
+                                          .capacityConflictSummary.length
+                                      }{" "}
+                                      zones
+                                    </p>
+                                  </div>
+                                  <div className="mt-4 overflow-x-auto">
+                                    <table className="min-w-[760px] w-full text-left text-xs">
+                                      <thead className="text-[0.62rem] uppercase tracking-[0.12em] text-amber-100/70">
+                                        <tr>
+                                          {[
+                                            "Date",
+                                            "Zone",
+                                            "Legacy Pax",
+                                            "Existing Pax",
+                                            "Required",
+                                            "Capacity",
+                                            "Shortage",
+                                            "Rows",
+                                          ].map((heading) => (
+                                            <th
+                                              key={heading}
+                                              className="px-3 py-2"
+                                            >
+                                              {heading}
+                                            </th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-amber-100/10 text-amber-50/90">
+                                        {dataPortabilityPreview.capacityConflictSummary
+                                          .slice(0, 18)
+                                          .map((item) => (
+                                            <tr
+                                              key={`${item.date}-${item.zone}-${item.requiredPax}`}
+                                            >
+                                              <td className="px-3 py-2">
+                                                {item.date || "Not recorded"}
+                                              </td>
+                                              <td className="px-3 py-2">
+                                                {item.zone}
+                                              </td>
+                                              <td className="px-3 py-2">
+                                                {item.legacyPax}
+                                              </td>
+                                              <td className="px-3 py-2">
+                                                {item.existingPax}
+                                              </td>
+                                              <td className="px-3 py-2">
+                                                {item.requiredPax}
+                                              </td>
+                                              <td className="px-3 py-2">
+                                                {item.capacity}
+                                              </td>
+                                              <td className="px-3 py-2 font-semibold">
+                                                {item.shortagePax}
+                                              </td>
+                                              <td className="px-3 py-2">
+                                                {item.affectedRows}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
+
+                            <div className="rounded-2xl border border-sky-300/25 bg-sky-950/15 p-4">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-sky-100">
+                                  Monthly performance resolution
+                                </p>
+                                <p className="mt-1 text-xs leading-5 text-sky-50/70">
+                                  Reservations are resolved per row from
+                                  source location, date and time. No single
+                                  show selector is used for full-month Dineplan
+                                  review; use Import Scope above to recalculate
+                                  one performance at a time.
+                                </p>
+                              </div>
+                              <p className="text-xs uppercase tracking-[0.12em] text-sky-100/70">
+                                {dataPortabilityPreview.performanceSummary
+                                  ?.length ?? 0} performances
+                              </p>
+                            </div>
+                            <div className="mt-4 overflow-x-auto">
+                              <table className="min-w-[720px] w-full text-left text-xs">
+                                <thead className="text-[0.62rem] uppercase tracking-[0.12em] text-sky-100/70">
+                                  <tr>
+                                    {[
+                                      "Location",
+                                      "Date",
+                                      "Time",
+                                      "Resolved Show",
+                                      "Bookings",
+                                      "Status",
+                                    ].map((heading) => (
+                                      <th key={heading} className="px-3 py-2">
+                                        {heading}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-sky-100/10 text-sky-50/90">
+                                  {dataPortabilityPreview.performanceSummary
+                                    ?.slice(0, 18)
+                                    .map((item) => (
+                                      <tr
+                                        key={`${item.location}-${item.date}-${item.time}-${item.resolvedLabel}`}
+                                      >
+                                        <td className="px-3 py-2">
+                                          {getImportPerformanceLocationAlias(
+                                            item.location,
+                                          )}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                          {item.date
+                                            ? formatFloorShowSelectorDate(
+                                                item.date,
+                                              )
+                                            : "Not recorded"}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                          {item.time || "Not recorded"}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                          {item.resolvedLabel}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                          {item.bookingCount}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                          <span
+                                            className={`rounded-full border px-2 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.1em] ${
+                                              item.status === "Resolved"
+                                                ? "border-emerald-300/30 bg-emerald-950/25 text-emerald-100"
+                                                : item.status === "Ambiguous"
+                                                  ? "border-amber-300/35 bg-amber-950/25 text-amber-100"
+                                                  : "border-red-300/35 bg-red-950/25 text-red-100"
+                                            }`}
+                                          >
+                                            {item.status}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                          </div>
+                        )}
 
                         {dataPortabilityPreview.missingRequiredColumns.length > 0 && (
                           <div className="rounded-2xl border border-red-300/30 bg-red-950/20 p-4 text-sm text-red-100">
@@ -22354,65 +26614,78 @@ export default function AdminDashboardPage() {
                         )}
 
                         {dataPortabilityPreview.issues.length > 0 && (
-                          <div className="rounded-2xl border border-amber-300/25 bg-amber-950/20 p-4">
+                          <div className="rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4">
                             <p className="text-sm font-semibold text-amber-100">
                               Validation messages
                             </p>
-                            <div className="mt-3 max-h-44 overflow-y-auto text-sm text-amber-50">
+                            <div className="mt-3 max-h-56 space-y-2 overflow-y-auto text-sm">
                               {dataPortabilityPreview.issues
                                 .slice(0, 18)
                                 .map((issue, index) => (
-                                  <p key={`${issue.rowNumber}-${issue.field}-${index}`}>
-                                    Row {issue.rowNumber} · {issue.field}:{" "}
+                                  <div
+                                    key={`${issue.rowNumber}-${issue.field}-${index}`}
+                                    className={`rounded-xl border px-3 py-2 ${
+                                      issue.severity === "error"
+                                        ? "border-red-300/30 bg-red-950/25 text-red-50"
+                                        : "border-amber-300/25 bg-black/25 text-amber-50"
+                                    }`}
+                                  >
+                                    <span className="font-semibold uppercase tracking-[0.08em]">
+                                      {issue.severity === "error"
+                                        ? "Error"
+                                        : "Warning"}
+                                    </span>{" "}
+                                    · Row {issue.rowNumber} · {issue.field}:{" "}
                                     {issue.message}
-                                  </p>
+                                  </div>
                                 ))}
                             </div>
                           </div>
                         )}
 
                         <div className="overflow-x-auto rounded-2xl border border-white/10">
-                          <table className="min-w-[900px] w-full text-left text-sm">
-                            <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C]">
-                              <tr>
-                                {[
-                                  "Row",
-                                  "Action",
-                                  "Status",
-                                  ...getPortabilityColumns(
-                                    activeDataPortabilityEntity,
-                                  )
-                                    .slice(0, 5)
-                                    .map((column) => column.label),
-                                ].map((heading) => (
-                                  <th
-                                    key={heading}
-                                    className="px-3 py-3 font-semibold"
-                                  >
-                                    {heading}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-white/10 text-zinc-200">
-                              {dataPortabilityPreview.rows
-                                .slice(0, 12)
-                                .map((row) => (
-                                  <tr key={row.rowNumber}>
-                                    <td className="px-3 py-3">
-                                      {row.rowNumber}
-                                    </td>
-                                    <td className="px-3 py-3">
-                                      {row.action}
-                                    </td>
-                                    <td className="px-3 py-3">
-                                      {row.valid ? "Valid" : "Invalid"}
-                                    </td>
-                                    {getPortabilityColumns(
+                          {dataPortabilityVisibleRows.length === 0 ? (
+                            <div className="p-6 text-sm text-zinc-400">
+                              No preview rows match the selected filters.
+                            </div>
+                          ) : (
+                            <table className="min-w-[900px] w-full text-left text-sm">
+                              <thead className="bg-[#D8C36A]/10 text-xs uppercase tracking-[0.12em] text-[#F2D66C]">
+                                <tr>
+                                  {[
+                                    "Row",
+                                    "Action",
+                                    "Status",
+                                    ...getDataPortabilityPreviewColumns(
                                       activeDataPortabilityEntity,
-                                    )
-                                      .slice(0, 5)
-                                      .map((column) => (
+                                    ).map((column) => column.label),
+                                  ].map((heading) => (
+                                    <th
+                                      key={heading}
+                                      className="px-3 py-3 font-semibold"
+                                    >
+                                      {heading}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/10 text-zinc-200">
+                                {dataPortabilityVisibleRows
+                                  .slice(0, 12)
+                                  .map((row) => (
+                                    <tr key={row.rowNumber}>
+                                      <td className="px-3 py-3">
+                                        {row.rowNumber}
+                                      </td>
+                                      <td className="px-3 py-3">
+                                        {row.action}
+                                      </td>
+                                      <td className="px-3 py-3">
+                                        {row.valid ? "Valid" : "Invalid"}
+                                      </td>
+                                      {getDataPortabilityPreviewColumns(
+                                        activeDataPortabilityEntity,
+                                      ).map((column) => (
                                         <td
                                           key={column.key}
                                           className="px-3 py-3"
@@ -22421,10 +26694,11 @@ export default function AdminDashboardPage() {
                                             "Not recorded"}
                                         </td>
                                       ))}
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
+                                    </tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                          )}
                         </div>
 
                         {dataPortabilityImportResult && (
@@ -22492,6 +26766,11 @@ export default function AdminDashboardPage() {
                         Read-only audit trail for confirmed import runs in this
                         admin workspace.
                       </p>
+                      {dataPortabilityHistoryWarning && (
+                        <div className="mt-5 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4 text-sm text-amber-100">
+                          {dataPortabilityHistoryWarning}
+                        </div>
+                      )}
                       {dataPortabilityImportHistory.length === 0 ? (
                         <div className="mt-5 rounded-2xl border border-dashed border-white/15 bg-black/30 p-6 text-sm text-zinc-400">
                           No import history has been recorded yet.
@@ -22595,11 +26874,11 @@ export default function AdminDashboardPage() {
                         Export History
                       </p>
                       <h3 className="mt-3 text-2xl font-bold text-white">
-                        Coming in Phase 19E
+                        No export history available
                       </h3>
                       <p className="mt-2 text-sm leading-6 text-zinc-400">
-                        Export audit trails can be persisted once the production
-                        audit store is approved.
+                        Confirmed import history is retained above. Export
+                        history is not currently stored.
                       </p>
                     </article>
                   </div>
@@ -25877,7 +30156,7 @@ export default function AdminDashboardPage() {
                                   className={`group relative rounded-xl border p-3 ${
                                     isDisabled
                                       ? "border-zinc-700 bg-zinc-950/65 opacity-75"
-                                      : "border-[#8D7A2F]/30 bg-zinc-950/90"
+                                      : "border-emerald-300/35 bg-emerald-950/10"
                                   }`}
                                 >
                                   <button
@@ -25889,19 +30168,23 @@ export default function AdminDashboardPage() {
                                     }}
                                     className="block w-full pr-10 text-left"
                                   >
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                      <span className="text-xs font-semibold text-white">
+                                    <div className="flex max-w-full flex-col items-start gap-1">
+                                      <span className="truncate text-xs font-semibold text-white">
+                                        {locationDisplay
+                                          ? `${locationDisplay.alias} · `
+                                          : ""}
                                         {getSouthAfricaShowTime(show)}
                                       </span>
-                                      <span className="rounded-full border border-white/10 px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-[0.1em] text-zinc-300">
+                                      <span
+                                        className={`rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-[0.1em] ${
+                                          isDisabled
+                                            ? "border-white/10 text-zinc-300"
+                                            : "border-emerald-300/40 bg-emerald-950/30 text-emerald-200"
+                                        }`}
+                                      >
                                         {showOperationalStatusLabels[status]}
                                       </span>
                                     </div>
-                                    <p className="mt-1 text-sm font-semibold leading-tight text-[#F2D66C]">
-                                      {locationDisplay
-                                        ? locationDisplay.alias
-                                        : "Location required"}
-                                    </p>
                                   </button>
                                   <div
                                     className="absolute right-2 top-2 z-20"
@@ -25982,7 +30265,8 @@ export default function AdminDashboardPage() {
                                           className={`rounded-full border px-2 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.08em] ${chipTone}`}
                                           title={`${chip.label} ${chip.occupiedSeats}/${chip.capacity}`}
                                         >
-                                          {chip.label.split(" ").map((part) => part[0]).join("")}{" "}
+                                          {showCalendarZoneAbbreviations[chip.zoneId] ??
+                                            chip.label.split(" ").map((part) => part[0]).join("")}{" "}
                                           {chip.occupiedSeats}/{chip.capacity}
                                         </span>
                                       );
@@ -26028,18 +30312,94 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="space-y-5 p-5">
+                {(showLockStatus || isEditingShowReadOnly || editingShowLock) && (
+                  <div className="rounded-2xl border border-amber-300/25 bg-amber-950/20 p-4 text-sm text-amber-50">
+                    <p className="font-semibold">
+                      {isEditingShowReadOnly
+                        ? "This show is currently being edited."
+                        : showLockStatus || "Editing lock active."}
+                    </p>
+                    {editingShowLock && (
+                      <p className="mt-2 text-amber-100/85">
+                        Currently editing: {editingShowLock.staffName} ·{" "}
+                        {editingShowLock.staffRole}
+                        <br />
+                        Started{" "}
+                        {new Date(editingShowLock.startedAt).toLocaleString(
+                          "en-ZA",
+                        )}{" "}
+                        · Last activity{" "}
+                        {new Date(editingShowLock.lastActivityAt).toLocaleString(
+                          "en-ZA",
+                        )}
+                      </p>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void refreshShowEditLocks(editingShowId)}
+                        className="rounded-full border border-amber-200/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-amber-50 transition hover:bg-amber-200 hover:text-black"
+                      >
+                        Refresh
+                      </button>
+                      {isEditingShowReadOnly && editingShowLock && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const result = await acquireShowEditLock({
+                                force: true,
+                                sessionId: showLockSessionId,
+                                showReference: editingShowId,
+                              });
+
+                              if (result.status === "acquired" && result.lock) {
+                                setActiveShowEditLock(result.lock);
+                                setShowReadOnlyReferences((currentReferences) =>
+                                  currentReferences.filter(
+                                    (reference) => reference !== editingShowId,
+                                  ),
+                                );
+                                setShowLockStatus("");
+                                await refreshShowEditLocks(editingShowId);
+                                return;
+                              }
+
+                              setShowLockStatus(
+                                "This show is currently being edited.",
+                              );
+                            } catch (error) {
+                              console.error(
+                                "[Zingara Admin] Failed to force show takeover",
+                                error,
+                              );
+                              setShowLockStatus(
+                                "Show takeover is not available.",
+                              );
+                            }
+                          }}
+                          disabled={!canForceShowTakeover(editingShowLock)}
+                          className="rounded-full border border-red-200/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-red-100 transition hover:bg-red-200 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Force Takeover
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <label className="md:col-span-2 text-sm text-zinc-400">
                     Show Title
                     <input
                       value={showEditForm.label}
+                      disabled={isEditingShowReadOnly}
                       onChange={(event) =>
                         setShowEditForm((currentForm) => ({
                           ...currentForm,
                           label: event.target.value,
                         }))
                       }
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white"
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </label>
                   <label className="text-sm text-zinc-400">
@@ -26047,13 +30407,14 @@ export default function AdminDashboardPage() {
                     <input
                       type="date"
                       value={showEditForm.date}
+                      disabled={isEditingShowReadOnly}
                       onChange={(event) =>
                         setShowEditForm((currentForm) => ({
                           ...currentForm,
                           date: event.target.value,
                         }))
                       }
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white"
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </label>
                   <label className="text-sm text-zinc-400">
@@ -26061,13 +30422,14 @@ export default function AdminDashboardPage() {
                     <input
                       type="time"
                       value={showEditForm.time}
+                      disabled={isEditingShowReadOnly}
                       onChange={(event) =>
                         setShowEditForm((currentForm) => ({
                           ...currentForm,
                           time: event.target.value,
                         }))
                       }
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white"
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </label>
                   <label className="text-sm text-zinc-400">
@@ -26075,13 +30437,14 @@ export default function AdminDashboardPage() {
                     <select
                       required
                       value={showEditForm.venueName}
+                      disabled={isEditingShowReadOnly}
                       onChange={(event) =>
                         setShowEditForm((currentForm) => ({
                           ...currentForm,
                           venueName: event.target.value as EntryLocationKey,
                         }))
                       }
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white"
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="">Select location</option>
                       {showLocationOptions.map((option) => (
@@ -26100,19 +30463,21 @@ export default function AdminDashboardPage() {
                     Address
                     <input
                       value={showEditForm.address}
+                      disabled={isEditingShowReadOnly}
                       onChange={(event) =>
                         setShowEditForm((currentForm) => ({
                           ...currentForm,
                           address: event.target.value,
                         }))
                       }
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white"
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </label>
                   <label className="text-sm text-zinc-400">
                     Operational Status
                     <select
                       value={showEditForm.operationalStatus}
+                      disabled={isEditingShowReadOnly}
                       onChange={(event) =>
                         setShowEditForm((currentForm) => ({
                           ...currentForm,
@@ -26122,7 +30487,7 @@ export default function AdminDashboardPage() {
                           >,
                         }))
                       }
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white"
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {(
                         Object.keys(showOperationalStatusLabels) as Array<
@@ -26139,6 +30504,7 @@ export default function AdminDashboardPage() {
                     Show Description / Tagline
                     <textarea
                       value={showEditForm.description}
+                      disabled={isEditingShowReadOnly}
                       onChange={(event) =>
                         setShowEditForm((currentForm) => ({
                           ...currentForm,
@@ -26146,13 +30512,14 @@ export default function AdminDashboardPage() {
                         }))
                       }
                       rows={3}
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white"
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </label>
                   <label className="md:col-span-2 text-sm text-zinc-400">
                     Internal Notes
                     <textarea
                       value={showEditForm.internalNotes}
+                      disabled={isEditingShowReadOnly}
                       onChange={(event) =>
                         setShowEditForm((currentForm) => ({
                           ...currentForm,
@@ -26160,7 +30527,7 @@ export default function AdminDashboardPage() {
                         }))
                       }
                       rows={3}
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white"
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </label>
                 </div>
@@ -26176,31 +30543,40 @@ export default function AdminDashboardPage() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={duplicateEditedShow}
-                      disabled={!normalizeShowLocation(showEditForm.venueName)}
+                      onClick={() => void duplicateEditedShow()}
+                      disabled={
+                        isEditingShowReadOnly ||
+                        !normalizeShowLocation(showEditForm.venueName)
+                      }
                       className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
                     >
                       Duplicate Show
                     </button>
                     <button
                       type="button"
-                      onClick={archiveEditedShow}
-                      className="rounded-full border border-amber-300/35 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-300 hover:text-black"
+                      onClick={() => void archiveEditedShow()}
+                      disabled={isEditingShowReadOnly || !activeShowEditLock}
+                      className="rounded-full border border-amber-300/35 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Archive Show
                     </button>
                     <button
                       type="button"
                       onClick={deleteEditedShow}
-                      className="rounded-full border border-red-300/35 px-4 py-2 text-sm font-semibold text-red-100 transition hover:bg-red-300 hover:text-black"
+                      disabled={isEditingShowReadOnly || !activeShowEditLock}
+                      className="rounded-full border border-red-300/35 px-4 py-2 text-sm font-semibold text-red-100 transition hover:bg-red-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Delete Show
                     </button>
                   </div>
                   <button
                     type="button"
-                    onClick={saveEditedShow}
-                    disabled={!normalizeShowLocation(showEditForm.venueName)}
+                    onClick={() => void saveEditedShow()}
+                    disabled={
+                      isEditingShowReadOnly ||
+                      !activeShowEditLock ||
+                      !normalizeShowLocation(showEditForm.venueName)
+                    }
                     className="rounded-full bg-[#D8C36A] px-6 py-3 font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.2)] transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Save Show
@@ -26237,8 +30613,9 @@ export default function AdminDashboardPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={archiveEditedShow}
-                  className="rounded-full border border-amber-300/35 bg-amber-300 px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-[#F2D66C]"
+                  onClick={() => void archiveEditedShow()}
+                  disabled={isEditingShowReadOnly || !activeShowEditLock}
+                  className="rounded-full border border-amber-300/35 bg-amber-300 px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Archive Show
                 </button>
@@ -27382,22 +31759,19 @@ export default function AdminDashboardPage() {
 
                   <label className="flex min-w-[260px] flex-col gap-2">
                     <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                      Selected Show
+                      Selected Performance
                     </span>
-                    <select
-                      value={selectedShowId}
-                      onChange={(event) => {
-                        setSelectedShowId(event.target.value);
+                    <PerformanceCalendarSelector
+                      buttonClassName="rounded-full border border-[#D8C36A]/35 bg-black/45 px-5 py-3 text-left text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition hover:border-[#D8C36A]/70 focus:border-[#D8C36A]/70"
+                      emptyLabel="No active performances"
+                      label="Waitlist Performance"
+                      onSelect={(showId) => {
+                        setSelectedShowId(showId);
                         setWaitlistSearch("");
                       }}
-                      className="rounded-full border border-[#D8C36A]/35 bg-black/45 px-5 py-3 text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition focus:border-[#D8C36A]/70"
-                    >
-                      {shows.map((show) => (
-                        <option key={show.id} value={show.id}>
-                          {getShowLabel(show)}
-                        </option>
-                      ))}
-                    </select>
+                      selectedShowId={selectedShowId}
+                      shows={floorSelectableShows}
+                    />
                   </label>
                 </div>
                 <p className="mt-2 text-zinc-400">
@@ -27649,32 +32023,19 @@ export default function AdminDashboardPage() {
 
               <div className="flex flex-col items-start gap-3">
                 <label className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  Selected Show
-                  <span className="relative mt-2 block min-w-[280px]">
-                    <span className="pointer-events-none absolute inset-y-0 left-4 right-10 z-10 flex items-center truncate text-sm font-semibold normal-case tracking-normal text-white">
-                      {workflowShow
-                        ? `${formatSouthAfricanDate(workflowShow.date)} · ${getSouthAfricaShowTime(workflowShow)}`
-                        : "Select show"}
-                    </span>
-                    <select
-                      value={workflowShow?.id ?? ""}
-                      onChange={(event) => {
-                        setWorkflowShowId(event.target.value);
+                  Selected Performance
+                  <span className="mt-2 block min-w-[280px]">
+                    <PerformanceCalendarSelector
+                      buttonClassName="w-full rounded-full border border-[#D8C36A]/35 bg-black px-4 py-3 text-left text-sm font-semibold normal-case tracking-normal text-white transition hover:border-[#D8C36A]/60 focus:border-[#D8C36A]/70 focus:outline-none"
+                      emptyLabel="Select performance"
+                      label="Workflow Performance"
+                      onSelect={(showId) => {
+                        setWorkflowShowId(showId);
                         setWorkflowStatus("");
                       }}
-                      className="block w-full rounded-full border border-[#D8C36A]/35 bg-black px-4 py-3 text-sm font-semibold normal-case tracking-normal text-transparent"
-                    >
-                      {workflowShows.map((show) => (
-                        <option
-                          key={show.id}
-                          value={show.id}
-                          className="bg-black text-white"
-                        >
-                          {show.label} · {formatSouthAfricanDate(show.date)} ·{" "}
-                          {getSouthAfricaShowTime(show)}
-                        </option>
-                      ))}
-                    </select>
+                      selectedShowId={workflowShow?.id ?? ""}
+                      shows={workflowShows}
+                    />
                   </span>
                 </label>
 
@@ -28570,11 +32931,47 @@ export default function AdminDashboardPage() {
                 </label>
               </div>
               <p className="mt-2 text-zinc-400">
-                Live arrivals for{" "}
-                <span className="font-semibold text-white">
-                  {getShowLabel(selectedShow)}
-                </span>
+                {effectiveCheckInShow ? (
+                  <>
+                    Live arrivals for{" "}
+                    <span className="font-semibold text-white">
+                      {getFloorShowSelectorLabel(effectiveCheckInShow)}
+                    </span>
+                  </>
+                ) : (
+                  <span className="font-semibold text-amber-100">
+                    No active shows today
+                  </span>
+                )}
               </p>
+              {todayCheckInShows.length > 1 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {todayCheckInShows.map((show) => {
+                    const location = normalizeShowLocation(
+                      show.location ?? show.venueName,
+                    );
+                    const locationLabel = location
+                      ? getShowCalendarLocationDisplay(location).alias
+                      : "LOC";
+                    const isSelected = effectiveCheckInShowId === show.id;
+
+                    return (
+                      <button
+                        key={`check-in-show-${show.id}`}
+                        type="button"
+                        onClick={() => setCheckInSelectedShowId(show.id)}
+                        className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
+                          isSelected
+                            ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                            : "border-white/15 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/60 hover:text-white"
+                        }`}
+                      >
+                        {locationLabel} · {getSouthAfricaShowTime(show)}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="flex w-full flex-col gap-3 lg:max-w-2xl">
@@ -28637,7 +33034,7 @@ export default function AdminDashboardPage() {
                 Show Capacity
               </p>
               <p className="mt-2 text-3xl font-bold">
-                {selectedShowCapacity}
+                {checkInShowCapacity}
               </p>
             </div>
 
@@ -28646,7 +33043,7 @@ export default function AdminDashboardPage() {
                 Reserved Guests
               </p>
               <p className="mt-2 text-3xl font-bold">
-                {reservedGuests}
+                {checkInReservedGuests}
               </p>
             </div>
 
@@ -28655,7 +33052,7 @@ export default function AdminDashboardPage() {
                 Arrived Guests
               </p>
               <p className="mt-2 text-3xl font-bold">
-                {arrivedGuests}
+                {checkInArrivedGuests}
               </p>
             </div>
 
@@ -28664,12 +33061,17 @@ export default function AdminDashboardPage() {
                 Live Occupancy
               </p>
               <p className="mt-2 text-3xl font-bold">
-                {occupancyPercent}%
+                {checkInOccupancyPercent}%
               </p>
             </div>
           </div>
 
-          {staffBookings.length === 0 ? (
+          {todayCheckInShows.length === 0 ? (
+            <div className="rounded-2xl border border-amber-300/25 bg-amber-950/20 p-6 text-amber-100">
+              No active shows today. Live check-in will appear here when an
+              active performance is scheduled for today.
+            </div>
+          ) : checkInStaffBookings.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-black/30 p-6 text-zinc-400">
               No bookings match this staff search.
             </div>
@@ -28681,7 +33083,7 @@ export default function AdminDashboardPage() {
                   : "grid grid-cols-1 gap-3"
               }
             >
-              {staffBookings.map((booking) => {
+              {checkInStaffBookings.map((booking) => {
                 const status = booking.status ?? "confirmed";
                 const isCheckedIn = status === "checked-in";
                 const isCancelled = status === "cancelled";
@@ -28770,111 +33172,15 @@ export default function AdminDashboardPage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
                     Editing Layout
                   </p>
-                  <div className="mt-3 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
-                    <label className="relative inline-flex">
-                      <span className="sr-only">
-                        Select show layout context
-                      </span>
-                      <select
-                        value={selectedShowId}
-                        onChange={(event) =>
-                          selectFloorEditingShow(event.target.value)
-                        }
-                        className="appearance-none rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white"
-                      >
-                        {shows.map((show) => (
-                          <option key={show.id} value={show.id}>
-                            {show.label}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
-                        ▾
-                      </span>
-                    </label>
-
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setIsFloorCalendarOpen((isOpen) => !isOpen)
-                        }
-                        className="rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white"
-                      >
-                        {selectedShowDateLabel}
-                      </button>
-
-                      {isFloorCalendarOpen && (
-                        <div className="absolute left-0 top-12 z-30 w-72 rounded-[1.5rem] border border-[#D8C36A]/25 bg-zinc-950 p-4 shadow-2xl shadow-black/50">
-                          <div className="mb-3 flex items-center justify-between">
-                            <p className="text-sm font-semibold text-white">
-                              {
-                                bookingCalendarMonths[
-                                  floorCalendarMonthStart.getMonth()
-                                ]
-                              }{" "}
-                              {floorCalendarMonthStart.getFullYear()}
-                            </p>
-                          </div>
-                          <div className="grid grid-cols-7 gap-1 text-center text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                            {bookingCalendarWeekdays.map(
-                              (weekday, index) => (
-                                <span key={`${weekday}-${index}`}>
-                                  {weekday}
-                                </span>
-                              ),
-                            )}
-                          </div>
-                          <div className="mt-2 grid grid-cols-7 gap-1">
-                            {floorCalendarCells.map((day, index) => {
-                              if (!day) {
-                                return (
-                                  <span
-                                    key={`floor-empty-${index}`}
-                                    className="aspect-square"
-                                  />
-                                );
-                              }
-
-                              const dateValue = `${floorCalendarMonthStart.getFullYear()}-${String(
-                                floorCalendarMonthStart.getMonth() + 1,
-                              ).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                              const showForDate = shows.find(
-                                (show) => show.date === dateValue,
-                              );
-                              const isAvailable = Boolean(showForDate);
-                              const isSelected =
-                                selectedShow?.date === dateValue;
-
-                              return (
-                                <button
-                                  key={`floor-${dateValue}`}
-                                  type="button"
-                                  disabled={!isAvailable}
-                                  onClick={() => {
-                                    if (showForDate) {
-                                      selectFloorEditingShow(
-                                        showForDate.id,
-                                      );
-                                      setIsFloorCalendarOpen(false);
-                                    }
-                                  }}
-                                  className={`aspect-square rounded-xl text-sm font-semibold transition ${
-                                    isSelected
-                                      ? "bg-[#D8C36A] text-black"
-                                      : isAvailable
-                                        ? "border border-[#D8C36A]/25 bg-[#D8C36A]/10 text-[#F2D66C] hover:bg-[#D8C36A]/20"
-                                        : "bg-white/[0.03] text-zinc-700"
-                                  }`}
-                                >
-                                  {day}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                  <div className="mt-3 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-start">
+                    <PerformanceCalendarSelector
+                      buttonClassName="rounded-full border border-white/15 bg-black/35 px-4 py-2 text-left text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white"
+                      emptyLabel="Select performance"
+                      label="Floor Performance"
+                      onSelect={selectFloorEditingShow}
+                      selectedShowId={selectedShowId}
+                      shows={floorSelectableShows}
+                    />
                   </div>
                   <p className="mt-2 text-sm text-zinc-400">
                     {selectedShowDateLabel} · {venueConfig.venueName}
@@ -29092,6 +33398,129 @@ export default function AdminDashboardPage() {
                 })}
               </div>
             </div>
+          </section>
+
+          <section className="mb-8 rounded-[2rem] border border-amber-300/25 bg-amber-950/10 p-5 shadow-xl shadow-black/20">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+                  Floor Assignment Queue
+                </p>
+                <h3 className="mt-2 text-2xl font-bold text-white">
+                  Confirmed bookings needing a table
+                </h3>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-300">
+                  These guests are confirmed for the selected performance
+                  but do not yet have a physical table assignment. Assignments
+                  are manual and never treated as public waitlist entries.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm sm:min-w-[220px]">
+                <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
+                  <p className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Bookings
+                  </p>
+                  <p className="mt-1 text-2xl font-bold text-white">
+                    {selectedShowFloorAssignmentBookings.length}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
+                  <p className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Guests
+                  </p>
+                  <p className="mt-1 text-2xl font-bold text-white">
+                    {selectedShowFloorAssignmentPax}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {selectedShowFloorAssignmentBookings.length === 0 ? (
+              <div className="mt-5 rounded-2xl border border-emerald-300/20 bg-emerald-950/10 p-4 text-sm text-emerald-100">
+                No confirmed bookings require floor assignment for this
+                performance.
+              </div>
+            ) : (
+              <div className="mt-5 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {selectedShowFloorAssignmentBookings.map((booking) => {
+                  const allocation = booking.showId
+                    ? findBestTableAllocation(
+                        tables,
+                        booking.showId,
+                        booking.zoneId,
+                        booking.partySize,
+                      )
+                    : undefined;
+                  const paymentStatus = getBookingPaymentStatus(booking);
+
+                  return (
+                    <article
+                      key={`floor-assignment-${booking.reference}`}
+                      className="rounded-2xl border border-amber-300/25 bg-black/35 p-4"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-200">
+                            {booking.reference}
+                          </p>
+                          <h4 className="mt-1 text-lg font-semibold text-white">
+                            {booking.customer.name || "Imported Guest"}
+                          </h4>
+                          <p className="mt-1 text-sm text-zinc-300">
+                            {booking.partySize} guests · {booking.zoneTitle}
+                          </p>
+                        </div>
+                        <span className="self-start rounded-full border border-amber-300/35 bg-amber-950/25 px-3 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-amber-100">
+                          Requires floor assignment
+                        </span>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-zinc-300 sm:grid-cols-2">
+                        <p>
+                          Booking:{" "}
+                          {bookingStatusLabels[booking.status ?? "confirmed"]}
+                        </p>
+                        <p>
+                          Payment: {paymentStatusLabels[paymentStatus]}
+                        </p>
+                        <p>
+                          Suggested:{" "}
+                          <span className="font-semibold text-white">
+                            {allocation
+                              ? allocation.isCombination
+                                ? `${allocation.table.tableNumber} (merge required)`
+                                : allocation.table.tableNumber
+                              : "No suitable table"}
+                          </span>
+                        </p>
+                        <p>
+                          Status:{" "}
+                          <span className="font-semibold text-amber-100">
+                            Confirmed entitlement
+                          </span>
+                        </p>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => assignFloorQueuedBooking(booking)}
+                          disabled={!allocation || !canManageBookings}
+                          className="rounded-full bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Assign Suggested Table
+                        </button>
+                        {!allocation && (
+                          <span className="rounded-full border border-white/15 px-4 py-2 text-sm text-zinc-400">
+                            Create or merge an operational table first
+                          </span>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           {floorManagementZones
@@ -30239,6 +34668,8 @@ export default function AdminDashboardPage() {
 	                  getCorporateBookingCompanyName(booking);
 	                const isCorporateBooking =
 	                  booking.source === "corporate-direct";
+	                const bookingPerformanceLabel =
+	                  getBookingPerformanceLabel(booking);
 	                const moveTables = tables.filter(
                   (table) =>
                     table.showId === selectedShowId &&
@@ -30349,9 +34780,13 @@ export default function AdminDashboardPage() {
                           {booking.tableNumber || "Unassigned"}
                         </p>
 
+                        <p className="mt-1 break-words text-xs font-semibold text-zinc-300 sm:text-sm">
+                          {bookingPerformanceLabel}
+                        </p>
+
                         <p className="mt-2 break-words text-xs text-zinc-500 sm:text-sm">
                           {booking.partySize} guests ·{" "}
-                          {booking.reference} · {booking.bookingDate} ·{" "}
+                          {booking.reference} ·{" "}
                           {formatCurrency(financials.totalPrice)}
                         </p>
                         {bookingViewMode === "grid" && (
@@ -30467,6 +34902,9 @@ export default function AdminDashboardPage() {
                                 {booking.tableNumber || "Unassigned"} ·{" "}
                                 {booking.reference}
                               </p>
+	                              <p className="mt-1 break-words text-xs font-semibold text-zinc-300 sm:text-sm">
+	                                {bookingPerformanceLabel}
+	                              </p>
                             </div>
                             <button
                               type="button"
@@ -30587,6 +35025,10 @@ export default function AdminDashboardPage() {
                           </button>
                           <button
                             type="button"
+                            disabled={
+                              bookingLock.takeoverRequestedBy ===
+                              currentStaff?.id
+                            }
                             onClick={async () => {
                               const result =
                                 await requestBookingEditTakeover({
@@ -30604,9 +35046,12 @@ export default function AdminDashboardPage() {
 
                               setBookingLockStatus("Takeover requested.");
                             }}
-                            className="rounded-full border border-sky-300/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-sky-100 transition hover:bg-sky-300 hover:text-black"
+                            className="rounded-full border border-sky-300/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-sky-100 transition hover:bg-sky-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            Request Takeover
+                            {bookingLock.takeoverRequestedBy ===
+                            currentStaff?.id
+                              ? "Takeover Pending"
+                              : "Request Takeover"}
                           </button>
                           {canForceBookingTakeover(bookingLock) && (
                             <button
@@ -30649,6 +35094,56 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
                     )}
+
+                    {!bookingLockedByOther &&
+                      bookingLock &&
+                      isOwnBookingLock(bookingLock) &&
+                      bookingLock.takeoverRequestedBy &&
+                      bookingLock.takeoverRequestedByName && (
+                        <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-200">
+                            Takeover Request
+                          </p>
+                          <p className="mt-2 text-sm text-amber-50">
+                            {bookingLock.takeoverRequestedByName} is requesting
+                            access to edit booking {booking.reference}.
+                          </p>
+                          {bookingLock.takeoverRequestedAt && (
+                            <p className="mt-1 text-xs text-amber-100/75">
+                              Requested{" "}
+                              {formatSouthAfricanTimestamp(
+                                bookingLock.takeoverRequestedAt,
+                              )}
+                            </p>
+                          )}
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void resolveBookingTakeover(
+                                  bookingLock,
+                                  "accept-takeover",
+                                )
+                              }
+                              className="rounded-full border border-emerald-300/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-100 transition hover:bg-emerald-300 hover:text-black"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void resolveBookingTakeover(
+                                  bookingLock,
+                                  "decline-takeover",
+                                )
+                              }
+                              className="rounded-full border border-red-300/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-red-200 transition hover:bg-red-300 hover:text-black"
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                     {(wastedSeats >= 4 || betterFitTable) &&
                       canManageBookings &&
@@ -30974,6 +35469,23 @@ export default function AdminDashboardPage() {
                               <button
                                 type="button"
                                 onClick={() =>
+                                  sendCustomerPaymentLink(booking)
+                                }
+                                disabled={
+                                  paymentLinkSendState[booking.reference]
+                                    ?.isSending ||
+                                  !canSendCustomerPaymentLink(booking)
+                                }
+                                className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {paymentLinkSendState[booking.reference]
+                                  ?.isSending
+                                  ? "Sending Link..."
+                                  : "Send Payment Link"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
                                   updateBookingPayment(
                                     booking,
                                     "fully-paid",
@@ -31016,6 +35528,22 @@ export default function AdminDashboardPage() {
                               </button>
                             </div>
                           </div>
+                          {paymentLinkSendState[booking.reference]
+                            ?.message && (
+                            <p
+                              className={`mt-3 text-xs font-semibold ${
+                                paymentLinkSendState[booking.reference]
+                                  ?.tone === "success"
+                                  ? "text-emerald-200"
+                                  : "text-red-200"
+                              }`}
+                            >
+                              {
+                                paymentLinkSendState[booking.reference]
+                                  ?.message
+                              }
+                            </p>
+                          )}
                         </div>
 
 	                        {isCorporateBooking && corporateCompanyName && (

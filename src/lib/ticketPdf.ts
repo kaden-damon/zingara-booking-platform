@@ -6,7 +6,10 @@ import type {
   GuestTicket,
 } from "./zingaraDemo";
 import { resolveGuestVisibleTable } from "./guestTicketDisplay";
-import { normalizeShowLocation } from "./zingaraDemo";
+import {
+  getDisplayZoneTitle,
+  normalizeShowLocation,
+} from "./zingaraDemo";
 
 export const ticketPdfPage = {
   height: 601.5,
@@ -358,7 +361,9 @@ function collectMissingPdfFields(source: DownloadableTicketPdfSource) {
   );
   const showDate = normalizeTicketText(source.show?.date);
   const ticketCode = normalizeTicketText(source.ticket.ticketCode);
-  const zoneTitle = normalizeTicketText(source.booking.zoneTitle);
+  const zoneTitle = normalizeTicketText(
+    getDisplayZoneTitle(source.booking.zoneId, source.booking.zoneTitle),
+  );
   const location = normalizeShowLocation(
     source.show?.location ?? source.show?.venue ?? source.show?.venueName,
   );
@@ -417,7 +422,9 @@ export function resolveDownloadableTicketPdfInput(
     venueName: location.venueName,
     zoneBackground: source.tableColour.background,
     zoneBorder: source.tableColour.border,
-    zoneTitle: normalizeTicketText(source.booking.zoneTitle),
+    zoneTitle: normalizeTicketText(
+      getDisplayZoneTitle(source.booking.zoneId, source.booking.zoneTitle),
+    ),
   };
 }
 

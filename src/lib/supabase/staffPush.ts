@@ -251,13 +251,18 @@ function isSubscriptionLinkedToBooking(
   subscription: PushSubscriptionRecord,
   bookingReference?: string,
 ) {
-  if (!bookingReference) {
+  const normalizedReference = bookingReference?.trim().toUpperCase();
+
+  if (!normalizedReference) {
     return false;
   }
 
   return (
-    subscription.bookingReference === bookingReference ||
-    (subscription.bookingReferences ?? []).includes(bookingReference)
+    subscription.bookingReference?.trim().toUpperCase() ===
+      normalizedReference ||
+    (subscription.bookingReferences ?? []).some(
+      (reference) => reference.trim().toUpperCase() === normalizedReference,
+    )
   );
 }
 
@@ -635,7 +640,10 @@ export async function sendGuestPushNotification(input: GuestPushInput) {
     body: getGuestMessage(input),
     tag: `zingara-guest-${input.trigger}-${input.bookingReference ?? "booking"}`,
     title: input.title?.trim() || "The Royal Countess Zingara",
-    url: getGuestNotificationUrl(input),
+    url: getGuestNotificationUrl({
+      ...input,
+      bookingReference: input.bookingReference?.trim().toUpperCase(),
+    }),
   });
   const results = await Promise.allSettled(
     subscriptions.map((subscription) =>

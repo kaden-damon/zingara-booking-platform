@@ -78,6 +78,10 @@ function getPushSubscriptions(row: VenueSettingsRow | null) {
     : [];
 }
 
+function normalizeBookingReference(reference?: string | null) {
+  return reference?.trim().toUpperCase() ?? "";
+}
+
 function normalizeSubscription(
   input: unknown,
   request: Request,
@@ -112,10 +116,12 @@ function normalizeSubscription(
   }
 
   const now = new Date().toISOString();
-  const bookingReference = guestContext?.bookingReference?.trim();
+  const bookingReference = normalizeBookingReference(
+    guestContext?.bookingReference,
+  );
 
   return {
-    audience: staffContext ? "staff" : "guest",
+    audience: bookingReference ? "guest" : staffContext ? "staff" : "guest",
     bookingReference,
     bookingReferences: bookingReference ? [bookingReference] : [],
     createdAt: now,
@@ -159,7 +165,7 @@ function mergeBookingReferences(
         ...(nextSubscription.bookingReferences ?? []),
         nextSubscription.bookingReference,
       ]
-        .map((reference) => reference?.trim())
+        .map((reference) => normalizeBookingReference(reference))
         .filter((reference): reference is string => Boolean(reference)),
     ),
   );

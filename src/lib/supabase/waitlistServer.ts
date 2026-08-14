@@ -2,6 +2,7 @@ import {
   type CustomerInfo,
   type DemoWaitlistEntry,
   type WaitlistStatus,
+  getDisplayZoneTitle,
 } from "@/lib/zingaraDemo";
 import { getServiceClient } from "./serverAdmin";
 
@@ -302,6 +303,10 @@ async function toDemoWaitlistEntry(
       partySize: row.guest_count,
       showId: await getLegacyShowId(serviceClient, row.show_id),
       status: toDemoWaitlistStatus(row.status),
+      desiredZoneTitle: getDisplayZoneTitle(
+        metadataEntry.desiredZoneId,
+        metadataEntry.desiredZoneTitle ?? row.desired_section,
+      ),
     };
   }
 
@@ -313,7 +318,7 @@ async function toDemoWaitlistEntry(
       name: "Waitlist Guest",
       phone: "",
     },
-    desiredZoneTitle: row.desired_section ?? undefined,
+    desiredZoneTitle: getDisplayZoneTitle(undefined, row.desired_section),
     id: row.id,
     notes: row.notes ?? "",
     partySize: row.guest_count,

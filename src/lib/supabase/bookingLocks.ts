@@ -24,6 +24,11 @@ export type BookingLockAcquireResult = {
   status: "acquired" | "blocked" | "missing";
 };
 
+export type BookingTakeoverResolutionResult = {
+  lock?: BookingEditLock;
+  status: "accepted" | "declined" | "missing";
+};
+
 export async function getBookingEditLocks(reference?: string) {
   const params = new URLSearchParams();
 
@@ -101,6 +106,22 @@ export async function requestBookingEditTakeover(input: {
     {
       body: {
         action: "request-takeover",
+        lockId: input.lockId,
+      },
+      method: "POST",
+    },
+  );
+}
+
+export async function resolveBookingEditTakeover(input: {
+  action: "accept-takeover" | "decline-takeover";
+  lockId: string;
+}) {
+  return fetchSupabaseApi<BookingTakeoverResolutionResult>(
+    "/api/admin/booking-locks",
+    {
+      body: {
+        action: input.action,
         lockId: input.lockId,
       },
       method: "POST",

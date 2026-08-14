@@ -248,7 +248,7 @@ export const seatingZones = [
   },
   {
     id: "royal-booths",
-    title: "Royal Booths",
+    title: "Private Booths",
     subtitle: "Your Private Velvet Haven",
     description:
       "Private 6-seater booths with exceptional views and privacy.",
@@ -287,6 +287,7 @@ export const seatingZones = [
 export type SeatingZone = (typeof seatingZones)[number];
 export type SeatingZoneId = SeatingZone["id"];
 export type TableStatus = "available" | "booked" | "disabled";
+export type TableAvailabilityScope = "operational" | "public";
 export type BookingStatus =
   | "new"
   | "confirmed"
@@ -337,6 +338,7 @@ export type BookingAddon = {
   price: number;
 };
 export type DemoTable = {
+  availabilityScope?: TableAvailabilityScope;
   id: string;
   showId?: string;
   zoneId: SeatingZoneId;
@@ -389,6 +391,7 @@ export type DemoShow = {
     | "blackout"
     | "venue-closure"
     | "special-event";
+  supabaseId?: string;
   venueName?: string;
 };
 export type EntryLocationKey = "cape-town" | "johannesburg";
@@ -1227,6 +1230,52 @@ export function getZoneById(zoneId: SeatingZoneId) {
   return seatingZones.find((zone) => zone.id === zoneId);
 }
 
+export function getDisplayZoneTitle(
+  zoneId?: string | null,
+  zoneTitle?: string | null,
+) {
+  const normalizedZoneId = zoneId?.trim().toLowerCase();
+  const normalizedZoneTitle = zoneTitle?.trim().toLowerCase();
+
+  if (
+    normalizedZoneId === "royal-booths" ||
+    normalizedZoneTitle === "royal booths" ||
+    normalizedZoneTitle === "royal booth" ||
+    normalizedZoneTitle === "private booths" ||
+    normalizedZoneTitle === "private booth" ||
+    normalizedZoneTitle === "booths"
+  ) {
+    return "Private Booths";
+  }
+
+  if (normalizedZoneId && isValidSeatingZoneId(normalizedZoneId)) {
+    return getZoneById(normalizedZoneId)?.title ?? getSafeString(zoneTitle);
+  }
+
+  return getSafeString(zoneTitle);
+}
+
+export function getZoneSectionLookupTitles(
+  zoneId: SeatingZoneId,
+  zoneTitle?: string | null,
+) {
+  const titles = new Set<string>();
+  const zone = getZoneById(zoneId);
+
+  if (zone?.title) {
+    titles.add(zone.title);
+  }
+  if (zoneTitle?.trim()) {
+    titles.add(zoneTitle.trim());
+  }
+  if (zoneId === "royal-booths") {
+    titles.add("Royal Booths");
+    titles.add("Private Booths");
+  }
+
+  return Array.from(titles);
+}
+
 export function getConfiguredZonePrice(
   settings: DemoVenueSettings,
   zone: Pick<SeatingZone, "id" | "price">,
@@ -1338,6 +1387,7 @@ function getCanonicalShowFields(show: DemoShow) {
 export function createTablesForShow(showId: string) {
   return defaultTables.map((table) => ({
     ...table,
+    availabilityScope: "public" as const,
     id: `${showId}-${table.id}`,
     showId,
     bookingReference: undefined,
@@ -1474,7 +1524,7 @@ function normalizeDemoBooking(booking: DemoBooking) {
     reference,
     showId: getSafeString(booking.showId, defaultShows[0].id),
     zoneId,
-    zoneTitle: getSafeString(booking.zoneTitle, zone.title),
+    zoneTitle: getDisplayZoneTitle(zoneId, booking.zoneTitle),
     tableId: getSafeString(booking.tableId, "unassigned"),
     tableNumber: getSafeString(booking.tableNumber, "Unassigned"),
     partySize: Math.max(1, getSafeNumber(booking.partySize, 1)),
@@ -1546,7 +1596,7 @@ function normalizeDemoWaitlistEntry(
     id,
     showId: getSafeString(entry.showId, defaultShows[0].id),
     desiredZoneId,
-    desiredZoneTitle: entry.desiredZoneTitle ?? desiredZone?.title,
+    desiredZoneTitle: getDisplayZoneTitle(desiredZoneId, entry.desiredZoneTitle ?? desiredZone?.title),
     partySize: Math.max(1, getSafeNumber(entry.partySize, 1)),
     customer: normalizeCustomerInfo(entry.customer),
     notes: normalizeDemoText(entry.notes ?? ""),
@@ -1986,7 +2036,7 @@ const seededDemoBookings: DemoBooking[] = [
     reference: "ZNG-CHARLIE-B1",
     showId: "show-2026-06-20-1900",
     zoneId: "royal-booths",
-    zoneTitle: "Royal Booths",
+    zoneTitle: "Private Booths",
     tableId: "show-2026-06-20-1900-royal-booths-1",
     tableNumber: "B1",
     partySize: 6,
@@ -2305,7 +2355,7 @@ const seededDemoWaitlist: DemoWaitlistEntry[] = [
     id: "WAITLIST-ROYAL-6",
     showId: "show-2026-06-20-1900",
     desiredZoneId: "royal-booths",
-    desiredZoneTitle: "Royal Booths",
+    desiredZoneTitle: "Private Booths",
     partySize: 6,
     customer: {
       name: "Nadia Jacobs",
@@ -2551,16 +2601,26 @@ function normalizeCommunicationTemplate(
 function normalizeTablesForShows(
   tables: DemoTable[],
   shows: DemoShow[],
-) {
+): DemoTable[] {
+  const showIdAliases = new Map<string, string>();
+
+  for (const show of shows) {
+    if (show.supabaseId && show.supabaseId !== show.id) {
+      showIdAliases.set(show.supabaseId, show.id);
+    }
+  }
+
   const normalizedTables = tables.map((table, index) => {
     const zoneId = isValidSeatingZoneId(table.zoneId)
       ? table.zoneId
       : "middle-ring";
+    const rawShowId = getSafeString(table.showId, defaultShows[0].id);
+    const showId = showIdAliases.get(rawShowId) ?? rawShowId;
 
     return {
       ...table,
       id: getSafeString(table.id, `table-${index + 1}`),
-      showId: getSafeString(table.showId, defaultShows[0].id),
+      showId,
       zoneId,
       tableNumber: getSafeString(
         table.tableNumber,
@@ -2575,6 +2635,8 @@ function normalizeTablesForShows(
         : "available",
       baseGuestNotes: getSafeString(table.baseGuestNotes),
       baseMergeable: table.baseMergeable ?? true,
+      availabilityScope:
+        table.availabilityScope === "operational" ? "operational" : "public",
       seatCapacity: Math.max(1, getSafeNumber(table.seatCapacity, 2)),
       status: isKnownValue(table.status, tableStatusValues)
         ? table.status
@@ -2615,7 +2677,7 @@ function normalizeTablesForShows(
               ),
             }
           : undefined,
-    };
+    } satisfies DemoTable;
   });
   const tableShowIds = new Set(
     normalizedTables.map((table) => table.showId),
@@ -3184,6 +3246,14 @@ export function findBestAvailableTable(
 ) {
   return findBestTableAllocation(tables, showId, zoneId, partySize)
     ?.table;
+}
+
+export function isPublicSaleableTable(table: Pick<DemoTable, "availabilityScope">) {
+  return (table.availabilityScope ?? "public") === "public";
+}
+
+export function getPublicSaleableTables(tables: DemoTable[]) {
+  return tables.filter(isPublicSaleableTable);
 }
 
 function getAllocationScore(tableCapacity: number, partySize: number) {
