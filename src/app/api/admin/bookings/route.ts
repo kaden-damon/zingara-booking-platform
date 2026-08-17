@@ -21,6 +21,8 @@ export const dynamic = "force-dynamic";
 const bookingSelect =
   "id,customer_id,show_id,table_id,booking_reference,booking_source,company_name,guest_count,booking_status,payment_status,section,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,archived_by,archive_reason,created_at,updated_at";
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
+const bookingQueryBatchSize = 1000;
+const aggregateQueryBatchSize = 150;
 const bookingAuditFields = [
   "booking_status",
   "payment_status",
@@ -57,6 +59,74 @@ type SupabasePaymentStatus =
   | "fully_paid"
   | "pending_payment"
   | "refunded";
+
+type AdminBookingRow = {
+  customer_id: string | null;
+  id: string;
+  table_id: string | null;
+  [key: string]: unknown;
+};
+
+async function fetchAdminBookingRows(
+  serviceClient: SupabaseClient,
+  reference: string | null,
+) {
+  const rows: AdminBookingRow[] = [];
+
+  for (let from = 0; ; from += bookingQueryBatchSize) {
+    let query = serviceClient.from("bookings").select(bookingSelect);
+
+    if (reference) {
+      query = query.eq("booking_reference", reference);
+    }
+
+    const { data, error } = await query
+      .order("created_at", { ascending: false })
+      .range(from, from + bookingQueryBatchSize - 1);
+
+    if (error) {
+      return { error, rows };
+    }
+
+    const batch = (data ?? []) as AdminBookingRow[];
+    rows.push(...batch);
+
+    if (batch.length < bookingQueryBatchSize) {
+      return { error: null, rows };
+    }
+  }
+}
+
+async function fetchAggregateRows(
+  serviceClient: SupabaseClient,
+  tableName: string,
+  select: string,
+  column: string,
+  ids: string[],
+  order?: { ascending: boolean; column: string },
+) {
+  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  const rows: unknown[] = [];
+
+  for (let index = 0; index < uniqueIds.length; index += aggregateQueryBatchSize) {
+    const batchIds = uniqueIds.slice(index, index + aggregateQueryBatchSize);
+    let query = serviceClient.from(tableName).select(select).in(column, batchIds);
+
+    if (order) {
+      query = query.order(order.column, { ascending: order.ascending });
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return { error, rows };
+    }
+
+    rows.push(...(data ?? []));
+  }
+
+  return { error: null, rows };
+}
 
 function toSupabaseBookingStatus(status: BookingStatus): SupabaseBookingStatus {
   if (status === "pending-payment" || status === "pending") {
@@ -123,13 +193,7 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const reference = url.searchParams.get("reference");
-  let query = serviceClient.from("bookings").select(bookingSelect);
-
-  if (reference) {
-    query = query.eq("booking_reference", reference);
-  }
-
-  const { data, error } = await query.order("created_at", { ascending: false });
+  const { rows, error } = await fetchAdminBookingRows(serviceClient, reference);
 
   if (error) {
     console.error("[Zingara API] Failed to load bookings", error);
@@ -140,7 +204,6 @@ export async function GET(request: Request) {
     );
   }
 
-  const rows = data ?? [];
   const bookingIds = rows
     .map((booking) => booking.id)
     .filter((id): id is string => Boolean(id));
@@ -156,35 +219,45 @@ export async function GET(request: Request) {
   }
 
   const [
-    { data: communications, error: communicationsError },
-    { data: lifecycleEvents, error: lifecycleError },
-    { data: customers, error: customersError },
-    { data: tables, error: tablesError },
+    { rows: communications, error: communicationsError },
+    { rows: lifecycleEvents, error: lifecycleError },
+    { rows: customers, error: customersError },
+    { rows: tables, error: tablesError },
   ] = await Promise.all([
-    serviceClient
-      .from("communications")
-      .select(
-        "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
-      )
-      .in("booking_id", bookingIds)
-      .order("sent_at", { ascending: false }),
-    serviceClient
-      .from("booking_lifecycle_events")
-      .select("id,booking_id,from_status,to_status,note,reason,changed_by,created_at")
-      .in("booking_id", bookingIds)
-      .order("created_at", { ascending: false }),
+    fetchAggregateRows(
+      serviceClient,
+      "communications",
+      "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
+      "booking_id",
+      bookingIds,
+      { ascending: false, column: "sent_at" },
+    ),
+    fetchAggregateRows(
+      serviceClient,
+      "booking_lifecycle_events",
+      "id,booking_id,from_status,to_status,note,reason,changed_by,created_at",
+      "booking_id",
+      bookingIds,
+      { ascending: false, column: "created_at" },
+    ),
     customerIds.length > 0
-      ? serviceClient
-          .from("customers")
-          .select("id,first_name,surname,email,mobile")
-          .in("id", customerIds)
-      : Promise.resolve({ data: [], error: null }),
+      ? fetchAggregateRows(
+          serviceClient,
+          "customers",
+          "id,first_name,surname,email,mobile",
+          "id",
+          customerIds,
+        )
+      : Promise.resolve({ rows: [], error: null }),
     tableIds.length > 0
-      ? serviceClient
-          .from("show_tables")
-          .select("id,table_code,section")
-          .in("id", tableIds)
-      : Promise.resolve({ data: [], error: null }),
+      ? fetchAggregateRows(
+          serviceClient,
+          "show_tables",
+          "id,table_code,section",
+          "id",
+          tableIds,
+        )
+      : Promise.resolve({ rows: [], error: null }),
   ]);
 
   if (communicationsError) {
@@ -218,7 +291,12 @@ export async function GET(request: Request) {
   const communicationsByBookingId = new Map<string, unknown[]>();
 
   for (const communication of communications ?? []) {
-    if (!communication.booking_id) {
+    if (
+      !communication ||
+      typeof communication !== "object" ||
+      !("booking_id" in communication) ||
+      typeof communication.booking_id !== "string"
+    ) {
       continue;
     }
 
@@ -231,7 +309,12 @@ export async function GET(request: Request) {
   const lifecycleByBookingId = new Map<string, unknown[]>();
 
   for (const lifecycleEvent of lifecycleEvents ?? []) {
-    if (!lifecycleEvent.booking_id) {
+    if (
+      !lifecycleEvent ||
+      typeof lifecycleEvent !== "object" ||
+      !("booking_id" in lifecycleEvent) ||
+      typeof lifecycleEvent.booking_id !== "string"
+    ) {
       continue;
     }
 
@@ -271,7 +354,9 @@ export async function GET(request: Request) {
     rows: rows.map((booking) => ({
       ...booking,
       communication_rows: communicationsByBookingId.get(booking.id) ?? [],
-      customer_row: customersById.get(booking.customer_id) ?? null,
+      customer_row: booking.customer_id
+        ? customersById.get(booking.customer_id) ?? null
+        : null,
       lifecycle_event_rows: lifecycleByBookingId.get(booking.id) ?? [],
       table_row: booking.table_id
         ? tablesById.get(booking.table_id) ?? null

@@ -6512,6 +6512,15 @@ function getCurrentShowCalendarMonth() {
   return year && month ? `${year}-${month}` : new Date().toISOString().slice(0, 7);
 }
 
+function getCurrentSouthAfricaDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+  }).format(new Date());
+}
+
 const operationalReportLabels: Record<OperationalReportType, string> = {
   bookings: "Booking Manifest",
   "check-ins": "Guest Check-In Sheet",
@@ -6980,6 +6989,8 @@ function getFloorShowSelectorLabel(show: DemoShow) {
 }
 
 type PerformanceCalendarSelectorProps = {
+  allLabel?: string;
+  allowAllShows?: boolean;
   buttonClassName?: string;
   emptyLabel?: string;
   label?: string;
@@ -6989,6 +7000,8 @@ type PerformanceCalendarSelectorProps = {
 };
 
 function PerformanceCalendarSelector({
+  allLabel = "All Shows",
+  allowAllShows = false,
   buttonClassName,
   emptyLabel = "No active performances",
   label = "Selected Performance",
@@ -7020,24 +7033,37 @@ function PerformanceCalendarSelector({
       }),
     [shows],
   );
+  const today = getCurrentSouthAfricaDate();
+  const nextRelevantShow =
+    sortedShows.find((show) => show.date >= today) ?? sortedShows[0];
   const selectedShow =
-    sortedShows.find((show) => show.id === selectedShowId) ?? sortedShows[0];
+    sortedShows.find(
+      (show) => show.id === selectedShowId || show.supabaseId === selectedShowId,
+    ) ?? (allowAllShows ? undefined : sortedShows[0]);
+  const initialCalendarShow = selectedShow ?? nextRelevantShow;
   const [isOpen, setIsOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(
-    () => selectedShow?.date.slice(0, 7) ?? getCurrentShowCalendarMonth(),
+    () => initialCalendarShow?.date.slice(0, 7) ?? getCurrentShowCalendarMonth(),
   );
   const [selectedDate, setSelectedDate] = useState(
     () => selectedShow?.date ?? "",
   );
 
   useEffect(() => {
-    if (!selectedShow) {
+    if (selectedShow) {
+      setSelectedDate(selectedShow.date);
+      setCalendarMonth(selectedShow.date.slice(0, 7));
       return;
     }
 
-    setSelectedDate(selectedShow.date);
-    setCalendarMonth(selectedShow.date.slice(0, 7));
-  }, [selectedShow?.id, selectedShow?.date]);
+    if (allowAllShows) {
+      setSelectedDate("");
+
+      if (nextRelevantShow) {
+        setCalendarMonth(nextRelevantShow.date.slice(0, 7));
+      }
+    }
+  }, [allowAllShows, nextRelevantShow?.id, nextRelevantShow?.date, selectedShow?.id, selectedShow?.date]);
 
   const calendarAnchorDate = new Date(`${calendarMonth}-01T00:00:00`);
   const calendarMonthStart = new Date(
@@ -7090,7 +7116,11 @@ function PerformanceCalendarSelector({
           "mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-left text-white transition hover:border-[#D8C36A]/60 focus:border-[#D8C36A]/70 focus:outline-none"
         }
       >
-        {selectedShow ? getFloorShowSelectorLabel(selectedShow) : emptyLabel}
+        {selectedShow
+          ? getFloorShowSelectorLabel(selectedShow)
+          : allowAllShows && selectedShowId === "all"
+            ? allLabel
+            : emptyLabel}
       </button>
 
       {isOpen && (
@@ -7145,6 +7175,7 @@ function PerformanceCalendarSelector({
               );
               const isAvailable = showsForDate.length > 0;
               const isSelected = selectedDate === dateValue;
+              const isToday = dateValue === today;
 
               return (
                 <button
@@ -7162,14 +7193,35 @@ function PerformanceCalendarSelector({
                       ? "bg-[#D8C36A] text-black"
                       : isAvailable
                         ? "border border-[#D8C36A]/25 bg-[#D8C36A]/10 text-[#F2D66C] hover:bg-[#D8C36A]/20"
-                        : "bg-white/[0.03] text-zinc-700"
-                  }`}
+                        : isToday
+                          ? "border border-white/15 bg-white/[0.04] text-zinc-500"
+                          : "bg-white/[0.03] text-zinc-700"
+                  } ${isToday ? "ring-1 ring-white/20" : ""}`}
                 >
                   {day}
                 </button>
               );
             })}
           </div>
+          {allowAllShows && (
+            <div className="mt-4 border-t border-white/10 pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  onSelect("all");
+                  setSelectedDate("");
+                  setIsOpen(false);
+                }}
+                className={`w-full rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                  selectedShowId === "all"
+                    ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                    : "border-white/15 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/60 hover:text-white"
+                }`}
+              >
+                {allLabel}
+              </button>
+            </div>
+          )}
           {selectedDateShows.length > 1 && (
             <div className="mt-4 border-t border-white/10 pt-3">
               <p className="mb-2 text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -10793,8 +10845,31 @@ export default function AdminDashboardPage() {
       booking.balanceDue ?? booking.totalPrice - getBookingPaidAmount(booking),
       0,
     );
+  function getShowIdentityValues(show?: DemoShow | null) {
+    return [show?.id, show?.supabaseId].filter(
+      (id): id is string => Boolean(id),
+    );
+  }
+  function getShowByIdentity(showId?: string | null) {
+    if (!showId) {
+      return undefined;
+    }
+
+    return shows.find((show) => getShowIdentityValues(show).includes(showId));
+  }
+  function bookingBelongsToShow(booking: DemoBooking, show?: DemoShow | null) {
+    if (!show) {
+      return false;
+    }
+
+    if (!booking.showId) {
+      return false;
+    }
+
+    return getShowIdentityValues(show).includes(booking.showId);
+  }
   const getOperationsBookingShow = (booking: DemoBooking) =>
-    shows.find((show) => show.id === booking.showId);
+    getShowByIdentity(booking.showId);
   const getBookingLocation = (booking: DemoBooking) => {
     const show = getOperationsBookingShow(booking);
 
@@ -13615,7 +13690,7 @@ export default function AdminDashboardPage() {
   }
 
   function getBookingShow(booking: DemoBooking) {
-    return shows.find((show) => show.id === booking.showId);
+    return getShowByIdentity(booking.showId);
   }
 
   function createWorkflowCommunication(
@@ -19972,15 +20047,13 @@ export default function AdminDashboardPage() {
 
     if (
       bookingShowFilter !== "all" &&
-      booking.showId !== bookingShowFilter
+      !bookingBelongsToShow(booking, getShowByIdentity(bookingShowFilter))
     ) {
       return false;
     }
 
     if (bookingDateFilter !== "all") {
-      const bookingShow = shows.find(
-        (show) => show.id === booking.showId,
-      );
+      const bookingShow = getBookingShow(booking);
 
       if (bookingShow?.date !== bookingDateFilter) {
         return false;
@@ -20030,7 +20103,7 @@ export default function AdminDashboardPage() {
       bookingShowFilter === "all"
         ? "All shows"
         : getShowLabel(
-            shows.find((show) => show.id === bookingShowFilter),
+            getShowByIdentity(bookingShowFilter),
           );
     const selectedStatus =
       bookingStatusFilter === "all"
@@ -34269,27 +34342,25 @@ export default function AdminDashboardPage() {
 
             <div className="mt-5 grid gap-4">
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(13rem,1.1fr)_minmax(11rem,0.9fr)_minmax(11rem,0.9fr)_minmax(10rem,0.8fr)_minmax(14rem,1.2fr)]">
-	                <label className="relative block min-w-0">
+	                <div className="relative block min-w-0">
                     <span className="sr-only">Filter bookings by show</span>
-	                  <select
-	                    value={bookingShowFilter}
-                    onChange={(event) => {
-                      setBookingShowFilter(event.target.value);
-                      setBookingPage(1);
-                    }}
-                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
-                  >
-                    <option value="all">All Shows</option>
-                    {shows.map((show) => (
-                      <option key={show.id} value={show.id}>
-                        {getShowLabel(show)}
-                      </option>
-                    ))}
-                  </select>
-	                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    <PerformanceCalendarSelector
+                      allowAllShows
+                      allLabel="All Shows"
+                      buttonClassName="h-11 w-full truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-left text-sm font-semibold text-zinc-300 outline-none transition hover:border-[#D8C36A]/50 focus:border-[#D8C36A]/70 focus:outline-none"
+                      emptyLabel="All Shows"
+                      label="Booking Performance"
+                      onSelect={(showId) => {
+                        setBookingShowFilter(showId);
+                        setBookingPage(1);
+                      }}
+                      selectedShowId={bookingShowFilter}
+                      shows={shows}
+                    />
+	                  <span className="pointer-events-none absolute right-3 top-[1.38rem] -translate-y-1/2 text-[0.6rem] text-zinc-500">
 	                    ▾
 	                  </span>
-	                </label>
+	                </div>
 
 	                <label className="relative block min-w-0">
                     <span className="sr-only">Filter bookings by source</span>
