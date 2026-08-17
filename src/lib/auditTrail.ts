@@ -14,6 +14,7 @@ export type AuditEntityType =
   | "security"
   | "show"
   | "staff"
+  | "staff-issue"
   | "ticket"
   | "workflow";
 

@@ -105,6 +105,19 @@ import {
   staffLocationOptions,
 } from "../../lib/staffLocations";
 import {
+  canManageStaffIssues,
+  getStaffIssueCategoryLabel,
+  getStaffIssuePriorityLabel,
+  getStaffIssueStatusLabel,
+  staffIssueCategories,
+  staffIssuePriorities,
+  staffIssueStatuses,
+  type StaffIssueCategory,
+  type StaffIssuePriority,
+  type StaffIssueReport,
+  type StaffIssueStatus,
+} from "../../lib/staffIssues";
+import {
   type BulkShowScheduleInput,
   type BulkShowScheduleResult,
   createBulkShowSchedule,
@@ -954,6 +967,30 @@ type SystemStatusPayload = {
     platformVersion: string;
     staffLoggedIn: string;
   };
+};
+type StaffIssueScope = "all" | "mine";
+type StaffIssueFilters = {
+  category: StaffIssueCategory | "all";
+  priority: StaffIssuePriority | "all";
+  reporter: string;
+  scope: StaffIssueScope;
+  search: string;
+  status: StaffIssueStatus | "all";
+};
+type StaffIssueForm = {
+  category: StaffIssueCategory;
+  description: string;
+  location: string;
+  moduleOrArea: string;
+  priority: StaffIssuePriority;
+  title: string;
+};
+type StaffIssueManagementForm = {
+  adminNotes: string;
+  priority: StaffIssuePriority;
+  resolutionNotes: string;
+  scheduledAt: string;
+  status: StaffIssueStatus;
 };
 type PlatformOperationsPeriod = "24h" | "30d" | "7d" | "today";
 type PlatformOperationsSession = {
@@ -5879,6 +5916,53 @@ const platformAdministrationLessons: AcademyArticle[] = [
   {
     category: "Platform Administration",
     commonMistakes: [
+      "Submitting a vague title without the steps that caused the problem.",
+      "Reporting the same issue again when it is already visible in My Issues.",
+      "Expecting a notification when an issue is completed; notifications are not part of v1.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open System from the admin navigation.",
+      "Open Bug & Issue Register.",
+      "Use Report an Issue.",
+      "Choose the most appropriate Category.",
+      "Select Priority and Location where relevant.",
+      "Enter a short clear Title.",
+      "Enter Module / Area where useful.",
+      "Describe what you were trying to do, what happened, and what you expected to happen.",
+      "Click Report Issue.",
+      "Quote the generated BUG reference, such as BUG-000123, when discussing the issue.",
+      "Use My Issues to view your submitted issues and current status.",
+    ],
+    id: "reporting-bugs-and-issues",
+    keywords: [
+      "bug reporting",
+      "issue register",
+      "report issue",
+      "bugs",
+      "feature request",
+      "system technical",
+      "ux ui",
+      "tickets qr",
+    ],
+    moduleId: "platform-administration",
+    purpose:
+      "Use the Bug & Issue Register to report system, operational, booking, payment, CRM, floor, ticket, reporting, UX, feature, and other platform issues.",
+    relatedActions: [],
+    related: ["System Area", "Platform Health", "Audit Trail"],
+    tips: [
+      "Use a clear title and include exact steps so the issue can be reproduced.",
+      "Identify the relevant page or module when you can.",
+      "State what should have happened, not only what went wrong.",
+      "Logged means the issue was received; Scheduled means attention is planned; In Progress means work is underway; Completed / Fixed means it has been resolved.",
+    ],
+    title: "Reporting Bugs & Issues",
+    whenToUse:
+      "Use this whenever staff need to report a platform problem or improvement request without sending a guest communication.",
+  },
+  {
+    category: "Platform Administration",
+    commonMistakes: [
       "Sending a workflow before checking the selected show and recipient count.",
       "Editing template variables until booking-specific information disappears.",
     ],
@@ -6937,6 +7021,38 @@ function getSystemHealthBadgeClass(status: SystemHealthStatus) {
   }
 
   return "border-amber-300/35 bg-amber-950/25 text-amber-100";
+}
+
+function getStaffIssueStatusClass(status: StaffIssueStatus) {
+  if (status === "completed") {
+    return "border-emerald-300/35 bg-emerald-950/30 text-emerald-200";
+  }
+
+  if (status === "in_progress") {
+    return "border-sky-300/35 bg-sky-950/30 text-sky-200";
+  }
+
+  if (status === "scheduled") {
+    return "border-[#D8C36A]/35 bg-[#1A1208] text-[#F2D66C]";
+  }
+
+  return "border-zinc-500/35 bg-zinc-900/70 text-zinc-300";
+}
+
+function getStaffIssuePriorityClass(priority: StaffIssuePriority) {
+  if (priority === "critical") {
+    return "border-red-300/40 bg-red-950/35 text-red-100";
+  }
+
+  if (priority === "high") {
+    return "border-amber-300/40 bg-amber-950/30 text-amber-100";
+  }
+
+  if (priority === "low") {
+    return "border-zinc-500/35 bg-zinc-900/70 text-zinc-400";
+  }
+
+  return "border-[#D8C36A]/35 bg-[#1A1208] text-[#F2D66C]";
 }
 
 function formatOperationalShowDate(date: string) {
@@ -9020,6 +9136,42 @@ export default function AdminDashboardPage() {
   const [isSystemStatusLoading, setIsSystemStatusLoading] =
     useState(false);
   const [systemStatusError, setSystemStatusError] = useState("");
+  const [staffIssueReports, setStaffIssueReports] = useState<
+    StaffIssueReport[]
+  >([]);
+  const [staffIssueFilters, setStaffIssueFilters] =
+    useState<StaffIssueFilters>({
+      category: "all",
+      priority: "all",
+      reporter: "",
+      scope: "all",
+      search: "",
+      status: "all",
+    });
+  const [staffIssueForm, setStaffIssueForm] = useState<StaffIssueForm>({
+    category: "system_technical",
+    description: "",
+    location: "",
+    moduleOrArea: "",
+    priority: "normal",
+    title: "",
+  });
+  const [selectedStaffIssueId, setSelectedStaffIssueId] = useState("");
+  const [staffIssueManagementForm, setStaffIssueManagementForm] =
+    useState<StaffIssueManagementForm>({
+      adminNotes: "",
+      priority: "normal",
+      resolutionNotes: "",
+      scheduledAt: "",
+      status: "logged",
+    });
+  const [isStaffIssueLoading, setIsStaffIssueLoading] = useState(false);
+  const [isStaffIssueSubmitting, setIsStaffIssueSubmitting] =
+    useState(false);
+  const [isStaffIssueSaving, setIsStaffIssueSaving] = useState(false);
+  const [staffIssueStatusMessage, setStaffIssueStatusMessage] =
+    useState("");
+  const [staffIssueError, setStaffIssueError] = useState("");
   const [platformOperations, setPlatformOperations] =
     useState<PlatformOperationsPayload | null>(null);
   const [isPlatformOperationsLoading, setIsPlatformOperationsLoading] =
@@ -10036,6 +10188,7 @@ export default function AdminDashboardPage() {
   const canExecuteDataPortability =
     currentStaff?.email?.trim().toLowerCase() === "kaden@kaden.co.za";
   const isVenueManager = currentStaff?.role === "venue-manager";
+  const canManageIssueRegister = canManageStaffIssues(currentStaff?.role);
   const canViewAuditTrail = isSuperAdmin || isVenueManager;
   const isBoxOfficeStaff =
     currentStaff?.role === "box-office" ||
@@ -10113,6 +10266,29 @@ export default function AdminDashboardPage() {
 
     return () => window.clearInterval(interval);
   }, [activeAdminTab, currentStaff?.id, isSuperAdmin]);
+
+  useEffect(() => {
+    if (activeAdminTab !== "platform-operations" || !currentStaff) {
+      return;
+    }
+
+    void refreshStaffIssues();
+  }, [activeAdminTab, currentStaff?.id, staffIssueFilters]);
+
+  useEffect(() => {
+    if (
+      activeAdminTab !== "settings" ||
+      activeSettingsTab !== "staff" ||
+      !canManageIssueRegister
+    ) {
+      return;
+    }
+
+    void refreshStaffIssues({
+      ...staffIssueFilters,
+      scope: "all",
+    });
+  }, [activeAdminTab, activeSettingsTab, canManageIssueRegister]);
 
   function isOwnBookingLock(lock?: BookingEditLock | null) {
     if (!lock || !currentStaff) {
@@ -11593,6 +11769,33 @@ export default function AdminDashboardPage() {
   const staffDeleteProfile = staffProfiles.find(
     (profile) => profile.id === staffDeleteProfileId,
   );
+  const selectedStaffIssue =
+    staffIssueReports.find((issue) => issue.id === selectedStaffIssueId) ??
+    staffIssueReports[0] ??
+    null;
+
+  useEffect(() => {
+    if (!selectedStaffIssue) {
+      return;
+    }
+
+    setStaffIssueManagementForm({
+      adminNotes: selectedStaffIssue.adminNotes ?? "",
+      priority: selectedStaffIssue.priority,
+      resolutionNotes: selectedStaffIssue.resolutionNotes ?? "",
+      scheduledAt: selectedStaffIssue.scheduledAt
+        ? selectedStaffIssue.scheduledAt.slice(0, 16)
+        : "",
+      status: selectedStaffIssue.status,
+    });
+  }, [selectedStaffIssue]);
+
+  const openStaffIssues = staffIssueReports.filter(
+    (issue) => issue.status !== "completed",
+  );
+  const completedStaffIssues = staffIssueReports.filter(
+    (issue) => issue.status === "completed",
+  );
   const staffDeleteReplacementOptions = staffProfiles.filter(
     (profile) =>
       profile.id !== staffDeleteProfileId &&
@@ -12015,6 +12218,170 @@ export default function AdminDashboardPage() {
       setSystemStatusError("System status could not be refreshed.");
     } finally {
       setIsSystemStatusLoading(false);
+    }
+  }
+
+  async function refreshStaffIssues(
+    filters: StaffIssueFilters = staffIssueFilters,
+  ) {
+    if (!currentStaff) {
+      return;
+    }
+
+    setIsStaffIssueLoading(true);
+    setStaffIssueError("");
+
+    try {
+      const searchParams = new URLSearchParams();
+
+      if (filters.scope === "mine" || !canManageIssueRegister) {
+        searchParams.set("scope", "mine");
+      }
+
+      if (filters.status !== "all") {
+        searchParams.set("status", filters.status);
+      }
+
+      if (filters.priority !== "all") {
+        searchParams.set("priority", filters.priority);
+      }
+
+      if (filters.category !== "all") {
+        searchParams.set("category", filters.category);
+      }
+
+      if (filters.reporter && canManageIssueRegister) {
+        searchParams.set("reporter", filters.reporter);
+      }
+
+      if (filters.search.trim()) {
+        searchParams.set("search", filters.search.trim());
+      }
+
+      const payload = await fetchSupabaseApi<{
+        canManage: boolean;
+        issues: StaffIssueReport[];
+      }>(`/api/admin/issues?${searchParams.toString()}`);
+
+      setStaffIssueReports(payload.issues ?? []);
+      setSelectedStaffIssueId((currentId) =>
+        currentId &&
+        payload.issues.some((issue) => issue.id === currentId)
+          ? currentId
+          : (payload.issues[0]?.id ?? ""),
+      );
+      setStaffIssueStatusMessage(
+        payload.issues.length > 0
+          ? `Showing ${payload.issues.length} issue${payload.issues.length === 1 ? "" : "s"}.`
+          : "No issues match the selected filters.",
+      );
+    } catch (error) {
+      console.error("[Zingara admin] Failed to load staff issues", error);
+      setStaffIssueReports([]);
+      setStaffIssueError("Issue register could not be loaded.");
+    } finally {
+      setIsStaffIssueLoading(false);
+    }
+  }
+
+  function updateStaffIssueFilter<Key extends keyof StaffIssueFilters>(
+    key: Key,
+    value: StaffIssueFilters[Key],
+  ) {
+    setStaffIssueFilters((filters) => ({
+      ...filters,
+      [key]: value,
+    }));
+  }
+
+  async function submitStaffIssue(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!currentStaff || isStaffIssueSubmitting) {
+      return;
+    }
+
+    setIsStaffIssueSubmitting(true);
+    setStaffIssueError("");
+    setStaffIssueStatusMessage("Submitting issue...");
+
+    try {
+      const payload = await fetchSupabaseApi<{ issue: StaffIssueReport }>(
+        "/api/admin/issues",
+        {
+          body: {
+            ...staffIssueForm,
+            currentPath:
+              typeof window !== "undefined"
+                ? `${window.location.pathname}${window.location.hash}`
+                : "/admin",
+          },
+          method: "POST",
+        },
+      );
+
+      setStaffIssueForm({
+        category: "system_technical",
+        description: "",
+        location: "",
+        moduleOrArea: "",
+        priority: "normal",
+        title: "",
+      });
+      setStaffIssueReports((issues) => [payload.issue, ...issues]);
+      setSelectedStaffIssueId(payload.issue.id);
+      setStaffIssueStatusMessage(
+        `Issue submitted · ${payload.issue.ticketReference}`,
+      );
+      showWorkflowToast(`✓ Issue submitted · ${payload.issue.ticketReference}`);
+    } catch (error) {
+      console.error("[Zingara admin] Failed to submit issue", error);
+      setStaffIssueError("Issue could not be submitted.");
+      showWorkflowToast("⚠ Could not submit issue");
+    } finally {
+      setIsStaffIssueSubmitting(false);
+    }
+  }
+
+  async function saveSelectedStaffIssue() {
+    if (!selectedStaffIssueId || !canManageIssueRegister || isStaffIssueSaving) {
+      return;
+    }
+
+    setIsStaffIssueSaving(true);
+    setStaffIssueError("");
+
+    try {
+      const payload = await fetchSupabaseApi<{ issue: StaffIssueReport }>(
+        "/api/admin/issues",
+        {
+          body: {
+            adminNotes: staffIssueManagementForm.adminNotes,
+            id: selectedStaffIssueId,
+            priority: staffIssueManagementForm.priority,
+            resolutionNotes: staffIssueManagementForm.resolutionNotes,
+            scheduledAt: staffIssueManagementForm.scheduledAt,
+            status: staffIssueManagementForm.status,
+          },
+          method: "PATCH",
+        },
+      );
+
+      setStaffIssueReports((issues) =>
+        issues.map((issue) =>
+          issue.id === payload.issue.id ? payload.issue : issue,
+        ),
+      );
+      setStaffIssueStatusMessage(
+        `${payload.issue.ticketReference} updated.`,
+      );
+      showWorkflowToast("✓ Saved · Issue updated");
+    } catch (error) {
+      console.error("[Zingara admin] Failed to update issue", error);
+      setStaffIssueError("Issue could not be updated.");
+      showWorkflowToast("⚠ Could not save issue");
+    } finally {
+      setIsStaffIssueSaving(false);
     }
   }
 
@@ -21804,6 +22171,562 @@ export default function AdminDashboardPage() {
     );
   }
 
+  const staffIssueRegisterPanel = (
+    <section className="mb-10 space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
+            System
+          </p>
+          <h2 className="mt-2 text-3xl font-bold text-white sm:text-4xl">
+            Bug & Issue Register
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+            Report internal platform issues and track their current status
+            without sending notifications or changing guest records.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void refreshStaffIssues()}
+            disabled={isStaffIssueLoading}
+            className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-wait disabled:opacity-60"
+          >
+            {isStaffIssueLoading ? "Refreshing..." : "Refresh Issues"}
+          </button>
+          {canManageIssueRegister && (
+            <button
+              type="button"
+              onClick={() =>
+                updateStaffIssueFilter(
+                  "scope",
+                  staffIssueFilters.scope === "mine" ? "all" : "mine",
+                )
+              }
+              className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black"
+            >
+              {staffIssueFilters.scope === "mine" ? "View All" : "My Issues"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <section className="rounded-[1.5rem] border border-[#D8C36A]/25 bg-[radial-gradient(circle_at_top,#1D1608_0%,#080808_58%,#030303_100%)] p-5 shadow-2xl shadow-black/25">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
+              Report An Issue
+            </p>
+            <h3 className="mt-1 text-xl font-bold text-white">
+              Report a bug or issue
+            </h3>
+          </div>
+          <span className="rounded-full border border-white/10 bg-black/35 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+            Notifications Off
+          </span>
+        </div>
+
+        <form onSubmit={submitStaffIssue} className="mt-5 space-y-4">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+              Category *
+              <select
+                required
+                value={staffIssueForm.category}
+                onChange={(event) =>
+                  setStaffIssueForm((form) => ({
+                    ...form,
+                    category: event.target.value as StaffIssueCategory,
+                  }))
+                }
+                className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case tracking-normal text-white"
+              >
+                {staffIssueCategories.map((category) => (
+                  <option key={category.value} value={category.value}>
+                    {category.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+              Priority
+              <select
+                value={staffIssueForm.priority}
+                onChange={(event) =>
+                  setStaffIssueForm((form) => ({
+                    ...form,
+                    priority: event.target.value as StaffIssuePriority,
+                  }))
+                }
+                className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case tracking-normal text-white"
+              >
+                {staffIssuePriorities.map((priority) => (
+                  <option key={priority.value} value={priority.value}>
+                    {priority.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+              Location
+              <select
+                value={staffIssueForm.location}
+                onChange={(event) =>
+                  setStaffIssueForm((form) => ({
+                    ...form,
+                    location: event.target.value,
+                  }))
+                }
+                className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case tracking-normal text-white"
+              >
+                <option value="">Not location-specific</option>
+                {staffLocationOptions.map((option) => (
+                  <option key={option.value} value={option.label}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_0.8fr]">
+            <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+              Title *
+              <input
+                required
+                value={staffIssueForm.title}
+                onChange={(event) =>
+                  setStaffIssueForm((form) => ({
+                    ...form,
+                    title: event.target.value,
+                  }))
+                }
+                placeholder="Short issue summary"
+                className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
+              />
+            </label>
+            <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+              Module / Area
+              <input
+                value={staffIssueForm.moduleOrArea}
+                onChange={(event) =>
+                  setStaffIssueForm((form) => ({
+                    ...form,
+                    moduleOrArea: event.target.value,
+                  }))
+                }
+                placeholder="Bookings, Floor, System..."
+                className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
+              />
+            </label>
+          </div>
+
+          <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+            Description *
+            <textarea
+              required
+              rows={4}
+              value={staffIssueForm.description}
+              onChange={(event) =>
+                setStaffIssueForm((form) => ({
+                  ...form,
+                  description: event.target.value,
+                }))
+              }
+              placeholder="What happened, where did it happen, and what should have happened?"
+              className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case leading-6 tracking-normal text-white placeholder:text-zinc-600"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={isStaffIssueSubmitting}
+            className="inline-flex items-center gap-2 rounded-full bg-[#D8C36A] px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-wait disabled:opacity-60"
+          >
+            {isStaffIssueSubmitting && (
+              <span className="h-3 w-3 rounded-full border-2 border-black/30 border-t-black motion-safe:animate-spin" />
+            )}
+            {isStaffIssueSubmitting ? "Submitting..." : "Report Issue"}
+          </button>
+        </form>
+      </section>
+
+      {staffIssueError && (
+        <p className="rounded-2xl border border-red-300/25 bg-red-950/20 p-4 text-sm text-red-100">
+          {staffIssueError}
+        </p>
+      )}
+
+      <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950/80 p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
+              Register
+            </p>
+            <h3 className="mt-1 text-xl font-bold text-white">
+              {canManageIssueRegister ? "All Staff Issues" : "My Reported Issues"}
+            </h3>
+            <p className="mt-2 text-sm text-zinc-500">
+              {staffIssueStatusMessage ||
+                "Use the filters to review submitted issue tickets."}
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center sm:min-w-80">
+            {[
+              ["Total", staffIssueReports.length],
+              ["Open", openStaffIssues.length],
+              ["Completed", completedStaffIssues.length],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-2xl border border-white/10 bg-black/35 p-3"
+              >
+                <p className="text-[0.62rem] uppercase tracking-[0.12em] text-zinc-500">
+                  {label}
+                </p>
+                <p className="mt-1 text-xl font-bold text-white">{value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-5">
+          <input
+            value={staffIssueFilters.search}
+            onChange={(event) =>
+              updateStaffIssueFilter("search", event.target.value)
+            }
+            placeholder="Search reference, title, module..."
+            className="rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white placeholder:text-zinc-600 lg:col-span-2"
+          />
+          <select
+            value={staffIssueFilters.status}
+            onChange={(event) =>
+              updateStaffIssueFilter(
+                "status",
+                event.target.value as StaffIssueFilters["status"],
+              )
+            }
+            className="rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+          >
+            <option value="all">All Statuses</option>
+            {staffIssueStatuses.map((status) => (
+              <option key={status.value} value={status.value}>
+                {status.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={staffIssueFilters.priority}
+            onChange={(event) =>
+              updateStaffIssueFilter(
+                "priority",
+                event.target.value as StaffIssueFilters["priority"],
+              )
+            }
+            className="rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+          >
+            <option value="all">All Priorities</option>
+            {staffIssuePriorities.map((priority) => (
+              <option key={priority.value} value={priority.value}>
+                {priority.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={staffIssueFilters.category}
+            onChange={(event) =>
+              updateStaffIssueFilter(
+                "category",
+                event.target.value as StaffIssueFilters["category"],
+              )
+            }
+            className="rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+          >
+            <option value="all">All Categories</option>
+            {staffIssueCategories.map((category) => (
+              <option key={category.value} value={category.value}>
+                {category.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {canManageIssueRegister && (
+          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[0.8fr_1fr]">
+            <select
+              value={staffIssueFilters.scope}
+              onChange={(event) =>
+                updateStaffIssueFilter(
+                  "scope",
+                  event.target.value as StaffIssueScope,
+                )
+              }
+              className="rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white"
+            >
+              <option value="all">All Staff Issues</option>
+              <option value="mine">My Issues</option>
+            </select>
+            <select
+              value={staffIssueFilters.reporter}
+              onChange={(event) =>
+                updateStaffIssueFilter("reporter", event.target.value)
+              }
+              disabled={staffIssueFilters.scope === "mine"}
+              className="rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white disabled:opacity-50"
+            >
+              <option value="">All Reporters</option>
+              {staffProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name} · {profile.email}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="max-h-[36rem] space-y-3 overflow-y-auto pr-1">
+            {staffIssueReports.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-black/35 p-5 text-sm text-zinc-400">
+                {isStaffIssueLoading
+                  ? "Loading issue register..."
+                  : "No issues are currently visible for this view."}
+              </div>
+            ) : (
+              staffIssueReports.map((issue) => (
+                <button
+                  key={issue.id}
+                  type="button"
+                  onClick={() => setSelectedStaffIssueId(issue.id)}
+                  className={`w-full rounded-2xl border p-4 text-left transition ${
+                    selectedStaffIssue?.id === issue.id
+                      ? "border-[#D8C36A]/45 bg-[#1A1208]"
+                      : "border-white/10 bg-black/35 hover:border-white/25"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                        {issue.ticketReference}
+                      </p>
+                      <h4 className="mt-1 break-words font-semibold text-white">
+                        {issue.title}
+                      </h4>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span
+                        className={`rounded-full border px-2 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.1em] ${getStaffIssueStatusClass(issue.status)}`}
+                      >
+                        {getStaffIssueStatusLabel(issue.status)}
+                      </span>
+                      <span
+                        className={`rounded-full border px-2 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.1em] ${getStaffIssuePriorityClass(issue.priority)}`}
+                      >
+                        {getStaffIssuePriorityLabel(issue.priority)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-zinc-500 sm:grid-cols-2">
+                    <span>{getStaffIssueCategoryLabel(issue.category)}</span>
+                    <span>{formatSouthAfricanDate(issue.createdAt)}</span>
+                    {canManageIssueRegister && (
+                      <span className="sm:col-span-2">
+                        Reporter: {issue.reporterName ?? issue.reporterEmail ?? "Unknown staff"}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
+            {!selectedStaffIssue ? (
+              <p className="text-sm text-zinc-400">
+                Select an issue to view details.
+              </p>
+            ) : (
+              <div className="space-y-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                      {selectedStaffIssue.ticketReference}
+                    </p>
+                    <h3 className="mt-2 text-2xl font-bold text-white">
+                      {selectedStaffIssue.title}
+                    </h3>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span
+                      className={`rounded-full border px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.1em] ${getStaffIssueStatusClass(selectedStaffIssue.status)}`}
+                    >
+                      {getStaffIssueStatusLabel(selectedStaffIssue.status)}
+                    </span>
+                    <span
+                      className={`rounded-full border px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.1em] ${getStaffIssuePriorityClass(selectedStaffIssue.priority)}`}
+                    >
+                      {getStaffIssuePriorityLabel(selectedStaffIssue.priority)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 text-sm text-zinc-300 sm:grid-cols-2">
+                  {[
+                    ["Reporter", selectedStaffIssue.reporterName ?? selectedStaffIssue.reporterEmail ?? "Unknown staff"],
+                    ["Created", formatSouthAfricanTimestamp(selectedStaffIssue.createdAt)],
+                    ["Updated", formatSouthAfricanTimestamp(selectedStaffIssue.updatedAt)],
+                    ["Category", getStaffIssueCategoryLabel(selectedStaffIssue.category)],
+                    ["Location", selectedStaffIssue.location ?? "Not recorded"],
+                    ["Module / Area", selectedStaffIssue.moduleOrArea ?? "Not recorded"],
+                    ["Scheduled", formatSouthAfricanTimestamp(selectedStaffIssue.scheduledAt)],
+                    ["Started", formatSouthAfricanTimestamp(selectedStaffIssue.startedAt)],
+                    ["Completed", formatSouthAfricanTimestamp(selectedStaffIssue.completedAt)],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="rounded-2xl border border-white/10 bg-zinc-950 p-3"
+                    >
+                      <p className="text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                        {label}
+                      </p>
+                      <p className="mt-1 break-words text-white">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-zinc-950 p-4">
+                  <p className="text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                    Description
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-200">
+                    {selectedStaffIssue.description}
+                  </p>
+                </div>
+
+                {canManageIssueRegister ? (
+                  <div className="space-y-4 rounded-2xl border border-[#D8C36A]/20 bg-[#120D05] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                      Management Controls
+                    </p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                        Status
+                        <select
+                          value={staffIssueManagementForm.status}
+                          onChange={(event) =>
+                            setStaffIssueManagementForm((form) => ({
+                              ...form,
+                              status: event.target.value as StaffIssueStatus,
+                            }))
+                          }
+                          className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case tracking-normal text-white"
+                        >
+                          {staffIssueStatuses.map((status) => (
+                            <option key={status.value} value={status.value}>
+                              {status.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                        Priority
+                        <select
+                          value={staffIssueManagementForm.priority}
+                          onChange={(event) =>
+                            setStaffIssueManagementForm((form) => ({
+                              ...form,
+                              priority: event.target.value as StaffIssuePriority,
+                            }))
+                          }
+                          className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case tracking-normal text-white"
+                        >
+                          {staffIssuePriorities.map((priority) => (
+                            <option key={priority.value} value={priority.value}>
+                              {priority.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    {staffIssueManagementForm.status === "scheduled" && (
+                      <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                        Scheduled Date
+                        <input
+                          type="datetime-local"
+                          value={staffIssueManagementForm.scheduledAt}
+                          onChange={(event) =>
+                            setStaffIssueManagementForm((form) => ({
+                              ...form,
+                              scheduledAt: event.target.value,
+                            }))
+                          }
+                          className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case tracking-normal text-white"
+                        />
+                      </label>
+                    )}
+                    <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                      Admin Notes
+                      <textarea
+                        rows={3}
+                        value={staffIssueManagementForm.adminNotes}
+                        onChange={(event) =>
+                          setStaffIssueManagementForm((form) => ({
+                            ...form,
+                            adminNotes: event.target.value,
+                          }))
+                        }
+                        className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case leading-6 tracking-normal text-white"
+                      />
+                    </label>
+                    <label className="grid gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                      Resolution Notes
+                      <textarea
+                        rows={3}
+                        value={staffIssueManagementForm.resolutionNotes}
+                        onChange={(event) =>
+                          setStaffIssueManagementForm((form) => ({
+                            ...form,
+                            resolutionNotes: event.target.value,
+                          }))
+                        }
+                        className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case leading-6 tracking-normal text-white"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void saveSelectedStaffIssue()}
+                      disabled={isStaffIssueSaving}
+                      className="rounded-full bg-[#D8C36A] px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {isStaffIssueSaving ? "Saving..." : "Save Issue"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-white/10 bg-zinc-950 p-4">
+                    <p className="text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                      Admin Notes
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                      {selectedStaffIssue.adminNotes ?? "Not recorded"}
+                    </p>
+                    <p className="mt-4 text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                      Resolution Notes
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                      {selectedStaffIssue.resolutionNotes ?? "Not recorded"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    </section>
+  );
+
   const systemHealthPanel = (
     <section
       id="platform-health"
@@ -22283,9 +23206,7 @@ export default function AdminDashboardPage() {
           aria-label="Admin sections"
           className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-8 lg:rounded-[2rem]"
         >
-          {adminTabs
-            .filter((tab) => tab.id !== "platform-operations" || isSuperAdmin)
-            .map((tab) => {
+          {adminTabs.map((tab) => {
             const isActive =
               activeAdminTab === tab.id ||
               (tab.id === "bookings" && activeAdminTab === "corporate");
@@ -27539,7 +28460,19 @@ export default function AdminDashboardPage() {
                   No staff profiles have been created yet.
                 </div>
               ) : (
-                staffProfiles.map((profile) => (
+                staffProfiles.map((profile) => {
+                  const profileIssues = staffIssueReports.filter(
+                    (issue) => issue.reporterStaffId === profile.id,
+                  );
+                  const profileOpenIssues = profileIssues.filter(
+                    (issue) => issue.status !== "completed",
+                  );
+                  const profileCompletedIssues = profileIssues.filter(
+                    (issue) => issue.status === "completed",
+                  );
+                  const recentProfileIssues = profileIssues.slice(0, 3);
+
+                  return (
                   <article
                     key={profile.id}
                     className="rounded-2xl border border-white/10 bg-black/35 p-4"
@@ -27569,6 +28502,60 @@ export default function AdminDashboardPage() {
                         <p className="mt-2 text-xs text-zinc-500">
                           Location: {getStaffVenueScopeLabel(profile.venueScope)}
                         </p>
+                        {canManageIssueRegister && (
+                          <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-950 p-3">
+                            <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#D8C36A]">
+                              Issues Reported
+                            </p>
+                            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                              {[
+                                ["Total", profileIssues.length],
+                                ["Open", profileOpenIssues.length],
+                                ["Completed", profileCompletedIssues.length],
+                              ].map(([label, value]) => (
+                                <div
+                                  key={label}
+                                  className="rounded-xl border border-white/10 bg-black/35 p-2"
+                                >
+                                  <p className="text-[0.55rem] uppercase tracking-[0.1em] text-zinc-500">
+                                    {label}
+                                  </p>
+                                  <p className="mt-1 text-sm font-semibold text-white">
+                                    {value}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="mt-3 space-y-2">
+                              {recentProfileIssues.length === 0 ? (
+                                <p className="text-xs text-zinc-500">
+                                  No reported issues yet.
+                                </p>
+                              ) : (
+                                recentProfileIssues.map((issue) => (
+                                  <button
+                                    key={issue.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveAdminTab("platform-operations");
+                                      setSelectedStaffIssueId(issue.id);
+                                    }}
+                                    className="w-full rounded-xl border border-white/10 bg-black/35 p-2 text-left transition hover:border-[#D8C36A]/35"
+                                  >
+                                    <p className="text-xs font-semibold text-white">
+                                      {issue.ticketReference} · {issue.title}
+                                    </p>
+                                    <p className="mt-1 text-[0.62rem] uppercase tracking-[0.1em] text-zinc-500">
+                                      {getStaffIssueCategoryLabel(issue.category)} ·{" "}
+                                      {getStaffIssueStatusLabel(issue.status)} ·{" "}
+                                      {formatSouthAfricanDate(issue.createdAt)}
+                                    </p>
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {currentStaff.role === "super-admin" && (
@@ -27655,7 +28642,8 @@ export default function AdminDashboardPage() {
                       )}
                     </div>
                   </article>
-                ))
+                  );
+                })
               )}
             </div>
           </section>
@@ -28745,6 +29733,8 @@ export default function AdminDashboardPage() {
             </div>
           </section>
         )}
+
+        {activeAdminTab === "platform-operations" && staffIssueRegisterPanel}
 
         {activeAdminTab === "platform-operations" && isSuperAdmin && (
           <section className="mb-10 space-y-6">
