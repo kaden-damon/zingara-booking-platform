@@ -503,6 +503,7 @@ export type BookingLifecycleEvent = {
 };
 export type DemoBooking = {
   supabaseBookingId?: string;
+  customerId?: string;
   reference: string;
   showId?: string;
   zoneId: SeatingZoneId;

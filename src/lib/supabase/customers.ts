@@ -27,6 +27,19 @@ type SupabaseCustomerRow = {
   vip_status: string | null;
 };
 
+export type CustomerCrmSourceRow = Pick<
+  SupabaseCustomerRow,
+  | "email"
+  | "first_name"
+  | "mobile"
+  | "preferences"
+  | "relationship_notes"
+  | "surname"
+> & {
+  updated_at?: string;
+  vip_status?: string | null;
+};
+
 type CustomerWriteInput = {
   customerKey?: string;
   dietaryRequirements?: string;
@@ -36,6 +49,13 @@ type CustomerWriteInput = {
   preferences?: Partial<CustomerPreferences>;
   relationshipNotes?: string;
   vipTags?: string[];
+};
+
+export type CustomerIdentityInput = {
+  email?: string;
+  firstName: string;
+  lastName?: string;
+  mobile?: string;
 };
 
 function getCustomerKey(customer: {
@@ -60,16 +80,17 @@ function splitCustomerName(name: string | undefined, fallbackKey: string) {
   };
 }
 
-function toCrmRecord(row: SupabaseCustomerRow): DemoCustomerCrmRecord {
+function toCrmRecord(row: CustomerCrmSourceRow): DemoCustomerCrmRecord {
   const vipTags = Array.isArray(row.preferences?.vipTags)
     ? row.preferences.vipTags
     : row.vip_status
     ? [row.vip_status]
     : [];
+  const preferencesCustomerKey = row.preferences?.customerKey?.trim();
   const customerKey =
-    row.preferences?.customerKey ??
-    row.email ??
-    row.mobile?.replace(/\D/g, "") ??
+    preferencesCustomerKey ||
+    row.email ||
+    row.mobile?.replace(/\D/g, "") ||
     `${row.first_name} ${row.surname ?? ""}`.trim().toLowerCase();
 
   return {
@@ -78,6 +99,12 @@ function toCrmRecord(row: SupabaseCustomerRow): DemoCustomerCrmRecord {
     updatedAt: row.updated_at ?? new Date().toISOString(),
     vipTags,
   };
+}
+
+export function getCustomerCrmRecordsFromRows(
+  rows: CustomerCrmSourceRow[],
+) {
+  return rows.map(toCrmRecord);
 }
 
 function toCustomerPayload(
@@ -199,7 +226,7 @@ export async function getCustomers() {
     return [];
   }
 
-  return rows.map(toCrmRecord);
+  return getCustomerCrmRecordsFromRows(rows);
 }
 
 export async function getCustomer(id: string) {
@@ -254,6 +281,21 @@ export async function updateCustomer(
     console.error("[Zingara Supabase] Failed to update customer", error);
     return undefined;
   }
+}
+
+export async function updateCustomerIdentityDetails(
+  id: string,
+  identity: CustomerIdentityInput,
+) {
+  const payload = await fetchSupabaseApi<{ row: SupabaseCustomerRow | null }>(
+    "/api/admin/customers",
+    {
+      body: { id, identity },
+      method: "PATCH",
+    },
+  );
+
+  return payload.row;
 }
 
 export async function updateCustomerArchiveStatus(

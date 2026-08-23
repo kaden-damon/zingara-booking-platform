@@ -73,11 +73,17 @@ import {
 } from "../../lib/supabase/communicationTemplates";
 import { syncCorporateRequestCommunications } from "../../lib/supabase/communications";
 import {
-  getCustomers,
+  getCustomerCrmRecordsFromRows,
   saveCustomers,
+  updateCustomerIdentityDetails,
   updateCustomerArchiveStatus,
   upsertCustomerFromInfo,
 } from "../../lib/supabase/customers";
+import {
+  deriveCustomerNameParts,
+  classifyCustomerName,
+  getCustomerNameStatusLabel,
+} from "../../lib/customerNameStatus";
 import {
   getCorporateRequests,
   saveCorporateRequests as persistCorporateRequests,
@@ -254,6 +260,7 @@ type LoginForm = {
   password: string;
   username: string;
 };
+type CustomerDataLoadStatus = "idle" | "loading" | "loaded" | "error";
 type TicketValidationResult = {
   booking?: DemoBooking;
   guestTicket?: GuestTicket;
@@ -311,6 +318,7 @@ type CustomerProfile = {
   addOns: { count: number; name: string; revenue: number }[];
   attendanceCount: number;
   attendanceFrequency: number;
+  customerId?: string;
   bookingHistory: DemoBooking[];
   communicationHistory: {
     bookingReference: string;
@@ -569,6 +577,13 @@ type AnalyticsSectionId =
   | "customer-value";
 type BookingArchiveFilter = "active" | "all" | "archived";
 type CustomerArchiveFilter = "active" | "all" | "archived";
+type CustomerNameStatusFilter = "all" | "complete" | "incomplete";
+type CustomerIdentityFormState = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  mobile: string;
+};
 type BookingViewMode = "grid" | "list";
 type FloorZoneFilter = SeatingZoneId | "all";
 type OperationsTab =
@@ -8863,13 +8878,95 @@ function getLiveCustomerName(customer: LiveCustomerRecord) {
 }
 
 function getLiveCustomerKey(customer: LiveCustomerRecord) {
+  const preferencesKey = normalizeCustomerValue(
+    customer.preferences?.customerKey,
+  );
+
   return (
-    customer.preferences?.customerKey ??
-    customer.email?.trim().toLowerCase() ??
-    normalizeCustomerPhone(customer.mobile) ??
-    getLiveCustomerName(customer).toLowerCase() ??
+    preferencesKey ||
+    normalizeCustomerValue(customer.email) ||
+    normalizeCustomerPhone(customer.mobile) ||
+    normalizeCustomerValue(getLiveCustomerName(customer)) ||
     customer.id
   );
+}
+
+function getCustomerProfileSelectionId(profile: CustomerProfile) {
+  return profile.customerId
+    ? `customer:${profile.customerId}`
+    : `snapshot:${profile.key}`;
+}
+
+type LiveCustomerResolutionInput = {
+  customer: {
+    email?: string;
+    key?: string;
+    phone?: string;
+  };
+  records?: LiveCustomerRecord[];
+};
+
+function resolveLiveCustomer(input: LiveCustomerResolutionInput) {
+  const email = normalizeCustomerValue(input.customer.email);
+  const phone = normalizeCustomerPhone(input.customer.phone);
+  const key = input.customer.key;
+  const records = input.records ?? [];
+  const normalizedKey = normalizeCustomerValue(key);
+
+  const deterministicCustomer = normalizedKey
+    ? records.find(
+        (record) =>
+          normalizeCustomerValue(record.preferences?.customerKey) ===
+          normalizedKey,
+      )
+    : undefined;
+
+  const keyEmailMatch = deterministicCustomer
+    ? undefined
+    : normalizedKey && normalizedKey.includes("@")
+      ? records.find(
+          (record) =>
+            normalizeCustomerValue(record.email) === normalizedKey,
+        )
+      : undefined;
+
+  const keyPhoneMatch = deterministicCustomer || keyEmailMatch ? undefined : key
+    ? records.find((record) => normalizeCustomerPhone(record.mobile) === normalizeCustomerPhone(key))
+    : undefined;
+
+  if (deterministicCustomer) {
+    return deterministicCustomer;
+  }
+
+  if (keyEmailMatch) {
+    return keyEmailMatch;
+  }
+
+  if (keyPhoneMatch) {
+    return keyPhoneMatch;
+  }
+
+  const emailMatches = email
+    ? records.filter(
+        (record) => normalizeCustomerValue(record.email) === email,
+      )
+    : [];
+
+  if (emailMatches.length === 1) {
+    return emailMatches[0];
+  }
+
+  const phoneMatches = phone
+    ? records.filter(
+        (record) => normalizeCustomerPhone(record.mobile) === phone,
+      )
+    : [];
+
+  if (phoneMatches.length === 1) {
+    return phoneMatches[0];
+  }
+
+  return null;
 }
 
 function isLiveCustomerArchived(customer: LiveCustomerRecord | null | undefined) {
@@ -8877,23 +8974,19 @@ function isLiveCustomerArchived(customer: LiveCustomerRecord | null | undefined)
 }
 
 async function loadLiveCustomerRecords() {
-  try {
-    const response = await fetch("/api/admin/customers", {
-      cache: "no-store",
-    });
+  const response = await fetch("/api/admin/customers", {
+    cache: "no-store",
+  });
 
-    if (!response.ok) {
-      return [] as LiveCustomerRecord[];
-    }
-
-    const payload = (await response.json()) as {
-      rows?: LiveCustomerRecord[];
-    };
-
-    return payload.rows ?? [];
-  } catch {
-    return [] as LiveCustomerRecord[];
+  if (!response.ok) {
+    throw new Error(`Customer records request failed (${response.status}).`);
   }
+
+  const payload = (await response.json()) as {
+    rows?: LiveCustomerRecord[];
+  };
+
+  return payload.rows ?? [];
 }
 
 function getStoredNotificationPreferences() {
@@ -9056,6 +9149,9 @@ export default function AdminDashboardPage() {
   const [liveCustomerRecords, setLiveCustomerRecords] = useState<
     LiveCustomerRecord[]
   >([]);
+  const [customerDataLoadStatus, setCustomerDataLoadStatus] =
+    useState<CustomerDataLoadStatus>("idle");
+  const [customerDataLoadError, setCustomerDataLoadError] = useState("");
   const [waitlist, setWaitlist] = useState<DemoWaitlistEntry[]>(
     [],
   );
@@ -9064,6 +9160,21 @@ export default function AdminDashboardPage() {
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerArchiveFilter, setCustomerArchiveFilter] =
     useState<CustomerArchiveFilter>("active");
+  const [customerNameStatusFilter, setCustomerNameStatusFilter] =
+    useState<CustomerNameStatusFilter>("all");
+  const [editingCustomerIdentityId, setEditingCustomerIdentityId] =
+    useState<string | null>(null);
+  const [customerIdentityForm, setCustomerIdentityForm] =
+    useState<CustomerIdentityFormState>({
+      email: "",
+      firstName: "",
+      lastName: "",
+      mobile: "",
+    });
+  const [customerIdentityError, setCustomerIdentityError] =
+    useState("");
+  const [isCustomerIdentitySaving, setIsCustomerIdentitySaving] =
+    useState(false);
   const [selectedCustomerKey, setSelectedCustomerKey] = useState<
     string | null
   >(null);
@@ -9102,6 +9213,7 @@ export default function AdminDashboardPage() {
   const [venueSettings, setVenueSettings] =
     useState<DemoVenueSettings>(defaultVenueSettings);
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [isSessionRestoring, setIsSessionRestoring] = useState(true);
   const [selectedTemplateId, setSelectedTemplateId] = useState(
     defaultCommunicationTemplates[0]?.id ?? "",
   );
@@ -9489,6 +9601,7 @@ export default function AdminDashboardPage() {
     username: "",
   });
   const [loginError, setLoginError] = useState("");
+  const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [isPasswordResetOpen, setIsPasswordResetOpen] = useState(false);
   const [passwordResetEmail, setPasswordResetEmail] = useState("");
@@ -9670,12 +9783,46 @@ export default function AdminDashboardPage() {
     setShowCustomerRecordComparison,
   ] = useState(false);
   const handledAdminDeepLinkRef = useRef("");
+  const liveCustomerLoadRequestRef = useRef(0);
+  const sessionRestoreRequestRef = useRef(0);
+
+  async function refreshLiveCustomerRecords() {
+    const requestId = liveCustomerLoadRequestRef.current + 1;
+    liveCustomerLoadRequestRef.current = requestId;
+    setCustomerDataLoadStatus("loading");
+    setCustomerDataLoadError("");
+
+    try {
+      const records = await loadLiveCustomerRecords();
+
+      if (requestId !== liveCustomerLoadRequestRef.current) {
+        return records;
+      }
+
+      setLiveCustomerRecords(records);
+      setCustomerCrmRecords(getCustomerCrmRecordsFromRows(records));
+      setCustomerDataLoadStatus("loaded");
+      return records;
+    } catch (error) {
+      console.error("[Zingara admin] Failed to load customer records", error);
+
+      if (requestId !== liveCustomerLoadRequestRef.current) {
+        return null;
+      }
+
+      setCustomerDataLoadError(
+        "Customer records could not be loaded. Try again.",
+      );
+      setCustomerDataLoadStatus("error");
+      return null;
+    }
+  }
 
   useEffect(() => {
     let isMounted = true;
     let activeAdminSession: AdminSession | null = null;
 
-    async function loadAdminData() {
+    async function loadAdminData(options: { sessionValidated?: boolean } = {}) {
       if (!activeAdminSession) {
         return;
       }
@@ -9683,18 +9830,23 @@ export default function AdminDashboardPage() {
       setIsShowsLoading(true);
       setShowLoadError("");
 
-      const nextAdminSession = await getSupabaseAdminSession();
+      if (!options.sessionValidated) {
+        const nextAdminSession = await getSupabaseAdminSession();
 
-      if (!isMounted) {
-        return;
+        if (!isMounted) {
+          return;
+        }
+
+        activeAdminSession = nextAdminSession;
+        setCurrentStaff(nextAdminSession);
+
+        if (!nextAdminSession) {
+          setIsShowsLoading(false);
+          return;
+        }
       }
 
-      activeAdminSession = nextAdminSession;
-      setCurrentStaff(nextAdminSession);
-
-      if (!nextAdminSession) {
-        return;
-      }
+      const customerRecordsRequest = refreshLiveCustomerRecords();
 
       try {
         const [
@@ -9702,8 +9854,6 @@ export default function AdminDashboardPage() {
           nextBookings,
           nextCorporateRequests,
           nextCommunicationTemplates,
-          nextCustomerCrm,
-          nextLiveCustomers,
           nextVenueSettings,
           nextWaitlist,
           nextStaffProfiles,
@@ -9717,14 +9867,13 @@ export default function AdminDashboardPage() {
           getBookings(),
           getCorporateRequests(),
           getTemplates(),
-          getCustomers(),
-          loadLiveCustomerRecords(),
           getVenueSettings(),
           getWaitlistEntries(),
           getStaffProfiles(),
           getAvailableRoles(),
           getPayments(),
         ]);
+        await customerRecordsRequest;
         const nextShows = nextShowPayload.shows;
         const nextTables =
           nextShowPayload.tablesLoaded
@@ -9769,8 +9918,6 @@ export default function AdminDashboardPage() {
         setBookings(nextBookings);
         setCorporateRequests(nextCorporateRequests);
         setCommunicationTemplates(nextCommunicationTemplates);
-        setCustomerCrmRecords(nextCustomerCrm);
-        setLiveCustomerRecords(nextLiveCustomers);
         setVenueSettings(nextVenueSettings);
         setWaitlist(nextWaitlist);
         setTables(nextTables);
@@ -9789,18 +9936,49 @@ export default function AdminDashboardPage() {
     }
 
     async function restoreAdminSession() {
-      const nextAdminSession = await getSupabaseAdminSession();
+      const requestId = sessionRestoreRequestRef.current + 1;
+      sessionRestoreRequestRef.current = requestId;
+      setIsSessionRestoring(true);
 
-      if (!isMounted) {
-        return;
-      }
+      try {
+        const nextAdminSession = await getSupabaseAdminSession();
 
-      activeAdminSession = nextAdminSession;
-      setCurrentStaff(nextAdminSession);
-      setHasHydrated(true);
+        if (
+          !isMounted ||
+          requestId !== sessionRestoreRequestRef.current
+        ) {
+          return;
+        }
 
-      if (nextAdminSession) {
-        void loadAdminData();
+        activeAdminSession = nextAdminSession;
+        setCurrentStaff(nextAdminSession);
+
+        if (nextAdminSession) {
+          void loadAdminData({ sessionValidated: true });
+        } else {
+          liveCustomerLoadRequestRef.current += 1;
+          setLiveCustomerRecords([]);
+          setCustomerDataLoadStatus("idle");
+          setCustomerDataLoadError("");
+        }
+      } catch (error) {
+        console.error("[Zingara admin] Failed to restore staff session", error);
+
+        if (
+          isMounted &&
+          requestId === sessionRestoreRequestRef.current
+        ) {
+          activeAdminSession = null;
+          setCurrentStaff(null);
+        }
+      } finally {
+        if (
+          isMounted &&
+          requestId === sessionRestoreRequestRef.current
+        ) {
+          setHasHydrated(true);
+          setIsSessionRestoring(false);
+        }
       }
     }
 
@@ -9808,7 +9986,22 @@ export default function AdminDashboardPage() {
       void loadAdminData();
     }
 
-    function reloadAdminSession() {
+    function reloadAdminSession(event?: Event) {
+      const validatedSession =
+        event instanceof CustomEvent
+          ? (event.detail as { session?: AdminSession } | null)?.session
+          : undefined;
+
+      if (validatedSession) {
+        sessionRestoreRequestRef.current += 1;
+        activeAdminSession = validatedSession;
+        setCurrentStaff(validatedSession);
+        setHasHydrated(true);
+        setIsSessionRestoring(false);
+        void loadAdminData({ sessionValidated: true });
+        return;
+      }
+
       void restoreAdminSession();
     }
 
@@ -12010,29 +12203,44 @@ export default function AdminDashboardPage() {
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const authEmail = loginForm.username.trim();
-    const result = await signInAdmin(authEmail, loginForm.password);
-
-    if (!result.user) {
-      setLoginError(result.error || "Invalid admin credentials.");
+    if (isLoginSubmitting) {
       return;
     }
 
-    const nextSession = await getSupabaseAdminSession();
-
-    if (!nextSession) {
-      await signOutAdmin();
-      setLoginError("No active staff profile is linked to this user.");
-      return;
-    }
-
-    window.dispatchEvent(new Event(adminAuthChangedEvent));
-    setCurrentStaff(nextSession);
+    setIsLoginSubmitting(true);
     setLoginError("");
-    setLoginForm({
-      password: "",
-      username: "",
-    });
+
+    try {
+      const authEmail = loginForm.username.trim();
+      const result = await signInAdmin(authEmail, loginForm.password);
+
+      if (!result.user) {
+        setLoginError(result.error || "Invalid admin credentials.");
+        return;
+      }
+
+      const nextSession = await getSupabaseAdminSession();
+
+      if (!nextSession) {
+        await signOutAdmin();
+        setLoginError("No active staff profile is linked to this user.");
+        return;
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(adminAuthChangedEvent, {
+          detail: { session: nextSession },
+        }),
+      );
+      setLoginForm({
+        password: "",
+        username: "",
+      });
+    } catch {
+      setLoginError("Admin login could not be completed. Try again.");
+    } finally {
+      setIsLoginSubmitting(false);
+    }
   }
 
   async function sendPasswordReset(event: FormEvent<HTMLFormElement>) {
@@ -18476,8 +18684,7 @@ export default function AdminDashboardPage() {
       if (dataPortabilityPreview.entity === "bookings") {
         setBookings(await getBookings());
       } else {
-        setCustomerCrmRecords(await getCustomers());
-        setLiveCustomerRecords(await loadLiveCustomerRecords());
+        await refreshLiveCustomerRecords();
       }
 
       setDataPortabilityImportResult(result);
@@ -18570,8 +18777,7 @@ export default function AdminDashboardPage() {
       await Promise.all([
         refreshDataPortabilityHistory(),
         getBookings().then(setBookings),
-        getCustomers().then(setCustomerCrmRecords),
-        loadLiveCustomerRecords().then(setLiveCustomerRecords),
+        refreshLiveCustomerRecords(),
       ]);
       setDataPortabilityImportStatus("Import restore complete.");
       showWorkflowToast("✓ Import restored");
@@ -20202,9 +20408,16 @@ export default function AdminDashboardPage() {
     } = { source: "direct" },
   ) {
     const customerKey = getCustomerKey(customer);
-    const matchedProfile = customerProfiles.find(
-      (profile) => profile.key === customerKey,
-    );
+    const bookingCustomerId = context.bookingReference
+      ? bookings.find(
+          (booking) => booking.reference === context.bookingReference,
+        )?.customerId
+      : undefined;
+    const matchedProfile = bookingCustomerId
+      ? customerProfiles.find(
+          (profile) => profile.customerId === bookingCustomerId,
+        )
+      : customerProfiles.find((profile) => profile.key === customerKey);
 
     console.log("[Zingara CRM] Open Profile clicked", {
       customer,
@@ -20216,7 +20429,11 @@ export default function AdminDashboardPage() {
     });
 
     setCustomerSearch("");
-    setSelectedCustomerKey(customerKey);
+    setSelectedCustomerKey(
+      matchedProfile
+        ? getCustomerProfileSelectionId(matchedProfile)
+        : `snapshot:${customerKey}`,
+    );
     setCustomerProfileReturnContext(context);
     setActiveAdminTab("customers");
 
@@ -20267,6 +20484,310 @@ export default function AdminDashboardPage() {
             record.customerKey === customerKey ? nextRecord : record,
           )
         : [...customerCrmRecords, nextRecord],
+    );
+  }
+
+  function getLiveCustomerForProfile(profile: CustomerProfile) {
+    if (profile.customerId) {
+      return (
+        liveCustomerRecords.find(
+          (record) => record.id === profile.customerId,
+        ) ?? null
+      );
+    }
+
+    return (
+      resolveLiveCustomer({
+        customer: {
+          email: profile.customer.email,
+          key: profile.key,
+          phone: profile.customer.phone,
+        },
+        records: liveCustomerRecords,
+      }) ?? null
+    );
+  }
+
+  function getLiveCustomerForBooking(booking: DemoBooking) {
+    if (booking.customerId) {
+      return (
+        liveCustomerRecords.find(
+          (record) => record.id === booking.customerId,
+        ) ?? null
+      );
+    }
+
+    const bookingKey = getCustomerKey(booking.customer);
+
+    return (
+      resolveLiveCustomer({
+        customer: {
+          email: booking.customer.email,
+          key: bookingKey,
+          phone: booking.customer.phone,
+        },
+        records: liveCustomerRecords,
+      }) ?? null
+    );
+  }
+
+  function getCustomerProfileNameStatus(profile: CustomerProfile) {
+    const liveCustomer = getLiveCustomerForProfile(profile);
+    const liveCustomerNameParts = liveCustomer
+      ? deriveCustomerNameParts({
+          firstName: liveCustomer.first_name,
+          lastName: liveCustomer.surname,
+        })
+      : null;
+
+    return classifyCustomerName({
+      displayName: liveCustomer
+        ? getLiveCustomerName(liveCustomer)
+        : profile.customer.name,
+      firstName: liveCustomerNameParts?.firstName,
+      lastName: liveCustomerNameParts?.lastName,
+    });
+  }
+
+  function beginCustomerIdentityEdit(customerId: string) {
+    const customer = liveCustomerRecords.find(
+      (record) => record.id === customerId,
+    );
+
+    if (!customer) {
+      setEditingCustomerIdentityId(null);
+      setCustomerIdentityError(
+        "The linked customer record is no longer available.",
+      );
+      populateCustomerIdentityForm(null);
+      return;
+    }
+
+    populateCustomerIdentityForm(customer);
+    setEditingCustomerIdentityId(customer.id);
+    setCustomerIdentityError("");
+  }
+
+  function populateCustomerIdentityForm(customer: LiveCustomerRecord | null) {
+    const nameParts = customer
+      ? deriveCustomerNameParts({
+          firstName: customer.first_name,
+          lastName: customer.surname,
+        })
+      : null;
+
+    setCustomerIdentityForm({
+      email: customer?.email ?? "",
+      firstName: nameParts?.firstName ?? "",
+      lastName: nameParts?.lastName ?? "",
+      mobile: customer?.mobile ?? "",
+    });
+  }
+
+  function cancelCustomerIdentityEdit() {
+    setEditingCustomerIdentityId(null);
+    setCustomerIdentityError("");
+    populateCustomerIdentityForm(null);
+  }
+
+  async function saveCustomerIdentityDetails() {
+    if (!editingCustomerIdentityId || !canManageBookings) {
+      return;
+    }
+
+    const firstName = customerIdentityForm.firstName.trim();
+
+    if (!firstName) {
+      setCustomerIdentityError("First name is required.");
+      return;
+    }
+
+    setIsCustomerIdentitySaving(true);
+    setCustomerIdentityError("");
+
+    try {
+      const updatedCustomer = await updateCustomerIdentityDetails(
+        editingCustomerIdentityId,
+        {
+          email: customerIdentityForm.email,
+          firstName,
+          lastName: customerIdentityForm.lastName,
+          mobile: customerIdentityForm.mobile,
+        },
+      );
+
+      if (!updatedCustomer) {
+        throw new Error("Customer details could not be updated.");
+      }
+
+      setLiveCustomerRecords((currentRecords) =>
+        currentRecords.map((record) =>
+          record.id === updatedCustomer.id
+            ? {
+                ...record,
+                email: updatedCustomer.email,
+                first_name: updatedCustomer.first_name,
+                mobile: updatedCustomer.mobile,
+                preferences: updatedCustomer.preferences,
+                relationship_notes: updatedCustomer.relationship_notes,
+                surname: updatedCustomer.surname,
+              }
+            : record,
+        ),
+      );
+      setBookings(await getBookings());
+      await refreshLiveCustomerRecords();
+      setSelectedCustomerKey(`customer:${updatedCustomer.id}`);
+      cancelCustomerIdentityEdit();
+      showWorkflowToast("✓ Customer details updated");
+    } catch (error) {
+      setCustomerIdentityError(
+        error instanceof Error
+          ? error.message
+          : "Customer details could not be updated.",
+      );
+    } finally {
+      setIsCustomerIdentitySaving(false);
+    }
+  }
+
+  function renderCustomerIdentityEditor(customer: LiveCustomerRecord) {
+    const isEditing = editingCustomerIdentityId === customer.id;
+    const nameStatus = classifyCustomerName({
+      displayName: getLiveCustomerName(customer),
+      firstName: customer.first_name,
+      lastName: customer.surname,
+    });
+
+    if (!isEditing) {
+      return (
+        <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                Customer Details
+              </p>
+              <p className="mt-2 text-sm text-zinc-300">
+                {getCustomerNameStatusLabel(nameStatus)}
+              </p>
+            </div>
+            {canManageBookings && (
+              <button
+                type="button"
+                onClick={() => beginCustomerIdentityEdit(customer.id)}
+                className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+              >
+                Edit Customer Details
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/10 p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+              Edit Customer Details
+            </p>
+            <p className="mt-1 text-sm text-zinc-300">
+              Updates the linked customer profile used by Admin booking views.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={cancelCustomerIdentityEdit}
+            disabled={isCustomerIdentitySaving}
+            className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-200 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label>
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+              First Name
+            </span>
+            <input
+              value={customerIdentityForm.firstName}
+              onChange={(event) =>
+                setCustomerIdentityForm((currentForm) => ({
+                  ...currentForm,
+                  firstName: event.target.value,
+                }))
+              }
+              disabled={isCustomerIdentitySaving}
+              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+          </label>
+          <label>
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+              Last Name
+            </span>
+            <input
+              value={customerIdentityForm.lastName}
+              onChange={(event) =>
+                setCustomerIdentityForm((currentForm) => ({
+                  ...currentForm,
+                  lastName: event.target.value,
+                }))
+              }
+              disabled={isCustomerIdentitySaving}
+              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+          </label>
+          <label>
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+              Email
+            </span>
+            <input
+              autoComplete="email"
+              type="email"
+              value={customerIdentityForm.email}
+              onChange={(event) =>
+                setCustomerIdentityForm((currentForm) => ({
+                  ...currentForm,
+                  email: event.target.value,
+                }))
+              }
+              disabled={isCustomerIdentitySaving}
+              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+          </label>
+          <label>
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+              Mobile
+            </span>
+            <input
+              autoComplete="tel"
+              value={customerIdentityForm.mobile}
+              onChange={(event) =>
+                setCustomerIdentityForm((currentForm) => ({
+                  ...currentForm,
+                  mobile: event.target.value,
+                }))
+              }
+              disabled={isCustomerIdentitySaving}
+              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+          </label>
+        </div>
+        {customerIdentityError && (
+          <p className="mt-3 text-sm font-semibold text-red-200">
+            {customerIdentityError}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => void saveCustomerIdentityDetails()}
+          disabled={isCustomerIdentitySaving}
+          className="mt-4 rounded-full border border-emerald-300/40 px-5 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-100 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isCustomerIdentitySaving ? "Saving..." : "Save Changes"}
+        </button>
+      </div>
     );
   }
 
@@ -20357,7 +20878,7 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    setLiveCustomerRecords(await loadLiveCustomerRecords());
+    await refreshLiveCustomerRecords();
     showWorkflowToast(
       archived ? "✓ Customer archived" : "✓ Customer restored",
     );
@@ -21663,21 +22184,19 @@ export default function AdminDashboardPage() {
       ? (convertedWaitlistCount / waitlistTotal) * 100
       : 0;
   const customerProfiles = (() => {
-    const liveCustomersByKey = new Map(
-      liveCustomerRecords.map((customer) => [
-        getLiveCustomerKey(customer),
-        customer,
-      ]),
-    );
-    const profilesByKey = bookings.reduce(
+    const profilesByIdentity = bookings.reduce(
       (profiles, booking) => {
         const customerKey = getCustomerKey(booking.customer);
-        const existingProfile = profiles[customerKey] ?? {
+        const profileIdentity = booking.customerId
+          ? `customer:${booking.customerId}`
+          : `snapshot:${customerKey}`;
+        const existingProfile = profiles[profileIdentity] ?? {
           addOns: [],
           attendanceCount: 0,
           attendanceFrequency: 0,
           bookingHistory: [],
           communicationHistory: [],
+          customerId: booking.customerId,
           customer: booking.customer,
           favouriteZone: "No favourite yet",
           key: customerKey,
@@ -21689,8 +22208,9 @@ export default function AdminDashboardPage() {
           waitlistEntries: [],
         };
 
-        profiles[customerKey] = {
+        profiles[profileIdentity] = {
           ...existingProfile,
+          customerId: existingProfile.customerId ?? booking.customerId,
           bookingHistory: [...existingProfile.bookingHistory, booking],
           communicationHistory: [
             ...existingProfile.communicationHistory,
@@ -21715,17 +22235,29 @@ export default function AdminDashboardPage() {
 
     for (const liveCustomer of liveCustomerRecords) {
       const customerKey = getLiveCustomerKey(liveCustomer);
+      const profileIdentity = `customer:${liveCustomer.id}`;
 
-      if (profilesByKey[customerKey]) {
+      if (profilesByIdentity[profileIdentity]) {
+        profilesByIdentity[profileIdentity] = {
+          ...profilesByIdentity[profileIdentity],
+          customerId: liveCustomer.id,
+          customer: {
+            email: liveCustomer.email ?? "",
+            name: getLiveCustomerName(liveCustomer),
+            phone: liveCustomer.mobile ?? "",
+          },
+          key: customerKey,
+        };
         continue;
       }
 
-      profilesByKey[customerKey] = {
+      profilesByIdentity[profileIdentity] = {
         addOns: [],
         attendanceCount: 0,
         attendanceFrequency: 0,
         bookingHistory: [],
         communicationHistory: [],
+        customerId: liveCustomer.id,
         customer: {
           email: liveCustomer.email ?? "",
           name: getLiveCustomerName(liveCustomer),
@@ -21742,20 +22274,8 @@ export default function AdminDashboardPage() {
       };
     }
 
-    return Object.values(profilesByKey).map((profile) => {
-      const profileEmail = normalizeCustomerValue(profile.customer.email);
-      const profilePhone = normalizeCustomerPhone(profile.customer.phone);
-      const liveCustomer =
-        liveCustomersByKey.get(profile.key) ??
-        liveCustomerRecords.find((record) => {
-          const liveEmail = normalizeCustomerValue(record.email);
-          const livePhone = normalizeCustomerPhone(record.mobile);
-
-          return (
-            (!!profileEmail && liveEmail === profileEmail) ||
-            (!!profilePhone && livePhone === profilePhone)
-          );
-        });
+    return Object.values(profilesByIdentity).map((profile) => {
+      const liveCustomer = getLiveCustomerForProfile(profile);
       const activeBookings = profile.bookingHistory.filter(
       (booking) => (booking.status ?? "confirmed") !== "cancelled",
     );
@@ -21881,56 +22401,79 @@ export default function AdminDashboardPage() {
         secondProfile.totalSpend - firstProfile.totalSpend,
     );
   })();
-  const activeCustomerCount = customerProfiles.filter(
-    (profile) => !profile.archivedAt,
-  ).length;
-  const archivedCustomerCount = customerProfiles.length - activeCustomerCount;
+  const hasLoadedLiveCustomerRecords = customerDataLoadStatus === "loaded";
+  const activeCustomerCount = hasLoadedLiveCustomerRecords
+    ? customerProfiles.filter((profile) => !profile.archivedAt).length
+    : 0;
+  const archivedCustomerCount = hasLoadedLiveCustomerRecords
+    ? customerProfiles.length - activeCustomerCount
+    : 0;
+  const incompleteCustomerNameCount = hasLoadedLiveCustomerRecords
+    ? customerProfiles.filter((profile) => {
+        if (profile.archivedAt) {
+          return false;
+        }
+
+        return !getCustomerProfileNameStatus(profile).isComplete;
+      }).length
+    : 0;
   const customerSearchTerm = customerSearch.trim().toLowerCase();
-  const filteredCustomerProfiles = customerProfiles.filter((profile) => {
-    if (customerArchiveFilter === "active" && profile.archivedAt) {
-      return false;
-    }
+  const filteredCustomerProfiles = hasLoadedLiveCustomerRecords
+    ? customerProfiles.filter((profile) => {
+        if (customerArchiveFilter === "active" && profile.archivedAt) {
+          return false;
+        }
 
-    if (customerArchiveFilter === "archived" && !profile.archivedAt) {
-      return false;
-    }
+        if (customerArchiveFilter === "archived" && !profile.archivedAt) {
+          return false;
+        }
 
-    if (!customerSearchTerm) {
-      return true;
-    }
+        const nameStatus = getCustomerProfileNameStatus(profile);
 
-    return (
-      (profile.customer.name ?? "").toLowerCase().includes(customerSearchTerm) ||
-      (profile.customer.email ?? "").toLowerCase().includes(customerSearchTerm) ||
-      (profile.customer.phone ?? "").toLowerCase().includes(customerSearchTerm) ||
-      (profile.favouriteZone ?? "").toLowerCase().includes(customerSearchTerm) ||
-      profile.vipTags.some((tag) =>
-        tag.toLowerCase().includes(customerSearchTerm),
-      )
-    );
-  });
-  const selectedCustomerProfile =
-    customerProfiles.find(
-      (profile) => profile.key === selectedCustomerKey,
-    ) ?? null;
-  const selectedLiveCustomerRecord = selectedCustomerProfile
-    ? liveCustomerRecords.find((record) => {
-        const liveKey = getLiveCustomerKey(record);
-        const liveEmail = normalizeCustomerValue(record.email);
-        const livePhone = normalizeCustomerPhone(record.mobile);
-        const snapshotEmail = normalizeCustomerValue(
-          selectedCustomerProfile.customer.email,
-        );
-        const snapshotPhone = normalizeCustomerPhone(
-          selectedCustomerProfile.customer.phone,
-        );
+        if (
+          customerNameStatusFilter === "complete" &&
+          !nameStatus.isComplete
+        ) {
+          return false;
+        }
+
+        if (
+          customerNameStatusFilter === "incomplete" &&
+          nameStatus.isComplete
+        ) {
+          return false;
+        }
+
+        if (!customerSearchTerm) {
+          return true;
+        }
 
         return (
-          liveKey === selectedCustomerProfile.key ||
-          (!!snapshotEmail && liveEmail === snapshotEmail) ||
-          (!!snapshotPhone && livePhone === snapshotPhone)
+          (profile.customer.name ?? "")
+            .toLowerCase()
+            .includes(customerSearchTerm) ||
+          (profile.customer.email ?? "")
+            .toLowerCase()
+            .includes(customerSearchTerm) ||
+          (profile.customer.phone ?? "")
+            .toLowerCase()
+            .includes(customerSearchTerm) ||
+          (profile.favouriteZone ?? "")
+            .toLowerCase()
+            .includes(customerSearchTerm) ||
+          profile.vipTags.some((tag) =>
+            tag.toLowerCase().includes(customerSearchTerm),
+          )
         );
-      }) ?? null
+      })
+    : [];
+  const selectedCustomerProfile =
+    customerProfiles.find(
+      (profile) =>
+        getCustomerProfileSelectionId(profile) === selectedCustomerKey,
+    ) ?? null;
+  const selectedLiveCustomerRecord = selectedCustomerProfile
+    ? getLiveCustomerForProfile(selectedCustomerProfile)
     : null;
   const selectedLiveCustomerDisplay = selectedLiveCustomerRecord
     ? {
@@ -21953,6 +22496,36 @@ export default function AdminDashboardPage() {
     selectedLiveCustomerDisplay && !selectedCustomerRecordDiffers
       ? "Live Customer Record"
       : "Booking Snapshot";
+
+  useEffect(() => {
+    const expandedBooking = bookings.find(
+      (booking) => booking.reference === expandedBookingReference,
+    );
+    const activeCustomerIdentityRecord =
+      activeAdminTab === "customers"
+        ? selectedLiveCustomerRecord
+        : expandedBooking
+          ? getLiveCustomerForBooking(expandedBooking)
+          : null;
+
+    if (
+      !editingCustomerIdentityId ||
+      editingCustomerIdentityId === activeCustomerIdentityRecord?.id
+    ) {
+      return;
+    }
+
+    setEditingCustomerIdentityId(null);
+    setCustomerIdentityError("");
+    populateCustomerIdentityForm(null);
+  }, [
+    activeAdminTab,
+    selectedLiveCustomerRecord,
+    expandedBookingReference,
+    bookings,
+    editingCustomerIdentityId,
+  ]);
+
   const topCustomerProfiles = customerProfiles
     .filter((profile) => !profile.archivedAt)
     .slice(0, 4);
@@ -22849,7 +23422,7 @@ export default function AdminDashboardPage() {
     </section>
   );
 
-  if (!hasHydrated) {
+  if (!hasHydrated || isSessionRestoring) {
     return (
       <main className="relative isolate z-10 flex min-h-screen items-center justify-center bg-black px-4 py-10 text-white sm:px-6 sm:py-16">
         <section className="relative z-10 w-full max-w-3xl rounded-[1.5rem] border border-[#8D7A2F]/40 bg-[radial-gradient(circle_at_top,#2A1A0D_0%,#101010_46%,#050505_100%)] p-5 text-center shadow-2xl shadow-[#8D7A2F]/10 sm:rounded-[2rem] sm:p-8">
@@ -22867,6 +23440,9 @@ export default function AdminDashboardPage() {
             Staff Access
           </p>
           <div className="mx-auto mt-8 h-10 w-10 animate-spin rounded-full border-2 border-[#D8C36A]/30 border-t-[#D8C36A]" />
+          <p className="mt-4 text-sm text-zinc-400">
+            Validating your staff session...
+          </p>
         </section>
       </main>
     );
@@ -22960,6 +23536,7 @@ export default function AdminDashboardPage() {
                 </span>
                 <input
                   value={loginForm.username}
+                  disabled={isLoginSubmitting}
                   onChange={(event) =>
                     setLoginForm((currentForm) => ({
                       ...currentForm,
@@ -22979,6 +23556,7 @@ export default function AdminDashboardPage() {
                   <input
                     type={showLoginPassword ? "text" : "password"}
                     value={loginForm.password}
+                    disabled={isLoginSubmitting}
                     onChange={(event) =>
                       setLoginForm((currentForm) => ({
                         ...currentForm,
@@ -22990,6 +23568,7 @@ export default function AdminDashboardPage() {
                   />
                   <button
                     type="button"
+                    disabled={isLoginSubmitting}
                     aria-label={
                       showLoginPassword ? "Hide Password" : "Show Password"
                     }
@@ -23007,6 +23586,7 @@ export default function AdminDashboardPage() {
               <div className="-mt-1 flex justify-center">
                 <button
                   type="button"
+                  disabled={isLoginSubmitting}
                   onClick={() => {
                     setIsPasswordResetOpen(true);
                     setPasswordResetEmail(loginForm.username.trim());
@@ -23027,9 +23607,13 @@ export default function AdminDashboardPage() {
 
               <button
                 type="submit"
-                className="rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 sm:px-8 sm:py-4 sm:text-lg"
+                disabled={isLoginSubmitting}
+                className="inline-flex items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-60 sm:px-8 sm:py-4 sm:text-lg"
               >
-                Enter Dashboard
+                {isLoginSubmitting && (
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-black/25 border-t-black" />
+                )}
+                {isLoginSubmitting ? "Logging in..." : "Enter Dashboard"}
               </button>
             </form>
           )}
@@ -32222,9 +32806,13 @@ export default function AdminDashboardPage() {
                   ) : (
                     topCustomerProfiles.map((profile) => (
                       <button
-                        key={`analytics-${profile.key}`}
+                        key={`analytics-${getCustomerProfileSelectionId(profile)}`}
                         type="button"
-                        onClick={() => setSelectedCustomerKey(profile.key)}
+                        onClick={() =>
+                          setSelectedCustomerKey(
+                            getCustomerProfileSelectionId(profile),
+                          )
+                        }
                         className="rounded-2xl border border-white/10 bg-zinc-950 p-4 text-left transition hover:border-[#D8C36A]/50 hover:bg-[#1C1408]"
                       >
                         <div className="flex items-center justify-between gap-4">
@@ -32297,9 +32885,24 @@ export default function AdminDashboardPage() {
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   {(
                     [
-                      ["active", `Active ${activeCustomerCount}`],
-                      ["archived", `Archived ${archivedCustomerCount}`],
-                      ["all", `All ${customerProfiles.length}`],
+                      [
+                        "active",
+                        hasLoadedLiveCustomerRecords
+                          ? `Active ${activeCustomerCount}`
+                          : "Active",
+                      ],
+                      [
+                        "archived",
+                        hasLoadedLiveCustomerRecords
+                          ? `Archived ${archivedCustomerCount}`
+                          : "Archived",
+                      ],
+                      [
+                        "all",
+                        hasLoadedLiveCustomerRecords
+                          ? `All ${customerProfiles.length}`
+                          : "All",
+                      ],
                     ] as Array<[CustomerArchiveFilter, string]>
                   ).map(([filter, label]) => (
                     <button
@@ -32309,6 +32912,32 @@ export default function AdminDashboardPage() {
                       className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
                         customerArchiveFilter === filter
                           ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                          : "border-white/15 text-zinc-300 hover:bg-white hover:text-black"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <span className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
+                  {(
+                    [
+                      ["all", "All Names"],
+                      ["complete", "Complete"],
+                      [
+                        "incomplete",
+                        hasLoadedLiveCustomerRecords
+                          ? `Incomplete ${incompleteCustomerNameCount}`
+                          : "Incomplete",
+                      ],
+                    ] as Array<[CustomerNameStatusFilter, string]>
+                  ).map(([filter, label]) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setCustomerNameStatusFilter(filter)}
+                      className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                        customerNameStatusFilter === filter
+                          ? "border-emerald-300 bg-emerald-300 text-black"
                           : "border-white/15 text-zinc-300 hover:bg-white hover:text-black"
                       }`}
                     >
@@ -32325,23 +32954,54 @@ export default function AdminDashboardPage() {
                   Profile Directory
                 </p>
                 <div className="mt-4 grid flex-1 content-start grid-cols-1 gap-3 overflow-y-auto pr-1">
-                  {filteredCustomerProfiles.length === 0 ? (
+                  {customerDataLoadStatus === "idle" ||
+                  customerDataLoadStatus === "loading" ? (
+                    <div className="rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/10 p-5 text-center">
+                      <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[#D8C36A]/30 border-t-[#D8C36A]" />
+                      <p className="mt-3 font-semibold text-[#F2D66C]">
+                        Loading customer profiles...
+                      </p>
+                      <p className="mt-1 text-sm text-zinc-400">
+                        Retrieving the live customer directory.
+                      </p>
+                    </div>
+                  ) : customerDataLoadStatus === "error" ? (
+                    <div className="rounded-2xl border border-red-300/25 bg-red-950/20 p-5 text-center">
+                      <p className="font-semibold text-red-100">
+                        {customerDataLoadError}
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-400">
+                        No customer profiles have been classified from an
+                        incomplete dataset.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void refreshLiveCustomerRecords()}
+                        className="mt-4 rounded-full border border-red-200/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-red-100 transition hover:bg-red-100 hover:text-black"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : filteredCustomerProfiles.length === 0 ? (
                     <p className="rounded-2xl border border-white/10 bg-zinc-950 p-4 text-zinc-400">
                       No customer profiles match that search.
                     </p>
                   ) : (
                     filteredCustomerProfiles.map((profile) => (
                       <button
-                        key={profile.key}
+                        key={getCustomerProfileSelectionId(profile)}
                         type="button"
                         onClick={() => {
-                          setSelectedCustomerKey(profile.key);
+                          setSelectedCustomerKey(
+                            getCustomerProfileSelectionId(profile),
+                          );
                           setCustomerProfileReturnContext({
                             source: "customers",
                           });
                         }}
                         className={`rounded-2xl border p-4 text-left transition ${
-                          selectedCustomerKey === profile.key
+                          selectedCustomerKey ===
+                          getCustomerProfileSelectionId(profile)
                             ? "border-[#D8C36A]/70 bg-[#211708]"
                             : "border-white/10 bg-zinc-950 hover:border-[#D8C36A]/45 hover:bg-[#171109]"
                         }`}
@@ -32355,6 +33015,17 @@ export default function AdminDashboardPage() {
                               {profile.archivedAt && (
                                 <span className="rounded-full border border-zinc-500/40 bg-zinc-900 px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-[0.1em] text-zinc-300">
                                   Archived
+                                </span>
+                              )}
+                              {!getCustomerProfileNameStatus(profile)
+                                .isComplete && (
+                                <span
+                                  title={getCustomerNameStatusLabel(
+                                    getCustomerProfileNameStatus(profile),
+                                  )}
+                                  className="rounded-full border border-amber-300/35 bg-amber-950/30 px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-[0.1em] text-amber-100"
+                                >
+                                  Incomplete Name
                                 </span>
                               )}
                             </div>
@@ -32506,6 +33177,37 @@ export default function AdminDashboardPage() {
                       </div>
                       </div>
                     </div>
+
+                    {customerDataLoadStatus === "idle" ||
+                    customerDataLoadStatus === "loading" ? (
+                      <div className="mt-5 flex items-center gap-3 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/10 p-4 text-sm text-[#F2D66C]">
+                        <span className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-[#D8C36A]/30 border-t-[#D8C36A]" />
+                        Loading customer records...
+                      </div>
+                    ) : customerDataLoadStatus === "error" ? (
+                      <div className="mt-5 rounded-2xl border border-red-300/25 bg-red-950/20 p-4 text-sm text-red-100">
+                        <p>{customerDataLoadError}</p>
+                        <button
+                          type="button"
+                          onClick={() => void refreshLiveCustomerRecords()}
+                          className="mt-3 rounded-full border border-red-200/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition hover:bg-red-100 hover:text-black"
+                        >
+                          Retry Customer Records
+                        </button>
+                      </div>
+                    ) : selectedLiveCustomerRecord ? (
+                      <div className="mt-5">
+                        {renderCustomerIdentityEditor(
+                          selectedLiveCustomerRecord,
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-5 rounded-2xl border border-amber-300/25 bg-amber-950/20 p-4 text-sm text-amber-100">
+                        This profile is not currently linked to a live customer
+                        record. Customer details can be corrected once a linked
+                        customer record is available.
+                      </div>
+                    )}
 
                     {showCustomerRecordComparison &&
                       selectedLiveCustomerDisplay && (
@@ -35731,6 +36433,8 @@ export default function AdminDashboardPage() {
 	                  booking.source === "corporate-direct";
 	                const bookingPerformanceLabel =
 	                  getBookingPerformanceLabel(booking);
+                    const linkedBookingCustomer =
+                      getLiveCustomerForBooking(booking);
 	                const moveTables = tables.filter(
                   (table) =>
                     table.showId === selectedShowId &&
@@ -36618,13 +37322,30 @@ export default function AdminDashboardPage() {
 	                          </div>
 	                        )}
 
-	                        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                        {linkedBookingCustomer ? (
+                          <div className="mt-6 space-y-3">
+                            <div className="rounded-2xl border border-[#D8C36A]/20 bg-[#D8C36A]/10 px-4 py-3 text-sm text-[#F2D66C]">
+                              This booking is linked to a customer profile.
+                              Changes will update the linked customer profile.
+                            </div>
+                            {renderCustomerIdentityEditor(
+                              linkedBookingCustomer,
+                            )}
+                          </div>
+                        ) : (
+	                        <div className="mt-6">
+                            <div className="mb-3 rounded-2xl border border-amber-300/25 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
+                              No linked live customer profile was found. These
+                              fields update this booking snapshot only.
+                            </div>
+                            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
 	                          <label>
                             <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                               Customer Name
                             </span>
                             <input
                               value={booking.customer.name}
+                              disabled={bookingIsReadOnly}
                               onChange={(event) =>
                                 updateBookingCustomer(
                                   booking.reference,
@@ -36632,7 +37353,7 @@ export default function AdminDashboardPage() {
                                   event.target.value,
                                 )
                               }
-                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
+                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
                             />
                           </label>
 
@@ -36642,6 +37363,7 @@ export default function AdminDashboardPage() {
                             </span>
                             <input
                               value={booking.customer.email}
+                              disabled={bookingIsReadOnly}
                               onChange={(event) =>
                                 updateBookingCustomer(
                                   booking.reference,
@@ -36649,7 +37371,7 @@ export default function AdminDashboardPage() {
                                   event.target.value,
                                 )
                               }
-                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
+                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
                             />
                           </label>
 
@@ -36659,6 +37381,7 @@ export default function AdminDashboardPage() {
                             </span>
                             <input
                               value={booking.customer.phone}
+                              disabled={bookingIsReadOnly}
                               onChange={(event) =>
                                 updateBookingCustomer(
                                   booking.reference,
@@ -36666,10 +37389,12 @@ export default function AdminDashboardPage() {
                                   event.target.value,
                                 )
                               }
-                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
+                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
                             />
                           </label>
+                            </div>
                         </div>
+                        )}
 
                         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[220px_1fr_220px]">
                           <label>

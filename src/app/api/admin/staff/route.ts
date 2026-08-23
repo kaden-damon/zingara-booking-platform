@@ -97,13 +97,13 @@ async function getOrCreateSession(
   user: User,
   fallback?: StaffProfileFallback,
 ) {
-  await ensureDefaultRoles(serviceClient);
-
   const existingProfile = await getStaffProfileByUserId(serviceClient, user.id);
 
   if (existingProfile) {
     return existingProfile.active ? staffProfileToSession(existingProfile, user) : null;
   }
+
+  await ensureDefaultRoles(serviceClient);
 
   const { count, error: countError } = await serviceClient
     .from("staff_profiles")

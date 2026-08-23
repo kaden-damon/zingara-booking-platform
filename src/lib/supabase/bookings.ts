@@ -281,6 +281,20 @@ function getCustomerName(
   return fullName || "Imported Guest";
 }
 
+function getDemoCustomerFromCustomerRow(
+  customer?: SupabaseBookingAggregateRow["customer_row"],
+) {
+  if (!customer) {
+    return null;
+  }
+
+  return {
+    email: customer.email ?? "",
+    name: getCustomerName(customer),
+    phone: customer.mobile ?? "",
+  };
+}
+
 function toCommunicationTrigger(
   type: SupabaseCommunicationType,
 ): CommunicationTrigger {
@@ -616,9 +630,14 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
   const metadataBooking = parseBookingNotes(row.notes);
 
   if (metadataBooking) {
+    const authoritativeCustomer = getDemoCustomerFromCustomerRow(
+      row.customer_row,
+    );
     const booking = {
       ...metadataBooking,
       amountPaid: row.amount_paid,
+      customer: authoritativeCustomer ?? metadataBooking.customer,
+      customerId: row.customer_id,
       archivedAt: row.archived_at ?? metadataBooking.archivedAt,
       archivedBy: row.archived_by ?? metadataBooking.archivedBy,
       archiveReason: row.archive_reason ?? metadataBooking.archiveReason,
@@ -650,6 +669,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
   const booking: DemoBooking = {
     addons: [],
     addonsTotal: row.addons_total,
+    customerId: row.customer_id,
     amountPaid: row.amount_paid,
     archivedAt: row.archived_at ?? undefined,
     archivedBy: row.archived_by ?? undefined,
@@ -658,10 +678,10 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     bookingDate: "",
     communicationHistory: [],
     createdAt: row.created_at,
-    customer: {
-      email: row.customer_row?.email ?? "",
-      name: getCustomerName(row.customer_row),
-      phone: row.customer_row?.mobile ?? "",
+    customer: getDemoCustomerFromCustomerRow(row.customer_row) ?? {
+      email: "",
+      name: "Imported Guest",
+      phone: "",
     },
     discountAmount: row.discount_amount,
     lifecycleHistory: [],

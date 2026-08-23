@@ -1,5 +1,6 @@
 import {
   getRequestingUser,
+  getRolePermissions,
   getServiceClient,
   isSuperAdminProfile,
   requireActiveStaff,
@@ -21,6 +22,13 @@ type CustomerWriteInput = {
   preferences?: Partial<CustomerPreferences>;
   relationshipNotes?: string;
   vipTags?: string[];
+};
+
+type CustomerIdentityInput = {
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  mobile?: string;
 };
 
 type CustomerPreferences = {
@@ -46,6 +54,7 @@ type SupabaseCustomerRow = {
 
 const customerSelect =
   "id,first_name,surname,email,mobile,vip_status,preferences,relationship_notes,dietary_requirements,created_at,updated_at";
+const customerQueryBatchSize = 1000;
 const customerAuditFields = [
   "first_name",
   "surname",
@@ -56,6 +65,81 @@ const customerAuditFields = [
   "relationship_notes",
   "dietary_requirements",
 ];
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeOptionalEmail(value: string | null | undefined) {
+  const trimmed = value?.trim().toLowerCase() ?? "";
+
+  return trimmed || null;
+}
+
+function normalizeOptionalText(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+
+  return trimmed || null;
+}
+
+function canManageCustomerIdentity(
+  profile: Awaited<ReturnType<typeof requireActiveStaff>>["staffProfile"],
+) {
+  if (isSuperAdminProfile(profile)) {
+    return true;
+  }
+
+  const role = Array.isArray(profile?.roles)
+    ? profile?.roles[0]
+    : profile?.roles;
+
+  return getRolePermissions(role).includes("bookings:manage");
+}
+
+function toCustomerIdentityPayload(input: CustomerIdentityInput) {
+  const firstName = input.firstName?.trim();
+  const surname = normalizeOptionalText(input.lastName);
+  const email = normalizeOptionalEmail(input.email);
+  const mobile = normalizeOptionalText(input.mobile);
+
+  if (!firstName) {
+    return {
+      error: "First name is required.",
+      payload: null,
+    };
+  }
+
+  if (email && !emailPattern.test(email)) {
+    return {
+      error: "Enter a valid email address.",
+      payload: null,
+    };
+  }
+
+  return {
+    error: null,
+    payload: {
+      email,
+      first_name: firstName,
+      mobile,
+      surname,
+    },
+  };
+}
+
+function getCustomerIdentityKey(payload: {
+  email: string | null;
+  first_name: string;
+  mobile: string | null;
+  surname: string | null;
+}) {
+  const email = payload.email?.trim().toLowerCase();
+  const phone = payload.mobile?.replace(/\D/g, "");
+  const name = [payload.first_name, payload.surname]
+    .filter(Boolean)
+    .join(" ")
+    .trim()
+    .toLowerCase();
+
+  return email || phone || name || "unknown-customer";
+}
 
 async function getAuditActor(request: Request) {
   const auth = await requireActiveStaff(request);
@@ -218,6 +302,61 @@ async function upsertCustomer(
   return data;
 }
 
+async function fetchAllCustomers(
+  serviceClient: NonNullable<ReturnType<typeof getServiceClient>>,
+) {
+  const rows: SupabaseCustomerRow[] = [];
+
+  for (let from = 0; ; from += customerQueryBatchSize) {
+    const { data, error } = await serviceClient
+      .from("customers")
+      .select(customerSelect)
+      .order("updated_at", { ascending: false })
+      .range(from, from + customerQueryBatchSize - 1);
+
+    if (error) {
+      return { error, rows };
+    }
+
+    const batch = (data ?? []) as SupabaseCustomerRow[];
+    rows.push(...batch);
+
+    if (batch.length < customerQueryBatchSize) {
+      return { error: null, rows };
+    }
+  }
+}
+
+async function fetchOtherCustomerMobiles(
+  serviceClient: NonNullable<ReturnType<typeof getServiceClient>>,
+  customerId: string,
+) {
+  const rows: Array<{ id: string; mobile: string | null }> = [];
+
+  for (let from = 0; ; from += customerQueryBatchSize) {
+    const { data, error } = await serviceClient
+      .from("customers")
+      .select("id,mobile")
+      .neq("id", customerId)
+      .order("id", { ascending: true })
+      .range(from, from + customerQueryBatchSize - 1);
+
+    if (error) {
+      return { error, rows };
+    }
+
+    const batch = (data ?? []) as Array<{
+      id: string;
+      mobile: string | null;
+    }>;
+    rows.push(...batch);
+
+    if (batch.length < customerQueryBatchSize) {
+      return { error: null, rows };
+    }
+  }
+}
+
 export async function GET() {
   const serviceClient = getServiceClient();
 
@@ -228,10 +367,7 @@ export async function GET() {
     );
   }
 
-  const { data, error } = await serviceClient
-    .from("customers")
-    .select(customerSelect)
-    .order("updated_at", { ascending: false });
+  const { rows, error } = await fetchAllCustomers(serviceClient);
 
   if (error) {
     console.error("[Zingara API] Failed to load customers", error);
@@ -242,7 +378,7 @@ export async function GET() {
     );
   }
 
-  return Response.json({ rows: data ?? [] });
+  return Response.json({ rows });
 }
 
 export async function POST(request: Request) {
@@ -330,7 +466,167 @@ export async function PATCH(request: Request) {
       archive?: { archived?: boolean; reason?: string };
       id?: string;
       input?: CustomerWriteInput;
+      identity?: CustomerIdentityInput;
     };
+
+    if (body.identity) {
+      if (!body.id) {
+        return Response.json(
+          { error: "Customer id is required." },
+          { status: 400 },
+        );
+      }
+
+      const auth = await requireActiveStaff(request);
+
+      if (auth.error || !auth.staffProfile || !auth.user) {
+        return Response.json(
+          { error: "Active staff authentication is required." },
+          { status: 401 },
+        );
+      }
+
+      if (!canManageCustomerIdentity(auth.staffProfile)) {
+        return Response.json(
+          { error: "Customer edit access is required." },
+          { status: 403 },
+        );
+      }
+
+      const { error: validationError, payload } =
+        toCustomerIdentityPayload(body.identity);
+
+      if (validationError || !payload) {
+        return Response.json(
+          { error: validationError ?? "Customer details are invalid." },
+          { status: 400 },
+        );
+      }
+
+      const { data: beforeCustomer, error: beforeError } = await serviceClient
+        .from("customers")
+        .select(customerSelect)
+        .eq("id", body.id)
+        .maybeSingle();
+
+      if (beforeError) {
+        throw beforeError;
+      }
+
+      if (!beforeCustomer) {
+        return Response.json(
+          { error: "Customer could not be found." },
+          { status: 404 },
+        );
+      }
+
+      if (payload.email) {
+        const { data: emailConflict, error: emailConflictError } =
+          await serviceClient
+            .from("customers")
+            .select("id")
+            .eq("email", payload.email)
+            .neq("id", body.id)
+            .maybeSingle();
+
+        if (emailConflictError) {
+          throw emailConflictError;
+        }
+
+        if (emailConflict) {
+          return Response.json(
+            {
+              error:
+                "Another customer profile already uses this email address.",
+            },
+            { status: 409 },
+          );
+        }
+      }
+
+      if (payload.mobile) {
+        const normalizedMobile = payload.mobile.replace(/\D/g, "");
+        const { rows: mobileRows, error: mobileConflictError } =
+          await fetchOtherCustomerMobiles(serviceClient, body.id);
+
+        if (mobileConflictError) {
+          throw mobileConflictError;
+        }
+
+        const mobileConflict = (mobileRows ?? []).find(
+          (row) => row.mobile?.replace(/\D/g, "") === normalizedMobile,
+        );
+
+        if (mobileConflict) {
+          return Response.json(
+            {
+              error:
+                "Another customer profile already uses this mobile number.",
+            },
+            { status: 409 },
+          );
+        }
+      }
+
+      const previousPreferences =
+        (beforeCustomer as SupabaseCustomerRow).preferences ?? {};
+      const identityUpdate = {
+        ...payload,
+        preferences: {
+          ...previousPreferences,
+          customerKey: getCustomerIdentityKey(payload),
+        },
+      };
+
+      const { data, error } = await serviceClient
+        .from("customers")
+        .update(identityUpdate)
+        .eq("id", body.id)
+        .select(customerSelect)
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      const diff = diffAuditFields(
+        beforeCustomer as Record<string, unknown> | null,
+        data as Record<string, unknown> | null,
+        ["first_name", "surname", "email", "mobile", "preferences"],
+      );
+
+      try {
+        await recordAuditEvent(serviceClient, auth.staffProfile, auth.user, {
+          action: "customer.identity_edit",
+          afterValues: diff.afterValues,
+          beforeValues: diff.beforeValues,
+          changedFields:
+            diff.changedFields.length > 0
+              ? diff.changedFields
+              : ["identity"],
+          entityId: body.id,
+          entityReference:
+            (data as { email?: string | null; mobile?: string | null })?.email ??
+            (data as { mobile?: string | null })?.mobile ??
+            body.id,
+          entityType: "customer",
+          outcome: "success",
+          request,
+          sourceArea: "Customers",
+        });
+      } catch {
+        return Response.json(
+          {
+            auditError:
+              "Customer details were updated, but the audit event could not be recorded.",
+            row: data,
+          },
+          { status: 500 },
+        );
+      }
+
+      return Response.json({ row: data });
+    }
 
     if (body.archive) {
       if (!body.id) {
