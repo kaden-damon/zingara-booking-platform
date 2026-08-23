@@ -18,6 +18,11 @@ import {
   getZoneSectionLookupTitles,
   seatingZones,
 } from "@/lib/zingaraDemo";
+import {
+  enforceCorporateBookingSource,
+  isCorporateBookingSource,
+  isCorporatePartySize,
+} from "@/lib/bookingClassification";
 
 export const dynamic = "force-dynamic";
 
@@ -725,7 +730,10 @@ function buildDemoBooking(row: PreviewRow, show: ShowRow, table: TableRow | null
     refundNotes: "",
     serviceFeeAmount: 0,
     showId: show.id,
-    source: getBooleanValue(values.corporate_flag) ? "corporate-direct" : "admin",
+    source: enforceCorporateBookingSource(
+      partySize,
+      getBooleanValue(values.corporate_flag) ? "corporate-direct" : "admin",
+    ),
     status: bookingStatusMap[normalizeValue(values.booking_status)] ?? "pending-payment",
     subtotalPrice: totalPrice,
     tableId: table?.id ?? tableNumber,
@@ -771,6 +779,27 @@ async function enrichRowsForTransaction(
     }));
   }
 
+  const updateReferences = rows
+    .filter((row) => row.valid && row.action === "Update")
+    .map((row) => row.values.booking_reference?.trim())
+    .filter(Boolean);
+  const existingBookingResult = updateReferences.length
+    ? await serviceClient
+        .from("bookings")
+        .select("booking_reference,booking_source")
+        .in("booking_reference", updateReferences)
+    : { data: [], error: null };
+
+  if (existingBookingResult.error) {
+    throw existingBookingResult.error;
+  }
+
+  const existingBookingSources = new Map(
+    (existingBookingResult.data ?? []).map((booking) => [
+      booking.booking_reference,
+      booking.booking_source,
+    ]),
+  );
   const [{ data: shows, error: showsError }, { data: tables, error: tablesError }] =
     await Promise.all([
       serviceClient.from("shows").select("id,name,date,time,venue,notes"),
@@ -810,6 +839,20 @@ async function enrichRowsForTransaction(
     }
 
     const partySize = Math.max(1, Math.round(getNumericValue(values.number_of_guests, 1)));
+    const existingBookingSource = existingBookingSources.get(
+      values.booking_reference?.trim(),
+    );
+
+    if (
+      row.action === "Update" &&
+      isCorporatePartySize(partySize) &&
+      !isCorporateBookingSource(existingBookingSource)
+    ) {
+      throw new Error(
+        `Row ${row.rowNumber}: a Standard booking cannot be increased to 20 or more guests through import. Classify it as Corporate before importing the update.`,
+      );
+    }
+
     const tableResolution = isDineplanRow
       ? resolveDineplanImportTable(tableRows, row, matchedShow, zone, partySize)
       : {

@@ -1,7 +1,8 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
+import { corporatePartySizeThreshold } from "../../lib/bookingClassification";
 import { getTemplates } from "../../lib/supabase/communicationTemplates";
 import { syncCorporateRequestCommunications } from "../../lib/supabase/communications";
 import { createCorporateRequest } from "../../lib/supabase/corporateRequests";
@@ -159,6 +160,22 @@ export default function CorporateBookingPage() {
   >(null);
   const [calendarMonth, setCalendarMonth] = useState("2026-06");
   const calendarDays = getCalendarDays(calendarMonth);
+
+  useEffect(() => {
+    const requestedGuestCount = Number(
+      new URLSearchParams(window.location.search).get("guests"),
+    );
+
+    if (
+      Number.isInteger(requestedGuestCount) &&
+      requestedGuestCount >= corporatePartySizeThreshold
+    ) {
+      setForm((currentForm) => ({
+        ...currentForm,
+        guestCount: requestedGuestCount,
+      }));
+    }
+  }, []);
 
   function createRequest(
     requestType: CorporateRequest["requestType"],

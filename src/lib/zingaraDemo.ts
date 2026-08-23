@@ -191,6 +191,18 @@ export const defaultVenueSettings: DemoVenueSettings = {
   },
 };
 
+export const venueZoneSeatCapacities = {
+  "elevated-stage": 0,
+  "golden-circle": 148,
+  "middle-ring": 132,
+  "royal-booths": 138,
+  "royal-balcony": 40,
+} as const;
+
+export const totalVenueSeatCapacity = Object.values(
+  venueZoneSeatCapacities,
+).reduce<number>((total, capacity) => total + capacity, 0);
+
 export const seatingZones = [
   {
     id: "elevated-stage",
@@ -207,7 +219,7 @@ export const seatingZones = [
     minGuests: 2,
     maxGuests: 20,
     depositPercentage: 50,
-    totalCapacity: 0,
+    totalCapacity: venueZoneSeatCapacities["elevated-stage"],
     bookedSeats: 0,
   },
   {
@@ -225,7 +237,7 @@ export const seatingZones = [
     minGuests: 2,
     maxGuests: 20,
     depositPercentage: 40,
-    totalCapacity: 86,
+    totalCapacity: venueZoneSeatCapacities["golden-circle"],
     bookedSeats: 0,
   },
   {
@@ -243,7 +255,7 @@ export const seatingZones = [
     minGuests: 2,
     maxGuests: 20,
     depositPercentage: 35,
-    totalCapacity: 90,
+    totalCapacity: venueZoneSeatCapacities["middle-ring"],
     bookedSeats: 0,
   },
   {
@@ -261,7 +273,7 @@ export const seatingZones = [
     minGuests: 2,
     maxGuests: 20,
     depositPercentage: 50,
-    totalCapacity: 114,
+    totalCapacity: venueZoneSeatCapacities["royal-booths"],
     bookedSeats: 0,
   },
   {
@@ -279,7 +291,7 @@ export const seatingZones = [
     minGuests: 2,
     maxGuests: 20,
     depositPercentage: 50,
-    totalCapacity: 20,
+    totalCapacity: venueZoneSeatCapacities["royal-balcony"],
     bookedSeats: 0,
   },
 ] as const;
@@ -1180,12 +1192,14 @@ function createVenueTables(
   tablePrefix: string,
   capacities: number[],
   status: TableStatus = "available",
+  tableNumbers?: number[],
 ) {
   return capacities.map((seatCapacity, index) => {
-    const tableNumber = `${tablePrefix}${index + 1}`;
+    const tableNumberValue = tableNumbers?.[index] ?? index + 1;
+    const tableNumber = `${tablePrefix}${tableNumberValue}`;
 
     return {
-      id: `${zoneId}-${index + 1}`,
+      id: `${zoneId}-${tableNumberValue}`,
       zoneId,
       tableNumber,
       baseSeatCapacity: seatCapacity,
@@ -1207,6 +1221,11 @@ function createVenueTables(
   });
 }
 
+export const privateBoothTableNumbers = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+  14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+] as const;
+
 export const defaultTables: DemoTable[] = [
   ...createVenueTables("elevated-stage", "ES", [4, 6, 8, 12], "disabled"),
   ...createVenueTables(
@@ -1222,13 +1241,19 @@ export const defaultTables: DemoTable[] = [
   ...createVenueTables(
     "royal-booths",
     "B",
-    Array.from({ length: 19 }, () => 6),
+    Array.from({ length: privateBoothTableNumbers.length }, () => 6),
+    "available",
+    [...privateBoothTableNumbers],
   ),
   ...createVenueTables("royal-balcony", "RB", [2, 4, 6, 8]),
 ];
 
 export function getZoneById(zoneId: SeatingZoneId) {
   return seatingZones.find((zone) => zone.id === zoneId);
+}
+
+export function getVenueZoneSeatCapacity(zoneId: SeatingZoneId) {
+  return venueZoneSeatCapacities[zoneId];
 }
 
 export function getDisplayZoneTitle(
@@ -1263,6 +1288,7 @@ export function getZoneSectionLookupTitles(
   const titles = new Set<string>();
   const zone = getZoneById(zoneId);
 
+  titles.add(zoneId);
   if (zone?.title) {
     titles.add(zone.title);
   }

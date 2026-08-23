@@ -1,9 +1,12 @@
 import {
-  defaultTables,
   type DemoShow,
   type EntryLocationKey,
   normalizeShowLocation,
 } from "@/lib/zingaraDemo";
+import {
+  createBaseShowTableInserts,
+  type VenueTableTemplate,
+} from "@/lib/showTableBaseLayout";
 import {
   getAdminRoleFromName,
   requireActiveStaff,
@@ -79,16 +82,6 @@ type CandidateShow = DemoShow & {
 const metadataPrefix = "__zingara_show_meta__:";
 const maxScheduleDays = 370;
 const validDayIndexes = new Set([0, 1, 2, 3, 4, 5, 6]);
-const tableSectionToZoneId: Record<string, string> = {
-  "Elevated Stage": "elevated-stage",
-  "Golden Circle": "golden-circle",
-  "Middle Ring": "middle-ring",
-  "Private Booth": "royal-booths",
-  "Private Booths": "royal-booths",
-  "Royal Balcony": "royal-balcony",
-  "Royal Booths": "royal-booths",
-};
-
 function getStaffRole(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
   const role = Array.isArray(auth.staffProfile?.roles)
     ? auth.staffProfile?.roles[0]
@@ -332,28 +325,10 @@ function createShowTableInserts(
   showId: string,
   venueTables: VenueTableRow[],
 ): ShowTableInsert[] {
-  if (venueTables.length > 0) {
-    return venueTables.map((table) => ({
-      capacity: table.capacity,
-      merged_from: [],
-      override_notes: table.notes,
-      section: tableSectionToZoneId[table.section] ?? table.section,
-      show_id: showId,
-      status: table.base_status === "booked" ? "available" : table.base_status,
-      table_code: table.table_code,
-      venue_table_id: table.id,
-    }));
-  }
-
-  return defaultTables.map((table) => ({
-    capacity: table.seatCapacity,
-    merged_from: [],
-    override_notes: table.guestNotes,
-    section: table.zoneId,
-    show_id: showId,
-    status: table.status === "booked" ? "available" : table.status,
-    table_code: table.tableNumber,
-  }));
+  return createBaseShowTableInserts(
+    showId,
+    venueTables as VenueTableTemplate[],
+  );
 }
 
 function summarize(

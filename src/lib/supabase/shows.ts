@@ -153,6 +153,7 @@ function toSupabaseShow(show: DemoShow): SupabaseShowWrite {
 
 export type ShowsWithTables = {
   shows: DemoShow[];
+  showsLoaded: boolean;
   tables: DemoTable[];
   tablesLoaded: boolean;
 };
@@ -185,13 +186,12 @@ export async function getShowsWithTables(
       shows?: DemoShow[];
       tables?: DemoTable[];
     }>(`/api/admin/shows${queryString ? `?${queryString}` : ""}`);
-    const shows =
-      payload.shows && payload.shows.length > 0
-        ? payload.shows
-        : getStoredDemoShows();
+    const showsLoaded = Array.isArray(payload.shows);
+    const shows = showsLoaded ? payload.shows ?? [] : getStoredDemoShows();
 
     return {
       shows,
+      showsLoaded,
       tables: payload.tables ?? [],
       tablesLoaded: Array.isArray(payload.tables),
     };
@@ -200,6 +200,7 @@ export async function getShowsWithTables(
 
     return {
       shows: getStoredDemoShows(),
+      showsLoaded: false,
       tables: [],
       tablesLoaded: false,
     };
@@ -323,6 +324,29 @@ export async function previewBulkShowSchedule(input: BulkShowScheduleInput) {
 export async function createBulkShowSchedule(input: BulkShowScheduleInput) {
   return fetchSupabaseApi<BulkShowScheduleResult>("/api/admin/shows/bulk", {
     body: { mode: "create", schedule: input },
+    method: "POST",
+  });
+}
+
+export async function createOperationalShowTable(input: {
+  capacity: number;
+  showReference: string;
+  tableCode: string;
+  zoneId: string;
+}) {
+  return fetchSupabaseApi<{ ok: true }>("/api/admin/show-tables", {
+    body: { action: "create", ...input },
+    method: "POST",
+  });
+}
+
+export async function mergeOperationalShowTables(input: {
+  showReference: string;
+  sourceTableCodes: string[];
+  zoneId: string;
+}) {
+  return fetchSupabaseApi<{ ok: true }>("/api/admin/show-tables", {
+    body: { action: "merge", ...input },
     method: "POST",
   });
 }

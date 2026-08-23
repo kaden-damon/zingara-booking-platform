@@ -17,12 +17,16 @@ import {
   bookingAddons,
   getDiscountAmount,
   getDynamicPriceMultiplier,
-  getRemainingSeatsForZone,
+  getRemainingVenueSeatsForZone,
   legacyPromoCodes,
   normalizePromoCode,
   serviceFeeGuestThreshold,
   serviceFeeRate,
 } from "../../lib/pricing";
+import {
+  corporatePartySizeThreshold,
+  isCorporatePartySize,
+} from "../../lib/bookingClassification";
 import {
   getBookingJourneyId,
   trackPlatformEvent,
@@ -214,6 +218,20 @@ const calendarMonths = [
   "November",
   "December",
 ];
+
+function getCurrentCalendarMonth() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    month: "2-digit",
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+
+  return year && month
+    ? `${year}-${month}`
+    : new Date().toISOString().slice(0, 7);
+}
 const bookingCalendarStatusOrder = [
   "special-event",
   "active",
@@ -279,10 +297,9 @@ function isAvailableForParty(
 
 function getRemainingSeats(
   option: SeatingOption,
-  selectedShowId: string,
-  tables: DemoTable[],
+  occupiedSeats: number,
 ) {
-  return getRemainingSeatsForZone(option, selectedShowId, tables);
+  return getRemainingVenueSeatsForZone(option, occupiedSeats);
 }
 
 function isAvailableForBooking(
@@ -290,9 +307,11 @@ function isAvailableForBooking(
   guests: number,
   selectedShowId: string,
   tables: DemoTable[],
+  occupiedSeats = 0,
 ) {
   return (
     isAvailableForParty(option, guests) &&
+    getRemainingSeats(option, occupiedSeats) >= guests &&
     Boolean(
       findBestTableAllocation(
         tables,
@@ -329,12 +348,9 @@ function getAvailabilityState(
   guests: number,
   selectedShowId: string,
   tables: DemoTable[],
+  occupiedSeats: number,
 ) {
-  const remainingSeats = getRemainingSeats(
-    option,
-    selectedShowId,
-    tables,
-  );
+  const remainingSeats = getRemainingSeats(option, occupiedSeats);
   const isGroupSizeAvailable = isAvailableForParty(option, guests);
   const bestAllocation = findBestTableAllocation(
     tables,
@@ -343,7 +359,8 @@ function getAvailabilityState(
     guests,
   );
   const bestTable = bestAllocation?.table;
-  const hasEnoughInventory = Boolean(bestTable);
+  const hasEnoughVenueCapacity = remainingSeats >= guests;
+  const hasEnoughInventory = hasEnoughVenueCapacity && Boolean(bestTable);
   const isAvailable = isGroupSizeAvailable && hasEnoughInventory;
   const isLimited =
     isAvailable &&
@@ -599,9 +616,7 @@ export default function BookingPage() {
     useState<EntryLocationKey | null>(null);
   const [selectedShowId, setSelectedShowId] = useState("");
   const [selectedShowDate, setSelectedShowDate] = useState("");
-  const [calendarMonth, setCalendarMonth] = useState(
-    getMonthKey(defaultShows[0]?.date ?? "2026-06-01"),
-  );
+  const [calendarMonth, setCalendarMonth] = useState(getCurrentCalendarMonth);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isBackToTopVisible, setIsBackToTopVisible] = useState(false);
   const [activeBookingStep, setActiveBookingStep] = useState(0);
@@ -662,6 +677,9 @@ export default function BookingPage() {
   const [tables, setTables] = useState<DemoTable[]>(() =>
     defaultShows.flatMap((show) => createTablesForShow(show.id)),
   );
+  const [occupiedSeatsByZone, setOccupiedSeatsByZone] = useState<
+    Partial<Record<SeatingZone["id"], number>>
+  >({});
   const confirmedSectionRef = useRef<HTMLElement | null>(null);
   const trackedTelemetryEventsRef = useRef<Set<string>>(new Set());
   const hasScrolledToConfirmedRef = useRef(false);
@@ -671,7 +689,10 @@ export default function BookingPage() {
     selectedZone,
     partySize,
     selectedZone && selectedShowId
-      ? getRemainingSeats(selectedZone, selectedShowId, tables)
+      ? getRemainingSeats(
+          selectedZone,
+          occupiedSeatsByZone[selectedZone.id] ?? 0,
+        )
       : undefined,
   );
   const configuredZonePrice = selectedZone
@@ -725,6 +746,41 @@ export default function BookingPage() {
   const selectedShow = shows.find(
     (show) => show.id === selectedShowId,
   );
+
+  useEffect(() => {
+    if (!selectedShow) {
+      setOccupiedSeatsByZone({});
+      return;
+    }
+
+    const controller = new AbortController();
+    const authoritativeShowId = selectedShow.supabaseId ?? selectedShow.id;
+
+    setOccupiedSeatsByZone({});
+    fetch(
+      `/api/shows/availability?showId=${encodeURIComponent(authoritativeShowId)}`,
+      { cache: "no-store", signal: controller.signal },
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Show availability could not be loaded.");
+        }
+
+        return (await response.json()) as {
+          occupiedSeatsByZone?: Partial<Record<SeatingZone["id"], number>>;
+        };
+      })
+      .then((payload) => {
+        setOccupiedSeatsByZone(payload.occupiedSeatsByZone ?? {});
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          console.warn("[Zingara booking] Show availability unavailable", error);
+        }
+      });
+
+    return () => controller.abort();
+  }, [selectedShow]);
 
   useEffect(() => {
     const code = normalizePromoCode(promoCodeInput);
@@ -803,6 +859,7 @@ export default function BookingPage() {
         partySize,
         selectedShowId,
         tables,
+        occupiedSeatsByZone[zone.id] ?? 0,
       ),
     );
   const canJoinWaitlist =
@@ -1039,6 +1096,13 @@ export default function BookingPage() {
   }
 
   function selectPartySize(nextPartySize: number) {
+    if (isCorporatePartySize(nextPartySize)) {
+      window.location.assign(
+        `/corporate?guests=${Math.trunc(nextPartySize)}`,
+      );
+      return;
+    }
+
     setPartySize(nextPartySize);
     setActiveBookingStep((currentStep) =>
       currentStep <= 1 ? 1 : currentStep,
@@ -1054,6 +1118,7 @@ export default function BookingPage() {
         nextPartySize,
         selectedShowId,
         tables,
+        occupiedSeatsByZone[currentZone.id] ?? 0,
       )
         ? null
         : currentZone,
@@ -1065,6 +1130,7 @@ export default function BookingPage() {
         nextPartySize,
         selectedShowId,
         tables,
+        occupiedSeatsByZone[currentZone.id] ?? 0,
       )
         ? null
         : currentZone,
@@ -1118,15 +1184,6 @@ export default function BookingPage() {
         nextGuestVisibleShows.some((show) => show.date === currentDate)
           ? currentDate
           : "",
-      );
-      setCalendarMonth((currentMonth) =>
-        nextGuestVisibleShows.some(
-          (show) => getMonthKey(show.date) === currentMonth,
-        )
-          ? currentMonth
-          : getMonthKey(
-              nextGuestVisibleShows[0]?.date ?? defaultShows[0].date,
-            ),
       );
     }
 
@@ -1562,6 +1619,7 @@ export default function BookingPage() {
         partySize,
         selectedShowId,
         tables,
+        occupiedSeatsByZone[selectedZone.id] ?? 0,
       )
     ) {
       return;
@@ -1612,6 +1670,7 @@ export default function BookingPage() {
         partySize,
         selectedShow.id,
         tables,
+        occupiedSeatsByZone[selectedZone.id] ?? 0,
       )
     ) {
       return;
@@ -1911,6 +1970,7 @@ export default function BookingPage() {
       partySize,
       selectedShowId,
       tables,
+      occupiedSeatsByZone[option.id] ?? 0,
     );
 
     return {
@@ -2768,7 +2828,7 @@ export default function BookingPage() {
                   Step 2 · Guests
                 </p>
                 <p className="zingara-subheading mt-1.5 max-w-2xl text-sm leading-5 text-zinc-300 sm:mt-2 sm:text-lg sm:leading-6 lg:whitespace-nowrap">
-                  Choose 1 to 20 guests. Groups of 21+ should use Corporate Booking.
+                  Choose 1 to 19 guests. Parties of 20 or more are handled through Corporate Booking.
                 </p>
               </div>
 
@@ -2787,7 +2847,11 @@ export default function BookingPage() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => selectPartySize(Math.min(20, partySize + 1))}
+                  onClick={() =>
+                    selectPartySize(
+                      Math.min(corporatePartySizeThreshold, partySize + 1),
+                    )
+                  }
                   className="grid h-10 w-10 place-items-center rounded-full text-xl text-zinc-300 transition hover:bg-white hover:text-black"
                   aria-label="Increase guests"
                 >
@@ -3479,6 +3543,7 @@ export default function BookingPage() {
                 partySize,
                 selectedShowId,
                 tables,
+                occupiedSeatsByZone[previewSeatingZone.id] ?? 0,
               );
               const status = availability.availabilityMessage;
               const statusClass = !availability.isAvailable

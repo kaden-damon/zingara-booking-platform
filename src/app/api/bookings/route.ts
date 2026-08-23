@@ -10,6 +10,7 @@ import {
   type PaymentStatus,
   defaultVenueSettings,
   getDisplayZoneTitle,
+  getVenueZoneSeatCapacity,
   getZoneSectionLookupTitles,
   normalizeShowLocation,
   seatingZones,
@@ -18,6 +19,10 @@ import {
   getTicketUrl,
 } from "@/lib/zingaraDemo";
 import { calculatePublicBookingPricing } from "@/lib/pricing";
+import {
+  enforceCorporateBookingSource,
+  isCorporatePartySize,
+} from "@/lib/bookingClassification";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -35,6 +40,11 @@ import {
 } from "@/lib/rateLimit";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
+import {
+  getBookingCapacityConflictResponse,
+  isBookingCapacityError,
+  validateBookingCapacityIncrease,
+} from "@/lib/supabase/bookingCapacity";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -554,15 +564,20 @@ function getBookingPayload(
   showId: string,
   tableId: string | null = null,
 ) {
+  const bookingSource = enforceCorporateBookingSource(
+    booking.partySize,
+    booking.source,
+  );
+  const classifiedBooking = { ...booking, source: bookingSource };
   const payload: Record<string, unknown> = {
     addons_total: booking.addonsTotal ?? 0,
     amount_paid: booking.amountPaid ?? 0,
     balance_outstanding: booking.balanceDue ?? 0,
     booking_reference: booking.reference,
-    booking_source: booking.source ?? "online",
+    booking_source: bookingSource,
     booking_status: toSupabaseBookingStatus(booking.status),
     company_name:
-      booking.source === "corporate-direct"
+      bookingSource === "corporate-direct"
         ? booking.operationalNotes?.match(/^Company: (.+)$/m)?.[1] ?? null
         : null,
     customer_id: customerId,
@@ -570,7 +585,7 @@ function getBookingPayload(
       booking.operationalNotes?.match(/^Dietary: (.+)$/m)?.[1] ?? null,
     discount_amount: booking.discountAmount ?? 0,
     guest_count: booking.partySize,
-    notes: serializeBookingNotes(booking),
+    notes: serializeBookingNotes(classifiedBooking),
     payment_status: toSupabasePaymentStatus(booking.paymentStatus),
     section: getDisplayZoneTitle(booking.zoneId, booking.zoneTitle),
     service_fee: booking.serviceFeeAmount ?? 0,
@@ -694,9 +709,15 @@ async function upsertBooking(
   const existingId = (existingRows?.[0] as { id?: string } | undefined)?.id;
 
   if (existingId) {
+    const updatePayload = { ...payload };
+
+    // Table assignment is managed by the authoritative reservation/floor paths.
+    // A general booking edit must not silently clear an existing assignment.
+    delete updatePayload.table_id;
+
     const { data, error } = await supabase
       .from("bookings")
-      .update(payload)
+      .update(updatePayload)
       .eq("id", existingId)
       .select("id")
       .maybeSingle();
@@ -1034,20 +1055,29 @@ async function getRemainingSeatsForServerPricing(
   }
 
   const { data, error } = await supabase
-    .from("show_tables")
-    .select("capacity")
+    .from("bookings")
+    .select("guest_count")
     .eq("show_id", showId)
     .in("section", getZoneSectionLookupTitles(zone.id, booking.zoneTitle))
-    .eq("status", "available")
-    .eq("availability_scope", "public")
-    .is("booking_id", null);
+    .is("archived_at", null)
+    .in("booking_status", [
+      "new",
+      "confirmed",
+      "pending_payment",
+      "checked_in",
+    ]);
 
   if (error) {
     throw error;
   }
 
-  return (data ?? []).reduce(
-    (total, row) => total + Math.max(Number(row.capacity) || 0, 0),
+  const occupiedSeats = (data ?? []).reduce(
+    (total, row) => total + Math.max(Number(row.guest_count) || 0, 0),
+    0,
+  );
+
+  return Math.max(
+    getVenueZoneSeatCapacity(zone.id) - occupiedSeats,
     0,
   );
 }
@@ -1148,6 +1178,17 @@ export async function POST(request: Request) {
       );
     }
 
+    if (booking.source === "online" && isCorporatePartySize(booking.partySize)) {
+      return Response.json(
+        {
+          corporateUrl: `/corporate?guests=${Math.trunc(booking.partySize)}`,
+          error:
+            "Parties of 20 or more are handled through Corporate Bookings.",
+        },
+        { status: 409 },
+      );
+    }
+
     const ipLimit = await checkRateLimit(
       request,
       {
@@ -1227,6 +1268,18 @@ export async function POST(request: Request) {
 
     if (booking.source === "online" && isAwaitingExternalPayment(booking)) {
       booking = await withAuthoritativePublicPricing(supabase, booking, show);
+    }
+
+    const capacityResult = await validateBookingCapacityIncrease(supabase, {
+      bookingReference: booking.reference,
+      bookingStatus: toSupabaseBookingStatus(booking.status),
+      guestCount: booking.partySize,
+      section: getDisplayZoneTitle(booking.zoneId, booking.zoneTitle),
+      showId: show.id,
+    });
+
+    if (!capacityResult.allowed) {
+      return getBookingCapacityConflictResponse(capacityResult);
     }
 
     if (isPublicPayFastReservation(booking)) {
@@ -1343,6 +1396,16 @@ export async function POST(request: Request) {
       ticketId,
     });
   } catch (error) {
+    if (isBookingCapacityError(error)) {
+      return Response.json(
+        {
+          error:
+            "This seating zone cannot accept additional guests because its venue capacity has been reached.",
+        },
+        { status: 409 },
+      );
+    }
+
     if (isPromoReservationError(error)) {
       return Response.json(
         {

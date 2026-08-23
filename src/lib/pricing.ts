@@ -1,7 +1,6 @@
 import {
   type BookingAddon,
   type DemoBooking,
-  type DemoTable,
   type DemoVenueSettings,
   type PromoDiscountType,
   type SeatingZone,
@@ -10,6 +9,7 @@ import {
   getConfiguredZoneDepositAmount,
   getConfiguredZonePrice,
   getIncludedBookingFeeBreakdown,
+  getVenueZoneSeatCapacity,
   seatingZones,
 } from "@/lib/zingaraDemo";
 
@@ -141,19 +141,14 @@ export function getDiscountAmount(
   return Math.max(0, Math.min(Math.round(value), subtotal));
 }
 
-export function getRemainingSeatsForZone(
+export function getRemainingVenueSeatsForZone(
   option: Pick<SeatingZone, "id">,
-  selectedShowId: string,
-  tables: DemoTable[],
+  occupiedSeats: number,
 ) {
-  return tables
-    .filter(
-      (table) =>
-        table.showId === selectedShowId &&
-        table.zoneId === option.id &&
-        table.status === "available",
-    )
-    .reduce((remainingSeats, table) => remainingSeats + table.seatCapacity, 0);
+  return Math.max(
+    getVenueZoneSeatCapacity(option.id) - Math.max(occupiedSeats, 0),
+    0,
+  );
 }
 
 export function getDynamicPriceMultiplier(

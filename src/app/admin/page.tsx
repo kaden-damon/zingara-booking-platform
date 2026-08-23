@@ -47,6 +47,7 @@ import {
   sanitizeEmailHtml,
 } from "../../lib/email/html";
 import {
+  assignBookingTable,
   archiveBookings,
   getBookings,
   persistBookingCancellation,
@@ -84,6 +85,7 @@ import {
   classifyCustomerName,
   getCustomerNameStatusLabel,
 } from "../../lib/customerNameStatus";
+import { isCorporateBookingSource } from "../../lib/bookingClassification";
 import {
   getCorporateRequests,
   saveCorporateRequests as persistCorporateRequests,
@@ -127,7 +129,9 @@ import {
   type BulkShowScheduleInput,
   type BulkShowScheduleResult,
   createBulkShowSchedule,
+  createOperationalShowTable,
   getShowsWithTables,
+  mergeOperationalShowTables,
   previewBulkShowSchedule,
   replaceShows,
   replaceShowsWithLock,
@@ -188,6 +192,7 @@ import {
   getIncludedBookingFeeBreakdown,
   getShowLabel,
   getShowLocationOption,
+  getVenueZoneSeatCapacity,
   getZoneById,
   getZoneSectionLookupTitles,
   getStoredDemoTables,
@@ -6620,6 +6625,23 @@ function getCurrentSouthAfricaDate() {
   }).format(new Date());
 }
 
+function getNextRelevantOperationalShow(shows: DemoShow[]) {
+  const today = getCurrentSouthAfricaDate();
+  const activeShows = [...shows]
+    .filter(
+      (show) =>
+        !show.archivedAt &&
+        (show.operationalStatus ?? "active") === "active",
+    )
+    .sort((left, right) =>
+      `${left.date}T${left.time || "00:00"}`.localeCompare(
+        `${right.date}T${right.time || "00:00"}`,
+      ),
+    );
+
+  return activeShows.find((show) => show.date >= today) ?? activeShows[0];
+}
+
 const operationalReportLabels: Record<OperationalReportType, string> = {
   bookings: "Booking Manifest",
   "check-ins": "Guest Check-In Sheet",
@@ -6774,6 +6796,7 @@ function getZoneTables(
 
 function getZoneStats(
   tables: DemoTable[],
+  bookings: DemoBooking[],
   showId: string,
   zone: SeatingZone,
 ) {
@@ -6781,17 +6804,26 @@ function getZoneStats(
   const activeTables = zoneTables.filter(
     (table) => table.status !== "disabled",
   );
-  const totalCapacity = activeTables.reduce(
+  const operationalTableCapacity = activeTables.reduce(
     (total, table) => total + table.seatCapacity,
     0,
   );
-  const bookedSeats = activeTables
-    .filter((table) => table.status === "booked")
-    .reduce((total, table) => total + table.seatCapacity, 0);
+  const bookedSeats = bookings
+    .filter(
+      (booking) =>
+        booking.showId === showId &&
+        booking.zoneId === zone.id &&
+        isOperationallyActiveBooking(booking),
+    )
+    .reduce((total, booking) => total + booking.partySize, 0);
+  const totalCapacity = getVenueZoneSeatCapacity(zone.id);
 
   return {
     bookedSeats,
-    remainingSeats: totalCapacity - bookedSeats,
+    operationalTableCapacity,
+    operationalTableCount: zoneTables.length,
+    overCapacitySeats: Math.max(bookedSeats - totalCapacity, 0),
+    remainingSeats: Math.max(totalCapacity - bookedSeats, 0),
     totalCapacity,
   };
 }
@@ -7125,6 +7157,7 @@ type PerformanceCalendarSelectorProps = {
   buttonClassName?: string;
   emptyLabel?: string;
   label?: string;
+  locations?: EntryLocationKey[];
   onSelect: (showId: string) => void;
   selectedShowId: string;
   shows: DemoShow[];
@@ -7136,6 +7169,7 @@ function PerformanceCalendarSelector({
   buttonClassName,
   emptyLabel = "No active performances",
   label = "Selected Performance",
+  locations,
   onSelect,
   selectedShowId,
   shows,
@@ -7164,13 +7198,45 @@ function PerformanceCalendarSelector({
       }),
     [shows],
   );
+  const availableLocations = useMemo(() => {
+    const requestedLocations =
+      locations ?? showLocationOptions.map((option) => option.value);
+
+    return requestedLocations.filter((location) =>
+      sortedShows.some(
+        (show) =>
+          normalizeShowLocation(show.location ?? show.venueName) === location,
+      ),
+    );
+  }, [locations, sortedShows]);
+  const selectedShowAcrossLocations = sortedShows.find(
+    (show) => show.id === selectedShowId || show.supabaseId === selectedShowId,
+  );
+  const selectedShowAcrossLocationsLocation = selectedShowAcrossLocations
+    ? normalizeShowLocation(
+        selectedShowAcrossLocations.location ?? selectedShowAcrossLocations.venueName,
+      )
+    : null;
+  const [selectedLocation, setSelectedLocation] = useState<EntryLocationKey | null>(
+    () =>
+      (selectedShowAcrossLocationsLocation &&
+      availableLocations.includes(selectedShowAcrossLocationsLocation)
+        ? selectedShowAcrossLocationsLocation
+        : availableLocations[0]) ?? null,
+  );
+  const locationShows = selectedLocation
+    ? sortedShows.filter(
+        (show) =>
+          normalizeShowLocation(show.location ?? show.venueName) === selectedLocation,
+      )
+    : sortedShows;
   const today = getCurrentSouthAfricaDate();
   const nextRelevantShow =
-    sortedShows.find((show) => show.date >= today) ?? sortedShows[0];
+    locationShows.find((show) => show.date >= today) ?? locationShows[0];
   const selectedShow =
-    sortedShows.find(
+    locationShows.find(
       (show) => show.id === selectedShowId || show.supabaseId === selectedShowId,
-    ) ?? (allowAllShows ? undefined : sortedShows[0]);
+    ) ?? (allowAllShows ? undefined : nextRelevantShow);
   const initialCalendarShow = selectedShow ?? nextRelevantShow;
   const [isOpen, setIsOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(
@@ -7179,6 +7245,22 @@ function PerformanceCalendarSelector({
   const [selectedDate, setSelectedDate] = useState(
     () => selectedShow?.date ?? "",
   );
+
+  useEffect(() => {
+    if (
+      selectedShowAcrossLocationsLocation &&
+      availableLocations.includes(selectedShowAcrossLocationsLocation)
+    ) {
+      setSelectedLocation(selectedShowAcrossLocationsLocation);
+      return;
+    }
+
+    setSelectedLocation((currentLocation) =>
+      currentLocation && availableLocations.includes(currentLocation)
+        ? currentLocation
+        : availableLocations[0] ?? null,
+    );
+  }, [availableLocations, selectedShowAcrossLocationsLocation]);
 
   useEffect(() => {
     if (selectedShow) {
@@ -7214,7 +7296,7 @@ function PerformanceCalendarSelector({
   ];
   const calendarMonthLabel = `${bookingCalendarMonths[calendarMonthStart.getMonth()]} ${calendarMonthStart.getFullYear()}`;
   const selectedDateShows = selectedDate
-    ? sortedShows.filter((show) => show.date === selectedDate)
+    ? locationShows.filter((show) => show.date === selectedDate)
     : [];
   const setCalendarMonthOffset = (offset: number) => {
     const [year, month] = calendarMonth.split("-").map(Number);
@@ -7225,13 +7307,36 @@ function PerformanceCalendarSelector({
     );
   };
   const selectDate = (dateValue: string) => {
-    const dateShows = sortedShows.filter((show) => show.date === dateValue);
+    const dateShows = locationShows.filter((show) => show.date === dateValue);
 
     setSelectedDate(dateValue);
 
     if (dateShows.length === 1) {
       onSelect(dateShows[0].id);
       setIsOpen(false);
+    }
+  };
+  const selectLocation = (location: EntryLocationKey) => {
+    const nextLocationShows = sortedShows.filter(
+      (show) =>
+        normalizeShowLocation(show.location ?? show.venueName) === location,
+    );
+    const currentSelection = nextLocationShows.find(
+      (show) => show.id === selectedShowId || show.supabaseId === selectedShowId,
+    );
+    const nextSelection =
+      currentSelection ??
+      nextLocationShows.find((show) => show.date >= today) ??
+      nextLocationShows[0];
+
+    setSelectedLocation(location);
+    setSelectedDate(nextSelection?.date ?? "");
+    setCalendarMonth(
+      nextSelection?.date.slice(0, 7) ?? getCurrentShowCalendarMonth(),
+    );
+
+    if (nextSelection && nextSelection.id !== selectedShowId) {
+      onSelect(nextSelection.id);
     }
   };
 
@@ -7259,6 +7364,27 @@ function PerformanceCalendarSelector({
           id={popupId}
           className="absolute left-0 top-[calc(100%+0.5rem)] z-40 w-[21rem] max-w-[86vw] rounded-[1.5rem] border border-[#D8C36A]/25 bg-zinc-950 p-4 shadow-2xl shadow-black/50"
         >
+          {availableLocations.length > 1 && (
+            <div
+              className="mb-3 grid grid-cols-2 gap-2"
+              aria-label={`${label} location`}
+            >
+              {availableLocations.map((location) => (
+                <button
+                  key={`${popupId}-${location}`}
+                  type="button"
+                  onClick={() => selectLocation(location)}
+                  className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                    selectedLocation === location
+                      ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                      : "border-white/15 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/60 hover:text-white"
+                  }`}
+                >
+                  {getShowCalendarLocationDisplay(location).alias}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="mb-3 flex items-center justify-between">
             <button
               type="button"
@@ -7301,7 +7427,7 @@ function PerformanceCalendarSelector({
               const dateValue = `${calendarMonthStart.getFullYear()}-${String(
                 calendarMonthStart.getMonth() + 1,
               ).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-              const showsForDate = sortedShows.filter(
+              const showsForDate = locationShows.filter(
                 (show) => show.date === dateValue,
               );
               const isAvailable = showsForDate.length > 0;
@@ -9639,9 +9765,7 @@ export default function AdminDashboardPage() {
     useState<ShowCalendarLocationFilter>("all");
   const [showSearch, setShowSearch] = useState("");
   const [openShowFinancialPopupId, setOpenShowFinancialPopupId] = useState("");
-  const [selectedShowId, setSelectedShowId] = useState(
-    defaultShows[0]?.id ?? "",
-  );
+  const [selectedShowId, setSelectedShowId] = useState("");
   const [checkInSelectedShowId, setCheckInSelectedShowId] = useState("");
   const [workflowShowId, setWorkflowShowId] = useState(
     defaultShows[0]?.id ?? "",
@@ -9689,6 +9813,7 @@ export default function AdminDashboardPage() {
     useState<NewTablesByZone>(getBlankNewTables);
   const [mergeSelections, setMergeSelections] =
     useState<MergeSelection>(getBlankMergeSelections);
+  const [operationalTableAction, setOperationalTableAction] = useState("");
   const [floorZoneFilter, setFloorZoneFilter] =
     useState<FloorZoneFilter>("all");
   const [expandedTableId, setExpandedTableId] = useState("");
@@ -9785,6 +9910,14 @@ export default function AdminDashboardPage() {
   const handledAdminDeepLinkRef = useRef("");
   const liveCustomerLoadRequestRef = useRef(0);
   const sessionRestoreRequestRef = useRef(0);
+  const showLoadRequestRef = useRef(0);
+  const selectedShowTableLoadRequestRef = useRef(0);
+  const floorAssignmentInFlightRef = useRef(new Set<string>());
+  const showCalendarMonthRef = useRef(showCalendarMonth);
+  const showCalendarLocationFilterRef = useRef(showCalendarLocationFilter);
+
+  showCalendarMonthRef.current = showCalendarMonth;
+  showCalendarLocationFilterRef.current = showCalendarLocationFilter;
 
   async function refreshLiveCustomerRecords() {
     const requestId = liveCustomerLoadRequestRef.current + 1;
@@ -9829,6 +9962,8 @@ export default function AdminDashboardPage() {
 
       setIsShowsLoading(true);
       setShowLoadError("");
+      const showLoadRequestId = showLoadRequestRef.current + 1;
+      showLoadRequestRef.current = showLoadRequestId;
 
       if (!options.sessionValidated) {
         const nextAdminSession = await getSupabaseAdminSession();
@@ -9861,8 +9996,8 @@ export default function AdminDashboardPage() {
           nextPaymentRows,
         ] = await Promise.all([
           getShowsWithTables({
-            tableLocation: showCalendarLocationFilter,
-            tableMonth: showCalendarMonth,
+            tableLocation: showCalendarLocationFilterRef.current,
+            tableMonth: showCalendarMonthRef.current,
           }),
           getBookings(),
           getCorporateRequests(),
@@ -9904,32 +10039,46 @@ export default function AdminDashboardPage() {
           return;
         }
 
-        setShows(nextShows);
-        setSelectedShowId((currentShowId) =>
-          nextShows.some((show) => show.id === currentShowId)
-            ? currentShowId
-            : nextShows[0]?.id ?? "",
-        );
-        setWorkflowShowId((currentShowId) =>
-          nextShows.some((show) => show.id === currentShowId)
-            ? currentShowId
-            : nextShows[0]?.id ?? "",
-        );
-        setBookings(nextBookings);
+        const isLatestShowLoad =
+          showLoadRequestId === showLoadRequestRef.current;
+
+        if (isLatestShowLoad && nextShowPayload.showsLoaded) {
+          const nextRelevantShow = getNextRelevantOperationalShow(nextShows);
+
+          setShows(nextShows);
+          setSelectedShowId((currentShowId) =>
+            nextShows.some((show) => show.id === currentShowId)
+              ? currentShowId
+              : nextRelevantShow?.id ?? nextShows[0]?.id ?? "",
+          );
+          setWorkflowShowId((currentShowId) =>
+            nextShows.some((show) => show.id === currentShowId)
+              ? currentShowId
+              : nextRelevantShow?.id ?? nextShows[0]?.id ?? "",
+          );
+          setBookings(nextBookings);
+          setTables(nextTables);
+          setShowLoadError("");
+        } else if (isLatestShowLoad) {
+          setShowLoadError("Shows could not be loaded. Try again.");
+        }
         setCorporateRequests(nextCorporateRequests);
         setCommunicationTemplates(nextCommunicationTemplates);
         setVenueSettings(nextVenueSettings);
         setWaitlist(nextWaitlist);
-        setTables(nextTables);
         setStaffProfiles(nextStaffProfiles);
         setStaffRoles(nextStaffRoles);
         setPaymentRows(nextPaymentRows);
-        setShowLoadError("");
       } catch (error) {
         console.error("[Zingara admin] Failed to load dashboard data", error);
-        setShowLoadError("Shows could not be loaded. Try again.");
+        if (showLoadRequestId === showLoadRequestRef.current) {
+          setShowLoadError("Shows could not be loaded. Try again.");
+        }
       } finally {
-        if (isMounted) {
+        if (
+          isMounted &&
+          showLoadRequestId === showLoadRequestRef.current
+        ) {
           setIsShowsLoading(false);
         }
       }
@@ -11048,6 +11197,10 @@ export default function AdminDashboardPage() {
     }
 
     let isCancelled = false;
+    const showLoadRequestId = showLoadRequestRef.current + 1;
+    showLoadRequestRef.current = showLoadRequestId;
+    setIsShowsLoading(true);
+    setShowLoadError("");
 
     async function refreshCalendarTables() {
       try {
@@ -11059,11 +11212,26 @@ export default function AdminDashboardPage() {
           getBookings(),
         ]);
 
-        if (isCancelled) {
+        if (
+          isCancelled ||
+          showLoadRequestId !== showLoadRequestRef.current
+        ) {
+          return;
+        }
+
+        if (!nextShowPayload.showsLoaded) {
+          setShowLoadError("Shows could not be loaded. Try again.");
           return;
         }
 
         setShows(nextShowPayload.shows);
+        setSelectedShowId((currentShowId) =>
+          nextShowPayload.shows.some((show) => show.id === currentShowId)
+            ? currentShowId
+            : getNextRelevantOperationalShow(nextShowPayload.shows)?.id ??
+              nextShowPayload.shows[0]?.id ??
+              "",
+        );
         setBookings(nextBookings);
         setTables(
           nextShowPayload.tablesLoaded
@@ -11072,6 +11240,19 @@ export default function AdminDashboardPage() {
         );
       } catch (error) {
         console.error("[Zingara admin] Failed to refresh calendar tables", error);
+        if (
+          !isCancelled &&
+          showLoadRequestId === showLoadRequestRef.current
+        ) {
+          setShowLoadError("Shows could not be loaded. Try again.");
+        }
+      } finally {
+        if (
+          !isCancelled &&
+          showLoadRequestId === showLoadRequestRef.current
+        ) {
+          setIsShowsLoading(false);
+        }
       }
     }
 
@@ -11091,16 +11272,23 @@ export default function AdminDashboardPage() {
     if (
       !hasHydrated ||
       !currentStaff ||
-      activeAdminTab !== "operations" ||
-      activeOperationsTab !== "floor" ||
+      !(
+        activeAdminTab === "overview" ||
+        (activeAdminTab === "operations" &&
+          (activeOperationsTab === "floor" ||
+            activeOperationsTab === "waitlist"))
+      ) ||
       !selectedShowId
     ) {
       return;
     }
 
     let isCancelled = false;
+    const tableLoadRequestId =
+      selectedShowTableLoadRequestRef.current + 1;
+    selectedShowTableLoadRequestRef.current = tableLoadRequestId;
 
-    async function refreshSelectedFloorTables() {
+    async function refreshSelectedShowTables() {
       try {
         const [nextShowPayload, nextBookings] = await Promise.all([
           getShowsWithTables({
@@ -11109,20 +11297,22 @@ export default function AdminDashboardPage() {
           getBookings(),
         ]);
 
-        if (isCancelled) {
+        if (
+          isCancelled ||
+          tableLoadRequestId !== selectedShowTableLoadRequestRef.current
+        ) {
           return;
         }
 
-        const selectedShowTables = nextShowPayload.tablesLoaded
-          ? applyBookingOccupancyToTables(
-              nextShowPayload.tables,
-              nextBookings,
-            )
-          : getStoredDemoTables(nextShowPayload.shows).filter(
-              (table) => table.showId === selectedShowId,
-            );
+        if (!nextShowPayload.tablesLoaded) {
+          return;
+        }
 
-        setShows(nextShowPayload.shows);
+        const selectedShowTables = applyBookingOccupancyToTables(
+          nextShowPayload.tables,
+          nextBookings,
+        );
+
         setBookings(nextBookings);
         setTables((currentTables) =>
           mergeTablesForShows(currentTables, selectedShowTables, [
@@ -11131,13 +11321,13 @@ export default function AdminDashboardPage() {
         );
       } catch (error) {
         console.error(
-          "[Zingara admin] Failed to refresh selected floor tables",
+          "[Zingara admin] Failed to refresh selected show tables",
           error,
         );
       }
     }
 
-    void refreshSelectedFloorTables();
+    void refreshSelectedShowTables();
 
     return () => {
       isCancelled = true;
@@ -11889,8 +12079,13 @@ export default function AdminDashboardPage() {
   });
   const floorSelectableShows = floorSelectorShows.filter((show) => {
     const status = show.operationalStatus ?? "active";
+    const location = normalizeShowLocation(show.location ?? show.venueName);
 
-    return !show.archivedAt && status === "active";
+    return (
+      !show.archivedAt &&
+      status === "active" &&
+      Boolean(location && permittedManifestLocations.includes(location))
+    );
   });
   const todayCheckInShows = floorSelectableShows.filter(
     (show) => show.date === southAfricaToday,
@@ -14533,7 +14728,7 @@ export default function AdminDashboardPage() {
     });
   }
 
-  function createTable(zoneId: SeatingZoneId) {
+  async function createTable(zoneId: SeatingZoneId) {
     const newTable = newTables[zoneId];
     const tableNumber = newTable.tableNumber.trim();
 
@@ -14541,40 +14736,39 @@ export default function AdminDashboardPage() {
       !canManageTables ||
       !selectedShowId ||
       !tableNumber ||
-      newTable.seatCapacity < 1
+      newTable.seatCapacity < 1 ||
+      operationalTableAction
     ) {
       return;
     }
 
-    saveTables([
-      ...tables,
-      {
-        id: getNextTableId(
-          tables,
-          selectedShowId,
-          zoneId,
-          "table",
-        ),
-        showId: selectedShowId,
+    setOperationalTableAction(`create-${zoneId}`);
+
+    try {
+      await createOperationalShowTable({
+        capacity: newTable.seatCapacity,
+        showReference: selectedShowId,
+        tableCode: tableNumber,
         zoneId,
-        tableNumber,
-        baseSeatCapacity: newTable.seatCapacity,
-        baseStatus: "available",
-        baseGuestNotes: "",
-        baseMergeable: true,
-        seatCapacity: newTable.seatCapacity,
-        status: "available",
-        guestNotes: "",
-        mergeable: true,
-      },
-    ]);
-    setNewTables((currentForms) => ({
-      ...currentForms,
-      [zoneId]: {
-        tableNumber: "",
-        seatCapacity: 2,
-      },
-    }));
+      });
+      await refreshAssignedShowState(selectedShowId);
+      setNewTables((currentForms) => ({
+        ...currentForms,
+        [zoneId]: {
+          tableNumber: "",
+          seatCapacity: 2,
+        },
+      }));
+      showWorkflowToast(`${tableNumber} was created for this performance.`);
+    } catch (error) {
+      showWorkflowToast(
+        error instanceof Error
+          ? error.message
+          : "The operational table could not be created.",
+      );
+    } finally {
+      setOperationalTableAction("");
+    }
   }
 
   function updateTable(
@@ -14681,11 +14875,11 @@ export default function AdminDashboardPage() {
     });
   }
 
-  function mergeTable(
+  async function mergeTable(
     zoneId: SeatingZoneId,
     primaryTable: DemoTable,
   ) {
-    if (!canManageTables) {
+    if (!canManageTables || operationalTableAction) {
       return;
     }
 
@@ -14713,69 +14907,34 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    const mergedTableNumber = `${primaryTable.tableNumber}+${targetTable.tableNumber}`;
-    const mergedAt = new Date().toISOString();
-    const mergeSummary = `Merged ${primaryTable.tableNumber} and ${targetTable.tableNumber} into ${mergedTableNumber}`;
-    const mergedTable: DemoTable = {
-      id: getNextTableId(
-        tables,
-        selectedShowId,
-        zoneId,
-        "merged",
-      ),
-      showId: selectedShowId,
-      zoneId,
-      tableNumber: mergedTableNumber,
-      baseSeatCapacity:
-        primaryTable.seatCapacity + targetTable.seatCapacity,
-      baseStatus: "available",
-      baseGuestNotes: `Merged from ${primaryTable.tableNumber} and ${targetTable.tableNumber}`,
-      baseMergeable: true,
-      seatCapacity:
-        primaryTable.seatCapacity + targetTable.seatCapacity,
-      status: "available",
-      guestNotes: `Merged from ${primaryTable.tableNumber} and ${targetTable.tableNumber}`,
-      mergeable: true,
-      mergedFrom: [primaryTable.id, targetTable.id],
-      mergeHistory: [
-        ...(primaryTable.mergeHistory ?? []),
-        ...(targetTable.mergeHistory ?? []),
-        {
-          id: `${mergedAt}-${mergedTableNumber}-merged`,
-          at: mergedAt,
-          summary: mergeSummary,
-          type: "merged",
-        },
-      ],
-    };
+    setOperationalTableAction(`merge-${zoneId}`);
 
-    saveTables([
-      ...tables.map((table) =>
-        table.id === primaryTable.id ||
-        table.id === targetTable.id
-          ? {
-              ...table,
-              status: "disabled" as const,
-              mergedInto: mergedTable.id,
-              guestNotes: `Merged into ${mergedTableNumber}`,
-              mergeHistory: [
-                ...(table.mergeHistory ?? []),
-                {
-                  id: `${mergedAt}-${table.id}-merged-child`,
-                  at: mergedAt,
-                  summary: mergeSummary,
-                  type: "merged" as const,
-                },
-              ],
-            }
-          : table,
-      ),
-      mergedTable,
-    ]);
-    setMergeSelections((currentSelections) => ({
-      ...currentSelections,
-      [zoneId]: "",
-    }));
+    try {
+      await mergeOperationalShowTables({
+        showReference: selectedShowId,
+        sourceTableCodes: [
+          primaryTable.tableNumber,
+          targetTable.tableNumber,
+        ],
+        zoneId,
+      });
+      await refreshAssignedShowState(selectedShowId);
+      setMergeSelections((currentSelections) => ({
+        ...currentSelections,
+        [zoneId]: "",
+      }));
+      showWorkflowToast(
+        `${primaryTable.tableNumber} and ${targetTable.tableNumber} were merged for this performance.`,
+      );
+    } catch (error) {
+      showWorkflowToast(
+        error instanceof Error
+          ? error.message
+          : "The operational tables could not be merged.",
+      );
+    } finally {
+      setOperationalTableAction("");
+    }
   }
 
   function getSplitMergeReview(
@@ -19548,7 +19707,32 @@ export default function AdminDashboardPage() {
     });
   }
 
-  function assignFloorQueuedBooking(booking: DemoBooking) {
+  async function refreshAssignedShowState(showId: string) {
+    showLoadRequestRef.current += 1;
+    selectedShowTableLoadRequestRef.current += 1;
+
+    const [nextShowPayload, nextBookings] = await Promise.all([
+      getShowsWithTables({ tableShow: showId }),
+      getBookings(),
+    ]);
+
+    if (!nextShowPayload.tablesLoaded) {
+      throw new Error("Assigned table inventory could not be refreshed.");
+    }
+
+    const selectedShowTables = applyBookingOccupancyToTables(
+      nextShowPayload.tables,
+      nextBookings,
+    );
+
+    setBookings(nextBookings);
+    setTables((currentTables) =>
+      mergeTablesForShows(currentTables, selectedShowTables, [showId]),
+    );
+    setIsShowsLoading(false);
+  }
+
+  async function assignFloorQueuedBooking(booking: DemoBooking) {
     if (!canManageBookings || isBookingReadOnly(booking.reference)) {
       if (isBookingReadOnly(booking.reference)) {
         showWorkflowToast("This booking is currently being edited.");
@@ -19582,30 +19766,43 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    saveTables(
-      applyTableAllocation(
-        releaseBookingTableFromList(tables, booking),
-        allocation,
-        booking.reference,
-        booking.customer.name,
-      ),
-    );
-    saveBookings(
-      bookings.map((currentBooking) =>
-        currentBooking.reference === booking.reference
-          ? {
-              ...currentBooking,
-              tableId: allocation.table.id,
-              tableNumber: allocation.table.tableNumber,
-              zoneId: nextZone.id,
-              zoneTitle: nextZone.title,
-            }
-          : currentBooking,
-      ),
-    );
-    showWorkflowToast(
-      `Assigned ${booking.reference} to ${allocation.table.tableNumber}.`,
-    );
+    if (allocation.isCombination) {
+      showWorkflowToast(
+        "Combined-table assignments must be created in Table Management before assigning this booking.",
+      );
+      return;
+    }
+
+    const assignedBooking = {
+      ...booking,
+      tableId: allocation.table.id,
+      tableNumber: allocation.table.tableNumber,
+      zoneId: nextZone.id,
+      zoneTitle: nextZone.title,
+    };
+
+    if (floorAssignmentInFlightRef.current.has(booking.reference)) {
+      return;
+    }
+
+    floorAssignmentInFlightRef.current.add(booking.reference);
+
+    try {
+      await assignBookingTable(assignedBooking);
+      await refreshAssignedShowState(booking.showId);
+      showWorkflowToast(
+        `Assigned ${booking.reference} to ${allocation.table.tableNumber}.`,
+      );
+    } catch (error) {
+      await refreshAssignedShowState(booking.showId).catch(() => undefined);
+      showWorkflowToast(
+        error instanceof Error
+          ? error.message
+          : "The table assignment could not be saved.",
+      );
+    } finally {
+      floorAssignmentInFlightRef.current.delete(booking.reference);
+    }
   }
 
   async function sendTicket(
@@ -20922,6 +21119,15 @@ export default function AdminDashboardPage() {
   ) {
     const searchTerm = bookingSearch.trim().toLowerCase();
     const archived = isArchivedBooking(booking);
+    const corporateBooking = isCorporateBookingSource(booking.source);
+
+    if (activeAdminTab === "bookings" && corporateBooking) {
+      return false;
+    }
+
+    if (activeAdminTab === "corporate" && !corporateBooking) {
+      return false;
+    }
 
     if (options.includeArchiveView !== false) {
       if (bookingArchiveFilter === "active" && archived) {
@@ -21296,7 +21502,8 @@ export default function AdminDashboardPage() {
   const selectedShowCapacity = seatingZones.reduce(
     (total, zone) =>
       total +
-      getZoneStats(tables, selectedShowId, zone).totalCapacity,
+      getZoneStats(tables, activeShowBookings, selectedShowId, zone)
+        .totalCapacity,
     0,
   );
   const occupancyPercent =
@@ -21347,7 +21554,12 @@ export default function AdminDashboardPage() {
     ? seatingZones.reduce(
         (total, zone) =>
           total +
-          getZoneStats(tables, effectiveCheckInShowId, zone).totalCapacity,
+          getZoneStats(
+            tables,
+            activeCheckInBookings,
+            effectiveCheckInShowId,
+            zone,
+          ).totalCapacity,
         0,
       )
     : 0;
@@ -21734,26 +21946,20 @@ export default function AdminDashboardPage() {
     );
   const getShowOccupancyChips = (show: DemoShow) =>
     floorManagementZones.map((zone) => {
-      const zoneTables = getZoneTables(tables, show.id, zone.id);
-      const activeTables = zoneTables.filter(
-        (table) => table.status !== "disabled",
-      );
-      const occupiedSeats = activeTables.reduce((total, table) => {
-        const occupancy = getTableOccupancy(table, activeBookingsForOperations);
-
-        return occupancy.booking
-          ? total + (occupancy.booking.partySize || table.seatCapacity)
-          : total;
-      }, 0);
-      const capacity = activeTables.reduce(
-        (total, table) => total + table.seatCapacity,
-        0,
-      );
+      const occupiedSeats = activeBookingsForOperations
+        .filter(
+          (booking) =>
+            booking.showId === show.id &&
+            booking.zoneId === zone.id &&
+            isOperationallyActiveBooking(booking),
+        )
+        .reduce((total, booking) => total + booking.partySize, 0);
+      const capacity = getVenueZoneSeatCapacity(zone.id);
 
       return {
         capacity,
         label: zone.title,
-        occupiedSeats: Math.min(occupiedSeats, capacity),
+        occupiedSeats,
         zoneId: zone.id,
       };
     });
@@ -22043,7 +22249,8 @@ export default function AdminDashboardPage() {
     );
     const capacity = seatingZones.reduce(
       (total, zone) =>
-        total + getZoneStats(tables, show.id, zone).totalCapacity,
+        total +
+        getZoneStats(tables, allActiveBookings, show.id, zone).totalCapacity,
       0,
     );
     const occupancy =
@@ -30905,20 +31112,18 @@ export default function AdminDashboardPage() {
                 </p>
               </div>
 
-              <select
-                value={selectedShowId}
-                onChange={(event) => {
-                  setSelectedShowId(event.target.value);
+              <PerformanceCalendarSelector
+                buttonClassName="w-full rounded-2xl border border-zinc-700 bg-black px-4 py-3 text-left text-base text-white transition hover:border-[#D8C36A]/60 focus:border-[#D8C36A]/70 focus:outline-none sm:max-w-md sm:px-5 sm:py-4 sm:text-lg"
+                emptyLabel="No active performances"
+                label="Dashboard Performance"
+                locations={permittedManifestLocations}
+                onSelect={(showId) => {
+                  setSelectedShowId(showId);
                   setBookingPage(1);
                 }}
-                className="w-full rounded-2xl border border-zinc-700 bg-black px-4 py-3 text-base sm:max-w-md sm:px-5 sm:py-4 sm:text-lg"
-              >
-                {shows.map((show) => (
-                  <option key={show.id} value={show.id}>
-                    {getShowLabel(show)}
-                  </option>
-                ))}
-              </select>
+                selectedShowId={selectedShowId}
+                shows={floorSelectableShows}
+              />
             </div>
 
             <div className="order-1 mb-6 overflow-hidden rounded-[1.5rem] border border-[#8D7A2F]/25 bg-[radial-gradient(circle_at_top,#17120A_0%,#080808_58%,#030303_100%)] p-3 shadow-2xl shadow-black/30 sm:mb-8 sm:rounded-[2rem] sm:p-5">
@@ -31800,21 +32005,34 @@ export default function AdminDashboardPage() {
                               return (
                                 <div
                                   key={`show-calendar-${show.id}`}
-                                  className={`group relative rounded-xl border p-3 ${
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-label={`Edit ${show.label} on ${formatOperationalShowDate(show.date)} at ${getSouthAfricaShowTime(show)}`}
+                                  onClick={() => {
+                                    setOpenShowFinancialPopupId("");
+                                    setSelectedShowId(show.id);
+                                    openShowEditor(show);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (
+                                      event.key !== "Enter" &&
+                                      event.key !== " "
+                                    ) {
+                                      return;
+                                    }
+
+                                    event.preventDefault();
+                                    setOpenShowFinancialPopupId("");
+                                    setSelectedShowId(show.id);
+                                    openShowEditor(show);
+                                  }}
+                                  className={`group relative cursor-pointer rounded-xl border p-3 outline-none transition focus:ring-2 focus:ring-[#D8C36A]/70 ${
                                     isDisabled
                                       ? "border-zinc-700 bg-zinc-950/65 opacity-75"
                                       : "border-emerald-300/35 bg-emerald-950/10"
                                   }`}
                                 >
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenShowFinancialPopupId("");
-                                      setSelectedShowId(show.id);
-                                      openShowEditor(show);
-                                    }}
-                                    className="block w-full pr-10 text-left"
-                                  >
+                                  <div className="block w-full pr-10 text-left">
                                     <div className="flex max-w-full flex-col items-start gap-1">
                                       <span className="truncate text-xs font-semibold text-white">
                                         {locationDisplay
@@ -31832,9 +32050,11 @@ export default function AdminDashboardPage() {
                                         {showOperationalStatusLabels[status]}
                                       </span>
                                     </div>
-                                  </button>
+                                  </div>
                                   <div
                                     className="absolute right-2 top-2 z-20"
+                                    onClick={(event) => event.stopPropagation()}
+                                    onKeyDown={(event) => event.stopPropagation()}
                                     onMouseEnter={() =>
                                       setOpenShowFinancialPopupId(show.id)
                                     }
@@ -31900,21 +32120,28 @@ export default function AdminDashboardPage() {
                                           ? chip.occupiedSeats / chip.capacity
                                           : 0;
                                       const chipTone =
-                                        ratio >= 1
+                                        ratio > 1
                                           ? "border-red-300/40 bg-red-950/30 text-red-200"
+                                          : ratio === 1
+                                            ? "border-amber-300/35 bg-amber-950/25 text-amber-100"
                                           : ratio >= 0.75
                                             ? "border-amber-300/35 bg-amber-950/25 text-amber-100"
                                             : "border-white/10 bg-black/35 text-zinc-300";
+                                      const overCapacity = Math.max(
+                                        chip.occupiedSeats - chip.capacity,
+                                        0,
+                                      );
 
                                       return (
                                         <span
                                           key={`${show.id}-${chip.zoneId}`}
                                           className={`rounded-full border px-2 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.08em] ${chipTone}`}
-                                          title={`${chip.label} ${chip.occupiedSeats}/${chip.capacity}`}
+                                          title={`${chip.label} ${chip.occupiedSeats}/${chip.capacity}${overCapacity > 0 ? ` · Over capacity by ${overCapacity}` : ""}`}
                                         >
                                           {showCalendarZoneAbbreviations[chip.zoneId] ??
                                             chip.label.split(" ").map((part) => part[0]).join("")}{" "}
                                           {chip.occupiedSeats}/{chip.capacity}
+                                          {overCapacity > 0 && ` · +${overCapacity}`}
                                         </span>
                                       );
                                     })}
@@ -33530,6 +33757,7 @@ export default function AdminDashboardPage() {
                       buttonClassName="rounded-full border border-[#D8C36A]/35 bg-black/45 px-5 py-3 text-left text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition hover:border-[#D8C36A]/70 focus:border-[#D8C36A]/70"
                       emptyLabel="No active performances"
                       label="Waitlist Performance"
+                      locations={permittedManifestLocations}
                       onSelect={(showId) => {
                         setSelectedShowId(showId);
                         setWaitlistSearch("");
@@ -34942,6 +35170,7 @@ export default function AdminDashboardPage() {
                       buttonClassName="rounded-full border border-white/15 bg-black/35 px-4 py-2 text-left text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white"
                       emptyLabel="Select performance"
                       label="Floor Performance"
+                      locations={permittedManifestLocations}
                       onSelect={selectFloorEditingShow}
                       selectedShowId={selectedShowId}
                       shows={floorSelectableShows}
@@ -35057,6 +35286,7 @@ export default function AdminDashboardPage() {
                 {floorManagementZones.map((zone) => {
                   const stats = getZoneStats(
                     tables,
+                    activeBookingsForOperations,
                     selectedShowId,
                     zone,
                   );
@@ -35102,6 +35332,7 @@ export default function AdminDashboardPage() {
                 {floorManagementZones.map((zone) => {
                   const stats = getZoneStats(
                     tables,
+                    activeBookingsForOperations,
                     selectedShowId,
                     zone,
                   );
@@ -35151,8 +35382,13 @@ export default function AdminDashboardPage() {
                         {stats.remainingSeats}
                       </p>
                       <p className="text-xs text-zinc-500">
-                        seats remaining
+                        venue seats remaining
                       </p>
+                      {stats.overCapacitySeats > 0 && (
+                        <p className="mt-2 text-xs font-semibold text-red-300">
+                          Over capacity by {stats.overCapacitySeats}
+                        </p>
+                      )}
                       <p className="mt-3 text-xs leading-5 text-zinc-300">
                         {zoneOccupancyCounts.available} available ·{" "}
                         {zoneOccupancyCounts.reserved} reserved ·{" "}
@@ -35276,9 +35512,25 @@ export default function AdminDashboardPage() {
                           Assign Suggested Table
                         </button>
                         {!allocation && (
-                          <span className="rounded-full border border-white/15 px-4 py-2 text-sm text-zinc-400">
-                            Create or merge an operational table first
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFloorZoneFilter(booking.zoneId);
+                              window.requestAnimationFrame(() =>
+                                document
+                                  .getElementById(
+                                    `floor-table-management-${booking.zoneId}`,
+                                  )
+                                  ?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "start",
+                                  }),
+                              );
+                            }}
+                            className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:border-[#D8C36A]/45 hover:text-[#F2D66C]"
+                          >
+                            Create / Merge Table
+                          </button>
                         )}
                       </div>
                     </article>
@@ -35302,6 +35554,7 @@ export default function AdminDashboardPage() {
             );
             const stats = getZoneStats(
               tables,
+              activeBookingsForOperations,
               selectedShowId,
               zone,
             );
@@ -35333,6 +35586,7 @@ export default function AdminDashboardPage() {
             return (
               <section
                 key={zone.id}
+                id={`floor-table-management-${zone.id}`}
                 className={`${zone.adminColour} rounded-2xl border p-6 shadow-2xl shadow-black/30`}
               >
                 <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
@@ -35349,7 +35603,7 @@ export default function AdminDashboardPage() {
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:min-w-[680px] lg:grid-cols-4">
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                        Total Capacity
+                        Venue Capacity
                       </p>
                       <p className="mt-2 text-3xl font-bold">
                         {stats.totalCapacity}
@@ -35363,6 +35617,11 @@ export default function AdminDashboardPage() {
                       <p className="mt-2 text-3xl font-bold">
                         {stats.bookedSeats}
                       </p>
+                      {stats.overCapacitySeats > 0 && (
+                        <p className="mt-2 text-xs font-semibold text-red-300">
+                          Over capacity by {stats.overCapacitySeats}
+                        </p>
+                      )}
                     </div>
 
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
@@ -35376,7 +35635,11 @@ export default function AdminDashboardPage() {
 
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                        Table Occupancy
+                        Operational Tables
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-white">
+                        {stats.operationalTableCount} configured ·{" "}
+                        {stats.operationalTableCapacity} configured seats
                       </p>
                       <p className="mt-2 text-sm leading-6 text-zinc-300">
                         <span className="text-emerald-300">
@@ -35449,9 +35712,12 @@ export default function AdminDashboardPage() {
                       <button
                         type="button"
                         onClick={() => createTable(zone.id)}
-                        className="rounded-full bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-300"
+                        disabled={Boolean(operationalTableAction)}
+                        className="rounded-full bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        Create
+                        {operationalTableAction === `create-${zone.id}`
+                          ? "Creating..."
+                          : "Create"}
                       </button>
                     </div>
                   </div>
@@ -35823,14 +36089,17 @@ export default function AdminDashboardPage() {
                                 table.mergeable === false ||
                                 Boolean(table.mergedInto) ||
                                 Boolean(table.mergedFrom?.length) ||
-                                !mergeSelections[zone.id]
+                                !mergeSelections[zone.id] ||
+                                Boolean(operationalTableAction)
                               }
                               onClick={() =>
                                 mergeTable(zone.id, table)
                               }
                               className="rounded-full border border-white/20 px-5 py-3 font-semibold transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
                             >
-                              Merge
+                              {operationalTableAction === `merge-${zone.id}`
+                                ? "Merging..."
+                                : "Merge"}
                             </button>
 
                             {table.mergedFrom?.length && (
@@ -36019,7 +36288,8 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {activeAdminTab === "bookings" && canViewBookingManagement && (
+        {(activeAdminTab === "bookings" || activeAdminTab === "corporate") &&
+          canViewBookingManagement && (
         <div className="mt-12 border-t border-zinc-800 pt-10">
           <div className="mb-4">
             <div>
@@ -36028,7 +36298,9 @@ export default function AdminDashboardPage() {
               </p>
 
               <h2 className="text-3xl font-bold">
-                Bookings
+                {activeAdminTab === "corporate"
+                  ? "Corporate Booking Records"
+                  : "Bookings"}
               </h2>
             </div>
 

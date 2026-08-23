@@ -9,6 +9,10 @@ import {
   normalizeShowLocation,
 } from "@/lib/zingaraDemo";
 import {
+  createBaseShowTableInserts,
+  type VenueTableTemplate,
+} from "@/lib/showTableBaseLayout";
+import {
   getServiceClient,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
@@ -304,6 +308,26 @@ async function loadShowRows() {
   return (data ?? []) as SupabaseShowRow[];
 }
 
+async function loadVenueTableRows() {
+  const serviceClient = getServiceClient();
+
+  if (!serviceClient) {
+    throw new Error("Supabase service role is not configured.");
+  }
+
+  const { data, error } = await serviceClient
+    .from("venue_tables")
+    .select("id,table_code,section,capacity,base_status,notes")
+    .order("section", { ascending: true })
+    .order("table_code", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as VenueTableTemplate[];
+}
+
 async function loadShowTableRows(showIds: string[]) {
   if (showIds.length === 0) {
     return [];
@@ -381,21 +405,25 @@ async function loadBookingReferences(bookingIds: string[]) {
     throw new Error("Supabase service role is not configured.");
   }
 
-  const { data, error } = await serviceClient
-    .from("bookings")
-    .select("id,booking_reference")
-    .in("id", uniqueBookingIds);
+  const bookingReferences = new Map<string, string>();
+  const batchSize = 200;
 
-  if (error) {
-    throw error;
+  for (let index = 0; index < uniqueBookingIds.length; index += batchSize) {
+    const { data, error } = await serviceClient
+      .from("bookings")
+      .select("id,booking_reference")
+      .in("id", uniqueBookingIds.slice(index, index + batchSize));
+
+    if (error) {
+      throw error;
+    }
+
+    for (const row of (data ?? []) as SupabaseBookingReferenceRow[]) {
+      bookingReferences.set(row.id, row.booking_reference);
+    }
   }
 
-  return new Map(
-    ((data ?? []) as SupabaseBookingReferenceRow[]).map((row) => [
-      row.id,
-      row.booking_reference,
-    ]),
-  );
+  return bookingReferences;
 }
 
 async function expireStaleShowLocks(
@@ -646,20 +674,57 @@ export async function PUT(request: Request) {
       }
     }
 
-    await Promise.all(
-      shows.map((show) => {
-        const existingRow = existingRowsByDemoId.get(show.id);
-
-        if (existingRow) {
-          return auth.serviceClient
-            .from("shows")
-            .update(toSupabaseShow(show))
-            .eq("id", existingRow.id);
-        }
-
-        return auth.serviceClient.from("shows").insert(toSupabaseShow(show));
-      }),
+    const showsToUpdate = shows.filter((show) =>
+      existingRowsByDemoId.has(show.id),
     );
+    const showsToCreate = shows.filter(
+      (show) => !existingRowsByDemoId.has(show.id),
+    );
+
+    for (const show of showsToUpdate) {
+      const existingRow = existingRowsByDemoId.get(show.id);
+      const { error } = await auth.serviceClient
+        .from("shows")
+        .update(toSupabaseShow(show))
+        .eq("id", existingRow?.id);
+
+      if (error) {
+        throw error;
+      }
+    }
+
+    let createdRows: SupabaseShowRow[] = [];
+
+    if (showsToCreate.length > 0) {
+      const { data, error } = await auth.serviceClient
+        .from("shows")
+        .insert(showsToCreate.map(toSupabaseShow))
+        .select("id,name,description,date,time,venue,status,notes,created_at,updated_at");
+
+      if (error) {
+        throw error;
+      }
+
+      createdRows = (data ?? []) as SupabaseShowRow[];
+      const venueTables = await loadVenueTableRows();
+      const tableRows = createdRows.flatMap((show) =>
+        createBaseShowTableInserts(show.id, venueTables),
+      );
+      const { error: tableInsertError } = await auth.serviceClient
+        .from("show_tables")
+        .insert(tableRows);
+
+      if (tableInsertError) {
+        await auth.serviceClient
+          .from("shows")
+          .delete()
+          .in(
+            "id",
+            createdRows.map((show) => show.id),
+          );
+        throw tableInsertError;
+      }
+    }
 
     const removedRows = existingRows.filter((row) => {
       const demoId = getShowReference(row);

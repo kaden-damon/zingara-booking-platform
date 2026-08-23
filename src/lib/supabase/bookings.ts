@@ -126,6 +126,10 @@ type SupabaseBookingAggregateRow = SupabaseBookingRow & {
     surname: string | null;
   } | null;
   lifecycle_event_rows?: SupabaseLifecycleEventRow[];
+  show_row?: {
+    id: string;
+    notes: string | null;
+  } | null;
   table_row?: {
     id: string;
     section: string | null;
@@ -633,6 +637,15 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     const authoritativeCustomer = getDemoCustomerFromCustomerRow(
       row.customer_row,
     );
+    const authoritativeShowId =
+      parseShowNotes(row.show_row?.notes ?? null) ||
+      (await getLegacyShowId(row.show_id));
+    const authoritativeZoneId = row.table_id
+      ? normalizeBookingSection(row.table_row?.section ?? row.section)
+      : metadataBooking.zoneId;
+    const authoritativeTableNumber = row.table_id
+      ? row.table_row?.table_code ?? metadataBooking.tableNumber
+      : metadataBooking.tableNumber;
     const booking = {
       ...metadataBooking,
       amountPaid: row.amount_paid,
@@ -642,10 +655,26 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       archivedBy: row.archived_by ?? metadataBooking.archivedBy,
       archiveReason: row.archive_reason ?? metadataBooking.archiveReason,
       balanceDue: row.balance_outstanding,
+      partySize: row.guest_count,
       paymentStatus: toDemoPaymentStatus(row.payment_status),
+      source: row.booking_source as DemoBooking["source"],
       status: toDemoBookingStatus(row.booking_status),
       supabaseBookingId: row.id,
+      tableId: row.table_id
+        ? getDemoTableId(
+            authoritativeShowId,
+            authoritativeZoneId,
+            authoritativeTableNumber,
+          )
+        : metadataBooking.tableId,
+      tableNumber: authoritativeTableNumber,
       totalPrice: row.total_amount,
+      showId: authoritativeShowId,
+      zoneId: authoritativeZoneId,
+      zoneTitle: getDisplayZoneTitle(
+        authoritativeZoneId,
+        row.table_id ? row.section ?? metadataBooking.zoneTitle : metadataBooking.zoneTitle,
+      ),
     };
 
     return {
@@ -792,6 +821,27 @@ export async function updateBooking(booking: DemoBooking) {
   });
 
   return booking;
+}
+
+export type BookingTableAssignmentResult = {
+  bookingId: string;
+  bookingReference: string;
+  showId: string;
+  tableCode: string;
+  tableId: string;
+};
+
+export async function assignBookingTable(booking: DemoBooking) {
+  return fetchSupabaseApi<BookingTableAssignmentResult>(
+    "/api/admin/bookings",
+    {
+      body: {
+        action: "assign-table",
+        booking,
+      },
+      method: "PATCH",
+    },
+  );
 }
 
 export async function persistBookingCancellation(booking: DemoBooking) {

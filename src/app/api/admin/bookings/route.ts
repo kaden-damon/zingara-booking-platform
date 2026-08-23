@@ -1,4 +1,5 @@
 import {
+  getAdminRoleFromName,
   getRequestingUser,
   getServiceClient,
   requireActiveStaff,
@@ -14,6 +15,8 @@ import type {
   BookingStatus,
   DemoBooking,
 } from "@/lib/zingaraDemo";
+import { enforceCorporateBookingSource } from "@/lib/bookingClassification";
+import { rolePermissions } from "@/lib/zingaraAccess";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +27,7 @@ const bookingMetadataPrefix = "__zingara_booking_meta__:";
 const bookingQueryBatchSize = 1000;
 const aggregateQueryBatchSize = 150;
 const bookingAuditFields = [
+  "booking_source",
   "booking_status",
   "payment_status",
   "guest_count",
@@ -63,8 +67,18 @@ type SupabasePaymentStatus =
 type AdminBookingRow = {
   customer_id: string | null;
   id: string;
+  show_id: string;
   table_id: string | null;
   [key: string]: unknown;
+};
+
+type ShowTableAssignmentRow = {
+  booking_id: string | null;
+  id: string;
+  section: string;
+  show_id: string;
+  status: string;
+  table_code: string;
 };
 
 async function fetchAdminBookingRows(
@@ -213,6 +227,9 @@ export async function GET(request: Request) {
   const tableIds = rows
     .map((booking) => booking.table_id)
     .filter((id): id is string => Boolean(id));
+  const showIds = rows
+    .map((booking) => booking.show_id)
+    .filter((id): id is string => Boolean(id));
 
   if (bookingIds.length === 0) {
     return Response.json({ rows });
@@ -223,6 +240,7 @@ export async function GET(request: Request) {
     { rows: lifecycleEvents, error: lifecycleError },
     { rows: customers, error: customersError },
     { rows: tables, error: tablesError },
+    { rows: shows, error: showsError },
   ] = await Promise.all([
     fetchAggregateRows(
       serviceClient,
@@ -258,6 +276,15 @@ export async function GET(request: Request) {
           tableIds,
         )
       : Promise.resolve({ rows: [], error: null }),
+    showIds.length > 0
+      ? fetchAggregateRows(
+          serviceClient,
+          "shows",
+          "id,notes",
+          "id",
+          showIds,
+        )
+      : Promise.resolve({ rows: [], error: null }),
   ]);
 
   if (communicationsError) {
@@ -285,6 +312,13 @@ export async function GET(request: Request) {
     console.error(
       "[Zingara API] Failed to load booking table aggregate",
       tablesError,
+    );
+  }
+
+  if (showsError) {
+    console.error(
+      "[Zingara API] Failed to load booking show aggregate",
+      showsError,
     );
   }
 
@@ -350,6 +384,19 @@ export async function GET(request: Request) {
     }
   }
 
+  const showsById = new Map<string, unknown>();
+
+  for (const show of shows ?? []) {
+    if (
+      show &&
+      typeof show === "object" &&
+      "id" in show &&
+      typeof (show as { id?: unknown }).id === "string"
+    ) {
+      showsById.set((show as { id: string }).id, show);
+    }
+  }
+
   return Response.json({
     rows: rows.map((booking) => ({
       ...booking,
@@ -358,6 +405,7 @@ export async function GET(request: Request) {
         ? customersById.get(booking.customer_id) ?? null
         : null,
       lifecycle_event_rows: lifecycleByBookingId.get(booking.id) ?? [],
+      show_row: showsById.get(booking.show_id) ?? null,
       table_row: booking.table_id
         ? tablesById.get(booking.table_id) ?? null
         : null,
@@ -524,8 +572,290 @@ async function releaseTableClaimsForBookings(
   }
 }
 
+async function persistBookingTableAssignment(
+  request: Request,
+  booking: DemoBooking | undefined,
+) {
+  const auth = await requireActiveStaff(request);
+
+  if (
+    auth.error ||
+    !auth.serviceClient ||
+    !auth.staffProfile ||
+    !auth.user
+  ) {
+    return auth.error;
+  }
+
+  const roleRow = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const role = getAdminRoleFromName(roleRow?.name);
+
+  if (!role || !rolePermissions[role].includes("bookings:manage")) {
+    return Response.json(
+      { error: "Booking management access is required." },
+      { status: 403 },
+    );
+  }
+
+  if (
+    !booking?.reference ||
+    !booking.showId ||
+    !booking.tableNumber ||
+    !booking.tableId
+  ) {
+    return Response.json(
+      { error: "A valid booking table assignment is required." },
+      { status: 400 },
+    );
+  }
+
+  const { data: beforeBooking, error: bookingLoadError } =
+    await auth.serviceClient
+      .from("bookings")
+      .select(bookingSelect)
+      .eq("booking_reference", booking.reference)
+      .maybeSingle();
+
+  if (bookingLoadError) {
+    throw bookingLoadError;
+  }
+
+  if (!beforeBooking) {
+    return Response.json(
+      { error: "Booking could not be resolved." },
+      { status: 404 },
+    );
+  }
+
+  if ((beforeBooking as { archived_at?: string | null }).archived_at) {
+    return Response.json(
+      { error: "Archived bookings must be restored before editing." },
+      { status: 409 },
+    );
+  }
+
+  const bookingId = (beforeBooking as { id: string }).id;
+  const showId = (beforeBooking as { show_id: string }).show_id;
+  const { data: targetTable, error: tableLoadError } =
+    await auth.serviceClient
+      .from("show_tables")
+      .select("id,show_id,table_code,section,status,booking_id")
+      .eq("show_id", showId)
+      .eq("table_code", booking.tableNumber)
+      .maybeSingle();
+
+  if (tableLoadError) {
+    throw tableLoadError;
+  }
+
+  const target = targetTable as ShowTableAssignmentRow | null;
+
+  if (!target || target.section !== booking.zoneId) {
+    return Response.json(
+      { error: "The selected table could not be resolved for this booking." },
+      { status: 404 },
+    );
+  }
+
+  if (target.status === "disabled") {
+    return Response.json(
+      { error: `${target.table_code} is blocked and cannot accept bookings.` },
+      { status: 409 },
+    );
+  }
+
+  if (target.booking_id && target.booking_id !== bookingId) {
+    return Response.json(
+      { error: `${target.table_code} is already reserved for another booking.` },
+      { status: 409 },
+    );
+  }
+
+  const { data: previousClaims, error: previousClaimsError } =
+    await auth.serviceClient
+      .from("show_tables")
+      .select("id,show_id,table_code,section,status,booking_id")
+      .eq("booking_id", bookingId);
+
+  if (previousClaimsError) {
+    throw previousClaimsError;
+  }
+
+  let claimQuery = auth.serviceClient
+    .from("show_tables")
+    .update({
+      booking_id: bookingId,
+      status: "booked",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", target.id);
+
+  if (target.booking_id !== bookingId) {
+    claimQuery = claimQuery
+      .is("booking_id", null)
+      .eq("status", "available");
+  }
+
+  const { data: claimedRows, error: claimError } = await claimQuery.select(
+    "id,show_id,table_code,section,status,booking_id",
+  );
+
+  if (claimError) {
+    throw claimError;
+  }
+
+  const claimedTable = (claimedRows?.[0] ?? null) as
+    | ShowTableAssignmentRow
+    | null;
+
+  if (!claimedTable) {
+    return Response.json(
+      {
+        error:
+          "The selected table is no longer available. Refresh Floor and choose another table.",
+      },
+      { status: 409 },
+    );
+  }
+
+  const { data: updatedBooking, error: bookingUpdateError } =
+    await auth.serviceClient
+      .from("bookings")
+      .update({
+        notes: serializeBookingNotes(booking),
+        section: booking.zoneTitle,
+        table_id: claimedTable.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", bookingId)
+      .eq("show_id", showId)
+      .select(bookingSelect)
+      .maybeSingle();
+
+  if (bookingUpdateError || !updatedBooking) {
+    await auth.serviceClient
+      .from("show_tables")
+      .update({
+        booking_id: target.booking_id,
+        status: target.status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", target.id);
+
+    if (bookingUpdateError) {
+      throw bookingUpdateError;
+    }
+
+    return Response.json(
+      { error: "The booking table assignment could not be saved." },
+      { status: 409 },
+    );
+  }
+
+  const priorClaims = (previousClaims ?? []) as ShowTableAssignmentRow[];
+  const priorClaimIds = priorClaims
+    .filter((table) => table.id !== claimedTable.id)
+    .map((table) => table.id);
+
+  if (priorClaimIds.length > 0) {
+    const { error: releaseError } = await auth.serviceClient
+      .from("show_tables")
+      .update({
+        booking_id: null,
+        status: "available",
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", priorClaimIds)
+      .eq("booking_id", bookingId);
+
+    if (releaseError) {
+      await auth.serviceClient
+        .from("bookings")
+        .update({
+          notes: (beforeBooking as { notes: string | null }).notes,
+          section: (beforeBooking as { section: string | null }).section,
+          table_id: (beforeBooking as { table_id: string | null }).table_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", bookingId);
+      await auth.serviceClient
+        .from("show_tables")
+        .update({
+          booking_id: target.booking_id,
+          status: target.status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", target.id);
+
+      for (const priorClaim of priorClaims) {
+        await auth.serviceClient
+          .from("show_tables")
+          .update({
+            booking_id: priorClaim.booking_id,
+            status: priorClaim.status,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", priorClaim.id);
+      }
+
+      throw releaseError;
+    }
+  }
+
+  const diff = diffAuditFields(
+    beforeBooking as Record<string, unknown>,
+    updatedBooking as Record<string, unknown>,
+    bookingAuditFields,
+  );
+
+  await tryRecordAuditEvent(
+    auth.serviceClient,
+    auth.staffProfile,
+    auth.user,
+    {
+      action: "booking.table-assign",
+      afterValues: diff.afterValues,
+      beforeValues: diff.beforeValues,
+      changedFields: diff.changedFields,
+      entityId: bookingId,
+      entityReference: booking.reference,
+      entityType: "booking",
+      outcome: "success",
+      reason: `Assigned table ${claimedTable.table_code}.`,
+      request,
+      sourceArea: "Operations Floor",
+    },
+  );
+
+  return Response.json({
+    bookingId,
+    bookingReference: booking.reference,
+    showId,
+    tableCode: claimedTable.table_code,
+    tableId: claimedTable.id,
+  });
+}
+
 async function runBookingTransaction(request: Request, body?: unknown) {
-  const requestBody = body ?? (await request.json());
+  const rawRequestBody = body ?? (await request.json());
+  const rawBooking =
+    typeof rawRequestBody === "object" && rawRequestBody && "booking" in rawRequestBody
+      ? (rawRequestBody as { booking?: DemoBooking }).booking
+      : undefined;
+  const requestBody = rawBooking
+    ? {
+        ...(rawRequestBody as Record<string, unknown>),
+        booking: {
+          ...rawBooking,
+          source: enforceCorporateBookingSource(
+            rawBooking.partySize,
+            rawBooking.source,
+          ),
+        },
+      }
+    : rawRequestBody;
   const bookingReference =
     typeof requestBody === "object" &&
     requestBody &&
@@ -904,13 +1234,19 @@ async function persistBookingStateUpdate(request: Request, body: {
     }
 
     const bookingId = (beforeBooking as { id: string }).id;
+    const bookingSource = enforceCorporateBookingSource(
+      booking.partySize,
+      booking.source,
+    );
+    const classifiedBooking = { ...booking, source: bookingSource };
     const { data: updatedBooking, error: updateError } = await supabase
       .from("bookings")
       .update({
         amount_paid: booking.amountPaid ?? 0,
         balance_outstanding: booking.balanceDue ?? 0,
+        booking_source: bookingSource,
         booking_status: toSupabaseBookingStatus(booking.status),
-        notes: serializeBookingNotes(booking),
+        notes: serializeBookingNotes(classifiedBooking),
         payment_status: toSupabasePaymentStatus(booking.paymentStatus),
       })
       .eq("id", bookingId)
@@ -1178,6 +1514,19 @@ export async function PATCH(request: Request) {
 
   if (lockError) {
     return lockError;
+  }
+
+  if (body.action === "assign-table") {
+    try {
+      return await persistBookingTableAssignment(request, body.booking);
+    } catch (error) {
+      console.error("[Zingara API] Failed to assign booking table", error);
+
+      return Response.json(
+        { error: "The booking table assignment could not be saved." },
+        { status: 500 },
+      );
+    }
   }
 
   if (body.action === "cancel") {
