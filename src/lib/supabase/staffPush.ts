@@ -48,6 +48,9 @@ type PushSubscriptionRecord = {
     p256dh?: string;
   };
   role?: AdminRole;
+  staffEmail?: string;
+  staffProfileId?: string;
+  userId?: string;
 };
 
 type VenueSettingsRow = {
@@ -82,6 +85,14 @@ type GuestPushInput = {
   body?: string;
   title?: string;
   trigger: GuestPushTrigger;
+};
+
+type StaffIdentityPushInput = {
+  body: string;
+  staffProfileId: string;
+  title: string;
+  url: string;
+  userId?: string | null;
 };
 
 const rolesByTrigger: Record<StaffPushTrigger, AdminRole[]> = {
@@ -545,6 +556,101 @@ export async function sendStaffPushNotification(input: StaffPushInput) {
 
   return {
     failed,
+    ok: sent > 0,
+    sent,
+    subscriptionCount: subscriptions.length,
+  };
+}
+
+export async function sendStaffIdentityPushNotification(
+  input: StaffIdentityPushInput,
+) {
+  const pushConfig = getPushConfig();
+
+  if (!pushConfig.publicKey || !pushConfig.privateKey) {
+    return {
+      failed: 0,
+      ok: false,
+      sent: 0,
+      subscriptionCount: 0,
+    };
+  }
+
+  const { row, serviceClient } = await loadVenueSettingsRow();
+
+  if (!serviceClient) {
+    return {
+      failed: 0,
+      ok: false,
+      sent: 0,
+      subscriptionCount: 0,
+    };
+  }
+
+  const subscriptions = dedupeSubscriptionsByEndpoint(
+    getPushSubscriptions(row).filter(
+      (subscription) =>
+        subscription.audience !== "guest" &&
+        (subscription.staffProfileId === input.staffProfileId ||
+          Boolean(input.userId && subscription.userId === input.userId)),
+    ),
+  );
+
+  if (subscriptions.length === 0) {
+    return {
+      failed: 0,
+      ok: false,
+      sent: 0,
+      subscriptionCount: 0,
+    };
+  }
+
+  webPush.setVapidDetails(
+    pushConfig.subject,
+    pushConfig.publicKey,
+    pushConfig.privateKey,
+  );
+
+  const payload = JSON.stringify({
+    body: input.body,
+    tag: `zingara-staff-issue-${input.staffProfileId}`,
+    title: input.title,
+    url:
+      input.url === "/admin" || input.url.startsWith("/admin?")
+        ? input.url
+        : "/admin",
+  });
+  const results = await Promise.allSettled(
+    subscriptions.map((subscription) =>
+      webPush.sendNotification(subscription, payload),
+    ),
+  );
+  const sent = results.filter((result) => result.status === "fulfilled").length;
+  const expiredEndpoints = results.flatMap((result, index) =>
+    result.status === "rejected" && isPermanentPushFailure(result.reason)
+      ? [subscriptions[index].endpoint]
+      : [],
+  );
+
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      console.error("[Zingara push] Staff issue push delivery failed", result.reason);
+    }
+  });
+
+  if (expiredEndpoints.length > 0) {
+    try {
+      await removePushSubscriptionsByEndpoint(expiredEndpoints);
+    } catch (error) {
+      console.error(
+        "[Zingara push] Failed to remove expired issue subscriptions",
+        error,
+      );
+    }
+  }
+
+  return {
+    failed: results.length - sent,
     ok: sent > 0,
     sent,
     subscriptionCount: subscriptions.length,

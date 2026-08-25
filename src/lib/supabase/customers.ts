@@ -58,6 +58,11 @@ export type CustomerIdentityInput = {
   mobile?: string;
 };
 
+export type CustomerCrmDetailsInput = {
+  notes: string;
+  vipTags: string[];
+};
+
 function getCustomerKey(customer: {
   email?: string;
   name?: string;
@@ -138,18 +143,6 @@ function toCustomerPayload(
   };
 }
 
-function getCustomerInputFromCrmRecord(
-  record: DemoCustomerCrmRecord,
-): CustomerWriteInput {
-  return {
-    customerKey: record.customerKey,
-    email: record.customerKey.includes("@") ? record.customerKey : undefined,
-    name: record.customerKey,
-    relationshipNotes: record.notes,
-    vipTags: record.vipTags,
-  };
-}
-
 async function getSupabaseCustomers() {
   try {
     const payload = await fetchSupabaseApi<{ rows: SupabaseCustomerRow[] }>(
@@ -211,12 +204,6 @@ export async function getOrCreateCustomerIdFromInfo(
     console.error("[Zingara Supabase] Failed to create booking customer", error);
     return undefined;
   }
-}
-
-async function persistCustomersToSupabase(records: DemoCustomerCrmRecord[]) {
-  await Promise.all(records.map((record) => upsertCustomer(getCustomerInputFromCrmRecord(record))));
-
-  return records;
 }
 
 export async function getCustomers() {
@@ -298,6 +285,21 @@ export async function updateCustomerIdentityDetails(
   return payload.row;
 }
 
+export async function updateCustomerCrmDetails(
+  id: string,
+  details: CustomerCrmDetailsInput,
+) {
+  const payload = await fetchSupabaseApi<{ row: SupabaseCustomerRow | null }>(
+    "/api/admin/customers",
+    {
+      body: { crm: details, id },
+      method: "PATCH",
+    },
+  );
+
+  return payload.row;
+}
+
 export async function updateCustomerArchiveStatus(
   id: string,
   archived: boolean,
@@ -348,10 +350,4 @@ export async function upsertCustomerFromInfo(
     mobile: customer.phone,
     name: customer.name,
   });
-}
-
-export async function saveCustomers(records: DemoCustomerCrmRecord[]) {
-  await persistCustomersToSupabase(records);
-
-  return getCustomers();
 }

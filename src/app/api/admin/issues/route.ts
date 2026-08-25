@@ -1,6 +1,9 @@
 import { type AdminRole } from "@/lib/zingaraAccess";
+import { sendZingaraEmail } from "@/lib/email/smtp";
 import {
   canManageStaffIssues,
+  getStaffIssueCategoryLabel,
+  getStaffIssuePriorityLabel,
   isStaffIssueCategory,
   isStaffIssuePriority,
   isStaffIssueStatus,
@@ -18,6 +21,7 @@ import {
   pickAuditFields,
   tryRecordAuditEvent,
 } from "@/lib/supabase/serverAudit";
+import { sendStaffIdentityPushNotification } from "@/lib/supabase/staffPush";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +68,83 @@ const issueAuditFields = [
   "status",
   "title",
 ];
+const issueNotificationRecipient = "kaden@kaden.co.za";
+
+function getIssueNotificationMessage(issue: StaffIssueReport) {
+  return [
+    `A new Zingara staff issue has been reported: ${issue.ticketReference}`,
+    "",
+    `Title: ${issue.title}`,
+    `Category: ${getStaffIssueCategoryLabel(issue.category)}`,
+    `Priority: ${getStaffIssuePriorityLabel(issue.priority)}`,
+    `Description: ${issue.description}`,
+    `Reporter: ${issue.reporterName ?? issue.reporterEmail ?? "Not recorded"}`,
+    `Location: ${issue.location ?? "Not location-specific"}`,
+    `Module / Area: ${issue.moduleOrArea ?? "Not recorded"}`,
+    `Created: ${issue.createdAt}`,
+    "",
+    "Admin: /admin?section=platform-operations",
+  ].join("\n");
+}
+
+async function notifyKadenOfIssue(
+  serviceClient: NonNullable<
+    Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]
+  >,
+  issue: StaffIssueReport,
+) {
+  const { data: recipient, error } = await serviceClient
+    .from("staff_profiles")
+    .select("id,user_id")
+    .eq("email", issueNotificationRecipient)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  const message = getIssueNotificationMessage(issue);
+  const notificationTasks: Promise<unknown>[] = [
+    sendZingaraEmail({
+      message,
+      subject: `[${issue.ticketReference}] ${issue.title}`,
+      to: issueNotificationRecipient,
+    }),
+  ];
+
+  if (recipient?.id) {
+    notificationTasks.push(
+      sendStaffIdentityPushNotification({
+        body: `${getStaffIssuePriorityLabel(issue.priority)} · ${issue.title}`,
+        staffProfileId: recipient.id,
+        title: `New issue · ${issue.ticketReference}`,
+        url: "/admin?section=platform-operations",
+        userId: recipient.user_id,
+      }),
+    );
+  } else {
+    console.error("[Zingara Issues] Kaden push identity was not found.");
+  }
+
+  const results = await Promise.allSettled(notificationTasks);
+
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      console.error("[Zingara Issues] Issue notification failed", result.reason);
+      return;
+    }
+
+    const value = result.value as { error?: string; ok?: boolean };
+
+    if (value.ok === false) {
+      console.error(
+        "[Zingara Issues] Issue notification was not delivered",
+        value.error ?? "No matching active subscription was available.",
+      );
+    }
+  });
+}
 
 function getStaffRole(profile: {
   roles?: StaffIssueReporterRow["roles"];
@@ -200,6 +281,7 @@ export async function POST(request: Request) {
       location?: unknown;
       moduleOrArea?: unknown;
       priority?: unknown;
+      submissionId?: unknown;
       title?: unknown;
     };
     const title = normalizeOptionalText(body.title);
@@ -218,7 +300,33 @@ export async function POST(request: Request) {
       return Response.json({ error: "Priority is invalid." }, { status: 400 });
     }
 
+    const submissionId = normalizeOptionalText(body.submissionId)?.slice(0, 100);
     const metadata: Record<string, unknown> = {};
+
+    if (submissionId) {
+      const { data: existingIssue, error: existingIssueError } =
+        await auth.serviceClient
+          .from("staff_issue_reports")
+          .select(
+            "id,ticket_reference,reporter_staff_id,category,priority,status,title,description,location,module_or_area,admin_notes,resolution_notes,metadata,scheduled_at,started_at,completed_at,created_at,updated_at,reporter:staff_profiles!staff_issue_reports_reporter_staff_id_fkey(id,full_name,email,roles(name))",
+          )
+          .eq("reporter_staff_id", auth.staffProfile.id)
+          .contains("metadata", { submissionId })
+          .maybeSingle();
+
+      if (existingIssueError) {
+        throw existingIssueError;
+      }
+
+      if (existingIssue) {
+        return Response.json({
+          deduplicated: true,
+          issue: toIssueReport(existingIssue as unknown as StaffIssueRow),
+        });
+      }
+
+      metadata.submissionId = submissionId;
+    }
 
     if (typeof body.currentPath === "string" && body.currentPath.trim()) {
       metadata.adminPath = body.currentPath.trim().slice(0, 300);
@@ -260,6 +368,15 @@ export async function POST(request: Request) {
       request,
       sourceArea: "System",
     });
+
+    try {
+      await notifyKadenOfIssue(auth.serviceClient, issue);
+    } catch (notificationError) {
+      console.error(
+        "[Zingara Issues] Issue saved but notification dispatch failed",
+        notificationError,
+      );
+    }
 
     return Response.json({ issue }, { status: 201 });
   } catch (error) {

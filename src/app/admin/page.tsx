@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from "react";
 
 import {
@@ -75,7 +76,7 @@ import {
 import { syncCorporateRequestCommunications } from "../../lib/supabase/communications";
 import {
   getCustomerCrmRecordsFromRows,
-  saveCustomers,
+  updateCustomerCrmDetails,
   updateCustomerIdentityDetails,
   updateCustomerArchiveStatus,
   upsertCustomerFromInfo,
@@ -9272,6 +9273,8 @@ export default function AdminDashboardPage() {
   const [customerCrmRecords, setCustomerCrmRecords] = useState<
     DemoCustomerCrmRecord[]
   >([]);
+  const [customerRelationshipNoteDraft, setCustomerRelationshipNoteDraft] =
+    useState<{ customerId: string; notes: string } | null>(null);
   const [liveCustomerRecords, setLiveCustomerRecords] = useState<
     LiveCustomerRecord[]
   >([]);
@@ -9874,6 +9877,10 @@ export default function AdminDashboardPage() {
   const [reportPaymentFilter, setReportPaymentFilter] =
     useState<PaymentStatus | "all">("all");
   const [reportDateFilter, setReportDateFilter] = useState("");
+  const [analyticsShowId, setAnalyticsShowId] = useState("");
+  const [tablePlanExportStatus, setTablePlanExportStatus] = useState("");
+  const [isTablePlanExporting, setIsTablePlanExporting] = useState(false);
+  const [isAnalyticsShowPending, startAnalyticsShowTransition] = useTransition();
   const [manifestLocationFilter, setManifestLocationFilter] =
     useState<ManifestLocationFilter>("all");
   const [manifestStatusFilter, setManifestStatusFilter] =
@@ -9908,6 +9915,7 @@ export default function AdminDashboardPage() {
     setShowCustomerRecordComparison,
   ] = useState(false);
   const handledAdminDeepLinkRef = useRef("");
+  const staffIssueSubmissionIdRef = useRef("");
   const liveCustomerLoadRequestRef = useRef(0);
   const sessionRestoreRequestRef = useRef(0);
   const showLoadRequestRef = useRef(0);
@@ -10282,6 +10290,8 @@ export default function AdminDashboardPage() {
         setActiveOperationsTab("waitlist");
       } else if (section === "corporate") {
         setActiveAdminTab("corporate");
+      } else if (section === "platform-operations") {
+        setActiveAdminTab("platform-operations");
       }
 
       handledAdminDeepLinkRef.current = deepLinkKey;
@@ -11547,6 +11557,77 @@ export default function AdminDashboardPage() {
   })();
   const canSelectAllManifestLocations =
     permittedManifestLocations.length > 1;
+  const analyticsShows = shows
+    .filter((show) => {
+      if (show.archivedAt) {
+        return false;
+      }
+
+      const showLocation = normalizeShowLocation(
+        show.location ?? show.venueName,
+      );
+
+      return Boolean(
+        showLocation && permittedManifestLocations.includes(showLocation),
+      );
+    })
+    .sort((left, right) =>
+      `${left.date}T${left.time || "00:00"}`.localeCompare(
+        `${right.date}T${right.time || "00:00"}`,
+      ),
+    );
+  const analyticsSelectedShow =
+    analyticsShows.find(
+      (show) =>
+        show.id === analyticsShowId || show.supabaseId === analyticsShowId,
+    ) ??
+    analyticsShows.find(
+      (show) =>
+        show.date >= southAfricaToday &&
+        (show.operationalStatus ?? "active") === "active",
+    ) ??
+    analyticsShows.find((show) => show.date >= southAfricaToday) ??
+    analyticsShows[0];
+  const analyticsActiveBookings = analyticsSelectedShow
+    ? activeBookingsForOperations.filter(
+        (booking) =>
+          isOperationallyActiveBooking(booking) &&
+          bookingBelongsToShow(booking, analyticsSelectedShow),
+      )
+    : [];
+  const analyticsBookedGuests = analyticsActiveBookings.reduce(
+    (total, booking) => total + booking.partySize,
+    0,
+  );
+  const analyticsShowRevenue = analyticsActiveBookings.reduce(
+    (total, booking) => total + getBookingFinancials(booking).amountPaid,
+    0,
+  );
+  const analyticsVenueCapacity = 458;
+  const analyticsOccupancy =
+    analyticsVenueCapacity > 0
+      ? (analyticsBookedGuests / analyticsVenueCapacity) * 100
+      : 0;
+  const analyticsAverageSpend =
+    analyticsBookedGuests > 0
+      ? Math.round(analyticsShowRevenue / analyticsBookedGuests)
+      : 0;
+
+  function selectAnalyticsShow(showReference: string) {
+    const nextShow = analyticsShows.find(
+      (show) => show.id === showReference || show.supabaseId === showReference,
+    );
+
+    if (!nextShow) {
+      return;
+    }
+
+    startAnalyticsShowTransition(() => {
+      setAnalyticsShowId(nextShow.supabaseId ?? nextShow.id);
+      setReportDateFilter(nextShow.date);
+      setTablePlanExportStatus("");
+    });
+  }
   const effectiveManifestLocation =
     manifestLocationFilter === "all" && canSelectAllManifestLocations
       ? "all"
@@ -12707,6 +12788,13 @@ export default function AdminDashboardPage() {
     setIsStaffIssueSubmitting(true);
     setStaffIssueError("");
     setStaffIssueStatusMessage("Submitting issue...");
+    const submissionId =
+      staffIssueSubmissionIdRef.current ||
+      (typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `issue-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+    staffIssueSubmissionIdRef.current = submissionId;
 
     try {
       const payload = await fetchSupabaseApi<{ issue: StaffIssueReport }>(
@@ -12718,6 +12806,7 @@ export default function AdminDashboardPage() {
               typeof window !== "undefined"
                 ? `${window.location.pathname}${window.location.hash}`
                 : "/admin",
+            submissionId,
           },
           method: "POST",
         },
@@ -12731,7 +12820,11 @@ export default function AdminDashboardPage() {
         priority: "normal",
         title: "",
       });
-      setStaffIssueReports((issues) => [payload.issue, ...issues]);
+      staffIssueSubmissionIdRef.current = "";
+      setStaffIssueReports((issues) => [
+        payload.issue,
+        ...issues.filter((issue) => issue.id !== payload.issue.id),
+      ]);
       setSelectedStaffIssueId(payload.issue.id);
       setStaffIssueStatusMessage(
         `Issue submitted · ${payload.issue.ticketReference}`,
@@ -14294,18 +14387,6 @@ export default function AdminDashboardPage() {
       .then((persistedWaitlist) => {
         setWaitlist(persistedWaitlist);
         showWorkflowToast("✓ Saved · Waitlist updated");
-      })
-      .catch(() => showWorkflowToast("⚠ Could not save"));
-  }
-
-  function saveCustomerCrmRecords(
-    nextRecords: DemoCustomerCrmRecord[],
-  ) {
-    setCustomerCrmRecords(nextRecords);
-    void saveCustomers(nextRecords)
-      .then((persistedRecords) => {
-        setCustomerCrmRecords(persistedRecords);
-        showWorkflowToast("✓ Saved · Customer updated");
       })
       .catch(() => showWorkflowToast("⚠ Could not save"));
   }
@@ -15933,7 +16014,8 @@ export default function AdminDashboardPage() {
       const paymentStatus = getBookingPaymentStatus(booking);
 
       return (
-        booking.showId === selectedShowId &&
+        Boolean(analyticsSelectedShow) &&
+        bookingBelongsToShow(booking, analyticsSelectedShow) &&
         (reportDateFilter ? show?.date === reportDateFilter : true) &&
         (reportStatusFilter === "all"
           ? true
@@ -15953,7 +16035,9 @@ export default function AdminDashboardPage() {
 
     if (reportType === "waitlist") {
       return waitlist
-        .filter((entry) => entry.showId === selectedShowId)
+        .filter((entry) =>
+          getShowIdentityValues(analyticsSelectedShow).includes(entry.showId),
+        )
         .map((entry) => ({
           reference: entry.id,
           customer: entry.customer.name,
@@ -15981,7 +16065,11 @@ export default function AdminDashboardPage() {
 
     if (reportType === "table-allocations") {
       return tables
-        .filter((table) => table.showId === selectedShowId)
+        .filter((table) =>
+          table.showId
+            ? getShowIdentityValues(analyticsSelectedShow).includes(table.showId)
+            : false,
+        )
         .map((table) => {
           const occupancy = getTableOccupancy(table, bookings);
 
@@ -16088,6 +16176,63 @@ export default function AdminDashboardPage() {
     link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function downloadTablePlan() {
+    const showId = analyticsSelectedShow?.supabaseId;
+
+    if (!showId || isTablePlanExporting) {
+      setTablePlanExportStatus(
+        showId
+          ? "A table plan export is already in progress."
+          : "Select an available performance first.",
+      );
+      return;
+    }
+
+    setIsTablePlanExporting(true);
+    setTablePlanExportStatus("Generating table plan...");
+
+    try {
+      const authSession = await getAdminAuthSession();
+
+      if (!authSession) {
+        throw new Error("Your Admin session has expired. Sign in again.");
+      }
+
+      const response = await fetch(
+        `/api/admin/analytics/table-plan?showId=${encodeURIComponent(showId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${authSession.session.access_token}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+
+        throw new Error(payload.error ?? "The table plan could not be generated.");
+      }
+
+      const contentDisposition = response.headers.get("content-disposition") ?? "";
+      const filename =
+        contentDisposition.match(/filename="([^"]+)"/i)?.[1] ??
+        `Zingara_Table_Plan_${analyticsSelectedShow?.date ?? "show"}.xlsx`;
+
+      downloadBlobFile(filename, await response.blob());
+      setTablePlanExportStatus("Table plan downloaded successfully.");
+    } catch (error) {
+      setTablePlanExportStatus(
+        error instanceof Error
+          ? error.message
+          : "The table plan could not be generated.",
+      );
+    } finally {
+      setIsTablePlanExporting(false);
+    }
   }
 
   function parseExportDate(dateValue?: string | null) {
@@ -18952,7 +19097,7 @@ export default function AdminDashboardPage() {
     const csv = createCsv(getReportRows(reportType));
 
     downloadTextFile(
-      `${reportType}-${selectedShowId || "all"}.csv`,
+      `${reportType}-${analyticsSelectedShow?.supabaseId ?? analyticsSelectedShow?.id ?? "no-show"}.csv`,
       csv,
       "text/csv;charset=utf-8",
     );
@@ -18963,7 +19108,7 @@ export default function AdminDashboardPage() {
       Record<string, string | number | undefined>
     >;
     const headers = rows[0] ? Object.keys(rows[0]) : [];
-    const html = `<!doctype html><html><head><title>${operationalReportLabels[reportType]}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ccc;padding:8px;text-align:left;font-size:12px}th{background:#eee}</style></head><body><h1>${operationalReportLabels[reportType]}</h1><p>${getShowLabel(selectedShow)}</p><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((header) => `<td>${String(row[header] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
+    const html = `<!doctype html><html><head><title>${operationalReportLabels[reportType]}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ccc;padding:8px;text-align:left;font-size:12px}th{background:#eee}</style></head><body><h1>${operationalReportLabels[reportType]}</h1><p>${getShowLabel(analyticsSelectedShow)}</p><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((header) => `<td>${String(row[header] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
     const printWindow = window.open("", "_blank");
 
     if (!printWindow) {
@@ -20657,31 +20802,55 @@ export default function AdminDashboardPage() {
     setCustomerProfileReturnContext({ source: "direct" });
   }
 
-  function updateCustomerCrmRecord(
-    customerKey: string,
+  async function updateCustomerCrmRecord(
+    profile: CustomerProfile,
     updates: Partial<Pick<DemoCustomerCrmRecord, "notes" | "vipTags">>,
   ) {
     if (!canManageBookings) {
       return;
     }
 
-    const existingRecord = customerCrmRecords.find(
-      (record) => record.customerKey === customerKey,
-    );
-    const nextRecord: DemoCustomerCrmRecord = {
-      customerKey,
-      notes: updates.notes ?? existingRecord?.notes ?? "",
-      vipTags: updates.vipTags ?? existingRecord?.vipTags ?? [],
-      updatedAt: new Date().toISOString(),
-    };
+    if (!profile.customerId) {
+      showWorkflowToast("⚠ Customer is not linked to a live record");
+      return;
+    }
 
-    saveCustomerCrmRecords(
-      existingRecord
-        ? customerCrmRecords.map((record) =>
-            record.customerKey === customerKey ? nextRecord : record,
-          )
-        : [...customerCrmRecords, nextRecord],
+    const liveCustomer = liveCustomerRecords.find(
+      (record) => record.id === profile.customerId,
     );
+
+    if (!liveCustomer) {
+      showWorkflowToast("⚠ Customer is not linked to a live record");
+      return;
+    }
+
+    try {
+      const updatedCustomer = await updateCustomerCrmDetails(liveCustomer.id, {
+        notes: updates.notes ?? liveCustomer.relationship_notes ?? "",
+        vipTags:
+          updates.vipTags ?? liveCustomer.preferences?.vipTags ?? [],
+      });
+
+      if (!updatedCustomer) {
+        throw new Error("Customer could not be updated.");
+      }
+
+      setLiveCustomerRecords((currentRecords) =>
+        currentRecords.map((record) =>
+          record.id === updatedCustomer.id
+            ? {
+                ...record,
+                preferences: updatedCustomer.preferences,
+                relationship_notes: updatedCustomer.relationship_notes,
+              }
+            : record,
+        ),
+      );
+      setCustomerRelationshipNoteDraft(null);
+      showWorkflowToast("✓ Saved · Customer updated");
+    } catch {
+      showWorkflowToast("⚠ Could not save");
+    }
   }
 
   function getLiveCustomerForProfile(profile: CustomerProfile) {
@@ -20996,7 +21165,7 @@ export default function AdminDashboardPage() {
       ? profile.vipTags.filter((currentTag) => currentTag !== tag)
       : [...profile.vipTags, tag];
 
-    updateCustomerCrmRecord(profile.key, {
+    void updateCustomerCrmRecord(profile, {
       vipTags: nextTags,
     });
   }
@@ -22590,7 +22759,7 @@ export default function AdminDashboardPage() {
           new Date(firstRecord.sentAt).getTime(),
       ),
       favouriteZone,
-      notes: crmRecord?.notes ?? "",
+      notes: liveCustomer?.relationship_notes ?? crmRecord?.notes ?? "",
       promoUsage,
       archivedAt: liveCustomer?.preferences?.archivedAt,
       archivedBy: liveCustomer?.preferences?.archivedBy,
@@ -22600,7 +22769,8 @@ export default function AdminDashboardPage() {
           total + getBookingFinancials(booking).totalPrice,
         0,
       ),
-      vipTags: crmRecord?.vipTags ?? [],
+      vipTags:
+        liveCustomer?.preferences?.vipTags ?? crmRecord?.vipTags ?? [],
       waitlistEntries,
     };
     }).sort(
@@ -32500,8 +32670,8 @@ export default function AdminDashboardPage() {
 
         {activeAdminTab === "analytics" && canViewAnalytics && (
           <section className="mb-10 rounded-2xl border border-[#D8C36A]/35 bg-[radial-gradient(circle_at_top,#251909_0%,#101010_48%,#050505_100%)] p-6 shadow-2xl shadow-[#8D7A2F]/10">
-            <div className="mb-6 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-              <div>
+            <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
+              <div className="min-w-0">
                 <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
                   Advanced Analytics
                 </p>
@@ -32514,42 +32684,74 @@ export default function AdminDashboardPage() {
                   booking source mix.
                 </p>
               </div>
+
+              <div className="w-full max-w-full rounded-2xl border border-white/10 bg-black/35 p-3 sm:w-fit lg:shrink-0">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500 lg:text-right">
+                  Analytics Performance
+                </p>
+                <PerformanceCalendarSelector
+                  buttonClassName="w-full rounded-full border border-white/15 bg-black/35 px-4 py-2 text-left text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white sm:w-auto"
+                  emptyLabel="No permitted performances"
+                  label="Analytics Performance"
+                  locations={permittedManifestLocations}
+                  onSelect={selectAnalyticsShow}
+                  selectedShowId={
+                    analyticsSelectedShow?.supabaseId ??
+                    analyticsSelectedShow?.id ??
+                    ""
+                  }
+                  shows={analyticsShows}
+                />
+              </div>
             </div>
 
-            <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div
+              className={`mb-6 grid grid-cols-1 gap-4 transition-opacity md:grid-cols-4 ${
+                isAnalyticsShowPending ? "opacity-45" : "opacity-100"
+              }`}
+              aria-busy={isAnalyticsShowPending}
+            >
               <div className="rounded-2xl border border-[#D8C36A]/25 bg-black/35 p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                  Net Revenue
+                  Show Revenue
                 </p>
                 <p className="mt-2 text-3xl font-bold">
-                  {formatCurrency(allFinancialReport.netSales)}
+                  {isAnalyticsShowPending
+                    ? "Loading..."
+                    : formatCurrency(analyticsShowRevenue)}
                 </p>
               </div>
 
               <div className="rounded-2xl border border-emerald-400/25 bg-emerald-950/20 p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">
-                  Avg Spend / Guest
+                  Booked Guests
                 </p>
                 <p className="mt-2 text-3xl font-bold">
-                  {formatCurrency(averageSpendPerGuest)}
+                  {isAnalyticsShowPending
+                    ? "Loading..."
+                    : `${analyticsBookedGuests} / ${analyticsVenueCapacity}`}
                 </p>
               </div>
 
               <div className="rounded-2xl border border-sky-300/25 bg-sky-950/20 p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-200">
-                  Add-On Revenue
+                  Occupancy
                 </p>
                 <p className="mt-2 text-3xl font-bold">
-                  {formatCurrency(allFinancialReport.addonsTotal)}
+                  {isAnalyticsShowPending
+                    ? "Loading..."
+                    : formatPercent(analyticsOccupancy)}
                 </p>
               </div>
 
               <div className="rounded-2xl border border-amber-300/25 bg-amber-950/20 p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-200">
-                  Waitlist Conversion
+                  Avg Spend / Guest
                 </p>
                 <p className="mt-2 text-3xl font-bold">
-                  {formatPercent(waitlistConversionRate)}
+                  {isAnalyticsShowPending
+                    ? "Loading..."
+                    : formatCurrency(analyticsAverageSpend)}
                 </p>
               </div>
             </div>
@@ -32682,6 +32884,36 @@ export default function AdminDashboardPage() {
                     </div>
                   </div>
                 ))}
+                <div className="rounded-2xl border border-white/10 bg-zinc-950 p-4">
+                  <p className="font-semibold text-white">Table Plan</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void downloadTablePlan()}
+                      disabled={
+                        !analyticsSelectedShow?.supabaseId ||
+                        isTablePlanExporting
+                      }
+                      className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isTablePlanExporting ? "Generating..." : "Excel"}
+                    </button>
+                  </div>
+                  {tablePlanExportStatus && (
+                    <p
+                      className={`mt-3 text-sm ${
+                        tablePlanExportStatus.includes("successfully")
+                          ? "text-emerald-300"
+                          : tablePlanExportStatus.includes("Generating")
+                            ? "text-zinc-400"
+                            : "text-amber-200"
+                      }`}
+                      role="status"
+                    >
+                      {tablePlanExportStatus}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -33505,16 +33737,36 @@ export default function AdminDashboardPage() {
                           Relationship Notes
                         </p>
                         <textarea
-                          value={selectedCustomerProfile.notes}
-                          disabled={!canManageBookings}
-                          onChange={(event) =>
-                            updateCustomerCrmRecord(
-                              selectedCustomerProfile.key,
-                              {
-                                notes: event.target.value,
-                              },
-                            )
+                          value={
+                            selectedCustomerProfile.customerId &&
+                            customerRelationshipNoteDraft?.customerId ===
+                              selectedCustomerProfile.customerId
+                              ? customerRelationshipNoteDraft.notes
+                              : selectedCustomerProfile.notes
                           }
+                          disabled={!canManageBookings}
+                          onChange={(event) => {
+                            if (!selectedCustomerProfile.customerId) {
+                              return;
+                            }
+
+                            setCustomerRelationshipNoteDraft({
+                              customerId: selectedCustomerProfile.customerId,
+                              notes: event.target.value,
+                            });
+                          }}
+                          onBlur={() => {
+                            if (
+                              selectedCustomerProfile.customerId &&
+                              customerRelationshipNoteDraft?.customerId ===
+                                selectedCustomerProfile.customerId
+                            ) {
+                              void updateCustomerCrmRecord(
+                                selectedCustomerProfile,
+                                { notes: customerRelationshipNoteDraft.notes },
+                              );
+                            }
+                          }}
                           className="mt-3 min-h-32 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-zinc-100 disabled:opacity-60"
                           placeholder="Add guest preferences, service notes, allergies, or relationship context."
                         />

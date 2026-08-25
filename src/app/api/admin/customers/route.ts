@@ -31,6 +31,11 @@ type CustomerIdentityInput = {
   mobile?: string;
 };
 
+type CustomerCrmDetailsInput = {
+  notes?: string;
+  vipTags?: string[];
+};
+
 type CustomerPreferences = {
   archivedAt?: string;
   archivedBy?: string;
@@ -464,10 +469,104 @@ export async function PATCH(request: Request) {
   try {
     const body = (await request.json()) as {
       archive?: { archived?: boolean; reason?: string };
+      crm?: CustomerCrmDetailsInput;
       id?: string;
       input?: CustomerWriteInput;
       identity?: CustomerIdentityInput;
     };
+
+    if (body.crm) {
+      if (!body.id) {
+        return Response.json(
+          { error: "Customer id is required." },
+          { status: 400 },
+        );
+      }
+
+      const auth = await requireActiveStaff(request);
+
+      if (auth.error || !auth.staffProfile || !auth.user) {
+        return Response.json(
+          { error: "Active staff authentication is required." },
+          { status: 401 },
+        );
+      }
+
+      if (!canManageCustomerIdentity(auth.staffProfile)) {
+        return Response.json(
+          { error: "Customer edit access is required." },
+          { status: 403 },
+        );
+      }
+
+      const { data: beforeCustomer, error: beforeError } = await serviceClient
+        .from("customers")
+        .select(customerSelect)
+        .eq("id", body.id)
+        .maybeSingle();
+
+      if (beforeError) {
+        throw beforeError;
+      }
+
+      if (!beforeCustomer) {
+        return Response.json(
+          { error: "Customer could not be found." },
+          { status: 404 },
+        );
+      }
+
+      const previousPreferences =
+        (beforeCustomer as SupabaseCustomerRow).preferences ?? {};
+      const vipTags = Array.isArray(body.crm.vipTags)
+        ? body.crm.vipTags
+        : previousPreferences.vipTags ?? [];
+      const { data, error } = await serviceClient
+        .from("customers")
+        .update({
+          preferences: {
+            ...previousPreferences,
+            vipTags,
+          },
+          relationship_notes:
+            typeof body.crm.notes === "string"
+              ? body.crm.notes
+              : beforeCustomer.relationship_notes,
+          vip_status: vipTags[0] ?? null,
+        })
+        .eq("id", body.id)
+        .select(customerSelect)
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      const diff = diffAuditFields(
+        beforeCustomer as Record<string, unknown> | null,
+        data as Record<string, unknown> | null,
+        ["relationship_notes", "preferences", "vip_status"],
+      );
+
+      await recordAuditEvent(serviceClient, auth.staffProfile, auth.user, {
+        action: "customer.edit",
+        afterValues: diff.afterValues,
+        beforeValues: diff.beforeValues,
+        changedFields:
+          diff.changedFields.length > 0 ? diff.changedFields : ["crm"],
+        entityId: body.id,
+        entityReference:
+          (data as { email?: string | null; mobile?: string | null })?.email ??
+          (data as { mobile?: string | null })?.mobile ??
+          body.id,
+        entityType: "customer",
+        outcome: "success",
+        request,
+        sourceArea: "Customers",
+      });
+
+      return Response.json({ row: data });
+    }
 
     if (body.identity) {
       if (!body.id) {
