@@ -350,3 +350,15 @@ export async function mergeOperationalShowTables(input: {
     method: "POST",
   });
 }
+
+export async function setPhysicalShowTableCapacity(input: {
+  capacity: number;
+  showReference: string;
+  tableId: string;
+  zoneId: string;
+}) {
+  return fetchSupabaseApi<{ ok: true }>("/api/admin/show-tables", {
+    body: { action: "set-capacity", ...input },
+    method: "POST",
+  });
+}

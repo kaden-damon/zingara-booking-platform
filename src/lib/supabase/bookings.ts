@@ -844,6 +844,22 @@ export async function assignBookingTable(booking: DemoBooking) {
   );
 }
 
+export async function mapBookingPhysicalTable(input: {
+  bookingReference: string;
+  targetTableId: string;
+}) {
+  return fetchSupabaseApi<BookingTableAssignmentResult>(
+    "/api/admin/bookings",
+    {
+      body: {
+        action: "map-physical-table",
+        ...input,
+      },
+      method: "PATCH",
+    },
+  );
+}
+
 export async function persistBookingCancellation(booking: DemoBooking) {
   try {
     await fetchSupabaseApi("/api/admin/bookings", {

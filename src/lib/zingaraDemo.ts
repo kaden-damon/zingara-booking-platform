@@ -1,3 +1,5 @@
+import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
+
 export const demoBookingsStorageKey = "zingara-demo-bookings";
 export const demoShowsStorageKey = "zingara-demo-shows";
 export const demoTablesStorageKey = "zingara-demo-tables";
@@ -351,7 +353,10 @@ export type BookingAddon = {
 };
 export type DemoTable = {
   availabilityScope?: TableAvailabilityScope;
+  authoritativeId?: string;
+  capacityConfigured?: boolean;
   id: string;
+  physicalTable?: boolean;
   showId?: string;
   zoneId: SeatingZoneId;
   tableNumber: string;
@@ -2664,7 +2669,13 @@ function normalizeTablesForShows(
       baseMergeable: table.baseMergeable ?? true,
       availabilityScope:
         table.availabilityScope === "operational" ? "operational" : "public",
-      seatCapacity: Math.max(1, getSafeNumber(table.seatCapacity, 2)),
+      authoritativeId: getSafeString(table.authoritativeId) || undefined,
+      capacityConfigured: table.capacityConfigured !== false,
+      physicalTable: table.physicalTable === true,
+      seatCapacity:
+        table.capacityConfigured === false
+          ? 0
+          : Math.max(1, getSafeNumber(table.seatCapacity, 2)),
       status: isKnownValue(table.status, tableStatusValues)
         ? table.status
         : "available",
@@ -3301,6 +3312,9 @@ function getTableSortValue(tableNumber: string) {
 
 function isAllocatableTable(table: DemoTable) {
   return (
+    table.capacityConfigured !== false &&
+    (table.physicalTable === true ||
+      !isLegacyPlaceholderTableCode(table.zoneId, table.tableNumber)) &&
     table.status === "available" &&
     !table.bookingReference &&
     !table.mergedInto

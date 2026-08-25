@@ -48,7 +48,9 @@ type SupabaseShowTableRow = {
   availability_scope?: TableAvailabilityScope | null;
   booking_id: string | null;
   capacity: number | null;
+  capacity_configured?: boolean | null;
   id: string;
+  is_physical?: boolean | null;
   section: string | null;
   show_id: string;
   status: string | null;
@@ -266,12 +268,15 @@ function toDemoTable(
   }
 
   const status = toDemoTableStatus(row.status);
-  const capacity = Number.isFinite(Number(row.capacity))
+  const capacityConfigured =
+    row.capacity_configured !== false && row.capacity !== null;
+  const capacity = capacityConfigured && Number.isFinite(Number(row.capacity))
     ? Number(row.capacity)
     : 0;
 
   return {
     availabilityScope: row.availability_scope ?? "public",
+    authoritativeId: row.id,
     baseGuestNotes: "",
     baseSeatCapacity: capacity,
     baseStatus: status === "disabled" ? "disabled" : "available",
@@ -280,6 +285,8 @@ function toDemoTable(
       : undefined,
     guestNotes: "",
     id: getDemoTableId(showReference, zoneId, row.table_code),
+    capacityConfigured,
+    physicalTable: row.is_physical === true,
     seatCapacity: capacity,
     showId: showReference,
     status,
@@ -317,7 +324,7 @@ async function loadVenueTableRows() {
 
   const { data, error } = await serviceClient
     .from("venue_tables")
-    .select("id,table_code,section,capacity,base_status,notes")
+    .select("id,table_code,section,capacity,base_status,notes,is_physical")
     .order("section", { ascending: true })
     .order("table_code", { ascending: true });
 

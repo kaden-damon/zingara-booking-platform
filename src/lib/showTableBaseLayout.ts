@@ -6,15 +6,18 @@ import {
 
 export type VenueTableTemplate = {
   base_status: "available" | "booked" | "disabled";
-  capacity: number;
+  capacity: number | null;
   id: string;
+  is_physical?: boolean;
   notes: string | null;
   section: string;
   table_code: string;
 };
 
 export type BaseShowTableInsert = {
-  capacity: number;
+  capacity: number | null;
+  capacity_configured: boolean;
+  is_physical: boolean;
   merged_from: string[];
   override_notes: string | null;
   section: string;
@@ -50,6 +53,24 @@ export function createBaseShowTableInserts(
   showId: string,
   venueTables: VenueTableTemplate[],
 ): BaseShowTableInsert[] {
+  if (venueTables.length > 0) {
+    return venueTables.map((table) => ({
+      capacity: table.capacity,
+      capacity_configured: table.capacity !== null,
+      is_physical: table.is_physical === true,
+      merged_from: [],
+      override_notes: table.notes,
+      section: normalizeSection(table.section),
+      show_id: showId,
+      status:
+        table.capacity === null || table.base_status === "disabled"
+          ? ("disabled" as const)
+          : ("available" as const),
+      table_code: table.table_code,
+      venue_table_id: table.id,
+    }));
+  }
+
   const venueTablesByKey = new Map(
     venueTables.map((table) => [
       getTableKey(table.section, table.table_code),
@@ -69,6 +90,8 @@ export function createBaseShowTableInserts(
 
     return {
       capacity: venueTable?.capacity ?? table.seatCapacity,
+      capacity_configured: true,
+      is_physical: false,
       merged_from: [],
       override_notes: venueTable?.notes ?? table.guestNotes ?? null,
       section: venueTable
@@ -85,6 +108,8 @@ export function createBaseShowTableInserts(
   });
   const additionalRows = [...venueTablesByKey.values()].map((table) => ({
     capacity: table.capacity,
+    capacity_configured: table.capacity !== null,
+    is_physical: table.is_physical === true,
     merged_from: [],
     override_notes: table.notes,
     section: normalizeSection(table.section),

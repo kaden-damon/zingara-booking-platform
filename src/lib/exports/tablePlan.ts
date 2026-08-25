@@ -28,7 +28,8 @@ export type TablePlanShow = {
 export type TablePlanTable = {
   availability_scope: string | null;
   booking_id: string | null;
-  capacity: number;
+  capacity: number | null;
+  capacity_configured: boolean;
   id: string;
   is_override: boolean;
   merged_from: string[] | null;
@@ -753,7 +754,14 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
       }
 
       row.getCell(2).value = table.table_code;
-      row.getCell(3).value = Math.max(Number(table.capacity) || 0, 0);
+      row.getCell(3).value = table.capacity_configured
+        ? Math.max(Number(table.capacity) || 0, 0)
+        : null;
+
+      if (!table.capacity_configured) {
+        row.getCell(7).value = "CAPACITY NOT CONFIGURED";
+        return;
+      }
 
       if (table.status === "disabled") {
         row.getCell(7).value = ["DISABLED", table.override_notes?.trim()]

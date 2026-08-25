@@ -58,9 +58,12 @@ type ShowRow = {
 };
 type TableRow = {
   availability_scope?: "operational" | "public" | null;
-  capacity: number;
+  capacity: number | null;
+  capacity_configured?: boolean;
   booking_id: string | null;
   id: string;
+  is_override?: boolean;
+  is_physical?: boolean;
   section: string;
   show_id: string;
   status: string;
@@ -297,6 +300,8 @@ function findBestImportTable(
       (table) =>
         table.show_id === showId &&
         getZoneAliases(zone).includes(normalizeValue(table.section)) &&
+        table.capacity_configured !== false &&
+        (table.is_physical === true || table.is_override === true) &&
         !table.booking_id &&
         !table.reservedByImportRow &&
         normalizeValue(table.status) !== "booked" &&

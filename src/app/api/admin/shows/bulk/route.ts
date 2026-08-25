@@ -38,8 +38,9 @@ type SupabaseShowRow = {
 
 type VenueTableRow = {
   base_status: "available" | "booked" | "disabled";
-  capacity: number;
+  capacity: number | null;
   id: string;
+  is_physical: boolean;
   merge_group: string | null;
   mergeable: boolean;
   notes: string | null;
@@ -49,7 +50,9 @@ type VenueTableRow = {
 };
 
 type ShowTableInsert = {
-  capacity: number;
+  capacity: number | null;
+  capacity_configured: boolean;
+  is_physical: boolean;
   merged_from: string[];
   override_notes: string | null;
   section: string;
@@ -465,7 +468,7 @@ export async function POST(request: Request) {
     const { data: venueTables, error: venueTablesError } =
       await auth.serviceClient
         .from("venue_tables")
-        .select("id,table_code,section,capacity,base_status,mergeable,merge_group,position,notes")
+        .select("id,table_code,section,capacity,base_status,mergeable,merge_group,position,notes,is_physical")
         .order("section", { ascending: true })
         .order("table_code", { ascending: true });
 

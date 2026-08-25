@@ -16,7 +16,9 @@ import type {
   DemoBooking,
 } from "@/lib/zingaraDemo";
 import { enforceCorporateBookingSource } from "@/lib/bookingClassification";
+import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { rolePermissions } from "@/lib/zingaraAccess";
+import { normalizeShowLocation } from "@/lib/zingaraDemo";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -838,6 +840,148 @@ async function persistBookingTableAssignment(
   });
 }
 
+async function persistPhysicalTableMapping(
+  request: Request,
+  bookingReference?: string,
+  targetTableId?: string,
+) {
+  const auth = await requireActiveStaff(request);
+
+  if (
+    auth.error ||
+    !auth.serviceClient ||
+    !auth.staffProfile ||
+    !auth.user
+  ) {
+    return auth.error;
+  }
+
+  const roleRow = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const role = getAdminRoleFromName(roleRow?.name);
+
+  if (!role || !rolePermissions[role].includes("bookings:manage")) {
+    return Response.json(
+      { error: "Booking management access is required." },
+      { status: 403 },
+    );
+  }
+
+  if (!bookingReference?.trim() || !targetTableId?.trim()) {
+    return Response.json(
+      { error: "A booking and physical table are required." },
+      { status: 400 },
+    );
+  }
+
+  const { data: booking, error: bookingError } = await auth.serviceClient
+    .from("bookings")
+    .select("id,booking_reference,show_id,table_id,section,guest_count,archived_at")
+    .eq("booking_reference", bookingReference.trim())
+    .maybeSingle();
+
+  if (bookingError) {
+    throw bookingError;
+  }
+
+  if (!booking || booking.archived_at) {
+    return Response.json(
+      { error: "The active booking could not be resolved." },
+      { status: booking ? 409 : 404 },
+    );
+  }
+
+  const [{ data: show, error: showError }, { data: targetTable, error: tableError }] =
+    await Promise.all([
+      auth.serviceClient
+        .from("shows")
+        .select("id,venue")
+        .eq("id", booking.show_id)
+        .maybeSingle(),
+      auth.serviceClient
+        .from("show_tables")
+        .select("id,show_id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical")
+        .eq("id", targetTableId.trim())
+        .maybeSingle(),
+    ]);
+
+  if (showError) {
+    throw showError;
+  }
+
+  if (tableError) {
+    throw tableError;
+  }
+
+  const location = normalizeShowLocation(show?.venue);
+  const venueScope = normalizeStaffVenueScope(auth.staffProfile.venue_scope ?? []);
+
+  if (!location || (!venueScope.includes("all") && !venueScope.includes(location))) {
+    return Response.json(
+      { error: "This performance is outside your assigned location." },
+      { status: 403 },
+    );
+  }
+
+  if (
+    !targetTable ||
+    targetTable.show_id !== booking.show_id ||
+    !targetTable.is_physical ||
+    !targetTable.capacity_configured ||
+    targetTable.capacity === null ||
+    targetTable.capacity < booking.guest_count ||
+    targetTable.status === "disabled" ||
+    (targetTable.booking_id && targetTable.booking_id !== booking.id)
+  ) {
+    return Response.json(
+      { error: "The selected physical table is not available for this booking." },
+      { status: 409 },
+    );
+  }
+
+  const { data: mappingResult, error: mappingError } = await auth.serviceClient.rpc(
+    "map_booking_physical_table_atomic",
+    {
+      p_booking_id: booking.id,
+      p_expected_previous_table_id: booking.table_id,
+      p_target_table_id: targetTable.id,
+    },
+  );
+
+  if (mappingError) {
+    throw mappingError;
+  }
+
+  await tryRecordAuditEvent(
+    auth.serviceClient,
+    auth.staffProfile,
+    auth.user,
+    {
+      action: "booking.physical_table_map",
+      afterValues: { table_id: targetTable.id },
+      beforeValues: { table_id: booking.table_id },
+      changedFields: ["table_id"],
+      entityId: booking.id,
+      entityReference: booking.booking_reference,
+      entityType: "booking",
+      outcome: "success",
+      reason: `Mapped legacy assignment to physical table ${targetTable.table_code}.`,
+      request,
+      sourceArea: "Operations Floor",
+    },
+  );
+
+  return Response.json({
+    bookingId: booking.id,
+    bookingReference: booking.booking_reference,
+    mapping: mappingResult,
+    showId: booking.show_id,
+    tableCode: targetTable.table_code,
+    tableId: targetTable.id,
+  });
+}
+
 async function runBookingTransaction(request: Request, body?: unknown) {
   const rawRequestBody = body ?? (await request.json());
   const rawBooking =
@@ -1506,10 +1650,12 @@ export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     action?: string;
     booking?: DemoBooking;
+    bookingReference?: string;
+    targetTableId?: string;
   };
   const lockError = await ensureNoConflictingBookingLock(
     request,
-    body.booking?.reference,
+    body.booking?.reference ?? body.bookingReference,
   );
 
   if (lockError) {
@@ -1524,6 +1670,42 @@ export async function PATCH(request: Request) {
 
       return Response.json(
         { error: "The booking table assignment could not be saved." },
+        { status: 500 },
+      );
+    }
+  }
+
+  if (body.action === "map-physical-table") {
+    try {
+      return await persistPhysicalTableMapping(
+        request,
+        body.bookingReference,
+        body.targetTableId,
+      );
+    } catch (error) {
+      const message =
+        typeof error === "object" && error && "message" in error
+          ? String((error as { message?: unknown }).message ?? "")
+          : "";
+
+      if (
+        message.includes("BOOKING_TABLE_ASSIGNMENT_CHANGED") ||
+        message.includes("LEGACY_TABLE_ASSIGNMENT_REQUIRED") ||
+        message.includes("PHYSICAL_TABLE_NOT_AVAILABLE")
+      ) {
+        return Response.json(
+          {
+            error:
+              "The booking or physical table changed before the mapping could be saved. Refresh and retry.",
+          },
+          { status: 409 },
+        );
+      }
+
+      console.error("[Zingara API] Failed to map physical booking table", error);
+
+      return Response.json(
+        { error: "The physical table mapping could not be saved." },
         { status: 500 },
       );
     }

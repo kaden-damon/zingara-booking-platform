@@ -1,6 +1,5 @@
 import {
   type SeatingZoneId,
-  getVenueZoneSeatCapacity,
   getZoneSectionLookupTitles,
   isValidSeatingZoneId,
   normalizeShowLocation,
@@ -10,6 +9,8 @@ import {
   getRolePermissions,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
+import { getPhysicalTableDefinition } from "@/lib/physicalTables";
+import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -21,11 +22,14 @@ type ShowRow = {
 
 type ShowTableRow = {
   booking_id: string | null;
-  capacity: number;
+  capacity: number | null;
+  capacity_configured: boolean;
   id: string;
+  is_physical: boolean;
   section: string;
   status: string;
   table_code: string;
+  updated_at: string;
 };
 
 const showMetadataPrefix = "__zingara_show_meta__:";
@@ -93,7 +97,7 @@ async function loadZoneTables(
 ) {
   const { data, error } = await serviceClient
     .from("show_tables")
-    .select("id,table_code,section,capacity,status,booking_id")
+    .select("id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical,updated_at")
     .eq("show_id", showId)
     .in("section", getZoneSectionLookupTitles(zoneId));
 
@@ -102,12 +106,6 @@ async function loadZoneTables(
   }
 
   return (data ?? []) as ShowTableRow[];
-}
-
-function getActiveOperationalCapacity(rows: ShowTableRow[]) {
-  return rows
-    .filter((row) => row.status !== "disabled")
-    .reduce((total, row) => total + Math.max(Number(row.capacity) || 0, 0), 0);
 }
 
 export async function POST(request: Request) {
@@ -126,8 +124,9 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as {
-      action?: "create" | "merge";
+      action?: "create" | "merge" | "set-capacity";
       capacity?: number;
+      tableId?: string;
       sourceTableCodes?: string[];
       tableCode?: string;
       showReference?: string;
@@ -164,7 +163,101 @@ export async function POST(request: Request) {
     }
 
     const zoneTables = await loadZoneTables(auth.serviceClient, show.id, zoneId);
-    const maximum = getVenueZoneSeatCapacity(zoneId);
+    if (body.action === "set-capacity") {
+      const table = zoneTables.find((row) => row.id === body.tableId);
+      const capacity = Math.trunc(Number(body.capacity) || 0);
+      const definition = table
+        ? getPhysicalTableDefinition(zoneId, table.table_code)
+        : undefined;
+
+      if (!table || !table.is_physical || !definition) {
+        return Response.json(
+          { error: "The selected physical table could not be resolved." },
+          { status: 404 },
+        );
+      }
+
+      if (
+        capacity < definition.minimumCapacity ||
+        capacity > definition.maximumCapacity
+      ) {
+        return Response.json(
+          {
+            error: `${table.table_code} must be configured between ${definition.minimumCapacity} and ${definition.maximumCapacity} seats.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      if (table.booking_id) {
+        const { data: assignedBooking, error: assignedBookingError } =
+          await auth.serviceClient
+            .from("bookings")
+            .select("guest_count")
+            .eq("id", table.booking_id)
+            .maybeSingle();
+
+        if (assignedBookingError) {
+          throw assignedBookingError;
+        }
+
+        if (Number(assignedBooking?.guest_count) > capacity) {
+          return Response.json(
+            { error: "Capacity cannot be lower than the assigned booking's guest count." },
+            { status: 409 },
+          );
+        }
+      }
+
+      const { data: updatedTable, error } = await auth.serviceClient
+        .from("show_tables")
+        .update({
+          capacity,
+          capacity_configured: true,
+          status: table.status === "disabled" ? "available" : table.status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", table.id)
+        .eq("show_id", show.id)
+        .eq("updated_at", table.updated_at)
+        .select("id,table_code,capacity,status")
+        .maybeSingle();
+
+      if (error || !updatedTable) {
+        if (error) {
+          throw error;
+        }
+
+        return Response.json(
+          { error: "The table capacity changed before it could be saved." },
+          { status: 409 },
+        );
+      }
+
+      await tryRecordAuditEvent(
+        auth.serviceClient,
+        auth.staffProfile,
+        auth.user,
+        {
+          action: "show_table.capacity_set",
+          afterValues: { capacity, capacity_configured: true },
+          beforeValues: {
+            capacity: table.capacity,
+            capacity_configured: table.capacity_configured,
+          },
+          changedFields: ["capacity", "capacity_configured"],
+          entityId: show.id,
+          entityReference: `${show.id}:${table.table_code}`,
+          entityType: "show",
+          outcome: "success",
+          reason: `Configured physical table ${table.table_code} for the selected performance.`,
+          request,
+          sourceArea: "Operations Floor",
+        },
+      );
+
+      return Response.json({ ok: true, table: updatedTable });
+    }
 
     if (body.action === "create") {
       const tableCode = body.tableCode?.trim() ?? "";
@@ -173,6 +266,16 @@ export async function POST(request: Request) {
       if (!tableCode || capacity < 1) {
         return Response.json(
           { error: "A table number and positive seat capacity are required." },
+          { status: 400 },
+        );
+      }
+
+      if (!/^TMP-[A-Z0-9][A-Z0-9-]*$/i.test(tableCode)) {
+        return Response.json(
+          {
+            error:
+              "Temporary operational table codes must start with TMP- and contain only letters, numbers, or hyphens.",
+          },
           { status: 400 },
         );
       }
@@ -188,11 +291,9 @@ export async function POST(request: Request) {
         );
       }
 
-      if (getActiveOperationalCapacity(zoneTables) + capacity > maximum) {
+      if (getPhysicalTableDefinition(zoneId, tableCode)) {
         return Response.json(
-          {
-            error: `This table would exceed the zone's ${maximum}-seat venue capacity.`,
-          },
+          { error: `${tableCode} is a physical table. Configure its existing card instead.` },
           { status: 409 },
         );
       }
@@ -200,7 +301,9 @@ export async function POST(request: Request) {
       const { error } = await auth.serviceClient.from("show_tables").insert({
         availability_scope: "operational",
         capacity,
+        capacity_configured: true,
         is_override: true,
+        is_physical: false,
         override_notes: "Created from Operations Floor table management.",
         section: zoneId,
         show_id: show.id,
@@ -279,7 +382,9 @@ export async function POST(request: Request) {
         .insert({
           availability_scope: "operational",
           capacity: mergedCapacity,
+          capacity_configured: true,
           is_override: true,
+          is_physical: false,
           merged_from: sourceIds,
           override_notes: `Merged from ${sourceCodes.join(" and ")} in Operations Floor.`,
           section: zoneId,
