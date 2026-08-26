@@ -384,7 +384,7 @@ async function buildAppleWalletPass(
   const performance = formatPerformanceDate(source.show.date, source.show.time);
   const isVoided = ["cancelled", "refunded", "void"].includes(
     source.ticket.ticket_status,
-  ) || ["cancelled", "refunded"].includes(source.booking.booking_status);
+  );
   const liveTicketUrl = new URL(
     `/ticket/${encodeURIComponent(source.ticket.ticket_code)}`,
     requestUrl,
