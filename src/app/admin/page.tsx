@@ -253,6 +253,12 @@ type WalletQaWorkflowResult = {
   ticketCode: string;
   ticketId: string;
 };
+
+const walletQaCheckInTicket = {
+  code: "ZNG-C6UJXB-01",
+  id: "76fbaf40-1ad5-4736-ba5a-d5591121a925",
+} as const;
+
 type NewTablesByZone = Record<SeatingZoneId, NewTableForm>;
 type MergeSelection = Record<string, string[]>;
 type NewShowForm = {
@@ -9548,6 +9554,9 @@ export default function AdminDashboardPage() {
   const [walletQaError, setWalletQaError] = useState("");
   const [walletQaResult, setWalletQaResult] =
     useState<WalletQaWorkflowResult | null>(null);
+  const [isWalletQaCheckInRunning, setIsWalletQaCheckInRunning] =
+    useState(false);
+  const [walletQaCheckInStatus, setWalletQaCheckInStatus] = useState("");
   const dataPortabilityImportScopeOptions = useMemo(() => {
     if (
       !dataPortabilityPreview ||
@@ -20156,6 +20165,62 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function runControlledWalletQaCheckIn() {
+    if (!isSuperAdmin || !isWalletQaMode || isWalletQaCheckInRunning) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Permanently check in the controlled Apple Wallet QA ticket ${walletQaCheckInTicket.code}? This cannot be undone through this QA control.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsWalletQaCheckInRunning(true);
+    setWalletQaCheckInStatus("");
+
+    try {
+      const payload = await fetchSupabaseApi<{
+        alreadyCheckedIn?: boolean;
+        row: { id: string; result: string; ticket_id: string } | null;
+        ticketStatus?: string;
+      }>("/api/admin/tickets/validate", {
+        body: {
+          code: walletQaCheckInTicket.code,
+          deviceLabel: "Controlled Apple Wallet QA",
+          notes: "Phase 38.2B controlled permanent Apple Wallet QA check-in.",
+          result: "checked_in",
+        },
+        method: "POST",
+      });
+
+      if (
+        payload.row?.ticket_id !== walletQaCheckInTicket.id &&
+        !payload.alreadyCheckedIn
+      ) {
+        throw new Error(
+          "The narrow check-in response did not match the controlled Wallet QA ticket.",
+        );
+      }
+
+      setWalletQaCheckInStatus(
+        payload.alreadyCheckedIn
+          ? `${walletQaCheckInTicket.code} was already checked in; no duplicate validation was created.`
+          : `${walletQaCheckInTicket.code} was permanently checked in through the narrow ticket-validation route.`,
+      );
+    } catch (error) {
+      setWalletQaCheckInStatus(
+        error instanceof Error
+          ? error.message
+          : "The controlled Wallet QA check-in could not be completed.",
+      );
+    } finally {
+      setIsWalletQaCheckInRunning(false);
+    }
+  }
+
   async function sendTicket(
     booking: DemoBooking,
     channel: CommunicationChannel,
@@ -27881,6 +27946,36 @@ export default function AdminDashboardPage() {
                 </a>
               </div>
             )}
+            <div className="mt-5 border-t border-emerald-500/20 pt-5">
+              <h3 className="text-sm font-semibold text-white">
+                Permanent Wallet QA check-in
+              </h3>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-400">
+                Checks in only {walletQaCheckInTicket.code} through the
+                authenticated narrow ticket-validation route. This control
+                cannot target another ticket.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={isWalletQaCheckInRunning}
+                  onClick={runControlledWalletQaCheckIn}
+                  className="rounded-md border border-rose-400/60 bg-rose-950/40 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-900/50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isWalletQaCheckInRunning
+                    ? "Checking in Wallet QA ticket..."
+                    : "Permanently Check In Wallet QA Ticket"}
+                </button>
+                <span className="text-xs text-zinc-500">
+                  Super Admin only. Explicit confirmation required.
+                </span>
+              </div>
+              {walletQaCheckInStatus && (
+                <p className="mt-3 text-sm text-zinc-300">
+                  {walletQaCheckInStatus}
+                </p>
+              )}
+            </div>
           </section>
         )}
 
