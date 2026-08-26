@@ -10,6 +10,7 @@ import {
   recordAuditEvent,
   tryRecordAuditEvent,
 } from "@/lib/supabase/serverAudit";
+import { notifyAppleWalletCustomer } from "@/lib/appleWalletSync";
 
 export const dynamic = "force-dynamic";
 
@@ -722,6 +723,13 @@ export async function PATCH(request: Request) {
           },
           { status: 500 },
         );
+      }
+
+      if (
+        diff.changedFields.includes("first_name") ||
+        diff.changedFields.includes("surname")
+      ) {
+        await notifyAppleWalletCustomer(serviceClient, body.id);
       }
 
       return Response.json({ row: data });

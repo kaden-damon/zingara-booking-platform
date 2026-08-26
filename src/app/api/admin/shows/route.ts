@@ -21,6 +21,7 @@ import {
   pickAuditFields,
   recordAuditEvent,
 } from "@/lib/supabase/serverAudit";
+import { notifyAppleWalletShow } from "@/lib/appleWalletSync";
 
 export const dynamic = "force-dynamic";
 
@@ -793,6 +794,20 @@ export async function PUT(request: Request) {
     const persistedRowsByDemoId = new Map(
       persistedRows.map((row) => [getShowReference(row), row]),
     );
+    const walletChangedShowIds = persistedRows
+      .filter((afterRow) => {
+        const beforeRow = existingRowsById.get(afterRow.id);
+
+        return Boolean(
+          beforeRow &&
+            (beforeRow.name !== afterRow.name ||
+              beforeRow.date !== afterRow.date ||
+              beforeRow.time !== afterRow.time ||
+              beforeRow.venue !== afterRow.venue ||
+              beforeRow.status !== afterRow.status),
+        );
+      })
+      .map((row) => row.id);
 
     try {
       for (const show of shows) {
@@ -869,6 +884,10 @@ export async function PUT(request: Request) {
         },
         { status: 500 },
       );
+    }
+
+    for (const showId of walletChangedShowIds) {
+      await notifyAppleWalletShow(auth.serviceClient, showId);
     }
 
     return Response.json({ shows: persistedShows });

@@ -3,6 +3,7 @@ import {
   createTicketCode,
   normalizeTicketReference,
 } from "@/lib/zingaraDemo";
+import { notifyAppleWalletTickets } from "@/lib/appleWalletSync";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
     );
     const { data: ticketRows, error: ticketError } = await supabase
       .from("tickets")
-      .select("id,booking_id,ticket_code")
+      .select("id,booking_id,ticket_code,ticket_status")
       .in("ticket_code", ticketCodes)
       .limit(1);
 
@@ -71,7 +72,12 @@ export async function POST(request: Request) {
     }
 
     const ticket = ticketRows?.[0] as
-      | { booking_id: string; id: string; ticket_code: string }
+      | {
+          booking_id: string;
+          id: string;
+          ticket_code: string;
+          ticket_status: string;
+        }
       | undefined;
 
     if (!ticket) {
@@ -98,15 +104,20 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    if (body.result === "checked_in") {
+    if (body.result === "checked_in" && ticket.ticket_status !== "checked_in") {
       const { error: updateError } = await supabase
         .from("tickets")
-        .update({ ticket_status: "checked_in" })
+        .update({
+          ticket_status: "checked_in",
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", ticket.id);
 
       if (updateError) {
         throw updateError;
       }
+
+      await notifyAppleWalletTickets(supabase, [ticket.id]);
     }
 
     return Response.json({ row: data });

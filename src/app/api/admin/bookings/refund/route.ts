@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getPayFastConfig } from "@/lib/payfast/config";
+import { notifyAppleWalletBooking } from "@/lib/appleWalletSync";
 import {
   queryPayFastRefundAvailability,
   submitPayFastRefund,
@@ -515,6 +516,8 @@ export async function POST(request: Request) {
         request,
         sourceArea: "Bookings",
       });
+
+      await notifyAppleWalletBooking(auth.serviceClient, booking.id);
 
       return Response.json({
         booking: updatedBooking,

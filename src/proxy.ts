@@ -239,6 +239,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (request.nextUrl.pathname.startsWith("/api/apple-wallet/")) {
+    return NextResponse.next();
+  }
+
   if (!sitePassword) {
     return NextResponse.next();
   }

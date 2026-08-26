@@ -16,6 +16,7 @@ import type {
   DemoBooking,
 } from "@/lib/zingaraDemo";
 import { enforceCorporateBookingSource } from "@/lib/bookingClassification";
+import { notifyAppleWalletBooking } from "@/lib/appleWalletSync";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { rolePermissions } from "@/lib/zingaraAccess";
 import { normalizeShowLocation } from "@/lib/zingaraDemo";
@@ -853,6 +854,8 @@ async function persistBookingTableAssignment(
     },
   );
 
+  await notifyAppleWalletBooking(auth.serviceClient, bookingId);
+
   return Response.json({
     bookingId,
     bookingReference: booking.reference,
@@ -1025,6 +1028,10 @@ async function persistPhysicalTableMapping(
     },
   );
 
+  if (booking.table_id !== targetTable.id) {
+    await notifyAppleWalletBooking(auth.serviceClient, booking.id);
+  }
+
   return Response.json({
     bookingId: booking.id,
     bookingReference: booking.booking_reference,
@@ -1147,6 +1154,22 @@ async function runBookingTransaction(request: Request, body?: unknown) {
           request,
           sourceArea: "Bookings",
         });
+
+        const bookingId = (afterBooking as { id?: string } | null)?.id;
+        const walletFields = new Set([
+          "booking_status",
+          "payment_status",
+          "section",
+          "show_id",
+          "table_id",
+        ]);
+
+        if (
+          bookingId &&
+          diff.changedFields.some((field) => walletFields.has(field))
+        ) {
+          await notifyAppleWalletBooking(supabase, bookingId);
+        }
       } catch {
         return Response.json(
           {
@@ -1340,6 +1363,8 @@ async function persistBookingCancellation(request: Request) {
         request,
         sourceArea: "Bookings",
       });
+
+      await notifyAppleWalletBooking(supabase, existingBooking.id);
     } catch {
       return Response.json(
         {
@@ -1512,6 +1537,18 @@ async function persistBookingStateUpdate(request: Request, body: {
       request,
       sourceArea: "Bookings",
     });
+
+    const walletFields = new Set([
+      "booking_status",
+      "payment_status",
+      "section",
+      "show_id",
+      "table_id",
+    ]);
+
+    if (diff.changedFields.some((field) => walletFields.has(field))) {
+      await notifyAppleWalletBooking(supabase, bookingId);
+    }
 
     return Response.json({ row: updatedBooking });
   } catch (error) {

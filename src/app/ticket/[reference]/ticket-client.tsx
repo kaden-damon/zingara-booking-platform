@@ -851,6 +851,17 @@ export default function LiveTicketClient({
               >
                 Download Ticket
               </button>
+              <a
+                href={`/api/tickets/${encodeURIComponent(activeTicket.ticketCode)}/apple-wallet`}
+                aria-label="Add this ticket to Apple Wallet"
+                className="mt-3 inline-block p-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C]"
+              >
+                <img
+                  src="/brand/apple-wallet/add-to-apple-wallet.svg"
+                  alt="Add to Apple Wallet"
+                  className="h-11 w-auto max-w-[calc(100vw-3rem)]"
+                />
+              </a>
               {ticketActionStatus[activeTicket.ticketCode] && (
                 <p className="mt-3 text-center text-sm font-semibold text-emerald-300">
                   {ticketActionStatus[activeTicket.ticketCode]}
