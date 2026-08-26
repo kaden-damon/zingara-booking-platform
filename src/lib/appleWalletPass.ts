@@ -45,6 +45,7 @@ type ShowRow = {
 };
 
 type TableRow = {
+  booking_id: string | null;
   table_code: string;
 };
 
@@ -296,8 +297,9 @@ async function loadAppleWalletPassSource(
     booking.table_id
       ? supabase
           .from("show_tables")
-          .select("table_code")
+          .select("table_code,booking_id")
           .eq("id", booking.table_id)
+          .eq("booking_id", booking.id)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ]);

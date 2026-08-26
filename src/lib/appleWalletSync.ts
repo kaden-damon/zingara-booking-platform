@@ -200,13 +200,38 @@ async function loadCredential(base64Name: string, pathName: string) {
   );
 }
 
-async function sendAppleWalletApnsPushes(pushTokens: string[]) {
+type AppleWalletDevice = {
+  id: string;
+  push_token: string;
+};
+
+type AppleWalletApnsResponse = {
+  reason: string;
+  status: number;
+};
+
+const terminalAppleWalletTokenReasons = new Set([
+  "BadDeviceToken",
+  "DeviceTokenNotForTopic",
+  "Unregistered",
+]);
+
+function isTerminalAppleWalletTokenResponse(
+  response: AppleWalletApnsResponse,
+) {
+  return (
+    (response.status === 400 || response.status === 410) &&
+    terminalAppleWalletTokenReasons.has(response.reason)
+  );
+}
+
+async function sendAppleWalletApnsPushes(devices: AppleWalletDevice[]) {
   if (process.env.APPLE_WALLET_APNS_ENABLED?.trim().toLowerCase() !== "true") {
-    return { attempted: 0, delivered: 0 };
+    return { attempted: 0, delivered: 0, staleDeviceIds: [] as string[] };
   }
 
-  if (pushTokens.length === 0) {
-    return { attempted: 0, delivered: 0 };
+  if (devices.length === 0) {
+    return { attempted: 0, delivered: 0, staleDeviceIds: [] as string[] };
   }
 
   const [cert, key] = await Promise.all([
@@ -228,37 +253,74 @@ async function sendAppleWalletApnsPushes(pushTokens: string[]) {
       process.env.APPLE_WALLET_CERTIFICATE_PASSWORD?.trim() || undefined,
   });
   let delivered = 0;
+  const staleDeviceIds = new Set<string>();
+  const deviceIdsByPushToken = new Map<string, string[]>();
+
+  for (const device of devices) {
+    const deviceIds = deviceIdsByPushToken.get(device.push_token) ?? [];
+    deviceIds.push(device.id);
+    deviceIdsByPushToken.set(device.push_token, deviceIds);
+  }
 
   try {
-    for (const pushToken of [...new Set(pushTokens)]) {
-      const status = await new Promise<number>((resolve, reject) => {
-        const stream = client.request({
-          ":method": "POST",
-          ":path": `/3/device/${pushToken}`,
-          "apns-priority": "5",
-          "apns-push-type": "background",
-          "apns-topic": getAppleWalletPassTypeIdentifier(),
-          "content-type": "application/json",
-        });
-        let responseStatus = 0;
+    for (const [pushToken, deviceIds] of deviceIdsByPushToken) {
+      const response = await new Promise<AppleWalletApnsResponse>(
+        (resolve, reject) => {
+          const stream = client.request({
+            ":method": "POST",
+            ":path": `/3/device/${pushToken}`,
+            "apns-priority": "5",
+            "apns-push-type": "background",
+            "apns-topic": getAppleWalletPassTypeIdentifier(),
+            "content-type": "application/json",
+          });
+          let responseStatus = 0;
+          let responseBytes = 0;
+          const responseChunks: Buffer[] = [];
 
-        stream.on("response", (headers) => {
-          responseStatus = Number(headers[":status"] ?? 0);
-        });
-        stream.on("error", reject);
-        stream.on("end", () => resolve(responseStatus));
-        stream.end("{}");
-      });
+          stream.on("response", (headers) => {
+            responseStatus = Number(headers[":status"] ?? 0);
+          });
+          stream.on("data", (chunk: Buffer) => {
+            if (responseBytes < 4096) {
+              responseChunks.push(chunk);
+              responseBytes += chunk.length;
+            }
+          });
+          stream.on("error", reject);
+          stream.on("end", () => {
+            let reason = "";
 
-      if (status === 200) {
+            try {
+              const payload = JSON.parse(
+                Buffer.concat(responseChunks).toString(),
+              ) as { reason?: unknown };
+              reason = typeof payload.reason === "string" ? payload.reason : "";
+            } catch {
+              // Apple may return no JSON body for a successful request.
+            }
+
+            resolve({ reason, status: responseStatus });
+          });
+          stream.end("{}");
+        },
+      );
+
+      if (response.status === 200) {
         delivered += 1;
+      } else if (isTerminalAppleWalletTokenResponse(response)) {
+        deviceIds.forEach((deviceId) => staleDeviceIds.add(deviceId));
       }
     }
   } finally {
     client.close();
   }
 
-  return { attempted: pushTokens.length, delivered };
+  return {
+    attempted: deviceIdsByPushToken.size,
+    delivered,
+    staleDeviceIds: [...staleDeviceIds],
+  };
 }
 
 export async function notifyAppleWalletTickets(
@@ -292,16 +354,33 @@ export async function notifyAppleWalletTickets(
 
     const { data: devices, error: deviceError } = await client
       .from("apple_wallet_devices")
-      .select("push_token")
+      .select("id,push_token")
       .in("id", deviceIds);
 
     if (deviceError) {
       throw deviceError;
     }
 
-    return await sendAppleWalletApnsPushes(
-      (devices ?? []).map((row) => row.push_token as string),
+    const result = await sendAppleWalletApnsPushes(
+      (devices ?? []) as AppleWalletDevice[],
     );
+
+    if (result.staleDeviceIds.length > 0) {
+      const { error: cleanupError } = await client
+        .from("apple_wallet_devices")
+        .delete()
+        .in("id", result.staleDeviceIds);
+
+      if (cleanupError) {
+        throw cleanupError;
+      }
+
+      console.warn(
+        `[Apple Wallet] Removed ${result.staleDeviceIds.length} stale device registration(s).`,
+      );
+    }
+
+    return { attempted: result.attempted, delivered: result.delivered };
   } catch {
     console.error("[Apple Wallet] Pass update notification failed.");
     return { attempted: 0, delivered: 0 };
