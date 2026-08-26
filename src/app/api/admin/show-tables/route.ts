@@ -21,11 +21,15 @@ type ShowRow = {
 };
 
 type ShowTableRow = {
+  availability_scope: string;
   booking_id: string | null;
   capacity: number | null;
   capacity_configured: boolean;
   id: string;
+  is_override: boolean;
   is_physical: boolean;
+  merged_from: string[];
+  merged_parent_id: string | null;
   override_notes: string | null;
   section: string;
   status: string;
@@ -98,7 +102,7 @@ async function loadZoneTables(
 ) {
   const { data, error } = await serviceClient
     .from("show_tables")
-    .select("id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical,override_notes,updated_at")
+    .select("id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical,is_override,availability_scope,merged_from,merged_parent_id,override_notes,updated_at")
     .eq("show_id", showId)
     .in("section", getZoneSectionLookupTitles(zoneId));
 
@@ -125,12 +129,13 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as {
-      action?: "create" | "merge" | "set-capacity" | "update";
+      action?: "create" | "merge" | "set-capacity" | "unmerge" | "update";
       capacity?: number;
       notes?: string;
       status?: string;
       tableId?: string;
-      sourceTableCodes?: string[];
+      mergedTableId?: string;
+      sourceTableIds?: string[];
       tableCode?: string;
       showReference?: string;
       zoneId?: string;
@@ -435,113 +440,121 @@ export async function POST(request: Request) {
     }
 
     if (body.action === "merge") {
-      const sourceCodes = Array.from(
-        new Set((body.sourceTableCodes ?? []).map((code) => code.trim()).filter(Boolean)),
+      const sourceTableIds = Array.from(
+        new Set((body.sourceTableIds ?? []).map((id) => id.trim()).filter(Boolean)),
       );
+      const existingMergedTableId = body.mergedTableId?.trim() || null;
 
-      if (sourceCodes.length !== 2) {
+      if (
+        sourceTableIds.length < (existingMergedTableId ? 1 : 2) ||
+        sourceTableIds.some((id) => !zoneTables.some((row) => row.id === id))
+      ) {
         return Response.json(
-          { error: "Select exactly two available tables to merge." },
+          {
+            error: existingMergedTableId
+              ? "Select at least one compatible physical table to add."
+              : "Select at least two compatible physical tables to merge.",
+          },
           { status: 400 },
         );
       }
 
-      const sources = zoneTables.filter((row) => sourceCodes.includes(row.table_code));
-
       if (
-        sources.length !== 2 ||
-        sources.some((row) => row.status !== "available" || row.booking_id)
+        existingMergedTableId &&
+        !zoneTables.some((row) => row.id === existingMergedTableId)
       ) {
         return Response.json(
-          { error: "Both source tables must still be available and unassigned." },
-          { status: 409 },
+          { error: "The merged operational table could not be resolved." },
+          { status: 404 },
         );
       }
 
-      const mergedCode = sourceCodes.join("+");
-      const mergedCapacity = sources.reduce(
-        (total, row) => total + Math.max(Number(row.capacity) || 0, 0),
-        0,
+      const { data: mergeResult, error: mergeError } =
+        await auth.serviceClient.rpc("merge_show_tables_atomic", {
+          p_existing_merged_table_id: existingMergedTableId,
+          p_show_id: show.id,
+          p_source_table_ids: sourceTableIds,
+          p_zone_id: zoneId,
+        });
+
+      if (mergeError) {
+        throw mergeError;
+      }
+
+      await tryRecordAuditEvent(
+        auth.serviceClient,
+        auth.staffProfile,
+        auth.user,
+        {
+          action: existingMergedTableId
+            ? "show_table.merge_extended"
+            : "show_table.merged",
+          afterValues: mergeResult,
+          beforeValues: {
+            existing_merged_table_id: existingMergedTableId,
+            source_table_ids: sourceTableIds,
+          },
+          changedFields: ["merged_from", "capacity", "status"],
+          entityId: show.id,
+          entityReference: `${show.id}:${zoneId}`,
+          entityType: "show",
+          outcome: "success",
+          reason: existingMergedTableId
+            ? "Extended a flat operational merged-table unit."
+            : "Created a flat operational merged-table unit.",
+          request,
+          sourceArea: "Operations Floor",
+        },
       );
-      const sourceIds = sources.map((source) => source.id);
-      const { data: disabledRows, error: disableError } = await auth.serviceClient
-        .from("show_tables")
-        .update({ status: "disabled", updated_at: new Date().toISOString() })
-        .in("id", sourceIds)
-        .eq("status", "available")
-        .is("booking_id", null)
-        .select("id");
 
-      if (disableError) {
-        throw disableError;
-      }
+      return Response.json({ merge: mergeResult, ok: true });
+    }
 
-      if ((disabledRows ?? []).length !== 2) {
-        if ((disabledRows ?? []).length > 0) {
-          await auth.serviceClient
-            .from("show_tables")
-            .update({ status: "available", updated_at: new Date().toISOString() })
-            .in(
-              "id",
-              (disabledRows ?? []).map((row) => row.id),
-            );
-        }
+    if (body.action === "unmerge") {
+      const mergedTableId = body.tableId?.trim() ?? "";
+      const mergedTable = zoneTables.find((row) => row.id === mergedTableId);
 
+      if (!mergedTable || mergedTable.merged_from.length < 2) {
         return Response.json(
-          { error: "A source table changed while the merge was being saved. Refresh and retry." },
-          { status: 409 },
+          { error: "The merged operational table could not be resolved." },
+          { status: 404 },
         );
       }
 
-      const { data: mergedRow, error: mergeError } = await auth.serviceClient
-        .from("show_tables")
-        .insert({
-          availability_scope: "operational",
-          capacity: mergedCapacity,
-          capacity_configured: true,
-          is_override: true,
-          is_physical: false,
-          merged_from: sourceIds,
-          override_notes: `Merged from ${sourceCodes.join(" and ")} in Operations Floor.`,
-          section: zoneId,
-          show_id: show.id,
-          status: "available",
-          table_code: mergedCode,
-        })
-        .select("id")
-        .maybeSingle();
+      const { data: unmergeResult, error: unmergeError } =
+        await auth.serviceClient.rpc("unmerge_show_tables_atomic", {
+          p_merged_table_id: mergedTable.id,
+          p_show_id: show.id,
+        });
 
-      if (mergeError || !mergedRow) {
-        await auth.serviceClient
-          .from("show_tables")
-          .update({ status: "available", updated_at: new Date().toISOString() })
-          .in("id", sourceIds);
-
-        if (mergeError) {
-          throw mergeError;
-        }
-
-        throw new Error("Merged table could not be created.");
+      if (unmergeError) {
+        throw unmergeError;
       }
 
-      const { error: linkError } = await auth.serviceClient
-        .from("show_tables")
-        .update({
-          merged_parent_id: mergedRow.id,
-          updated_at: new Date().toISOString(),
-        })
-        .in("id", sourceIds);
+      await tryRecordAuditEvent(
+        auth.serviceClient,
+        auth.staffProfile,
+        auth.user,
+        {
+          action: "show_table.unmerged",
+          afterValues: unmergeResult,
+          beforeValues: {
+            merged_from: mergedTable.merged_from,
+            merged_table_id: mergedTable.id,
+            table_code: mergedTable.table_code,
+          },
+          changedFields: ["merged_from", "merged_parent_id", "status"],
+          entityId: show.id,
+          entityReference: `${show.id}:${mergedTable.table_code}`,
+          entityType: "show",
+          outcome: "success",
+          reason: `Restored the physical members of ${mergedTable.table_code}.`,
+          request,
+          sourceArea: "Operations Floor",
+        },
+      );
 
-      if (linkError) {
-        await auth.serviceClient.from("show_tables").delete().eq("id", mergedRow.id);
-        await auth.serviceClient
-          .from("show_tables")
-          .update({ status: "available", updated_at: new Date().toISOString() })
-          .in("id", sourceIds);
-        throw linkError;
-      }
-
-      return Response.json({ ok: true });
+      return Response.json({ ok: true, unmerge: unmergeResult });
     }
 
     return Response.json({ error: "Unknown table operation." }, { status: 400 });
@@ -554,6 +567,25 @@ export async function POST(request: Request) {
     if (message.includes("TABLE_ZONE_CAPACITY_EXCEEDED")) {
       return Response.json(
         { error: "This table change would exceed the zone's venue capacity." },
+        { status: 409 },
+      );
+    }
+
+    if (
+      message.includes("AT_LEAST_TWO_TABLES_REQUIRED") ||
+      message.includes("MERGED_MEMBER_STATE_INVALID") ||
+      message.includes("MERGED_TABLE_CODE_CONFLICT") ||
+      message.includes("MERGED_TABLE_HAS_BOOKING") ||
+      message.includes("MERGED_TABLE_NOT_EXTENDABLE") ||
+      message.includes("MERGE_SOURCE_TABLE_NOT_AVAILABLE") ||
+      message.includes("TABLE_ALREADY_IN_MERGED_UNIT")
+    ) {
+      return Response.json(
+        {
+          error: message.includes("MERGED_TABLE_HAS_BOOKING")
+            ? "Reallocate the attached booking before restoring the physical tables."
+            : "One or more tables changed before the merge could be saved. Refresh and retry.",
+        },
         { status: 409 },
       );
     }

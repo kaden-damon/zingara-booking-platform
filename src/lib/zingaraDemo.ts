@@ -3552,7 +3552,7 @@ export function getBetterFitTableSuggestion(
   }
 
   const allocation = findBestTableAllocation(
-    tables,
+    tables.filter((table) => table.physicalTable === true),
     booking.showId,
     booking.zoneId,
     booking.partySize,

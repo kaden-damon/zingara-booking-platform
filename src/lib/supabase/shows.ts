@@ -346,14 +346,29 @@ export async function createOperationalShowTable(input: {
 }
 
 export async function mergeOperationalShowTables(input: {
+  mergedTableId?: string;
   showReference: string;
-  sourceTableCodes: string[];
+  sourceTableIds: string[];
   zoneId: string;
 }) {
-  return fetchSupabaseApi<{ ok: true }>("/api/admin/show-tables", {
+  return fetchSupabaseApi<{ merge: unknown; ok: true }>("/api/admin/show-tables", {
     body: { action: "merge", ...input },
     method: "POST",
   });
+}
+
+export async function unmergeOperationalShowTable(input: {
+  showReference: string;
+  tableId: string;
+  zoneId: string;
+}) {
+  return fetchSupabaseApi<{ ok: true; unmerge: unknown }>(
+    "/api/admin/show-tables",
+    {
+      body: { action: "unmerge", ...input },
+      method: "POST",
+    },
+  );
 }
 
 export async function setPhysicalShowTableCapacity(input: {

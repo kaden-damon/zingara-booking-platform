@@ -77,11 +77,33 @@ type AdminBookingRow = {
 type ShowTableAssignmentRow = {
   booking_id: string | null;
   id: string;
+  is_physical?: boolean;
+  merged_parent_id?: string | null;
   section: string;
   show_id: string;
   status: string;
   table_code: string;
 };
+
+function normalizeTableZone(section: string | null | undefined) {
+  const normalized = section?.trim().toLowerCase() ?? "";
+
+  if (
+    [
+      "booth",
+      "booths",
+      "private booth",
+      "private booths",
+      "royal booth",
+      "royal booths",
+      "royal-booths",
+    ].includes(normalized)
+  ) {
+    return "royal-booths";
+  }
+
+  return normalized.replaceAll(" ", "-");
+}
 
 async function fetchAdminBookingRows(
   serviceClient: SupabaseClient,
@@ -892,8 +914,18 @@ async function persistPhysicalTableMapping(
     );
   }
 
-  const [{ data: show, error: showError }, { data: targetTable, error: tableError }] =
-    await Promise.all([
+  if (!booking.table_id) {
+    return Response.json(
+      { error: "The booking does not currently have a table to reallocate." },
+      { status: 409 },
+    );
+  }
+
+  const [
+    { data: show, error: showError },
+    { data: sourceTable, error: sourceTableError },
+    { data: targetTable, error: tableError },
+  ] = await Promise.all([
       auth.serviceClient
         .from("shows")
         .select("id,venue")
@@ -901,7 +933,12 @@ async function persistPhysicalTableMapping(
         .maybeSingle(),
       auth.serviceClient
         .from("show_tables")
-        .select("id,show_id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical")
+        .select("id,show_id,table_code,section,status,booking_id,is_physical,merged_parent_id")
+        .eq("id", booking.table_id)
+        .maybeSingle(),
+      auth.serviceClient
+        .from("show_tables")
+        .select("id,show_id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical,merged_parent_id")
         .eq("id", targetTableId.trim())
         .maybeSingle(),
     ]);
@@ -912,6 +949,10 @@ async function persistPhysicalTableMapping(
 
   if (tableError) {
     throw tableError;
+  }
+
+  if (sourceTableError) {
+    throw sourceTableError;
   }
 
   const location = normalizeShowLocation(show?.venue);
@@ -927,12 +968,18 @@ async function persistPhysicalTableMapping(
   if (
     !targetTable ||
     targetTable.show_id !== booking.show_id ||
+    normalizeTableZone(targetTable.section) !==
+      normalizeTableZone(booking.section) ||
     !targetTable.is_physical ||
     !targetTable.capacity_configured ||
     targetTable.capacity === null ||
     targetTable.capacity < booking.guest_count ||
+    targetTable.merged_parent_id ||
     targetTable.status === "disabled" ||
-    (targetTable.booking_id && targetTable.booking_id !== booking.id)
+    (targetTable.id !== booking.table_id &&
+      (targetTable.status !== "available" || targetTable.booking_id)) ||
+    (targetTable.id === booking.table_id &&
+      targetTable.booking_id !== booking.id)
   ) {
     return Response.json(
       { error: "The selected physical table is not available for this booking." },
@@ -958,7 +1005,6 @@ async function persistPhysicalTableMapping(
     auth.staffProfile,
     auth.user,
     {
-      action: "booking.physical_table_map",
       afterValues: { table_id: targetTable.id },
       beforeValues: { table_id: booking.table_id },
       changedFields: ["table_id"],
@@ -966,7 +1012,14 @@ async function persistPhysicalTableMapping(
       entityReference: booking.booking_reference,
       entityType: "booking",
       outcome: "success",
-      reason: `Mapped legacy assignment to physical table ${targetTable.table_code}.`,
+      action:
+        (sourceTable as ShowTableAssignmentRow | null)?.is_physical === true
+          ? "booking.physical_table_reallocated"
+          : "booking.physical_table_map",
+      reason:
+        (sourceTable as ShowTableAssignmentRow | null)?.is_physical === true
+          ? `Reallocated physical table ${(sourceTable as ShowTableAssignmentRow).table_code} to ${targetTable.table_code}.`
+          : `Mapped legacy assignment to physical table ${targetTable.table_code}.`,
       request,
       sourceArea: "Operations Floor",
     },
@@ -1691,6 +1744,8 @@ export async function PATCH(request: Request) {
       if (
         message.includes("BOOKING_TABLE_ASSIGNMENT_CHANGED") ||
         message.includes("LEGACY_TABLE_ASSIGNMENT_REQUIRED") ||
+        message.includes("SOURCE_TABLE_ASSIGNMENT_REQUIRED") ||
+        message.includes("SOURCE_TABLE_NOT_REALLOCATABLE") ||
         message.includes("PHYSICAL_TABLE_NOT_AVAILABLE")
       ) {
         return Response.json(

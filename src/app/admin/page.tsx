@@ -138,6 +138,7 @@ import {
   replaceShows,
   replaceShowsWithLock,
   setPhysicalShowTableCapacity,
+  unmergeOperationalShowTable,
   updateOperationalShowTable,
 } from "../../lib/supabase/shows";
 import {
@@ -224,7 +225,7 @@ type NewTableForm = {
   seatCapacity: number;
 };
 type NewTablesByZone = Record<SeatingZoneId, NewTableForm>;
-type MergeSelection = Record<SeatingZoneId, string>;
+type MergeSelection = Record<string, string[]>;
 type NewShowForm = {
   address: string;
   date: string;
@@ -266,7 +267,6 @@ type StaffInviteForm = {
 type SplitMergeReview = {
   booking?: DemoBooking;
   table: DemoTable;
-  targetTableId?: string;
   warning: string;
 };
 type LoginForm = {
@@ -6727,13 +6727,7 @@ function getBlankNewTables() {
 }
 
 function getBlankMergeSelections() {
-  return seatingZones.reduce(
-    (selections, zone) => ({
-      ...selections,
-      [zone.id]: "",
-    }),
-    {} as MergeSelection,
-  );
+  return {} as MergeSelection;
 }
 
 function getShowEditForm(show: DemoShow): ShowEditForm {
@@ -15002,29 +14996,29 @@ export default function AdminDashboardPage() {
     }
   }
 
-  async function mapLegacyBookingToPhysicalTable(
+  async function reallocateBookingToPhysicalTable(
     booking: DemoBooking,
     targetTableId: string,
     targetTableNumber: string,
   ) {
     if (!canManageBookings) {
       showWorkflowToast("Booking management access is required.");
-      return;
+      return false;
     }
 
     if (!booking.showId) {
       showWorkflowToast("This booking does not have a resolved performance.");
-      return;
+      return false;
     }
 
     if (!targetTableId) {
       showWorkflowToast("The selected physical table could not be resolved.");
-      return;
+      return false;
     }
 
     if (floorAssignmentInFlightRef.current.has(booking.reference)) {
       showWorkflowToast("This physical table mapping is already being saved.");
-      return;
+      return false;
     }
 
     floorAssignmentInFlightRef.current.add(booking.reference);
@@ -15041,8 +15035,9 @@ export default function AdminDashboardPage() {
         return nextSelections;
       });
       showWorkflowToast(
-        `Mapped ${booking.reference} to physical table ${targetTableNumber}.`,
+        `${booking.reference} now uses physical table ${targetTableNumber}.`,
       );
+      return true;
     } catch (error) {
       await refreshAssignedShowState(booking.showId).catch(() => undefined);
       showWorkflowToast(
@@ -15050,6 +15045,7 @@ export default function AdminDashboardPage() {
           ? error.message
           : "The physical table mapping could not be saved.",
       );
+      return false;
     } finally {
       floorAssignmentInFlightRef.current.delete(booking.reference);
     }
@@ -15139,48 +15135,71 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    const targetTableId = mergeSelections[zoneId];
-    const targetTable = tables.find(
-      (table) => table.id === targetTableId,
-    );
+    const selectedTableIds = mergeSelections[primaryTable.id] ?? [];
+    const selectedTables = selectedTableIds
+      .map((tableId) => tables.find((table) => table.id === tableId))
+      .filter((table): table is DemoTable => Boolean(table));
+    const isExistingMergedUnit = Boolean(primaryTable.mergedFrom?.length);
 
     if (
-      !targetTable ||
+      !selectedTables.length ||
       !selectedShowId ||
-      targetTable.id === primaryTable.id ||
-      targetTable.zoneId !== primaryTable.zoneId ||
-      primaryTable.status !== "available" ||
-      targetTable.status !== "available" ||
+      !primaryTable.authoritativeId ||
+      primaryTable.showId !== selectedShowId ||
+      primaryTable.zoneId !== zoneId ||
       primaryTable.mergeable === false ||
-      targetTable.mergeable === false ||
-      primaryTable.bookingReference ||
-      targetTable.bookingReference ||
       primaryTable.mergedInto ||
-      targetTable.mergedInto ||
-      primaryTable.mergedFrom?.length ||
-      targetTable.mergedFrom?.length
+      (!isExistingMergedUnit &&
+        (primaryTable.physicalTable !== true ||
+          primaryTable.capacityConfigured === false ||
+          primaryTable.status !== "available" ||
+          primaryTable.bookingReference)) ||
+      selectedTables.some(
+        (table) =>
+          table.showId !== selectedShowId ||
+          table.zoneId !== zoneId ||
+          table.physicalTable !== true ||
+          table.capacityConfigured === false ||
+          table.status !== "available" ||
+          table.bookingReference ||
+          table.mergeable === false ||
+          table.mergedInto ||
+          table.mergedFrom?.length ||
+          !table.authoritativeId,
+      )
     ) {
       return;
     }
 
-    setOperationalTableAction(`merge-${zoneId}`);
+    const sourceTableIds = selectedTables.map(
+      (table) => table.authoritativeId as string,
+    );
+
+    if (!isExistingMergedUnit) {
+      sourceTableIds.unshift(primaryTable.authoritativeId);
+    }
+
+    setOperationalTableAction(`merge-${primaryTable.id}`);
 
     try {
       await mergeOperationalShowTables({
+        ...(isExistingMergedUnit
+          ? { mergedTableId: primaryTable.authoritativeId }
+          : {}),
         showReference: selectedShowId,
-        sourceTableCodes: [
-          primaryTable.tableNumber,
-          targetTable.tableNumber,
-        ],
+        sourceTableIds,
         zoneId,
       });
       await refreshAssignedShowState(selectedShowId);
       setMergeSelections((currentSelections) => ({
         ...currentSelections,
-        [zoneId]: "",
+        [primaryTable.id]: [],
       }));
+      const selectedCodes = selectedTables.map((table) => table.tableNumber);
       showWorkflowToast(
-        `${primaryTable.tableNumber} and ${targetTable.tableNumber} were merged for this performance.`,
+        isExistingMergedUnit
+          ? `${selectedCodes.join(", ")} added to ${primaryTable.tableNumber}.`
+          : `${[primaryTable.tableNumber, ...selectedCodes].join(" + ")} merged for this performance.`,
       );
     } catch (error) {
       showWorkflowToast(
@@ -15205,32 +15224,15 @@ export default function AdminDashboardPage() {
     const sourceTables = tables.filter((table) =>
       mergedTable.mergedFrom?.includes(table.id),
     );
-    const targetTable = booking
-      ? sourceTables
-          .filter((table) => table.seatCapacity >= booking.partySize)
-          .sort(
-            (firstTable, secondTable) =>
-              firstTable.seatCapacity - secondTable.seatCapacity,
-          )[0]
-      : undefined;
     const sourceSummary = sourceTables
       .map((table) => `${table.tableNumber} (${table.seatCapacity})`)
       .join(", ");
 
-    if (booking && !targetTable) {
+    if (booking) {
       return {
         booking,
         table: mergedTable,
-        warning: `${booking.customer.name || "This booking"} needs ${booking.partySize} seats. None of the original tables (${sourceSummary}) can hold this party after split.`,
-      };
-    }
-
-    if (booking && targetTable) {
-      return {
-        booking,
-        table: mergedTable,
-        targetTableId: targetTable.id,
-        warning: `${booking.customer.name || "This booking"} will be reassigned from ${mergedTable.tableNumber} to ${targetTable.tableNumber}. Confirm only if operations are ready for that smaller table.`,
+        warning: `${booking.customer.name || "This booking"} is assigned to ${mergedTable.tableNumber}. Reallocate the booking before restoring ${sourceSummary}.`,
       };
     }
 
@@ -15248,94 +15250,49 @@ export default function AdminDashboardPage() {
     setSplitMergeReview(getSplitMergeReview(mergedTable));
   }
 
-  function splitMergedTable(
-    mergedTable: DemoTable,
-    targetTableId?: string,
-  ) {
+  async function splitMergedTable(mergedTable: DemoTable) {
     if (!canManageTables || !mergedTable.mergedFrom?.length) {
       return;
     }
 
     const review = getSplitMergeReview(mergedTable);
 
-    if (review.booking && !targetTableId) {
+    if (review.booking) {
       setSplitMergeReview(review);
       return;
     }
-
-    const targetTable = targetTableId
-      ? tables.find((table) => table.id === targetTableId)
-      : undefined;
 
     if (
-      review.booking &&
-      (!targetTable || targetTable.seatCapacity < review.booking.partySize)
+      !selectedShowId ||
+      !mergedTable.authoritativeId ||
+      operationalTableAction
     ) {
-      setSplitMergeReview(review);
       return;
     }
 
-    const splitAt = new Date().toISOString();
-    const sourceTableIds = new Set(mergedTable.mergedFrom);
-    const splitSummary = `Split ${mergedTable.tableNumber} back into original tables`;
+    setOperationalTableAction(`unmerge-${mergedTable.id}`);
 
-    const nextTables = tables
-      .filter((table) => table.id !== mergedTable.id)
-      .map((table) => {
-        if (!sourceTableIds.has(table.id)) {
-          return table;
-        }
-
-        const isBookingTarget =
-          review.booking && table.id === targetTableId;
-
-        return {
-          ...table,
-          status: isBookingTarget
-            ? ("booked" as const)
-            : (table.baseStatus ?? "available"),
-          bookingReference: isBookingTarget
-            ? review.booking?.reference
-            : undefined,
-          mergedInto: undefined,
-          guestNotes: isBookingTarget
-            ? review.booking?.customer.name || "Reassigned booking"
-            : (table.baseGuestNotes ?? ""),
-          mergeHistory: [
-            ...(table.mergeHistory ?? []),
-            {
-              id: `${splitAt}-${table.id}-split`,
-              at: splitAt,
-              summary: splitSummary,
-              type: "split" as const,
-            },
-          ],
-        };
+    try {
+      await unmergeOperationalShowTable({
+        showReference: selectedShowId,
+        tableId: mergedTable.authoritativeId,
+        zoneId: mergedTable.zoneId,
       });
-
-    saveTables(nextTables);
-
-    if (review.booking && targetTable) {
-      saveBookings(
-        bookings.map((booking) =>
-          booking.reference === review.booking?.reference
-            ? {
-                ...booking,
-                tableId: targetTable.id,
-                tableNumber: targetTable.tableNumber,
-                operationalNotes: [
-                  booking.operationalNotes,
-                  `Merged table ${mergedTable.tableNumber} split; booking reassigned to ${targetTable.tableNumber}.`,
-                ]
-                  .filter(Boolean)
-                  .join(" "),
-              }
-            : booking,
-        ),
+      await refreshAssignedShowState(selectedShowId);
+      showWorkflowToast(
+        `${mergedTable.tableNumber} was restored to its physical member tables.`,
       );
+      setSplitMergeReview(null);
+    } catch (error) {
+      await refreshAssignedShowState(selectedShowId).catch(() => undefined);
+      showWorkflowToast(
+        error instanceof Error
+          ? error.message
+          : "The merged table could not be restored.",
+      );
+    } finally {
+      setOperationalTableAction("");
     }
-
-    setSplitMergeReview(null);
   }
 
   function updateBookingCustomer(
@@ -19890,7 +19847,7 @@ export default function AdminDashboardPage() {
     });
   }
 
-  function moveBooking(
+  async function moveBooking(
     booking: DemoBooking,
     nextTableId: string,
   ) {
@@ -19898,7 +19855,7 @@ export default function AdminDashboardPage() {
       if (isBookingReadOnly(booking.reference)) {
         showWorkflowToast("This booking is currently being edited.");
       }
-      return;
+      return false;
     }
 
     const setCompatibilityWarning = (message: string) => {
@@ -19918,21 +19875,34 @@ export default function AdminDashboardPage() {
       setCompatibilityWarning(
         "Select a live table before moving this booking.",
       );
-      return;
+      return false;
+    }
+
+    if (
+      nextTable.physicalTable !== true ||
+      nextTable.capacityConfigured === false ||
+      !nextTable.authoritativeId ||
+      nextTable.mergedInto ||
+      nextTable.zoneId !== booking.zoneId
+    ) {
+      setCompatibilityWarning(
+        "Select an available configured physical table in the same seating zone.",
+      );
+      return false;
     }
 
     if (nextTable.seatCapacity < booking.partySize) {
       setCompatibilityWarning(
         `${nextTable.tableNumber} only seats ${nextTable.seatCapacity}; this booking needs ${booking.partySize}.`,
       );
-      return;
+      return false;
     }
 
     if (nextTable.status === "disabled") {
       setCompatibilityWarning(
         `${nextTable.tableNumber} is blocked and cannot accept bookings.`,
       );
-      return;
+      return false;
     }
 
     if (
@@ -19943,7 +19913,7 @@ export default function AdminDashboardPage() {
       setCompatibilityWarning(
         `${nextTable.tableNumber} is already reserved for another booking.`,
       );
-      return;
+      return false;
     }
 
     if (nextTable.id === booking.tableId) {
@@ -19952,79 +19922,24 @@ export default function AdminDashboardPage() {
         delete nextWarnings[booking.reference];
         return nextWarnings;
       });
-      return;
+      return true;
     }
 
-    const releasedTables = releaseBookingTableFromList(tables, booking);
-
-    saveTables(
-      releasedTables.map((table) => {
-        if (
-          table.id === booking.tableId &&
-          table.bookingReference === booking.reference
-        ) {
-          return {
-            ...table,
-            status: "available" as const,
-            bookingReference: undefined,
-            guestNotes: "",
-          };
-        }
-
-        if (table.id === nextTable.id) {
-          return {
-            ...table,
-            status: "booked" as const,
-            bookingReference: booking.reference,
-            guestNotes: booking.customer.name,
-          };
-        }
-
-        return table;
-      }),
-    );
-    const movedBooking = {
-      ...booking,
-      status:
-        booking.status === "cancelled"
-          ? ("confirmed" as const)
-          : booking.status,
-      tableId: nextTable.id,
-      tableNumber: nextTable.tableNumber,
-      zoneId: nextZone.id,
-      zoneTitle: nextZone.title,
-    };
-    const tableChangeRecord = createWorkflowCommunication(
-      movedBooking,
-      "table-change",
-      "email",
-      {
-        updateSummary: `Moved from ${booking.zoneTitle}, table ${booking.tableNumber} to ${nextZone.title}, table ${nextTable.tableNumber}.`,
-      },
+    const moved = await reallocateBookingToPhysicalTable(
+      booking,
+      nextTable.authoritativeId,
+      nextTable.tableNumber,
     );
 
-    saveBookings(
-      bookings.map((currentBooking) =>
-        currentBooking.reference === booking.reference
-          ? {
-              ...movedBooking,
-              communicationHistory: [
-                tableChangeRecord,
-                ...(currentBooking.communicationHistory ?? []),
-              ],
-            }
-          : currentBooking,
-      ),
-    );
-    void sendPreferredBrowserNotification(
-      "new-booking",
-      "booking-updated",
-    );
-    setTableCompatibilityWarnings((currentWarnings) => {
-      const nextWarnings = { ...currentWarnings };
-      delete nextWarnings[booking.reference];
-      return nextWarnings;
-    });
+    if (moved) {
+      setTableCompatibilityWarnings((currentWarnings) => {
+        const nextWarnings = { ...currentWarnings };
+        delete nextWarnings[booking.reference];
+        return nextWarnings;
+      });
+    }
+
+    return moved;
   }
 
   async function refreshAssignedShowState(showId: string) {
@@ -26476,9 +26391,9 @@ export default function AdminDashboardPage() {
                     <span className="font-mono text-[#F2D66C]">
                       {splitMergeReview.booking.reference}
                     </span>{" "}
-                    is attached to this merged table. The split can only
-                    continue if the booking is reassigned to a source table
-                    that still fits the party size.
+                    is attached to this merged table. Reallocate the booking
+                    to another configured physical table before restoring
+                    this merged unit.
                   </p>
                 ) : (
                   <p className="mt-2">
@@ -26500,20 +26415,20 @@ export default function AdminDashboardPage() {
                 <button
                   type="button"
                   disabled={
-                    Boolean(splitMergeReview.booking) &&
-                    !splitMergeReview.targetTableId
+                    Boolean(splitMergeReview.booking) ||
+                    Boolean(operationalTableAction)
                   }
                   onClick={() =>
-                    splitMergedTable(
-                      splitMergeReview.table,
-                      splitMergeReview.targetTableId,
-                    )
+                    void splitMergedTable(splitMergeReview.table)
                   }
                   className="rounded-full border border-sky-300/40 bg-sky-300 px-5 py-3 font-semibold text-black transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-35"
                 >
-                  {splitMergeReview.targetTableId
-                    ? "Reassign And Split"
-                    : "Restore Original Tables"}
+                  {splitMergeReview.booking
+                    ? "Reallocate Booking First"
+                    : operationalTableAction ===
+                        `unmerge-${splitMergeReview.table.id}`
+                      ? "Restoring..."
+                      : "Restore Original Tables"}
                 </button>
               </div>
             </section>
@@ -36102,7 +36017,7 @@ export default function AdminDashboardPage() {
                             );
 
                             if (targetTableId) {
-                              void mapLegacyBookingToPhysicalTable(
+                              void reallocateBookingToPhysicalTable(
                                 booking,
                                 targetTableId,
                                 target?.tableNumber ?? "selected table",
@@ -36151,6 +36066,7 @@ export default function AdminDashboardPage() {
             );
             const availableMergeTargets = zoneTables.filter(
               (table) =>
+                table.physicalTable === true &&
                 table.capacityConfigured !== false &&
                 table.status === "available" &&
                 table.mergeable !== false &&
@@ -36370,14 +36286,25 @@ export default function AdminDashboardPage() {
                       const tableSplitReview = table.mergedFrom?.length
                         ? getSplitMergeReview(table)
                         : undefined;
-                      const splitTargetName =
-                        tableSplitReview?.targetTableId
-                          ? linkedChildren.find(
-                              (linkedTable) =>
-                                linkedTable.id ===
-                                tableSplitReview.targetTableId,
-                            )?.tableNumber
-                          : undefined;
+                      const selectedMergeTargetIds =
+                        mergeSelections[table.id] ?? [];
+                      const selectedMergeTargets = availableMergeTargets.filter(
+                        (targetTable) =>
+                          targetTable.id !== table.id &&
+                          selectedMergeTargetIds.includes(targetTable.id),
+                      );
+                      const mergeMemberTables = table.mergedFrom?.length
+                        ? [...linkedChildren, ...selectedMergeTargets]
+                        : [table, ...selectedMergeTargets];
+                      const mergeEligiblePrimary =
+                        table.mergeable !== false &&
+                        !table.mergedInto &&
+                        (table.mergedFrom?.length
+                          ? table.status !== "disabled"
+                          : table.physicalTable === true &&
+                            table.capacityConfigured !== false &&
+                            table.status === "available" &&
+                            !table.bookingReference);
 
                       return (
                       <div
@@ -36717,71 +36644,123 @@ export default function AdminDashboardPage() {
                           )}
 
                           <div className="flex flex-col gap-3">
-                            <select
-                              value={mergeSelections[zone.id]}
-                              onChange={(event) =>
-                                setMergeSelections(
-                                  (currentSelections) => ({
-                                    ...currentSelections,
-                                    [zone.id]: event.target.value,
-                                  }),
-                                )
-                              }
-                              className="rounded-xl border border-white/15 bg-zinc-950 px-4 py-3"
-                            >
-                              <option value="">
-                                Merge with...
-                              </option>
-                              {availableMergeTargets
-                                .filter(
+                            {mergeEligiblePrimary && (
+                              <fieldset className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                                <legend className="px-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                                  Merge Tables
+                                </legend>
+                                <div className="mt-2 grid max-h-44 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+                                  {availableMergeTargets
+                                    .filter(
+                                      (targetTable) =>
+                                        targetTable.id !== table.id,
+                                    )
+                                    .map((targetTable) => {
+                                      const isSelected =
+                                        selectedMergeTargetIds.includes(
+                                          targetTable.id,
+                                        );
+
+                                      return (
+                                        <label
+                                          key={targetTable.id}
+                                          className="flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            disabled={Boolean(
+                                              operationalTableAction,
+                                            )}
+                                            onChange={() =>
+                                              setMergeSelections(
+                                                (currentSelections) => ({
+                                                  ...currentSelections,
+                                                  [table.id]: isSelected
+                                                    ? selectedMergeTargetIds.filter(
+                                                        (tableId) =>
+                                                          tableId !==
+                                                          targetTable.id,
+                                                      )
+                                                    : [
+                                                        ...selectedMergeTargetIds,
+                                                        targetTable.id,
+                                                      ],
+                                                }),
+                                              )
+                                            }
+                                            className="h-4 w-4 accent-[#D8C36A]"
+                                          />
+                                          <span>
+                                            {targetTable.tableNumber} ·{" "}
+                                            {targetTable.seatCapacity}
+                                          </span>
+                                        </label>
+                                      );
+                                    })}
+                                </div>
+                                {availableMergeTargets.filter(
                                   (targetTable) =>
                                     targetTable.id !== table.id,
-                                )
-                                .map((targetTable) => (
-                                  <option
-                                    key={targetTable.id}
-                                    value={targetTable.id}
-                                  >
-                                    {targetTable.tableNumber}
-                                  </option>
-                                ))}
-                            </select>
-
-                            <button
-                              type="button"
-                              disabled={
-                                table.status !== "available" ||
-                                table.mergeable === false ||
-                                Boolean(table.mergedInto) ||
-                                Boolean(table.mergedFrom?.length) ||
-                                !mergeSelections[zone.id] ||
-                                Boolean(operationalTableAction)
-                              }
-                              onClick={() =>
-                                mergeTable(zone.id, table)
-                              }
-                              className="rounded-full border border-white/20 px-5 py-3 font-semibold transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
-                            >
-                              {operationalTableAction === `merge-${zone.id}`
-                                ? "Merging..."
-                                : "Merge"}
-                            </button>
+                                ).length === 0 && (
+                                  <p className="mt-2 text-xs text-zinc-500">
+                                    No compatible physical tables are currently available.
+                                  </p>
+                                )}
+                                <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3 text-xs text-zinc-300">
+                                  <p>
+                                    Combined tables:{" "}
+                                    <span className="font-semibold text-white">
+                                      {mergeMemberTables
+                                        .map(
+                                          (memberTable) =>
+                                            memberTable.tableNumber,
+                                        )
+                                        .join(" + ")}
+                                    </span>
+                                  </p>
+                                  <p className="mt-1">
+                                    Combined capacity:{" "}
+                                    <span className="font-semibold text-white">
+                                      {mergeMemberTables.reduce(
+                                        (total, memberTable) =>
+                                          total + memberTable.seatCapacity,
+                                        0,
+                                      )}
+                                    </span>
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    selectedMergeTargets.length === 0 ||
+                                    Boolean(operationalTableAction)
+                                  }
+                                  onClick={() =>
+                                    void mergeTable(zone.id, table)
+                                  }
+                                  className="mt-3 w-full rounded-full border border-white/20 px-5 py-3 font-semibold transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
+                                >
+                                  {operationalTableAction ===
+                                  `merge-${table.id}`
+                                    ? "Merging..."
+                                    : table.mergedFrom?.length
+                                      ? "Add Selected Tables"
+                                      : "Merge Selected Tables"}
+                                </button>
+                              </fieldset>
+                            )}
 
                             {table.mergedFrom?.length && (
                               <button
                                 type="button"
-                                disabled={
-                                  Boolean(tableSplitReview?.booking) &&
-                                  !tableSplitReview?.targetTableId
-                                }
+                                disabled={Boolean(operationalTableAction)}
                                 onClick={() =>
                                   requestSplitMergedTable(table)
                                 }
                                 className="rounded-full border border-sky-300/40 px-5 py-3 font-semibold text-sky-100 transition hover:bg-sky-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
                               >
-                                {splitTargetName
-                                  ? `Review Split to ${splitTargetName}`
-                                  : "Review Split / Restore"}
+                                Review Split / Restore
                               </button>
                             )}
 
@@ -37377,9 +37356,14 @@ export default function AdminDashboardPage() {
                       getLiveCustomerForBooking(booking);
 	                const moveTables = tables.filter(
                   (table) =>
-                    table.showId === selectedShowId &&
+                    table.showId === booking.showId &&
+                    table.zoneId === booking.zoneId &&
+                    table.physicalTable === true &&
+                    table.capacityConfigured !== false &&
+                    Boolean(table.authoritativeId) &&
                     table.seatCapacity >= booking.partySize &&
                     table.status !== "disabled" &&
+                    !table.mergedInto &&
                     canUseTableForBooking(table, booking),
                 );
 
@@ -37866,7 +37850,7 @@ export default function AdminDashboardPage() {
                             <button
                               type="button"
                               onClick={() =>
-                                moveBooking(
+                                void moveBooking(
                                   booking,
                                   betterFitTable.id,
                                 )
@@ -38366,7 +38350,7 @@ export default function AdminDashboardPage() {
                             <select
                               value={booking.tableId || ""}
                               onChange={(event) =>
-                                moveBooking(
+                                void moveBooking(
                                   booking,
                                   event.target.value,
                                 )
