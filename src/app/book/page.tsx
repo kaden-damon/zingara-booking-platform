@@ -38,14 +38,13 @@ import {
   TicketPdfDataError,
 } from "../../lib/ticketPdf";
 import { createBooking } from "../../lib/supabase/bookings";
-import { getShows } from "../../lib/supabase/shows";
+import { getShowsWithTables } from "../../lib/supabase/shows";
 import { getVenueSettings } from "../../lib/supabase/venueSettings";
 import { createWaitlistEntry } from "../../lib/supabase/waitlist";
 import {
   type BookingAddon,
   type CustomerInfo,
   type DemoBooking,
-  type DemoTable,
   type DemoVenueSettings,
   type DemoWaitlistEntry,
   type GuestTicket,
@@ -53,25 +52,17 @@ import {
   type PromoDiscountType,
   type DemoShow,
   type SeatingZone,
-  applyTableAllocation,
   createShortBookingReference,
-  createTablesForShow,
   createTicketCode,
   defaultVenueSettings,
-  defaultShows,
-  findBestTableAllocation,
   getConfiguredZoneDepositAmount,
   getConfiguredZonePrice,
   getCompactShowDateTime,
   getSouthAfricaShowTime,
   getIncludedBookingFeeBreakdown,
-  getPublicSaleableTables,
-  getStoredDemoTables,
-  getTableAllocationDisplay,
   getTicketUrl,
   normalizeShowLocation,
   seatingZones,
-  storeDemoTables,
 } from "../../lib/zingaraDemo";
 
 type SeatingOption = SeatingZone;
@@ -100,13 +91,6 @@ type PromoValidationPreview = {
   description: string | null;
   discountAmount: number;
   status: string;
-};
-
-type BookingTableReservationClaim = {
-  capacity: number;
-  primary?: boolean;
-  section: string;
-  tableCode: string;
 };
 
 type TicketPayload = {
@@ -305,35 +289,25 @@ function getRemainingSeats(
 function isAvailableForBooking(
   option: SeatingOption,
   guests: number,
-  selectedShowId: string,
-  tables: DemoTable[],
   occupiedSeats = 0,
 ) {
   return (
     isAvailableForParty(option, guests) &&
-    getRemainingSeats(option, occupiedSeats) >= guests &&
-    Boolean(
-      findBestTableAllocation(
-        tables,
-        selectedShowId,
-        option.id,
-        guests,
-      ),
-    )
+    getRemainingSeats(option, occupiedSeats) >= guests
   );
 }
 
 function getAvailabilityMessage(
   isGroupSizeAvailable: boolean,
-  hasEnoughInventory: boolean,
+  hasEnoughVenueCapacity: boolean,
   isLimited = false,
 ) {
   if (!isGroupSizeAvailable) {
     return "Not Available For This Group Size";
   }
 
-  if (!hasEnoughInventory) {
-    return "No suitable table available";
+  if (!hasEnoughVenueCapacity) {
+    return "Not Enough Seats Available";
   }
 
   if (isLimited) {
@@ -346,35 +320,21 @@ function getAvailabilityMessage(
 function getAvailabilityState(
   option: SeatingOption,
   guests: number,
-  selectedShowId: string,
-  tables: DemoTable[],
   occupiedSeats: number,
 ) {
   const remainingSeats = getRemainingSeats(option, occupiedSeats);
   const isGroupSizeAvailable = isAvailableForParty(option, guests);
-  const bestAllocation = findBestTableAllocation(
-    tables,
-    selectedShowId,
-    option.id,
-    guests,
-  );
-  const bestTable = bestAllocation?.table;
   const hasEnoughVenueCapacity = remainingSeats >= guests;
-  const hasEnoughInventory = hasEnoughVenueCapacity && Boolean(bestTable);
-  const isAvailable = isGroupSizeAvailable && hasEnoughInventory;
+  const isAvailable = isGroupSizeAvailable && hasEnoughVenueCapacity;
   const isLimited =
-    isAvailable &&
-    (remainingSeats <= Math.max(guests * 2, 6) ||
-      (bestTable?.seatCapacity ?? 0) === guests);
+    isAvailable && remainingSeats <= Math.max(guests * 2, 6);
 
   return {
     availabilityMessage: getAvailabilityMessage(
       isGroupSizeAvailable,
-      hasEnoughInventory,
+      hasEnoughVenueCapacity,
       isLimited,
     ),
-    bestTable,
-    bestAllocation,
     isAvailable,
     isGroupSizeAvailable,
     isLimited,
@@ -609,6 +569,10 @@ function getBookingInstallState() {
 
 export default function BookingPage() {
   const [shows, setShows] = useState<DemoShow[]>([]);
+  const [showLoadStatus, setShowLoadStatus] = useState<
+    "loading" | "success" | "error"
+  >("loading");
+  const [showLoadRetryToken, setShowLoadRetryToken] = useState(0);
   const [venueSettings, setVenueSettings] = useState(
     defaultVenueSettings,
   );
@@ -674,14 +638,12 @@ export default function BookingPage() {
   const [isPromoValidationLoading, setIsPromoValidationLoading] =
     useState(false);
   const [selectedAddonIds] = useState<string[]>([]);
-  const [tables, setTables] = useState<DemoTable[]>(() =>
-    defaultShows.flatMap((show) => createTablesForShow(show.id)),
-  );
   const [occupiedSeatsByZone, setOccupiedSeatsByZone] = useState<
     Partial<Record<SeatingZone["id"], number>>
   >({});
   const confirmedSectionRef = useRef<HTMLElement | null>(null);
   const trackedTelemetryEventsRef = useRef<Set<string>>(new Set());
+  const showLoadRequestRef = useRef(0);
   const hasScrolledToConfirmedRef = useRef(false);
   const venueConfig = venueSettings;
 
@@ -857,8 +819,6 @@ export default function BookingPage() {
       isAvailableForBooking(
         zone,
         partySize,
-        selectedShowId,
-        tables,
         occupiedSeatsByZone[zone.id] ?? 0,
       ),
     );
@@ -866,19 +826,10 @@ export default function BookingPage() {
     Boolean(selectedShowId) &&
     selectedShowIsBookable &&
     !hasBookableSeatingOption;
-  const previewTableAllocation =
-    selectedZone && selectedShowId
-      ? findBestTableAllocation(
-          tables,
-          selectedShowId,
-          selectedZone.id,
-          partySize,
-        )
-      : undefined;
   const selectedShowTimeValue = selectedShow
     ? getShowTimeValue(selectedShow)
     : 0;
-  function getRecommendedFutureShow(zone: SeatingOption) {
+  function getRecommendedFutureShow() {
     if (!selectedShow) {
       return undefined;
     }
@@ -889,15 +840,7 @@ export default function BookingPage() {
           show.id !== selectedShow.id &&
           getShowVenueKey(show) === getShowVenueKey(selectedShow) &&
           isGuestBookableShow(show) &&
-          getShowTimeValue(show) > selectedShowTimeValue &&
-          Boolean(
-            findBestTableAllocation(
-              tables,
-              show.id,
-              zone.id,
-              partySize,
-            ),
-          ),
+          getShowTimeValue(show) > selectedShowTimeValue,
       )
       .sort((firstShow, secondShow) => {
         return getShowTimeValue(firstShow) - getShowTimeValue(secondShow);
@@ -1116,8 +1059,6 @@ export default function BookingPage() {
       !isAvailableForBooking(
         currentZone,
         nextPartySize,
-        selectedShowId,
-        tables,
         occupiedSeatsByZone[currentZone.id] ?? 0,
       )
         ? null
@@ -1128,8 +1069,6 @@ export default function BookingPage() {
       !isAvailableForBooking(
         currentZone,
         nextPartySize,
-        selectedShowId,
-        tables,
         occupiedSeatsByZone[currentZone.id] ?? 0,
       )
         ? null
@@ -1141,50 +1080,51 @@ export default function BookingPage() {
     let isMounted = true;
 
     async function loadShowInventory() {
-      const nextShows = await getShows();
-      const nextTables = getPublicSaleableTables(getStoredDemoTables(nextShows));
-      const nextVenueSettings = await getVenueSettings();
-      const nextGuestVisibleShows = nextShows.filter(isGuestVisibleShow);
+      const requestId = showLoadRequestRef.current + 1;
+      showLoadRequestRef.current = requestId;
+      setShowLoadStatus("loading");
 
-      if (!isMounted) {
-        return;
+      try {
+        const [showPayload, nextVenueSettings] = await Promise.all([
+          getShowsWithTables({ metadataOnly: true }),
+          getVenueSettings(),
+        ]);
+
+        if (!showPayload.showsLoaded) {
+          throw new Error("Shows could not be loaded.");
+        }
+
+        if (!isMounted || requestId !== showLoadRequestRef.current) {
+          return;
+        }
+
+        const nextShows = showPayload.shows;
+        const nextGuestVisibleShows = nextShows.filter(isGuestVisibleShow);
+
+        setShows(nextShows);
+        setVenueSettings(nextVenueSettings);
+        setSelectedShowId((currentShowId) =>
+          nextGuestVisibleShows.some(
+            (show) =>
+              show.id === currentShowId && isGuestBookableShow(show),
+          )
+            ? currentShowId
+            : "",
+        );
+        setSelectedShowDate((currentDate) =>
+          nextGuestVisibleShows.some((show) => show.date === currentDate)
+            ? currentDate
+            : "",
+        );
+        setShowLoadStatus("success");
+      } catch (error) {
+        if (!isMounted || requestId !== showLoadRequestRef.current) {
+          return;
+        }
+
+        console.warn("[Zingara booking] Show calendar unavailable", error);
+        setShowLoadStatus("error");
       }
-
-      console.log("[Zingara booking] booking page show source", {
-        bookableShows: nextGuestVisibleShows
-          .filter(isGuestBookableShow)
-          .map((show) => ({
-          date: show.date,
-          id: show.id,
-          label: show.label,
-          status: show.operationalStatus ?? "active",
-          time: getSouthAfricaShowTime(show),
-        })),
-        loadedShows: nextShows.map((show) => ({
-          date: show.date,
-          id: show.id,
-          label: show.label,
-          status: show.operationalStatus ?? "active",
-          time: getSouthAfricaShowTime(show),
-        })),
-      });
-
-      setShows(nextShows);
-      setTables(nextTables);
-      setVenueSettings(nextVenueSettings);
-      setSelectedShowId((currentShowId) =>
-        nextGuestVisibleShows.some(
-          (show) =>
-            show.id === currentShowId && isGuestBookableShow(show),
-        )
-          ? currentShowId
-          : "",
-      );
-      setSelectedShowDate((currentDate) =>
-        nextGuestVisibleShows.some((show) => show.date === currentDate)
-          ? currentDate
-          : "",
-      );
     }
 
     const hydrationTimer = window.setTimeout(loadShowInventory, 0);
@@ -1192,10 +1132,6 @@ export default function BookingPage() {
     window.addEventListener("storage", loadShowInventory);
     window.addEventListener(
       "zingara-demo-shows-updated",
-      loadShowInventory,
-    );
-    window.addEventListener(
-      "zingara-demo-tables-updated",
       loadShowInventory,
     );
     window.addEventListener(
@@ -1209,13 +1145,10 @@ export default function BookingPage() {
 
     return () => {
       isMounted = false;
+      showLoadRequestRef.current += 1;
       window.removeEventListener("storage", loadShowInventory);
       window.removeEventListener(
         "zingara-demo-shows-updated",
-        loadShowInventory,
-      );
-      window.removeEventListener(
-        "zingara-demo-tables-updated",
         loadShowInventory,
       );
       window.removeEventListener(
@@ -1228,7 +1161,7 @@ export default function BookingPage() {
       );
       window.clearTimeout(hydrationTimer);
     };
-  }, []);
+  }, [showLoadRetryToken]);
 
   useEffect(() => {
     const mobilePortraitQuery = window.matchMedia(
@@ -1617,8 +1550,6 @@ export default function BookingPage() {
       !isAvailableForBooking(
         selectedZone,
         partySize,
-        selectedShowId,
-        tables,
         occupiedSeatsByZone[selectedZone.id] ?? 0,
       )
     ) {
@@ -1668,8 +1599,6 @@ export default function BookingPage() {
       !isAvailableForBooking(
         selectedZone,
         partySize,
-        selectedShow.id,
-        tables,
         occupiedSeatsByZone[selectedZone.id] ?? 0,
       )
     ) {
@@ -1683,17 +1612,6 @@ export default function BookingPage() {
       return;
     }
 
-    const tableAllocation = findBestTableAllocation(
-      tables,
-      selectedShow.id,
-      selectedZone.id,
-      partySize,
-    );
-
-    if (!tableAllocation) {
-      return;
-    }
-
     setIsPayFastRedirecting(true);
     setPaymentRedirectStatus(
       getCurrencyCents(amountDueNow) === 0
@@ -1701,7 +1619,6 @@ export default function BookingPage() {
         : "Preparing secure PayFast checkout...",
     );
 
-    const allocatedTable = tableAllocation.table;
     const journeyId = getBookingJourneyId();
     let reference = "";
 
@@ -1722,8 +1639,8 @@ export default function BookingPage() {
       showId: selectedShow.id,
       zoneId: selectedZone.id,
       zoneTitle: selectedZone.title,
-      tableId: allocatedTable.id,
-      tableNumber: allocatedTable.tableNumber,
+      tableId: "",
+      tableNumber: "",
       partySize,
       bookingDate: `${selectedShow.date} ${getSouthAfricaShowTime(selectedShow)}`,
       addons: selectedAddons,
@@ -1764,30 +1681,13 @@ export default function BookingPage() {
       refundNotes: "",
       communicationHistory: [],
       createdAt,
-      reservationTableClaims: tableAllocation.sourceTables.map(
-        (table, index): BookingTableReservationClaim => ({
-          capacity: table.seatCapacity,
-          primary: index === 0,
-          section: selectedZone.title,
-          tableCode: table.tableNumber,
-        }),
-      ),
+      reservationTableClaims: [],
     };
-    const nextTables = applyTableAllocation(
-      tables,
-      tableAllocation,
-      reference,
-      customerInfo.name,
-    );
 
     try {
       const persistedBooking = await createBooking(booking, journeyId);
 
-      storeDemoTables(nextTables, shows);
-      setTables(nextTables);
-      setAllocatedTableNumber(
-        persistedBooking.tableNumber ?? allocatedTable.tableNumber,
-      );
+      setAllocatedTableNumber(persistedBooking.tableNumber ?? null);
 
       if (getCurrencyCents(amountDueNow) === 0) {
         const response = await fetch("/api/bookings/complete-zero-value", {
@@ -1817,7 +1717,7 @@ export default function BookingPage() {
         setAllocatedTableNumber(
           confirmedBooking.tableNumber ??
             persistedBooking.tableNumber ??
-            allocatedTable.tableNumber,
+            null,
         );
         setPaymentRedirectStatus("");
         setShowTicketReadyPrompt(true);
@@ -1879,22 +1779,6 @@ export default function BookingPage() {
       const isAvailabilityConflict = message
         .toLowerCase()
         .includes("reserved by another guest");
-
-      if (isAvailabilityConflict) {
-        setTables((currentTables) =>
-          currentTables.map((table) =>
-            tableAllocation.sourceTables.some(
-              (sourceTable) => sourceTable.id === table.id,
-            )
-              ? {
-                  ...table,
-                  bookingReference: "Recently reserved",
-                  status: "booked" as const,
-                }
-              : table,
-          ),
-        );
-      }
 
       setPaymentRedirectStatus(
         isAvailabilityConflict
@@ -1968,8 +1852,6 @@ export default function BookingPage() {
     const availability = getAvailabilityState(
       option,
       partySize,
-      selectedShowId,
-      tables,
       occupiedSeatsByZone[option.id] ?? 0,
     );
 
@@ -2639,7 +2521,9 @@ export default function BookingPage() {
                   Date
                 </span>
                 <span className="mt-1 block text-base font-bold text-white sm:text-lg">
-                  {getDateDisplay(selectedShowDate)}
+                  {showLoadStatus === "loading"
+                    ? "Loading shows..."
+                    : getDateDisplay(selectedShowDate)}
                 </span>
               </span>
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/15 text-[#F2D66C] transition group-hover:border-[#D8C36A] sm:h-10 sm:w-10">
@@ -2683,6 +2567,45 @@ export default function BookingPage() {
                   </button>
                 </div>
 
+                {showLoadStatus === "loading" && (
+                  <div
+                    className="rounded-xl border border-[#D8C36A]/20 bg-[#D8C36A]/5 px-3 py-5 text-center text-sm font-semibold text-[#F2D66C]"
+                    role="status"
+                  >
+                    Loading shows...
+                  </div>
+                )}
+
+                {showLoadStatus === "error" && (
+                  <div
+                    className="rounded-xl border border-red-300/25 bg-red-950/20 px-3 py-4 text-center"
+                    role="alert"
+                  >
+                    <p className="text-sm font-semibold text-red-100">
+                      Shows could not be loaded.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowLoadRetryToken((currentToken) => currentToken + 1)
+                      }
+                      className="mt-3 rounded-full border border-red-200/30 px-4 py-1.5 text-xs font-semibold text-red-100 transition hover:bg-red-100 hover:text-red-950"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {showLoadStatus === "success" &&
+                  locationVisibleShows.length === 0 && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-5 text-center text-sm text-zinc-300">
+                      No shows are available for this location.
+                    </div>
+                  )}
+
+                {showLoadStatus === "success" &&
+                  locationVisibleShows.length > 0 && (
+                  <>
                 <div className="grid grid-cols-7 gap-1">
                   {calendarWeekdays.map((weekday) => (
                     <p
@@ -2761,6 +2684,8 @@ export default function BookingPage() {
                     </span>
                   ))}
                 </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -2822,17 +2747,17 @@ export default function BookingPage() {
 
           {activeBookingStep === 1 && (
           <div className="max-w-5xl rounded-[1.5rem] border border-[#8D7A2F]/30 bg-zinc-950/70 p-3.5 sm:rounded-[2rem] sm:p-5">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div className="min-w-0 flex-1">
+            <div className="flex flex-col gap-3">
+              <div className="min-w-0">
                 <p className="zingara-heading text-xl font-bold text-white sm:text-3xl">
                   Step 2 · Guests
                 </p>
-                <p className="zingara-subheading mt-1.5 max-w-2xl text-sm leading-5 text-zinc-300 sm:mt-2 sm:text-lg sm:leading-6 lg:whitespace-nowrap">
+                <p className="zingara-subheading mt-1.5 max-w-3xl text-sm leading-5 text-zinc-300 sm:mt-2 sm:text-lg sm:leading-6">
                   Choose 1 to 19 guests. Parties of 20 or more are handled through Corporate Booking.
                 </p>
               </div>
 
-              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-end lg:shrink-0">
+              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
                 <div className="grid w-full grid-cols-[2.5rem_1fr_2.5rem] items-center rounded-full border border-[#8D7A2F]/35 bg-zinc-950 p-1 sm:inline-flex sm:w-auto">
                 <button
                   type="button"
@@ -2880,8 +2805,8 @@ export default function BookingPage() {
                 </p>
                 <p className="zingara-subheading mt-1.5 max-w-2xl text-xs leading-5 text-zinc-300 min-[390px]:text-sm sm:mt-2 sm:text-lg sm:leading-7">
                   Choose a section from the Zingara venue map.
-                  Availability is based on party size and live
-                  table fit.
+                  Availability is based on party size and remaining
+                  seats in each section.
                 </p>
               </div>
               <div className="flex flex-nowrap gap-1 text-[8px] font-semibold uppercase tracking-[0.04em] text-zinc-400 sm:gap-1.5 sm:text-[9px]">
@@ -3016,10 +2941,7 @@ export default function BookingPage() {
                         {formatCurrency(
                           getConfiguredZonePrice(venueConfig, selectedZone),
                         )}{" "}
-                        pp · {availability.remainingSeats} Seats · Best Fit{" "}
-                        {getTableAllocationDisplay(
-                          availability.bestAllocation,
-                        )}
+                        pp · {availability.remainingSeats} Seats Available
                       </p>
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
@@ -3059,7 +2981,7 @@ export default function BookingPage() {
             {canJoinWaitlist && (
               <div className="mt-6 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-5 text-amber-100">
                 <p className="text-sm font-semibold uppercase tracking-[0.16em]">
-                  No Suitable Seating Found
+                  No Seating Capacity Available
                 </p>
                 <p className="mt-2 text-sm leading-6">
                   The selected show currently has no seating that can
@@ -3083,10 +3005,10 @@ export default function BookingPage() {
                 Join The Waitlist
               </h2>
               <p className="mt-3 text-zinc-400">
-                No valid tables are currently available for this
-                show and party size. Leave your details and the box
-                office can promote or convert your request when a
-                table opens.
+                No seating section currently has enough remaining
+                capacity for this party size. Leave your details and
+                the box office can promote or convert your request
+                when capacity opens.
               </p>
 
               <form
@@ -3320,9 +3242,7 @@ export default function BookingPage() {
                   </p>
                 </div>
                 <span className="w-fit rounded-full border border-[#D8C36A]/30 bg-black/30 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] sm:px-4 sm:py-2 sm:text-sm">
-                  {previewTableAllocation
-                    ? "Best-fit seating held internally"
-                    : "Seating fit pending"}
+                  Seating section selected
                 </span>
               </div>
 
@@ -3359,7 +3279,7 @@ export default function BookingPage() {
                     Seating Assignment
                   </p>
                   <p className="mt-1.5 font-semibold text-white sm:mt-2">
-                    Confirmed internally
+                    Section selected
                   </p>
                 </div>
               </div>
@@ -3541,8 +3461,6 @@ export default function BookingPage() {
               const availability = getAvailabilityState(
                 previewSeatingZone,
                 partySize,
-                selectedShowId,
-                tables,
                 occupiedSeatsByZone[previewSeatingZone.id] ?? 0,
               );
               const status = availability.availabilityMessage;
@@ -3552,7 +3470,7 @@ export default function BookingPage() {
                   ? "border-amber-300/45 bg-amber-950/25 text-amber-100"
                   : "border-emerald-300/35 bg-emerald-950/20 text-emerald-200";
               const recommendedShow = !availability.isAvailable
-                ? getRecommendedFutureShow(previewSeatingZone)
+                ? getRecommendedFutureShow()
                 : undefined;
 
               return (
@@ -3588,10 +3506,7 @@ export default function BookingPage() {
                           previewSeatingZone,
                         ),
                       )}{" "}
-                      pp · {availability.remainingSeats} Seats · Best Fit{" "}
-                      {getTableAllocationDisplay(
-                        availability.bestAllocation,
-                      )}
+                      pp · {availability.remainingSeats} Seats Available
                     </p>
                   </div>
 
@@ -3602,11 +3517,11 @@ export default function BookingPage() {
                   {!availability.isAvailable && recommendedShow && (
                     <div className="mt-4 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/10 p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
-                        Nearest Available Show
+                        Next Show Option
                       </p>
                       <p className="mt-2 text-sm text-zinc-200">
-                        {getCompactShowDateTime(recommendedShow)} has
-                        availability in {previewSeatingZone.title}.
+                        You can also check {getCompactShowDateTime(recommendedShow)}
+                        for {previewSeatingZone.title}.
                       </p>
                       <button
                         type="button"
@@ -3701,13 +3616,8 @@ export default function BookingPage() {
                   Seating Assignment
                 </p>
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
-                  Confirmed internally
+                  Section selected
                 </p>
-                {!bookingReference && previewTableAllocation && (
-                  <p className="mt-1.5 text-xs text-zinc-400 sm:mt-2 sm:text-sm">
-                    Best-fit assignment is held for operations.
-                  </p>
-                )}
               </div>
 
               <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-5">

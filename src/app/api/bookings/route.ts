@@ -801,7 +801,7 @@ function isPromoReservationError(error: unknown) {
   return /promo code/i.test(message);
 }
 
-async function reservePublicBookingWithTable(
+async function reservePublicBookingAtomically(
   supabase: SupabaseClient,
   booking: BookingWithReservationClaims,
   customerId: string,
@@ -809,18 +809,9 @@ async function reservePublicBookingWithTable(
 ) {
   const claims = normalizeReservationClaims(booking);
 
-  if (claims.length === 0) {
-    return {
-      error: Response.json(
-        { error: "A table reservation is required before checkout." },
-        { status: 409 },
-      ),
-    };
-  }
-
   const primaryClaim = claims.find((claim) => claim.primary) ?? claims[0];
   const bookingForReservation =
-    primaryClaim.tableCode === booking.tableNumber
+    !primaryClaim || primaryClaim.tableCode === booking.tableNumber
       ? booking
       : {
           ...booking,
@@ -837,17 +828,25 @@ async function reservePublicBookingWithTable(
     "00000000-0000-0000-0000-000000000000",
   );
   const { data, error } = await supabase.rpc(
-    "reserve_public_booking_table",
-    {
-      p_booking_payload: bookingPayload,
-      p_payment_payload: paymentPayload,
-      p_show_id: showId,
-      p_table_claims: claims.map((claim) => ({
-        capacity: claim.capacity,
-        section: claim.section,
-        table_code: claim.tableCode,
-      })),
-    },
+    claims.length > 0
+      ? "reserve_public_booking_table"
+      : "reserve_public_booking_entitlement",
+    claims.length > 0
+      ? {
+          p_booking_payload: bookingPayload,
+          p_payment_payload: paymentPayload,
+          p_show_id: showId,
+          p_table_claims: claims.map((claim) => ({
+            capacity: claim.capacity,
+            section: claim.section,
+            table_code: claim.tableCode,
+          })),
+        }
+      : {
+          p_booking_payload: bookingPayload,
+          p_payment_payload: paymentPayload,
+          p_show_id: showId,
+        },
   );
 
   if (error) {
@@ -872,7 +871,7 @@ async function reservePublicBookingWithTable(
   if (result?.status !== "success" && result?.status !== "already_exists") {
     return {
       error: Response.json(
-        { error: "Table reservation could not be completed." },
+        { error: "Booking reservation could not be completed." },
         { status: 409 },
       ),
     };
@@ -882,7 +881,7 @@ async function reservePublicBookingWithTable(
     bookingId: result.booking_id,
     paymentId: result.payment_id,
     tableId: result.table_id,
-    tableNumber: primaryClaim.tableCode,
+    tableNumber: primaryClaim?.tableCode,
   };
 }
 
@@ -1283,7 +1282,7 @@ export async function POST(request: Request) {
     }
 
     if (isPublicPayFastReservation(booking)) {
-      const reservation = await reservePublicBookingWithTable(
+      const reservation = await reservePublicBookingAtomically(
         supabase,
         booking as BookingWithReservationClaims,
         customerId,

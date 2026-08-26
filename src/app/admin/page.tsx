@@ -138,6 +138,7 @@ import {
   replaceShows,
   replaceShowsWithLock,
   setPhysicalShowTableCapacity,
+  updateOperationalShowTable,
 } from "../../lib/supabase/shows";
 import {
   getPhysicalTableDefinition,
@@ -14953,6 +14954,54 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function saveOperationalTableChanges(
+    table: DemoTable,
+    updates: Partial<Pick<DemoTable, "status">> = {},
+  ) {
+    const currentTable = tables.find(
+      (candidate) => candidate.id === table.id,
+    );
+    const authoritativeId = currentTable?.authoritativeId;
+
+    if (
+      !canManageTables ||
+      !selectedShowId ||
+      !currentTable ||
+      !authoritativeId ||
+      operationalTableAction
+    ) {
+      return;
+    }
+
+    const nextTable = { ...currentTable, ...updates };
+    setOperationalTableAction(`update-${table.id}`);
+
+    try {
+      await updateOperationalShowTable({
+        capacity: nextTable.seatCapacity,
+        notes: nextTable.guestNotes,
+        showReference: selectedShowId,
+        status: nextTable.status,
+        tableCode: nextTable.tableNumber,
+        tableId: authoritativeId,
+        zoneId: nextTable.zoneId,
+      });
+      await refreshAssignedShowState(selectedShowId);
+      showWorkflowToast(
+        `Table ${nextTable.tableNumber} changes were saved for this performance.`,
+      );
+    } catch (error) {
+      await refreshAssignedShowState(selectedShowId).catch(() => undefined);
+      showWorkflowToast(
+        error instanceof Error
+          ? error.message
+          : "The operational table changes could not be saved.",
+      );
+    } finally {
+      setOperationalTableAction("");
+    }
+  }
+
   async function mapLegacyBookingToPhysicalTable(
     booking: DemoBooking,
     targetTableId: string,
@@ -15075,36 +15124,8 @@ export default function AdminDashboardPage() {
     );
   }
 
-  function resetTableShowOverride(table: DemoTable) {
-    if (!canManageTables) {
-      return;
-    }
-
-    saveTables(
-      tables.map((currentTable) =>
-        currentTable.id === table.id
-          ? {
-              ...currentTable,
-              seatCapacity:
-                currentTable.baseSeatCapacity ??
-                currentTable.seatCapacity,
-              status: currentTable.bookingReference
-                ? "booked"
-                : (currentTable.baseStatus ?? "available"),
-              guestNotes:
-                currentTable.bookingReference
-                  ? currentTable.guestNotes
-                  : (currentTable.baseGuestNotes ?? ""),
-              mergeable: currentTable.baseMergeable ?? true,
-              showOverride: undefined,
-            }
-          : currentTable,
-      ),
-    );
-  }
-
   function toggleDisabled(table: DemoTable) {
-    updateTableShowOverride(table.id, {
+    void saveOperationalTableChanges(table, {
       status:
         table.status === "disabled" ? "available" : "disabled",
     });
@@ -36332,7 +36353,6 @@ export default function AdminDashboardPage() {
                       const baseSeatCapacity =
                         table.baseSeatCapacity ?? table.seatCapacity;
                       const baseStatus = table.baseStatus ?? table.status;
-                      const baseMergeable = table.baseMergeable ?? true;
                       const linkedParent = table.mergedInto
                         ? zoneTables.find(
                             (zoneTable) =>
@@ -36620,45 +36640,19 @@ export default function AdminDashboardPage() {
                             />
                           </label>
 
-                          <div className="rounded-xl border border-white/10 bg-black/30 p-4">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                  Merge Compatibility
-                                </p>
-                                <p className="mt-1 text-sm text-zinc-400">
-                                  Default:{" "}
-                                  {baseMergeable ? "Mergeable" : "Fixed"}
-                                </p>
-                              </div>
-                              <label className="flex items-center gap-3 text-sm font-semibold text-zinc-300">
-                                <input
-                                  type="checkbox"
-                                  checked={table.mergeable !== false}
-                                  onChange={(event) =>
-                                    updateTableShowOverride(table.id, {
-                                      mergeable:
-                                        event.target.checked,
-                                    })
-                                  }
-                                  className="h-4 w-4 accent-[#D8C36A]"
-                                />
-                                Allow merging
-                              </label>
-                            </div>
-                          </div>
-
-                          {hasOverride && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                resetTableShowOverride(table)
-                              }
-                              className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
-                            >
-                              Reset To Venue Default
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => saveOperationalTableChanges(table)}
+                            disabled={
+                              !table.authoritativeId ||
+                              Boolean(operationalTableAction)
+                            }
+                            className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {operationalTableAction === `update-${table.id}`
+                              ? "Saving..."
+                              : "Save Table Changes"}
+                          </button>
                         </div>
                         )}
 
@@ -36794,11 +36788,14 @@ export default function AdminDashboardPage() {
                             <button
                               type="button"
                               onClick={() => toggleDisabled(table)}
-                              className="rounded-full border border-white/20 px-5 py-3 font-semibold transition hover:bg-white hover:text-black"
+                              disabled={Boolean(operationalTableAction)}
+                              className="rounded-full border border-white/20 px-5 py-3 font-semibold transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              {table.status === "disabled"
-                                ? "Enable"
-                                : "Disable"}
+                              {operationalTableAction === `update-${table.id}`
+                                ? "Saving..."
+                                : table.status === "disabled"
+                                  ? "Enable"
+                                  : "Disable"}
                             </button>
                           </div>
                         </div>

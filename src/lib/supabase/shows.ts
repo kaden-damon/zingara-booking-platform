@@ -158,6 +158,7 @@ export type ShowsWithTables = {
   tablesLoaded: boolean;
 };
 export type ShowTableScope = {
+  metadataOnly?: boolean;
   tableLocation?: EntryLocationKey | "all";
   tableMonth?: string;
   tableShow?: string;
@@ -168,6 +169,10 @@ export async function getShowsWithTables(
 ): Promise<ShowsWithTables> {
   try {
     const searchParams = new URLSearchParams();
+
+    if (scope.metadataOnly) {
+      searchParams.set("metadataOnly", "1");
+    }
 
     if (scope.tableMonth) {
       searchParams.set("tableMonth", scope.tableMonth);
@@ -208,7 +213,7 @@ export async function getShowsWithTables(
 }
 
 export async function getShows() {
-  return (await getShowsWithTables()).shows;
+  return (await getShowsWithTables({ metadataOnly: true })).shows;
 }
 
 export async function createShow(show: DemoShow) {
@@ -359,6 +364,21 @@ export async function setPhysicalShowTableCapacity(input: {
 }) {
   return fetchSupabaseApi<{ ok: true }>("/api/admin/show-tables", {
     body: { action: "set-capacity", ...input },
+    method: "POST",
+  });
+}
+
+export async function updateOperationalShowTable(input: {
+  capacity: number;
+  notes: string;
+  showReference: string;
+  status: DemoTable["status"];
+  tableCode: string;
+  tableId: string;
+  zoneId: string;
+}) {
+  return fetchSupabaseApi<{ ok: true }>("/api/admin/show-tables", {
+    body: { action: "update", ...input },
     method: "POST",
   });
 }

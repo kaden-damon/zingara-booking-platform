@@ -26,6 +26,7 @@ type ShowTableRow = {
   capacity_configured: boolean;
   id: string;
   is_physical: boolean;
+  override_notes: string | null;
   section: string;
   status: string;
   table_code: string;
@@ -97,7 +98,7 @@ async function loadZoneTables(
 ) {
   const { data, error } = await serviceClient
     .from("show_tables")
-    .select("id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical,updated_at")
+    .select("id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical,override_notes,updated_at")
     .eq("show_id", showId)
     .in("section", getZoneSectionLookupTitles(zoneId));
 
@@ -124,8 +125,10 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as {
-      action?: "create" | "merge" | "set-capacity";
+      action?: "create" | "merge" | "set-capacity" | "update";
       capacity?: number;
+      notes?: string;
+      status?: string;
       tableId?: string;
       sourceTableCodes?: string[];
       tableCode?: string;
@@ -163,6 +166,119 @@ export async function POST(request: Request) {
     }
 
     const zoneTables = await loadZoneTables(auth.serviceClient, show.id, zoneId);
+    if (body.action === "update") {
+      const table = zoneTables.find((row) => row.id === body.tableId);
+
+      if (!table) {
+        return Response.json(
+          { error: "The selected operational table could not be resolved." },
+          { status: 404 },
+        );
+      }
+
+      const tableCode = body.tableCode?.trim() ?? table.table_code;
+      const capacity = table.is_physical
+        ? table.capacity
+        : Math.trunc(Number(body.capacity) || 0);
+      const status = body.status?.trim() ?? table.status;
+      const notes = body.notes?.trim().slice(0, 500) ?? "";
+
+      if (!table.is_physical && !/^TMP-[A-Z0-9][A-Z0-9-]*$/i.test(tableCode)) {
+        return Response.json(
+          { error: "Temporary operational table codes must start with TMP-." },
+          { status: 400 },
+        );
+      }
+
+      if (!table.is_physical && (!capacity || capacity < 1)) {
+        return Response.json(
+          { error: "A positive seat capacity is required." },
+          { status: 400 },
+        );
+      }
+
+      if (!["available", "booked", "disabled"].includes(status)) {
+        return Response.json(
+          { error: "Select a valid table status." },
+          { status: 400 },
+        );
+      }
+
+      if (
+        zoneTables.some(
+          (row) =>
+            row.id !== table.id &&
+            row.table_code.toLowerCase() === tableCode.toLowerCase(),
+        )
+      ) {
+        return Response.json(
+          { error: `${tableCode} already exists for this performance.` },
+          { status: 409 },
+        );
+      }
+
+      if (table.booking_id && status !== "booked") {
+        return Response.json(
+          { error: "An assigned table must remain reserved." },
+          { status: 409 },
+        );
+      }
+
+      const beforeValues = {
+        capacity: table.capacity,
+        override_notes: table.override_notes,
+        status: table.status,
+        table_code: table.table_code,
+      };
+      const updates = {
+        ...(table.is_physical ? {} : { capacity, capacity_configured: true }),
+        override_notes: notes || null,
+        status,
+        table_code: tableCode,
+        updated_at: new Date().toISOString(),
+      };
+      const { data: updatedTable, error } = await auth.serviceClient
+        .from("show_tables")
+        .update(updates)
+        .eq("id", table.id)
+        .eq("show_id", show.id)
+        .eq("updated_at", table.updated_at)
+        .select("id,table_code,capacity,status,override_notes")
+        .maybeSingle();
+
+      if (error || !updatedTable) {
+        if (error) {
+          throw error;
+        }
+
+        return Response.json(
+          { error: "The table changed before it could be saved. Refresh and retry." },
+          { status: 409 },
+        );
+      }
+
+      await tryRecordAuditEvent(
+        auth.serviceClient,
+        auth.staffProfile,
+        auth.user,
+        {
+          action: "show_table.updated",
+          afterValues: updates,
+          beforeValues,
+          changedFields: ["table_code", "capacity", "status", "override_notes"],
+          entityId: show.id,
+          entityReference: `${show.id}:${tableCode}`,
+          entityType: "show",
+          outcome: "success",
+          reason: `Updated operational table ${tableCode} for the selected performance.`,
+          request,
+          sourceArea: "Operations Floor",
+        },
+      );
+
+      return Response.json({ ok: true, table: updatedTable });
+    }
+
     if (body.action === "set-capacity") {
       const table = zoneTables.find((row) => row.id === body.tableId);
       const capacity = Math.trunc(Number(body.capacity) || 0);

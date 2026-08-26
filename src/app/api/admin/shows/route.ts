@@ -51,6 +51,9 @@ type SupabaseShowTableRow = {
   capacity_configured?: boolean | null;
   id: string;
   is_physical?: boolean | null;
+  merged_from?: string[] | null;
+  merged_parent_id?: string | null;
+  override_notes?: string | null;
   section: string | null;
   show_id: string;
   status: string | null;
@@ -259,6 +262,7 @@ function toDemoTable(
   row: SupabaseShowTableRow,
   showReferenceById: Map<string, string>,
   bookingReferenceById: Map<string, string>,
+  demoTableIdByAuthoritativeId: Map<string, string>,
 ): DemoTable | null {
   const showReference = showReferenceById.get(row.show_id);
   const zoneId = normalizeShowTableSection(row.section);
@@ -273,6 +277,9 @@ function toDemoTable(
   const capacity = capacityConfigured && Number.isFinite(Number(row.capacity))
     ? Number(row.capacity)
     : 0;
+  const mergedFrom = (row.merged_from ?? [])
+    .map((tableId) => demoTableIdByAuthoritativeId.get(tableId))
+    .filter((tableId): tableId is string => Boolean(tableId));
 
   return {
     availabilityScope: row.availability_scope ?? "public",
@@ -283,10 +290,14 @@ function toDemoTable(
     bookingReference: row.booking_id
       ? bookingReferenceById.get(row.booking_id)
       : undefined,
-    guestNotes: "",
+    guestNotes: row.override_notes ?? "",
     id: getDemoTableId(showReference, zoneId, row.table_code),
     capacityConfigured,
     physicalTable: row.is_physical === true,
+    mergedFrom: mergedFrom.length > 0 ? mergedFrom : undefined,
+    mergedInto: row.merged_parent_id
+      ? demoTableIdByAuthoritativeId.get(row.merged_parent_id)
+      : undefined,
     seatCapacity: capacity,
     showId: showReference,
     status,
@@ -569,8 +580,14 @@ export async function GET(request: Request) {
     const tableMonth = url.searchParams.get("tableMonth");
     const tableLocation = url.searchParams.get("tableLocation");
     const tableShow = url.searchParams.get("tableShow");
+    const metadataOnly = url.searchParams.get("metadataOnly") === "1";
     const showRows = await loadShowRows();
     const shows = showRows.map(toDemoShow);
+
+    if (metadataOnly) {
+      return Response.json({ shows, tables: [] });
+    }
+
     const showReferenceById = new Map(
       showRows.map((row, index) => [row.id, shows[index].id]),
     );
@@ -586,8 +603,25 @@ export async function GET(request: Request) {
     const bookingReferenceById = await loadBookingReferences(
       tableRows.flatMap((row) => (row.booking_id ? [row.booking_id] : [])),
     );
+    const demoTableIdByAuthoritativeId = new Map(
+      tableRows.flatMap((row) => {
+        const showReference = showReferenceById.get(row.show_id);
+        const zoneId = normalizeShowTableSection(row.section);
+
+        return showReference && zoneId
+          ? [[row.id, getDemoTableId(showReference, zoneId, row.table_code)]]
+          : [];
+      }),
+    );
     const tables = tableRows
-      .map((row) => toDemoTable(row, showReferenceById, bookingReferenceById))
+      .map((row) =>
+        toDemoTable(
+          row,
+          showReferenceById,
+          bookingReferenceById,
+          demoTableIdByAuthoritativeId,
+        ),
+      )
       .filter((table): table is DemoTable => Boolean(table));
 
     return Response.json({ shows, tables });
