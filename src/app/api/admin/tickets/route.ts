@@ -1,4 +1,9 @@
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import {
+  getAdminRoleFromName,
+  getServiceClient,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
+import { rolePermissions } from "@/lib/zingaraAccess";
 import {
   type DemoBooking,
   createTicketCode,
@@ -134,6 +139,24 @@ async function upsertTicket(booking: DemoBooking) {
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireActiveStaff(request);
+
+    if (auth.error || !auth.staffProfile) {
+      return auth.error;
+    }
+
+    const roleRow = Array.isArray(auth.staffProfile.roles)
+      ? auth.staffProfile.roles[0]
+      : auth.staffProfile.roles;
+    const role = getAdminRoleFromName(roleRow?.name);
+
+    if (!rolePermissions[role].includes("bookings:manage")) {
+      return Response.json(
+        { error: "Booking management access is required." },
+        { status: 403 },
+      );
+    }
+
     const body = (await request.json()) as { booking?: DemoBooking };
 
     if (!body.booking) {

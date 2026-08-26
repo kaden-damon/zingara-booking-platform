@@ -153,7 +153,7 @@ import {
   releaseShowEditLock,
 } from "../../lib/supabase/showLocks";
 import { createTicketValidation } from "../../lib/supabase/ticketValidations";
-import { updateTicket } from "../../lib/supabase/tickets";
+import { createTicket, updateTicket } from "../../lib/supabase/tickets";
 import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
 import {
   getVenueSettings,
@@ -223,6 +223,35 @@ import {
 type NewTableForm = {
   tableNumber: string;
   seatCapacity: number;
+};
+
+type WalletQaBookingPayload = {
+  booking: DemoBooking;
+  created: boolean;
+  performance: {
+    date: string;
+    location: string;
+    name: string;
+    time: string;
+  };
+  targetTable: {
+    capacity: number;
+    id: string;
+    tableCode: string;
+  };
+  zone: {
+    id: SeatingZoneId;
+    title: string;
+  };
+};
+
+type WalletQaWorkflowResult = {
+  bookingReference: string;
+  liveTicketUrl: string;
+  tableCode: string;
+  tableId: string;
+  ticketCode: string;
+  ticketId: string;
 };
 type NewTablesByZone = Record<SeatingZoneId, NewTableForm>;
 type MergeSelection = Record<string, string[]>;
@@ -9514,6 +9543,11 @@ export default function AdminDashboardPage() {
     useState<DataPortabilityImportResult | null>(null);
   const [isDataPortabilityImporting, setIsDataPortabilityImporting] =
     useState(false);
+  const [isWalletQaMode, setIsWalletQaMode] = useState(false);
+  const [isWalletQaRunning, setIsWalletQaRunning] = useState(false);
+  const [walletQaError, setWalletQaError] = useState("");
+  const [walletQaResult, setWalletQaResult] =
+    useState<WalletQaWorkflowResult | null>(null);
   const dataPortabilityImportScopeOptions = useMemo(() => {
     if (
       !dataPortabilityPreview ||
@@ -11237,6 +11271,17 @@ export default function AdminDashboardPage() {
 
     return () => window.removeEventListener("beforeunload", releaseOnUnload);
   }, [showLockSessionId]);
+
+  useEffect(() => {
+    if (!hasHydrated) {
+      return;
+    }
+
+    setIsWalletQaMode(
+      new URLSearchParams(window.location.search).get("walletQa") ===
+        "phase-38-2b",
+    );
+  }, [hasHydrated]);
 
   useEffect(() => {
     if (!hasHydrated || !canViewDataPortability) {
@@ -20040,6 +20085,77 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function runControlledWalletQaBookingWorkflow() {
+    if (!isSuperAdmin || !isWalletQaMode || isWalletQaRunning || walletQaResult) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Create exactly one synthetic, zero-value Apple Wallet QA booking, issue its ticket, and assign one safe physical table? No communications or payments will be created.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsWalletQaRunning(true);
+    setWalletQaError("");
+
+    try {
+      const payload = await fetchSupabaseApi<WalletQaBookingPayload>(
+        "/api/admin/qa/wallet-booking",
+        {
+          body: {
+            confirmSyntheticQaBooking: true,
+            purpose: "PHASE 38.2B APPLE WALLET LIVE UPDATE QA",
+          },
+          method: "POST",
+        },
+      );
+      const ticket = await createTicket(payload.booking);
+
+      if (!ticket?.id || !ticket.ticket_code) {
+        throw new Error(
+          "The synthetic booking was created, but its authoritative ticket could not be created.",
+        );
+      }
+
+      const assignment = await assignBookingTable({
+        ...payload.booking,
+        tableId: payload.targetTable.id,
+        tableNumber: payload.targetTable.tableCode,
+        zoneId: payload.zone.id,
+        zoneTitle: payload.zone.title,
+      });
+
+      if (
+        assignment.tableId !== payload.targetTable.id ||
+        assignment.bookingId !== payload.booking.supabaseBookingId
+      ) {
+        throw new Error(
+          "The authoritative Floor assignment did not return the expected booking/table ownership.",
+        );
+      }
+
+      setWalletQaResult({
+        bookingReference: payload.booking.reference,
+        liveTicketUrl: `/ticket/${encodeURIComponent(ticket.ticket_code)}`,
+        tableCode: assignment.tableCode,
+        tableId: assignment.tableId,
+        ticketCode: ticket.ticket_code,
+        ticketId: ticket.id,
+      });
+    } catch (error) {
+      setWalletQaError(
+        error instanceof Error
+          ? error.message
+          : "The controlled Wallet QA workflow could not be completed.",
+      );
+    } finally {
+      setIsWalletQaRunning(false);
+    }
+  }
+
   async function sendTicket(
     booking: DemoBooking,
     channel: CommunicationChannel,
@@ -27710,6 +27826,61 @@ export default function AdminDashboardPage() {
                 </article>
               ))}
             </div>
+          </section>
+        )}
+
+        {isWalletQaMode && isSuperAdmin && (
+          <section className="mb-8 border border-emerald-500/35 bg-emerald-950/20 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">
+              Controlled Platform QA
+            </p>
+            <h2 className="mt-2 text-xl font-bold text-white">
+              Apple Wallet live-update booking
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-300">
+              Creates one explicitly synthetic, zero-value booking with no
+              communications, issues its standard ticket, and assigns one safe
+              physical table through the authoritative Floor API.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={isWalletQaRunning || Boolean(walletQaResult)}
+                onClick={runControlledWalletQaBookingWorkflow}
+                className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isWalletQaRunning
+                  ? "Creating controlled QA booking..."
+                  : walletQaResult
+                    ? "Controlled QA booking created"
+                    : "Create Wallet QA booking"}
+              </button>
+              <span className="text-xs text-zinc-500">
+                Super Admin only. Explicit confirmation required.
+              </span>
+            </div>
+            {walletQaError && (
+              <p className="mt-4 text-sm text-rose-300">{walletQaError}</p>
+            )}
+            {walletQaResult && (
+              <div className="mt-4 border-t border-emerald-500/20 pt-4 text-sm text-zinc-300">
+                <p>
+                  Booking: <strong>{walletQaResult.bookingReference}</strong>
+                </p>
+                <p className="mt-1">
+                  Ticket: <strong>{walletQaResult.ticketCode}</strong>
+                </p>
+                <p className="mt-1">
+                  Physical table: <strong>{walletQaResult.tableCode}</strong>
+                </p>
+                <a
+                  href={walletQaResult.liveTicketUrl}
+                  className="mt-3 inline-block text-emerald-300 underline underline-offset-4"
+                >
+                  Open controlled live ticket
+                </a>
+              </div>
+            )}
           </section>
         )}
 
