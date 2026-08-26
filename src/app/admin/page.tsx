@@ -225,40 +225,6 @@ type NewTableForm = {
   seatCapacity: number;
 };
 
-type WalletQaBookingPayload = {
-  booking: DemoBooking;
-  created: boolean;
-  performance: {
-    date: string;
-    location: string;
-    name: string;
-    time: string;
-  };
-  targetTable: {
-    capacity: number;
-    id: string;
-    tableCode: string;
-  };
-  zone: {
-    id: SeatingZoneId;
-    title: string;
-  };
-};
-
-type WalletQaWorkflowResult = {
-  bookingReference: string;
-  liveTicketUrl: string;
-  tableCode: string;
-  tableId: string;
-  ticketCode: string;
-  ticketId: string;
-};
-
-const walletQaCheckInTicket = {
-  code: "ZNG-C6UJXB-01",
-  id: "76fbaf40-1ad5-4736-ba5a-d5591121a925",
-} as const;
-
 type NewTablesByZone = Record<SeatingZoneId, NewTableForm>;
 type MergeSelection = Record<string, string[]>;
 type NewShowForm = {
@@ -3813,6 +3779,7 @@ const ticketCheckInLessons: AcademyArticle[] = [
     commonMistakes: [
       "Sharing a ticket before confirming the guest details.",
       "Assuming a downloaded ticket is always the latest version.",
+      "Reinstalling an Apple Wallet pass instead of allowing its existing live pass to update.",
     ],
     difficulty: "beginner",
     howTo: [
@@ -3820,10 +3787,11 @@ const ticketCheckInLessons: AcademyArticle[] = [
       "Confirm the guest name, show date, location, court, seating section, table colour, ticket status, and booking reference.",
       "Check the ticket number, such as Ticket 2 of 6, when a booking has multiple guests.",
       "Use Open Live Ticket or Download Ticket when the guest needs access.",
+      "On a compatible iPhone, use Add to Apple Wallet when the guest wants the live pass in Wallet.",
       "Check the ticket status before relying on it for entry.",
     ],
     id: "digital-tickets",
-    keywords: ["digital ticket", "live ticket", "download ticket", "guest", "ticket number", "table colour"],
+    keywords: ["digital ticket", "live ticket", "download ticket", "apple wallet", "guest", "ticket number", "table colour"],
     moduleId: "tickets-check-in",
     purpose: "Understand how guest-facing digital tickets display booking and QR information.",
     relatedActions: ["tickets", "bookings"],
@@ -3832,7 +3800,9 @@ const ticketCheckInLessons: AcademyArticle[] = [
       "Digital tickets should match the current booking record.",
       "The table colour helps staff recognise the guest's seating zone quickly.",
       "The guest live ticket hides the table number before check-in; do not promise an exact table before the guest is checked in.",
-      "After check-in, the authoritative table number may display where the guest experience supports it.",
+      "Apple Wallet shows TABLE as TBC until check-in, then the installed pass can update automatically to the authoritative table without being reinstalled.",
+      "Apple Wallet uses the same ticket QR identity as the live ticket; cancelled or invalid tickets continue to follow the normal ticket lifecycle.",
+      "Apple Wallet pass updates are separate from browser push notifications.",
       "If details look wrong, review the booking before sharing the ticket.",
     ],
     title: "Digital Tickets",
@@ -9549,14 +9519,6 @@ export default function AdminDashboardPage() {
     useState<DataPortabilityImportResult | null>(null);
   const [isDataPortabilityImporting, setIsDataPortabilityImporting] =
     useState(false);
-  const [isWalletQaMode, setIsWalletQaMode] = useState(false);
-  const [isWalletQaRunning, setIsWalletQaRunning] = useState(false);
-  const [walletQaError, setWalletQaError] = useState("");
-  const [walletQaResult, setWalletQaResult] =
-    useState<WalletQaWorkflowResult | null>(null);
-  const [isWalletQaCheckInRunning, setIsWalletQaCheckInRunning] =
-    useState(false);
-  const [walletQaCheckInStatus, setWalletQaCheckInStatus] = useState("");
   const dataPortabilityImportScopeOptions = useMemo(() => {
     if (
       !dataPortabilityPreview ||
@@ -11280,17 +11242,6 @@ export default function AdminDashboardPage() {
 
     return () => window.removeEventListener("beforeunload", releaseOnUnload);
   }, [showLockSessionId]);
-
-  useEffect(() => {
-    if (!hasHydrated) {
-      return;
-    }
-
-    setIsWalletQaMode(
-      new URLSearchParams(window.location.search).get("walletQa") ===
-        "phase-38-2b",
-    );
-  }, [hasHydrated]);
 
   useEffect(() => {
     if (!hasHydrated || !canViewDataPortability) {
@@ -20094,133 +20045,6 @@ export default function AdminDashboardPage() {
     }
   }
 
-  async function runControlledWalletQaBookingWorkflow() {
-    if (!isSuperAdmin || !isWalletQaMode || isWalletQaRunning || walletQaResult) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      "Create exactly one synthetic, zero-value Apple Wallet QA booking, issue its ticket, and assign one safe physical table? No communications or payments will be created.",
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setIsWalletQaRunning(true);
-    setWalletQaError("");
-
-    try {
-      const payload = await fetchSupabaseApi<WalletQaBookingPayload>(
-        "/api/admin/qa/wallet-booking",
-        {
-          body: {
-            confirmSyntheticQaBooking: true,
-            purpose: "PHASE 38.2B APPLE WALLET LIVE UPDATE QA",
-          },
-          method: "POST",
-        },
-      );
-      const ticket = await createTicket(payload.booking);
-
-      if (!ticket?.id || !ticket.ticket_code) {
-        throw new Error(
-          "The synthetic booking was created, but its authoritative ticket could not be created.",
-        );
-      }
-
-      const assignment = await assignBookingTable({
-        ...payload.booking,
-        tableId: payload.targetTable.id,
-        tableNumber: payload.targetTable.tableCode,
-        zoneId: payload.zone.id,
-        zoneTitle: payload.zone.title,
-      });
-
-      if (
-        assignment.tableId !== payload.targetTable.id ||
-        assignment.bookingId !== payload.booking.supabaseBookingId
-      ) {
-        throw new Error(
-          "The authoritative Floor assignment did not return the expected booking/table ownership.",
-        );
-      }
-
-      setWalletQaResult({
-        bookingReference: payload.booking.reference,
-        liveTicketUrl: `/ticket/${encodeURIComponent(ticket.ticket_code)}`,
-        tableCode: assignment.tableCode,
-        tableId: assignment.tableId,
-        ticketCode: ticket.ticket_code,
-        ticketId: ticket.id,
-      });
-    } catch (error) {
-      setWalletQaError(
-        error instanceof Error
-          ? error.message
-          : "The controlled Wallet QA workflow could not be completed.",
-      );
-    } finally {
-      setIsWalletQaRunning(false);
-    }
-  }
-
-  async function runControlledWalletQaCheckIn() {
-    if (!isSuperAdmin || !isWalletQaMode || isWalletQaCheckInRunning) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Permanently check in the controlled Apple Wallet QA ticket ${walletQaCheckInTicket.code}? This cannot be undone through this QA control.`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setIsWalletQaCheckInRunning(true);
-    setWalletQaCheckInStatus("");
-
-    try {
-      const payload = await fetchSupabaseApi<{
-        alreadyCheckedIn?: boolean;
-        row: { id: string; result: string; ticket_id: string } | null;
-        ticketStatus?: string;
-      }>("/api/admin/tickets/validate", {
-        body: {
-          code: walletQaCheckInTicket.code,
-          deviceLabel: "Controlled Apple Wallet QA",
-          notes: "Phase 38.2B controlled permanent Apple Wallet QA check-in.",
-          result: "checked_in",
-        },
-        method: "POST",
-      });
-
-      if (
-        payload.row?.ticket_id !== walletQaCheckInTicket.id &&
-        !payload.alreadyCheckedIn
-      ) {
-        throw new Error(
-          "The narrow check-in response did not match the controlled Wallet QA ticket.",
-        );
-      }
-
-      setWalletQaCheckInStatus(
-        payload.alreadyCheckedIn
-          ? `${walletQaCheckInTicket.code} was already checked in; no duplicate validation was created.`
-          : `${walletQaCheckInTicket.code} was permanently checked in through the narrow ticket-validation route.`,
-      );
-    } catch (error) {
-      setWalletQaCheckInStatus(
-        error instanceof Error
-          ? error.message
-          : "The controlled Wallet QA check-in could not be completed.",
-      );
-    } finally {
-      setIsWalletQaCheckInRunning(false);
-    }
-  }
-
   async function sendTicket(
     booking: DemoBooking,
     channel: CommunicationChannel,
@@ -27890,91 +27714,6 @@ export default function AdminDashboardPage() {
                   </div>
                 </article>
               ))}
-            </div>
-          </section>
-        )}
-
-        {isWalletQaMode && isSuperAdmin && (
-          <section className="mb-8 border border-emerald-500/35 bg-emerald-950/20 p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">
-              Controlled Platform QA
-            </p>
-            <h2 className="mt-2 text-xl font-bold text-white">
-              Apple Wallet live-update booking
-            </h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-300">
-              Creates one explicitly synthetic, zero-value booking with no
-              communications, issues its standard ticket, and assigns one safe
-              physical table through the authoritative Floor API.
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                disabled={isWalletQaRunning || Boolean(walletQaResult)}
-                onClick={runControlledWalletQaBookingWorkflow}
-                className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isWalletQaRunning
-                  ? "Creating controlled QA booking..."
-                  : walletQaResult
-                    ? "Controlled QA booking created"
-                    : "Create Wallet QA booking"}
-              </button>
-              <span className="text-xs text-zinc-500">
-                Super Admin only. Explicit confirmation required.
-              </span>
-            </div>
-            {walletQaError && (
-              <p className="mt-4 text-sm text-rose-300">{walletQaError}</p>
-            )}
-            {walletQaResult && (
-              <div className="mt-4 border-t border-emerald-500/20 pt-4 text-sm text-zinc-300">
-                <p>
-                  Booking: <strong>{walletQaResult.bookingReference}</strong>
-                </p>
-                <p className="mt-1">
-                  Ticket: <strong>{walletQaResult.ticketCode}</strong>
-                </p>
-                <p className="mt-1">
-                  Physical table: <strong>{walletQaResult.tableCode}</strong>
-                </p>
-                <a
-                  href={walletQaResult.liveTicketUrl}
-                  className="mt-3 inline-block text-emerald-300 underline underline-offset-4"
-                >
-                  Open controlled live ticket
-                </a>
-              </div>
-            )}
-            <div className="mt-5 border-t border-emerald-500/20 pt-5">
-              <h3 className="text-sm font-semibold text-white">
-                Permanent Wallet QA check-in
-              </h3>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-400">
-                Checks in only {walletQaCheckInTicket.code} through the
-                authenticated narrow ticket-validation route. This control
-                cannot target another ticket.
-              </p>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  disabled={isWalletQaCheckInRunning}
-                  onClick={runControlledWalletQaCheckIn}
-                  className="rounded-md border border-rose-400/60 bg-rose-950/40 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-900/50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isWalletQaCheckInRunning
-                    ? "Checking in Wallet QA ticket..."
-                    : "Permanently Check In Wallet QA Ticket"}
-                </button>
-                <span className="text-xs text-zinc-500">
-                  Super Admin only. Explicit confirmation required.
-                </span>
-              </div>
-              {walletQaCheckInStatus && (
-                <p className="mt-3 text-sm text-zinc-300">
-                  {walletQaCheckInStatus}
-                </p>
-              )}
             </div>
           </section>
         )}
