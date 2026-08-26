@@ -4,7 +4,11 @@ import {
   normalizeTicketReference,
 } from "@/lib/zingaraDemo";
 import { notifyAppleWalletTickets } from "@/lib/appleWalletSync";
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import {
+  getRolePermissions,
+  isSuperAdminProfile,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -16,19 +20,31 @@ type SupabaseValidationResult =
   | "refunded"
   | "valid";
 
-function getRouteClient() {
-  return getServiceClient();
-}
-
 export async function POST(request: Request) {
-  const supabase = getRouteClient();
+  const auth = await requireActiveStaff(request);
 
-  if (!supabase) {
-    return Response.json(
-      { error: "Supabase client is not configured." },
-      { status: 500 },
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+    return (
+      auth.error ??
+      Response.json({ error: "Unauthorized." }, { status: 401 })
     );
   }
+
+  const role = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+
+  if (
+    !isSuperAdminProfile(auth.staffProfile) &&
+    !getRolePermissions(role).includes("tickets:validate")
+  ) {
+    return Response.json(
+      { error: "You do not have permission to validate tickets." },
+      { status: 403 },
+    );
+  }
+
+  const supabase = auth.serviceClient;
 
   try {
     const body = (await request.json()) as {
@@ -85,6 +101,17 @@ export async function POST(request: Request) {
         { error: "Ticket could not be resolved for validation." },
         { status: 404 },
       );
+    }
+
+    if (
+      body.result === "checked_in" &&
+      ticket.ticket_status === "checked_in"
+    ) {
+      return Response.json({
+        alreadyCheckedIn: true,
+        row: null,
+        ticketStatus: "checked_in",
+      });
     }
 
     const { data, error } = await supabase
