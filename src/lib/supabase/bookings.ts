@@ -42,10 +42,16 @@ type SupabaseBookingRow = {
   archived_by: string | null;
   balance_outstanding: number;
   booking_reference: string;
+  booking_origin: DemoBooking["bookingOrigin"] | null;
   booking_source: string;
   booking_status: SupabaseBookingStatus;
   company_name: string | null;
   created_at: string;
+  created_by_staff_id: string | null;
+  created_by_staff?: {
+    full_name: string;
+    id: string;
+  } | null;
   customer_id: string;
   dietary_requirements: string | null;
   discount_amount: number;
@@ -631,6 +637,9 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       archivedBy: row.archived_by ?? metadataBooking.archivedBy,
       archiveReason: row.archive_reason ?? metadataBooking.archiveReason,
       balanceDue: row.balance_outstanding,
+      bookingOrigin: row.booking_origin ?? "legacy_unknown",
+      createdByStaffId: row.created_by_staff_id ?? undefined,
+      createdByStaffName: row.created_by_staff?.full_name ?? undefined,
       partySize: row.guest_count,
       paymentStatus: toDemoPaymentStatus(row.payment_status),
       source: row.booking_source as DemoBooking["source"],
@@ -674,9 +683,12 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     archivedBy: row.archived_by ?? undefined,
     archiveReason: row.archive_reason ?? undefined,
     balanceDue: row.balance_outstanding,
+    bookingOrigin: row.booking_origin ?? "legacy_unknown",
     bookingDate: "",
     communicationHistory: [],
     createdAt: row.created_at,
+    createdByStaffId: row.created_by_staff_id ?? undefined,
+    createdByStaffName: row.created_by_staff?.full_name ?? undefined,
     customer: getDemoCustomerFromCustomerRow(row.customer_row) ?? {
       email: "",
       name: "Imported Guest",

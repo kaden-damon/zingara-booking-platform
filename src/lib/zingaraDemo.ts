@@ -371,6 +371,13 @@ export type BookingSource =
   | "social-media"
   | "telephone"
   | "waitlist";
+export type BookingOrigin =
+  | "customer_public"
+  | "corporate"
+  | "admin_staff"
+  | "data_import"
+  | "other"
+  | "legacy_unknown";
 export type BookingAddon = {
   id: string;
   name: string;
@@ -577,6 +584,9 @@ export type DemoBooking = {
   promoLabel?: string;
   promoLocation?: EntryLocationKey;
   source?: BookingSource;
+  bookingOrigin?: BookingOrigin;
+  createdByStaffId?: string;
+  createdByStaffName?: string;
   ticketCode?: string;
   ticketIssuedAt?: string;
   customer: CustomerInfo;

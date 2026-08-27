@@ -16,6 +16,7 @@ import type {
   DemoBooking,
 } from "@/lib/zingaraDemo";
 import { enforceCorporateBookingSource } from "@/lib/bookingClassification";
+import { signInternalBookingHandoff } from "@/lib/bookingProvenance";
 import { notifyAppleWalletBooking } from "@/lib/appleWalletSync";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { rolePermissions } from "@/lib/zingaraAccess";
@@ -25,7 +26,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 
 const bookingSelect =
-  "id,customer_id,show_id,table_id,booking_reference,booking_source,company_name,guest_count,booking_status,payment_status,section,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,archived_by,archive_reason,created_at,updated_at";
+  "id,customer_id,show_id,table_id,booking_reference,booking_source,booking_origin,created_by_staff_id,provenance_recorded_at,created_by_staff:staff_profiles!bookings_created_by_staff_id_fkey(id,full_name),company_name,guest_count,booking_status,payment_status,section,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,archived_by,archive_reason,created_at,updated_at";
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
 const bookingQueryBatchSize = 1000;
 const aggregateQueryBatchSize = 150;
@@ -1256,6 +1257,24 @@ async function persistPhysicalTableMapping(
 }
 
 async function runBookingTransaction(request: Request, body?: unknown) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
+    return auth.error;
+  }
+
+  const roleRow = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const role = getAdminRoleFromName(roleRow?.name);
+
+  if (!role || !rolePermissions[role].includes("bookings:manage")) {
+    return Response.json(
+      { error: "Booking management access is required." },
+      { status: 403 },
+    );
+  }
+
   const rawRequestBody = body ?? (await request.json());
   const rawBooking =
     typeof rawRequestBody === "object" && rawRequestBody && "booking" in rawRequestBody
@@ -1281,8 +1300,11 @@ async function runBookingTransaction(request: Request, body?: unknown) {
       ?.reference === "string"
       ? (requestBody as { booking: { reference: string } }).booking.reference
       : undefined;
-  const supabase = getRouteClient();
-  const actor = await getAuditActor(request);
+  const supabase = auth.serviceClient;
+  const actor = {
+    staffProfile: auth.staffProfile,
+    user: auth.user,
+  };
   const { data: beforeBooking } =
     supabase && bookingReference
       ? await supabase
@@ -1319,11 +1341,48 @@ async function runBookingTransaction(request: Request, body?: unknown) {
     );
   }
 
+  const forwardedHeaders = new Headers({
+    "Content-Type": "application/json",
+  });
+  const forwardedBody = JSON.stringify(requestBody);
+  const authorization = request.headers.get("authorization");
+  const cookie = request.headers.get("cookie");
+  const timestamp = Date.now().toString();
+  const handoffSecret = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!handoffSecret) {
+    return Response.json(
+      { error: "Secure booking creation handoff is not configured." },
+      { status: 500 },
+    );
+  }
+
+  forwardedHeaders.set("x-zingara-booking-handoff-timestamp", timestamp);
+  forwardedHeaders.set(
+    "x-zingara-booking-handoff-staff",
+    auth.staffProfile.id,
+  );
+  forwardedHeaders.set(
+    "x-zingara-booking-handoff-signature",
+    signInternalBookingHandoff({
+      body: forwardedBody,
+      secret: handoffSecret,
+      staffProfileId: auth.staffProfile.id,
+      timestamp,
+    }),
+  );
+
+  if (authorization) {
+    forwardedHeaders.set("authorization", authorization);
+  }
+
+  if (cookie) {
+    forwardedHeaders.set("cookie", cookie);
+  }
+
   const response = await fetch(new URL("/api/bookings", request.url), {
-    body: JSON.stringify(requestBody),
-    headers: {
-      "Content-Type": "application/json",
-    },
+    body: forwardedBody,
+    headers: forwardedHeaders,
     method: "POST",
   });
   const payload = await response.json().catch(() => ({}));

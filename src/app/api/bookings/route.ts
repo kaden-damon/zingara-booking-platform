@@ -26,6 +26,11 @@ import {
   isCorporatePartySize,
 } from "@/lib/bookingClassification";
 import {
+  resolveBookingCreationProvenance,
+  resolveTrustedBookingSource,
+  verifyInternalBookingHandoff,
+} from "@/lib/bookingProvenance";
+import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
 } from "@/lib/email/communicationIdempotency";
@@ -40,7 +45,10 @@ import {
   checkRateLimit,
   rateLimitResponse,
 } from "@/lib/rateLimit";
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import {
+  getServiceClient,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 import {
   getBookingCapacityConflictResponse,
@@ -576,6 +584,7 @@ function getBookingPayload(
     amount_paid: booking.amountPaid ?? 0,
     balance_outstanding: booking.balanceDue ?? 0,
     booking_reference: booking.reference,
+    booking_origin: booking.bookingOrigin ?? null,
     booking_source: bookingSource,
     booking_status: toSupabaseBookingStatus(booking.status),
     company_name:
@@ -583,6 +592,7 @@ function getBookingPayload(
         ? booking.operationalNotes?.match(/^Company: (.+)$/m)?.[1] ?? null
         : null,
     customer_id: customerId,
+    created_by_staff_id: booking.createdByStaffId ?? null,
     dietary_requirements:
       booking.operationalNotes?.match(/^Dietary: (.+)$/m)?.[1] ?? null,
     discount_amount: booking.discountAmount ?? 0,
@@ -595,6 +605,9 @@ function getBookingPayload(
     subtotal_amount: booking.subtotalPrice ?? booking.totalPrice,
     table_id: tableId,
     total_amount: booking.totalPrice,
+    provenance_recorded_at: booking.bookingOrigin
+      ? new Date().toISOString()
+      : null,
   };
 
   if (booking.promoCodeId) {
@@ -716,6 +729,9 @@ async function upsertBooking(
     // Table assignment is managed by the authoritative reservation/floor paths.
     // A general booking edit must not silently clear an existing assignment.
     delete updatePayload.table_id;
+    delete updatePayload.booking_origin;
+    delete updatePayload.created_by_staff_id;
+    delete updatePayload.provenance_recorded_at;
 
     const { data, error } = await supabase
       .from("bookings")
@@ -1164,7 +1180,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as {
+    const rawBody = await request.text();
+    const body = JSON.parse(rawBody) as {
       booking?: DemoBooking;
       journeyId?: string | null;
     };
@@ -1178,6 +1195,73 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
+    const handoffSignature = request.headers.get(
+      "x-zingara-booking-handoff-signature",
+    );
+    const handoffStaffProfileId = request.headers.get(
+      "x-zingara-booking-handoff-staff",
+    );
+    const handoffTimestamp = request.headers.get(
+      "x-zingara-booking-handoff-timestamp",
+    );
+    const handoffSecret = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+    const hasInternalHandoff = Boolean(
+      handoffSignature || handoffStaffProfileId || handoffTimestamp,
+    );
+    const isTrustedInternalHandoff = Boolean(
+      handoffSecret &&
+        handoffSignature &&
+        handoffStaffProfileId &&
+        handoffTimestamp &&
+        verifyInternalBookingHandoff({
+          body: rawBody,
+          secret: handoffSecret,
+          signature: handoffSignature,
+          staffProfileId: handoffStaffProfileId,
+          timestamp: handoffTimestamp,
+        }),
+    );
+
+    if (hasInternalHandoff && !isTrustedInternalHandoff) {
+      return Response.json(
+        { error: "Invalid internal booking creation context." },
+        { status: 401 },
+      );
+    }
+
+    let staffProfileId: string | null = null;
+
+    if (isTrustedInternalHandoff) {
+      const staffAuth = await requireActiveStaff(request);
+
+      if (
+        staffAuth.error ||
+        !staffAuth.staffProfile ||
+        staffAuth.staffProfile.id !== handoffStaffProfileId
+      ) {
+        return staffAuth.error ?? Response.json(
+          { error: "Invalid internal booking staff context." },
+          { status: 403 },
+        );
+      }
+
+      staffProfileId = staffAuth.staffProfile.id;
+    }
+    const trustedBookingSource = resolveTrustedBookingSource({
+      requestedSource: booking.source,
+      staffProfileId,
+    });
+    const provenance = resolveBookingCreationProvenance({
+      bookingSource: trustedBookingSource,
+      staffProfileId,
+    });
+    booking = {
+      ...booking,
+      bookingOrigin: provenance.bookingOrigin,
+      createdByStaffId: provenance.createdByStaffId,
+      source: trustedBookingSource,
+    };
 
     if (booking.source === "online" && isCorporatePartySize(booking.partySize)) {
       return Response.json(

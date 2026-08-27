@@ -176,6 +176,7 @@ import {
 } from "../../lib/supabase/waitlist";
 import {
   type BookingStatus,
+  type BookingOrigin,
   type BookingSource,
   type CommunicationChannel,
   type CommunicationTemplate,
@@ -537,6 +538,27 @@ const bookingSourceLabels: Record<BookingSource, string> = {
   telephone: "Telephone",
   waitlist: "Waitlist Conversion",
 };
+
+const bookingOriginLabels: Record<BookingOrigin, string> = {
+  customer_public: "Customer / Public",
+  corporate: "Corporate",
+  admin_staff: "Admin / Staff",
+  data_import: "Data Import",
+  other: "Other",
+  legacy_unknown: "Legacy / Unknown",
+};
+
+function getBookingCreatorLabel(booking: DemoBooking) {
+  if (booking.createdByStaffName) {
+    return booking.createdByStaffName;
+  }
+
+  if (booking.bookingOrigin === "customer_public") {
+    return "Customer self-service";
+  }
+
+  return "Not recorded";
+}
 
 const corporateRequestStatusLabels: Record<
   CorporateRequestStatus,
@@ -38442,6 +38464,13 @@ export default function AdminDashboardPage() {
 	                              Corporate
 	                            </span>
 	                          )}
+                          <span className="inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-sky-300/30 bg-sky-950/25 px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] text-sky-100">
+                            {
+                              bookingOriginLabels[
+                                booking.bookingOrigin ?? "legacy_unknown"
+                              ]
+                            }
+                          </span>
                           {isArchivedBooking(booking) && (
                             <span className="inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-zinc-400/35 bg-zinc-900/70 px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] text-zinc-200">
                               Archived
@@ -38614,6 +38643,10 @@ export default function AdminDashboardPage() {
 	                              <p className="mt-1 break-words text-xs font-semibold text-zinc-300 sm:text-sm">
 	                                {bookingPerformanceLabel}
 	                              </p>
+                              <p className="mt-2 break-words text-xs text-zinc-400 sm:text-sm">
+                                Source: {bookingOriginLabels[booking.bookingOrigin ?? "legacy_unknown"]}
+                                {" · "}Created by: {getBookingCreatorLabel(booking)}
+                              </p>
                             </div>
                             <button
                               type="button"
