@@ -4342,7 +4342,7 @@ const venueOperationsLessons: AcademyArticle[] = [
       "Remember that venue capacity is fixed at GC 148, MR 132, PB 138, and RB 40; operational tables are configured separately.",
       "Set Capacity on physical tables that show Capacity Required.",
       "Use the Floor Assignment Queue and Assign Suggested Table when a configured table fits the booking.",
-      "Use Add Temporary Table or Merge only for a genuine operational override. Temporary table codes start with TMP-.",
+      "Use Add Temporary Table or Merge only for a genuine operational override. Temporary tables retain a visible Temporary label.",
       "For a booking on an old placeholder table, use Map Physical Table to move it deliberately without contacting the guest.",
     ],
     id: "table-management",
@@ -6844,6 +6844,7 @@ function getZoneTables(
 function isLegacyPlaceholderTable(table: DemoTable) {
   return (
     table.physicalTable !== true &&
+    table.availabilityScope !== "operational" &&
     isLegacyPlaceholderTableCode(table.zoneId, table.tableNumber)
   );
 }
@@ -7026,6 +7027,15 @@ function isValidMergedOperationalParent(
   );
 }
 
+function isTemporaryOperationalTable(table: DemoTable) {
+  return (
+    table.physicalTable !== true &&
+    table.availabilityScope === "operational" &&
+    !table.mergedFrom?.length &&
+    !table.mergedInto
+  );
+}
+
 function isEligibleBookingMoveTarget(
   table: DemoTable,
   booking: DemoBooking,
@@ -7033,6 +7043,7 @@ function isEligibleBookingMoveTarget(
 ) {
   const isAssignableTable =
     (table.physicalTable === true && !table.mergedFrom?.length) ||
+    isTemporaryOperationalTable(table) ||
     isValidMergedOperationalParent(table, tables);
 
   return (
@@ -15339,12 +15350,12 @@ export default function AdminDashboardPage() {
     }
 
     if (!targetTableId) {
-      showWorkflowToast("The selected physical table could not be resolved.");
+      showWorkflowToast("The selected operational table could not be resolved.");
       return false;
     }
 
     if (floorAssignmentInFlightRef.current.has(booking.reference)) {
-      showWorkflowToast("This physical table mapping is already being saved.");
+      showWorkflowToast("This table assignment is already being saved.");
       return false;
     }
 
@@ -15362,7 +15373,7 @@ export default function AdminDashboardPage() {
         return nextSelections;
       });
       showWorkflowToast(
-        `${booking.reference} now uses physical table ${targetTableNumber}.`,
+        `${booking.reference} now uses table ${targetTableNumber}.`,
       );
       return true;
     } catch (error) {
@@ -15370,7 +15381,7 @@ export default function AdminDashboardPage() {
       showWorkflowToast(
         error instanceof Error
           ? error.message
-          : "The physical table mapping could not be saved.",
+          : "The table assignment could not be saved.",
       );
       return false;
     } finally {
@@ -20303,7 +20314,7 @@ export default function AdminDashboardPage() {
       !isEligibleBookingMoveTarget(nextTable, booking, tables)
     ) {
       setCompatibilityWarning(
-        "Select an available configured physical or merged table in the same seating zone.",
+        "Select an available configured physical, temporary, or merged table in the same seating zone.",
       );
       return false;
     }
@@ -36396,13 +36407,19 @@ export default function AdminDashboardPage() {
                           }
                           className="min-w-0 rounded-xl border border-white/15 bg-zinc-950 px-3 py-2"
                         >
-                          <option value="">Choose physical or merged table...</option>
+                          <option value="">Choose operational table...</option>
                           {physicalMappingCandidates.map((candidate) => (
                             <option
                               key={candidate.id}
                               value={candidate.authoritativeId}
                             >
                               {candidate.tableNumber} · {candidate.seatCapacity} seats
+                              {candidate.physicalTable !== true &&
+                              !candidate.mergedFrom?.length
+                                ? " · temporary"
+                                : candidate.mergedFrom?.length
+                                  ? " · merged"
+                                  : ""}
                             </option>
                           ))}
                         </select>
@@ -36437,7 +36454,7 @@ export default function AdminDashboardPage() {
 
                       {physicalMappingCandidates.length === 0 && (
                         <p className="mt-2 text-xs text-amber-100">
-                          No configured physical or merged table currently fits this booking.
+                          No configured physical, temporary, or merged table currently fits this booking.
                         </p>
                       )}
                     </article>
@@ -36624,7 +36641,7 @@ export default function AdminDashboardPage() {
                             },
                           }))
                         }
-                        placeholder="TMP- table code"
+                        placeholder="Temporary table name"
                         className="rounded-xl border border-white/15 bg-zinc-950 px-4 py-3"
                       />
 
@@ -36715,6 +36732,7 @@ export default function AdminDashboardPage() {
                         allocatedBooking &&
                           !linkedParent &&
                           (table.physicalTable === true ||
+                            isTemporaryOperationalTable(table) ||
                             isValidMergedOperationalParent(table, tables)),
                       );
                       const floorMoveTargets = allocatedBooking
@@ -36796,9 +36814,10 @@ export default function AdminDashboardPage() {
                                   Physical
                                 </span>
                               )}
-                              {table.physicalTable !== true && (
+                              {table.physicalTable !== true &&
+                                !table.mergedFrom?.length && (
                                 <span className="rounded-full border border-sky-300/30 bg-sky-950/20 px-2 py-0.5 text-[0.58rem] font-semibold uppercase tracking-[0.12em] text-sky-200">
-                                  Temporary Operational
+                                  Temporary
                                 </span>
                               )}
                               {table.mergeable === false && (
@@ -37105,7 +37124,9 @@ export default function AdminDashboardPage() {
                                         {candidate.tableNumber} · {candidate.seatCapacity} seats
                                         {candidate.mergedFrom?.length
                                           ? " · merged"
-                                          : ""}
+                                          : candidate.physicalTable !== true
+                                            ? " · temporary"
+                                            : ""}
                                       </option>
                                     ))}
                                   </select>
@@ -37131,7 +37152,7 @@ export default function AdminDashboardPage() {
                                 </div>
                                 {floorMoveTargets.length === 0 && (
                                   <p className="mt-2 text-xs text-zinc-400">
-                                    No available physical or merged table currently fits this booking.
+                                    No available physical, temporary, or merged table currently fits this booking.
                                   </p>
                                 )}
                               </fieldset>

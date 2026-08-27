@@ -38,6 +38,45 @@ type ShowTableRow = {
 };
 
 const showMetadataPrefix = "__zingara_show_meta__:";
+const temporaryTableCodePattern =
+  /^[A-Z0-9](?:[A-Z0-9 -]{0,38}[A-Z0-9])?$/i;
+
+function isTemporaryOperationalTable(table: ShowTableRow) {
+  return (
+    !table.is_physical &&
+    table.is_override &&
+    table.availability_scope === "operational" &&
+    !table.merged_parent_id &&
+    table.merged_from.length === 0
+  );
+}
+
+async function hasShowTableCodeConflict(
+  serviceClient: NonNullable<
+    Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]
+  >,
+  showId: string,
+  tableCode: string,
+  excludedTableId?: string,
+) {
+  let query = serviceClient
+    .from("show_tables")
+    .select("id")
+    .eq("show_id", showId)
+    .ilike("table_code", tableCode);
+
+  if (excludedTableId) {
+    query = query.neq("id", excludedTableId);
+  }
+
+  const { data, error } = await query.limit(1);
+
+  if (error) {
+    throw error;
+  }
+
+  return Boolean(data?.length);
+}
 
 function getLegacyShowId(notes: string | null) {
   if (!notes?.startsWith(showMetadataPrefix)) {
@@ -188,9 +227,15 @@ export async function POST(request: Request) {
       const status = body.status?.trim() ?? table.status;
       const notes = body.notes?.trim().slice(0, 500) ?? "";
 
-      if (!table.is_physical && !/^TMP-[A-Z0-9][A-Z0-9-]*$/i.test(tableCode)) {
+      if (
+        isTemporaryOperationalTable(table) &&
+        !temporaryTableCodePattern.test(tableCode)
+      ) {
         return Response.json(
-          { error: "Temporary operational table codes must start with TMP-." },
+          {
+            error:
+              "Temporary table names may contain letters, numbers, spaces, or hyphens.",
+          },
           { status: 400 },
         );
       }
@@ -210,10 +255,11 @@ export async function POST(request: Request) {
       }
 
       if (
-        zoneTables.some(
-          (row) =>
-            row.id !== table.id &&
-            row.table_code.toLowerCase() === tableCode.toLowerCase(),
+        await hasShowTableCodeConflict(
+          auth.serviceClient,
+          show.id,
+          tableCode,
+          table.id,
         )
       ) {
         return Response.json(
@@ -391,19 +437,21 @@ export async function POST(request: Request) {
         );
       }
 
-      if (!/^TMP-[A-Z0-9][A-Z0-9-]*$/i.test(tableCode)) {
+      if (!temporaryTableCodePattern.test(tableCode)) {
         return Response.json(
           {
             error:
-              "Temporary operational table codes must start with TMP- and contain only letters, numbers, or hyphens.",
+              "Temporary table names may contain letters, numbers, spaces, or hyphens.",
           },
           { status: 400 },
         );
       }
 
       if (
-        zoneTables.some(
-          (row) => row.table_code.toLowerCase() === tableCode.toLowerCase(),
+        await hasShowTableCodeConflict(
+          auth.serviceClient,
+          show.id,
+          tableCode,
         )
       ) {
         return Response.json(

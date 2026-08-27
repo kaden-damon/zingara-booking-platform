@@ -1042,7 +1042,7 @@ async function persistPhysicalTableMapping(
 
   if (!bookingReference?.trim() || !targetTableId?.trim()) {
     return Response.json(
-      { error: "A booking and physical table are required." },
+      { error: "A booking and operational table are required." },
       { status: 400 },
     );
   }
@@ -1116,12 +1116,21 @@ async function persistPhysicalTableMapping(
   }
 
   const typedTargetTable = targetTable as ShowTableAssignmentRow | null;
+  const typedSourceTable = sourceTable as ShowTableAssignmentRow | null;
   const targetMergedMemberIds = Array.from(
     new Set(typedTargetTable?.merged_from ?? []),
   );
   const targetIsPhysical =
     typedTargetTable?.is_physical === true &&
     targetMergedMemberIds.length === 0;
+  const targetIsTemporaryOperational = Boolean(
+    typedTargetTable &&
+      typedTargetTable.is_physical !== true &&
+      typedTargetTable.is_override === true &&
+      typedTargetTable.availability_scope === "operational" &&
+      !typedTargetTable.merged_parent_id &&
+      targetMergedMemberIds.length === 0,
+  );
   const targetIsMergedCandidate = Boolean(
     typedTargetTable &&
       typedTargetTable.is_physical !== true &&
@@ -1171,7 +1180,9 @@ async function persistPhysicalTableMapping(
     typedTargetTable.show_id !== booking.show_id ||
     normalizeTableZone(typedTargetTable.section) !==
       normalizeTableZone(booking.section) ||
-    (!targetIsPhysical && !targetIsValidMergedParent) ||
+    (!targetIsPhysical &&
+      !targetIsTemporaryOperational &&
+      !targetIsValidMergedParent) ||
     !typedTargetTable.capacity_configured ||
     typedTargetTable.capacity === null ||
     Number(typedTargetTable.capacity) < booking.guest_count ||
@@ -1183,7 +1194,7 @@ async function persistPhysicalTableMapping(
       typedTargetTable.booking_id !== booking.id)
   ) {
     return Response.json(
-      { error: "The selected table is not available for this booking." },
+      { error: "The selected operational table is not available for this booking." },
       { status: 409 },
     );
   }
@@ -1214,14 +1225,16 @@ async function persistPhysicalTableMapping(
       entityType: "booking",
       outcome: "success",
       action:
-        (sourceTable as ShowTableAssignmentRow | null)?.is_physical === true ||
-        ((sourceTable as ShowTableAssignmentRow | null)?.merged_from?.length ?? 0) >= 2
+        typedSourceTable?.is_physical === true ||
+        typedSourceTable?.availability_scope === "operational" ||
+        (typedSourceTable?.merged_from?.length ?? 0) >= 2
           ? "booking.physical_table_reallocated"
           : "booking.physical_table_map",
       reason:
-        (sourceTable as ShowTableAssignmentRow | null)?.is_physical === true ||
-        ((sourceTable as ShowTableAssignmentRow | null)?.merged_from?.length ?? 0) >= 2
-          ? `Reallocated table ${(sourceTable as ShowTableAssignmentRow).table_code} to ${typedTargetTable.table_code}.`
+        typedSourceTable?.is_physical === true ||
+        typedSourceTable?.availability_scope === "operational" ||
+        (typedSourceTable?.merged_from?.length ?? 0) >= 2
+          ? `Reallocated table ${typedSourceTable?.table_code ?? "unknown"} to ${typedTargetTable.table_code}.`
           : `Mapped legacy assignment to operational table ${typedTargetTable.table_code}.`,
       request,
       sourceArea: "Operations Floor",
@@ -2004,12 +2017,13 @@ export async function PATCH(request: Request) {
         message.includes("LEGACY_TABLE_ASSIGNMENT_REQUIRED") ||
         message.includes("SOURCE_TABLE_ASSIGNMENT_REQUIRED") ||
         message.includes("SOURCE_TABLE_NOT_REALLOCATABLE") ||
-        message.includes("PHYSICAL_TABLE_NOT_AVAILABLE")
+        message.includes("PHYSICAL_TABLE_NOT_AVAILABLE") ||
+        message.includes("TABLE_NOT_AVAILABLE")
       ) {
         return Response.json(
           {
             error:
-              "The booking or physical table changed before the mapping could be saved. Refresh and retry.",
+              "The booking or operational table changed before the mapping could be saved. Refresh and retry.",
           },
           { status: 409 },
         );
@@ -2018,7 +2032,7 @@ export async function PATCH(request: Request) {
       console.error("[Zingara API] Failed to map physical booking table", error);
 
       return Response.json(
-        { error: "The physical table mapping could not be saved." },
+        { error: "The operational table mapping could not be saved." },
         { status: 500 },
       );
     }

@@ -3314,6 +3314,7 @@ function isAllocatableTable(table: DemoTable) {
   return (
     table.capacityConfigured !== false &&
     (table.physicalTable === true ||
+      table.availabilityScope === "operational" ||
       !isLegacyPlaceholderTableCode(table.zoneId, table.tableNumber)) &&
     table.status === "available" &&
     !table.bookingReference &&
