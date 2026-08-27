@@ -7,8 +7,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const qaBookingReference = "ZNG-QBZTTF";
-const qaRefundAmount = 10;
+const qaBookingReference = "PH396M-R50QA";
+const qaRefundAmount = 50;
 
 function getSafeBlockingReason(input: {
   fullRefundAvailable: boolean;
@@ -25,7 +25,7 @@ function getSafeBlockingReason(input: {
   }
 
   if (!input.fullRefundAvailable) {
-    return "PayFast does not report the full R10 amount as available for refund.";
+    return "PayFast does not report the full R50 amount as available for refund.";
   }
 
   if (input.method === "bank_payout") {
@@ -113,7 +113,7 @@ export async function GET(request: Request) {
     Math.abs(Number(payments[0].amount) - qaRefundAmount) > 0.01
   ) {
     return Response.json(
-      { error: "The fixed booking no longer has one proven R10 PayFast payment." },
+      { error: "The fixed booking no longer has one proven R50 PayFast payment." },
       { status: 409 },
     );
   }
@@ -150,6 +150,7 @@ export async function GET(request: Request) {
     });
 
     return Response.json({
+      amountAvailable: availability.amountAvailable,
       fullRefundAvailable,
       providerState: availability.providerState,
       querySucceeded: true,
@@ -160,6 +161,7 @@ export async function GET(request: Request) {
   } catch {
     return Response.json(
       {
+        amountAvailable: 0,
         fullRefundAvailable: false,
         providerState: "unknown",
         querySucceeded: false,

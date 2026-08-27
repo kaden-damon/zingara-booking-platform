@@ -333,6 +333,7 @@ type RefundEligibilityPayload = {
   }>;
 };
 type PayFastRefundAvailabilityQaResult = {
+  amountAvailable: number;
   fullRefundAvailable: boolean;
   providerState: "not_available" | "refundable" | "refunded" | "unknown";
   querySucceeded: boolean;
@@ -13296,7 +13297,7 @@ export default function AdminDashboardPage() {
     }
 
     const confirmed = window.confirm(
-      "Query PayFast refund availability for ZNG-QBZTTF? This will not issue a refund.",
+      "Query PayFast refund availability for PH396M-R50QA? This will not issue a refund.",
     );
 
     if (!confirmed) {
@@ -13314,6 +13315,7 @@ export default function AdminDashboardPage() {
         result.querySucceeded ? "Query succeeded" : "Query failed",
         `Refundable: ${result.refundable ? "Yes" : "No"}`,
         `Full refund: ${result.fullRefundAvailable ? "Yes" : "No"}`,
+        `Amount available: ${formatCurrency(result.amountAvailable)}`,
         `Method: ${result.refundFullMethod}`,
         `Provider state: ${result.providerState}`,
       ];
@@ -31765,7 +31767,7 @@ export default function AdminDashboardPage() {
                         PayFast Refund Availability
                       </h3>
                       <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-                        Query-only provider check fixed to ZNG-QBZTTF. This
+                        Query-only provider check fixed to PH396M-R50QA. This
                         control cannot submit a refund.
                       </p>
                       {payFastRefundQaStatus && (
