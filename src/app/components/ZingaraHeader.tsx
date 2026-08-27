@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   adminAuthChangedEvent,
@@ -80,7 +80,10 @@ function LogoutIcon() {
 
 export default function ZingaraHeader() {
   const pathname = usePathname();
+  const headerRef = useRef<HTMLElement | null>(null);
+  const lastScrollPositionRef = useRef(0);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [venueSettings, setVenueSettings] = useState(
@@ -164,27 +167,103 @@ export default function ZingaraHeader() {
   useEffect(() => {
     let frameId = 0;
 
-    function updateScrolledState() {
+    function updateScrollState(scrollPosition: number) {
+      const previousScrollPosition = lastScrollPositionRef.current;
+      const scrollDelta = scrollPosition - previousScrollPosition;
+
       setIsScrolled(window.scrollY > 12);
+      setIsMenuOpen(false);
+
+      if (window.matchMedia("(max-width: 767px)").matches) {
+        if (scrollPosition <= 12) {
+          setIsHeaderHidden(false);
+        } else if (Math.abs(scrollDelta) >= 6) {
+          setIsHeaderHidden(scrollDelta > 0);
+        }
+      } else {
+        setIsHeaderHidden(false);
+      }
+
+      lastScrollPositionRef.current = scrollPosition;
     }
 
-    function handleScroll() {
+    function handleNestedScroll(event: Event) {
+      const scrollTarget = event.target;
+
+      if (!(scrollTarget instanceof HTMLElement)) {
+        return;
+      }
+
       window.cancelAnimationFrame(frameId);
-      frameId = window.requestAnimationFrame(updateScrolledState);
+      frameId = window.requestAnimationFrame(() =>
+        updateScrollState(scrollTarget.scrollTop),
+      );
     }
 
-    const hydrationTimer = window.setTimeout(updateScrolledState, 0);
+    function handleWindowScroll() {
+      window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(() =>
+        updateScrollState(window.scrollY),
+      );
+    }
 
-    window.addEventListener("scroll", handleScroll, {
+    const hydrationTimer = window.setTimeout(
+      () => updateScrollState(window.scrollY),
+      0,
+    );
+
+    window.addEventListener("scroll", handleWindowScroll, {
+      passive: true,
+    });
+    document.addEventListener("scroll", handleNestedScroll, {
+      capture: true,
       passive: true,
     });
 
     return () => {
       window.clearTimeout(hydrationTimer);
       window.cancelAnimationFrame(frameId);
-      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("scroll", handleWindowScroll);
+      document.removeEventListener("scroll", handleNestedScroll, true);
     };
   }, []);
+
+  useEffect(() => {
+    setIsMenuOpen(false);
+    setIsHeaderHidden(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return;
+    }
+
+    function closeMenuOnOutsidePointer(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !headerRef.current?.contains(event.target)
+      ) {
+        setIsMenuOpen(false);
+      }
+    }
+
+    function closeMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeMenuOnOutsidePointer);
+    document.addEventListener("keydown", closeMenuOnEscape);
+
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        closeMenuOnOutsidePointer,
+      );
+      document.removeEventListener("keydown", closeMenuOnEscape);
+    };
+  }, [isMenuOpen]);
 
   if (isLandingPage) {
     return null;
@@ -200,8 +279,13 @@ export default function ZingaraHeader() {
 
   return (
     <header
-      className={`pointer-events-none relative z-40 border-b border-[#8D7A2F]/25 bg-black/50 px-4 pb-3 text-white shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl transition duration-300 sm:z-20 sm:px-5 sm:pb-4 ${
+      ref={headerRef}
+      className={`zingara-site-header pointer-events-none sticky top-0 z-40 border-b border-[#8D7A2F]/25 bg-black/50 px-4 pb-3 text-white shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl transition-[transform,background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out will-change-transform sm:relative sm:top-auto sm:z-20 sm:translate-y-0 sm:px-5 sm:pb-4 ${
         needsOperationalTopSpace ? "pt-[62px]" : "pt-3 sm:pt-4"
+      } ${
+        isHeaderHidden && !isMenuOpen
+          ? "-translate-y-full"
+          : "translate-y-0"
       } ${
         isScrolled
           ? "sm:border-[#8D7A2F]/25 sm:bg-black/50 sm:shadow-[0_12px_32px_rgba(0,0,0,0.22)] sm:backdrop-blur-xl"
@@ -232,10 +316,16 @@ export default function ZingaraHeader() {
 
         <button
           type="button"
-          onClick={() => setIsMenuOpen((currentValue) => !currentValue)}
+          onClick={() => {
+            setIsHeaderHidden(false);
+            setIsMenuOpen((currentValue) => !currentValue);
+          }}
           className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-[#D8C36A]/30 bg-black/35 text-[#F2D66C] shadow-[0_0_24px_rgba(216,195,106,0.14)] backdrop-blur-xl transition hover:border-[#F2D66C] sm:h-12 sm:w-12"
           aria-expanded={isMenuOpen}
-          aria-label="Open navigation menu"
+          aria-controls="zingara-primary-navigation"
+          aria-label={
+            isMenuOpen ? "Close navigation menu" : "Open navigation menu"
+          }
         >
           <span className="flex w-5 flex-col gap-1.5">
             <span className="h-0.5 rounded-full bg-current" />
@@ -245,6 +335,7 @@ export default function ZingaraHeader() {
         </button>
 
         <nav
+          id="zingara-primary-navigation"
           aria-label="Primary"
           className={`pointer-events-auto absolute left-1/2 top-full mt-3 flex min-w-56 -translate-x-1/2 flex-col gap-2 rounded-[1.25rem] border border-[#8D7A2F]/25 bg-black/90 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.4)] backdrop-blur-xl transition duration-300 ease-out ${
             isMenuOpen

@@ -19521,18 +19521,51 @@ export default function AdminDashboardPage() {
     }
 
     let isActive = true;
+    let hasDecodedCode = false;
     let scanTimer = 0;
     let stream: MediaStream | null = null;
     let videoElement: HTMLVideoElement | null = null;
-    let lastCode = "";
+
+    function stopCamera() {
+      window.clearTimeout(scanTimer);
+      stream?.getTracks().forEach((track) => track.stop());
+
+      if (videoElement) {
+        videoElement.pause();
+        videoElement.srcObject = null;
+      }
+    }
+
+    function acceptDecodedCode(code: string) {
+      const nextCode = code.trim();
+
+      if (!nextCode || hasDecodedCode || !isActive) {
+        return;
+      }
+
+      hasDecodedCode = true;
+      stopCamera();
+      setTicketValidationInput(nextCode);
+      validateTicketCodeValue(nextCode);
+    }
 
     async function startCameraScanner() {
       try {
         setScannerCameraError("");
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setScannerCameraError(
+            "Camera scanning is not supported in this browser. Enter the ticket code manually below.",
+          );
+          return;
+        }
+
         stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
           video: {
             facingMode: { ideal: "environment" },
+            height: { ideal: 720 },
+            width: { ideal: 1280 },
           },
         });
 
@@ -19548,53 +19581,123 @@ export default function AdminDashboardPage() {
 
         const BarcodeDetectorConstructor = (
           window as typeof window & {
-            BarcodeDetector?: new (options?: {
-              formats?: string[];
-            }) => {
-              detect: (
-                source: HTMLVideoElement,
-              ) => Promise<Array<{ rawValue?: string }>>;
+            BarcodeDetector?: {
+              getSupportedFormats?: () => Promise<string[]>;
+              new (options?: { formats?: string[] }): {
+                detect: (
+                  source: HTMLVideoElement,
+                ) => Promise<Array<{ rawValue?: string }>>;
+              };
             };
           }
         ).BarcodeDetector;
+        let nativeQrSupported = Boolean(BarcodeDetectorConstructor);
 
-        if (!BarcodeDetectorConstructor) {
-          setScannerCameraError(
-            "Camera opened. This browser does not support automatic QR detection yet, so enter the code below.",
-          );
-          return;
+        if (BarcodeDetectorConstructor?.getSupportedFormats) {
+          try {
+            nativeQrSupported = (
+              await BarcodeDetectorConstructor.getSupportedFormats()
+            ).includes("qr_code");
+          } catch {
+            nativeQrSupported = false;
+          }
         }
 
-        const detector = new BarcodeDetectorConstructor({
-          formats: ["qr_code"],
-        });
+        const detector = nativeQrSupported && BarcodeDetectorConstructor
+          ? new BarcodeDetectorConstructor({ formats: ["qr_code"] })
+          : null;
+        let fallbackDecoder: import("@zxing/browser").BrowserQRCodeReader | null =
+          null;
+        let fallbackCanvas: HTMLCanvasElement | null = null;
+        let fallbackContext: CanvasRenderingContext2D | null = null;
+
+        if (!detector) {
+          try {
+            const { BrowserQRCodeReader } = await import("@zxing/browser");
+            fallbackDecoder = new BrowserQRCodeReader();
+            fallbackCanvas = document.createElement("canvas");
+            fallbackContext = fallbackCanvas.getContext("2d", {
+              willReadFrequently: true,
+            });
+
+            if (!fallbackContext) {
+              throw new Error("Canvas rendering is unavailable.");
+            }
+          } catch {
+            stopCamera();
+            setScannerCameraError(
+              "Automatic QR scanning could not start. Enter the ticket code manually below.",
+            );
+            return;
+          }
+        }
 
         async function scanFrame() {
-          if (!isActive || !videoElement) {
+          if (!isActive || hasDecodedCode || !videoElement) {
             return;
           }
 
           try {
-            const codes = await detector.detect(videoElement);
-            const nextCode = codes[0]?.rawValue?.trim();
+            if (detector) {
+              const codes = await detector.detect(videoElement);
+              acceptDecodedCode(codes[0]?.rawValue ?? "");
+            } else if (
+              fallbackDecoder &&
+              fallbackCanvas &&
+              fallbackContext &&
+              videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+            ) {
+              const sourceWidth = videoElement.videoWidth;
+              const sourceHeight = videoElement.videoHeight;
 
-            if (nextCode && nextCode !== lastCode) {
-              lastCode = nextCode;
-              setTicketValidationInput(nextCode);
-              validateTicketCodeValue(nextCode);
+              if (sourceWidth > 0 && sourceHeight > 0) {
+                const scale = Math.min(960 / sourceWidth, 1);
+                const targetWidth = Math.max(Math.round(sourceWidth * scale), 1);
+                const targetHeight = Math.max(Math.round(sourceHeight * scale), 1);
+
+                if (
+                  fallbackCanvas.width !== targetWidth ||
+                  fallbackCanvas.height !== targetHeight
+                ) {
+                  fallbackCanvas.width = targetWidth;
+                  fallbackCanvas.height = targetHeight;
+                }
+
+                fallbackContext.drawImage(
+                  videoElement,
+                  0,
+                  0,
+                  targetWidth,
+                  targetHeight,
+                );
+                acceptDecodedCode(
+                  fallbackDecoder.decodeFromCanvas(fallbackCanvas).getText(),
+                );
+              }
             }
           } catch {
-            // Some browsers throw while video metadata is settling.
+            // No QR was found in this frame, or video metadata is still settling.
           }
 
-          scanTimer = window.setTimeout(scanFrame, 450);
+          if (isActive && !hasDecodedCode) {
+            scanTimer = window.setTimeout(scanFrame, detector ? 450 : 300);
+          }
         }
 
         scanFrame();
-      } catch {
-        setScannerCameraError(
-          "Camera access was blocked or unavailable. Enter the ticket code manually below.",
-        );
+      } catch (error) {
+        const cameraError = error as DOMException;
+        const message =
+          cameraError.name === "NotAllowedError" ||
+          cameraError.name === "SecurityError"
+            ? "Camera permission was denied. Allow camera access or enter the ticket code manually below."
+            : cameraError.name === "NotFoundError" ||
+                cameraError.name === "OverconstrainedError"
+              ? "No usable camera was found. Enter the ticket code manually below."
+              : "Camera access was unavailable. Enter the ticket code manually below.";
+
+        stopCamera();
+        setScannerCameraError(message);
       }
     }
 
@@ -19602,11 +19705,7 @@ export default function AdminDashboardPage() {
 
     return () => {
       isActive = false;
-      window.clearTimeout(scanTimer);
-      stream?.getTracks().forEach((track) => track.stop());
-      if (videoElement) {
-        videoElement.srcObject = null;
-      }
+      stopCamera();
     };
     // validateTicketCodeValue reads live booking state; scanner restarts only on open/permission changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
