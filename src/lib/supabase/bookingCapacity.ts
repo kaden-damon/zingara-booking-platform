@@ -2,6 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   type SeatingZoneId,
   getVenueZoneSeatCapacity,
+  defaultVenueSettings,
+  getConfiguredZoneMaxSeats,
+  normalizeVenueSettings,
   getZoneSectionLookupTitles,
   seatingZones,
 } from "@/lib/zingaraDemo";
@@ -128,7 +131,23 @@ export async function validateBookingCapacityIncrease(
     (total, row) => total + Math.max(Number(row.guest_count) || 0, 0),
     0,
   );
-  const capacity = getVenueZoneSeatCapacity(zoneId);
+  const { data: settingsData, error: settingsError } = await supabase
+    .from("venue_settings")
+    .select("settings")
+    .eq("venue_key", defaultVenueSettings.venueId)
+    .maybeSingle();
+
+  if (settingsError) {
+    throw settingsError;
+  }
+
+  const settings = normalizeVenueSettings(
+    (settingsData as { settings?: Parameters<typeof normalizeVenueSettings>[0] } | null)?.settings,
+  );
+  const zone = seatingZones.find((candidate) => candidate.id === zoneId);
+  const capacity = zone
+    ? getConfiguredZoneMaxSeats(settings, zone)
+    : getVenueZoneSeatCapacity(zoneId);
   const resultingEntitlement = existingEntitlement + nextGuestCount;
 
   if (resultingEntitlement <= capacity) {

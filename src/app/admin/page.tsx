@@ -210,6 +210,12 @@ import {
   getBookingTicketState,
   getCommunicationTemplate,
   getIncludedBookingFeeBreakdown,
+  getConfiguredZoneDepositAmount,
+  getConfiguredZoneDepositMode,
+  getConfiguredZoneDepositPercentage,
+  getConfiguredZoneMaxSeats,
+  getConfiguredZoneMaxTables,
+  getConfiguredZonePrice,
   getShowLabel,
   getShowLocationOption,
   getVenueZoneSeatCapacity,
@@ -6863,6 +6869,7 @@ function getZoneStats(
   bookings: DemoBooking[],
   showId: string,
   zone: SeatingZone,
+  capacityOverride?: number,
 ) {
   const zoneTables = getZoneTables(tables, showId, zone.id);
   const physicalTables = zoneTables.filter(
@@ -6885,7 +6892,7 @@ function getZoneStats(
         isOperationallyActiveBooking(booking),
     )
     .reduce((total, booking) => total + booking.partySize, 0);
-  const totalCapacity = getVenueZoneSeatCapacity(zone.id);
+  const totalCapacity = capacityOverride ?? getVenueZoneSeatCapacity(zone.id);
 
   return {
     bookedSeats,
@@ -6904,6 +6911,42 @@ function getZoneStats(
     remainingSeats: Math.max(totalCapacity - bookedSeats, 0),
     totalCapacity,
   };
+}
+
+const configurableVenueZones = seatingZones.filter(
+  (zone) => zone.id !== "elevated-stage",
+);
+
+type VenueConfigurationDraft = Record<
+  string,
+  {
+    depositAmount: string;
+    depositMode: "fixed" | "percentage";
+    depositPercentage: string;
+    maxSeats: string;
+    maxTables: string;
+    price: string;
+  }
+>;
+
+function createVenueConfigurationDraft(
+  settings: DemoVenueSettings,
+): VenueConfigurationDraft {
+  return Object.fromEntries(
+    configurableVenueZones.map((zone) => [
+      zone.id,
+      {
+        depositAmount: String(getConfiguredZoneDepositAmount(settings, zone)),
+        depositMode: getConfiguredZoneDepositMode(settings, zone),
+        depositPercentage: String(
+          getConfiguredZoneDepositPercentage(settings, zone),
+        ),
+        maxSeats: String(getConfiguredZoneMaxSeats(settings, zone)),
+        maxTables: String(getConfiguredZoneMaxTables(settings, zone)),
+        price: String(getConfiguredZonePrice(settings, zone)),
+      },
+    ]),
+  );
 }
 
 function mergeTablesForShows(
@@ -9490,6 +9533,13 @@ export default function AdminDashboardPage() {
     useState(false);
   const [venueSettings, setVenueSettings] =
     useState<DemoVenueSettings>(defaultVenueSettings);
+  const [venueConfigurationDraft, setVenueConfigurationDraft] =
+    useState<VenueConfigurationDraft>(() =>
+      createVenueConfigurationDraft(defaultVenueSettings),
+    );
+  const [venueConfigurationSaveState, setVenueConfigurationSaveState] =
+    useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
+  const [venueConfigurationError, setVenueConfigurationError] = useState("");
   const [hasHydrated, setHasHydrated] = useState(false);
   const [isSessionRestoring, setIsSessionRestoring] = useState(true);
   const [selectedTemplateId, setSelectedTemplateId] = useState(
@@ -12592,6 +12642,9 @@ export default function AdminDashboardPage() {
   }, [checkInSelectedShowId, todayCheckInShows]);
 
   const venueConfig = venueSettings;
+  useEffect(() => {
+    setVenueConfigurationDraft(createVenueConfigurationDraft(venueSettings));
+  }, [venueSettings]);
   const visibleStaffNotifications = staffNotifications.filter(
     (notification) =>
       notificationPreferences[notification.trigger] ?? true,
@@ -14902,6 +14955,85 @@ export default function AdminDashboardPage() {
         },
       },
     });
+  }
+
+  function updateVenueConfigurationDraft(
+    zoneId: SeatingZoneId,
+    field: keyof VenueConfigurationDraft[string],
+    value: string,
+  ) {
+    if (!isSuperAdmin) return;
+
+    setVenueConfigurationDraft((current) => ({
+      ...current,
+      [zoneId]: {
+        ...current[zoneId],
+        [field]: value,
+      },
+    }));
+    setVenueConfigurationSaveState("dirty");
+    setVenueConfigurationError("");
+  }
+
+  async function saveAuthoritativeVenueConfiguration() {
+    if (!isSuperAdmin || venueConfigurationSaveState === "saving") return;
+
+    const nextZonePricing = { ...venueSettings.zonePricing };
+
+    for (const zone of configurableVenueZones) {
+      const draft = venueConfigurationDraft[zone.id];
+      const price = Number(draft?.price);
+      const depositAmount = Number(draft?.depositAmount);
+      const depositPercentage = Number(draft?.depositPercentage);
+      const maxSeats = Number(draft?.maxSeats);
+      const maxTables = Number(draft?.maxTables);
+
+      if (
+        !draft ||
+        !Number.isFinite(price) || price <= 0 ||
+        !Number.isFinite(depositAmount) || depositAmount <= 0 ||
+        !Number.isFinite(depositPercentage) || depositPercentage < 0 || depositPercentage > 100 ||
+        !Number.isInteger(maxSeats) || maxSeats <= 0 ||
+        !Number.isInteger(maxTables) || maxTables <= 0
+      ) {
+        setVenueConfigurationSaveState("error");
+        setVenueConfigurationError(
+          "Enter positive prices/deposits, a 0-100 percentage, and positive whole-number ceilings.",
+        );
+        return;
+      }
+
+      nextZonePricing[zone.id] = {
+        ...venueSettings.zonePricing[zone.id],
+        depositAmount,
+        depositMode: draft.depositMode,
+        depositPercentage,
+        maxSeats,
+        maxTables,
+        price,
+      };
+    }
+
+    const nextSettings = {
+      ...venueSettings,
+      zonePricing: nextZonePricing,
+    };
+
+    setVenueConfigurationSaveState("saving");
+    setVenueConfigurationError("");
+
+    try {
+      const persistedSettings = await persistVenueSettings(nextSettings);
+      setVenueSettings(persistedSettings);
+      setVenueConfigurationSaveState("saved");
+      showWorkflowToast("✓ Saved · Venue configuration updated");
+    } catch (error) {
+      setVenueConfigurationSaveState("error");
+      setVenueConfigurationError(
+        error instanceof Error ? error.message : "Venue configuration could not be saved.",
+      );
+      showWorkflowToast("⚠ Could not save venue configuration");
+    }
   }
 
   function saveShows(nextShows: DemoShow[]) {
@@ -22262,7 +22394,13 @@ export default function AdminDashboardPage() {
   const selectedShowCapacity = seatingZones.reduce(
     (total, zone) =>
       total +
-      getZoneStats(tables, activeShowBookings, selectedShowId, zone)
+      getZoneStats(
+        tables,
+        activeShowBookings,
+        selectedShowId,
+        zone,
+        getConfiguredZoneMaxSeats(venueConfig, zone),
+      )
         .totalCapacity,
     0,
   );
@@ -22322,6 +22460,7 @@ export default function AdminDashboardPage() {
             activeCheckInBookings,
             effectiveCheckInShowId,
             zone,
+            getConfiguredZoneMaxSeats(venueConfig, zone),
           ).totalCapacity,
         0,
       )
@@ -22717,7 +22856,7 @@ export default function AdminDashboardPage() {
             isOperationallyActiveBooking(booking),
         )
         .reduce((total, booking) => total + booking.partySize, 0);
-      const capacity = getVenueZoneSeatCapacity(zone.id);
+      const capacity = getConfiguredZoneMaxSeats(venueConfig, zone);
 
       return {
         capacity,
@@ -23013,7 +23152,13 @@ export default function AdminDashboardPage() {
     const capacity = seatingZones.reduce(
       (total, zone) =>
         total +
-        getZoneStats(tables, allActiveBookings, show.id, zone).totalCapacity,
+        getZoneStats(
+          tables,
+          allActiveBookings,
+          show.id,
+          zone,
+          getConfiguredZoneMaxSeats(venueConfig, zone),
+        ).totalCapacity,
       0,
     );
     const occupancy =
@@ -30536,7 +30681,7 @@ export default function AdminDashboardPage() {
 
         {activeAdminTab === "settings" &&
           activeSettingsTab === "venue" &&
-          canManageSettings && (
+          isSuperAdmin && (
           <section className="mb-10 rounded-2xl border border-[#D8C36A]/35 bg-[radial-gradient(circle_at_top,#21160B_0%,#101010_48%,#050505_100%)] p-6 shadow-2xl shadow-[#8D7A2F]/10">
             <div className="mb-6">
               <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
@@ -31081,29 +31226,6 @@ export default function AdminDashboardPage() {
                     />
                   </label>
                   <label className="text-sm text-zinc-400">
-                    Default Deposit %
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={
-                        venueConfig.operationalSettings
-                          .defaultDepositPercentage
-                      }
-                      onChange={(event) =>
-                        updateVenueSettingsSection(
-                          "operationalSettings",
-                          {
-                            defaultDepositPercentage: Number(
-                              event.target.value,
-                            ),
-                          },
-                        )
-                      }
-                      className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
-                    />
-                  </label>
-                  <label className="text-sm text-zinc-400">
                     Ticket Refresh Seconds
                     <input
                       type="number"
@@ -31230,11 +31352,43 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5 xl:col-span-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  Seating Zone Pricing
-                </p>
-                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-                  {seatingZones.map((zone) => (
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Authoritative Venue Configuration
+                    </p>
+                    <p className="mt-2 text-sm text-zinc-400">
+                      Applies to future pricing, deposits, availability and floor planning only.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {venueConfigurationSaveState === "saving" && (
+                      <span className="text-sm text-zinc-400">Saving...</span>
+                    )}
+                    {venueConfigurationSaveState === "saved" && (
+                      <span className="text-sm text-emerald-400">Saved</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void saveAuthoritativeVenueConfiguration()}
+                      disabled={
+                        venueConfigurationSaveState === "saving" ||
+                        venueConfigurationSaveState === "idle"
+                      }
+                      className="rounded-lg bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Save Venue Configuration
+                    </button>
+                  </div>
+                </div>
+                {venueConfigurationError && (
+                  <p className="mt-3 text-sm text-red-300">{venueConfigurationError}</p>
+                )}
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {configurableVenueZones.map((zone) => {
+                    const draft = venueConfigurationDraft[zone.id];
+
+                    return (
                     <div
                       key={`settings-${zone.id}`}
                       className="rounded-xl border border-white/10 bg-zinc-950 p-4"
@@ -31242,46 +31396,75 @@ export default function AdminDashboardPage() {
                       <p className="font-semibold text-white">
                         {zone.title}
                       </p>
-                      <label className="mt-3 block text-sm text-zinc-400">
-                        Price
+                      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <label className="block text-sm text-zinc-400">
+                        Price per guest
                         <input
                           type="number"
                           min={0}
-                          value={
-                            venueConfig.zonePricing[zone.id]?.price ??
-                            zone.price
-                          }
+                          value={draft?.price ?? ""}
                           onChange={(event) =>
-                            updateZonePricing(zone.id, {
-                              price: Number(event.target.value),
-                            })
+                            updateVenueConfigurationDraft(zone.id, "price", event.target.value)
                           }
-                          className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                          className="mt-2 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
                         />
                       </label>
-                      <label className="mt-3 block text-sm text-zinc-400">
+                      <label className="block text-sm text-zinc-400">
+                        Deposit mode
+                        <select
+                          value={draft?.depositMode ?? "fixed"}
+                          onChange={(event) =>
+                            updateVenueConfigurationDraft(zone.id, "depositMode", event.target.value)
+                          }
+                          className="mt-2 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                        >
+                          <option value="fixed">Fixed amount</option>
+                          <option value="percentage">Percentage</option>
+                        </select>
+                      </label>
+                      <label className="block text-sm text-zinc-400">
+                        Fixed deposit (R)
+                        <input
+                          type="number"
+                          min={0}
+                          value={draft?.depositAmount ?? ""}
+                          onChange={(event) =>
+                            updateVenueConfigurationDraft(zone.id, "depositAmount", event.target.value)
+                          }
+                          className="mt-2 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white disabled:opacity-45"
+                          disabled={draft?.depositMode !== "fixed"}
+                        />
+                      </label>
+                      <label className="block text-sm text-zinc-400">
                         Deposit %
                         <input
                           type="number"
                           min={0}
                           max={100}
-                          value={
-                            venueConfig.zonePricing[zone.id]
-                              ?.depositPercentage ??
-                            zone.depositPercentage
-                          }
+                          value={draft?.depositPercentage ?? ""}
                           onChange={(event) =>
-                            updateZonePricing(zone.id, {
-                              depositPercentage: Number(
-                                event.target.value,
-                              ),
-                            })
+                            updateVenueConfigurationDraft(zone.id, "depositPercentage", event.target.value)
                           }
-                          className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                          className="mt-2 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white disabled:opacity-45"
+                          disabled={draft?.depositMode !== "percentage"}
                         />
                       </label>
+                      <label className="block text-sm text-zinc-400">
+                        Maximum seats
+                        <input type="number" min={1} step={1} value={draft?.maxSeats ?? ""}
+                          onChange={(event) => updateVenueConfigurationDraft(zone.id, "maxSeats", event.target.value)}
+                          className="mt-2 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" />
+                      </label>
+                      <label className="block text-sm text-zinc-400">
+                        Maximum tables
+                        <input type="number" min={1} step={1} value={draft?.maxTables ?? ""}
+                          onChange={(event) => updateVenueConfigurationDraft(zone.id, "maxTables", event.target.value)}
+                          className="mt-2 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" />
+                      </label>
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -36168,6 +36351,7 @@ export default function AdminDashboardPage() {
                     activeBookingsForOperations,
                     selectedShowId,
                     zone,
+                    getConfiguredZoneMaxSeats(venueConfig, zone),
                   );
                   const physicalZoneTables = getZoneTables(
                     tables,
@@ -36198,7 +36382,7 @@ export default function AdminDashboardPage() {
                     >
                       <span>{zone.title}</span>
                       <span className="mt-1 text-[0.58rem] font-normal normal-case tracking-normal text-white/75 sm:text-[0.68rem]">
-                        {configuredTables}/{physicalZoneTables.length} configured ·{" "}
+                        {configuredTables}/{getConfiguredZoneMaxTables(venueConfig, zone)} planned ·{" "}
                         {stats.remainingSeats} seats open
                       </span>
                     </button>
@@ -36213,6 +36397,7 @@ export default function AdminDashboardPage() {
                     activeBookingsForOperations,
                     selectedShowId,
                     zone,
+                    getConfiguredZoneMaxSeats(venueConfig, zone),
                   );
                   const physicalZoneTables = getZoneTables(
                     tables,
@@ -36278,7 +36463,7 @@ export default function AdminDashboardPage() {
                         </p>
                       )}
                       <p className="mt-3 text-xs leading-5 text-zinc-300">
-                        {physicalZoneTables.length} physical ·{" "}
+                        {physicalZoneTables.length} physical · max {getConfiguredZoneMaxTables(venueConfig, zone)} planned ·{" "}
                         {stats.configuredPhysicalTableCount} configured ·{" "}
                         {zoneOccupancyCounts.capacityRequired} capacity required
                       </p>
@@ -36752,6 +36937,7 @@ export default function AdminDashboardPage() {
               activeBookingsForOperations,
               selectedShowId,
               zone,
+              getConfiguredZoneMaxSeats(venueConfig, zone),
             );
             const availableMergeTargets = zoneTables.filter(
               (table) =>

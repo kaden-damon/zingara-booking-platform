@@ -1,6 +1,9 @@
 import {
   type SeatingZoneId,
   getVenueZoneSeatCapacity,
+  defaultVenueSettings,
+  getConfiguredZoneMaxSeats,
+  normalizeVenueSettings,
   getZoneSectionLookupTitles,
   seatingZones,
 } from "@/lib/zingaraDemo";
@@ -47,12 +50,20 @@ export async function GET(request: Request) {
     );
   }
 
-  const { data, error } = await serviceClient
-    .from("bookings")
-    .select("guest_count,section")
-    .eq("show_id", showId)
-    .is("archived_at", null)
-    .in("booking_status", [...occupyingBookingStatuses]);
+  const [bookingResult, settingsResult] = await Promise.all([
+    serviceClient
+      .from("bookings")
+      .select("guest_count,section")
+      .eq("show_id", showId)
+      .is("archived_at", null)
+      .in("booking_status", [...occupyingBookingStatuses]),
+    serviceClient
+      .from("venue_settings")
+      .select("settings")
+      .eq("venue_key", defaultVenueSettings.venueId)
+      .maybeSingle(),
+  ]);
+  const { data, error } = bookingResult;
 
   if (error) {
     console.error("[Zingara API] Failed to load show availability", error);
@@ -62,6 +73,15 @@ export async function GET(request: Request) {
       { status: 500 },
     );
   }
+
+  if (settingsResult.error) {
+    console.error("[Zingara API] Failed to load venue capacity", settingsResult.error);
+    return Response.json({ error: "Show availability could not be loaded." }, { status: 500 });
+  }
+
+  const settings = normalizeVenueSettings(
+    (settingsResult.data as { settings?: Parameters<typeof normalizeVenueSettings>[0] } | null)?.settings,
+  );
 
   const occupiedSeatsByZone = Object.fromEntries(
     seatingZones.map((zone) => [zone.id, 0]),
@@ -82,7 +102,7 @@ export async function GET(request: Request) {
     seatingZones.map((zone) => [
       zone.id,
       Math.max(
-        getVenueZoneSeatCapacity(zone.id) - occupiedSeatsByZone[zone.id],
+        getConfiguredZoneMaxSeats(settings, zone) - occupiedSeatsByZone[zone.id],
         0,
       ),
     ]),

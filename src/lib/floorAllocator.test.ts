@@ -67,6 +67,12 @@ function plan(bookings: FloorAllocatorBooking[], tables: FloorAllocatorTable[]) 
       "royal-balcony": 40,
       "royal-booths": 138,
     },
+    zoneTableCeilings: {
+      "golden-circle": 24,
+      "middle-ring": 26,
+      "royal-balcony": 4,
+      "royal-booths": 23,
+    },
   });
 }
 
@@ -142,6 +148,12 @@ test("proposes approved physical capacity without crossing the zone ceiling", ()
       "royal-balcony": 40,
       "royal-booths": 138,
     },
+    zoneTableCeilings: {
+      "golden-circle": 24,
+      "middle-ring": 26,
+      "royal-balcony": 4,
+      "royal-booths": 23,
+    },
   });
 
   assert.equal(blocked.allocations.length, 0);
@@ -182,4 +194,39 @@ test("produces the same plan for an unchanged snapshot", () => {
   ];
 
   assert.deepEqual(plan(bookings, tables), plan(bookings, tables));
+});
+
+test("limits new physical planning inventory without moving preserved allocations", () => {
+  const preserved = booking("preserved", 2, "middle-ring", "table-2");
+  const result = buildInitialFloorPlan({
+    bookings: [preserved, booking("new-a", 2, "middle-ring"), booking("new-b", 2, "middle-ring")],
+    generatedAt: updatedAt,
+    showId,
+    snapshotToken: "snapshot",
+    tables: [
+      table("table-1", "middle-ring", { capacity: 2 }),
+      table("table-2", "middle-ring", {
+        bookingId: preserved.id,
+        capacity: 2,
+        status: "booked",
+      }),
+      table("table-3", "middle-ring", { capacity: 2 }),
+    ],
+    zoneCeilings: {
+      "golden-circle": 148,
+      "middle-ring": 132,
+      "royal-balcony": 40,
+      "royal-booths": 138,
+    },
+    zoneTableCeilings: {
+      "golden-circle": 24,
+      "middle-ring": 2,
+      "royal-balcony": 4,
+      "royal-booths": 23,
+    },
+  });
+
+  assert.deepEqual(result.preservedBookingIds, [preserved.id]);
+  assert.equal(result.allocations.length, 1);
+  assert.equal(result.unresolved.length, 1);
 });

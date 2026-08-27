@@ -122,6 +122,7 @@ type PlannerInput = {
   snapshotToken: string;
   tables: FloorAllocatorTable[];
   zoneCeilings: Record<FloorAllocatorZone, number>;
+  zoneTableCeilings: Record<FloorAllocatorZone, number>;
 };
 
 function isLegacyPlaceholder(
@@ -390,6 +391,29 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
       .reduce((total, booking) => total + booking.pax, 0);
     const zoneTables = input.tables.filter((table) => table.zone === zone);
     const zoneTableMap = new Map(zoneTables.map((table) => [table.id, table]));
+    const requiredPhysicalIds = new Set(
+      zoneTables.flatMap((table) => {
+        if (table.isPhysical && referencedTableIds.has(table.id)) return [table.id];
+        if (!table.isPhysical && table.mergedFrom.length > 0) return table.mergedFrom;
+        return [];
+      }),
+    );
+    const allowedPhysicalIds = new Set(requiredPhysicalIds);
+    const orderedPhysicalTables = zoneTables
+      .filter((table) => table.isPhysical)
+      .sort((left, right) =>
+        left.tableCode.localeCompare(right.tableCode, "en", { numeric: true }) ||
+        left.id.localeCompare(right.id),
+      );
+    const physicalPlanningLimit = Math.max(
+      input.zoneTableCeilings[zone],
+      requiredPhysicalIds.size,
+    );
+
+    for (const table of orderedPhysicalTables) {
+      if (allowedPhysicalIds.size >= physicalPlanningLimit) break;
+      allowedPhysicalIds.add(table.id);
+    }
     const activeCapacity = zoneTables.reduce((total, table) => {
       if (
         table.status === "disabled" ||
@@ -414,6 +438,7 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
           !referencedTableIds.has(table.id) &&
           !table.mergedParentId &&
           table.mergedFrom.length === 0 &&
+          (!table.isPhysical || allowedPhysicalIds.has(table.id)) &&
           ((table.capacityConfigured &&
             table.capacity !== null &&
             table.status === "available" &&

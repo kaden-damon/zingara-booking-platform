@@ -54,6 +54,7 @@ import {
   type SeatingZone,
   createShortBookingReference,
   createTicketCode,
+  calculateConfiguredDeposit,
   defaultVenueSettings,
   getConfiguredZoneDepositAmount,
   getConfiguredZonePrice,
@@ -282,18 +283,20 @@ function isAvailableForParty(
 function getRemainingSeats(
   option: SeatingOption,
   occupiedSeats: number,
+  settings: DemoVenueSettings = defaultVenueSettings,
 ) {
-  return getRemainingVenueSeatsForZone(option, occupiedSeats);
+  return getRemainingVenueSeatsForZone(option, occupiedSeats, settings);
 }
 
 function isAvailableForBooking(
   option: SeatingOption,
   guests: number,
   occupiedSeats = 0,
+  settings: DemoVenueSettings = defaultVenueSettings,
 ) {
   return (
     isAvailableForParty(option, guests) &&
-    getRemainingSeats(option, occupiedSeats) >= guests
+    getRemainingSeats(option, occupiedSeats, settings) >= guests
   );
 }
 
@@ -321,8 +324,9 @@ function getAvailabilityState(
   option: SeatingOption,
   guests: number,
   occupiedSeats: number,
+  settings: DemoVenueSettings = defaultVenueSettings,
 ) {
-  const remainingSeats = getRemainingSeats(option, occupiedSeats);
+  const remainingSeats = getRemainingSeats(option, occupiedSeats, settings);
   const isGroupSizeAvailable = isAvailableForParty(option, guests);
   const hasEnoughVenueCapacity = remainingSeats >= guests;
   const isAvailable = isGroupSizeAvailable && hasEnoughVenueCapacity;
@@ -654,6 +658,7 @@ export default function BookingPage() {
       ? getRemainingSeats(
           selectedZone,
           occupiedSeatsByZone[selectedZone.id] ?? 0,
+          venueConfig,
         )
       : undefined,
   );
@@ -699,7 +704,14 @@ export default function BookingPage() {
   const depositPerPerson = selectedZone
     ? getConfiguredZoneDepositAmount(venueConfig, selectedZone)
     : (venueConfig.operationalSettings.defaultDepositAmount ?? 0);
-  const depositAmount = Math.min(total, depositPerPerson * partySize);
+  const depositAmount = selectedZone
+    ? calculateConfiguredDeposit(
+        venueConfig,
+        selectedZone,
+        total,
+        partySize,
+      )
+    : Math.min(total, depositPerPerson * partySize);
   const depositPercentage =
     total > 0 ? (depositAmount / total) * 100 : 100;
   const amountDueNow =
@@ -820,6 +832,7 @@ export default function BookingPage() {
         zone,
         partySize,
         occupiedSeatsByZone[zone.id] ?? 0,
+        venueConfig,
       ),
     );
   const canJoinWaitlist =
@@ -1060,6 +1073,7 @@ export default function BookingPage() {
         currentZone,
         nextPartySize,
         occupiedSeatsByZone[currentZone.id] ?? 0,
+        venueConfig,
       )
         ? null
         : currentZone,
@@ -1070,6 +1084,7 @@ export default function BookingPage() {
         currentZone,
         nextPartySize,
         occupiedSeatsByZone[currentZone.id] ?? 0,
+        venueConfig,
       )
         ? null
         : currentZone,
@@ -1551,6 +1566,7 @@ export default function BookingPage() {
         selectedZone,
         partySize,
         occupiedSeatsByZone[selectedZone.id] ?? 0,
+        venueConfig,
       )
     ) {
       return;
@@ -1600,6 +1616,7 @@ export default function BookingPage() {
         selectedZone,
         partySize,
         occupiedSeatsByZone[selectedZone.id] ?? 0,
+        venueConfig,
       )
     ) {
       return;
@@ -1853,6 +1870,7 @@ export default function BookingPage() {
       option,
       partySize,
       occupiedSeatsByZone[option.id] ?? 0,
+      venueConfig,
     );
 
     return {
@@ -3462,6 +3480,7 @@ export default function BookingPage() {
                 previewSeatingZone,
                 partySize,
                 occupiedSeatsByZone[previewSeatingZone.id] ?? 0,
+                venueConfig,
               );
               const status = availability.availabilityMessage;
               const statusClass = !availability.isAvailable

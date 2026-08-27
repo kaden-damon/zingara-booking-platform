@@ -11,6 +11,8 @@ import {
   defaultVenueSettings,
   getDisplayZoneTitle,
   getVenueZoneSeatCapacity,
+  getConfiguredZoneMaxSeats,
+  normalizeVenueSettings,
   getZoneSectionLookupTitles,
   normalizeShowLocation,
   seatingZones,
@@ -1035,17 +1037,16 @@ async function loadVenueSettings(supabase: SupabaseClient) {
     throw error;
   }
 
-  return {
-    ...defaultVenueSettings,
-    ...(((data as { settings?: DemoVenueSettings | null } | null)?.settings ??
-      {}) as Partial<DemoVenueSettings>),
-  };
+  return normalizeVenueSettings(
+    (data as { settings?: DemoVenueSettings | null } | null)?.settings,
+  );
 }
 
 async function getRemainingSeatsForServerPricing(
   supabase: SupabaseClient,
   showId: string,
   booking: DemoBooking,
+  settings: DemoVenueSettings,
 ) {
   const zone = seatingZones.find((candidate) => candidate.id === booking.zoneId);
 
@@ -1076,7 +1077,7 @@ async function getRemainingSeatsForServerPricing(
   );
 
   return Math.max(
-    getVenueZoneSeatCapacity(zone.id) - occupiedSeats,
+    getConfiguredZoneMaxSeats(settings, zone) - occupiedSeats,
     0,
   );
 }
@@ -1097,6 +1098,7 @@ async function withAuthoritativePublicPricing(
     supabase,
     show.id,
     booking,
+    settings,
   );
   const preliminaryPricing = calculatePublicBookingPricing({
     addons: booking.addons,

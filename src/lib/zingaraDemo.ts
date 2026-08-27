@@ -51,6 +51,7 @@ export type DemoVenueSettings = {
     cancellationRule: string;
     checkInGraceMinutes: number;
     defaultDepositAmount?: number;
+    defaultDepositMode?: "fixed" | "percentage";
     defaultDepositPercentage: number;
     ticketRefreshSeconds: number;
     waitlistAutoPromotionEnabled: boolean;
@@ -95,7 +96,10 @@ export type DemoVenueSettings = {
     string,
     {
       depositAmount?: number;
+      depositMode?: "fixed" | "percentage";
       depositPercentage: number;
+      maxSeats?: number;
+      maxTables?: number;
       price: number;
     }
   >;
@@ -123,6 +127,7 @@ export const defaultVenueSettings: DemoVenueSettings = {
       "Refund review required for cancellations within 48 hours of showtime.",
     checkInGraceMinutes: 30,
     defaultDepositAmount: defaultStandardDepositPerPerson,
+    defaultDepositMode: "fixed",
     defaultDepositPercentage: 50,
     ticketRefreshSeconds: 20,
     waitlistAutoPromotionEnabled: false,
@@ -172,23 +177,35 @@ export const defaultVenueSettings: DemoVenueSettings = {
     },
     "golden-circle": {
       depositAmount: defaultStandardDepositPerPerson,
+      depositMode: "fixed",
       depositPercentage: 40,
-      price: 1470,
+      maxSeats: 148,
+      maxTables: 24,
+      price: 1540,
     },
     "middle-ring": {
       depositAmount: defaultStandardDepositPerPerson,
+      depositMode: "fixed",
       depositPercentage: 35,
-      price: 1260,
+      maxSeats: 132,
+      maxTables: 26,
+      price: 1320,
     },
     "royal-balcony": {
       depositAmount: defaultStandardDepositPerPerson,
+      depositMode: "fixed",
       depositPercentage: 50,
-      price: 1340,
+      maxSeats: 40,
+      maxTables: 4,
+      price: 1320,
     },
     "royal-booths": {
       depositAmount: defaultStandardDepositPerPerson,
+      depositMode: "fixed",
       depositPercentage: 50,
-      price: 1420,
+      maxSeats: 138,
+      maxTables: 23,
+      price: 1480,
     },
   },
 };
@@ -199,6 +216,14 @@ export const venueZoneSeatCapacities = {
   "middle-ring": 132,
   "royal-booths": 138,
   "royal-balcony": 40,
+} as const;
+
+export const venueZoneTableCapacities = {
+  "elevated-stage": 0,
+  "golden-circle": 24,
+  "middle-ring": 26,
+  "royal-booths": 23,
+  "royal-balcony": 4,
 } as const;
 
 export const totalVenueSeatCapacity = Object.values(
@@ -1335,6 +1360,87 @@ export function getConfiguredZoneDepositAmount(
     settings.operationalSettings.defaultDepositAmount ??
     defaultStandardDepositPerPerson
   );
+}
+
+export function getConfiguredZoneDepositMode(
+  settings: DemoVenueSettings,
+  zone: Pick<SeatingZone, "id">,
+) {
+  return (
+    settings.zonePricing[zone.id]?.depositMode ??
+    settings.operationalSettings.defaultDepositMode ??
+    "fixed"
+  );
+}
+
+export function getConfiguredZoneMaxSeats(
+  settings: DemoVenueSettings,
+  zone: Pick<SeatingZone, "id">,
+) {
+  return (
+    settings.zonePricing[zone.id]?.maxSeats ??
+    getVenueZoneSeatCapacity(zone.id)
+  );
+}
+
+export function getConfiguredZoneMaxTables(
+  settings: DemoVenueSettings,
+  zone: Pick<SeatingZone, "id">,
+) {
+  return (
+    settings.zonePricing[zone.id]?.maxTables ??
+    venueZoneTableCapacities[zone.id]
+  );
+}
+
+export function calculateConfiguredDeposit(
+  settings: DemoVenueSettings,
+  zone: Pick<SeatingZone, "depositPercentage" | "id">,
+  total: number,
+  partySize: number,
+) {
+  if (getConfiguredZoneDepositMode(settings, zone) === "percentage") {
+    return Math.min(
+      total,
+      Math.round(
+        total * (getConfiguredZoneDepositPercentage(settings, zone) / 100),
+      ),
+    );
+  }
+
+  return Math.min(
+    total,
+    getConfiguredZoneDepositAmount(settings, zone) * partySize,
+  );
+}
+
+export function normalizeVenueSettings(
+  settings?: Partial<DemoVenueSettings> | null,
+): DemoVenueSettings {
+  const incoming = settings ?? {};
+  const incomingZonePricing = incoming.zonePricing ?? {};
+  const zonePricing = Object.fromEntries(
+    Object.entries(defaultVenueSettings.zonePricing).map(([zoneId, defaults]) => [
+      zoneId,
+      { ...defaults, ...(incomingZonePricing[zoneId] ?? {}) },
+    ]),
+  );
+
+  for (const [zoneId, values] of Object.entries(incomingZonePricing)) {
+    if (!zonePricing[zoneId]) {
+      zonePricing[zoneId] = values;
+    }
+  }
+
+  return {
+    ...defaultVenueSettings,
+    ...incoming,
+    operationalSettings: {
+      ...defaultVenueSettings.operationalSettings,
+      ...(incoming.operationalSettings ?? {}),
+    },
+    zonePricing,
+  } as DemoVenueSettings;
 }
 
 export function getShowById(showId: string) {

@@ -5,9 +5,9 @@ import {
   type PromoDiscountType,
   type SeatingZone,
   defaultVenueSettings,
-  defaultStandardDepositPerPerson,
-  getConfiguredZoneDepositAmount,
+  calculateConfiguredDeposit,
   getConfiguredZonePrice,
+  getConfiguredZoneMaxSeats,
   getIncludedBookingFeeBreakdown,
   getVenueZoneSeatCapacity,
   seatingZones,
@@ -144,9 +144,10 @@ export function getDiscountAmount(
 export function getRemainingVenueSeatsForZone(
   option: Pick<SeatingZone, "id">,
   occupiedSeats: number,
+  settings: DemoVenueSettings = defaultVenueSettings,
 ) {
   return Math.max(
-    getVenueZoneSeatCapacity(option.id) - Math.max(occupiedSeats, 0),
+    getConfiguredZoneMaxSeats(settings, option) - Math.max(occupiedSeats, 0),
     0,
   );
 }
@@ -211,11 +212,12 @@ export function calculatePublicBookingPricing(
       ? Math.round(discountedSubtotal * serviceFeeRate)
       : 0;
   const total = discountedSubtotal + serviceFeeAmount;
-  const depositPerPerson =
-    getConfiguredZoneDepositAmount(settings, zone) ??
-    settings.operationalSettings.defaultDepositAmount ??
-    defaultStandardDepositPerPerson;
-  const depositAmount = Math.min(total, depositPerPerson * input.partySize);
+  const depositAmount = calculateConfiguredDeposit(
+    settings,
+    zone,
+    total,
+    input.partySize,
+  );
   const depositPercentage = total > 0 ? (depositAmount / total) * 100 : 100;
   const amountDueNow =
     input.paymentOption === "deposit" ? depositAmount : total;

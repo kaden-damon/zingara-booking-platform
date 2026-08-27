@@ -13,7 +13,11 @@ import {
 } from "@/lib/supabase/serverAdmin";
 import {
   normalizeShowLocation,
-  venueZoneSeatCapacities,
+  defaultVenueSettings,
+  getConfiguredZoneMaxSeats,
+  getConfiguredZoneMaxTables,
+  getZoneById,
+  normalizeVenueSettings,
 } from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
@@ -156,7 +160,7 @@ async function loadAuthoritativeFloorPlan(
     return null;
   }
 
-  const [bookingResult, tableResult, venueTableResult] = await Promise.all([
+  const [bookingResult, tableResult, venueTableResult, settingsResult] = await Promise.all([
     serviceClient
       .from("bookings")
       .select("id,booking_reference,show_id,table_id,section,guest_count,updated_at")
@@ -170,6 +174,11 @@ async function loadAuthoritativeFloorPlan(
     serviceClient
       .from("venue_tables")
       .select("id,is_physical,minimum_capacity,maximum_capacity,mergeable"),
+    serviceClient
+      .from("venue_settings")
+      .select("settings")
+      .eq("venue_key", defaultVenueSettings.venueId)
+      .maybeSingle(),
   ]);
 
   if (bookingResult.error) {
@@ -183,6 +192,14 @@ async function loadAuthoritativeFloorPlan(
   if (venueTableResult.error) {
     throw venueTableResult.error;
   }
+
+  if (settingsResult.error) {
+    throw settingsResult.error;
+  }
+
+  const venueSettings = normalizeVenueSettings(
+    (settingsResult.data as { settings?: Parameters<typeof normalizeVenueSettings>[0] } | null)?.settings,
+  );
 
   const bookingRows = (bookingResult.data ?? []) as BookingRow[];
   const tableRows = (tableResult.data ?? []) as ShowTableRow[];
@@ -206,6 +223,7 @@ async function loadAuthoritativeFloorPlan(
         tables: [...tableRows].sort((left, right) =>
           left.id.localeCompare(right.id),
         ),
+        venueConfiguration: venueSettings.zonePricing,
       }),
     )
     .digest("hex");
@@ -268,10 +286,16 @@ async function loadAuthoritativeFloorPlan(
     snapshotToken,
     tables,
     zoneCeilings: {
-      "golden-circle": venueZoneSeatCapacities["golden-circle"],
-      "middle-ring": venueZoneSeatCapacities["middle-ring"],
-      "royal-balcony": venueZoneSeatCapacities["royal-balcony"],
-      "royal-booths": venueZoneSeatCapacities["royal-booths"],
+      "golden-circle": getConfiguredZoneMaxSeats(venueSettings, getZoneById("golden-circle")!),
+      "middle-ring": getConfiguredZoneMaxSeats(venueSettings, getZoneById("middle-ring")!),
+      "royal-balcony": getConfiguredZoneMaxSeats(venueSettings, getZoneById("royal-balcony")!),
+      "royal-booths": getConfiguredZoneMaxSeats(venueSettings, getZoneById("royal-booths")!),
+    },
+    zoneTableCeilings: {
+      "golden-circle": getConfiguredZoneMaxTables(venueSettings, getZoneById("golden-circle")!),
+      "middle-ring": getConfiguredZoneMaxTables(venueSettings, getZoneById("middle-ring")!),
+      "royal-balcony": getConfiguredZoneMaxTables(venueSettings, getZoneById("royal-balcony")!),
+      "royal-booths": getConfiguredZoneMaxTables(venueSettings, getZoneById("royal-booths")!),
     },
   });
 

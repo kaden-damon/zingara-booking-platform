@@ -2,6 +2,7 @@ import {
   type DemoVenueSettings,
   defaultVenueSettings,
   getStoredVenueSettings,
+  normalizeVenueSettings,
   storeVenueSettings,
 } from "@/lib/zingaraDemo";
 import { fetchSupabaseApi } from "./apiClient";
@@ -23,12 +24,11 @@ function getVenueKey(settings: DemoVenueSettings) {
 }
 
 function toVenueSettings(row: SupabaseVenueSettingsRow) {
-  return {
-    ...defaultVenueSettings,
+  return normalizeVenueSettings({
     ...(row.settings ?? {}),
     venueId: row.venue_key || row.settings?.venueId || defaultVenueKey,
     venueName: row.name || row.settings?.venueName || defaultVenueSettings.venueName,
-  };
+  });
 }
 
 function toSupabaseVenueSettings(settings: DemoVenueSettings) {
@@ -73,23 +73,19 @@ export async function getVenueSettings() {
 }
 
 async function persistVenueSettingsToSupabase(settings: DemoVenueSettings) {
-  try {
-    const payload = await fetchSupabaseApi<{
-      settings: DemoVenueSettings | null;
-    }>("/api/admin/venue-settings", {
-      body: { settings },
-      method: "PUT",
-    });
+  const payload = await fetchSupabaseApi<{
+    settings: DemoVenueSettings | null;
+  }>("/api/admin/venue-settings", {
+    body: { settings },
+    method: "PUT",
+  });
 
-    return payload.settings ?? settings;
-  } catch (error) {
-    console.error("[Zingara Supabase] Failed to persist venue settings", error);
-    return settings;
-  }
+  return payload.settings ?? settings;
 }
 
 export async function saveVenueSettings(settings: DemoVenueSettings) {
-  storeVenueSettings(settings);
+  const persistedSettings = await persistVenueSettingsToSupabase(settings);
+  storeVenueSettings(persistedSettings);
 
-  return persistVenueSettingsToSupabase(settings);
+  return persistedSettings;
 }

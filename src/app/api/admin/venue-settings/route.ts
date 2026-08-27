@@ -1,9 +1,11 @@
 import {
   type DemoVenueSettings,
   defaultVenueSettings,
+  normalizeVenueSettings,
 } from "@/lib/zingaraDemo";
 import {
   getServiceClient,
+  isSuperAdminProfile,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 
@@ -26,12 +28,66 @@ function getVenueKey(settings: DemoVenueSettings) {
 }
 
 function toVenueSettings(row: SupabaseVenueSettingsRow) {
-  return {
-    ...defaultVenueSettings,
+  return normalizeVenueSettings({
     ...(row.settings ?? {}),
     venueId: row.venue_key || row.settings?.venueId || defaultVenueKey,
     venueName: row.name || row.settings?.venueName || defaultVenueSettings.venueName,
-  };
+  });
+}
+
+const configurableZones = [
+  "golden-circle",
+  "middle-ring",
+  "royal-booths",
+  "royal-balcony",
+] as const;
+
+function normalizeInventoryZone(section: string | null) {
+  const value = section?.trim().toLowerCase();
+
+  if (value === "golden circle" || value === "golden-circle") return "golden-circle";
+  if (value === "middle ring" || value === "middle-ring") return "middle-ring";
+  if (["private booths", "royal booths", "royal-booths"].includes(value ?? "")) return "royal-booths";
+  if (value === "royal balcony" || value === "royal-balcony") return "royal-balcony";
+  return null;
+}
+
+function validateConfiguration(
+  settings: DemoVenueSettings,
+  physicalCounts: Record<(typeof configurableZones)[number], number>,
+) {
+  const knownZoneIds = new Set([...configurableZones, "elevated-stage"]);
+  if (Object.keys(settings.zonePricing).some((zoneId) => !knownZoneIds.has(zoneId as (typeof configurableZones)[number] | "elevated-stage"))) {
+    return "Venue configuration contains an unknown seating zone.";
+  }
+
+  for (const zoneId of configurableZones) {
+    const zone = settings.zonePricing[zoneId];
+
+    if (!zone || !Number.isFinite(zone.price) || zone.price <= 0) {
+      return "Each zone requires a positive price.";
+    }
+    if (!Number.isFinite(zone.depositPercentage) || zone.depositPercentage < 0 || zone.depositPercentage > 100) {
+      return "Deposit percentages must be between 0 and 100.";
+    }
+    if (!Number.isFinite(Number(zone.depositAmount)) || Number(zone.depositAmount) <= 0) {
+      return "Fixed deposit amounts must be positive.";
+    }
+    if (!zone.depositMode || !["fixed", "percentage"].includes(zone.depositMode)) {
+      return "Select either fixed or percentage deposit mode for every zone.";
+    }
+    if (!Number.isInteger(zone.maxSeats) || Number(zone.maxSeats) <= 0) {
+      return "Maximum seats must be a positive whole number.";
+    }
+    if (!Number.isInteger(zone.maxTables) || Number(zone.maxTables) <= 0) {
+      return "Maximum tables must be a positive whole number.";
+    }
+    if (Number(zone.maxTables) > physicalCounts[zoneId]) {
+      return `Maximum tables for ${zoneId} cannot exceed the ${physicalCounts[zoneId]} physical tables in inventory.`;
+    }
+  }
+
+  return null;
 }
 
 function toSupabaseVenueSettings(settings: DemoVenueSettings) {
@@ -117,12 +173,42 @@ export async function PUT(request: Request) {
     return auth.error;
   }
 
+  if (!isSuperAdminProfile(auth.staffProfile)) {
+    return Response.json(
+      { error: "Super Admin access is required." },
+      { status: 403 },
+    );
+  }
+
   try {
     const body = (await request.json()) as { settings?: DemoVenueSettings };
-    const settings = body.settings;
+    const settings = body.settings ? normalizeVenueSettings(body.settings) : null;
 
     if (!settings) {
       return Response.json({ error: "Venue settings are required." }, { status: 400 });
+    }
+
+    const { data: venueTables, error: inventoryError } = await auth.serviceClient
+      .from("venue_tables")
+      .select("section,is_physical")
+      .eq("is_physical", true);
+
+    if (inventoryError) {
+      throw inventoryError;
+    }
+
+    const physicalCounts = Object.fromEntries(
+      configurableZones.map((zoneId) => [zoneId, 0]),
+    ) as Record<(typeof configurableZones)[number], number>;
+
+    for (const table of venueTables ?? []) {
+      const zoneId = normalizeInventoryZone(table.section);
+      if (zoneId) physicalCounts[zoneId] += 1;
+    }
+
+    const validationError = validateConfiguration(settings, physicalCounts);
+    if (validationError) {
+      return Response.json({ error: validationError }, { status: 400 });
     }
 
     const { error } = await auth.serviceClient
