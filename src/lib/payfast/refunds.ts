@@ -46,27 +46,39 @@ function encodePayFastApiValue(value: string) {
   return encodeURIComponent(value.trim()).replace(/%20/g, "+");
 }
 
-function createPayFastApiSignature(
+export function createPayFastApiParamString(
   values: Record<string, string>,
   passphrase?: string,
 ) {
-  const entries = Object.entries(values)
+  const signatureValues = passphrase?.trim()
+    ? { ...values, passphrase: passphrase.trim() }
+    : values;
+
+  return Object.entries(signatureValues)
     .filter(([, value]) => value !== "")
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}=${encodePayFastApiValue(value)}`);
+    .map(([key, value]) => `${key}=${encodePayFastApiValue(value)}`)
+    .join("&");
+}
 
-  if (passphrase?.trim()) {
-    entries.push(`passphrase=${encodePayFastApiValue(passphrase)}`);
-  }
+export function createPayFastApiSignature(
+  values: Record<string, string>,
+  passphrase?: string,
+) {
+  return createHash("md5")
+    .update(createPayFastApiParamString(values, passphrase))
+    .digest("hex");
+}
 
-  return createHash("md5").update(entries.join("&")).digest("hex");
+export function formatPayFastApiTimestamp(date: Date = new Date()) {
+  return date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
 }
 
 function createRefundHeaders(
   config: PayFastConfig,
   extraSignatureValues: Record<string, string> = {},
 ): PayFastRefundHeaders {
-  const timestamp = new Date().toISOString();
+  const timestamp = formatPayFastApiTimestamp();
   const signatureValues = {
     ...extraSignatureValues,
     "merchant-id": config.merchantId,
