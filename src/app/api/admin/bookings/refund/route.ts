@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getPayFastConfig } from "@/lib/payfast/config";
 import { notifyAppleWalletBooking } from "@/lib/appleWalletSync";
 import {
+  PayFastRefundRequestError,
   queryPayFastRefundAvailability,
   submitPayFastRefund,
 } from "@/lib/payfast/refunds";
@@ -10,10 +11,7 @@ import {
   requireActiveStaff,
   type StaffProfileRow,
 } from "@/lib/supabase/serverAdmin";
-import {
-  recordAuditEvent,
-  tryRecordAuditEvent,
-} from "@/lib/supabase/serverAudit";
+import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -172,23 +170,94 @@ async function loadBookingAndPayment(
   };
 }
 
-async function releaseTableClaims(
+function getRequestMetadata(request: Request) {
+  return {
+    ipAddress:
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      request.headers.get("x-real-ip") ??
+      null,
+    requestId:
+      request.headers.get("x-vercel-id") ??
+      request.headers.get("x-request-id") ??
+      crypto.randomUUID(),
+    userAgent: request.headers.get("user-agent"),
+  };
+}
+
+function getUnsupportedRefundMethodReason(
+  method: "bank_payout" | "not_available" | "payment_source" | "unknown",
+) {
+  if (method === "bank_payout") {
+    return "PayFast requires a manual bank-payout refund for this transaction.";
+  }
+
+  if (method === "not_available") {
+    return "PayFast does not offer an automatic full refund method for this transaction.";
+  }
+
+  return "PayFast did not return a supported automatic full refund method.";
+}
+
+async function updateRefundAttempt(
   serviceClient: SupabaseClient,
-  bookingId: string,
+  refundId: string,
+  values: Record<string, unknown>,
 ) {
   const { error } = await serviceClient
-    .from("show_tables")
+    .from("payment_refunds")
     .update({
-      booking_id: null,
-      status: "available",
+      ...values,
       updated_at: new Date().toISOString(),
     })
-    .eq("booking_id", bookingId)
-    .eq("status", "booked");
+    .eq("id", refundId);
 
   if (error) {
     throw error;
   }
+}
+
+async function reconcileAcceptedRefund(
+  serviceClient: SupabaseClient,
+  input: {
+    bookingId: string;
+    providerRefundId?: string | null;
+    providerResponse: Record<string, unknown>;
+    reason: string;
+    refundId: string;
+    request: Request;
+    staffProfile: StaffProfileRow;
+    user: { id: string };
+  },
+) {
+  const metadata = getRequestMetadata(input.request);
+  const { data, error } = await serviceClient.rpc(
+    "reconcile_payfast_refund_atomic",
+    {
+      p_actor_auth_user_id: input.user.id,
+      p_actor_location_scope: input.staffProfile.venue_scope ?? [],
+      p_actor_name: input.staffProfile.full_name,
+      p_actor_role: getStaffRole(input.staffProfile),
+      p_actor_staff_profile_id: input.staffProfile.id,
+      p_ip_address: metadata.ipAddress,
+      p_provider_refund_id: input.providerRefundId ?? null,
+      p_provider_response: getSafeProviderResponse(input.providerResponse),
+      p_reason: input.reason,
+      p_refund_id: input.refundId,
+      p_request_id: metadata.requestId,
+      p_user_agent: metadata.userAgent,
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  await notifyAppleWalletBooking(serviceClient, input.bookingId);
+  return data as {
+    booking_id: string;
+    booking_reference: string;
+    status: "already_reconciled" | "reconciled";
+  };
 }
 
 export async function GET(request: Request) {
@@ -256,7 +325,11 @@ export async function GET(request: Request) {
         .from("payment_refunds")
         .select("booking_id,refund_status")
         .in("booking_id", bookingIds)
-        .in("refund_status", ["processing", "accepted"]),
+        .in("refund_status", [
+          "processing",
+          "accepted",
+          "reconciliation_required",
+        ]),
     ]);
 
     if (bookingResult.error || refundResult.error) {
@@ -322,8 +395,10 @@ export async function GET(request: Request) {
             ? "Complimentary bookings cannot be refunded through PayFast."
             : refundStatus === "processing"
               ? "A refund is already processing for this booking."
-              : refundStatus === "accepted"
+            : refundStatus === "accepted"
                 ? "This booking is already marked as refunded."
+                : refundStatus === "reconciliation_required"
+                  ? "This refund has an unknown provider outcome and requires reconciliation before another attempt."
                 : providerPaymentTotal <= 0
                   ? "Refund amount is not valid for this payment."
                   : !fullRefundSupported
@@ -497,7 +572,11 @@ export async function POST(request: Request) {
       .from("payment_refunds")
       .select("id,refund_status")
       .eq("booking_id", booking.id)
-      .in("refund_status", ["processing", "accepted"])
+      .in("refund_status", [
+        "processing",
+        "accepted",
+        "reconciliation_required",
+      ])
       .limit(1)
       .maybeSingle();
 
@@ -506,6 +585,42 @@ export async function POST(request: Request) {
   }
 
   if (existingRefund) {
+    if (existingRefund.refund_status === "reconciliation_required") {
+      try {
+        const providerTruth = await queryPayFastRefundAvailability(
+          payment.provider_transaction_id,
+          config,
+        );
+
+        if (providerTruth.providerState === "refunded") {
+          await reconcileAcceptedRefund(auth.serviceClient, {
+            bookingId: booking.id,
+            providerResponse: providerTruth.raw,
+            reason,
+            refundId: existingRefund.id,
+            request,
+            staffProfile: auth.staffProfile,
+            user: auth.user,
+          });
+
+          return Response.json({
+            message: "Refund reconciled successfully.",
+            refund: { amount: refundAmount, status: "accepted" },
+          });
+        }
+      } catch {
+        // Keep the ambiguous attempt locked until provider truth is conclusive.
+      }
+
+      return Response.json(
+        {
+          error:
+            "This refund has an unknown provider outcome and requires reconciliation before another attempt.",
+        },
+        { status: 409 },
+      );
+    }
+
     return Response.json(
       {
         error:
@@ -543,32 +658,67 @@ export async function POST(request: Request) {
 
   const refundId = (refundRow as { id: string } | null)?.id;
 
+  if (!refundId) {
+    return Response.json(
+      { error: "Refund attempt could not be recorded." },
+      { status: 500 },
+    );
+  }
+
+  let availability: Awaited<ReturnType<typeof queryPayFastRefundAvailability>>;
+
   try {
-    const availability = await queryPayFastRefundAvailability(
+    availability = await queryPayFastRefundAvailability(
       payment.provider_transaction_id,
       config,
     );
+  } catch (error) {
+    await updateRefundAttempt(auth.serviceClient, refundId, {
+      provider_response: {
+        message:
+          error instanceof Error
+            ? error.message
+            : "PayFast refund availability could not be confirmed.",
+      },
+      refund_status: "failed",
+    });
 
-    if (!availability.refundable || refundAmount > availability.amountAvailable) {
-      await auth.serviceClient
-        .from("payment_refunds")
-        .update({
-          provider_response: getSafeProviderResponse(availability.raw),
-          refund_status: "failed",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", refundId);
+    return Response.json(
+      { error: "PayFast refund availability could not be confirmed." },
+      { status: 502 },
+    );
+  }
 
-      return Response.json(
-        {
-          error:
-            availability.reason ??
-            "PayFast reports that this transaction is not refundable.",
-        },
-        { status: 409 },
-      );
-    }
+  if (!availability.refundable || refundAmount > availability.amountAvailable) {
+    await updateRefundAttempt(auth.serviceClient, refundId, {
+      provider_response: getSafeProviderResponse(availability.raw),
+      refund_status: "failed",
+    });
 
+    return Response.json(
+      {
+        error:
+          availability.reason ??
+          "PayFast reports that this transaction is not refundable.",
+      },
+      { status: 409 },
+    );
+  }
+
+  if (availability.fullRefundMethod !== "payment_source") {
+    const unsupportedReason = getUnsupportedRefundMethodReason(
+      availability.fullRefundMethod,
+    );
+
+    await updateRefundAttempt(auth.serviceClient, refundId, {
+      provider_response: getSafeProviderResponse(availability.raw),
+      refund_status: "failed",
+    });
+
+    return Response.json({ error: unsupportedReason }, { status: 409 });
+  }
+
+  try {
     const providerRefund = await submitPayFastRefund(
       {
         amount: refundAmount,
@@ -580,16 +730,12 @@ export async function POST(request: Request) {
       config,
     );
 
-    if (providerRefund.status !== "accepted") {
-      await auth.serviceClient
-        .from("payment_refunds")
-        .update({
-          provider_response: getSafeProviderResponse(providerRefund.raw),
-          provider_refund_id: providerRefund.providerRefundId ?? null,
-          refund_status: "failed",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", refundId);
+    if (providerRefund.status === "rejected") {
+      await updateRefundAttempt(auth.serviceClient, refundId, {
+        provider_response: getSafeProviderResponse(providerRefund.raw),
+        provider_refund_id: providerRefund.providerRefundId ?? null,
+        refund_status: "failed",
+      });
 
       return Response.json(
         { error: "Refund could not be processed. No changes were made to the booking." },
@@ -597,166 +743,76 @@ export async function POST(request: Request) {
       );
     }
 
-    const now = new Date().toISOString();
-
-    await auth.serviceClient
-      .from("payment_refunds")
-      .update({
-        completed_at: now,
+    if (providerRefund.status === "unknown") {
+      await updateRefundAttempt(auth.serviceClient, refundId, {
         provider_response: getSafeProviderResponse(providerRefund.raw),
         provider_refund_id: providerRefund.providerRefundId ?? null,
-        refund_status: "accepted",
-        updated_at: now,
-      })
-      .eq("id", refundId);
-
-    try {
-      const { data: updatedBooking, error: bookingUpdateError } =
-        await auth.serviceClient
-          .from("bookings")
-          .update({
-            balance_outstanding: 0,
-            booking_status: "refunded",
-            payment_status: "refunded",
-            updated_at: now,
-          })
-          .eq("id", booking.id)
-          .select(refundSelect)
-          .maybeSingle();
-
-      if (bookingUpdateError) {
-        throw bookingUpdateError;
-      }
-
-      const { error: paymentUpdateError } = await auth.serviceClient
-        .from("payments")
-        .update({
-          notes: [
-            `PayFast refund processed: ${reason}`,
-            `Original paid amount preserved: ${payment.amount.toFixed(2)}`,
-          ].join("\n"),
-          payment_status: "refunded",
-          payment_type: "refund",
-        })
-        .eq("id", payment.id);
-
-      if (paymentUpdateError) {
-        throw paymentUpdateError;
-      }
-
-      await releaseTableClaims(auth.serviceClient, booking.id);
-
-      const { error: ticketUpdateError } = await auth.serviceClient
-        .from("tickets")
-        .update({
-          ticket_status: "refunded",
-          updated_at: now,
-        })
-        .eq("booking_id", booking.id);
-
-      if (ticketUpdateError) {
-        throw ticketUpdateError;
-      }
-
-      await auth.serviceClient.from("booking_lifecycle_events").insert({
-        booking_id: booking.id,
-        from_status: booking.booking_status,
-        note: reason,
-        reason,
-        to_status: "refunded",
+        refund_status: "reconciliation_required",
       });
-
-      await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
-        action: "booking.refund",
-        afterValues: {
-          amount: refundAmount,
-          payment_status: "refunded",
-          provider_result: providerRefund.status,
-        },
-        beforeValues: {
-          amount: payment.amount,
-          payment_status: booking.payment_status,
-        },
-        changedFields: ["payment_status", "booking_status", "refund_amount"],
-        entityId: booking.id,
-        entityReference: booking.booking_reference,
-        entityType: "booking",
-        outcome: "success",
-        reason,
-        request,
-        sourceArea: "Bookings",
-      });
-
-      await notifyAppleWalletBooking(auth.serviceClient, booking.id);
-
-      return Response.json({
-        booking: updatedBooking,
-        message: "Refund processed successfully.",
-        refund: {
-          amount: refundAmount,
-          providerRefundId: providerRefund.providerRefundId ?? null,
-          status: providerRefund.status,
-        },
-      });
-    } catch (stateError) {
-      await tryRecordAuditEvent(
-        auth.serviceClient,
-        auth.staffProfile,
-        auth.user,
-        {
-          action: "booking.refund",
-          entityId: booking.id,
-          entityReference: booking.booking_reference,
-          entityType: "booking",
-          outcome: "failed",
-          reason:
-            stateError instanceof Error
-              ? `PayFast accepted refund, but Zingara state update failed: ${stateError.message}`
-              : "PayFast accepted refund, but Zingara state update failed.",
-          request,
-          sourceArea: "Bookings",
-        },
-      );
 
       return Response.json(
         {
           error:
-            "PayFast accepted the refund, but Zingara could not complete local reconciliation. Escalate before retrying.",
+            "PayFast returned an unknown refund outcome. The booking is unchanged and another attempt is locked pending reconciliation.",
         },
-        { status: 500 },
+        { status: 502 },
       );
     }
-  } catch (error) {
-    await auth.serviceClient
-      .from("payment_refunds")
-      .update({
-        provider_response: {
-          message:
-            error instanceof Error
-              ? error.message
-              : "PayFast refund request failed.",
-        },
-        refund_status: "failed",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", refundId);
 
-    await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
-      action: "booking.refund",
-      entityId: booking.id,
-      entityReference: booking.booking_reference,
-      entityType: "booking",
-      outcome: "failed",
-      reason:
-        error instanceof Error
-          ? error.message
-          : "PayFast refund request failed.",
+    await reconcileAcceptedRefund(auth.serviceClient, {
+      bookingId: booking.id,
+      providerRefundId: providerRefund.providerRefundId,
+      providerResponse: providerRefund.raw,
+      reason,
+      refundId,
       request,
-      sourceArea: "Bookings",
+      staffProfile: auth.staffProfile,
+      user: auth.user,
     });
 
+    return Response.json({
+      message: "Refund processed successfully.",
+      refund: {
+        amount: refundAmount,
+        providerRefundId: providerRefund.providerRefundId ?? null,
+        status: providerRefund.status,
+      },
+    });
+  } catch (error) {
+    const definiteRejection =
+      error instanceof PayFastRefundRequestError && error.definiteRejection;
+
+    await updateRefundAttempt(auth.serviceClient, refundId, {
+      provider_response: {
+        message:
+          error instanceof Error
+            ? error.message
+            : "PayFast refund request failed.",
+      },
+      refund_status: definiteRejection
+        ? "failed"
+        : "reconciliation_required",
+    });
+
+    if (definiteRejection) {
+      await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+        action: "booking.refund",
+        entityId: booking.id,
+        entityReference: booking.booking_reference,
+        entityType: "booking",
+        outcome: "failed",
+        reason: error.message,
+        request,
+        sourceArea: "Bookings",
+      });
+    }
+
     return Response.json(
-      { error: "Refund could not be processed. No changes were made to the booking." },
+      {
+        error: definiteRejection
+          ? "Refund was rejected by PayFast. No changes were made to the booking."
+          : "PayFast returned an unknown refund outcome. The booking is unchanged and another attempt is locked pending reconciliation.",
+      },
       { status: 502 },
     );
   }

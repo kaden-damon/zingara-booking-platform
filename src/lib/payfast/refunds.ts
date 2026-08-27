@@ -13,6 +13,12 @@ type PayFastRefundFetch = typeof fetch;
 
 export type PayFastRefundAvailability = {
   amountAvailable: number;
+  fullRefundMethod:
+    | "bank_payout"
+    | "not_available"
+    | "payment_source"
+    | "unknown";
+  providerState: "not_available" | "refundable" | "refunded" | "unknown";
   raw: Record<string, unknown>;
   refundable: boolean;
   reason?: string;
@@ -21,8 +27,18 @@ export type PayFastRefundAvailability = {
 export type PayFastRefundResult = {
   providerRefundId?: string | null;
   raw: Record<string, unknown>;
-  status: "accepted" | "failed";
+  status: "accepted" | "rejected" | "unknown";
 };
+
+export class PayFastRefundRequestError extends Error {
+  definiteRejection: boolean;
+
+  constructor(message: string, definiteRejection: boolean) {
+    super(message);
+    this.name = "PayFastRefundRequestError";
+    this.definiteRejection = definiteRejection;
+  }
+}
 
 const payFastApiVersion = "v1";
 
@@ -127,10 +143,40 @@ async function parsePayFastJson(response: Response) {
           ? payload.error
           : "PayFast refund request failed.";
 
-    throw new Error(message);
+    const definiteRejection =
+      response.status >= 400 &&
+      response.status < 500 &&
+      ![408, 409, 425, 429].includes(response.status);
+
+    throw new PayFastRefundRequestError(message, definiteRejection);
   }
 
   return payload;
+}
+
+function getFullRefundMethod(data: Record<string, unknown>) {
+  const refundFull = data.refund_full;
+
+  if (!refundFull || typeof refundFull !== "object" || Array.isArray(refundFull)) {
+    return "unknown" as const;
+  }
+
+  const method = (refundFull as Record<string, unknown>).method;
+
+  if (typeof method !== "string") {
+    return "unknown" as const;
+  }
+
+  switch (method.trim().toUpperCase()) {
+    case "PAYMENT_SOURCE":
+      return "payment_source" as const;
+    case "BANK_PAYOUT":
+      return "bank_payout" as const;
+    case "NOT_AVAILABLE":
+      return "not_available" as const;
+    default:
+      return "unknown" as const;
+  }
 }
 
 export async function queryPayFastRefundAvailability(
@@ -153,12 +199,19 @@ export async function queryPayFastRefundAvailability(
     "available_refund_amount",
   ]);
   const status = getRefundableStatus(refundData);
-  const refundable =
-    amountAvailableInCents > 0 &&
-    !["NOT_AVAILABLE", "FAILED", "ERROR", "DECLINED"].includes(status);
+  const providerState =
+    status === "COMPLETED"
+      ? "refunded"
+      : status === "REFUNDABLE" && amountAvailableInCents > 0
+        ? "refundable"
+        : ["NOT_AVAILABLE", "FAILED", "ERROR", "DECLINED"].includes(status)
+          ? "not_available"
+          : "unknown";
 
   return {
     amountAvailable: amountAvailableInCents / 100,
+    fullRefundMethod: getFullRefundMethod(refundData),
+    providerState,
     raw,
     reason:
       typeof refundData.message === "string"
@@ -166,7 +219,7 @@ export async function queryPayFastRefundAvailability(
         : typeof refundData.reason === "string"
           ? refundData.reason
           : undefined,
-    refundable,
+    refundable: providerState === "refundable",
   };
 }
 
@@ -219,8 +272,8 @@ export async function submitPayFastRefund(
       refundData.response === true ||
       ["SUCCESS", "ACCEPTED", "REFUNDABLE"].includes(status)
         ? "accepted"
-        : ["FAILED", "ERROR", "DECLINED", "NOT_AVAILABLE"].includes(status)
-        ? "failed"
-        : "failed",
+      : ["FAILED", "ERROR", "DECLINED", "NOT_AVAILABLE"].includes(status)
+        ? "rejected"
+        : "unknown",
   };
 }
