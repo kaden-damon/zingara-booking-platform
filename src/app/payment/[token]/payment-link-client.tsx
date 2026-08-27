@@ -12,6 +12,7 @@ type PaymentLinkLookupResponse = {
     locationCode: string;
     locationLabel: string;
     outstandingAmount: number;
+    providerGrossAmount: number;
     paymentStatus: string;
     section: string;
     showDate: string | null;
@@ -20,6 +21,7 @@ type PaymentLinkLookupResponse = {
     status: string;
     tableNumber: string;
     totalAmount: number;
+    transactionFeeAmount: number;
   };
   error?: string;
 };
@@ -242,10 +244,24 @@ export default function PaymentLinkClient({ token }: { token: string }) {
                 </span>
               </p>
               <p>
-                <span className="text-zinc-500">Outstanding</span>
+                <span className="text-zinc-500">Amount Due</span>
                 <br />
                 <span className="font-semibold text-white">
                   {formatCurrency(booking.outstandingAmount)}
+                </span>
+              </p>
+              <p>
+                <span className="text-zinc-500">Transaction Fee</span>
+                <br />
+                <span className="font-semibold text-white">
+                  {formatCurrency(booking.transactionFeeAmount)}
+                </span>
+              </p>
+              <p className="sm:col-span-2">
+                <span className="text-zinc-500">Total Payable</span>
+                <br />
+                <span className="font-semibold text-[#F2D66C]">
+                  {formatCurrency(booking.providerGrossAmount)}
                 </span>
               </p>
             </div>

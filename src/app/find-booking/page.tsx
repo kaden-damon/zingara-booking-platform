@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { calculatePayFastTransactionAmounts } from "@/lib/payfast/transactionFee";
 
 type PayFastCheckoutResponse = {
   actionUrl?: string;
@@ -502,8 +503,24 @@ export default function FindBookingPage() {
                           Pending Payment
                         </p>
                         <p className="mt-2 text-sm text-zinc-300">
-                          Outstanding balance:{" "}
+                          Amount Due:{" "}
                           {formatCurrency(result.booking.balanceDue)}
+                        </p>
+                        <p className="mt-1 text-sm text-zinc-300">
+                          Transaction Fee:{" "}
+                          {formatCurrency(
+                            calculatePayFastTransactionAmounts(
+                              result.booking.balanceDue,
+                            ).transactionFeeAmount,
+                          )}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-white">
+                          Total Payable:{" "}
+                          {formatCurrency(
+                            calculatePayFastTransactionAmounts(
+                              result.booking.balanceDue,
+                            ).providerGrossAmount,
+                          )}
                         </p>
                         <p className="mt-1 text-xs text-zinc-500">
                           Secure online payment. Tickets are issued after

@@ -29,7 +29,7 @@ import {
   sendStaffPushNotification,
 } from "@/lib/supabase/staffPush";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { calculateOutstandingAmount } from "@/lib/paymentControls";
+import { calculatePayFastBookingReconciliation } from "@/lib/payfast/transactionFee";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -82,7 +82,15 @@ type PayFastCoreResult = {
 type PaymentAmountRow = {
   amount: number | null;
   payment_status: string;
+  provider_gross_amount: number | null;
   provider_transaction_id: string | null;
+  transaction_fee_amount: number | null;
+};
+
+type PayFastTransactionAmounts = {
+  bookingAppliedAmount: number;
+  providerGrossAmount: number;
+  transactionFeeAmount: number;
 };
 
 type CommunicationClaimResult = {
@@ -124,7 +132,24 @@ function getPaymentAmount(data: PayFastItnData) {
   return Number.parseFloat(data.amount_gross || data.amount_net || "0");
 }
 
-async function getExpectedPayFastAmount(
+function toStoredTransactionAmounts(payment: PaymentAmountRow) {
+  const bookingAppliedAmount = Math.max(Number(payment.amount) || 0, 0);
+  const transactionFeeAmount = Math.max(
+    Number(payment.transaction_fee_amount) || 0,
+    0,
+  );
+
+  return {
+    bookingAppliedAmount,
+    providerGrossAmount:
+      payment.provider_gross_amount === null
+        ? bookingAppliedAmount
+        : Math.max(Number(payment.provider_gross_amount) || 0, 0),
+    transactionFeeAmount,
+  } satisfies PayFastTransactionAmounts;
+}
+
+async function getExpectedPayFastAmounts(
   supabase: SupabaseClient,
   data: PayFastItnData,
   booking: DemoBooking,
@@ -133,7 +158,7 @@ async function getExpectedPayFastAmount(
   if (data.pf_payment_id) {
     const { data: confirmedPayment, error } = await supabase
       .from("payments")
-      .select("amount,payment_status,provider_transaction_id")
+      .select("amount,payment_status,provider_gross_amount,provider_transaction_id,transaction_fee_amount")
       .eq("booking_id", row.id)
       .eq("provider_transaction_id", data.pf_payment_id)
       .maybeSingle();
@@ -143,13 +168,13 @@ async function getExpectedPayFastAmount(
     }
 
     if (confirmedPayment) {
-      return Number((confirmedPayment as PaymentAmountRow).amount ?? 0);
+      return toStoredTransactionAmounts(confirmedPayment as PaymentAmountRow);
     }
   }
 
   const { data: pendingPayment, error } = await supabase
     .from("payments")
-    .select("amount,payment_status,provider_transaction_id")
+    .select("amount,payment_status,provider_gross_amount,provider_transaction_id,transaction_fee_amount")
     .eq("booking_id", row.id)
     .eq("payment_status", "pending_payment")
     .is("provider_transaction_id", null)
@@ -162,18 +187,30 @@ async function getExpectedPayFastAmount(
   }
 
   if (pendingPayment && Number((pendingPayment as PaymentAmountRow).amount) > 0) {
-    return Number((pendingPayment as PaymentAmountRow).amount);
+    return toStoredTransactionAmounts(pendingPayment as PaymentAmountRow);
   }
 
   const total = booking.totalPrice || row.total_amount || 0;
 
   if (booking.paymentOption === "deposit") {
-    return Number(
+    const bookingAppliedAmount = Number(
       ((total * (booking.depositPercentage ?? 50)) / 100).toFixed(2),
     );
+
+    return {
+      bookingAppliedAmount,
+      providerGrossAmount: bookingAppliedAmount,
+      transactionFeeAmount: 0,
+    };
   }
 
-  return Number(total.toFixed(2));
+  const bookingAppliedAmount = Number(total.toFixed(2));
+
+  return {
+    bookingAppliedAmount,
+    providerGrossAmount: bookingAppliedAmount,
+    transactionFeeAmount: 0,
+  };
 }
 
 function getPaymentOutcome(
@@ -183,8 +220,13 @@ function getPaymentOutcome(
 ) {
   const total = booking.totalPrice || row.total_amount || amountPaid;
   const previousAmountPaid = Math.max(Number(row.amount_paid) || 0, 0);
-  const cumulativeAmountPaid = Math.min(previousAmountPaid + amountPaid, total);
-  const balanceDue = calculateOutstandingAmount(total, cumulativeAmountPaid);
+  const reconciliation = calculatePayFastBookingReconciliation(
+    total,
+    previousAmountPaid,
+    amountPaid,
+  );
+  const cumulativeAmountPaid = reconciliation.amountPaid;
+  const balanceDue = reconciliation.outstandingAmount;
   const paymentStatus: PaymentStatus =
     balanceDue > 0
       ? "deposit_paid"
@@ -350,7 +392,7 @@ function createPayFastPaymentNotes(data: PayFastItnData) {
     `PayFast payment_status: ${data.payment_status ?? "UNKNOWN"}`,
     data.pf_payment_id ? `PayFast transaction: ${data.pf_payment_id}` : "",
     data.amount_gross ? `Gross: ${data.amount_gross}` : "",
-    data.amount_fee ? `Fee: ${data.amount_fee}` : "",
+    data.amount_fee ? `PayFast processor fee: ${data.amount_fee}` : "",
     data.amount_net ? `Net: ${data.amount_net}` : "",
   ]
     .filter(Boolean)
@@ -504,10 +546,27 @@ async function ensureCommunication(
     return null;
   }
 
+  const renderedMessage = renderCommunicationTemplate(
+    template.body,
+    booking,
+    show,
+  );
+  const paymentTransactionSummary =
+    trigger === "payment-confirmation" &&
+    typeof booking.lastProviderGrossAmount === "number" &&
+    typeof booking.lastTransactionFeeAmount === "number"
+      ? [
+          `Applied to booking: R${(booking.lastBookingAppliedAmount ?? 0).toFixed(2)}`,
+          `Transaction fee: R${booking.lastTransactionFeeAmount.toFixed(2)}`,
+          `Total paid: R${booking.lastProviderGrossAmount.toFixed(2)}`,
+        ].join("\n")
+      : "";
   const record: CommunicationRecord = createCommunicationRecord({
     booking,
     channel: template.channel,
-    message: renderCommunicationTemplate(template.body, booking, show),
+    message: paymentTransactionSummary
+      ? `${renderedMessage}\n\n${paymentTransactionSummary}`
+      : renderedMessage,
     subject: renderCommunicationTemplate(template.subject, booking, show),
     templateId: template.id,
     trigger,
@@ -566,15 +625,22 @@ async function confirmPayment(
   row: BookingRow,
   booking: DemoBooking,
   data: PayFastItnData,
+  transaction: PayFastTransactionAmounts,
 ) {
   const now = new Date().toISOString();
-  const amountPaid = getPaymentAmount(data);
-  const outcome = getPaymentOutcome(booking, amountPaid, row);
+  const outcome = getPaymentOutcome(
+    booking,
+    transaction.bookingAppliedAmount,
+    row,
+  );
   const ticketCode = booking.ticketCode ?? createTicketCode(booking.reference);
   const updatedBooking = {
     ...booking,
     amountPaid: outcome.amountPaid,
     balanceDue: outcome.balanceDue,
+    lastBookingAppliedAmount: transaction.bookingAppliedAmount,
+    lastProviderGrossAmount: transaction.providerGrossAmount,
+    lastTransactionFeeAmount: transaction.transactionFeeAmount,
     paymentDate: now,
     paymentStatus: outcome.paymentStatusForBooking,
     status: "confirmed",
@@ -589,7 +655,7 @@ async function confirmPayment(
     supabase,
     booking,
     outcome.paymentStatus,
-    amountPaid,
+    transaction.bookingAppliedAmount,
     outcome.paymentType,
     outcome.amountPaid,
     outcome.balanceDue,
@@ -733,7 +799,7 @@ export async function POST(request: Request) {
     const sourceIpValid = await verifyPayFastSourceIp(
       getPayFastRequestIp(request),
     );
-    const expectedAmount = await getExpectedPayFastAmount(
+    const expectedTransaction = await getExpectedPayFastAmounts(
       supabase,
       data,
       booking,
@@ -741,7 +807,7 @@ export async function POST(request: Request) {
     );
     const paymentAmount = getPaymentAmount(data);
     const paymentAmountValid =
-      Math.abs(expectedAmount - paymentAmount) <= 0.01;
+      Math.abs(expectedTransaction.providerGrossAmount - paymentAmount) <= 0.01;
     const serverValidationValid = await verifyPayFastServerConfirmation(
       config,
       pfParamString,
@@ -784,7 +850,13 @@ export async function POST(request: Request) {
       return Response.json({ ok: false, validation }, { status: 200 });
     }
 
-    const result = await confirmPayment(supabase, bookingRow, booking, data);
+    const result = await confirmPayment(
+      supabase,
+      bookingRow,
+      booking,
+      data,
+      expectedTransaction,
+    );
 
     if (
       result.status === "duplicate_provider_transaction" ||

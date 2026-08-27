@@ -1,22 +1,22 @@
-import { getPayFastConfig } from "@/lib/payfast/config";
 import {
-  createPayFastPaymentData,
-  createPayFastResultUrl,
-  getPayFastPaymentFormAction,
-} from "@/lib/payfast/payment";
+  createExistingBookingPayFastCheckout,
+  preparePayFastCheckoutAttempt,
+} from "@/lib/payfast/checkout";
+import { calculatePayFastTransactionAmounts } from "@/lib/payfast/transactionFee";
+import { calculateOutstandingAmount } from "@/lib/paymentControls";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { type DemoBooking } from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
 
 type CorporatePaymentCheckoutRequest = {
+  action?: "checkout" | "preview";
   bookingReference?: string;
   token?: string;
 };
 
 type BookingRow = {
   amount_paid: number;
-  balance_outstanding: number;
   booking_reference: string;
   notes: string | null;
   payment_status: string;
@@ -24,20 +24,6 @@ type BookingRow = {
 };
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
-
-function splitName(name: string | undefined) {
-  const trimmedName = name?.trim() ?? "";
-  const [firstName = "", ...surnameParts] = trimmedName.split(/\s+/);
-
-  return {
-    firstName,
-    lastName: surnameParts.join(" "),
-  };
-}
-
-function normalizePhone(phone: string | undefined) {
-  return phone?.replace(/[^\d+]/g, "") || undefined;
-}
 
 function parseBookingNotes(notes: string | null) {
   if (!notes?.startsWith(bookingMetadataPrefix)) {
@@ -75,7 +61,7 @@ export async function POST(request: Request) {
 
     const { data, error } = await serviceClient
       .from("bookings")
-      .select("booking_reference,total_amount,amount_paid,balance_outstanding,payment_status,notes")
+      .select("booking_reference,total_amount,amount_paid,payment_status,notes")
       .eq("booking_reference", bookingReference)
       .maybeSingle();
 
@@ -98,7 +84,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const balanceDue = Math.max(row.balance_outstanding ?? 0, 0);
+    const balanceDue = calculateOutstandingAmount(
+      row.total_amount,
+      row.amount_paid,
+    );
 
     if (balanceDue <= 0 || row.payment_status === "fully_paid") {
       return Response.json(
@@ -107,49 +96,49 @@ export async function POST(request: Request) {
       );
     }
 
-    const config = getPayFastConfig();
-    if (!config.configured) {
-      return Response.json(
-        { error: "Payment checkout is not configured." },
-        { status: 503 },
-      );
+    const transaction = calculatePayFastTransactionAmounts(balanceDue);
+
+    if (body.action === "preview") {
+      return Response.json({
+        bookingAppliedAmount: transaction.bookingAppliedAmount,
+        bookingReference,
+        providerGrossAmount: transaction.providerGrossAmount,
+        status: "preview",
+        transactionFeeAmount: transaction.transactionFeeAmount,
+      });
     }
 
-    const payFastConfig = {
-      ...config,
-      cancelUrl: createPayFastResultUrl(
-        config.cancelUrl,
-        "cancelled",
-        bookingReference,
-      ),
-      notifyUrl: config.notifyUrl,
-      returnUrl: createPayFastResultUrl(
-        config.returnUrl,
-        "return",
-        bookingReference,
-      ),
-    };
-    const { firstName, lastName } = splitName(booking.customer.name);
-    const paymentData = createPayFastPaymentData(
-      {
-        amount: balanceDue,
-        cellNumber: normalizePhone(booking.customer.phone),
-        customString1: bookingReference,
-        customString2: booking.zoneTitle,
-        emailAddress: booking.customer.email,
-        itemDescription: `Corporate booking payment ${bookingReference}`,
-        itemName: "The Royal Countess Zingara Corporate Booking",
-        merchantPaymentId: bookingReference,
-        nameFirst: firstName,
-        nameLast: lastName,
-      },
-      payFastConfig,
-    );
+    const attempt = await preparePayFastCheckoutAttempt(serviceClient, {
+      amount: balanceDue,
+      bookingReference,
+    });
+
+    if ("error" in attempt) {
+      return Response.json({ error: attempt.error }, { status: attempt.status });
+    }
+
+    const checkout = await createExistingBookingPayFastCheckout(serviceClient, {
+      amount: balanceDue,
+      bookingReference,
+      customer: booking.customer,
+      itemDescription: `Corporate booking payment ${bookingReference}`,
+      itemName: "The Royal Countess Zingara Corporate Booking",
+      preparedAmount: attempt.attempt.amount_due ?? balanceDue,
+      section: booking.zoneTitle,
+    });
+
+    if ("error" in checkout) {
+      return Response.json({ error: checkout.error }, { status: checkout.status });
+    }
 
     return Response.json({
-      actionUrl: getPayFastPaymentFormAction(payFastConfig),
-      fields: paymentData,
-      mode: payFastConfig.mode,
+      actionUrl: checkout.actionUrl,
+      bookingAppliedAmount: checkout.bookingAppliedAmount,
+      fields: checkout.fields,
+      mode: checkout.mode,
+      providerGrossAmount: checkout.providerGrossAmount,
+      status: "payfast",
+      transactionFeeAmount: checkout.transactionFeeAmount,
     });
   } catch (error) {
     console.error("[Zingara Corporate Payment] Checkout failed", error);

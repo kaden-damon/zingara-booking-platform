@@ -32,8 +32,10 @@ type SupabasePaymentRow = {
   payment_status: SupabasePaymentStatus;
   payment_type: SupabasePaymentType;
   processed_at: string | null;
+  provider_gross_amount?: number | null;
   provider_transaction_id?: string | null;
   reference: string | null;
+  transaction_fee_amount?: number | null;
 };
 
 function toSupabasePaymentStatus(status?: PaymentStatus): SupabasePaymentStatus {

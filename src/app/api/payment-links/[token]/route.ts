@@ -10,6 +10,7 @@ import {
   parseBookingMetadata,
 } from "@/lib/payment-links/customerPaymentLinks";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { calculatePayFastTransactionAmounts } from "@/lib/payfast/transactionFee";
 import {
   getShowLocationOption,
   normalizeShowLocation,
@@ -107,6 +108,7 @@ export async function GET(_request: Request, context: PaymentLinkContext) {
     const show = await loadShowForPaymentLink(supabase, booking.show_id);
     const metadata = parseBookingMetadata(booking.notes);
     const outstandingAmount = getOutstandingAmount(booking);
+    const transaction = calculatePayFastTransactionAmounts(outstandingAmount);
     const location = getShowLocationLabels(show?.venue);
     const showTime = getShowTimeLabel(show?.time);
     const showLabel =
@@ -124,6 +126,7 @@ export async function GET(_request: Request, context: PaymentLinkContext) {
         locationCode: location.code,
         locationLabel: location.label,
         outstandingAmount,
+        providerGrossAmount: transaction.providerGrossAmount,
         partySize: metadata?.partySize ?? null,
         paymentStatus: booking.payment_status,
         section: booking.section ?? metadata?.zoneTitle ?? "Not recorded",
@@ -133,6 +136,7 @@ export async function GET(_request: Request, context: PaymentLinkContext) {
         status: booking.booking_status,
         tableNumber: metadata?.tableNumber ?? "Not recorded",
         totalAmount: Math.max(Number(booking.total_amount) || 0, 0),
+        transactionFeeAmount: transaction.transactionFeeAmount,
       },
     });
   } catch (error) {

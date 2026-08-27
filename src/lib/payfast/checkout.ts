@@ -6,6 +6,7 @@ import {
 } from "@/lib/payfast/payment";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculateOutstandingAmount } from "@/lib/paymentControls";
+import { calculatePayFastTransactionAmounts } from "@/lib/payfast/transactionFee";
 
 export type PayFastCheckoutPayload = {
   amount?: number;
@@ -23,12 +24,15 @@ export type PayFastCheckoutPayload = {
 
 export type CheckoutAttemptResult = {
   amount_due?: number;
+  booking_applied_amount?: number;
   booking_id?: string;
   booking_status?: string;
   payment_id?: string;
   payment_status?: string;
+  provider_gross_amount?: number;
   reason?: string;
   status?: "blocked" | "missing" | "ready";
+  transaction_fee_amount?: number;
 };
 
 export type CheckoutBookingRow = {
@@ -72,10 +76,12 @@ export async function preparePayFastCheckoutAttempt(
   serviceClient: SupabaseClient,
   payload: PayFastCheckoutPayload,
 ) {
+  const transaction = calculatePayFastTransactionAmounts(payload.amount);
   const { data: attemptData, error: attemptError } =
     await serviceClient.rpc("prepare_payfast_checkout_attempt", {
-      p_amount: payload.amount,
+      p_amount: transaction.bookingAppliedAmount,
       p_booking_reference: payload.bookingReference,
+      p_transaction_fee: transaction.transactionFeeAmount,
     });
 
   if (attemptError) {
@@ -138,6 +144,7 @@ export async function createExistingBookingPayFastCheckout(
     typeof payload.preparedAmount === "number" && payload.preparedAmount > 0
       ? payload.preparedAmount
       : authoritativeAmount;
+  const transaction = calculatePayFastTransactionAmounts(checkoutAmount);
 
   if (checkoutAmount <= 0 || checkoutAmount - authoritativeAmount > 0.01) {
     return {
@@ -171,7 +178,7 @@ export async function createExistingBookingPayFastCheckout(
   const { firstName, lastName } = splitName(payload.customer?.name);
   const paymentData = createPayFastPaymentData(
     {
-      amount: checkoutAmount,
+      amount: transaction.providerGrossAmount,
       cellNumber: normalizePhone(payload.customer?.phone),
       customString1: payload.bookingReference,
       customString2: payload.section,
@@ -189,8 +196,11 @@ export async function createExistingBookingPayFastCheckout(
 
   return {
     actionUrl: getPayFastPaymentFormAction(payFastConfig),
+    bookingAppliedAmount: transaction.bookingAppliedAmount,
     fields: paymentData,
     mode: payFastConfig.mode,
+    providerGrossAmount: transaction.providerGrossAmount,
     status: 200,
+    transactionFeeAmount: transaction.transactionFeeAmount,
   };
 }

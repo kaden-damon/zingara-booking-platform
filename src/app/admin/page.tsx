@@ -9398,6 +9398,9 @@ function getBookingFinancials(booking: DemoBooking) {
     discountAmount: booking.discountAmount ?? 0,
     paymentOption: booking.paymentOption ?? "full",
     paymentStatus,
+    lastBookingAppliedAmount: booking.lastBookingAppliedAmount,
+    lastProviderGrossAmount: booking.lastProviderGrossAmount,
+    lastTransactionFeeAmount: booking.lastTransactionFeeAmount,
     serviceFeeAmount: booking.serviceFeeAmount ?? 0,
     subtotalPrice,
     ticketAmount: ticketBreakdown.ticketAmount,
@@ -38335,6 +38338,16 @@ export default function AdminDashboardPage() {
             >
               {paginatedBookings.map((booking) => {
                 const financials = getBookingFinancials(booking);
+                const bookingPayments = paymentRows.filter(
+                  (payment) =>
+                    payment.booking_id === booking.supabaseBookingId ||
+                    payment.reference === booking.reference,
+                );
+                const hasPayFastTransactionDetails = bookingPayments.some(
+                  (payment) =>
+                    payment.provider_gross_amount !== null &&
+                    payment.provider_gross_amount !== undefined,
+                );
                 const refundUnavailableReason =
                   getRefundUnavailableReason(booking);
                 const currentTable = tables.find(
@@ -38613,10 +38626,18 @@ export default function AdminDashboardPage() {
                           <div className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5">
                     <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-zinc-400">
                       <p>
-                        Ticket{" "}
-                        {formatCurrency(financials.ticketAmount)}
-                        {" · "}Booking Fee{" "}
-                        {formatCurrency(financials.bookingFeeAmount)}
+                        {hasPayFastTransactionDetails ? "Booking Subtotal " : "Ticket "}
+                        {formatCurrency(
+                          hasPayFastTransactionDetails
+                            ? financials.subtotalPrice
+                            : financials.ticketAmount,
+                        )}
+                        {!hasPayFastTransactionDetails && (
+                          <>
+                            {" · "}Booking Fee{" "}
+                            {formatCurrency(financials.bookingFeeAmount)}
+                          </>
+                        )}
                         {" · "}Subtotal{" "}
                         {formatCurrency(financials.subtotalPrice)}
                         {" · "}Add-ons{" "}
@@ -39163,6 +39184,31 @@ export default function AdminDashboardPage() {
                                   ),
                                 )}
                               </p>
+                              {bookingPayments
+                                .filter(
+                                  (payment) =>
+                                    payment.provider_gross_amount !== null &&
+                                    payment.provider_gross_amount !== undefined,
+                                )
+                                .map((payment) => (
+                                  <p
+                                    key={payment.id}
+                                    className="mt-1 text-xs text-zinc-400"
+                                  >
+                                    PayFast payment · Applied{" "}
+                                    {formatCurrency(payment.amount ?? 0)} ·
+                                    Transaction Fee{" "}
+                                    {formatCurrency(
+                                      payment.transaction_fee_amount ?? 0,
+                                    )}{" "}
+                                    · Total Paid{" "}
+                                    {formatCurrency(
+                                      payment.provider_gross_amount ??
+                                        payment.amount ??
+                                        0,
+                                    )}
+                                  </p>
+                                ))}
                             </div>
                             <div className="flex flex-wrap gap-2">
                               <button

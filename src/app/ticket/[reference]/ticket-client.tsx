@@ -131,6 +131,9 @@ export default function LiveTicketClient({
         ),
       )
     : null;
+  const hasPayFastTransactionSummary =
+    typeof booking?.lastProviderGrossAmount === "number" &&
+    typeof booking?.lastTransactionFeeAmount === "number";
   const paymentStatus = booking ? getPaymentStatus(booking) : undefined;
   const showLocation = normalizeShowLocation(
     show?.location ?? show?.venueName,
@@ -627,7 +630,23 @@ export default function LiveTicketClient({
                   Payment Summary
                 </p>
                 <p className="mt-2 text-sm text-zinc-400">
-                  {includedBookingFeeBreakdown && (
+                  {hasPayFastTransactionSummary ? (
+                    <>
+                      Applied to Booking{" "}
+                      {formatCurrency(
+                        booking.lastBookingAppliedAmount ?? 0,
+                      )}{" "}
+                      · Transaction Fee{" "}
+                      {formatCurrency(
+                        booking.lastTransactionFeeAmount ?? 0,
+                      )}{" "}
+                      · Total Paid{" "}
+                      {formatCurrency(
+                        booking.lastProviderGrossAmount ?? 0,
+                      )}{" "}
+                      ·{" "}
+                    </>
+                  ) : includedBookingFeeBreakdown ? (
                     <>
                       Ticket{" "}
                       {formatCurrency(
@@ -639,7 +658,7 @@ export default function LiveTicketClient({
                       )}{" "}
                       ·{" "}
                     </>
-                  )}
+                  ) : null}
                   Paid {formatCurrency(booking.amountPaid ?? 0)} · Balance{" "}
                   {formatCurrency(booking.balanceDue ?? 0)}
                 </p>

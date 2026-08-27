@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await auth.serviceClient
     .from("payments")
-    .select("id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at,provider_transaction_id")
+    .select("id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at,provider_gross_amount,provider_transaction_id,transaction_fee_amount")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -70,7 +70,9 @@ type ExistingPayment = {
   method: string | null;
   notes: string | null;
   processed_at: string | null;
+  provider_gross_amount?: number | null;
   provider_transaction_id?: string | null;
+  transaction_fee_amount?: number | null;
 };
 
 function toSupabasePaymentStatus(status?: PaymentStatus): SupabasePaymentStatus {
@@ -161,8 +163,10 @@ function getPaymentPayload(
       existingPayment?.provider_transaction_id || isRefunded
         ? existingPayment?.processed_at ?? new Date().toISOString()
         : new Date().toISOString(),
+    provider_gross_amount: existingPayment?.provider_gross_amount ?? null,
     provider_transaction_id: existingPayment?.provider_transaction_id ?? null,
     reference: booking.reference,
+    transaction_fee_amount: existingPayment?.transaction_fee_amount ?? null,
   };
 }
 
@@ -190,7 +194,9 @@ async function upsertPayment(
 
   const { data: existingRows, error: loadError } = await supabase
     .from("payments")
-    .select("id,amount,method,notes,processed_at,provider_transaction_id")
+    .select(
+      "id,amount,method,notes,processed_at,provider_gross_amount,provider_transaction_id,transaction_fee_amount",
+    )
     .eq("reference", booking.reference)
     .limit(1);
 
@@ -205,7 +211,9 @@ async function upsertPayment(
     ? supabase.from("payments").update(payload).eq("id", existingId)
     : supabase.from("payments").insert(payload);
   const { data, error } = await query
-    .select("id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at,provider_transaction_id")
+    .select(
+      "id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at,provider_gross_amount,provider_transaction_id,transaction_fee_amount",
+    )
     .maybeSingle();
 
   if (error) {

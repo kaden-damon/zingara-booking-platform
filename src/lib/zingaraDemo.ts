@@ -566,6 +566,9 @@ export type DemoBooking = {
   depositPercentage?: number;
   amountPaid?: number;
   balanceDue?: number;
+  lastBookingAppliedAmount?: number;
+  lastProviderGrossAmount?: number;
+  lastTransactionFeeAmount?: number;
   guestTickets?: GuestTicket[];
   corporatePaymentLinkSentAt?: string;
   corporatePaymentToken?: string;

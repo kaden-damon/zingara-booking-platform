@@ -239,8 +239,11 @@ export async function POST(request: Request) {
 
     return Response.json({
       actionUrl: checkout.actionUrl,
+      bookingAppliedAmount: checkout.bookingAppliedAmount,
       fields: checkout.fields,
       mode: checkout.mode,
+      providerGrossAmount: checkout.providerGrossAmount,
+      transactionFeeAmount: checkout.transactionFeeAmount,
     });
   } catch (error) {
     console.error("[Zingara PayFast] Checkout payload failed", error);

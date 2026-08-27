@@ -60,11 +60,11 @@ import {
   getConfiguredZonePrice,
   getCompactShowDateTime,
   getSouthAfricaShowTime,
-  getIncludedBookingFeeBreakdown,
   getTicketUrl,
   normalizeShowLocation,
   seatingZones,
 } from "../../lib/zingaraDemo";
+import { calculatePayFastTransactionAmounts } from "../../lib/payfast/transactionFee";
 
 type SeatingOption = SeatingZone;
 
@@ -677,8 +677,6 @@ export default function BookingPage() {
   );
   const seatingSubtotal =
     selectedZone ? dynamicPricePerPerson * partySize : 0;
-  const includedBookingFeeBreakdown =
-    getIncludedBookingFeeBreakdown(seatingSubtotal);
   const subtotal = seatingSubtotal + addonsTotal;
   const fallbackPromoCode = getPromoCode(promoCodeInput);
   const appliedPromoCode =
@@ -716,6 +714,8 @@ export default function BookingPage() {
     total > 0 ? (depositAmount / total) * 100 : 100;
   const amountDueNow =
     paymentOption === "deposit" ? depositAmount : total;
+  const payFastTransaction =
+    calculatePayFastTransactionAmounts(amountDueNow);
   const balanceDue = Math.max(total - amountDueNow, 0);
   const selectedShow = shows.find(
     (show) => show.id === selectedShowId,
@@ -3392,20 +3392,8 @@ export default function BookingPage() {
 
                   <div className="mb-3 rounded-xl border border-white/10 bg-black/25 p-3 text-sm text-zinc-300 sm:mb-4 sm:rounded-2xl sm:p-4">
                     <div className="flex justify-between gap-4">
-                      <span>Ticket</span>
-                      <span>
-                        {formatCurrency(
-                          includedBookingFeeBreakdown.ticketAmount,
-                        )}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex justify-between gap-4">
-                      <span>Booking Fee</span>
-                      <span>
-                        {formatCurrency(
-                          includedBookingFeeBreakdown.bookingFee,
-                        )}
-                      </span>
+                      <span>Seating</span>
+                      <span>{formatCurrency(seatingSubtotal)}</span>
                     </div>
                     <div className="mt-2 flex justify-between gap-4">
                       <span>Add-Ons</span>
@@ -3432,8 +3420,30 @@ export default function BookingPage() {
                       <span>{formatCurrency(total)}</span>
                     </div>
                     <div className="mt-2 flex justify-between gap-4">
-                      <span>Due Today</span>
-                      <span>{formatCurrency(amountDueNow)}</span>
+                      <span>Booking Amount Due</span>
+                      <span>
+                        {formatCurrency(
+                          payFastTransaction.bookingAppliedAmount,
+                        )}
+                      </span>
+                    </div>
+                    {payFastTransaction.transactionFeeAmount > 0 && (
+                      <div className="mt-2 flex justify-between gap-4">
+                        <span>Transaction Fee</span>
+                        <span>
+                          {formatCurrency(
+                            payFastTransaction.transactionFeeAmount,
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    <div className="mt-2 flex justify-between gap-4 font-semibold text-white">
+                      <span>Total Payable Today</span>
+                      <span>
+                        {formatCurrency(
+                          payFastTransaction.providerGrossAmount,
+                        )}
+                      </span>
                     </div>
                     {balanceDue > 0 && (
                       <div className="mt-2 flex justify-between gap-4">
@@ -3673,7 +3683,11 @@ export default function BookingPage() {
                     : "Full Payment"}
                 </p>
                 <p className="mt-1.5 text-sm text-zinc-300 sm:mt-2">
-                  Due today: {formatCurrency(amountDueNow)}
+                  Booking amount due today: {formatCurrency(amountDueNow)}
+                  {payFastTransaction.transactionFeeAmount > 0 &&
+                    ` · Transaction fee: ${formatCurrency(payFastTransaction.transactionFeeAmount)}`}
+                  {payFastTransaction.providerGrossAmount > 0 &&
+                    ` · Total payable: ${formatCurrency(payFastTransaction.providerGrossAmount)}`}
                   {balanceDue > 0 &&
                     ` · Balance due: ${formatCurrency(balanceDue)}`}
                 </p>
@@ -3681,20 +3695,8 @@ export default function BookingPage() {
 
               <div className="col-span-2 rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3 text-sm text-zinc-300 sm:rounded-2xl sm:p-4">
                 <div className="flex justify-between gap-4">
-                  <span>Ticket</span>
-                  <span>
-                    {formatCurrency(
-                      includedBookingFeeBreakdown.ticketAmount,
-                    )}
-                  </span>
-                </div>
-                <div className="mt-2 flex justify-between gap-4">
-                  <span>Booking Fee</span>
-                  <span>
-                    {formatCurrency(
-                      includedBookingFeeBreakdown.bookingFee,
-                    )}
-                  </span>
+                  <span>Seating</span>
+                  <span>{formatCurrency(seatingSubtotal)}</span>
                 </div>
                 <div className="mt-2 flex justify-between gap-4">
                   <span>Add-Ons</span>
@@ -3921,30 +3923,30 @@ export default function BookingPage() {
                       </div>
                       <div>
                         <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
-                          Ticket
-                        </p>
-                        <p className="mt-1 text-base font-bold sm:text-lg">
-                          {formatCurrency(
-                            includedBookingFeeBreakdown.ticketAmount,
-                          )}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
-                          Booking Fee
-                        </p>
-                        <p className="mt-1 text-base font-bold sm:text-lg">
-                          {formatCurrency(
-                            includedBookingFeeBreakdown.bookingFee,
-                          )}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
-                          Paid Today
+                          Booking Amount
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
                           {formatCurrency(amountDueNow)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
+                          Transaction Fee
+                        </p>
+                        <p className="mt-1 text-base font-bold sm:text-lg">
+                          {formatCurrency(
+                            payFastTransaction.transactionFeeAmount,
+                          )}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
+                          Total Paid
+                        </p>
+                        <p className="mt-1 text-base font-bold sm:text-lg">
+                          {formatCurrency(
+                            payFastTransaction.providerGrossAmount,
+                          )}
                         </p>
                       </div>
                       <div>
@@ -4007,25 +4009,25 @@ export default function BookingPage() {
                           )}
                           <p>
                             <span className="text-zinc-500">
-                              Ticket:
-                            </span>{" "}
-                            {formatCurrency(
-                              includedBookingFeeBreakdown.ticketAmount,
-                            )}
-                          </p>
-                          <p>
-                            <span className="text-zinc-500">
-                              Booking Fee:
-                            </span>{" "}
-                            {formatCurrency(
-                              includedBookingFeeBreakdown.bookingFee,
-                            )}
-                          </p>
-                          <p>
-                            <span className="text-zinc-500">
-                              Paid:
+                              Booking Amount:
                             </span>{" "}
                             {formatCurrency(amountDueNow)}
+                          </p>
+                          <p>
+                            <span className="text-zinc-500">
+                              Transaction Fee:
+                            </span>{" "}
+                            {formatCurrency(
+                              payFastTransaction.transactionFeeAmount,
+                            )}
+                          </p>
+                          <p>
+                            <span className="text-zinc-500">
+                              Total Paid:
+                            </span>{" "}
+                            {formatCurrency(
+                              payFastTransaction.providerGrossAmount,
+                            )}
                           </p>
                           {balanceDue > 0 && (
                             <p>

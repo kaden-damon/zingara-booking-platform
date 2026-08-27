@@ -38,6 +38,7 @@ type PaymentRefundRow = {
   method: string | null;
   payment_status: string;
   payment_type: string;
+  provider_gross_amount: number | null;
   provider_transaction_id: string | null;
   reference: string | null;
 };
@@ -147,7 +148,7 @@ async function loadBookingAndPayment(
   const { data: paymentRows, error: paymentError } = await serviceClient
     .from("payments")
     .select(
-      "id,booking_id,payment_type,payment_status,amount,method,reference,provider_transaction_id",
+      "id,booking_id,payment_type,payment_status,amount,method,reference,provider_gross_amount,provider_transaction_id",
     )
     .eq("booking_id", (booking as BookingRefundRow).id)
     .eq("method", "payfast")
@@ -293,7 +294,7 @@ export async function GET(request: Request) {
   const { data: payments, error: paymentsError } = await auth.serviceClient
     .from("payments")
     .select(
-      "id,booking_id,amount,method,payment_status,provider_transaction_id",
+      "id,booking_id,amount,method,payment_status,provider_gross_amount,provider_transaction_id",
     )
     .eq("method", "payfast")
     .not("provider_transaction_id", "is", null)
@@ -549,7 +550,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const refundAmount = payment.amount;
+  const refundAmount =
+    payment.provider_gross_amount === null ||
+    payment.provider_gross_amount === undefined
+      ? payment.amount
+      : payment.provider_gross_amount;
 
   if (refundAmount <= 0) {
     return Response.json(
