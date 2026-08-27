@@ -1435,6 +1435,27 @@ async function persistBookingStateUpdate(request: Request, body: {
       );
     }
 
+    const beforeStatus = (beforeBooking as { booking_status?: string })
+      .booking_status;
+    const beforePaymentStatus = (
+      beforeBooking as { payment_status?: string }
+    ).payment_status;
+
+    if (
+      (toSupabaseBookingStatus(booking.status) === "refunded" ||
+        toSupabasePaymentStatus(booking.paymentStatus) === "refunded") &&
+      beforeStatus !== "refunded" &&
+      beforePaymentStatus !== "refunded"
+    ) {
+      return Response.json(
+        {
+          error:
+            "Use Refund Booking so provider eligibility and refund history are verified.",
+        },
+        { status: 409 },
+      );
+    }
+
     if ((beforeBooking as { archived_at?: string | null }).archived_at) {
       const actor = await getAuditActor(request);
 

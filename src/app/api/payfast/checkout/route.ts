@@ -167,6 +167,7 @@ export async function POST(request: Request) {
       serviceClient,
       {
         amount: body.amount,
+        preparedAmount: attemptResult.attempt.amount_due,
         bookingReference: body.bookingReference,
         customer: body.customer,
         itemDescription: body.itemDescription,

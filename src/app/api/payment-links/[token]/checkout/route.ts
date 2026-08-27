@@ -94,6 +94,7 @@ export async function POST(_request: Request, context: PaymentLinkCheckoutContex
     }
 
     const outstandingAmount = getOutstandingAmount(booking);
+    let preparedAmount = outstandingAmount;
 
     if (outstandingAmount > 0) {
       const attempt = await preparePayFastCheckoutAttempt(supabase, {
@@ -107,6 +108,8 @@ export async function POST(_request: Request, context: PaymentLinkCheckoutContex
           { status: attempt.status },
         );
       }
+
+      preparedAmount = attempt.attempt.amount_due ?? outstandingAmount;
     }
 
     const customer = await loadCustomerForPaymentLink(
@@ -117,6 +120,7 @@ export async function POST(_request: Request, context: PaymentLinkCheckoutContex
       supabase,
       booking,
       customer,
+      preparedAmount,
     );
 
     if (checkout.status === "already_paid") {

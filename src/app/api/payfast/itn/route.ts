@@ -29,6 +29,7 @@ import {
   sendStaffPushNotification,
 } from "@/lib/supabase/staffPush";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { calculateOutstandingAmount } from "@/lib/paymentControls";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -67,6 +68,7 @@ type ShowRow = {
 };
 
 type PayFastCoreResult = {
+  booking_was_confirmed?: boolean;
   booking_id?: string;
   payment_id?: string;
   status:
@@ -75,6 +77,12 @@ type PayFastCoreResult = {
     | "missing"
     | "processed";
   was_confirmed?: boolean;
+};
+
+type PaymentAmountRow = {
+  amount: number | null;
+  payment_status: string;
+  provider_transaction_id: string | null;
 };
 
 type CommunicationClaimResult = {
@@ -116,7 +124,47 @@ function getPaymentAmount(data: PayFastItnData) {
   return Number.parseFloat(data.amount_gross || data.amount_net || "0");
 }
 
-function getExpectedPayFastAmount(booking: DemoBooking, row: BookingRow) {
+async function getExpectedPayFastAmount(
+  supabase: SupabaseClient,
+  data: PayFastItnData,
+  booking: DemoBooking,
+  row: BookingRow,
+) {
+  if (data.pf_payment_id) {
+    const { data: confirmedPayment, error } = await supabase
+      .from("payments")
+      .select("amount,payment_status,provider_transaction_id")
+      .eq("booking_id", row.id)
+      .eq("provider_transaction_id", data.pf_payment_id)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (confirmedPayment) {
+      return Number((confirmedPayment as PaymentAmountRow).amount ?? 0);
+    }
+  }
+
+  const { data: pendingPayment, error } = await supabase
+    .from("payments")
+    .select("amount,payment_status,provider_transaction_id")
+    .eq("booking_id", row.id)
+    .eq("payment_status", "pending_payment")
+    .is("provider_transaction_id", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (pendingPayment && Number((pendingPayment as PaymentAmountRow).amount) > 0) {
+    return Number((pendingPayment as PaymentAmountRow).amount);
+  }
+
   const total = booking.totalPrice || row.total_amount || 0;
 
   if (booking.paymentOption === "deposit") {
@@ -134,20 +182,23 @@ function getPaymentOutcome(
   row: BookingRow,
 ) {
   const total = booking.totalPrice || row.total_amount || amountPaid;
-  const balanceDue = Math.max(total - amountPaid, 0);
+  const previousAmountPaid = Math.max(Number(row.amount_paid) || 0, 0);
+  const cumulativeAmountPaid = Math.min(previousAmountPaid + amountPaid, total);
+  const balanceDue = calculateOutstandingAmount(total, cumulativeAmountPaid);
   const paymentStatus: PaymentStatus =
-    booking.paymentOption === "deposit" && balanceDue > 0
+    balanceDue > 0
       ? "deposit_paid"
       : "fully_paid";
 
   return {
-    amountPaid,
+    amountPaid: cumulativeAmountPaid,
     balanceDue,
     paymentStatus,
     paymentStatusForBooking:
       paymentStatus === "deposit_paid" ? "deposit-paid" : "fully-paid",
-    paymentType:
-      paymentStatus === "deposit_paid"
+    paymentType: previousAmountPaid > 0
+      ? ("balance" as const)
+      : paymentStatus === "deposit_paid"
         ? ("deposit" as const)
         : ("full_payment" as const),
     total,
@@ -311,7 +362,7 @@ async function confirmPaymentCore(
   booking: DemoBooking,
   status: PaymentStatus,
   amount: number,
-  paymentType: "deposit" | "full_payment",
+  paymentType: "balance" | "deposit" | "full_payment",
   amountPaid: number,
   balanceDue: number,
   data: PayFastItnData,
@@ -538,7 +589,7 @@ async function confirmPayment(
     supabase,
     booking,
     outcome.paymentStatus,
-    outcome.amountPaid,
+    amountPaid,
     outcome.paymentType,
     outcome.amountPaid,
     outcome.balanceDue,
@@ -566,6 +617,7 @@ async function confirmPayment(
   const bookingId = coreResult.booking_id ?? row.id;
   const wasConfirmed =
     coreResult.status === "already_confirmed" || Boolean(coreResult.was_confirmed);
+  const bookingWasConfirmed = Boolean(coreResult.booking_was_confirmed);
 
   await ensureTicket(supabase, bookingId, updatedBooking);
   await ensureLifecycleEvent(supabase, bookingId, {
@@ -607,17 +659,19 @@ async function confirmPayment(
   );
 
   if (!wasConfirmed) {
-    void sendGuestPushNotification({
-      bookingReference: updatedBooking.reference,
-      trigger: "reservation-confirmed",
-    });
+    if (!bookingWasConfirmed) {
+      void sendGuestPushNotification({
+        bookingReference: updatedBooking.reference,
+        trigger: "reservation-confirmed",
+      });
+      void sendStaffPushNotification({
+        bookingReference: updatedBooking.reference,
+        trigger: "new-booking",
+      });
+    }
     void sendGuestPushNotification({
       bookingReference: updatedBooking.reference,
       trigger: "payment-received",
-    });
-    void sendStaffPushNotification({
-      bookingReference: updatedBooking.reference,
-      trigger: "new-booking",
     });
     void sendStaffPushNotification({
       bookingReference: updatedBooking.reference,
@@ -679,7 +733,12 @@ export async function POST(request: Request) {
     const sourceIpValid = await verifyPayFastSourceIp(
       getPayFastRequestIp(request),
     );
-    const expectedAmount = getExpectedPayFastAmount(booking, bookingRow);
+    const expectedAmount = await getExpectedPayFastAmount(
+      supabase,
+      data,
+      booking,
+      bookingRow,
+    );
     const paymentAmount = getPaymentAmount(data);
     const paymentAmountValid =
       Math.abs(expectedAmount - paymentAmount) <= 0.01;

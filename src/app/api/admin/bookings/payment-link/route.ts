@@ -13,7 +13,10 @@ import {
   loadBookingForPaymentLink,
   loadCustomerForPaymentLink,
 } from "@/lib/payment-links/customerPaymentLinks";
-import { requireActiveStaff } from "@/lib/supabase/serverAdmin";
+import {
+  getRolePermissions,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -53,8 +56,23 @@ export async function POST(request: Request) {
   const { error, serviceClient, staffProfile, user } =
     await requireActiveStaff(request);
 
-  if (error) {
-    return error;
+  if (error || !serviceClient || !staffProfile) {
+    return error ?? Response.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const role = Array.isArray(staffProfile.roles)
+    ? staffProfile.roles[0]
+    : staffProfile.roles;
+  const permissions = getRolePermissions(role);
+
+  if (
+    !permissions.includes("bookings:manage") ||
+    !permissions.includes("communications:manage")
+  ) {
+    return Response.json(
+      { error: "Booking and communication management access is required." },
+      { status: 403 },
+    );
   }
 
   try {

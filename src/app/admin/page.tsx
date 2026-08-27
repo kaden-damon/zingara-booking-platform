@@ -89,6 +89,10 @@ import {
 } from "../../lib/customerNameStatus";
 import { isCorporateBookingSource } from "../../lib/bookingClassification";
 import {
+  calculateOutstandingAmount,
+  isPaymentLinkEligible,
+} from "../../lib/paymentControls";
+import {
   getCorporateRequests,
   saveCorporateRequests as persistCorporateRequests,
 } from "../../lib/supabase/corporateRequests";
@@ -312,6 +316,20 @@ type BroadcastForm = {
   subject: string;
 };
 type PaymentRow = Awaited<ReturnType<typeof getPayments>>[number];
+type RefundEligibilityPayload = {
+  readiness: {
+    enabled: boolean;
+    historyConfigured: boolean;
+    payFastConfigured: boolean;
+    ready: boolean;
+    reason?: string | null;
+  };
+  rows: Array<{
+    bookingReference: string;
+    eligible: boolean;
+    reason?: string | null;
+  }>;
+};
 type WaitlistReport = Record<WaitlistStatus, number> & {
   activeGuests: number;
 };
@@ -9941,6 +9959,16 @@ export default function AdminDashboardPage() {
   const [manifestLastRefreshedAt, setManifestLastRefreshedAt] =
     useState(() => new Date().toISOString());
   const [paymentRows, setPaymentRows] = useState<PaymentRow[]>([]);
+  const [refundEligibility, setRefundEligibility] = useState<
+    Record<string, { eligible: boolean; reason: string }>
+  >({});
+  const [refundEligibilityLoaded, setRefundEligibilityLoaded] =
+    useState(false);
+  const [refundEligibilityRefreshKey, setRefundEligibilityRefreshKey] =
+    useState(0);
+  const [refundReadinessReason, setRefundReadinessReason] = useState(
+    "Refund eligibility is loading.",
+  );
   const [financialLocationFilter, setFinancialLocationFilter] =
     useState<ManifestLocationFilter>("all");
   const [financialShowFilter, setFinancialShowFilter] = useState("all");
@@ -10596,6 +10624,61 @@ export default function AdminDashboardPage() {
     currentStaff?.role === "box-office" ||
     currentStaff?.role === "box-office-staff";
   const isFloorManager = currentStaff?.role === "floor-manager";
+
+  useEffect(() => {
+    let isActive = true;
+
+    if (!isSuperAdmin) {
+      setRefundEligibility({});
+      setRefundEligibilityLoaded(false);
+      setRefundReadinessReason("Super Admin access is required.");
+      return () => {
+        isActive = false;
+      };
+    }
+
+    setRefundEligibilityLoaded(false);
+
+    void fetchSupabaseApi<RefundEligibilityPayload>(
+      "/api/admin/bookings/refund",
+    )
+      .then((payload) => {
+        if (!isActive) {
+          return;
+        }
+
+        setRefundEligibility(
+          Object.fromEntries(
+            payload.rows.map((row) => [
+              row.bookingReference,
+              {
+                eligible: row.eligible,
+                reason: row.reason ?? "",
+              },
+            ]),
+          ),
+        );
+        setRefundReadinessReason(payload.readiness.reason ?? "");
+        setRefundEligibilityLoaded(true);
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+
+        setRefundEligibility({});
+        setRefundReadinessReason(
+          error instanceof Error
+            ? error.message
+            : "Refund eligibility could not be confirmed.",
+        );
+        setRefundEligibilityLoaded(true);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [isSuperAdmin, refundEligibilityRefreshKey]);
 
   useEffect(() => {
     if (
@@ -15404,39 +15487,26 @@ export default function AdminDashboardPage() {
     saveTables(releaseBookingTableFromList(tables, booking));
   }
 
-  function getPayFastPaymentForBooking(booking: DemoBooking) {
-    return paymentRows.find(
-      (row) =>
-        row.reference === booking.reference &&
-        row.method === "payfast" &&
-        Boolean(row.provider_transaction_id),
-    );
-  }
-
   function getRefundUnavailableReason(booking: DemoBooking) {
-    const financials = getBookingFinancials(booking);
-
     if (!isSuperAdmin) {
       return "Super Admin access is required.";
     }
 
-    if (booking.status === "refunded" || booking.paymentStatus === "refunded") {
-      return "This booking is already marked as refunded.";
+    if (!refundEligibilityLoaded) {
+      return "Refund eligibility is loading.";
     }
 
-    if (booking.paymentStatus === "comp-vip") {
-      return "Complimentary bookings cannot be refunded through PayFast.";
+    const result = refundEligibility[booking.reference];
+
+    if (result?.eligible) {
+      return "";
     }
 
-    if ((financials.amountPaid ?? 0) <= 0) {
-      return "Only bookings with a recorded payment can be refunded.";
-    }
-
-    if (!getPayFastPaymentForBooking(booking)) {
-      return "This booking does not have a refundable PayFast transaction.";
-    }
-
-    return "";
+    return (
+      result?.reason ||
+      refundReadinessReason ||
+      "This booking does not have a server-confirmed refundable PayFast transaction."
+    );
   }
 
   function createLifecycleEvent(
@@ -15712,8 +15782,14 @@ export default function AdminDashboardPage() {
       return;
     }
 
+    if (status === "refunded") {
+      showWorkflowToast(
+        "Use Refund Booking so provider eligibility and refund history are verified.",
+      );
+      return;
+    }
+
     if (
-      status === "refunded" ||
       status === "completed" ||
       status === "no-show" ||
       status === "waitlisted"
@@ -15726,13 +15802,7 @@ export default function AdminDashboardPage() {
         ? booking.arrivalTime ?? new Date().toISOString()
         : booking.arrivalTime;
     const lifecyclePaymentUpdates =
-      status === "refunded"
-        ? {
-            amountPaid: 0,
-            balanceDue: 0,
-            paymentStatus: "refunded" as const,
-          }
-        : status === "pending-payment" || status === "new"
+      status === "pending-payment" || status === "new"
           ? {
               amountPaid: booking.amountPaid ?? 0,
               balanceDue:
@@ -15757,10 +15827,7 @@ export default function AdminDashboardPage() {
         ),
         ...(booking.lifecycleHistory ?? []),
       ],
-      refundNotes:
-        status === "refunded"
-          ? booking.refundNotes || "Refund marked by box office"
-          : booking.refundNotes,
+      refundNotes: booking.refundNotes,
       status,
     };
     const statusRecord = createWorkflowCommunication(
@@ -16025,6 +16092,7 @@ export default function AdminDashboardPage() {
       saveTables(releaseBookingTableFromList(tables, booking));
       setBookings(await getBookings());
       setPaymentRows(await getPayments());
+      setRefundEligibilityRefreshKey((currentKey) => currentKey + 1);
       setRefundBookingReference("");
       setRefundAdminPassword("");
       setRefundBookingReason("");
@@ -20178,19 +20246,16 @@ export default function AdminDashboardPage() {
       return false;
     }
 
-    if (booking.status === "cancelled" || booking.status === "refunded") {
-      return false;
-    }
-
-    if (financials.paymentStatus === "fully-paid") {
-      return false;
-    }
-
-    if (financials.paymentStatus === "comp-vip") {
-      return false;
-    }
-
-    return Boolean(booking.customer.email?.trim());
+    return (
+      Boolean(booking.customer.email?.trim()) &&
+      isPaymentLinkEligible({
+        archived: Boolean(booking.archivedAt),
+        bookingStatus: booking.status,
+        confirmedPaidAmount: financials.amountPaid,
+        paymentStatus: financials.paymentStatus,
+        totalAmount: financials.totalPrice,
+      })
+    );
   }
 
   async function sendCustomerPaymentLink(booking: DemoBooking) {
@@ -37937,9 +38002,17 @@ export default function AdminDashboardPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  resendConfirmation(booking)
-                                }
+                                onClick={(event) => {
+                                  event.stopPropagation();
+
+                                  if (
+                                    window.confirm(
+                                      `Resend the booking confirmation for ${booking.reference}?`,
+                                    )
+                                  ) {
+                                    resendConfirmation(booking);
+                                  }
+                                }}
                                 className="rounded-full border border-white/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] transition hover:bg-white hover:text-black"
                               >
                                 Resend Confirmation
@@ -38144,7 +38217,12 @@ export default function AdminDashboardPage() {
                                 Paid{" "}
                                 {formatCurrency(financials.amountPaid)}
                                 {" · "}Outstanding{" "}
-                                {formatCurrency(financials.balanceDue)}
+                                {formatCurrency(
+                                  calculateOutstandingAmount(
+                                    financials.totalPrice,
+                                    financials.amountPaid,
+                                  ),
+                                )}
                               </p>
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -38340,11 +38418,17 @@ export default function AdminDashboardPage() {
                               }
                               className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
                             >
-                              {bookingStatuses.map((status) => (
-                                <option key={status} value={status}>
-                                  {bookingStatusLabels[status]}
-                                </option>
-                              ))}
+                              {bookingStatuses
+                                .filter(
+                                  (status) =>
+                                    status !== "refunded" ||
+                                    booking.status === "refunded",
+                                )
+                                .map((status) => (
+                                  <option key={status} value={status}>
+                                    {bookingStatusLabels[status]}
+                                  </option>
+                                ))}
                             </select>
                           </label>
 

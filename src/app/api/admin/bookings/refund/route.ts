@@ -146,7 +146,7 @@ async function loadBookingAndPayment(
     return { booking: null, payment: null };
   }
 
-  const { data: payment, error: paymentError } = await serviceClient
+  const { data: paymentRows, error: paymentError } = await serviceClient
     .from("payments")
     .select(
       "id,booking_id,payment_type,payment_status,amount,method,reference,provider_transaction_id",
@@ -154,9 +154,8 @@ async function loadBookingAndPayment(
     .eq("booking_id", (booking as BookingRefundRow).id)
     .eq("method", "payfast")
     .not("provider_transaction_id", "is", null)
-    .order("processed_at", { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
+    .gt("amount", 0)
+    .order("processed_at", { ascending: false, nullsFirst: false });
 
   if (paymentError) {
     throw paymentError;
@@ -164,7 +163,12 @@ async function loadBookingAndPayment(
 
   return {
     booking: booking as BookingRefundRow,
-    payment: payment as PaymentRefundRow | null,
+    payment: (paymentRows?.[0] as PaymentRefundRow | undefined) ?? null,
+    providerPaymentCount: paymentRows?.length ?? 0,
+    providerPaymentTotal: (paymentRows ?? []).reduce(
+      (total, payment) => total + Number(payment.amount ?? 0),
+      0,
+    ),
   };
 }
 
@@ -185,6 +189,154 @@ async function releaseTableClaims(
   if (error) {
     throw error;
   }
+}
+
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+    return auth.error;
+  }
+
+  if (!isSuperAdminProfile(auth.staffProfile)) {
+    return Response.json(
+      { error: "Super Admin access is required." },
+      { status: 403 },
+    );
+  }
+
+  const refundsEnabled = getRefundsEnabled();
+  const payFastConfigured = getPayFastConfig().configured;
+  const { error: refundTableError } = await auth.serviceClient
+    .from("payment_refunds")
+    .select("id")
+    .limit(1);
+  const historyConfigured = !refundTableError;
+  const ready = refundsEnabled && payFastConfigured && historyConfigured;
+  const readinessReason = !refundsEnabled
+    ? "PayFast refunds are not enabled for this environment."
+    : !payFastConfigured
+      ? "PayFast refund configuration is incomplete."
+      : !historyConfigured
+        ? "PayFast refund history is not configured."
+        : "";
+
+  const { data: payments, error: paymentsError } = await auth.serviceClient
+    .from("payments")
+    .select(
+      "id,booking_id,amount,method,payment_status,provider_transaction_id",
+    )
+    .eq("method", "payfast")
+    .not("provider_transaction_id", "is", null)
+    .gt("amount", 0);
+
+  if (paymentsError) {
+    throw paymentsError;
+  }
+
+  const bookingIds = [
+    ...new Set((payments ?? []).map((payment) => payment.booking_id as string)),
+  ];
+  let bookings: Array<{
+    amount_paid: number | null;
+    booking_reference: string;
+    booking_status: string;
+    id: string;
+    payment_status: string;
+  }> = [];
+  let refunds: Array<{ booking_id: string; refund_status: string }> = [];
+
+  if (bookingIds.length > 0) {
+    const [bookingResult, refundResult] = await Promise.all([
+      auth.serviceClient
+        .from("bookings")
+        .select("id,booking_reference,booking_status,payment_status,amount_paid")
+        .in("id", bookingIds),
+      auth.serviceClient
+        .from("payment_refunds")
+        .select("booking_id,refund_status")
+        .in("booking_id", bookingIds)
+        .in("refund_status", ["processing", "accepted"]),
+    ]);
+
+    if (bookingResult.error || refundResult.error) {
+      throw bookingResult.error ?? refundResult.error;
+    }
+
+    bookings = bookingResult.data ?? [];
+    refunds = refundResult.data ?? [];
+  }
+
+  const paymentsByBookingId = new Map<
+    string,
+    NonNullable<typeof payments>
+  >();
+
+  for (const payment of payments ?? []) {
+    const bookingId = payment.booking_id as string;
+    const bookingPayments = paymentsByBookingId.get(bookingId) ?? [];
+    bookingPayments.push(payment);
+    paymentsByBookingId.set(bookingId, bookingPayments);
+  }
+  const refundByBookingId = new Map(
+    (refunds ?? []).map((refund) => [
+      refund.booking_id as string,
+      refund.refund_status as string,
+    ]),
+  );
+
+  return Response.json({
+    readiness: {
+      enabled: refundsEnabled,
+      historyConfigured,
+      payFastConfigured,
+      ready,
+      reason: readinessReason || null,
+    },
+    rows: bookings.map((booking) => {
+      const bookingPayments = paymentsByBookingId.get(booking.id as string) ?? [];
+      const providerPaymentTotal = bookingPayments.reduce(
+        (total, payment) => total + Number(payment.amount ?? 0),
+        0,
+      );
+      const fullRefundSupported =
+        bookingPayments.length === 1 &&
+        Math.abs(providerPaymentTotal - Number(booking.amount_paid ?? 0)) <= 0.01;
+      const refundStatus = refundByBookingId.get(booking.id as string);
+      const alreadyRefunded =
+        booking.booking_status === "refunded" ||
+        booking.payment_status === "refunded";
+      const complimentary = booking.payment_status === "comp_vip";
+      const eligible =
+        ready &&
+        !alreadyRefunded &&
+        !complimentary &&
+        !refundStatus &&
+        providerPaymentTotal > 0 &&
+        fullRefundSupported;
+      const reason = !ready
+        ? readinessReason
+        : alreadyRefunded
+          ? "This booking is already marked as refunded."
+          : complimentary
+            ? "Complimentary bookings cannot be refunded through PayFast."
+            : refundStatus === "processing"
+              ? "A refund is already processing for this booking."
+              : refundStatus === "accepted"
+                ? "This booking is already marked as refunded."
+                : providerPaymentTotal <= 0
+                  ? "Refund amount is not valid for this payment."
+                  : !fullRefundSupported
+                    ? "This booking requires a multi-transaction refund workflow, which is not supported yet."
+                  : "";
+
+      return {
+        bookingReference: booking.booking_reference,
+        eligible,
+        reason: reason || null,
+      };
+    }),
+  });
 }
 
 export async function POST(request: Request) {
@@ -275,7 +427,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const { booking, payment } = await loadBookingAndPayment(
+  const {
+    booking,
+    payment,
+    providerPaymentCount,
+    providerPaymentTotal,
+  } = await loadBookingAndPayment(
     auth.serviceClient,
     bookingReference,
   );
@@ -300,6 +457,19 @@ export async function POST(request: Request) {
   if (!payment?.provider_transaction_id) {
     return Response.json(
       { error: "This booking does not have a refundable PayFast transaction." },
+      { status: 409 },
+    );
+  }
+
+  if (
+    providerPaymentCount !== 1 ||
+    Math.abs(providerPaymentTotal - Number(booking.amount_paid ?? 0)) > 0.01
+  ) {
+    return Response.json(
+      {
+        error:
+          "This booking requires a multi-transaction refund workflow, which is not supported yet.",
+      },
       { status: 409 },
     );
   }

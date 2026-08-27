@@ -4,11 +4,16 @@ import {
 } from "@/lib/payfast/checkout";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoBooking } from "@/lib/zingaraDemo";
+import {
+  calculateOutstandingAmount,
+  isPaymentLinkEligible,
+} from "@/lib/paymentControls";
 
 export const bookingMetadataPrefix = "__zingara_booking_meta__:";
 
 export type PaymentLinkBookingRow = {
   amount_paid: number | null;
+  archived_at: string | null;
   balance_outstanding: number | null;
   booking_reference: string;
   booking_source: string | null;
@@ -88,22 +93,20 @@ export function getPaymentLinkUrl(request: Request, token: string) {
 }
 
 export function getOutstandingAmount(row: PaymentLinkBookingRow) {
-  return Math.max(
-    Number(row.balance_outstanding ?? row.total_amount ?? 0) || 0,
-    0,
+  return calculateOutstandingAmount(
+    row.total_amount,
+    row.amount_paid,
   );
 }
 
 export function isBookingPaymentLinkEligible(row: PaymentLinkBookingRow) {
-  if (["cancelled", "refunded", "completed"].includes(row.booking_status)) {
-    return false;
-  }
-
-  if (["fully_paid", "comp_vip", "cancelled", "refunded"].includes(row.payment_status)) {
-    return false;
-  }
-
-  return true;
+  return isPaymentLinkEligible({
+    archived: Boolean(row.archived_at),
+    bookingStatus: row.booking_status,
+    confirmedPaidAmount: row.amount_paid,
+    paymentStatus: row.payment_status,
+    totalAmount: row.total_amount,
+  });
 }
 
 export function getCustomerName(customer: PaymentLinkCustomerRow | null) {
@@ -120,7 +123,7 @@ export async function loadBookingForPaymentLink(
   const { data, error } = await supabase
     .from("bookings")
     .select(
-      "id,customer_id,show_id,booking_reference,booking_source,booking_status,payment_status,total_amount,amount_paid,balance_outstanding,section,notes",
+      "id,customer_id,show_id,booking_reference,booking_source,booking_status,payment_status,total_amount,amount_paid,balance_outstanding,section,notes,archived_at",
     )
     .eq("booking_reference", bookingReference)
     .maybeSingle();
@@ -202,6 +205,7 @@ export async function createPayFastCheckoutForBookingLink(
   supabase: SupabaseClient,
   row: PaymentLinkBookingRow,
   customer: PaymentLinkCustomerRow | null,
+  preparedAmount: number,
 ): Promise<PaymentLinkCheckoutResult> {
   const outstandingAmount = getOutstandingAmount(row);
 
@@ -220,6 +224,7 @@ export async function createPayFastCheckoutForBookingLink(
   const booking = parseBookingMetadata(row.notes);
   const checkout = await createExistingBookingPayFastCheckout(supabase, {
     amount: outstandingAmount,
+    preparedAmount,
     bookingReference: row.booking_reference,
     customer: {
       email: customer?.email ?? booking?.customer.email,

@@ -1,4 +1,7 @@
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import {
+  getRolePermissions,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
 import {
   type DemoBooking,
   type PaymentStatus,
@@ -6,17 +9,29 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const serviceClient = getServiceClient();
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
 
-  if (!serviceClient) {
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+    return auth.error;
+  }
+
+  const role = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const permissions = getRolePermissions(role);
+
+  if (
+    !permissions.includes("bookings:manage") &&
+    !permissions.includes("analytics:read")
+  ) {
     return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
+      { error: "Payment access is required." },
+      { status: 403 },
     );
   }
 
-  const { data, error } = await serviceClient
+  const { data, error } = await auth.serviceClient
     .from("payments")
     .select("id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at,provider_transaction_id")
     .order("created_at", { ascending: false });
@@ -57,10 +72,6 @@ type ExistingPayment = {
   processed_at: string | null;
   provider_transaction_id?: string | null;
 };
-
-function getRouteClient() {
-  return getServiceClient();
-}
 
 function toSupabasePaymentStatus(status?: PaymentStatus): SupabasePaymentStatus {
   if (status === "deposit-paid") {
@@ -136,25 +147,31 @@ function getPaymentPayload(
   return {
     amount: getPaymentAmount(booking, existingPayment),
     booking_id: bookingId,
-    method: isRefunded ? existingPayment?.method ?? "platform" : "platform",
-    notes: isRefunded ? refundNotes : booking.refundNotes || booking.paymentOption || null,
+    method:
+      existingPayment?.method ??
+      (existingPayment?.provider_transaction_id ? "payfast" : "platform"),
+    notes: existingPayment?.provider_transaction_id
+      ? existingPayment.notes
+      : isRefunded
+        ? refundNotes
+        : booking.refundNotes || booking.paymentOption || null,
     payment_status: toSupabasePaymentStatus(booking.paymentStatus),
     payment_type: getPaymentType(booking),
-    processed_at: isRefunded
-      ? existingPayment?.processed_at ?? new Date().toISOString()
-      : new Date().toISOString(),
+    processed_at:
+      existingPayment?.provider_transaction_id || isRefunded
+        ? existingPayment?.processed_at ?? new Date().toISOString()
+        : new Date().toISOString(),
     provider_transaction_id: existingPayment?.provider_transaction_id ?? null,
     reference: booking.reference,
   };
 }
 
-async function upsertPayment(booking: DemoBooking) {
-  const supabase = getRouteClient();
-
-  if (!supabase) {
-    throw new Error("Supabase client is not configured.");
-  }
-
+async function upsertPayment(
+  supabase: NonNullable<
+    Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]
+  >,
+  booking: DemoBooking,
+) {
   const { data: bookingRows, error: bookingError } = await supabase
     .from("bookings")
     .select("id")
@@ -199,6 +216,23 @@ async function upsertPayment(booking: DemoBooking) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+    return auth.error;
+  }
+
+  const role = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+
+  if (!getRolePermissions(role).includes("bookings:manage")) {
+    return Response.json(
+      { error: "Booking management access is required." },
+      { status: 403 },
+    );
+  }
+
   try {
     const body = (await request.json()) as { booking?: DemoBooking };
 
@@ -209,7 +243,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const row = await upsertPayment(body.booking);
+    const row = await upsertPayment(auth.serviceClient, body.booking);
 
     return Response.json({ row });
   } catch (error) {
