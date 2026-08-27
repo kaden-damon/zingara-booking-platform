@@ -8,7 +8,6 @@ import {
   type PaymentStatus,
   type SeatingZoneId,
   createTicketCode,
-  defaultTables,
   getDisplayZoneTitle,
   isValidSeatingZoneId,
 } from "@/lib/zingaraDemo";
@@ -247,28 +246,6 @@ function normalizeBookingSection(section?: string | null): SeatingZoneId {
   }
 
   return "middle-ring";
-}
-
-function getDemoTableId(
-  showReference: string,
-  zoneId: SeatingZoneId,
-  tableCode: string,
-) {
-  const matchingDefaultTable = defaultTables.find(
-    (table) => table.zoneId === zoneId && table.tableNumber === tableCode,
-  );
-
-  if (matchingDefaultTable) {
-    return `${showReference}-${matchingDefaultTable.id}`;
-  }
-
-  const normalizedCode = tableCode
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return `${showReference}-${zoneId}-${normalizedCode || "table"}`;
 }
 
 function getCustomerName(
@@ -660,13 +637,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       source: row.booking_source as DemoBooking["source"],
       status: toDemoBookingStatus(row.booking_status),
       supabaseBookingId: row.id,
-      tableId: row.table_id
-        ? getDemoTableId(
-            authoritativeShowId,
-            authoritativeZoneId,
-            authoritativeTableNumber,
-          )
-        : metadataBooking.tableId,
+      tableId: row.table_id ?? metadataBooking.tableId,
       tableNumber: authoritativeTableNumber,
       totalPrice: row.total_amount,
       showId: authoritativeShowId,
@@ -726,9 +697,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     status: toDemoBookingStatus(row.booking_status),
     supabaseBookingId: row.id,
     subtotalPrice: row.subtotal_amount,
-    tableId: row.table_id
-      ? getDemoTableId(showReference, zoneId, tableNumber)
-      : "requires-floor-assignment",
+    tableId: row.table_id ?? "requires-floor-assignment",
     tableNumber,
     ticketCode: createTicketCode(row.booking_reference),
     totalPrice: row.total_amount,

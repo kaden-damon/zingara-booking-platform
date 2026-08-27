@@ -4,7 +4,6 @@ import {
   type TableAvailabilityScope,
   type SeatingZoneId,
   type TableStatus,
-  defaultTables,
   isValidSeatingZoneId,
   normalizeShowLocation,
 } from "@/lib/zingaraDemo";
@@ -237,28 +236,6 @@ function toDemoTableStatus(status: string | null): TableStatus {
   return status === "disabled" ? "disabled" : "available";
 }
 
-function getDemoTableId(
-  showReference: string,
-  zoneId: SeatingZoneId,
-  tableCode: string,
-) {
-  const matchingDefaultTable = defaultTables.find(
-    (table) => table.zoneId === zoneId && table.tableNumber === tableCode,
-  );
-
-  if (matchingDefaultTable) {
-    return `${showReference}-${matchingDefaultTable.id}`;
-  }
-
-  const normalizedCode = tableCode
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return `${showReference}-${zoneId}-${normalizedCode || "table"}`;
-}
-
 function toDemoTable(
   row: SupabaseShowTableRow,
   showReferenceById: Map<string, string>,
@@ -292,7 +269,7 @@ function toDemoTable(
       ? bookingReferenceById.get(row.booking_id)
       : undefined,
     guestNotes: row.override_notes ?? "",
-    id: getDemoTableId(showReference, zoneId, row.table_code),
+    id: row.id,
     capacityConfigured,
     physicalTable: row.is_physical === true,
     mergedFrom: mergedFrom.length > 0 ? mergedFrom : undefined,
@@ -605,14 +582,7 @@ export async function GET(request: Request) {
       tableRows.flatMap((row) => (row.booking_id ? [row.booking_id] : [])),
     );
     const demoTableIdByAuthoritativeId = new Map(
-      tableRows.flatMap((row) => {
-        const showReference = showReferenceById.get(row.show_id);
-        const zoneId = normalizeShowTableSection(row.section);
-
-        return showReference && zoneId
-          ? [[row.id, getDemoTableId(showReference, zoneId, row.table_code)]]
-          : [];
-      }),
+      tableRows.map((row) => [row.id, row.id]),
     );
     const tables = tableRows
       .map((row) =>

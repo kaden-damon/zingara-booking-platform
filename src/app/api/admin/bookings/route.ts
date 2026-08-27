@@ -76,9 +76,14 @@ type AdminBookingRow = {
 };
 
 type ShowTableAssignmentRow = {
+  availability_scope?: string | null;
   booking_id: string | null;
+  capacity?: number | null;
+  capacity_configured?: boolean;
   id: string;
   is_physical?: boolean;
+  is_override?: boolean;
+  merged_from?: string[] | null;
   merged_parent_id?: string | null;
   section: string;
   show_id: string;
@@ -936,12 +941,12 @@ async function persistPhysicalTableMapping(
         .maybeSingle(),
       auth.serviceClient
         .from("show_tables")
-        .select("id,show_id,table_code,section,status,booking_id,is_physical,merged_parent_id")
+        .select("id,show_id,table_code,section,status,booking_id,is_physical,is_override,availability_scope,merged_from,merged_parent_id")
         .eq("id", booking.table_id)
         .maybeSingle(),
       auth.serviceClient
         .from("show_tables")
-        .select("id,show_id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical,merged_parent_id")
+        .select("id,show_id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical,is_override,availability_scope,merged_from,merged_parent_id")
         .eq("id", targetTableId.trim())
         .maybeSingle(),
     ]);
@@ -968,24 +973,75 @@ async function persistPhysicalTableMapping(
     );
   }
 
+  const typedTargetTable = targetTable as ShowTableAssignmentRow | null;
+  const targetMergedMemberIds = Array.from(
+    new Set(typedTargetTable?.merged_from ?? []),
+  );
+  const targetIsPhysical =
+    typedTargetTable?.is_physical === true &&
+    targetMergedMemberIds.length === 0;
+  const targetIsMergedCandidate = Boolean(
+    typedTargetTable &&
+      typedTargetTable.is_physical !== true &&
+      typedTargetTable.is_override === true &&
+      typedTargetTable.availability_scope === "operational" &&
+      !typedTargetTable.merged_parent_id &&
+      targetMergedMemberIds.length >= 2 &&
+      targetMergedMemberIds.length ===
+        (typedTargetTable.merged_from ?? []).length,
+  );
+  let targetIsValidMergedParent = false;
+
+  if (typedTargetTable && targetIsMergedCandidate) {
+    const { data: memberRows, error: memberError } = await auth.serviceClient
+      .from("show_tables")
+      .select("id,show_id,section,capacity,capacity_configured,status,booking_id,is_physical,merged_from,merged_parent_id")
+      .in("id", targetMergedMemberIds);
+
+    if (memberError) {
+      throw memberError;
+    }
+
+    const typedMemberRows = (memberRows ?? []) as ShowTableAssignmentRow[];
+    targetIsValidMergedParent =
+      typedMemberRows.length === targetMergedMemberIds.length &&
+      typedMemberRows.every(
+        (member) =>
+          member.show_id === typedTargetTable.show_id &&
+          normalizeTableZone(member.section) ===
+            normalizeTableZone(typedTargetTable.section) &&
+          member.is_physical === true &&
+          member.capacity_configured !== false &&
+          member.capacity !== null &&
+          member.status === "disabled" &&
+          !member.booking_id &&
+          member.merged_parent_id === typedTargetTable.id &&
+          !(member.merged_from ?? []).length,
+      ) &&
+      typedMemberRows.reduce(
+        (total, member) => total + Number(member.capacity ?? 0),
+        0,
+      ) === Number(typedTargetTable.capacity ?? 0);
+  }
+
   if (
-    !targetTable ||
-    targetTable.show_id !== booking.show_id ||
-    normalizeTableZone(targetTable.section) !==
+    !typedTargetTable ||
+    typedTargetTable.show_id !== booking.show_id ||
+    normalizeTableZone(typedTargetTable.section) !==
       normalizeTableZone(booking.section) ||
-    !targetTable.is_physical ||
-    !targetTable.capacity_configured ||
-    targetTable.capacity === null ||
-    targetTable.capacity < booking.guest_count ||
-    targetTable.merged_parent_id ||
-    targetTable.status === "disabled" ||
-    (targetTable.id !== booking.table_id &&
-      (targetTable.status !== "available" || targetTable.booking_id)) ||
-    (targetTable.id === booking.table_id &&
-      targetTable.booking_id !== booking.id)
+    (!targetIsPhysical && !targetIsValidMergedParent) ||
+    !typedTargetTable.capacity_configured ||
+    typedTargetTable.capacity === null ||
+    Number(typedTargetTable.capacity) < booking.guest_count ||
+    typedTargetTable.merged_parent_id ||
+    typedTargetTable.status === "disabled" ||
+    (typedTargetTable.id !== booking.table_id &&
+      (typedTargetTable.status !== "available" || typedTargetTable.booking_id)) ||
+    (typedTargetTable.id === booking.table_id &&
+      typedTargetTable.booking_id !== booking.id)
   ) {
     return Response.json(
-      { error: "The selected physical table is not available for this booking." },
+      { error: "The selected table is not available for this booking." },
       { status: 409 },
     );
   }
@@ -995,7 +1051,7 @@ async function persistPhysicalTableMapping(
     {
       p_booking_id: booking.id,
       p_expected_previous_table_id: booking.table_id,
-      p_target_table_id: targetTable.id,
+      p_target_table_id: typedTargetTable.id,
     },
   );
 
@@ -1008,7 +1064,7 @@ async function persistPhysicalTableMapping(
     auth.staffProfile,
     auth.user,
     {
-      afterValues: { table_id: targetTable.id },
+      afterValues: { table_id: typedTargetTable.id },
       beforeValues: { table_id: booking.table_id },
       changedFields: ["table_id"],
       entityId: booking.id,
@@ -1016,19 +1072,21 @@ async function persistPhysicalTableMapping(
       entityType: "booking",
       outcome: "success",
       action:
-        (sourceTable as ShowTableAssignmentRow | null)?.is_physical === true
+        (sourceTable as ShowTableAssignmentRow | null)?.is_physical === true ||
+        ((sourceTable as ShowTableAssignmentRow | null)?.merged_from?.length ?? 0) >= 2
           ? "booking.physical_table_reallocated"
           : "booking.physical_table_map",
       reason:
-        (sourceTable as ShowTableAssignmentRow | null)?.is_physical === true
-          ? `Reallocated physical table ${(sourceTable as ShowTableAssignmentRow).table_code} to ${targetTable.table_code}.`
-          : `Mapped legacy assignment to physical table ${targetTable.table_code}.`,
+        (sourceTable as ShowTableAssignmentRow | null)?.is_physical === true ||
+        ((sourceTable as ShowTableAssignmentRow | null)?.merged_from?.length ?? 0) >= 2
+          ? `Reallocated table ${(sourceTable as ShowTableAssignmentRow).table_code} to ${typedTargetTable.table_code}.`
+          : `Mapped legacy assignment to operational table ${typedTargetTable.table_code}.`,
       request,
       sourceArea: "Operations Floor",
     },
   );
 
-  if (booking.table_id !== targetTable.id) {
+  if (booking.table_id !== typedTargetTable.id) {
     await notifyAppleWalletBooking(auth.serviceClient, booking.id);
   }
 
@@ -1037,8 +1095,8 @@ async function persistPhysicalTableMapping(
     bookingReference: booking.booking_reference,
     mapping: mappingResult,
     showId: booking.show_id,
-    tableCode: targetTable.table_code,
-    tableId: targetTable.id,
+    tableCode: typedTargetTable.table_code,
+    tableId: typedTargetTable.id,
   });
 }
 

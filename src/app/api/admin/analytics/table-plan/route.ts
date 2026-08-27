@@ -91,7 +91,7 @@ export async function GET(request: Request) {
         auth.serviceClient
           .from("show_tables")
           .select(
-            "id,table_code,section,capacity,capacity_configured,status,booking_id,is_override,availability_scope,merged_from,merged_parent_id,override_notes",
+            "id,table_code,section,capacity,capacity_configured,status,booking_id,is_override,is_physical,availability_scope,merged_from,merged_parent_id,override_notes",
           )
           .eq("show_id", typedShow.id)
           .order("section", { ascending: true })

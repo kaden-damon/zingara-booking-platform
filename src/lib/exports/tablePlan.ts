@@ -5,6 +5,8 @@ import {
   deriveCustomerNameParts,
   getCustomerDisplayName,
 } from "@/lib/customerNameStatus";
+import { calculateOutstandingAmount } from "@/lib/paymentControls";
+import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
 
 export const tablePlanTemplatePath = path.join(
   process.cwd(),
@@ -32,6 +34,7 @@ export type TablePlanTable = {
   capacity_configured: boolean;
   id: string;
   is_override: boolean;
+  is_physical: boolean;
   merged_from: string[] | null;
   merged_parent_id: string | null;
   override_notes: string | null;
@@ -90,6 +93,11 @@ type ZoneLayout = {
   finalDataRow: number;
   firstDataRow: number;
   subtotalRows: Array<{ end: number; row: number; start: number }>;
+};
+
+type LegacyTablePlanAssignment = {
+  booking: TablePlanBooking;
+  table: TablePlanTable;
 };
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
@@ -277,6 +285,99 @@ function getPaymentColumn(method: string | null, type: string) {
   }
 
   return null;
+}
+
+function getPaymentStatusLabel(booking: TablePlanBooking) {
+  const totalAmount = Math.max(Number(booking.total_amount) || 0, 0);
+  const confirmedPaidAmount = Math.max(Number(booking.amount_paid) || 0, 0);
+  const outstandingAmount = calculateOutstandingAmount(
+    totalAmount,
+    confirmedPaidAmount,
+  );
+
+  if (booking.payment_status === "comp_vip" || totalAmount === 0) {
+    return "Complimentary";
+  }
+
+  if (outstandingAmount === 0) {
+    return "Fully Paid";
+  }
+
+  if (
+    booking.payment_status === "deposit_paid" ||
+    confirmedPaidAmount > 0
+  ) {
+    return "Deposit Paid";
+  }
+
+  return `Outstanding R${outstandingAmount.toLocaleString("en-ZA", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  })}`;
+}
+
+function isLegacyPlaceholderTable(table: TablePlanTable) {
+  const zone = normalizeZone(table.section);
+
+  return Boolean(
+    table.is_physical !== true &&
+      zone &&
+      isLegacyPlaceholderTableCode(
+        zone === "private-booths" ? "royal-booths" : zone,
+        table.table_code,
+      ),
+  );
+}
+
+function setPaymentStatusHeaders(worksheet: Worksheet) {
+  worksheet.eachRow((row) => {
+    const cell = row.getCell(13);
+
+    if (String(cell.value ?? "").trim() === "MEDIA") {
+      cell.value = "PAYMENT STATUS";
+    }
+  });
+}
+
+function populateBookingDataRow(
+  row: Row,
+  booking: TablePlanBooking,
+  customer: TablePlanCustomer | undefined,
+  payments: TablePlanPayment[],
+  referenceAndContact: string,
+) {
+  row.getCell(4).value = Math.max(Number(booking.guest_count) || 0, 0);
+  row.getCell(5).value = getCustomerName(customer);
+  row.getCell(6).value = customer?.mobile?.trim() || null;
+  row.getCell(7).value = referenceAndContact || booking.booking_reference;
+  row.getCell(12).value = Math.max(
+    Number(booking.balance_outstanding) || 0,
+    0,
+  );
+  row.getCell(13).value = getPaymentStatusLabel(booking);
+
+  if (booking.payment_status === "comp_vip") {
+    row.getCell(14).value = Math.max(Number(booking.total_amount) || 0, 0);
+  }
+
+  for (const payment of payments) {
+    if (
+      !["deposit_paid", "fully_paid"].includes(payment.payment_status) ||
+      Number(payment.amount) <= 0
+    ) {
+      continue;
+    }
+
+    const paymentColumn = getPaymentColumn(
+      payment.method,
+      payment.payment_type,
+    );
+
+    if (paymentColumn) {
+      const current = Number(row.getCell(paymentColumn).value) || 0;
+      row.getCell(paymentColumn).value = current + Number(payment.amount);
+    }
+  }
 }
 
 function copyTableRowStyle(worksheet: Worksheet, sourceRow: Row, targetRow: Row) {
@@ -660,12 +761,45 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
     throw new Error("The Table Plan master workbook is missing required sheets.");
   }
 
+  const activeBookings = input.bookings.filter(
+    (booking) =>
+      !booking.archived_at && activeBookingStatuses.has(booking.booking_status),
+  );
+  const legacyTablesById = new Map(
+    input.tables
+      .filter(isLegacyPlaceholderTable)
+      .map((table) => [table.id, table]),
+  );
+  const legacyAssignmentsByZone = Object.fromEntries(
+    supportedZoneOrder.map((zone) => [
+      zone,
+      [] as LegacyTablePlanAssignment[],
+    ]),
+  ) as Record<TablePlanZoneId, LegacyTablePlanAssignment[]>;
+
+  for (const booking of activeBookings) {
+    const legacyTable = booking.table_id
+      ? legacyTablesById.get(booking.table_id)
+      : undefined;
+    const zone = legacyTable ? normalizeZone(legacyTable.section) : null;
+
+    if (legacyTable && zone) {
+      legacyAssignmentsByZone[zone].push({ booking, table: legacyTable });
+    }
+  }
+
+  for (const zone of supportedZoneOrder) {
+    legacyAssignmentsByZone[zone].sort((left, right) =>
+      compareTableCodes(left.table, right.table),
+    );
+  }
+
   const tablesByZone = Object.fromEntries(
     supportedZoneOrder.map((zone) => [zone, [] as TablePlanTable[]]),
   ) as Record<TablePlanZoneId, TablePlanTable[]>;
 
   for (const table of input.tables) {
-    if (table.merged_parent_id) {
+    if (table.merged_parent_id || isLegacyPlaceholderTable(table)) {
       continue;
     }
 
@@ -690,7 +824,12 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   const extraRows = Object.fromEntries(
     supportedZoneOrder.map((zone) => [
       zone,
-      Math.max(tablesByZone[zone].length - baseZoneSlots[zone], 0),
+      Math.max(
+        tablesByZone[zone].length +
+          legacyAssignmentsByZone[zone].length -
+          baseZoneSlots[zone],
+        0,
+      ),
     ]),
   ) as Record<TablePlanZoneId, number>;
   const rowOffset = Object.values(extraRows).reduce(
@@ -705,6 +844,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   insertTableRows(tablePlan, extraRows);
   const layouts = createZoneLayouts(extraRows);
   restoreDynamicMerges(tablePlan, layouts, rowOffset);
+  setPaymentStatusHeaders(tablePlan);
 
   const customersById = new Map(input.customers.map((customer) => [customer.id, customer]));
   const paymentsByBookingId = new Map<string, TablePlanPayment[]>();
@@ -716,10 +856,6 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
     ]);
   }
 
-  const activeBookings = input.bookings.filter(
-    (booking) =>
-      !booking.archived_at && activeBookingStatuses.has(booking.booking_status),
-  );
   const bookingsByTableId = new Map<string, TablePlanBooking[]>();
 
   for (const booking of activeBookings) {
@@ -746,10 +882,48 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
     layout.dataRows.forEach((rowNumber, index) => {
       const row = tablePlan.getRow(rowNumber);
       const table = tablesByZone[zone][index];
+      const legacyAssignment =
+        legacyAssignmentsByZone[zone][index - tablesByZone[zone].length];
 
       clearTableDataRow(row);
 
       if (!table) {
+        if (!legacyAssignment) {
+          return;
+        }
+
+        const { booking, table: legacyTable } = legacyAssignment;
+        const customer = booking.customer_id
+          ? customersById.get(booking.customer_id)
+          : undefined;
+        const customerName = getCustomerName(customer);
+        const operationalNotes = getOperationalNotes(booking, customer);
+        const referenceAndContact = [
+          `Legacy table ${legacyTable.table_code} · physical mapping required`,
+          booking.booking_reference,
+          customer?.email?.trim(),
+          operationalNotes,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
+        row.getCell(2).value = "UNALLOCATED";
+        populateBookingDataRow(
+          row,
+          booking,
+          customer,
+          paymentsByBookingId.get(booking.id) ?? [],
+          referenceAndContact,
+        );
+
+        if (operationalNotes) {
+          notesEntries[zone].push([
+            `UNALLOCATED (${legacyTable.table_code})`,
+            customerName,
+            operationalNotes,
+          ]);
+        }
+
         return;
       }
 
@@ -803,37 +977,13 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
         .filter(Boolean)
         .join(" · ");
 
-      row.getCell(4).value = Math.max(Number(booking.guest_count) || 0, 0);
-      row.getCell(5).value = customerName;
-      row.getCell(6).value = customer?.mobile?.trim() || null;
-      row.getCell(7).value = referenceAndContact || booking.booking_reference;
-      row.getCell(12).value = Math.max(
-        Number(booking.balance_outstanding) || 0,
-        0,
+      populateBookingDataRow(
+        row,
+        booking,
+        customer,
+        paymentsByBookingId.get(booking.id) ?? [],
+        referenceAndContact,
       );
-
-      if (booking.payment_status === "comp_vip") {
-        row.getCell(14).value = Math.max(Number(booking.total_amount) || 0, 0);
-      }
-
-      for (const payment of paymentsByBookingId.get(booking.id) ?? []) {
-        if (
-          !["deposit_paid", "fully_paid"].includes(payment.payment_status) ||
-          Number(payment.amount) <= 0
-        ) {
-          continue;
-        }
-
-        const paymentColumn = getPaymentColumn(
-          payment.method,
-          payment.payment_type,
-        );
-
-        if (paymentColumn) {
-          const current = Number(row.getCell(paymentColumn).value) || 0;
-          row.getCell(paymentColumn).value = current + Number(payment.amount);
-        }
-      }
 
       if (operationalNotes) {
         notesEntries[zone].push([

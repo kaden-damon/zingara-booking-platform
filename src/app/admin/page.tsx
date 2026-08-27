@@ -6975,14 +6975,68 @@ function createAvailableBookingReference(bookings: DemoBooking[]) {
   throw new Error("A unique booking reference could not be generated.");
 }
 
-function canUseTableForBooking(
+function isValidMergedOperationalParent(
+  table: DemoTable,
+  tables: DemoTable[],
+) {
+  const memberIds = table.mergedFrom ?? [];
+
+  if (
+    table.physicalTable === true ||
+    table.availabilityScope !== "operational" ||
+    !table.authoritativeId ||
+    table.capacityConfigured === false ||
+    table.mergedInto ||
+    memberIds.length < 2 ||
+    new Set(memberIds).size !== memberIds.length
+  ) {
+    return false;
+  }
+
+  const members = memberIds.map((memberId) =>
+    tables.find((candidate) => candidate.id === memberId),
+  );
+
+  return (
+    members.every(
+      (member) =>
+        Boolean(member?.authoritativeId) &&
+        member?.showId === table.showId &&
+        member?.zoneId === table.zoneId &&
+        member?.physicalTable === true &&
+        member?.capacityConfigured !== false &&
+        member?.status === "disabled" &&
+        member?.mergedInto === table.id &&
+        !member?.mergedFrom?.length &&
+        !member?.bookingReference,
+    ) &&
+    members.reduce(
+      (total, member) => total + (member?.seatCapacity ?? 0),
+      0,
+    ) === table.seatCapacity
+  );
+}
+
+function isEligibleBookingMoveTarget(
   table: DemoTable,
   booking: DemoBooking,
+  tables: DemoTable[],
 ) {
+  const isAssignableTable =
+    (table.physicalTable === true && !table.mergedFrom?.length) ||
+    isValidMergedOperationalParent(table, tables);
+
   return (
-    table.status === "available" ||
-    table.id === booking.tableId ||
-    table.bookingReference === booking.reference
+    table.id !== booking.tableId &&
+    table.showId === booking.showId &&
+    table.zoneId === booking.zoneId &&
+    isAssignableTable &&
+    Boolean(table.authoritativeId) &&
+    table.capacityConfigured !== false &&
+    table.seatCapacity >= booking.partySize &&
+    table.status === "available" &&
+    !table.bookingReference &&
+    !table.mergedInto
   );
 }
 
@@ -20050,44 +20104,6 @@ export default function AdminDashboardPage() {
       return false;
     }
 
-    if (
-      nextTable.physicalTable !== true ||
-      nextTable.capacityConfigured === false ||
-      !nextTable.authoritativeId ||
-      nextTable.mergedInto ||
-      nextTable.zoneId !== booking.zoneId
-    ) {
-      setCompatibilityWarning(
-        "Select an available configured physical table in the same seating zone.",
-      );
-      return false;
-    }
-
-    if (nextTable.seatCapacity < booking.partySize) {
-      setCompatibilityWarning(
-        `${nextTable.tableNumber} only seats ${nextTable.seatCapacity}; this booking needs ${booking.partySize}.`,
-      );
-      return false;
-    }
-
-    if (nextTable.status === "disabled") {
-      setCompatibilityWarning(
-        `${nextTable.tableNumber} is blocked and cannot accept bookings.`,
-      );
-      return false;
-    }
-
-    if (
-      nextTable.status === "booked" &&
-      nextTable.id !== booking.tableId &&
-      nextTable.bookingReference !== booking.reference
-    ) {
-      setCompatibilityWarning(
-        `${nextTable.tableNumber} is already reserved for another booking.`,
-      );
-      return false;
-    }
-
     if (nextTable.id === booking.tableId) {
       setTableCompatibilityWarnings((currentWarnings) => {
         const nextWarnings = { ...currentWarnings };
@@ -20095,6 +20111,16 @@ export default function AdminDashboardPage() {
         return nextWarnings;
       });
       return true;
+    }
+
+    if (
+      !nextTable.authoritativeId ||
+      !isEligibleBookingMoveTarget(nextTable, booking, tables)
+    ) {
+      setCompatibilityWarning(
+        "Select an available configured physical or merged table in the same seating zone.",
+      );
+      return false;
     }
 
     const moved = await reallocateBookingToPhysicalTable(
@@ -36109,19 +36135,8 @@ export default function AdminDashboardPage() {
 
               <div className="mt-5 grid grid-cols-1 gap-3 xl:grid-cols-2">
                 {selectedShowLegacyAssignments.map(({ booking, table }) => {
-                  const physicalMappingCandidates = getZoneTables(
-                    tables,
-                    selectedShowId,
-                    table.zoneId,
-                  ).filter(
-                    (candidate) =>
-                      candidate.physicalTable === true &&
-                      Boolean(candidate.authoritativeId) &&
-                      candidate.capacityConfigured !== false &&
-                      candidate.status === "available" &&
-                      !candidate.bookingReference &&
-                      !candidate.mergedInto &&
-                      candidate.seatCapacity >= booking.partySize,
+                  const physicalMappingCandidates = tables.filter((candidate) =>
+                    isEligibleBookingMoveTarget(candidate, booking, tables),
                   );
 
                   return (
@@ -36138,10 +36153,13 @@ export default function AdminDashboardPage() {
                             {booking.customer.name || "Imported Guest"}
                           </h4>
                           <p className="mt-1 text-sm text-zinc-300">
-                            {booking.partySize} pax · {booking.zoneTitle} · Legacy table {table.tableNumber}
+                            {booking.partySize} pax · {booking.zoneTitle}
                           </p>
-                          <p className="mt-1 text-xs text-zinc-400">
-                            {bookingStatusLabels[booking.status ?? "confirmed"]} · Requires physical table mapping
+                          <p className="mt-2 text-sm font-semibold text-amber-100">
+                            Legacy table {table.tableNumber} · physical table mapping required
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-zinc-400">
+                            Imported assignment only. It will remain outside the operational Table Plan until staff maps it deliberately.
                           </p>
                         </div>
                         <span className="self-start rounded-full border border-amber-300/30 bg-amber-950/20 px-3 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-amber-100">
@@ -36160,7 +36178,7 @@ export default function AdminDashboardPage() {
                           }
                           className="min-w-0 rounded-xl border border-white/15 bg-zinc-950 px-3 py-2"
                         >
-                          <option value="">Choose configured physical table...</option>
+                          <option value="">Choose physical or merged table...</option>
                           {physicalMappingCandidates.map((candidate) => (
                             <option
                               key={candidate.id}
@@ -36195,13 +36213,13 @@ export default function AdminDashboardPage() {
                           }}
                           className="rounded-xl bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          Map Physical Table
+                          Map Operational Table
                         </button>
                       </div>
 
                       {physicalMappingCandidates.length === 0 && (
                         <p className="mt-2 text-xs text-amber-100">
-                          No configured physical table currently fits this booking.
+                          No configured physical or merged table currently fits this booking.
                         </p>
                       )}
                     </article>
@@ -36474,6 +36492,25 @@ export default function AdminDashboardPage() {
                             table.capacityConfigured !== false &&
                             table.status === "available" &&
                             !table.bookingReference);
+                      const allocatedBooking = tableOccupancy.booking;
+                      const canMoveAllocatedBooking = Boolean(
+                        allocatedBooking &&
+                          !linkedParent &&
+                          (table.physicalTable === true ||
+                            isValidMergedOperationalParent(table, tables)),
+                      );
+                      const floorMoveTargets = allocatedBooking
+                        ? tables.filter((candidate) =>
+                            isEligibleBookingMoveTarget(
+                              candidate,
+                              allocatedBooking,
+                              tables,
+                            ),
+                          )
+                        : [];
+                      const selectedFloorMoveTargetId = allocatedBooking
+                        ? physicalMappingSelections[allocatedBooking.reference] ?? ""
+                        : "";
 
                       return (
                       <div
@@ -36813,6 +36850,75 @@ export default function AdminDashboardPage() {
                           )}
 
                           <div className="flex flex-col gap-3">
+                            {allocatedBooking && canMoveAllocatedBooking && (
+                              <fieldset className="rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
+                                <legend className="px-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                                  Move to table
+                                </legend>
+                                <p className="mt-1 text-xs leading-5 text-zinc-300">
+                                  {allocatedBooking.reference} · {allocatedBooking.partySize} pax · same-zone targets only
+                                </p>
+                                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                                  <select
+                                    value={selectedFloorMoveTargetId}
+                                    disabled={
+                                      !canManageBookings ||
+                                      floorAssignmentInFlightRef.current.has(
+                                        allocatedBooking.reference,
+                                      )
+                                    }
+                                    onChange={(event) =>
+                                      setPhysicalMappingSelections(
+                                        (currentSelections) => ({
+                                          ...currentSelections,
+                                          [allocatedBooking.reference]:
+                                            event.target.value,
+                                        }),
+                                      )
+                                    }
+                                    className="min-w-0 rounded-xl border border-white/15 bg-zinc-950 px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    <option value="">Choose available table...</option>
+                                    {floorMoveTargets.map((candidate) => (
+                                      <option
+                                        key={candidate.id}
+                                        value={candidate.id}
+                                      >
+                                        {candidate.tableNumber} · {candidate.seatCapacity} seats
+                                        {candidate.mergedFrom?.length
+                                          ? " · merged"
+                                          : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      !selectedFloorMoveTargetId ||
+                                      !canManageBookings ||
+                                      floorAssignmentInFlightRef.current.has(
+                                        allocatedBooking.reference,
+                                      )
+                                    }
+                                    onClick={() =>
+                                      void moveBooking(
+                                        allocatedBooking,
+                                        selectedFloorMoveTargetId,
+                                      )
+                                    }
+                                    className="rounded-xl bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    Move to table
+                                  </button>
+                                </div>
+                                {floorMoveTargets.length === 0 && (
+                                  <p className="mt-2 text-xs text-zinc-400">
+                                    No available physical or merged table currently fits this booking.
+                                  </p>
+                                )}
+                              </fieldset>
+                            )}
+
                             {mergeEligiblePrimary && (
                               <fieldset className="rounded-2xl border border-white/10 bg-black/25 p-4">
                                 <legend className="px-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
@@ -37523,17 +37629,8 @@ export default function AdminDashboardPage() {
 	                  getBookingPerformanceLabel(booking);
                     const linkedBookingCustomer =
                       getLiveCustomerForBooking(booking);
-	                const moveTables = tables.filter(
-                  (table) =>
-                    table.showId === booking.showId &&
-                    table.zoneId === booking.zoneId &&
-                    table.physicalTable === true &&
-                    table.capacityConfigured !== false &&
-                    Boolean(table.authoritativeId) &&
-                    table.seatCapacity >= booking.partySize &&
-                    table.status !== "disabled" &&
-                    !table.mergedInto &&
-                    canUseTableForBooking(table, booking),
+	                const moveTables = tables.filter((table) =>
+                  isEligibleBookingMoveTarget(table, booking, tables),
                 );
 
                 return (
