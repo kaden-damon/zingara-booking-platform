@@ -1,0 +1,277 @@
+name: Production database backup
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Back up Supabase to R2
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      AWS_EC2_METADATA_DISABLED: "true"
+
+    steps:
+      - name: Validate required credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for variable in \
+            SUPABASE_DB_URL \
+            R2_ACCESS_KEY_ID \
+            R2_SECRET_ACCESS_KEY \
+            R2_ENDPOINT \
+            R2_BUCKET_NAME
+          do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} is not configured."
+              exit 1
+            fi
+          done
+
+          if [[ "${SUPABASE_DB_URL}" != postgresql://* ]] || \
+             [[ "${SUPABASE_DB_URL}" != *"sslmode=require"* ]]; then
+            echo "::error::SUPABASE_DB_URL must require PostgreSQL TLS."
+            exit 1
+          fi
+
+          if [[ "${R2_ENDPOINT}" != https://* ]]; then
+            echo "::error::R2_ENDPOINT must use HTTPS."
+            exit 1
+          fi
+
+      - name: Prepare backup paths
+        id: paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          timestamp="$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
+          year="$(date -u +'%Y')"
+          month="$(date -u +'%m')"
+          day="$(date -u +'%d')"
+          backup_name="zingara-production-${timestamp}.dump"
+          manifest_name="zingara-production-${timestamp}.manifest.json"
+          backup_dir="${RUNNER_TEMP}/zingara-production-backup"
+          object_prefix="production/${year}/${month}/${day}"
+
+          mkdir -p "${backup_dir}"
+          chmod 700 "${backup_dir}"
+
+          {
+            echo "timestamp=${timestamp}"
+            echo "backup_name=${backup_name}"
+            echo "manifest_name=${manifest_name}"
+            echo "backup_dir=${backup_dir}"
+            echo "backup_key=${object_prefix}/${backup_name}"
+            echo "manifest_key=${object_prefix}/${manifest_name}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create PostgreSQL 17 custom-format dump
+        env:
+          BACKUP_DIR: ${{ steps.paths.outputs.backup_dir }}
+          BACKUP_NAME: ${{ steps.paths.outputs.backup_name }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run --rm \
+            -e SUPABASE_DB_URL \
+            -e BACKUP_NAME \
+            -e PGOPTIONS="-c default_transaction_read_only=on -c statement_timeout=1800000 -c lock_timeout=10000" \
+            -v "${BACKUP_DIR}:/backup" \
+            postgres:17 \
+            sh -eu -c 'pg_dump \
+              --dbname="$SUPABASE_DB_URL" \
+              --format=custom \
+              --compress=9 \
+              --schema=public \
+              --schema=auth \
+              --schema=supabase_migrations \
+              --lock-wait-timeout=10000 \
+              --file="/backup/$BACKUP_NAME"'
+
+      - name: Collect safe database metadata
+        env:
+          BACKUP_DIR: ${{ steps.paths.outputs.backup_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > "${BACKUP_DIR}/metadata.sql" <<'SQL'
+          select json_build_object(
+            'latest_migration_version', (
+              select coalesce(max(version)::text, 'unknown')
+              from supabase_migrations.schema_migrations
+            ),
+            'row_counts', json_build_object(
+              'bookings', (select count(*) from public.bookings),
+              'customers', (select count(*) from public.customers),
+              'payments', (select count(*) from public.payments),
+              'payment_refunds', (select count(*) from public.payment_refunds),
+              'booking_payment_links', (select count(*) from public.booking_payment_links),
+              'tickets', (select count(*) from public.tickets),
+              'ticket_validations', (select count(*) from public.ticket_validations),
+              'communications', (select count(*) from public.communications),
+              'shows', (select count(*) from public.shows),
+              'show_tables', (select count(*) from public.show_tables),
+              'venue_tables', (select count(*) from public.venue_tables),
+              'waitlist_entries', (select count(*) from public.waitlist_entries),
+              'staff_profiles', (select count(*) from public.staff_profiles),
+              'audit_events', (select count(*) from public.audit_events),
+              'booking_lifecycle_events', (select count(*) from public.booking_lifecycle_events),
+              'auth_users', (select count(*) from auth.users)
+            )
+          )::text;
+          SQL
+
+          docker run --rm \
+            -e SUPABASE_DB_URL \
+            -e PGOPTIONS="-c default_transaction_read_only=on -c statement_timeout=300000 -c lock_timeout=10000" \
+            -v "${BACKUP_DIR}:/backup" \
+            postgres:17 \
+            sh -eu -c 'psql \
+              --dbname="$SUPABASE_DB_URL" \
+              --no-psqlrc \
+              --quiet \
+              --tuples-only \
+              --no-align \
+              --set ON_ERROR_STOP=1 \
+              --file=/backup/metadata.sql' \
+            > "${BACKUP_DIR}/database-metadata.json"
+
+          jq -e 'type == "object" and (.row_counts | type == "object")' \
+            "${BACKUP_DIR}/database-metadata.json" > /dev/null
+
+      - name: Validate dump and create manifest
+        id: manifest
+        env:
+          BACKUP_DIR: ${{ steps.paths.outputs.backup_dir }}
+          BACKUP_NAME: ${{ steps.paths.outputs.backup_name }}
+          MANIFEST_NAME: ${{ steps.paths.outputs.manifest_name }}
+          BACKUP_TIMESTAMP: ${{ steps.paths.outputs.timestamp }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          backup_path="${BACKUP_DIR}/${BACKUP_NAME}"
+          manifest_path="${BACKUP_DIR}/${MANIFEST_NAME}"
+
+          test -s "${backup_path}"
+          docker run --rm \
+            -v "${BACKUP_DIR}:/backup:ro" \
+            postgres:17 \
+            pg_restore --list "/backup/${BACKUP_NAME}" \
+            > "${BACKUP_DIR}/dump-contents.list"
+          test -s "${BACKUP_DIR}/dump-contents.list"
+
+          backup_sha256="$(sha256sum "${backup_path}" | awk '{print $1}')"
+          backup_size="$(stat --format='%s' "${backup_path}")"
+          test -n "${backup_sha256}"
+          test "${backup_size}" -gt 0
+
+          jq -n \
+            --arg utc_timestamp "${BACKUP_TIMESTAMP}" \
+            --arg backup_filename "${BACKUP_NAME}" \
+            --arg sha256 "${backup_sha256}" \
+            --arg git_commit_sha "${GITHUB_SHA}" \
+            --arg workflow_run_id "${GITHUB_RUN_ID}" \
+            --argjson backup_size_bytes "${backup_size}" \
+            --argjson database_metadata "$(cat "${BACKUP_DIR}/database-metadata.json")" \
+            '{
+              utc_timestamp: $utc_timestamp,
+              backup_filename: $backup_filename,
+              sha256: $sha256,
+              backup_size_bytes: $backup_size_bytes,
+              git_commit_sha: $git_commit_sha,
+              latest_migration_version: $database_metadata.latest_migration_version,
+              row_counts: $database_metadata.row_counts,
+              workflow_run_id: $workflow_run_id
+            }' > "${manifest_path}"
+
+          jq -e '.sha256 and .backup_size_bytes and .row_counts' \
+            "${manifest_path}" > /dev/null
+
+          {
+            echo "backup_sha256=${backup_sha256}"
+            echo "backup_size=${backup_size}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload and verify R2 objects
+        env:
+          BACKUP_DIR: ${{ steps.paths.outputs.backup_dir }}
+          BACKUP_NAME: ${{ steps.paths.outputs.backup_name }}
+          MANIFEST_NAME: ${{ steps.paths.outputs.manifest_name }}
+          BACKUP_KEY: ${{ steps.paths.outputs.backup_key }}
+          MANIFEST_KEY: ${{ steps.paths.outputs.manifest_key }}
+          BACKUP_SHA256: ${{ steps.manifest.outputs.backup_sha256 }}
+          BACKUP_SIZE: ${{ steps.manifest.outputs.backup_size }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          backup_path="${BACKUP_DIR}/${BACKUP_NAME}"
+          manifest_path="${BACKUP_DIR}/${MANIFEST_NAME}"
+          verify_path="${BACKUP_DIR}/verified-${BACKUP_NAME}"
+
+          aws s3 cp \
+            "${backup_path}" \
+            "s3://${R2_BUCKET_NAME}/${BACKUP_KEY}" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --metadata "sha256=${BACKUP_SHA256}" \
+            --only-show-errors
+
+          aws s3api head-object \
+            --bucket "${R2_BUCKET_NAME}" \
+            --key "${BACKUP_KEY}" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            > "${BACKUP_DIR}/remote-backup-head.json"
+
+          remote_size="$(jq -r '.ContentLength' "${BACKUP_DIR}/remote-backup-head.json")"
+          remote_metadata_sha="$(jq -r '.Metadata.sha256 // empty' "${BACKUP_DIR}/remote-backup-head.json")"
+          test "${remote_size}" = "${BACKUP_SIZE}"
+          test "${remote_metadata_sha}" = "${BACKUP_SHA256}"
+
+          aws s3 cp \
+            "s3://${R2_BUCKET_NAME}/${BACKUP_KEY}" \
+            "${verify_path}" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --only-show-errors
+          test "$(sha256sum "${verify_path}" | awk '{print $1}')" = "${BACKUP_SHA256}"
+
+          aws s3 cp \
+            "${manifest_path}" \
+            "s3://${R2_BUCKET_NAME}/${MANIFEST_KEY}" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --content-type application/json \
+            --only-show-errors
+
+          aws s3api head-object \
+            --bucket "${R2_BUCKET_NAME}" \
+            --key "${MANIFEST_KEY}" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            > "${BACKUP_DIR}/remote-manifest-head.json"
+          test "$(jq -r '.ContentLength' "${BACKUP_DIR}/remote-manifest-head.json")" \
+            = "$(stat --format='%s' "${manifest_path}")"
+
+      - name: Remove temporary backup material
+        if: always()
+        env:
+          BACKUP_DIR: ${{ steps.paths.outputs.backup_dir }}
+        shell: bash
+        run: |
+          if [[ -n "${BACKUP_DIR:-}" && -d "${BACKUP_DIR}" ]]; then
+            rm -rf "${BACKUP_DIR}"
+          fi
