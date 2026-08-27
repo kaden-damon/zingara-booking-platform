@@ -1,8 +1,10 @@
 import { getPayFastConfig } from "@/lib/payfast/config";
+import { notifyAppleWalletBooking } from "@/lib/appleWalletSync";
 import { queryPayFastRefundAvailability } from "@/lib/payfast/refunds";
 import {
   isSuperAdminProfile,
   requireActiveStaff,
+  type StaffProfileRow,
 } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
@@ -10,39 +12,49 @@ export const dynamic = "force-dynamic";
 const qaBookingReference = "PH396M-R50QA";
 const qaRefundAmount = 50;
 
-function getSafeBlockingReason(input: {
-  fullRefundAvailable: boolean;
-  method: "bank_payout" | "not_available" | "payment_source" | "unknown";
-  providerState: "not_available" | "refundable" | "refunded" | "unknown";
-  refundable: boolean;
-}) {
-  if (input.providerState === "refunded") {
-    return "PayFast reports that this transaction has already been refunded.";
-  }
+function getRequestMetadata(request: Request) {
+  return {
+    ipAddress:
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      request.headers.get("x-real-ip") ??
+      null,
+    requestId:
+      request.headers.get("x-vercel-id") ??
+      request.headers.get("x-request-id") ??
+      crypto.randomUUID(),
+    userAgent: request.headers.get("user-agent"),
+  };
+}
 
-  if (!input.refundable) {
-    return "PayFast does not conclusively report this transaction as refundable.";
-  }
+function getSafeProviderResponse(payload: Record<string, unknown>) {
+  const safeKeys = [
+    "amount",
+    "amount_available",
+    "amount_available_for_refund",
+    "available_refund_amount",
+    "message",
+    "reason",
+    "refund_id",
+    "refund_status",
+    "status",
+  ];
 
-  if (!input.fullRefundAvailable) {
-    return "PayFast does not report the full R50 amount as available for refund.";
-  }
+  return Object.fromEntries(
+    safeKeys.flatMap((key) =>
+      payload[key] === undefined ? [] : [[key, payload[key]]],
+    ),
+  );
+}
 
-  if (input.method === "bank_payout") {
-    return "PayFast requires a manual bank-payout refund for this transaction.";
-  }
-
-  if (input.method !== "payment_source") {
-    return "PayFast did not return PAYMENT_SOURCE as the full-refund method.";
-  }
-
-  return null;
+function getStaffRole(profile: StaffProfileRow) {
+  const role = Array.isArray(profile.roles) ? profile.roles[0] : profile.roles;
+  return role?.name ?? "Unknown";
 }
 
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
 
-  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
     return (
       auth.error ?? Response.json({ error: "Unauthorized." }, { status: 401 })
     );
@@ -86,16 +98,17 @@ export async function GET(request: Request) {
   const [paymentResult, refundResult] = await Promise.all([
     auth.serviceClient
       .from("payments")
-      .select("amount,provider_transaction_id")
+      .select("id,amount,provider_transaction_id")
       .eq("booking_id", booking.id)
       .eq("method", "payfast")
       .not("provider_transaction_id", "is", null)
       .gt("amount", 0),
     auth.serviceClient
       .from("payment_refunds")
-      .select("id")
-      .eq("booking_id", booking.id)
-      .limit(1),
+      .select(
+        "id,booking_id,booking_reference,payment_id,provider,provider_payment_id,refund_amount,refund_reason,refund_status,refund_type",
+      )
+      .eq("booking_id", booking.id),
   ]);
 
   if (paymentResult.error || refundResult.error) {
@@ -118,9 +131,26 @@ export async function GET(request: Request) {
     );
   }
 
-  if ((refundResult.data ?? []).length > 0) {
+  const refunds = refundResult.data ?? [];
+  const refund = refunds[0];
+
+  if (
+    refunds.length !== 1 ||
+    !refund ||
+    refund.booking_id !== booking.id ||
+    refund.booking_reference !== qaBookingReference ||
+    refund.payment_id !== payments[0].id ||
+    refund.provider !== "payfast" ||
+    refund.provider_payment_id !== payments[0].provider_transaction_id ||
+    refund.refund_status !== "reconciliation_required" ||
+    refund.refund_type !== "full" ||
+    Math.abs(Number(refund.refund_amount) - qaRefundAmount) > 0.01
+  ) {
     return Response.json(
-      { error: "The fixed booking now has refund history and cannot be queried by this QA control." },
+      {
+        error:
+          "The fixed booking does not have exactly one matching locked R50 refund to reconcile.",
+      },
       { status: 409 },
     );
   }
@@ -139,35 +169,75 @@ export async function GET(request: Request) {
       payments[0].provider_transaction_id,
       config,
     );
-    const fullRefundAvailable =
-      availability.refundable &&
-      availability.amountAvailable + 0.001 >= qaRefundAmount;
-    const blockingReason = getSafeBlockingReason({
-      fullRefundAvailable,
-      method: availability.fullRefundMethod,
-      providerState: availability.providerState,
-      refundable: availability.refundable,
-    });
+
+    if (availability.providerState === "refunded") {
+      const metadata = getRequestMetadata(request);
+      const { data, error } = await auth.serviceClient.rpc(
+        "reconcile_payfast_refund_atomic",
+        {
+          p_actor_auth_user_id: auth.user.id,
+          p_actor_location_scope: auth.staffProfile.venue_scope ?? [],
+          p_actor_name: auth.staffProfile.full_name,
+          p_actor_role: getStaffRole(auth.staffProfile),
+          p_actor_staff_profile_id: auth.staffProfile.id,
+          p_ip_address: metadata.ipAddress,
+          p_provider_refund_id: null,
+          p_provider_response: getSafeProviderResponse(availability.raw),
+          p_reason: refund.refund_reason,
+          p_refund_id: refund.id,
+          p_request_id: metadata.requestId,
+          p_user_agent: metadata.userAgent,
+        },
+      );
+
+      if (error) {
+        return Response.json(
+          {
+            completed: true,
+            message:
+              "PayFast completion was confirmed, but atomic local reconciliation did not complete.",
+            providerState: "refunded",
+            querySucceeded: true,
+            refundable: false,
+          },
+          { status: 500 },
+        );
+      }
+
+      await notifyAppleWalletBooking(auth.serviceClient, booking.id);
+      const result = data as { status?: string } | null;
+
+      return Response.json({
+        completed: true,
+        message:
+          result?.status === "already_reconciled"
+            ? "The completed PayFast refund was already reconciled locally."
+            : "The completed PayFast refund was reconciled locally exactly once.",
+        providerState: availability.providerState,
+        querySucceeded: true,
+        refundable: false,
+      });
+    }
 
     return Response.json({
-      amountAvailable: availability.amountAvailable,
-      fullRefundAvailable,
+      completed: false,
+      message:
+        availability.providerState === "refundable"
+          ? "PayFast still reports the transaction as refundable, so refund completion is not proven and the local refund remains locked."
+          : "PayFast did not conclusively report a completed refund, so the local refund remains locked.",
       providerState: availability.providerState,
       querySucceeded: true,
-      reason: blockingReason,
       refundable: availability.refundable,
-      refundFullMethod: availability.fullRefundMethod.toUpperCase(),
     });
   } catch {
     return Response.json(
       {
-        amountAvailable: 0,
-        fullRefundAvailable: false,
+        completed: false,
+        message:
+          "PayFast refund status could not be confirmed; the local refund remains locked.",
         providerState: "unknown",
         querySucceeded: false,
-        reason: "PayFast refund availability could not be confirmed.",
         refundable: false,
-        refundFullMethod: "UNKNOWN",
       },
       { status: 502 },
     );

@@ -333,13 +333,11 @@ type RefundEligibilityPayload = {
   }>;
 };
 type PayFastRefundAvailabilityQaResult = {
-  amountAvailable: number;
-  fullRefundAvailable: boolean;
+  completed: boolean;
+  message: string;
   providerState: "not_available" | "refundable" | "refunded" | "unknown";
   querySucceeded: boolean;
-  reason?: string | null;
   refundable: boolean;
-  refundFullMethod: string;
 };
 type WaitlistReport = Record<WaitlistStatus, number> & {
   activeGuests: number;
@@ -13297,7 +13295,7 @@ export default function AdminDashboardPage() {
     }
 
     const confirmed = window.confirm(
-      "Query PayFast refund availability for PH396M-R50QA? This will not issue a refund.",
+      "Query PayFast refund status for PH396M-R50QA? This cannot submit another refund and will reconcile locally only if PayFast confirms completion.",
     );
 
     if (!confirmed) {
@@ -13305,7 +13303,7 @@ export default function AdminDashboardPage() {
     }
 
     setIsPayFastRefundQaQuerying(true);
-    setPayFastRefundQaStatus("Querying PayFast refund availability...");
+    setPayFastRefundQaStatus("Querying PayFast refund status...");
 
     try {
       const result = await fetchSupabaseApi<PayFastRefundAvailabilityQaResult>(
@@ -13313,23 +13311,18 @@ export default function AdminDashboardPage() {
       );
       const summary = [
         result.querySucceeded ? "Query succeeded" : "Query failed",
+        `Completed: ${result.completed ? "Yes" : "No"}`,
         `Refundable: ${result.refundable ? "Yes" : "No"}`,
-        `Full refund: ${result.fullRefundAvailable ? "Yes" : "No"}`,
-        `Amount available: ${formatCurrency(result.amountAvailable)}`,
-        `Method: ${result.refundFullMethod}`,
         `Provider state: ${result.providerState}`,
+        result.message,
       ];
-
-      if (result.reason) {
-        summary.push(result.reason);
-      }
 
       setPayFastRefundQaStatus(summary.join(" · "));
     } catch (error) {
       setPayFastRefundQaStatus(
         error instanceof Error
           ? error.message
-          : "PayFast refund availability could not be confirmed.",
+          : "PayFast refund status could not be confirmed.",
       );
     } finally {
       setIsPayFastRefundQaQuerying(false);
@@ -31764,11 +31757,12 @@ export default function AdminDashboardPage() {
                         Controlled Platform QA
                       </p>
                       <h3 className="mt-1 text-lg font-bold text-white">
-                        PayFast Refund Availability
+                        PayFast Refund Reconciliation
                       </h3>
                       <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-                        Query-only provider check fixed to PH396M-R50QA. This
-                        control cannot submit a refund.
+                        GET-only provider status check fixed to PH396M-R50QA.
+                        This control cannot submit a refund and reconciles local
+                        state only after conclusive provider completion.
                       </p>
                       {payFastRefundQaStatus && (
                         <p className="mt-3 text-sm text-[#F2D66C]">
@@ -31784,7 +31778,7 @@ export default function AdminDashboardPage() {
                     >
                       {isPayFastRefundQaQuerying
                         ? "Querying..."
-                        : "Query Refund Availability"}
+                        : "Query Refund Status"}
                     </button>
                   </div>
                 </section>
