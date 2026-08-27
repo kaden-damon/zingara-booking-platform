@@ -332,6 +332,14 @@ type RefundEligibilityPayload = {
     reason?: string | null;
   }>;
 };
+type PayFastRefundAvailabilityQaResult = {
+  fullRefundAvailable: boolean;
+  providerState: "not_available" | "refundable" | "refunded" | "unknown";
+  querySucceeded: boolean;
+  reason?: string | null;
+  refundable: boolean;
+  refundFullMethod: string;
+};
 type WaitlistReport = Record<WaitlistStatus, number> & {
   activeGuests: number;
 };
@@ -9558,6 +9566,9 @@ export default function AdminDashboardPage() {
     useState("");
   const [platformOperationsCleanupStatus, setPlatformOperationsCleanupStatus] =
     useState("");
+  const [isPayFastRefundQaQuerying, setIsPayFastRefundQaQuerying] =
+    useState(false);
+  const [payFastRefundQaStatus, setPayFastRefundQaStatus] = useState("");
   const [openAnalyticsSections, setOpenAnalyticsSections] = useState<
     AnalyticsSectionId[]
   >(["per-show-revenue"]);
@@ -13276,6 +13287,50 @@ export default function AdminDashboardPage() {
       setPlatformOperationsCleanupStatus(
         "Retention cleanup could not be completed.",
       );
+    }
+  }
+
+  async function queryPayFastRefundAvailabilityQa() {
+    if (!isSuperAdmin || isPayFastRefundQaQuerying) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Query PayFast refund availability for ZNG-QBZTTF? This will not issue a refund.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsPayFastRefundQaQuerying(true);
+    setPayFastRefundQaStatus("Querying PayFast refund availability...");
+
+    try {
+      const result = await fetchSupabaseApi<PayFastRefundAvailabilityQaResult>(
+        "/api/admin/qa/payfast-refund-availability",
+      );
+      const summary = [
+        result.querySucceeded ? "Query succeeded" : "Query failed",
+        `Refundable: ${result.refundable ? "Yes" : "No"}`,
+        `Full refund: ${result.fullRefundAvailable ? "Yes" : "No"}`,
+        `Method: ${result.refundFullMethod}`,
+        `Provider state: ${result.providerState}`,
+      ];
+
+      if (result.reason) {
+        summary.push(result.reason);
+      }
+
+      setPayFastRefundQaStatus(summary.join(" · "));
+    } catch (error) {
+      setPayFastRefundQaStatus(
+        error instanceof Error
+          ? error.message
+          : "PayFast refund availability could not be confirmed.",
+      );
+    } finally {
+      setIsPayFastRefundQaQuerying(false);
     }
   }
 
@@ -31696,6 +31751,38 @@ export default function AdminDashboardPage() {
                       className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                     >
                       Run Cleanup Now
+                    </button>
+                  </div>
+                </section>
+
+                <section className="rounded-[1.5rem] border border-white/10 bg-zinc-950/80 p-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                        Controlled Platform QA
+                      </p>
+                      <h3 className="mt-1 text-lg font-bold text-white">
+                        PayFast Refund Availability
+                      </h3>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+                        Query-only provider check fixed to ZNG-QBZTTF. This
+                        control cannot submit a refund.
+                      </p>
+                      {payFastRefundQaStatus && (
+                        <p className="mt-3 text-sm text-[#F2D66C]">
+                          {payFastRefundQaStatus}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void queryPayFastRefundAvailabilityQa()}
+                      disabled={isPayFastRefundQaQuerying}
+                      className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {isPayFastRefundQaQuerying
+                        ? "Querying..."
+                        : "Query Refund Availability"}
                     </button>
                   </div>
                 </section>
