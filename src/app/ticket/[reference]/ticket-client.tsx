@@ -232,6 +232,19 @@ export default function LiveTicketClient({
         : "";
 
     if (safeReturnTo) {
+      const referrer = document.referrer
+        ? new URL(document.referrer, window.location.origin)
+        : null;
+
+      if (
+        window.history.length > 1 &&
+        referrer?.origin === window.location.origin &&
+        referrer.pathname === "/admin"
+      ) {
+        window.history.back();
+        return;
+      }
+
       window.location.assign(safeReturnTo);
       return;
     }

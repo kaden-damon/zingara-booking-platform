@@ -50,6 +50,8 @@ import {
 import {
   assignBookingTable,
   archiveBookings,
+  getBooking,
+  getBookingHistories,
   getBookings,
   mapBookingPhysicalTable,
   persistBookingCancellation,
@@ -9383,6 +9385,14 @@ async function getSupabaseAdminSession() {
 export default function AdminDashboardPage() {
   const scannerVideoRef = useRef<HTMLVideoElement | null>(null);
   const [bookings, setBookings] = useState<DemoBooking[]>([]);
+  const [isBookingsLoading, setIsBookingsLoading] = useState(false);
+  const [bookingLoadError, setBookingLoadError] = useState("");
+  const [bookingDetailLoadingReference, setBookingDetailLoadingReference] =
+    useState("");
+  const [bookingDetailError, setBookingDetailError] = useState<{
+    message: string;
+    reference: string;
+  } | null>(null);
   const [corporateRequests, setCorporateRequests] = useState<
     CorporateRequest[]
   >([]);
@@ -10049,6 +10059,8 @@ export default function AdminDashboardPage() {
   const handledAdminDeepLinkRef = useRef("");
   const staffIssueSubmissionIdRef = useRef("");
   const liveCustomerLoadRequestRef = useRef(0);
+  const bookingLoadRequestRef = useRef(0);
+  const bookingHistoryLoadRequestRef = useRef(0);
   const sessionRestoreRequestRef = useRef(0);
   const showLoadRequestRef = useRef(0);
   const selectedShowTableLoadRequestRef = useRef(0);
@@ -10058,6 +10070,130 @@ export default function AdminDashboardPage() {
 
   showCalendarMonthRef.current = showCalendarMonth;
   showCalendarLocationFilterRef.current = showCalendarLocationFilter;
+
+  async function hydrateBookingHistories() {
+    const requestId = bookingHistoryLoadRequestRef.current + 1;
+    bookingHistoryLoadRequestRef.current = requestId;
+
+    try {
+      const historiesByReference = await getBookingHistories();
+
+      if (requestId !== bookingHistoryLoadRequestRef.current) {
+        return;
+      }
+
+      setBookings((currentBookings) =>
+        currentBookings.map((booking) => {
+          const histories = historiesByReference.get(booking.reference);
+
+          if (!histories) {
+            return booking;
+          }
+
+          return {
+            ...booking,
+            communicationHistory: [
+              ...histories.communicationHistory,
+              ...(booking.communicationHistory ?? []).filter(
+                (record) =>
+                  !histories.communicationHistory.some(
+                    (historyRecord) => historyRecord.id === record.id,
+                  ),
+              ),
+            ].sort(
+              (left, right) =>
+                new Date(right.sentAt).getTime() -
+                new Date(left.sentAt).getTime(),
+            ),
+            lifecycleHistory: [
+              ...histories.lifecycleHistory,
+              ...(booking.lifecycleHistory ?? []).filter(
+                (event) =>
+                  !histories.lifecycleHistory.some(
+                    (historyEvent) => historyEvent.id === event.id,
+                  ),
+              ),
+            ].sort(
+              (left, right) =>
+                new Date(right.createdAt).getTime() -
+                new Date(left.createdAt).getTime(),
+            ),
+          };
+        }),
+      );
+    } catch (error) {
+      console.error(
+        "[Zingara admin] Failed to hydrate booking histories",
+        error,
+      );
+    }
+  }
+
+  async function loadBookingList() {
+    const requestId = bookingLoadRequestRef.current + 1;
+    bookingLoadRequestRef.current = requestId;
+    setIsBookingsLoading(true);
+    setBookingLoadError("");
+
+    try {
+      const nextBookings = await getBookings({
+        includeHistory: false,
+        throwOnError: true,
+      });
+
+      if (requestId !== bookingLoadRequestRef.current) {
+        return nextBookings;
+      }
+
+      setBookings(nextBookings);
+      void hydrateBookingHistories();
+      return nextBookings;
+    } catch (error) {
+      console.error("[Zingara admin] Failed to load bookings", error);
+
+      if (requestId === bookingLoadRequestRef.current) {
+        setBookingLoadError("Bookings could not be loaded. Try again.");
+      }
+
+      return null;
+    } finally {
+      if (requestId === bookingLoadRequestRef.current) {
+        setIsBookingsLoading(false);
+      }
+    }
+  }
+
+  async function openBookingDetails(reference: string) {
+    if (bookingDetailLoadingReference === reference) {
+      return;
+    }
+
+    setBookingDetailLoadingReference(reference);
+    setBookingDetailError(null);
+
+    try {
+      const detailedBooking = await getBooking(reference);
+
+      if (!detailedBooking) {
+        throw new Error("Booking details were not returned.");
+      }
+
+      setBookings((currentBookings) =>
+        currentBookings.map((booking) =>
+          booking.reference === reference ? detailedBooking : booking,
+        ),
+      );
+      setExpandedBookingReference(reference);
+    } catch (error) {
+      console.error("[Zingara admin] Failed to load booking details", error);
+      setBookingDetailError({
+        message: "Booking details could not be loaded. Try again.",
+        reference,
+      });
+    } finally {
+      setBookingDetailLoadingReference("");
+    }
+  }
 
   async function refreshLiveCustomerRecords() {
     const requestId = liveCustomerLoadRequestRef.current + 1;
@@ -10122,11 +10258,11 @@ export default function AdminDashboardPage() {
       }
 
       const customerRecordsRequest = refreshLiveCustomerRecords();
+      const bookingsRequest = loadBookingList();
 
       try {
         const [
           nextShowPayload,
-          nextBookings,
           nextCorporateRequests,
           nextCommunicationTemplates,
           nextVenueSettings,
@@ -10139,7 +10275,6 @@ export default function AdminDashboardPage() {
             tableLocation: showCalendarLocationFilterRef.current,
             tableMonth: showCalendarMonthRef.current,
           }),
-          getBookings(),
           getCorporateRequests(),
           getTemplates(),
           getVenueSettings(),
@@ -10149,6 +10284,7 @@ export default function AdminDashboardPage() {
           getPayments(),
         ]);
         await customerRecordsRequest;
+        const nextBookings = (await bookingsRequest) ?? [];
         const nextShows = nextShowPayload.shows;
         const nextTables =
           nextShowPayload.tablesLoaded
@@ -10196,7 +10332,6 @@ export default function AdminDashboardPage() {
               ? currentShowId
               : nextRelevantShow?.id ?? nextShows[0]?.id ?? "",
           );
-          setBookings(nextBookings);
           setTables(nextTables);
           setShowLoadError("");
         } else if (isLatestShowLoad) {
@@ -14230,7 +14365,7 @@ export default function AdminDashboardPage() {
     setActiveAdminTab("bookings");
     setBookingSearch(reference);
     setBookingPage(1);
-    setExpandedBookingReference(reference);
+    void openBookingDetails(reference);
   }
 
   function convertCorporateRequestToBooking(
@@ -37536,6 +37671,49 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
+          {isBookingsLoading && (
+            <div
+              role="status"
+              className="mb-6 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/10 p-4 text-sm font-semibold text-[#F2D66C]"
+            >
+              Loading bookings…
+            </div>
+          )}
+
+          {bookingLoadError && (
+            <div
+              role="alert"
+              className="mb-6 flex flex-col gap-3 rounded-2xl border border-red-300/30 bg-red-950/25 p-4 text-sm text-red-100 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <span>{bookingLoadError}</span>
+              <button
+                type="button"
+                onClick={() => void loadBookingList()}
+                className="rounded-full border border-red-200/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition hover:bg-red-200 hover:text-black"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {bookingDetailError && (
+            <div
+              role="alert"
+              className="mb-6 flex flex-col gap-3 rounded-2xl border border-amber-300/30 bg-amber-950/25 p-4 text-sm text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <span>{bookingDetailError.message}</span>
+              <button
+                type="button"
+                onClick={() =>
+                  void openBookingDetails(bookingDetailError.reference)
+                }
+                className="rounded-full border border-amber-200/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition hover:bg-amber-200 hover:text-black"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           <div className="mb-6 rounded-2xl border border-[#8D7A2F]/25 bg-black/35 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-zinc-400">
@@ -37581,7 +37759,7 @@ export default function AdminDashboardPage() {
             ))}
           </div>
 
-          {bookings.length === 0 ? (
+          {bookings.length === 0 && isBookingsLoading ? null : bookings.length === 0 ? (
             <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
               No bookings yet.
             </div>
@@ -37657,7 +37835,7 @@ export default function AdminDashboardPage() {
                             return;
                           }
 
-                          setExpandedBookingReference(booking.reference);
+                          void openBookingDetails(booking.reference);
                         }}
                         className="min-w-0 text-left"
                       >
@@ -37767,6 +37945,8 @@ export default function AdminDashboardPage() {
                       >
                         <a
                           href={getPlatformTicketUrl(booking.reference)}
+                          rel="noreferrer"
+                          target="_blank"
                           className="inline-flex min-h-10 items-center justify-center rounded-full border border-white/15 px-3 py-2 text-center text-xs font-semibold text-zinc-200 transition hover:bg-white hover:text-black sm:px-4 sm:text-sm"
                         >
                           Ticket
@@ -37788,14 +37968,18 @@ export default function AdminDashboardPage() {
 
                         <button
                           type="button"
+                          disabled={
+                            bookingDetailLoadingReference ===
+                            booking.reference
+                          }
                           onClick={() =>
-                            setExpandedBookingReference(
-                              booking.reference,
-                            )
+                            void openBookingDetails(booking.reference)
                           }
                           className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full border border-[#D8C36A]/35 px-3 py-2 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-4 sm:text-sm"
                         >
-                          View Booking
+                          {bookingDetailLoadingReference === booking.reference
+                            ? "Loading booking…"
+                            : "View Booking"}
                         </button>
 
                         {canManageBookings && (
@@ -38148,6 +38332,8 @@ export default function AdminDashboardPage() {
                             </p>
                             <a
                               href={getPlatformTicketUrl(booking.reference)}
+                              rel="noreferrer"
+                              target="_blank"
                               className="mt-3 inline-flex rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                             >
                               Open Live Ticket

@@ -615,8 +615,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       row.customer_row,
     );
     const authoritativeShowId =
-      parseShowNotes(row.show_row?.notes ?? null) ||
-      (await getLegacyShowId(row.show_id));
+      parseShowNotes(row.show_row?.notes ?? null) || row.show_id;
     const authoritativeZoneId = row.table_id
       ? normalizeBookingSection(row.table_row?.section ?? row.section)
       : metadataBooking.zoneId;
@@ -659,7 +658,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     };
   }
 
-  const showReference = await getLegacyShowId(row.show_id);
+  const showReference = parseShowNotes(row.show_row?.notes ?? null) || row.show_id;
   const zoneId = normalizeBookingSection(row.table_row?.section ?? row.section);
   const zoneTitle = getDisplayZoneTitle(zoneId, row.section ?? undefined);
   const floorAssignmentRequired = !row.table_id;
@@ -715,23 +714,45 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
   };
 }
 
-async function getSupabaseBookings() {
+type GetBookingsOptions = {
+  includeHistory?: boolean;
+  reference?: string;
+  throwOnError?: boolean;
+};
+
+async function getSupabaseBookings(options: GetBookingsOptions = {}) {
   try {
+    const searchParams = new URLSearchParams();
+
+    if (options.includeHistory === false) {
+      searchParams.set("includeHistory", "0");
+    }
+
+    if (options.reference) {
+      searchParams.set("reference", options.reference);
+    }
+
+    const query = searchParams.toString();
     const payload = await fetchSupabaseApi<{
       rows: SupabaseBookingAggregateRow[];
     }>(
-      "/api/admin/bookings",
+      `/api/admin/bookings${query ? `?${query}` : ""}`,
     );
 
     return payload.rows ?? [];
   } catch (error) {
     console.error("[Zingara Supabase] Failed to load bookings", error);
+
+    if (options.throwOnError) {
+      throw error;
+    }
+
     return null;
   }
 }
 
-export async function getBookings() {
-  const rows = await getSupabaseBookings();
+export async function getBookings(options: GetBookingsOptions = {}) {
+  const rows = await getSupabaseBookings(options);
 
   if (!rows) {
     return [];
@@ -741,10 +762,37 @@ export async function getBookings() {
 }
 
 export async function getBooking(id: string) {
-  const bookings = await getBookings();
+  const bookings = await getBookings({
+    reference: id,
+    throwOnError: true,
+  });
 
   return bookings.find(
     (booking) => booking.reference === id || booking.ticketCode === id,
+  );
+}
+
+export async function getBookingHistories() {
+  const payload = await fetchSupabaseApi<{
+    rows: Array<{
+      booking_reference: string;
+      communication_rows?: SupabaseCommunicationRow[];
+      lifecycle_event_rows?: SupabaseLifecycleEventRow[];
+    }>;
+  }>("/api/admin/bookings?historyOnly=1");
+
+  return new Map(
+    (payload.rows ?? []).map((row) => [
+      row.booking_reference,
+      {
+        communicationHistory: (row.communication_rows ?? []).map(
+          toCommunicationRecord,
+        ),
+        lifecycleHistory: (row.lifecycle_event_rows ?? []).map(
+          toLifecycleEvent,
+        ),
+      },
+    ]),
   );
 }
 

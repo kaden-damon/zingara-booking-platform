@@ -68,12 +68,39 @@ type SupabasePaymentStatus =
   | "refunded";
 
 type AdminBookingRow = {
+  booking_reference?: string;
   customer_id: string | null;
   id: string;
   show_id: string;
   table_id: string | null;
   [key: string]: unknown;
 };
+
+async function fetchAdminBookingIdentityRows(serviceClient: SupabaseClient) {
+  const rows: Array<{ booking_reference: string; id: string }> = [];
+
+  for (let from = 0; ; from += bookingQueryBatchSize) {
+    const { data, error } = await serviceClient
+      .from("bookings")
+      .select("id,booking_reference")
+      .order("created_at", { ascending: false })
+      .range(from, from + bookingQueryBatchSize - 1);
+
+    if (error) {
+      return { error, rows };
+    }
+
+    const batch = (data ?? []) as Array<{
+      booking_reference: string;
+      id: string;
+    }>;
+    rows.push(...batch);
+
+    if (batch.length < bookingQueryBatchSize) {
+      return { error: null, rows };
+    }
+  }
+}
 
 type ShowTableAssignmentRow = {
   availability_scope?: string | null;
@@ -151,22 +178,45 @@ async function fetchAggregateRows(
 ) {
   const uniqueIds = [...new Set(ids)].filter(Boolean);
   const rows: unknown[] = [];
+  const concurrentBatchCount = 4;
 
-  for (let index = 0; index < uniqueIds.length; index += aggregateQueryBatchSize) {
-    const batchIds = uniqueIds.slice(index, index + aggregateQueryBatchSize);
-    let query = serviceClient.from(tableName).select(select).in(column, batchIds);
+  for (
+    let index = 0;
+    index < uniqueIds.length;
+    index += aggregateQueryBatchSize * concurrentBatchCount
+  ) {
+    const batchResults = await Promise.all(
+      Array.from({ length: concurrentBatchCount }, (_, batchIndex) => {
+        const batchStart = index + batchIndex * aggregateQueryBatchSize;
+        const batchIds = uniqueIds.slice(
+          batchStart,
+          batchStart + aggregateQueryBatchSize,
+        );
 
-    if (order) {
-      query = query.order(order.column, { ascending: order.ascending });
+        if (batchIds.length === 0) {
+          return Promise.resolve({ data: [], error: null });
+        }
+
+        let query = serviceClient
+          .from(tableName)
+          .select(select)
+          .in(column, batchIds);
+
+        if (order) {
+          query = query.order(order.column, { ascending: order.ascending });
+        }
+
+        return query;
+      }),
+    );
+
+    for (const result of batchResults) {
+      if (result.error) {
+        return { error: result.error, rows };
+      }
+
+      rows.push(...(result.data ?? []));
     }
-
-    const { data, error } = await query;
-
-    if (error) {
-      return { error, rows };
-    }
-
-    rows.push(...(data ?? []));
   }
 
   return { error: null, rows };
@@ -237,6 +287,94 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const reference = url.searchParams.get("reference");
+  const includeHistory = url.searchParams.get("includeHistory") !== "0";
+  const historyOnly = url.searchParams.get("historyOnly") === "1";
+
+  if (historyOnly) {
+    const { rows: bookingRows, error: bookingRowsError } =
+      await fetchAdminBookingIdentityRows(serviceClient);
+
+    if (bookingRowsError) {
+      console.error(
+        "[Zingara API] Failed to load booking history identities",
+        bookingRowsError,
+      );
+      return Response.json(
+        { error: "Booking histories could not be loaded." },
+        { status: 500 },
+      );
+    }
+
+    const bookingIds = bookingRows.map((booking) => booking.id);
+    const [communicationsResult, lifecycleResult] = await Promise.all([
+      fetchAggregateRows(
+        serviceClient,
+        "communications",
+        "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
+        "booking_id",
+        bookingIds,
+        { ascending: false, column: "sent_at" },
+      ),
+      fetchAggregateRows(
+        serviceClient,
+        "booking_lifecycle_events",
+        "id,booking_id,from_status,to_status,note,reason,changed_by,created_at",
+        "booking_id",
+        bookingIds,
+        { ascending: false, column: "created_at" },
+      ),
+    ]);
+
+    if (communicationsResult.error || lifecycleResult.error) {
+      console.error("[Zingara API] Failed to load booking histories", {
+        communicationsError: communicationsResult.error,
+        lifecycleError: lifecycleResult.error,
+      });
+      return Response.json(
+        { error: "Booking histories could not be loaded." },
+        { status: 500 },
+      );
+    }
+
+    const communicationsByBookingId = new Map<string, unknown[]>();
+    for (const communication of communicationsResult.rows ?? []) {
+      if (
+        communication &&
+        typeof communication === "object" &&
+        "booking_id" in communication &&
+        typeof communication.booking_id === "string"
+      ) {
+        communicationsByBookingId.set(communication.booking_id, [
+          ...(communicationsByBookingId.get(communication.booking_id) ?? []),
+          communication,
+        ]);
+      }
+    }
+
+    const lifecycleByBookingId = new Map<string, unknown[]>();
+    for (const lifecycleEvent of lifecycleResult.rows ?? []) {
+      if (
+        lifecycleEvent &&
+        typeof lifecycleEvent === "object" &&
+        "booking_id" in lifecycleEvent &&
+        typeof lifecycleEvent.booking_id === "string"
+      ) {
+        lifecycleByBookingId.set(lifecycleEvent.booking_id, [
+          ...(lifecycleByBookingId.get(lifecycleEvent.booking_id) ?? []),
+          lifecycleEvent,
+        ]);
+      }
+    }
+
+    return Response.json({
+      rows: bookingRows.map((booking) => ({
+        booking_reference: booking.booking_reference,
+        communication_rows:
+          communicationsByBookingId.get(booking.id) ?? [],
+        lifecycle_event_rows: lifecycleByBookingId.get(booking.id) ?? [],
+      })),
+    });
+  }
   const { rows, error } = await fetchAdminBookingRows(serviceClient, reference);
 
   if (error) {
@@ -272,22 +410,26 @@ export async function GET(request: Request) {
     { rows: tables, error: tablesError },
     { rows: shows, error: showsError },
   ] = await Promise.all([
-    fetchAggregateRows(
-      serviceClient,
-      "communications",
-      "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
-      "booking_id",
-      bookingIds,
-      { ascending: false, column: "sent_at" },
-    ),
-    fetchAggregateRows(
-      serviceClient,
-      "booking_lifecycle_events",
-      "id,booking_id,from_status,to_status,note,reason,changed_by,created_at",
-      "booking_id",
-      bookingIds,
-      { ascending: false, column: "created_at" },
-    ),
+    includeHistory
+      ? fetchAggregateRows(
+          serviceClient,
+          "communications",
+          "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
+          "booking_id",
+          bookingIds,
+          { ascending: false, column: "sent_at" },
+        )
+      : Promise.resolve({ rows: [], error: null }),
+    includeHistory
+      ? fetchAggregateRows(
+          serviceClient,
+          "booking_lifecycle_events",
+          "id,booking_id,from_status,to_status,note,reason,changed_by,created_at",
+          "booking_id",
+          bookingIds,
+          { ascending: false, column: "created_at" },
+        )
+      : Promise.resolve({ rows: [], error: null }),
     customerIds.length > 0
       ? fetchAggregateRows(
           serviceClient,
