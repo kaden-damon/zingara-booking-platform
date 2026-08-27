@@ -151,6 +151,11 @@ import {
   getPhysicalTableDefinition,
   isLegacyPlaceholderTableCode,
 } from "../../lib/physicalTables";
+import type { InitialFloorPlan } from "../../lib/floorAllocator";
+import {
+  applyInitialFloorPlan,
+  planInitialFloor,
+} from "../../lib/supabase/floorPlans";
 import {
   type ShowEditLock,
   acquireShowEditLock,
@@ -9970,6 +9975,13 @@ export default function AdminDashboardPage() {
   const [physicalMappingSelections, setPhysicalMappingSelections] = useState<
     Record<string, string>
   >({});
+  const [initialFloorPlan, setInitialFloorPlan] =
+    useState<InitialFloorPlan | null>(null);
+  const [initialFloorPlanStatus, setInitialFloorPlanStatus] = useState("");
+  const [isInitialFloorPlanning, setIsInitialFloorPlanning] = useState(false);
+  const [isInitialFloorApplying, setIsInitialFloorApplying] = useState(false);
+  const [initialFloorPlanReviewed, setInitialFloorPlanReviewed] =
+    useState(false);
   const [floorZoneFilter, setFloorZoneFilter] =
     useState<FloorZoneFilter>("all");
   const [expandedTableId, setExpandedTableId] = useState("");
@@ -12557,6 +12569,12 @@ export default function AdminDashboardPage() {
       setSelectedShowId(manifestSelectedShow.id);
     }
   }, [activeOperationsTab, manifestSelectedShow, selectedShowId]);
+
+  useEffect(() => {
+    setInitialFloorPlan(null);
+    setInitialFloorPlanStatus("");
+    setInitialFloorPlanReviewed(false);
+  }, [selectedShowId]);
 
   useEffect(() => {
     if (todayCheckInShows.length === 0) {
@@ -20359,6 +20377,78 @@ export default function AdminDashboardPage() {
       mergeTablesForShows(currentTables, selectedShowTables, [showId]),
     );
     setIsShowsLoading(false);
+  }
+
+  async function planSelectedInitialFloor() {
+    if (!selectedShowId || !canManageBookings || !canManageTables) {
+      return;
+    }
+
+    setIsInitialFloorPlanning(true);
+    setInitialFloorPlanStatus("");
+    setInitialFloorPlanReviewed(false);
+
+    try {
+      const response = await planInitialFloor(selectedShowId);
+      setInitialFloorPlan(response.plan);
+      setInitialFloorPlanStatus(
+        response.plan.summary.unresolvedBookings === 0
+          ? "This performance already has a complete operational floor."
+          : "Dry run complete. Review every proposed capacity, merge, and allocation before Apply.",
+      );
+    } catch (error) {
+      setInitialFloorPlan(null);
+      setInitialFloorPlanStatus(
+        error instanceof Error
+          ? error.message
+          : "The initial floor dry run could not be generated.",
+      );
+    } finally {
+      setIsInitialFloorPlanning(false);
+    }
+  }
+
+  async function applyReviewedInitialFloor() {
+    if (
+      !selectedShowId ||
+      !initialFloorPlan ||
+      !initialFloorPlanReviewed ||
+      isInitialFloorApplying ||
+      !canManageBookings ||
+      !canManageTables
+    ) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Apply ${initialFloorPlan.summary.autoAllocatable} reviewed table allocations to this performance? The server will reject the entire plan if Floor state changed.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsInitialFloorApplying(true);
+    setInitialFloorPlanStatus("Applying reviewed initial floor…");
+
+    try {
+      await applyInitialFloorPlan({
+        showReference: selectedShowId,
+        snapshotToken: initialFloorPlan.snapshotToken,
+      });
+      await refreshAssignedShowState(selectedShowId);
+      setInitialFloorPlan(null);
+      setInitialFloorPlanReviewed(false);
+      setInitialFloorPlanStatus("Initial floor applied from the reviewed snapshot.");
+    } catch (error) {
+      setInitialFloorPlanStatus(
+        error instanceof Error
+          ? error.message
+          : "The initial floor was not applied.",
+      );
+    } finally {
+      setIsInitialFloorApplying(false);
+    }
   }
 
   async function assignFloorQueuedBooking(booking: DemoBooking) {
@@ -36219,25 +36309,202 @@ export default function AdminDashboardPage() {
                   are manual and never treated as public waitlist entries.
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-sm sm:min-w-[220px]">
-                <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
+              <div className="flex flex-col items-stretch gap-3 sm:min-w-[260px]">
+                <button
+                  type="button"
+                  onClick={() => void planSelectedInitialFloor()}
+                  disabled={
+                    !selectedShowId ||
+                    isInitialFloorPlanning ||
+                    isInitialFloorApplying ||
+                    !canManageBookings ||
+                    !canManageTables
+                  }
+                  className="rounded-xl border border-[#D8C36A]/55 bg-[#D8C36A]/10 px-4 py-2.5 text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A]/20 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {isInitialFloorPlanning
+                    ? "Planning unallocated tables…"
+                    : "Plan Unallocated Tables"}
+                </button>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
                   <p className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
                     Bookings
                   </p>
                   <p className="mt-1 text-2xl font-bold text-white">
                     {selectedShowFloorAssignmentBookings.length}
                   </p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
                   <p className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
                     Guests
                   </p>
                   <p className="mt-1 text-2xl font-bold text-white">
                     {selectedShowFloorAssignmentPax}
                   </p>
+                  </div>
                 </div>
               </div>
             </div>
+
+            {initialFloorPlanStatus && (
+              <p className="mt-4 text-sm text-amber-100" role="status">
+                {initialFloorPlanStatus}
+              </p>
+            )}
+
+            {initialFloorPlan && (
+              <div className="mt-5 border-t border-white/10 pt-5">
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                  {[
+                    ["Unresolved", initialFloorPlan.summary.unresolvedBookings],
+                    ["Auto-allocatable", initialFloorPlan.summary.autoAllocatable],
+                    ["Capacity changes", initialFloorPlan.summary.capacityChanges],
+                    ["Merges", initialFloorPlan.summary.merges],
+                    ["Manual attention", initialFloorPlan.summary.unresolvedExceptions],
+                  ].map(([label, value]) => (
+                    <div
+                      key={String(label)}
+                      className="rounded-xl border border-white/10 bg-black/30 p-3"
+                    >
+                      <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                        {label}
+                      </p>
+                      <p className="mt-1 text-xl font-bold text-white">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="mt-3 text-xs leading-5 text-zinc-400">
+                  {initialFloorPlan.summary.preservedAllocations} valid staff allocation
+                  {initialFloorPlan.summary.preservedAllocations === 1 ? " is" : "s are"}{" "}
+                  preserved and excluded from this plan.
+                </p>
+
+                {initialFloorPlan.capacityProposals.length > 0 && (
+                  <div className="mt-5">
+                    <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-200">
+                      Capacity proposals
+                    </h4>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {initialFloorPlan.capacityProposals.map((proposal) => (
+                        <span
+                          key={`capacity-${proposal.tableId}`}
+                          className="rounded-full border border-sky-300/25 bg-sky-950/20 px-3 py-1.5 text-xs text-sky-100"
+                        >
+                          {proposal.tableCode} · {proposal.capacity} seats ·{" "}
+                          {getZoneById(proposal.zone)?.title ?? proposal.zone}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {initialFloorPlan.merges.length > 0 && (
+                  <div className="mt-5">
+                    <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-200">
+                      Merge proposals
+                    </h4>
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      {initialFloorPlan.merges.map((merge) => (
+                        <p
+                          key={merge.id}
+                          className="rounded-xl border border-violet-300/20 bg-violet-950/15 px-3 py-2 text-sm text-violet-100"
+                        >
+                          {merge.memberTableCodes.join(" + ")} → {merge.capacity} seats ·{" "}
+                          {getZoneById(merge.zone)?.title ?? merge.zone}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {initialFloorPlan.allocations.length > 0 && (
+                  <div className="mt-5">
+                    <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-200">
+                      Proposed allocations
+                    </h4>
+                    <div className="mt-2 max-h-80 space-y-2 overflow-y-auto pr-1">
+                      {initialFloorPlan.allocations.map((allocation) => (
+                        <div
+                          key={allocation.bookingId}
+                          className="grid gap-1 rounded-xl border border-emerald-300/20 bg-emerald-950/10 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
+                        >
+                          <p className="text-zinc-200">
+                            <span className="font-semibold text-white">
+                              {allocation.bookingReference}
+                            </span>{" "}
+                            · {allocation.pax} pax ·{" "}
+                            {getZoneById(allocation.zone)?.title ?? allocation.zone}
+                            <span className="block text-xs text-zinc-500">
+                              {allocation.currentAssignment}
+                            </span>
+                          </p>
+                          <p className="font-semibold text-emerald-100 sm:text-right">
+                            → {allocation.targetLabel} · {allocation.targetCapacity} seats
+                            <span className="block text-xs font-normal text-emerald-200/70">
+                              {allocation.targetType} · {allocation.unusedSeats} unused
+                            </span>
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {initialFloorPlan.unresolved.length > 0 && (
+                  <div className="mt-5">
+                    <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-red-200">
+                      Manual attention
+                    </h4>
+                    <div className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
+                      {initialFloorPlan.unresolved.map((exception) => (
+                        <p
+                          key={`unresolved-${exception.bookingReference}`}
+                          className="rounded-xl border border-red-300/20 bg-red-950/10 px-3 py-2 text-sm text-red-100"
+                        >
+                          <span className="font-semibold">
+                            {exception.bookingReference}
+                          </span>{" "}
+                          · {exception.pax} pax ·{" "}
+                          {exception.zone
+                            ? getZoneById(exception.zone)?.title ?? exception.zone
+                            : "Unknown zone"}{" "}
+                          · {exception.currentAssignment}
+                          <span className="block text-xs text-red-200/75">
+                            {exception.reason}
+                          </span>
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {initialFloorPlan.summary.autoAllocatable > 0 && (
+                  <div className="mt-5 flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <label className="flex items-start gap-2 text-sm text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={initialFloorPlanReviewed}
+                        onChange={(event) =>
+                          setInitialFloorPlanReviewed(event.target.checked)
+                        }
+                        className="mt-0.5 h-4 w-4 accent-[#D8C36A]"
+                      />
+                      I reviewed the capacity, merge, and allocation proposals.
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void applyReviewedInitialFloor()}
+                      disabled={!initialFloorPlanReviewed || isInitialFloorApplying}
+                      className="rounded-xl bg-[#D8C36A] px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {isInitialFloorApplying ? "Applying…" : "Apply Reviewed Initial Floor"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {selectedShowFloorAssignmentBookings.length === 0 ? (
               <div className="mt-5 rounded-2xl border border-emerald-300/20 bg-emerald-950/10 p-4 text-sm text-emerald-100">
