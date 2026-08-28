@@ -11,6 +11,8 @@ import {
   useTransition,
 } from "react";
 
+import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
+
 import {
   type AdminRole,
   type Permission,
@@ -9623,6 +9625,8 @@ export default function AdminDashboardPage() {
     useState<AdminSession | null>(null);
   const [activeAdminTab, setActiveAdminTab] =
     useState<AdminTab>("overview");
+  const [openFloorTableManagementZones, setOpenFloorTableManagementZones] =
+    useState<SeatingZoneId[]>([]);
   const [dashboardWidgetOrder, setDashboardWidgetOrder] = useState<
     DashboardWidgetId[]
   >(defaultDashboardWidgetOrder);
@@ -34859,11 +34863,12 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
 
-                      <div className="rounded-2xl border border-white/10 bg-zinc-950 p-5">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                          Booking History
-                        </p>
-                        <div className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">
+                      <AdminCollapsibleSection
+                        className="bg-zinc-950"
+                        summary={`${selectedCustomerProfile.bookingHistory.length} booking${selectedCustomerProfile.bookingHistory.length === 1 ? "" : "s"}`}
+                        title="Booking History"
+                      >
+                        <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
                           {selectedCustomerProfile.bookingHistory.map(
                             (booking) => {
                               const paymentStatus =
@@ -34917,13 +34922,14 @@ export default function AdminDashboardPage() {
                             },
                           )}
                         </div>
-                      </div>
+                      </AdminCollapsibleSection>
 
-                      <div className="rounded-2xl border border-white/10 bg-zinc-950 p-5">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                          Communication History
-                        </p>
-                        <div className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">
+                      <AdminCollapsibleSection
+                        className="bg-zinc-950"
+                        summary={`${selectedCustomerProfile.communicationHistory.length} record${selectedCustomerProfile.communicationHistory.length === 1 ? "" : "s"}`}
+                        title="Communication History"
+                      >
+                        <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
                           {selectedCustomerProfile.communicationHistory
                             .length === 0 ? (
                             <p className="rounded-xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-400">
@@ -34966,7 +34972,7 @@ export default function AdminDashboardPage() {
                             )
                           )}
                         </div>
-                      </div>
+                      </AdminCollapsibleSection>
                     </div>
                   </div>
               </div>
@@ -36062,28 +36068,18 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            <div className="mt-5 rounded-2xl border border-white/10 bg-black/35 p-5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    Communication History
-                  </p>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    Recent workflow activity for {getShowLabel(workflowShow)}.
-                  </p>
-                </div>
-                <p className="text-sm font-semibold text-[#D8C36A]">
-                  {workflowCommunicationHistory.length} record
-                  {workflowCommunicationHistory.length === 1 ? "" : "s"}
-                </p>
-              </div>
+            <AdminCollapsibleSection
+              className="mt-5 bg-black/35"
+              summary={`${workflowCommunicationHistory.length} record${workflowCommunicationHistory.length === 1 ? "" : "s"} · ${getShowLabel(workflowShow)}`}
+              title="Communication History"
+            >
 
               {workflowCommunicationHistory.length === 0 ? (
-                <p className="mt-4 rounded-2xl border border-white/10 bg-zinc-950 p-4 text-sm text-zinc-400">
+                <p className="rounded-2xl border border-white/10 bg-zinc-950 p-4 text-sm text-zinc-400">
                   No communications have been sent for this show yet.
                 </p>
               ) : (
-                <div className="mt-4 max-h-80 space-y-3 overflow-y-auto pr-1">
+                <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
                   {workflowCommunicationHistory.map(
                     ({ booking, record, showLabel, templateName }) => (
                       <div
@@ -36119,7 +36115,7 @@ export default function AdminDashboardPage() {
                   )}
                 </div>
               )}
-            </div>
+            </AdminCollapsibleSection>
           </section>
         )}
 
@@ -36949,6 +36945,11 @@ export default function AdminDashboardPage() {
                             type="button"
                             onClick={() => {
                               setFloorZoneFilter(booking.zoneId);
+                              setOpenFloorTableManagementZones((openZones) =>
+                                openZones.includes(booking.zoneId)
+                                  ? openZones
+                                  : [...openZones, booking.zoneId],
+                              );
                               window.requestAnimationFrame(() =>
                                 document
                                   .getElementById(
@@ -37249,16 +37250,23 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
 
-                <div className="mt-6 rounded-2xl border border-white/10 bg-black/25 p-5">
-                  <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
-                        Table Management
-                      </p>
-                      <p className="mt-1 text-zinc-300">
-                        Configure physical tables or add a clearly marked temporary operational table for this performance.
-                      </p>
-                    </div>
+                <AdminCollapsibleSection
+                  className="mt-6 bg-black/25"
+                  contentClassName="p-4 sm:p-5"
+                  onOpenChange={(open) =>
+                    setOpenFloorTableManagementZones((openZones) =>
+                      open
+                        ? openZones.includes(zone.id)
+                          ? openZones
+                          : [...openZones, zone.id]
+                        : openZones.filter((zoneId) => zoneId !== zone.id),
+                    )
+                  }
+                  open={openFloorTableManagementZones.includes(zone.id)}
+                  summary={`${zoneTables.length} operational table${zoneTables.length === 1 ? "" : "s"} · configure capacity, temporary tables, and merges`}
+                  title={`${zone.title} Table Management`}
+                >
+                  <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-end">
 
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_120px_auto]">
                       <input
@@ -37928,7 +37936,7 @@ export default function AdminDashboardPage() {
                     );
                     })}
                   </div>
-                </div>
+                </AdminCollapsibleSection>
               </section>
             );
           })}
@@ -39211,17 +39219,19 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
 
-                      <div className="min-w-0 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                          Communication History
-                        </p>
+                      <AdminCollapsibleSection
+                        className="min-w-0"
+                        contentClassName="p-3 sm:p-4"
+                        summary={`${(booking.communicationHistory ?? []).length} record${(booking.communicationHistory ?? []).length === 1 ? "" : "s"}`}
+                        title="Communication History"
+                      >
                         {(booking.communicationHistory ?? [])
                           .length === 0 ? (
-                          <p className="mt-2 text-sm text-zinc-400">
+                          <p className="text-sm text-zinc-400">
                             No ticket sends yet.
                           </p>
                         ) : (
-                          <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1 md:max-h-72">
+                          <div className="max-h-56 space-y-2 overflow-y-auto pr-1 md:max-h-72">
                             {(booking.communicationHistory ?? [])
                               .slice(0, 3)
                               .map((record) => (
@@ -39256,15 +39266,17 @@ export default function AdminDashboardPage() {
                               ))}
                           </div>
                         )}
-                      </div>
+                      </AdminCollapsibleSection>
                     </div>
 
                     {canManageCommunications && !bookingIsReadOnly && (
-                      <div className="mt-3 min-w-0 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                          Custom Guest Message
-                        </p>
-                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[auto_1fr]">
+                      <AdminCollapsibleSection
+                        className="mt-3 min-w-0"
+                        contentClassName="p-3 sm:p-4"
+                        summary="Email, push, or SMS an individual guest"
+                        title="Custom Guest Message"
+                      >
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-[auto_1fr]">
                           <select
                             value={
                               customMessageForms[booking.reference]
@@ -39382,7 +39394,7 @@ export default function AdminDashboardPage() {
                             }
                           </p>
                         )}
-                      </div>
+                      </AdminCollapsibleSection>
                     )}
 
                     {canManageBookings && !bookingIsReadOnly ? (
@@ -39754,11 +39766,12 @@ export default function AdminDashboardPage() {
                               className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
                             />
                           </label>
-                          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                              Timeline
-                            </p>
-                            <div className="mt-3 max-h-40 space-y-2 overflow-y-auto pr-1 text-sm">
+                          <AdminCollapsibleSection
+                            contentClassName="p-4"
+                            summary={`${(booking.lifecycleHistory ?? []).length} status event${(booking.lifecycleHistory ?? []).length === 1 ? "" : "s"}`}
+                            title="Booking Timeline"
+                          >
+                            <div className="max-h-40 space-y-2 overflow-y-auto pr-1 text-sm">
                               {(booking.lifecycleHistory ?? []).length ===
                               0 ? (
                                 <p className="text-zinc-500">
@@ -39796,7 +39809,7 @@ export default function AdminDashboardPage() {
                                 )
                               )}
                             </div>
-                          </div>
+                          </AdminCollapsibleSection>
                         </div>
                       </>
                     ) : (
