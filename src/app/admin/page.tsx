@@ -10761,6 +10761,21 @@ export default function AdminDashboardPage() {
         setActiveOperationsTab("waitlist");
       } else if (section === "corporate") {
         setActiveAdminTab("corporate");
+      } else if (section === "floor") {
+        setActiveAdminTab("operations");
+        setActiveOperationsTab("floor");
+      } else if (section === "check-in") {
+        setActiveAdminTab("operations");
+        setActiveOperationsTab("check-in");
+      } else if (section === "customers") {
+        setActiveAdminTab("customers");
+      } else if (section === "analytics") {
+        setActiveAdminTab("analytics");
+      } else if (section === "communications") {
+        setActiveAdminTab("settings");
+        setActiveSettingsTab("workflows");
+      } else if (section === "academy") {
+        setActiveAdminTab("academy");
       } else if (section === "platform-operations") {
         setActiveAdminTab("platform-operations");
       }
@@ -25067,8 +25082,14 @@ export default function AdminDashboardPage() {
 
         <nav
           aria-label="Admin sections"
-          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-8 lg:rounded-[2rem]"
+          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-9 lg:rounded-[2rem]"
         >
+          <a
+            href="/admin/quick-start"
+            className="flex min-h-11 items-center justify-center rounded-2xl border border-[#D8C36A]/45 bg-[#D8C36A]/10 px-2 py-2.5 text-center text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition duration-300 hover:bg-[#D8C36A] hover:text-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C] sm:px-3 sm:py-3 sm:text-xs sm:tracking-[0.12em]"
+          >
+            Quick Start
+          </a>
           {adminTabs.map((tab) => {
             const isActive =
               activeAdminTab === tab.id ||
