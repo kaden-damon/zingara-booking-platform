@@ -1,4 +1,5 @@
 import { getAdminAuthSession } from "@/lib/supabase/auth";
+import { platformPresenceHeartbeatMs } from "@/lib/platformPresence";
 
 type TelemetryMetadata = Record<string, boolean | number | string | null>;
 
@@ -34,8 +35,8 @@ type TrackSessionInput = TelemetryBase & {
 };
 
 const publicSessionKey = "zingara-platform-session-id";
+const staffSessionKey = "zingara-staff-platform-session-id";
 const journeyKey = "zingara-booking-journey-id";
-const heartbeatMs = 60_000;
 let lastPresenceSignature = "";
 let lastPresenceAt = 0;
 
@@ -85,6 +86,22 @@ export function getPlatformSessionId() {
 
   const next = randomId("session");
   storageSet(publicSessionKey, next);
+  return next;
+}
+
+export function getStaffPlatformSessionId() {
+  if (typeof window === "undefined") {
+    return randomId("staff_session");
+  }
+
+  const existing = storageGet(staffSessionKey);
+
+  if (existing) {
+    return existing;
+  }
+
+  const next = randomId("staff_session");
+  storageSet(staffSessionKey, next);
   return next;
 }
 
@@ -181,7 +198,10 @@ export function upsertPlatformPresence(input: TrackSessionInput) {
   ].join("|");
   const now = Date.now();
 
-  if (signature === lastPresenceSignature && now - lastPresenceAt < heartbeatMs) {
+  if (
+    signature === lastPresenceSignature &&
+    now - lastPresenceAt < platformPresenceHeartbeatMs
+  ) {
     return;
   }
 

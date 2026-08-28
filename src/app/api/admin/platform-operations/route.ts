@@ -1,5 +1,9 @@
 import { cleanupPlatformTelemetry } from "@/lib/platformTelemetry";
 import {
+  countUniqueActiveStaff,
+  platformPresenceActiveWindowMs,
+} from "@/lib/platformPresence";
+import {
   getAdminRoleFromName,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
@@ -457,7 +461,9 @@ export async function GET(request: Request) {
   const period = url.searchParams.get("period") ?? "today";
   const sinceDate = getPeriodStart(period);
   const since = sinceDate.toISOString();
-  const activeSince = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const activeSince = new Date(
+    Date.now() - platformPresenceActiveWindowMs,
+  ).toISOString();
   const limit = getLimit(url.searchParams.get("limit"), 75);
   const bookingSearch = getSafeText(url.searchParams.get("booking"), 80);
   const severityFilter = getSafeText(url.searchParams.get("severity"), 24);
@@ -549,9 +555,6 @@ export async function GET(request: Request) {
   const activePublicSessions = activeSessionRows.filter(
     (session) => session.session_type === "public",
   );
-  const activeStaffSessions = activeSessionRows.filter(
-    (session) => session.session_type === "staff",
-  );
   const recentErrors = eventRows
     .filter((event) => event.severity === "warning" || event.severity === "error")
     .slice(0, limit);
@@ -592,7 +595,7 @@ export async function GET(request: Request) {
           : "Monitoring",
       publicGuests: activePublicSessions.length,
       recentErrors: recentErrors.length,
-      staffOnline: activeStaffSessions.length,
+      staffOnline: countUniqueActiveStaff(activeSessionRows),
     },
     activeSessions: activeSessionRows.slice(0, limit).map((session) => ({
       currentArea: session.current_area,

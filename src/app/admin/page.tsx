@@ -73,6 +73,14 @@ import {
   signOutAdmin,
 } from "../../lib/supabase/auth";
 import {
+  getStaffPlatformSessionId,
+  upsertPlatformPresence,
+} from "../../lib/browserPlatformTelemetry";
+import {
+  platformPresenceHeartbeatMs,
+  shouldSendPresenceHeartbeat,
+} from "../../lib/platformPresence";
+import {
   getTemplates,
   saveTemplates,
 } from "../../lib/supabase/communicationTemplates";
@@ -1362,6 +1370,18 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "settings", label: "Settings" },
   { id: "academy", label: "🎓 Academy" },
 ];
+
+const adminPresenceAreas: Record<AdminTab, string> = {
+  academy: "Dashboard",
+  analytics: "Reports",
+  bookings: "Bookings",
+  corporate: "Bookings",
+  customers: "Customers",
+  operations: "Operations",
+  overview: "Dashboard",
+  "platform-operations": "Platform Operations",
+  settings: "Settings",
+};
 
 const dataPortabilityColumns: Record<
   DataPortabilityEntity,
@@ -10389,6 +10409,71 @@ export default function AdminDashboardPage() {
     paginationPreferencesLoaded,
     standardBookingPageSize,
   ]);
+
+  useEffect(() => {
+    if (!currentStaff) {
+      return;
+    }
+
+    const sessionId = getStaffPlatformSessionId();
+    let lastActivityAt = Date.now();
+
+    const heartbeat = () => {
+      const now = Date.now();
+
+      if (
+        !shouldSendPresenceHeartbeat({
+          lastActivityAt,
+          now,
+          visible: document.visibilityState === "visible",
+        })
+      ) {
+        return;
+      }
+
+      upsertPlatformPresence({
+        currentArea: adminPresenceAreas[activeAdminTab],
+        currentStage:
+          adminTabs.find((tab) => tab.id === activeAdminTab)?.label ?? "Active",
+        sessionId,
+        sessionType: "staff",
+      });
+    };
+
+    const recordActivity = () => {
+      lastActivityAt = Date.now();
+    };
+    const resumePresence = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      recordActivity();
+      heartbeat();
+    };
+
+    heartbeat();
+    const intervalId = window.setInterval(
+      heartbeat,
+      platformPresenceHeartbeatMs,
+    );
+    window.addEventListener("focus", resumePresence);
+    window.addEventListener("keydown", recordActivity);
+    window.addEventListener("pointerdown", recordActivity);
+    window.addEventListener("scroll", recordActivity, { passive: true });
+    window.addEventListener("touchstart", recordActivity, { passive: true });
+    document.addEventListener("visibilitychange", resumePresence);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", resumePresence);
+      window.removeEventListener("keydown", recordActivity);
+      window.removeEventListener("pointerdown", recordActivity);
+      window.removeEventListener("scroll", recordActivity);
+      window.removeEventListener("touchstart", recordActivity);
+      document.removeEventListener("visibilitychange", resumePresence);
+    };
+  }, [activeAdminTab, currentStaff]);
 
   useEffect(() => {
     let isMounted = true;
