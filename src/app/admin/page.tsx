@@ -95,6 +95,11 @@ import {
   isPaymentLinkEligible,
 } from "../../lib/paymentControls";
 import {
+  defaultPageSize,
+  paginateItems,
+  parsePageSize,
+} from "../../lib/pagination";
+import {
   getCorporateRequests,
   saveCorporateRequests as persistCorporateRequests,
 } from "../../lib/supabase/corporateRequests";
@@ -237,6 +242,7 @@ import {
   showLocationOptions,
   storeDemoTables,
 } from "../../lib/zingaraDemo";
+import BookingPaginationControls from "./BookingPaginationControls";
 
 type NewTableForm = {
   tableNumber: string;
@@ -6660,7 +6666,10 @@ const bookingCalendarMonths = [
   "December",
 ];
 
-const bookingPageSize = 5;
+const standardBookingPageSizeStorageKey =
+  "zingara-admin-standard-booking-page-size";
+const corporateBookingPageSizeStorageKey =
+  "zingara-admin-corporate-booking-page-size";
 
 const defaultBulkShowScheduleForm: BulkShowScheduleForm = {
   address: "",
@@ -9503,6 +9512,14 @@ export default function AdminDashboardPage() {
   );
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingPage, setBookingPage] = useState(1);
+  const [standardBookingPageSize, setStandardBookingPageSize] =
+    useState(defaultPageSize);
+  const [corporateBookingPageSize, setCorporateBookingPageSize] =
+    useState(defaultPageSize);
+  const [corporateActivePage, setCorporateActivePage] = useState(1);
+  const [corporateArchivedPage, setCorporateArchivedPage] = useState(1);
+  const [paginationPreferencesLoaded, setPaginationPreferencesLoaded] =
+    useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerArchiveFilter, setCustomerArchiveFilter] =
     useState<CustomerArchiveFilter>("active");
@@ -10334,6 +10351,44 @@ export default function AdminDashboardPage() {
       return null;
     }
   }
+
+  useEffect(() => {
+    const storedStandardPageSize = parsePageSize(
+      window.localStorage.getItem(standardBookingPageSizeStorageKey),
+    );
+    const storedCorporatePageSize = parsePageSize(
+      window.localStorage.getItem(corporateBookingPageSizeStorageKey),
+    );
+
+    if (storedStandardPageSize) {
+      setStandardBookingPageSize(storedStandardPageSize);
+    }
+
+    if (storedCorporatePageSize) {
+      setCorporateBookingPageSize(storedCorporatePageSize);
+    }
+
+    setPaginationPreferencesLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!paginationPreferencesLoaded) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      standardBookingPageSizeStorageKey,
+      String(standardBookingPageSize),
+    );
+    window.localStorage.setItem(
+      corporateBookingPageSizeStorageKey,
+      String(corporateBookingPageSize),
+    );
+  }, [
+    corporateBookingPageSize,
+    paginationPreferencesLoaded,
+    standardBookingPageSize,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -22286,9 +22341,14 @@ export default function AdminDashboardPage() {
   const filteredBookings = bookings.filter((booking) =>
     bookingMatchesCurrentFilters(booking),
   );
-  const bookingPageCount = Math.max(
-    1,
-    Math.ceil(filteredBookings.length / bookingPageSize),
+  const activeBookingPageSize =
+    activeAdminTab === "corporate"
+      ? corporateBookingPageSize
+      : standardBookingPageSize;
+  const bookingPagination = paginateItems(
+    filteredBookings,
+    bookingPage,
+    activeBookingPageSize,
   );
   const filteredArchivableBookings = getFilteredArchivableBookings();
   const allArchivableBookings = getAllNonArchivedBookings();
@@ -22327,11 +22387,7 @@ export default function AdminDashboardPage() {
       },
       {} as Partial<Record<BookingStatus, number>>,
     );
-  const safeBookingPage = Math.min(bookingPage, bookingPageCount);
-  const paginatedBookings = filteredBookings.slice(
-    (safeBookingPage - 1) * bookingPageSize,
-    safeBookingPage * bookingPageSize,
-  );
+  const paginatedBookings = bookingPagination.items;
   const bookingFilterDates = Array.from(
     new Set(shows.map((show) => show.date).filter(Boolean)),
   ).sort();
@@ -23709,6 +23765,16 @@ export default function AdminDashboardPage() {
         (corporateStatusFilter === "all" ||
           corporateStatusFilter === "archived"),
     );
+  const activeCorporatePagination = paginateItems(
+    filteredActiveCorporateRequests,
+    corporateActivePage,
+    corporateBookingPageSize,
+  );
+  const archivedCorporatePagination = paginateItems(
+    filteredArchivedCorporateRequests,
+    corporateArchivedPage,
+    corporateBookingPageSize,
+  );
   const openCorporateRequest =
     corporateRequests.find(
       (request) => request.id === openCorporateRequestId,
@@ -37811,9 +37877,11 @@ export default function AdminDashboardPage() {
                     </span>
                     <input
                       value={corporateSearch}
-                      onChange={(event) =>
-                        setCorporateSearch(event.target.value)
-                      }
+                      onChange={(event) => {
+                        setCorporateSearch(event.target.value);
+                        setCorporateActivePage(1);
+                        setCorporateArchivedPage(1);
+                      }}
                       aria-label="Search corporate bookings"
                       className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-0 text-sm text-transparent shadow-[0_0_18px_rgba(216,195,106,0.1)] transition-all duration-300 focus:border-[#D8C36A]/70 focus:pr-4 focus:text-white focus:outline-none"
                     />
@@ -37838,14 +37906,16 @@ export default function AdminDashboardPage() {
               <label className="relative inline-flex w-full sm:w-auto">
                 <select
                   value={corporateStatusFilter}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setCorporateStatusFilter(
                       event.target.value as
                         | CorporateRequestStatus
                         | "archived"
                         | "all",
-                    )
-                  }
+                    );
+                    setCorporateActivePage(1);
+                    setCorporateArchivedPage(1);
+                  }}
                   className="w-full appearance-none rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 sm:w-auto"
                 >
                   <option value="all">All Statuses</option>
@@ -37897,10 +37967,25 @@ export default function AdminDashboardPage() {
                       : "grid-cols-1"
                   }`}
                 >
-                  {filteredActiveCorporateRequests.map((request) =>
+                  {activeCorporatePagination.items.map((request) =>
                     renderCorporateRequestCard(request),
                   )}
                 </div>
+              )}
+              {filteredActiveCorporateRequests.length > 0 && (
+                <BookingPaginationControls
+                  key={`active-corporate-${corporateBookingPageSize}`}
+                  itemLabel="corporate bookings"
+                  onPageChange={setCorporateActivePage}
+                  onPageSizeChange={(pageSize) => {
+                    setCorporateBookingPageSize(pageSize);
+                    setCorporateActivePage(1);
+                    setCorporateArchivedPage(1);
+                    setBookingPage(1);
+                  }}
+                  pageSize={corporateBookingPageSize}
+                  window={activeCorporatePagination.window}
+                />
               )}
             </section>
 
@@ -37918,12 +38003,27 @@ export default function AdminDashboardPage() {
                       : "grid-cols-1"
                   }`}
                 >
-                  {filteredArchivedCorporateRequests.map((request) =>
+                  {archivedCorporatePagination.items.map((request) =>
                     renderCorporateRequestCard(request, {
                       isArchived: true,
                     }),
                   )}
                 </div>
+              )}
+              {filteredArchivedCorporateRequests.length > 0 && (
+                <BookingPaginationControls
+                  key={`archived-corporate-${corporateBookingPageSize}`}
+                  itemLabel="archived corporate bookings"
+                  onPageChange={setCorporateArchivedPage}
+                  onPageSizeChange={(pageSize) => {
+                    setCorporateBookingPageSize(pageSize);
+                    setCorporateActivePage(1);
+                    setCorporateArchivedPage(1);
+                    setBookingPage(1);
+                  }}
+                  pageSize={corporateBookingPageSize}
+                  window={archivedCorporatePagination.window}
+                />
               )}
             </section>
           </div>
@@ -39658,44 +39758,21 @@ export default function AdminDashboardPage() {
                 );
               })}
             </div>
-            <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/35 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-zinc-400">
-                Page{" "}
-                <span className="font-semibold text-white">
-                  {safeBookingPage}
-                </span>{" "}
-                of{" "}
-                <span className="font-semibold text-white">
-                  {bookingPageCount}
-                </span>
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={safeBookingPage <= 1}
-                  onClick={() =>
-                    setBookingPage((currentPage) =>
-                      Math.max(1, currentPage - 1),
-                    )
-                  }
-                  className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  disabled={safeBookingPage >= bookingPageCount}
-                  onClick={() =>
-                    setBookingPage((currentPage) =>
-                      Math.min(bookingPageCount, currentPage + 1),
-                    )
-                  }
-                  className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            <BookingPaginationControls
+              key={`${activeAdminTab}-${activeBookingPageSize}`}
+              itemLabel="bookings"
+              onPageChange={setBookingPage}
+              onPageSizeChange={(pageSize) => {
+                if (activeAdminTab === "corporate") {
+                  setCorporateBookingPageSize(pageSize);
+                } else {
+                  setStandardBookingPageSize(pageSize);
+                }
+                setBookingPage(1);
+              }}
+              pageSize={activeBookingPageSize}
+              window={bookingPagination.window}
+            />
             </>
           )}
         </div>
