@@ -14,6 +14,7 @@ import {
 import { getSupabaseClient } from "./client";
 import { fetchSupabaseApi } from "./apiClient";
 import { getOrCreateCustomerIdFromInfo } from "./customers";
+import { resolveStaffDisplayName } from "@/lib/staffDisplayName";
 
 type SupabaseBookingStatus =
   | "cancelled"
@@ -49,6 +50,7 @@ type SupabaseBookingRow = {
   created_at: string;
   created_by_staff_id: string | null;
   created_by_staff?: {
+    email: string | null;
     full_name: string;
     id: string;
   } | null;
@@ -639,7 +641,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       balanceDue: row.balance_outstanding,
       bookingOrigin: row.booking_origin ?? "legacy_unknown",
       createdByStaffId: row.created_by_staff_id ?? undefined,
-      createdByStaffName: row.created_by_staff?.full_name ?? undefined,
+      createdByStaffName: resolveStaffDisplayName(row.created_by_staff),
       partySize: row.guest_count,
       paymentStatus: toDemoPaymentStatus(row.payment_status),
       source: row.booking_source as DemoBooking["source"],
@@ -688,7 +690,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     communicationHistory: [],
     createdAt: row.created_at,
     createdByStaffId: row.created_by_staff_id ?? undefined,
-    createdByStaffName: row.created_by_staff?.full_name ?? undefined,
+    createdByStaffName: resolveStaffDisplayName(row.created_by_staff),
     customer: getDemoCustomerFromCustomerRow(row.customer_row) ?? {
       email: "",
       name: "Imported Guest",

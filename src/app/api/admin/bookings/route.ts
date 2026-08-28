@@ -26,7 +26,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 
 const bookingSelect =
-  "id,customer_id,show_id,table_id,booking_reference,booking_source,booking_origin,created_by_staff_id,provenance_recorded_at,created_by_staff:staff_profiles!bookings_created_by_staff_id_fkey(id,full_name),company_name,guest_count,booking_status,payment_status,section,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,archived_by,archive_reason,created_at,updated_at";
+  "id,customer_id,show_id,table_id,booking_reference,booking_source,booking_origin,created_by_staff_id,provenance_recorded_at,created_by_staff:staff_profiles!bookings_created_by_staff_id_fkey(id,full_name,email),company_name,guest_count,booking_status,payment_status,section,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,archived_by,archive_reason,created_at,updated_at";
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
 const bookingQueryBatchSize = 1000;
 const aggregateQueryBatchSize = 150;
