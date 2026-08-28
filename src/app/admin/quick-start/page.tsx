@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { AdminCollapsibleSection } from "@/app/admin/AdminCollapsibleSection";
+import { QuickStartDeviceSetup } from "@/app/admin/quick-start/QuickStartDeviceSetup";
 import {
   getDefaultOpenQuickStartSections,
   getQuickStartSectionIds,
@@ -466,6 +467,7 @@ export default function QuickStartPage() {
           <h2 id="quick-links-heading" className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">Quick Links</h2>
           <div className="mt-3 flex flex-wrap gap-2">
             <a href="#access-setup" className={secondaryButtonClass}>Access</a>
+            <a href="#device-setup" className={secondaryButtonClass}>Set Up Device</a>
             {sectionIds.map((sectionId) => (
               <a key={sectionId} href={`#${sectionId}`} className={secondaryButtonClass}>
                 {cards[sectionId].title}
@@ -515,6 +517,8 @@ export default function QuickStartPage() {
             </div>
           </AdminCollapsibleSection>
         </section>
+
+        <QuickStartDeviceSetup />
 
         <aside className="mt-4 rounded-2xl border border-amber-300/35 bg-amber-950/20 p-5">
           <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-amber-100">Your Account Identifies You</h2>

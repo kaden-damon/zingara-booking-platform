@@ -233,6 +233,17 @@ export async function POST(request: Request) {
       subscription?: unknown;
     };
     const staffContext = await getStaffContext(request);
+    const guestBookingReference = normalizeBookingReference(
+      body.context?.bookingReference,
+    );
+
+    if (!staffContext && !guestBookingReference) {
+      return Response.json(
+        { error: "An authenticated staff session or booking reference is required." },
+        { status: 401 },
+      );
+    }
+
     console.info("[Zingara push diagnostics] Subscription registration requested", {
       hasStaffContext: Boolean(staffContext),
       role: staffContext?.role ?? null,

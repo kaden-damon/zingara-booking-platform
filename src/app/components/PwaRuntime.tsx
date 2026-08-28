@@ -3,6 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
+import {
+  capturePwaInstallPrompt,
+  clearPwaInstallPrompt,
+} from "@/lib/pwaInstallPrompt";
+
 function isLocalhost(hostname: string) {
   return hostname === "localhost" || hostname === "127.0.0.1";
 }
@@ -43,8 +48,21 @@ export default function PwaRuntime() {
   const router = useRouter();
 
   useEffect(() => {
+    function handleAppInstalled() {
+      clearPwaInstallPrompt();
+    }
+
+    window.addEventListener("beforeinstallprompt", capturePwaInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
     if (!("serviceWorker" in navigator)) {
-      return;
+      return () => {
+        window.removeEventListener(
+          "beforeinstallprompt",
+          capturePwaInstallPrompt,
+        );
+        window.removeEventListener("appinstalled", handleAppInstalled);
+      };
     }
 
     if (isLocalNetworkHttp()) {
@@ -63,7 +81,13 @@ export default function PwaRuntime() {
           window.location.reload();
         }
       });
-      return;
+      return () => {
+        window.removeEventListener(
+          "beforeinstallprompt",
+          capturePwaInstallPrompt,
+        );
+        window.removeEventListener("appinstalled", handleAppInstalled);
+      };
     }
 
     navigator.serviceWorker
@@ -77,6 +101,14 @@ export default function PwaRuntime() {
       .catch(() => {
         // PWA installability is optional for unsupported contexts.
       });
+
+    return () => {
+      window.removeEventListener(
+        "beforeinstallprompt",
+        capturePwaInstallPrompt,
+      );
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
   }, []);
 
   useEffect(() => {

@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import PwaRuntime from "./components/PwaRuntime";
 import ZingaraHeader from "./components/ZingaraHeader";
+import { publicManifestPath } from "../lib/pwaManifests";
 import { defaultZingaraFaviconUrl } from "../lib/zingaraDemo";
 import "./globals.css";
 
@@ -38,7 +39,7 @@ export const metadata: Metadata = {
   formatDetection: {
     telephone: false,
   },
-  manifest: "/manifest.webmanifest",
+  manifest: publicManifestPath,
   icons: {
     icon: [
       {
