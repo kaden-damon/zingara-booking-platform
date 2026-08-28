@@ -74,6 +74,7 @@ import {
   signInAdmin,
   signOutAdmin,
 } from "../../lib/supabase/auth";
+import { sanitizeAdminReturnPath } from "../../lib/adminReturnPath";
 import {
   getStaffPlatformSessionId,
   upsertPlatformPresence,
@@ -10435,6 +10436,19 @@ export default function AdminDashboardPage() {
     let isMounted = true;
     let activeAdminSession: AdminSession | null = null;
 
+    function redirectToRequestedAdminPath() {
+      const returnTo = new URLSearchParams(window.location.search).get(
+        "returnTo",
+      );
+
+      if (!returnTo) {
+        return false;
+      }
+
+      window.location.replace(sanitizeAdminReturnPath(returnTo));
+      return true;
+    }
+
     async function loadAdminData(options: { sessionValidated?: boolean } = {}) {
       if (!activeAdminSession) {
         return;
@@ -10453,6 +10467,11 @@ export default function AdminDashboardPage() {
         }
 
         activeAdminSession = nextAdminSession;
+
+        if (nextAdminSession && redirectToRequestedAdminPath()) {
+          return;
+        }
+
         setCurrentStaff(nextAdminSession);
 
         if (!nextAdminSession) {
@@ -10579,6 +10598,11 @@ export default function AdminDashboardPage() {
         }
 
         activeAdminSession = nextAdminSession;
+
+        if (nextAdminSession && redirectToRequestedAdminPath()) {
+          return;
+        }
+
         setCurrentStaff(nextAdminSession);
 
         if (nextAdminSession) {
@@ -10623,6 +10647,11 @@ export default function AdminDashboardPage() {
       if (validatedSession) {
         sessionRestoreRequestRef.current += 1;
         activeAdminSession = validatedSession;
+
+        if (redirectToRequestedAdminPath()) {
+          return;
+        }
+
         setCurrentStaff(validatedSession);
         setHasHydrated(true);
         setIsSessionRestoring(false);

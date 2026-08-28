@@ -14,6 +14,7 @@ import {
   getQuickStartSectionIds,
   type QuickStartSectionId,
 } from "@/lib/quickStartGuide";
+import { getAdminLoginPath } from "@/lib/adminReturnPath";
 import { getAdminAuthSession } from "@/lib/supabase/auth";
 import type { AdminRole, Permission } from "@/lib/zingaraAccess";
 
@@ -310,7 +311,11 @@ export default function QuickStartPage() {
       const authSession = await getAdminAuthSession();
 
       if (!authSession) {
-        window.location.replace("/admin");
+        window.location.replace(
+          getAdminLoginPath(
+            `${window.location.pathname}${window.location.search}${window.location.hash}`,
+          ),
+        );
         return;
       }
 
@@ -328,7 +333,16 @@ export default function QuickStartPage() {
       }
 
       if (!response.ok || !("staff" in payload)) {
-        if (response.status === 401 || response.status === 403) {
+        if (response.status === 401) {
+          window.location.replace(
+            getAdminLoginPath(
+              `${window.location.pathname}${window.location.search}${window.location.hash}`,
+            ),
+          );
+          return;
+        }
+
+        if (response.status === 403) {
           window.location.replace("/admin");
           return;
         }
