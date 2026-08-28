@@ -2286,7 +2286,7 @@ const bookingLessons: AcademyArticle[] = [
       "Use Mark Deposit Paid only for an approved manual or operational deposit process.",
       "Use Mark Paid only when authorised to record the full balance as paid outside normal PayFast confirmation.",
       "Use Comp Booking only when the booking is intentionally complimentary; confirm because the guest balance becomes R0.",
-      "Use Refund Booking only as a Super Admin action with a reason and password confirmation.",
+      "Use Refund Booking only as an authorised finance staff action with a reason and password confirmation.",
       "Follow the current finance process for refunds; do not promise automatic money movement unless leadership confirms it is active.",
     ],
     id: "payment-controls",
@@ -2298,7 +2298,7 @@ const bookingLessons: AcademyArticle[] = [
     tips: [
       "PayFast remains the normal online payment path for guests.",
       "Manual payment controls affect the booking record and should be used sparingly.",
-      "Refund Booking is restricted to Super Admins and requires confirmation.",
+      "Refund Booking is restricted to authorised finance staff and requires confirmation.",
     ],
     title: "Payment Controls",
     whenToUse: "Use this when a payment state must be changed by authorised staff rather than normal guest checkout.",
@@ -10928,7 +10928,9 @@ export default function AdminDashboardPage() {
     if (!isSuperAdmin) {
       setRefundEligibility({});
       setRefundEligibilityLoaded(false);
-      setRefundReadinessReason("Super Admin access is required.");
+      setRefundReadinessReason(
+        "Refund access is restricted to authorised finance staff.",
+      );
       return () => {
         isActive = false;
       };
@@ -15914,7 +15916,7 @@ export default function AdminDashboardPage() {
 
   function getRefundUnavailableReason(booking: DemoBooking) {
     if (!isSuperAdmin) {
-      return "Super Admin access is required.";
+      return "Refund access is restricted to authorised finance staff.";
     }
 
     if (!refundEligibilityLoaded) {
@@ -26427,9 +26429,9 @@ export default function AdminDashboardPage() {
                     {refundBooking?.customer.name ?? "Refund Booking"}
                   </h2>
                   <p className="mt-3 text-sm leading-6 text-zinc-300">
-                    This will submit a real PayFast refund after Super Admin
-                    password confirmation. The booking is only marked refunded
-                    after PayFast accepts the refund.
+                    This will submit a real PayFast refund after authorised
+                    finance staff password confirmation. The booking is only
+                    marked refunded after PayFast accepts the refund.
                   </p>
                   {refundBooking && refundFinancials && (
                     <p className="mt-3 rounded-2xl border border-white/10 bg-black/35 p-3 text-sm text-zinc-400">
@@ -26470,7 +26472,7 @@ export default function AdminDashboardPage() {
 
                   <label className="mt-5 block">
                     <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Super Admin confirmation
+                      Finance staff confirmation
                     </span>
                     <span className="relative mt-2 block">
                       <input

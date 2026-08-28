@@ -7,6 +7,10 @@ import {
   submitPayFastRefund,
 } from "@/lib/payfast/refunds";
 import {
+  canProcessRefund,
+  refundAccessRestrictedMessage,
+} from "@/lib/refundAuthorization";
+import {
   isSuperAdminProfile,
   requireActiveStaff,
   type StaffProfileRow,
@@ -268,9 +272,14 @@ export async function GET(request: Request) {
     return auth.error;
   }
 
-  if (!isSuperAdminProfile(auth.staffProfile)) {
+  if (
+    !canProcessRefund(
+      auth.staffProfile,
+      isSuperAdminProfile(auth.staffProfile),
+    )
+  ) {
     return Response.json(
-      { error: "Super Admin access is required." },
+      { error: refundAccessRestrictedMessage },
       { status: 403 },
     );
   }
@@ -427,19 +436,24 @@ export async function POST(request: Request) {
   const reason = getRefundReason(body.reason);
   const password = body.password ?? "";
 
-  if (!isSuperAdminProfile(auth.staffProfile)) {
+  if (
+    !canProcessRefund(
+      auth.staffProfile,
+      isSuperAdminProfile(auth.staffProfile),
+    )
+  ) {
     await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
       action: "booking.refund",
       entityReference: bookingReference || "unknown-booking",
       entityType: "booking",
       outcome: "blocked",
-      reason: "Super Admin access is required.",
+      reason: refundAccessRestrictedMessage,
       request,
       sourceArea: "Bookings",
     });
 
     return Response.json(
-      { error: "Super Admin access is required." },
+      { error: refundAccessRestrictedMessage },
       { status: 403 },
     );
   }
