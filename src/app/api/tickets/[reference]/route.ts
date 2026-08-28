@@ -49,6 +49,7 @@ type SupabaseBookingRow = {
   notes: string | null;
   section: string | null;
   show_id: string;
+  table_id: string | null;
 };
 
 type SupabaseTicketRow = {
@@ -219,7 +220,7 @@ async function loadBookingByReferenceOrTicket(
   if (ticketRow?.booking_id) {
     const { data, error } = await supabase
       .from("bookings")
-      .select("id,customer_id,booking_reference,booking_status,created_at,guest_count,notes,section,show_id")
+      .select("id,customer_id,booking_reference,booking_status,created_at,guest_count,notes,section,show_id,table_id")
       .eq("id", ticketRow.booking_id)
       .maybeSingle();
 
@@ -232,7 +233,7 @@ async function loadBookingByReferenceOrTicket(
 
   const { data, error } = await supabase
     .from("bookings")
-    .select("id,customer_id,booking_reference,booking_status,created_at,guest_count,notes,section,show_id")
+    .select("id,customer_id,booking_reference,booking_status,created_at,guest_count,notes,section,show_id,table_id")
     .eq("booking_reference", reference)
     .maybeSingle();
 
@@ -345,6 +346,24 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
   }
 
   const metadataBooking = parseBookingNotes(bookingRow.notes);
+  const { data: tableRow, error: tableError } = bookingRow.table_id
+    ? await supabase
+        .from("show_tables")
+        .select("table_code,booking_id")
+        .eq("id", bookingRow.table_id)
+        .eq("booking_id", bookingRow.id)
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (tableError) {
+    throw tableError;
+  }
+
+  const authoritativeZone = seatingZones.find((zone) =>
+    getZoneSectionLookupTitles(zone.id, zone.title)
+      .map((title) => title.toLowerCase())
+      .includes(bookingRow.section?.trim().toLowerCase() ?? ""),
+  );
   const fallbackBooking = {
     bookingDate: "",
     communicationHistory: [],
@@ -373,7 +392,24 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
   const booking = await persistGuestTickets(
     requestUrl,
     bookingRow.id,
-    metadataBooking ?? fallbackBooking,
+    {
+      ...(metadataBooking ?? fallbackBooking),
+      tableId: bookingRow.table_id ?? "",
+      tableNumber:
+        (tableRow as { table_code?: string } | null)?.table_code ??
+        metadataBooking?.tableNumber ??
+        fallbackBooking.tableNumber,
+      zoneId:
+        authoritativeZone?.id ??
+        metadataBooking?.zoneId ??
+        fallbackBooking.zoneId,
+      zoneTitle:
+        authoritativeZone?.title ??
+        getDisplayZoneTitle(
+          metadataBooking?.zoneId,
+          bookingRow.section ?? metadataBooking?.zoneTitle ?? "Middle Ring",
+        ),
+    },
   );
   const ticketRows = await loadTicketRowsForBooking(bookingRow.id);
   const guestTickets = getGuestTicketsForBooking(booking).map((ticket) => {

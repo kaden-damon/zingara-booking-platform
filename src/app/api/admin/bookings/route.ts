@@ -139,6 +139,21 @@ function normalizeTableZone(section: string | null | undefined) {
   return normalized.replaceAll(" ", "-");
 }
 
+function getBookingSectionForTableZone(section: string | null | undefined) {
+  switch (normalizeTableZone(section)) {
+    case "golden-circle":
+      return "Golden Circle";
+    case "middle-ring":
+      return "Middle Ring";
+    case "royal-booths":
+      return "Private Booths";
+    case "royal-balcony":
+      return "Royal Balcony";
+    default:
+      return null;
+  }
+}
+
 async function fetchAdminBookingRows(
   serviceClient: SupabaseClient,
   reference: string | null,
@@ -1118,6 +1133,9 @@ async function persistPhysicalTableMapping(
 
   const typedTargetTable = targetTable as ShowTableAssignmentRow | null;
   const typedSourceTable = sourceTable as ShowTableAssignmentRow | null;
+  const targetBookingSection = getBookingSectionForTableZone(
+    typedTargetTable?.section,
+  );
   const targetMergedMemberIds = Array.from(
     new Set(typedTargetTable?.merged_from ?? []),
   );
@@ -1179,8 +1197,7 @@ async function persistPhysicalTableMapping(
   if (
     !typedTargetTable ||
     typedTargetTable.show_id !== booking.show_id ||
-    normalizeTableZone(typedTargetTable.section) !==
-      normalizeTableZone(booking.section) ||
+    !targetBookingSection ||
     (!targetIsPhysical &&
       !targetIsTemporaryOperational &&
       !targetIsValidMergedParent) ||
@@ -1201,7 +1218,7 @@ async function persistPhysicalTableMapping(
   }
 
   const { data: mappingResult, error: mappingError } = await auth.serviceClient.rpc(
-    "map_booking_physical_table_atomic",
+    "map_booking_operational_table_atomic",
     {
       p_booking_id: booking.id,
       p_expected_previous_table_id: booking.table_id,
@@ -1213,14 +1230,25 @@ async function persistPhysicalTableMapping(
     throw mappingError;
   }
 
+  const zoneChanged = booking.section !== targetBookingSection;
+  const sourceTableCode = typedSourceTable?.table_code ?? "unknown";
+
   await tryRecordAuditEvent(
     auth.serviceClient,
     auth.staffProfile,
     auth.user,
     {
-      afterValues: { table_id: typedTargetTable.id },
-      beforeValues: { table_id: booking.table_id },
-      changedFields: ["table_id"],
+      afterValues: {
+        section: targetBookingSection,
+        table_code: typedTargetTable.table_code,
+        table_id: typedTargetTable.id,
+      },
+      beforeValues: {
+        section: booking.section,
+        table_code: sourceTableCode,
+        table_id: booking.table_id,
+      },
+      changedFields: zoneChanged ? ["section", "table_id"] : ["table_id"],
       entityId: booking.id,
       entityReference: booking.booking_reference,
       entityType: "booking",
@@ -1235,8 +1263,8 @@ async function persistPhysicalTableMapping(
         typedSourceTable?.is_physical === true ||
         typedSourceTable?.availability_scope === "operational" ||
         (typedSourceTable?.merged_from?.length ?? 0) >= 2
-          ? `Reallocated table ${typedSourceTable?.table_code ?? "unknown"} to ${typedTargetTable.table_code}.`
-          : `Mapped legacy assignment to operational table ${typedTargetTable.table_code}.`,
+          ? `Reallocated ${booking.section} table ${sourceTableCode} to ${targetBookingSection} table ${typedTargetTable.table_code}.`
+          : `Mapped ${booking.section} legacy assignment ${sourceTableCode} to ${targetBookingSection} operational table ${typedTargetTable.table_code}.`,
       request,
       sourceArea: "Operations Floor",
     },
@@ -1251,6 +1279,7 @@ async function persistPhysicalTableMapping(
     bookingReference: booking.booking_reference,
     mapping: mappingResult,
     showId: booking.show_id,
+    section: targetBookingSection,
     tableCode: typedTargetTable.table_code,
     tableId: typedTargetTable.id,
   });
@@ -2076,6 +2105,7 @@ export async function PATCH(request: Request) {
         message.includes("LEGACY_TABLE_ASSIGNMENT_REQUIRED") ||
         message.includes("SOURCE_TABLE_ASSIGNMENT_REQUIRED") ||
         message.includes("SOURCE_TABLE_NOT_REALLOCATABLE") ||
+        message.includes("TABLE_ZONE_NOT_SUPPORTED") ||
         message.includes("PHYSICAL_TABLE_NOT_AVAILABLE") ||
         message.includes("TABLE_NOT_AVAILABLE")
       ) {
