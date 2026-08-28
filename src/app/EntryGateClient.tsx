@@ -33,7 +33,7 @@ export default function EntryGateClient() {
   >(null);
 
   return (
-    <div className="mt-12 grid w-full items-center gap-6 px-3 sm:mt-[4.35rem] sm:gap-7 sm:px-0 lg:grid-cols-2 lg:gap-[4.6rem]">
+    <div className="mt-12 grid w-full items-center gap-8 sm:mt-[4.35rem] sm:gap-7 lg:grid-cols-2 lg:gap-[4.6rem]">
       {locations.map((location, index) => {
         const isSelected = selectedLocation === location.value;
         const isDimmed = Boolean(selectedLocation) && !isSelected;
@@ -45,7 +45,7 @@ export default function EntryGateClient() {
             key={location.value}
             className={`group relative transition duration-700 ease-out motion-reduce:transition-none ${
               isSelected
-                ? "mb-[8.25rem] scale-[1.018]"
+                ? "mb-[10.5rem] sm:mb-[8.25rem] sm:scale-[1.018]"
                 : "hover:scale-[1.018]"
             } ${
               isDimmed ? "opacity-45 saturate-[0.7]" : "opacity-100"
@@ -99,8 +99,8 @@ export default function EntryGateClient() {
               aria-expanded={isSelected}
               className={`relative z-10 block w-full transition-transform duration-700 ease-out motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#d8c36a] ${
                 isSelected
-                  ? "translate-y-[8.25rem]"
-                  : "group-hover:translate-y-[8.25rem]"
+                  ? "translate-y-[10.5rem] sm:translate-y-[8.25rem]"
+                  : "group-hover:translate-y-[10.5rem] sm:group-hover:translate-y-[8.25rem]"
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}

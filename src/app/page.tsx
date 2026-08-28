@@ -15,8 +15,8 @@ export default function Home() {
   return (
     <main className="min-h-screen overflow-hidden bg-black text-white">
       <AuthRedirectHandler />
-      <section className="mx-auto flex min-h-screen w-full max-w-[132rem] flex-col items-center px-0 pb-9 pt-10 sm:px-5 sm:pt-12 lg:px-0 lg:pt-[5.55rem]">
-        <div className="animate-[fadeIn_900ms_ease-out_both] text-center">
+      <section className="mx-auto flex min-h-screen w-full max-w-[132rem] flex-col items-center px-4 pb-9 pt-10 sm:px-5 sm:pt-12 lg:px-0 lg:pt-[5.55rem]">
+        <div className="w-full animate-[fadeIn_900ms_ease-out_both] text-center">
           <h1
             className="text-balance text-[2.5rem] leading-[0.95] tracking-[0.035em] text-[#d8c36a] sm:text-[4.2rem] lg:text-[4.8rem] xl:text-[5.15rem]"
             style={{
@@ -28,7 +28,7 @@ export default function Home() {
             TWO COURTS. ONE KINGDOM.
           </h1>
           <p
-            className="mt-3 text-[1.75rem] leading-none tracking-[0.045em] text-[#f5f0e7] sm:mt-4 sm:text-[2.65rem] lg:text-[3rem]"
+            className="mx-auto mt-3 max-w-[22rem] px-1 text-[1.75rem] leading-none tracking-[0.045em] text-[#f5f0e7] sm:mt-4 sm:max-w-none sm:px-0 sm:text-[2.65rem] lg:text-[3rem]"
             style={{
               fontFamily: "var(--font-zingara-subheading), Georgia, serif",
               fontWeight: 400,
