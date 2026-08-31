@@ -69,6 +69,13 @@ type SupabaseVenueSettingsRow = {
   venue_key: string;
 };
 
+const terminalTicketStatuses = new Set<SupabaseTicketRow["ticket_status"]>([
+  "cancelled",
+  "expired",
+  "refunded",
+  "void",
+]);
+
 function parseBookingNotes(notes: string | null) {
   if (!notes?.startsWith(bookingMetadataPrefix)) {
     return undefined;
@@ -86,7 +93,33 @@ function serializeBookingNotes(booking: DemoBooking) {
 }
 
 function toTicketStatus(ticketStatus?: SupabaseTicketRow["ticket_status"]) {
-  return ticketStatus === "checked_in" ? "checked-in" : "valid";
+  if (ticketStatus === "checked_in") {
+    return "checked-in";
+  }
+
+  return ticketStatus && terminalTicketStatuses.has(ticketStatus)
+    ? "void"
+    : "valid";
+}
+
+function getPersistedTicketStatus(
+  booking: DemoBooking,
+  ticket: GuestTicket,
+  existingRow?: SupabaseTicketRow,
+): SupabaseTicketRow["ticket_status"] {
+  if (booking.status === "cancelled") {
+    return "cancelled";
+  }
+
+  if (booking.status === "refunded") {
+    return "refunded";
+  }
+
+  if (existingRow && terminalTicketStatuses.has(existingRow.ticket_status)) {
+    return existingRow.ticket_status;
+  }
+
+  return ticket.status === "checked-in" ? "checked_in" : "valid";
 }
 
 function getTicketUrlForCode(ticketCode: string) {
@@ -300,17 +333,17 @@ async function persistGuestTickets(
   const issuedAt = booking.ticketIssuedAt ?? new Date().toISOString();
 
   for (const ticket of nextBooking.guestTickets ?? []) {
+    const existingRow = ticketRows.find(
+      (row) => row.ticket_code === ticket.ticketCode,
+    );
     const payload = {
       booking_id: bookingId,
       issued_at: issuedAt,
       qr_payload: getTicketQrPayload(ticket.ticketCode),
       ticket_code: ticket.ticketCode,
-      ticket_status: ticket.status === "checked-in" ? "checked_in" : "valid",
+      ticket_status: getPersistedTicketStatus(booking, ticket, existingRow),
       ticket_url: getTicketUrlForCode(ticket.ticketCode),
     };
-    const existingRow = ticketRows.find(
-      (row) => row.ticket_code === ticket.ticketCode,
-    );
 
     if (existingRow) {
       await supabase.from("tickets").update(payload).eq("id", existingRow.id);

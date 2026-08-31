@@ -190,6 +190,7 @@ import {
 import { createTicketValidation } from "../../lib/supabase/ticketValidations";
 import { createTicket, updateTicket } from "../../lib/supabase/tickets";
 import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
+import { runCancellationUiFlow } from "../../lib/bookingCancellation";
 import {
   getVenueSettings,
   saveVenueSettings as persistVenueSettings,
@@ -16207,29 +16208,64 @@ export default function AdminDashboardPage() {
     setIsCancellingBooking(true);
 
     try {
-      const persistedBookings =
-        await persistBookingCancellation(nextCancelledBooking);
+      await runCancellationUiFlow({
+        mutate: () => persistBookingCancellation(nextCancelledBooking),
+        onAuthoritativeFailure: () => {
+          showWorkflowToast("⚠ Could not save cancellation");
+        },
+        onAuthoritativeSuccess: ({ bookings: persistedBookings, idempotent }) => {
+          setBookings(persistedBookings);
+          closeBookingDetails();
+          setCancellingBookingReference("");
+          setCancellationReason(cancellationReasons[0]);
+          setCancellationOtherReason("");
+          void releaseCurrentBookingLock("cancelled");
 
-      setBookings(persistedBookings);
-      releaseBookingTable(booking);
-      closeBookingDetails();
-      setCancellingBookingReference("");
-      setCancellationReason(cancellationReasons[0]);
-      setCancellationOtherReason("");
-      void releaseCurrentBookingLock("cancelled");
-      void sendPreferredBrowserNotification(
-        "booking-cancelled",
-        "booking-cancelled",
-      );
-      void sendZingaraStaffPushNotification("booking-cancelled", {
-        bookingReference: booking.reference,
+          if (!idempotent) {
+            void sendPreferredBrowserNotification(
+              "booking-cancelled",
+              "booking-cancelled",
+            );
+            void sendZingaraStaffPushNotification("booking-cancelled", {
+              bookingReference: booking.reference,
+            });
+            void sendZingaraGuestPushNotification("reservation-cancelled", {
+              bookingReference: booking.reference,
+            });
+          }
+
+          showWorkflowToast("✓ Saved · Booking cancelled");
+        },
+        onRefreshFailure: () => {
+          console.error(
+            "[Zingara Admin] Cancellation saved; Floor refresh will retry on the next authoritative load.",
+          );
+        },
+        refreshAfterSuccess: async ({ bookings: persistedBookings }) => {
+          const showId = booking.showId;
+
+          if (!showId) {
+            return;
+          }
+
+          const nextShowPayload = await getShowsWithTables({
+            tableShow: showId,
+          });
+
+          if (!nextShowPayload.tablesLoaded) {
+            throw new Error("Authoritative Floor refresh was unavailable.");
+          }
+
+          const refreshedTables = applyBookingOccupancyToTables(
+            nextShowPayload.tables,
+            persistedBookings,
+          );
+
+          setTables((currentTables) =>
+            mergeTablesForShows(currentTables, refreshedTables, [showId]),
+          );
+        },
       });
-      void sendZingaraGuestPushNotification("reservation-cancelled", {
-        bookingReference: booking.reference,
-      });
-      showWorkflowToast("✓ Saved · Booking cancelled");
-    } catch {
-      showWorkflowToast("⚠ Could not save cancellation");
     } finally {
       setIsCancellingBooking(false);
     }

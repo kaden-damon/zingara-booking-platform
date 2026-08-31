@@ -20,6 +20,13 @@ type SupabaseValidationResult =
   | "refunded"
   | "valid";
 
+const terminalTicketStatuses = new Set([
+  "cancelled",
+  "expired",
+  "refunded",
+  "void",
+]);
+
 export async function POST(request: Request) {
   const auth = await requireActiveStaff(request);
 
@@ -100,6 +107,19 @@ export async function POST(request: Request) {
       return Response.json(
         { error: "Ticket could not be resolved for validation." },
         { status: 404 },
+      );
+    }
+
+    if (
+      terminalTicketStatuses.has(ticket.ticket_status) &&
+      (body.result === "checked_in" || body.result === "valid")
+    ) {
+      return Response.json(
+        {
+          error: "This ticket is no longer valid for admission.",
+          ticketStatus: ticket.ticket_status,
+        },
+        { status: 409 },
       );
     }
 

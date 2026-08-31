@@ -627,8 +627,12 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     const authoritativeZoneId = row.table_id
       ? normalizeBookingSection(row.table_row?.section ?? row.section)
       : metadataBooking.zoneId;
+    const hasReleasedCancelledTable =
+      row.booking_status === "cancelled" && !row.table_id;
     const authoritativeTableNumber = row.table_id
       ? row.table_row?.table_code ?? metadataBooking.tableNumber
+      : hasReleasedCancelledTable
+        ? "Released"
       : metadataBooking.tableNumber;
     const booking = {
       ...metadataBooking,
@@ -647,7 +651,9 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       source: row.booking_source as DemoBooking["source"],
       status: toDemoBookingStatus(row.booking_status),
       supabaseBookingId: row.id,
-      tableId: row.table_id ?? metadataBooking.tableId,
+      tableId: hasReleasedCancelledTable
+        ? ""
+        : row.table_id ?? metadataBooking.tableId,
       tableNumber: authoritativeTableNumber,
       totalPrice: row.total_amount,
       showId: authoritativeShowId,
@@ -892,20 +898,28 @@ export async function mapBookingPhysicalTable(input: {
 }
 
 export async function persistBookingCancellation(booking: DemoBooking) {
+  let result: { idempotent?: boolean };
+
   try {
-    await fetchSupabaseApi("/api/admin/bookings", {
+    result = await fetchSupabaseApi<{ idempotent?: boolean }>(
+      "/api/admin/bookings",
+      {
       body: {
         action: "cancel",
         booking,
       },
       method: "PATCH",
-    });
+      },
+    );
   } catch (error) {
     console.error("[Zingara Supabase] Failed to cancel booking", error);
     throw error;
   }
 
-  return getBookings();
+  return {
+    bookings: await getBookings(),
+    idempotent: Boolean(result.idempotent),
+  };
 }
 
 export async function archiveBookings(

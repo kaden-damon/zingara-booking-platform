@@ -10,6 +10,7 @@ import {
   recordAuditEvent,
   tryRecordAuditEvent,
 } from "@/lib/supabase/serverAudit";
+import { getActorRoleLabel } from "@/lib/auditTrail";
 import type {
   BookingLifecycleEvent,
   BookingStatus,
@@ -1506,14 +1507,25 @@ async function runBookingTransaction(request: Request, body?: unknown) {
 }
 
 async function persistBookingCancellation(request: Request) {
-  const supabase = getRouteClient();
+  const auth = await requireActiveStaff(request);
 
-  if (!supabase) {
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
+    return auth.error;
+  }
+
+  const roleRow = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const role = getAdminRoleFromName(roleRow?.name);
+
+  if (!role || !rolePermissions[role].includes("bookings:manage")) {
     return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
+      { error: "Booking management access is required." },
+      { status: 403 },
     );
   }
+
+  const supabase = auth.serviceClient;
 
   try {
     const body = (await request.json()) as {
@@ -1528,33 +1540,27 @@ async function persistBookingCancellation(request: Request) {
       );
     }
 
-    const { data: bookingRows, error: loadError } = await supabase
+    const { data: beforeBooking, error: loadError } = await supabase
       .from("bookings")
-      .select("id,payment_status,archived_at")
+      .select(bookingSelect)
       .eq("booking_reference", booking.reference)
-      .limit(1);
+      .maybeSingle();
 
     if (loadError) {
       throw loadError;
     }
 
-    const existingBooking = bookingRows?.[0] as
-      | { archived_at?: string | null; id?: string; payment_status?: string }
-      | undefined;
-
-    if (!existingBooking?.id) {
+    if (!beforeBooking?.id) {
       return Response.json(
         { error: "Booking could not be resolved for cancellation." },
         { status: 404 },
       );
     }
 
-    if (existingBooking.archived_at) {
-      const actor = await getAuditActor(request);
-
-      await tryRecordAuditEvent(supabase, actor.staffProfile, actor.user, {
+    if (beforeBooking.archived_at) {
+      await tryRecordAuditEvent(supabase, auth.staffProfile, auth.user, {
         action: "booking.cancel",
-        entityId: existingBooking.id,
+        entityId: beforeBooking.id,
         entityReference: booking.reference,
         entityType: "booking",
         outcome: "blocked",
@@ -1571,113 +1577,54 @@ async function persistBookingCancellation(request: Request) {
       );
     }
 
-    const { data: beforeBooking, error: beforeError } = await supabase
-      .from("bookings")
-      .select(bookingSelect)
-      .eq("id", existingBooking.id)
-      .maybeSingle();
-
-    if (beforeError) {
-      throw beforeError;
-    }
-
-    if (
-      ((beforeBooking as { booking_status?: string } | null)
-        ?.booking_status ?? "") === "cancelled"
-    ) {
-      return Response.json({ idempotent: true, row: beforeBooking });
-    }
-
-    const { data: updatedBooking, error: updateError } = await supabase
-      .from("bookings")
-      .update({
-        booking_status: "cancelled",
-        notes: serializeBookingNotes(booking),
-      })
-      .eq("id", existingBooking.id)
-      .select(bookingSelect)
-      .maybeSingle();
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    await releaseTableClaimsForBookings(supabase, [existingBooking.id]);
-
     const latestCancellationEvent = booking.lifecycleHistory?.find(
       (event) => event.toStatus === "cancelled",
     );
-
-    if (latestCancellationEvent) {
-      const payload = toLifecyclePayload(
-        latestCancellationEvent,
-        existingBooking.id,
-      );
-      let existingEventQuery = supabase
-        .from("booking_lifecycle_events")
-        .select("id")
-        .eq("booking_id", existingBooking.id)
-        .eq("note", payload.note)
-        .eq("to_status", payload.to_status)
-        .limit(1);
-
-      existingEventQuery = payload.from_status
-        ? existingEventQuery.eq("from_status", payload.from_status)
-        : existingEventQuery.is("from_status", null);
-
-      const { data: existingEvents, error: eventLoadError } =
-        await existingEventQuery;
-
-      if (eventLoadError) {
-        throw eventLoadError;
-      }
-
-      if (!existingEvents?.length) {
-        const { error: eventInsertError } = await supabase
-          .from("booking_lifecycle_events")
-          .insert(payload);
-
-        if (eventInsertError) {
-          throw eventInsertError;
-        }
-      }
-    }
-
-    const actor = await getAuditActor(request);
-    const diff = diffAuditFields(
-      beforeBooking as Record<string, unknown>,
-      updatedBooking as Record<string, unknown>,
-      bookingAuditFields,
-    );
-
-    try {
-      await recordAuditEvent(supabase, actor.staffProfile, actor.user, {
-        action: "booking.cancel",
-        afterValues: diff.afterValues,
-        beforeValues: diff.beforeValues,
-        changedFields: diff.changedFields,
-        entityId: existingBooking.id,
-        entityReference: booking.reference,
-        entityType: "booking",
-        outcome: "success",
-        reason: latestCancellationEvent?.note ?? "Booking cancelled.",
-        request,
-        sourceArea: "Bookings",
+    const requestId =
+      request.headers.get("x-vercel-id") ??
+      request.headers.get("x-request-id") ??
+      crypto.randomUUID();
+    const { data: cancellationResult, error: cancellationError } =
+      await supabase.rpc("cancel_booking_atomic", {
+        p_actor_auth_user_id: auth.user.id,
+        p_actor_location_scope: auth.staffProfile.venue_scope ?? [],
+        p_actor_name: auth.staffProfile.full_name ?? auth.user.email,
+        p_actor_role: getActorRoleLabel(role),
+        p_actor_staff_profile_id: auth.staffProfile.id,
+        p_booking_reference: booking.reference,
+        p_cancelled_at: booking.cancelledAt ?? new Date().toISOString(),
+        p_lifecycle_note:
+          latestCancellationEvent?.note ?? "Booking cancelled.",
+        p_request_id: requestId,
+        p_serialized_notes: serializeBookingNotes(booking),
+        p_user_agent: request.headers.get("user-agent"),
       });
 
-      await notifyAppleWalletBooking(supabase, existingBooking.id);
-    } catch {
-      return Response.json(
-        {
-          auditError:
-            "Booking was cancelled, but the audit event could not be recorded.",
-          row: updatedBooking,
-        },
-        { status: 500 },
-      );
+    if (cancellationError) {
+      throw cancellationError;
     }
 
-    return Response.json({ row: updatedBooking });
+    const typedResult = cancellationResult as {
+      idempotent?: boolean;
+    } | null;
+    const { data: updatedBooking, error: refreshError } = await supabase
+      .from("bookings")
+      .select(bookingSelect)
+      .eq("id", beforeBooking.id)
+      .maybeSingle();
+
+    if (refreshError || !updatedBooking) {
+      throw refreshError ?? new Error("Cancelled booking could not be refreshed.");
+    }
+
+    if (!typedResult?.idempotent) {
+      await notifyAppleWalletBooking(supabase, beforeBooking.id);
+    }
+
+    return Response.json({
+      idempotent: Boolean(typedResult?.idempotent),
+      row: updatedBooking,
+    });
   } catch (error) {
     console.error("[Zingara API] Failed to persist booking cancellation", error);
 
