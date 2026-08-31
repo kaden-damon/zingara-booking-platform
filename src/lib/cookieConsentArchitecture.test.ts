@@ -22,16 +22,22 @@ test("Cookie configuration mutation is authenticated and Super Admin-only", asyn
   assert.match(route, /save_platform_preference_atomic/);
 });
 
-test("Admin preview is isolated from browser consent persistence", async () => {
+test("Admin preview is isolated and uses the simplified notice", async () => {
   const preview = await source("../app/admin/CookiePrivacyPreferences.tsx");
   assert.doesNotMatch(preview, /updateConsent|localStorage/);
   assert.match(preview, /Preview · No consent is saved/);
+  assert.match(preview, /onAcknowledge=\{\(\) => undefined\}/);
 });
 
-test("public consent is absent from Admin and exposes the Cookie Policy", async () => {
+test("public notice is simplified, absent from Admin and exposes Cookie Policy", async () => {
   const publicConsent = await source("../app/components/PublicCookieConsent.tsx");
   const panel = await source("../app/components/CookieConsentPanel.tsx");
   assert.match(publicConsent, /pathname\.startsWith\("\/admin"\)/);
+  assert.match(publicConsent, /analytics: false/);
+  assert.match(publicConsent, /marketing: false/);
+  assert.doesNotMatch(publicConsent, /footerLinkLabel|openPreferences/);
+  assert.doesNotMatch(panel, /ACCEPT ALL|ESSENTIAL ONLY|MANAGE PREFERENCES/);
+  assert.match(panel, /onAcknowledge/);
   assert.match(panel, /\/royal-decrees\/cookie-policy/);
 });
 
@@ -40,6 +46,7 @@ test("Legal Centre cross-references Cookie and Privacy policies", async () => {
   assert.match(legal, /slug: "cookie-policy"/);
   assert.match(legal, /including the Privacy Policy and Cookie Policy/);
   assert.match(legal, /The Cookie Policy explains the categories/);
+  assert.match(legal, /Selecting OKAY acknowledges the notice/);
   assert.doesNotMatch(legal, /Google Analytics is active|Meta Pixel is active/);
 });
 

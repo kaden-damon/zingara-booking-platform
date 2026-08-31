@@ -18,17 +18,17 @@ const copyFields: Array<{
   label: string;
   multiline?: boolean;
 }> = [
-  { field: "bannerHeading", label: "Banner Heading" },
+  { field: "bannerHeading", label: "Banner Heading (Optional)" },
   { field: "bannerDescription", label: "Banner Description", multiline: true },
-  { field: "preferencesHeading", label: "Preferences Heading" },
+  { field: "acceptAllLabel", label: "OKAY Button Label" },
   { field: "essentialDescription", label: "Essential Description", multiline: true },
   { field: "analyticsDescription", label: "Analytics Description", multiline: true },
   { field: "marketingDescription", label: "Marketing Description", multiline: true },
-  { field: "acceptAllLabel", label: "Accept All Label" },
-  { field: "essentialOnlyLabel", label: "Essential Only Label" },
-  { field: "managePreferencesLabel", label: "Manage Preferences Label" },
-  { field: "savePreferencesLabel", label: "Save Preferences Label" },
-  { field: "footerLinkLabel", label: "Footer Link Label" },
+  { field: "preferencesHeading", label: "Advanced Preferences Heading (Optional)" },
+  { field: "essentialOnlyLabel", label: "Advanced Essential-Only Label (Optional)" },
+  { field: "managePreferencesLabel", label: "Advanced Manage Label (Optional)" },
+  { field: "savePreferencesLabel", label: "Advanced Save Label (Optional)" },
+  { field: "footerLinkLabel", label: "Advanced Footer Label (Optional)" },
 ];
 
 export default function CookiePrivacyPreferences({
@@ -43,11 +43,6 @@ export default function CookiePrivacyPreferences({
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [error, setError] = useState("");
   const [showPreview, setShowPreview] = useState(false);
-  const [previewMode, setPreviewMode] = useState<"banner" | "preferences">(
-    "banner",
-  );
-  const [previewAnalytics, setPreviewAnalytics] = useState(false);
-  const [previewMarketing, setPreviewMarketing] = useState(false);
   const changedFields = useMemo(
     () => getChangedCookieConsentFields(savedConfig, draft),
     [draft, savedConfig],
@@ -265,14 +260,15 @@ export default function CookiePrivacyPreferences({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Public Copy</p>
-              <p className="mt-1 text-sm text-zinc-500">Plain text only. Changes remain drafts until saved.</p>
+              <p className="mt-1 text-sm text-zinc-500">
+                The public notice uses the description and OKAY label. Advanced
+                fields remain available for future optional preferences. Changes
+                remain drafts until saved.
+              </p>
             </div>
             <button
               type="button"
               onClick={() => {
-                setPreviewMode("banner");
-                setPreviewAnalytics(false);
-                setPreviewMarketing(false);
                 setShowPreview(true);
               }}
               className="min-h-11 rounded-lg border border-white/20 px-4 py-2 text-xs font-bold uppercase text-white transition hover:bg-white/10"
@@ -324,17 +320,8 @@ export default function CookiePrivacyPreferences({
           </div>
           <div className="mx-auto max-w-xl">
             <CookieConsentPanel
-              analytics={previewAnalytics}
               config={draft}
-              marketing={previewMarketing}
-              mode={previewMode}
-              onAcceptAll={() => undefined}
-              onAnalyticsChange={setPreviewAnalytics}
-              onCancel={() => setShowPreview(false)}
-              onEssentialOnly={() => undefined}
-              onManage={() => setPreviewMode("preferences")}
-              onMarketingChange={setPreviewMarketing}
-              onSave={() => undefined}
+              onAcknowledge={() => undefined}
               preview
             />
           </div>

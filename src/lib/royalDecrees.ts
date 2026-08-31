@@ -413,7 +413,7 @@ export const royalDecrees: RoyalDecree[] = [
         heading: "Essential Technologies",
         body: [
           "Zingara uses essential technologies where necessary to operate the booking platform, maintain security and session state, preserve required platform functionality, support public and staff Progressive Web App or service-worker behaviour, and remember privacy choices.",
-          "Essential technologies are always active where genuinely required and cannot be disabled through Zingara's Cookie Preferences. Optional consent is not required for location selection, booking, payment, tickets, Find My Booking or necessary transactional communications.",
+          "Essential technologies are always active where genuinely required and cannot be disabled through Zingara's consent choices. Optional consent is not required for location selection, booking, payment, tickets, Find My Booking or necessary transactional communications.",
         ],
       },
       {
@@ -427,9 +427,9 @@ export const royalDecrees: RoyalDecree[] = [
       {
         heading: "Your Consent Choices",
         body: [
-          "Accept All enables optional Analytics and Marketing permission. Essential Only keeps both optional categories off. Manage Preferences allows either optional category to be selected independently.",
-          "Visitors can reopen Cookie Preferences from the public platform and withdraw or change optional choices. If the consent version changes after a material policy or technology change, returning visitors may be asked to review their choices again.",
-          "Ignoring or closing the consent experience does not grant optional consent.",
+          "Selecting OKAY acknowledges the notice and stores an Essential-only choice. It does not grant Analytics or Marketing consent.",
+          "Optional Analytics or Marketing technologies remain off unless a separate supported preference mechanism records the visitor's explicit choice. If the consent version changes after a material policy or technology change, returning visitors may be asked to review their choice again.",
+          "Ignoring the consent experience does not grant optional consent.",
         ],
       },
       {
@@ -450,7 +450,7 @@ export const royalDecrees: RoyalDecree[] = [
         heading: "Browser And Device Controls",
         body: [
           "Visitors may also delete or restrict cookies and browser storage through browser or device settings. Blocking genuinely essential technologies may require preferences or authentication to be repeated and may affect functionality where technically necessary.",
-          "The complete booking experience remains available when the visitor chooses Essential Only in Zingara's Cookie Preferences.",
+          "The complete booking experience remains available after the visitor acknowledges the notice with optional Analytics and Marketing technologies left off.",
         ],
       },
       {

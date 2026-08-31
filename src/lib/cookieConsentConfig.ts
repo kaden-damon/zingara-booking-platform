@@ -15,7 +15,7 @@ export type CookieConsentConfig = {
 };
 
 export const defaultCookieConsentConfig: CookieConsentConfig = {
-  acceptAllLabel: "ACCEPT ALL",
+  acceptAllLabel: "OKAY",
   analyticsDescription:
     "Allows optional analytics technologies that help us understand and improve the booking experience.",
   bannerDescription:
@@ -54,19 +54,29 @@ const textFields = [
   "savePreferencesLabel",
 ] as const;
 
+const requiredTextFields = new Set<CookieConsentTextField>([
+  "acceptAllLabel",
+  "bannerDescription",
+]);
+
 export type CookieConsentTextField = (typeof textFields)[number];
 
 function normalizeText(
   value: unknown,
   fallback: string,
   limit: number,
+  allowBlank: boolean,
 ) {
   if (typeof value !== "string") {
     return fallback;
   }
 
   const normalized = value.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
-  return normalized ? normalized.slice(0, limit) : fallback;
+  if (!normalized) {
+    return allowBlank ? "" : fallback;
+  }
+
+  return normalized.slice(0, limit);
 }
 
 function getTextLimit(field: CookieConsentTextField) {
@@ -95,7 +105,12 @@ export function normalizeCookieConsentConfig(
       source[field],
       defaultCookieConsentConfig[field],
       getTextLimit(field),
+      !requiredTextFields.has(field),
     );
+  }
+
+  if (normalized.acceptAllLabel.toUpperCase() === "ACCEPT ALL") {
+    normalized.acceptAllLabel = defaultCookieConsentConfig.acceptAllLabel;
   }
 
   normalized.enabled =
@@ -123,7 +138,11 @@ export function validateCookieConsentConfig(
     const raw = source[field];
     const limit = getTextLimit(field);
 
-    if (typeof raw !== "string" || !raw.trim()) {
+    if (typeof raw !== "string") {
+      return `${field} must be text.`;
+    }
+
+    if (requiredTextFields.has(field) && !raw.trim()) {
       return `${field} is required.`;
     }
 

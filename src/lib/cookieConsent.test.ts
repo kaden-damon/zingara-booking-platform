@@ -21,10 +21,11 @@ test("optional consent defaults off while Essential remains active", () => {
   assert.equal(consent.marketing, false);
 });
 
-test("Accept All records both optional categories", () => {
-  const consent = createConsent(1, { analytics: true, marketing: true });
-  assert.equal(consent.analytics, true);
-  assert.equal(consent.marketing, true);
+test("simplified acknowledgement records Essential only", () => {
+  const consent = createConsent(1, { analytics: false, marketing: false });
+  assert.equal(consent.essential, true);
+  assert.equal(consent.analytics, false);
+  assert.equal(consent.marketing, false);
 });
 
 test("custom preferences remain independent", () => {
@@ -40,6 +41,16 @@ test("stored consent is validated and versioned", () => {
   assert.equal(isConsentCurrent(consent, 4), false);
   assert.equal(parseStoredConsent("{}"), null);
   assert.equal(parseStoredConsent("not-json"), null);
+});
+
+test("existing explicit optional consent remains valid without a version bump", () => {
+  const existing = createConsent(1, { analytics: true, marketing: false });
+  assert.equal(
+    isConsentCurrent(existing, defaultCookieConsentConfig.consentVersion),
+    true,
+  );
+  assert.equal(canInitializeConsentCategory("analytics", existing, 1), true);
+  assert.equal(canInitializeConsentCategory("marketing", existing, 1), false);
 });
 
 test("withdrawal replaces optional permission without disabling Essential", () => {
@@ -72,7 +83,16 @@ test("disabled consent UI never implies optional permission", () => {
 test("configuration defaults preserve locked category semantics", () => {
   assert.equal(defaultCookieConsentConfig.enabled, true);
   assert.equal(defaultCookieConsentConfig.consentVersion, 1);
+  assert.equal(defaultCookieConsentConfig.acceptAllLabel, "OKAY");
   assert.match(defaultCookieConsentConfig.essentialDescription, /Required/);
+});
+
+test("legacy Accept All label is safely presented as acknowledgement", () => {
+  const normalized = normalizeCookieConsentConfig({
+    ...defaultCookieConsentConfig,
+    acceptAllLabel: "ACCEPT ALL",
+  });
+  assert.equal(normalized.acceptAllLabel, "OKAY");
 });
 
 test("configuration normalisation strips control characters and limits copy", () => {
@@ -84,13 +104,34 @@ test("configuration normalisation strips control characters and limits copy", ()
   assert.equal(normalized.footerLinkLabel.length, 40);
 });
 
-test("configuration validation rejects blank or oversized customer copy", () => {
+test("configuration permits blank hidden fields and optional heading", () => {
+  const config = {
+    ...defaultCookieConsentConfig,
+    bannerHeading: "",
+    essentialOnlyLabel: "",
+    footerLinkLabel: "",
+    managePreferencesLabel: "",
+    savePreferencesLabel: "",
+  };
+  assert.equal(validateCookieConsentConfig(config), null);
+  assert.equal(normalizeCookieConsentConfig(config).bannerHeading, "");
+  assert.equal(normalizeCookieConsentConfig(config).footerLinkLabel, "");
+});
+
+test("configuration requires only active notice copy", () => {
   assert.match(
     validateCookieConsentConfig({
       ...defaultCookieConsentConfig,
-      essentialOnlyLabel: " ",
+      bannerDescription: " ",
     }) ?? "",
-    /essentialOnlyLabel is required/,
+    /bannerDescription is required/,
+  );
+  assert.match(
+    validateCookieConsentConfig({
+      ...defaultCookieConsentConfig,
+      acceptAllLabel: "",
+    }) ?? "",
+    /acceptAllLabel is required/,
   );
   assert.match(
     validateCookieConsentConfig({
