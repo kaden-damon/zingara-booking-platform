@@ -96,6 +96,19 @@ import {
   upsertCustomerFromInfo,
 } from "../../lib/supabase/customers";
 import {
+  loadCustomerCommunicationSuppressions,
+  setCustomerCommunicationSuppression,
+} from "../../lib/supabase/customerCommunicationSuppressionClient";
+import {
+  getActiveOperationalSuppression,
+  getOperationalPauseReason,
+  operationalPauseDurations,
+  operationalPauseReasons,
+  type CustomerCommunicationSuppression,
+  type OperationalCommunicationChannel,
+  type OperationalPauseDuration,
+} from "../../lib/customerCommunicationPreferences";
+import {
   deriveCustomerNameParts,
   classifyCustomerName,
   getCustomerNameStatusLabel,
@@ -405,6 +418,7 @@ type CustomerProfile = {
     id: string;
     message: string;
     sentAt: string;
+    status?: "failed" | "sent" | "suppressed";
     subject?: string;
     trigger?: CommunicationTrigger;
   }[];
@@ -439,6 +453,12 @@ type LiveCustomerRecord = {
   } | null;
   relationship_notes: string | null;
   surname: string | null;
+};
+type CustomerCommunicationPauseEditor = {
+  channel: OperationalCommunicationChannel;
+  duration: OperationalPauseDuration;
+  otherReason: string;
+  reason: string;
 };
 type NotificationPreferenceKey = StaffNotificationRecord["trigger"];
 
@@ -9485,6 +9505,16 @@ export default function AdminDashboardPage() {
   const [customerDataLoadStatus, setCustomerDataLoadStatus] =
     useState<CustomerDataLoadStatus>("idle");
   const [customerDataLoadError, setCustomerDataLoadError] = useState("");
+  const [customerCommunicationSuppressions, setCustomerCommunicationSuppressions] =
+    useState<CustomerCommunicationSuppression[]>([]);
+  const [customerCommunicationStateStatus, setCustomerCommunicationStateStatus] =
+    useState<"error" | "idle" | "loading" | "ready" | "saving">("idle");
+  const [customerCommunicationStateError, setCustomerCommunicationStateError] =
+    useState("");
+  const [customerCommunicationPauseEditor, setCustomerCommunicationPauseEditor] =
+    useState<CustomerCommunicationPauseEditor | null>(null);
+  const [customerCommunicationClock, setCustomerCommunicationClock] =
+    useState(() => Date.now());
   const [waitlist, setWaitlist] = useState<DemoWaitlistEntry[]>(
     [],
   );
@@ -11078,6 +11108,70 @@ export default function AdminDashboardPage() {
     currentStaff?.role === "box-office" ||
     currentStaff?.role === "box-office-staff";
   const isFloorManager = currentStaff?.role === "floor-manager";
+
+  useEffect(() => {
+    const customerId = selectedCustomerKey?.startsWith("customer:")
+      ? selectedCustomerKey.slice("customer:".length)
+      : "";
+    let isActive = true;
+
+    setCustomerCommunicationPauseEditor(null);
+    setCustomerCommunicationStateError("");
+
+    if (!customerId || !canViewCrm) {
+      setCustomerCommunicationSuppressions([]);
+      setCustomerCommunicationStateStatus("idle");
+      return () => {
+        isActive = false;
+      };
+    }
+
+    setCustomerCommunicationStateStatus("loading");
+    void loadCustomerCommunicationSuppressions(customerId)
+      .then((rows) => {
+        if (!isActive) {
+          return;
+        }
+
+        setCustomerCommunicationSuppressions(rows);
+        setCustomerCommunicationStateStatus("ready");
+        setCustomerCommunicationClock(Date.now());
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+
+        console.error(
+          "[Zingara Admin] Failed to load customer communication state",
+          error,
+        );
+        setCustomerCommunicationStateError(
+          "Customer communication preferences could not be loaded.",
+        );
+        setCustomerCommunicationStateStatus("error");
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [
+    canViewCrm,
+    selectedCustomerKey,
+  ]);
+
+  useEffect(() => {
+    if (!selectedCustomerKey) {
+      return;
+    }
+
+    const intervalId = window.setInterval(
+      () => setCustomerCommunicationClock(Date.now()),
+      60_000,
+    );
+
+    return () => window.clearInterval(intervalId);
+  }, [selectedCustomerKey]);
 
   useEffect(() => {
     let isActive = true;
@@ -15414,6 +15508,7 @@ export default function AdminDashboardPage() {
             () => ({
               ...record,
               id: result.row?.id ?? record.id,
+              status: status ?? undefined,
               sentAt:
                 result.row?.sent_at ??
                 result.row?.created_at ??
@@ -15424,6 +15519,13 @@ export default function AdminDashboardPage() {
 
         if (status === "sent") {
           showWorkflowToast("✓ Email sent successfully.");
+          return;
+        }
+
+        if (status === "suppressed") {
+          showWorkflowToast(
+            "Email updates are temporarily paused for this customer.",
+          );
           return;
         }
 
@@ -21005,7 +21107,7 @@ export default function AdminDashboardPage() {
   async function persistCustomGuestCommunication(
     booking: DemoBooking,
     record: DemoBooking["communicationHistory"][number],
-    deliveryStatus?: "failed" | "sent",
+    deliveryStatus?: "failed" | "sent" | "suppressed",
   ) {
     return fetchSupabaseApi<{
       deduped?: boolean;
@@ -21013,7 +21115,7 @@ export default function AdminDashboardPage() {
         created_at?: string | null;
         id?: string;
         sent_at?: string | null;
-        status?: "failed" | "sent";
+        status?: "failed" | "sent" | "suppressed";
       } | null;
     }>("/api/admin/communications", {
       body: {
@@ -21087,7 +21189,7 @@ export default function AdminDashboardPage() {
           id?: string;
           message?: string;
           sent_at?: string | null;
-          status?: "failed" | "sent";
+          status?: "failed" | "sent" | "suppressed";
           subject?: string | null;
         } | null;
       }>("/api/admin/bookings/payment-link", {
@@ -21200,6 +21302,18 @@ export default function AdminDashboardPage() {
           communicationRecord,
         );
 
+        if (result.row?.status === "suppressed") {
+          setCustomMessageSendState((currentState) => ({
+            ...currentState,
+            [booking.reference]: {
+              isSending: false,
+              message: "Email updates are temporarily paused for this customer.",
+              tone: "error",
+            },
+          }));
+          return;
+        }
+
         if (result.row?.status !== "sent") {
           throw new Error("Email could not be delivered.");
         }
@@ -21233,14 +21347,15 @@ export default function AdminDashboardPage() {
           await persistCustomGuestCommunication(
             booking,
             communicationRecord,
-            "failed",
+            pushResult.suppressed ? "suppressed" : "failed",
           );
           setCustomMessageSendState((currentState) => ({
             ...currentState,
             [booking.reference]: {
               isSending: false,
-              message:
-                (pushResult.subscriptionCount ?? 0) === 0
+              message: pushResult.suppressed
+                ? "Push updates are temporarily paused for this customer."
+                : (pushResult.subscriptionCount ?? 0) === 0
                   ? "No active push subscription is available for this guest."
                   : "Push notification could not be sent.",
               tone: "error",
@@ -21809,6 +21924,76 @@ export default function AdminDashboardPage() {
       showWorkflowToast("✓ Saved · Customer updated");
     } catch {
       showWorkflowToast("⚠ Could not save");
+    }
+  }
+
+  async function updateCustomerOperationalCommunication(
+    profile: CustomerProfile,
+    channel: OperationalCommunicationChannel,
+    action: "pause" | "resume",
+  ) {
+    if (!canViewCrm || !canManageCommunications || !profile.customerId) {
+      showWorkflowToast("Customer communication management access is required.");
+      return;
+    }
+
+    const editor = customerCommunicationPauseEditor;
+
+    if (action === "pause" && editor?.channel !== channel) {
+      setCustomerCommunicationPauseEditor({
+        channel,
+        duration: "24-hours",
+        otherReason: "",
+        reason: operationalPauseReasons[0],
+      });
+      return;
+    }
+
+    const reason =
+      action === "pause" && editor
+        ? getOperationalPauseReason(editor.reason, editor.otherReason)
+        : "Resumed by authorised staff";
+
+    if (action === "pause" && reason.length < 3) {
+      setCustomerCommunicationStateError(
+        "Enter a concise reason before pausing customer updates.",
+      );
+      return;
+    }
+
+    setCustomerCommunicationStateStatus("saving");
+    setCustomerCommunicationStateError("");
+
+    try {
+      const rows = await setCustomerCommunicationSuppression({
+        action,
+        channel,
+        customerId: profile.customerId,
+        duration: editor?.duration,
+        otherReason: editor?.otherReason,
+        reason,
+      });
+
+      setCustomerCommunicationSuppressions(rows);
+      setCustomerCommunicationPauseEditor(null);
+      setCustomerCommunicationClock(Date.now());
+      setCustomerCommunicationStateStatus("ready");
+      showWorkflowToast(
+        action === "pause"
+          ? `Customer ${channel} updates temporarily paused.`
+          : `Customer ${channel} updates resumed.`,
+      );
+    } catch (error) {
+      console.error(
+        "[Zingara Admin] Failed to update customer communication state",
+        error,
+      );
+      setCustomerCommunicationStateError(
+        error instanceof Error
+          ? error.message
+          : "Customer communication preferences could not be updated.",
+      );
+      setCustomerCommunicationStateStatus("error");
     }
   }
 
@@ -23855,6 +24040,19 @@ export default function AdminDashboardPage() {
         phone: selectedLiveCustomerRecord.mobile ?? "",
       }
     : null;
+  const activeCustomerEmailSuppression = getActiveOperationalSuppression(
+    customerCommunicationSuppressions,
+    "email",
+    new Date(customerCommunicationClock),
+  );
+  const activeCustomerPushSuppression = getActiveOperationalSuppression(
+    customerCommunicationSuppressions,
+    "push",
+    new Date(customerCommunicationClock),
+  );
+  const hasActiveCustomerCommunicationSuppression = Boolean(
+    activeCustomerEmailSuppression || activeCustomerPushSuppression,
+  );
   const selectedCustomerRecordDiffers = Boolean(
     selectedCustomerProfile &&
       selectedLiveCustomerDisplay &&
@@ -34754,6 +34952,207 @@ export default function AdminDashboardPage() {
                       </div>
                     )}
 
+                    {selectedCustomerProfile.customerId && (
+                      <section className="mt-5 border-y border-white/10 py-5">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                              Communication Preferences
+                            </p>
+                            <h4 className="mt-1 text-lg font-semibold text-white">
+                              Operational Updates
+                            </h4>
+                            <p className="mt-1 max-w-2xl text-sm text-zinc-400">
+                              Temporary pauses apply to operational customer updates only. Marketing consent is separate.
+                            </p>
+                          </div>
+                          {customerCommunicationStateStatus === "loading" && (
+                            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                              Loading...
+                            </span>
+                          )}
+                        </div>
+
+                        {hasActiveCustomerCommunicationSuppression && (
+                          <div
+                            className="mt-4 rounded-xl border border-amber-300/35 bg-amber-950/25 px-4 py-3 text-sm text-amber-100"
+                            role="status"
+                          >
+                            <p className="font-semibold">
+                              Customer operational communications are temporarily paused.
+                            </p>
+                            <p className="mt-1 text-amber-100/75">
+                              Review each channel below. Updates resume automatically at expiry.
+                            </p>
+                          </div>
+                        )}
+
+                        {customerCommunicationStateError && (
+                          <p
+                            className="mt-4 rounded-xl border border-red-300/30 bg-red-950/20 px-4 py-3 text-sm text-red-100"
+                            role="alert"
+                          >
+                            {customerCommunicationStateError}
+                          </p>
+                        )}
+
+                        <div className="mt-4 divide-y divide-white/10 border-y border-white/10">
+                          {(
+                            [
+                              ["email", "Email Updates", activeCustomerEmailSuppression],
+                              ["push", "Push Updates", activeCustomerPushSuppression],
+                            ] as const
+                          ).map(([channel, label, activeSuppression]) => {
+                            const isEditing =
+                              customerCommunicationPauseEditor?.channel === channel;
+                            const isSaving =
+                              customerCommunicationStateStatus === "saving";
+
+                            return (
+                              <div key={channel} className="py-4">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="font-semibold text-white">{label}</p>
+                                      <span
+                                        className={`rounded-full border px-2.5 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.08em] ${
+                                          activeSuppression
+                                            ? "border-amber-300/35 bg-amber-950/30 text-amber-100"
+                                            : "border-emerald-300/30 bg-emerald-950/20 text-emerald-200"
+                                        }`}
+                                      >
+                                        {activeSuppression
+                                          ? "Temporarily Paused"
+                                          : "On"}
+                                      </span>
+                                    </div>
+                                    {activeSuppression && (
+                                      <div className="mt-2 space-y-1 text-sm text-zinc-400">
+                                        <p>
+                                          Until {formatSouthAfricanTimestamp(activeSuppression.pausedUntil)}
+                                        </p>
+                                        <p>
+                                          Paused by {activeSuppression.pausedByName} · {activeSuppression.reason}
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {canViewCrm && canManageCommunications && (
+                                    <button
+                                      type="button"
+                                      disabled={isSaving}
+                                      onClick={() =>
+                                        void updateCustomerOperationalCommunication(
+                                          selectedCustomerProfile,
+                                          channel,
+                                          activeSuppression ? "resume" : "pause",
+                                        )
+                                      }
+                                      className={`min-h-11 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                                        activeSuppression
+                                          ? "border-emerald-300/35 text-emerald-200 hover:bg-emerald-200 hover:text-black"
+                                          : "border-amber-300/35 text-amber-100 hover:bg-amber-200 hover:text-black"
+                                      }`}
+                                    >
+                                      {activeSuppression ? "Resume" : `Pause ${label}`}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {isEditing && !activeSuppression && (
+                                  <div className="mt-4 grid grid-cols-1 gap-3 border-l-2 border-amber-300/35 pl-4 md:grid-cols-2">
+                                    <label className="flex flex-col gap-2 text-sm text-zinc-300">
+                                      Reason
+                                      <select
+                                        value={customerCommunicationPauseEditor.reason}
+                                        onChange={(event) =>
+                                          setCustomerCommunicationPauseEditor((current) =>
+                                            current
+                                              ? { ...current, reason: event.target.value }
+                                              : current,
+                                          )
+                                        }
+                                        className="min-h-11 rounded-xl border border-white/15 bg-black px-3 text-white"
+                                      >
+                                        {operationalPauseReasons.map((reason) => (
+                                          <option key={reason} value={reason}>{reason}</option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                    <label className="flex flex-col gap-2 text-sm text-zinc-300">
+                                      Duration
+                                      <select
+                                        value={customerCommunicationPauseEditor.duration}
+                                        onChange={(event) =>
+                                          setCustomerCommunicationPauseEditor((current) =>
+                                            current
+                                              ? {
+                                                  ...current,
+                                                  duration: event.target.value as OperationalPauseDuration,
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                        className="min-h-11 rounded-xl border border-white/15 bg-black px-3 text-white"
+                                      >
+                                        {operationalPauseDurations.map((duration) => (
+                                          <option key={duration.value} value={duration.value}>
+                                            {duration.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                    {customerCommunicationPauseEditor.reason === "Other" && (
+                                      <label className="flex flex-col gap-2 text-sm text-zinc-300 md:col-span-2">
+                                        Operational reason
+                                        <input
+                                          value={customerCommunicationPauseEditor.otherReason}
+                                          onChange={(event) =>
+                                            setCustomerCommunicationPauseEditor((current) =>
+                                              current
+                                                ? { ...current, otherReason: event.target.value }
+                                                : current,
+                                            )
+                                          }
+                                          maxLength={240}
+                                          className="min-h-11 rounded-xl border border-white/15 bg-black px-3 text-white"
+                                          placeholder="Brief reason for this temporary pause"
+                                        />
+                                      </label>
+                                    )}
+                                    <div className="flex flex-wrap gap-2 md:col-span-2">
+                                      <button
+                                        type="button"
+                                        disabled={isSaving}
+                                        onClick={() =>
+                                          void updateCustomerOperationalCommunication(
+                                            selectedCustomerProfile,
+                                            channel,
+                                            "pause",
+                                          )
+                                        }
+                                        className="min-h-11 rounded-full bg-amber-200 px-4 py-2 text-xs font-bold uppercase tracking-[0.1em] text-black disabled:opacity-50"
+                                      >
+                                        Confirm Temporary Pause
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isSaving}
+                                        onClick={() => setCustomerCommunicationPauseEditor(null)}
+                                        className="min-h-11 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300 disabled:opacity-50"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    )}
+
                     {showCustomerRecordComparison &&
                       selectedLiveCustomerDisplay && (
                         <div className="mt-5 rounded-2xl border border-[#D8C36A]/20 bg-[#D8C36A]/10 p-5">
@@ -35047,6 +35446,11 @@ export default function AdminDashboardPage() {
                                     {record.trigger
                                       ? ` · ${communicationTriggerLabels[record.trigger]}`
                                       : ""}
+                                    {record.status === "suppressed"
+                                      ? " · Suppressed"
+                                      : record.status === "failed"
+                                        ? " · Failed"
+                                        : ""}
                                   </p>
                                   {record.subject && (
                                     <p className="mt-2 font-semibold text-white">

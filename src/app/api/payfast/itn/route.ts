@@ -12,7 +12,7 @@ import {
   type DemoShow,
   type PaymentOption,
 } from "@/lib/zingaraDemo";
-import { sendZingaraEmail } from "@/lib/email/smtp";
+import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import { getPayFastConfig } from "@/lib/payfast/config";
 import {
   createPayFastItnParamString,
@@ -593,7 +593,9 @@ async function ensureCommunication(
     return claim.communication_id ?? null;
   }
 
-  const result = await sendZingaraEmail({
+  const result = await sendOperationalCustomerEmail({
+    customerId,
+    kind: "payment_confirmation",
     message: record.message,
     subject: record.subject,
     to: booking.customer.email,

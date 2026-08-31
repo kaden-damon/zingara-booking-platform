@@ -4,7 +4,7 @@ import {
   htmlToPlainText,
   sanitizeEmailHtml,
 } from "@/lib/email/html";
-import { sendZingaraEmail } from "@/lib/email/smtp";
+import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -680,7 +680,7 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
 async function insertWorkflowCommunication(
   supabase: SupabaseClient,
   item: EligibleWorkflowBooking,
-  status: "failed" | "sent",
+  status: "failed" | "sent" | "suppressed",
 ) {
   const payload: EmailCommunicationPayload = {
     booking_id: item.booking.id,
@@ -778,7 +778,17 @@ export async function runAutomatedWorkflows(
         continue;
       }
 
-      const sendResult = await sendZingaraEmail({
+      if (!item.booking.customer_id) {
+        await insertWorkflowCommunication(supabase, item, "failed");
+        continue;
+      }
+
+      const sendResult = await sendOperationalCustomerEmail({
+        customerId: item.booking.customer_id,
+        kind:
+          item.workflowKey === "pre_show_reminder"
+            ? "show_reminder"
+            : "post_show_review",
         html: item.html,
         message: item.message,
         subject: item.subject,
@@ -788,7 +798,7 @@ export async function runAutomatedWorkflows(
       await insertWorkflowCommunication(
         supabase,
         item,
-        sendResult.ok ? "sent" : "failed",
+        sendResult.ok ? "sent" : sendResult.suppressed ? "suppressed" : "failed",
       );
 
       if (sendResult.ok) {

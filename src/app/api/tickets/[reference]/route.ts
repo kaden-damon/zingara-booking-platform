@@ -18,7 +18,7 @@ import {
   insertCommunicationPayload,
 } from "@/lib/email/communicationIdempotency";
 import { resolveGuestVisibleTable } from "@/lib/guestTicketDisplay";
-import { sendZingaraEmail } from "@/lib/email/smtp";
+import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -479,6 +479,7 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
   return {
     activeTicket,
     bookingId: bookingRow.id,
+    customerId: bookingRow.customer_id,
     booking: {
       ...booking,
       guestTickets,
@@ -795,7 +796,7 @@ export async function POST(request: Request, context: TicketRouteContext) {
       const baseCommunicationPayload = {
         booking_id: payload.bookingId,
         channel: "email",
-        customer_id: null,
+        customer_id: payload.customerId,
         message,
         sent_at: new Date().toISOString(),
         show_id: null,
@@ -819,14 +820,16 @@ export async function POST(request: Request, context: TicketRouteContext) {
         });
       }
 
-      const result = await sendZingaraEmail({
+      const result = await sendOperationalCustomerEmail({
+        customerId: payload.customerId,
+        kind: "ticket_resend",
         message,
         subject,
         to: email,
       });
       await insertCommunicationPayload(supabase, {
         ...baseCommunicationPayload,
-        status: result.ok ? "sent" : "failed",
+        status: result.ok ? "sent" : result.suppressed ? "suppressed" : "failed",
       });
 
       return Response.json({

@@ -59,6 +59,7 @@ type PushTestResult = {
   ok: boolean;
   sent?: number;
   subscriptionCount?: number;
+  suppressed?: boolean;
 };
 
 export type StaffPushTrigger =

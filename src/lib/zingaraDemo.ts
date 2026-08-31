@@ -542,6 +542,7 @@ export type CommunicationRecord = {
   templateId?: string;
   trigger?: CommunicationTrigger;
   message: string;
+  status?: "failed" | "sent" | "suppressed";
 };
 export type BookingLifecycleEvent = {
   id: string;

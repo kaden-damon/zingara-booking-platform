@@ -9,7 +9,7 @@ import {
   renderCommunicationTemplate,
   createCommunicationRecord,
 } from "@/lib/zingaraDemo";
-import { sendZingaraEmail } from "@/lib/email/smtp";
+import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import {
   recordPlatformEventBestEffort,
   recordPlatformFailureEventBestEffort,
@@ -288,7 +288,7 @@ async function ensureCommunication(
     .eq("show_id", showId)
     .eq("type", type)
     .eq("channel", "email")
-    .in("status", ["failed", "sending", "sent"])
+    .in("status", ["failed", "sending", "sent", "suppressed"])
     .order("created_at", { ascending: true })
     .limit(1);
 
@@ -326,7 +326,9 @@ async function ensureCommunication(
     return claim.communication_id ?? null;
   }
 
-  const result = await sendZingaraEmail({
+  const result = await sendOperationalCustomerEmail({
+    customerId,
+    kind: "booking_confirmation",
     message: record.message,
     subject: record.subject,
     to: booking.customer.email,
@@ -340,7 +342,7 @@ async function ensureCommunication(
     .from("communications")
     .update({
       sent_at: result.ok ? record.sentAt : null,
-      status: result.ok ? "sent" : "failed",
+      status: result.ok ? "sent" : result.suppressed ? "suppressed" : "failed",
     })
     .eq("id", claim.communication_id)
     .select("id")

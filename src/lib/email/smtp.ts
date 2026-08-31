@@ -1,5 +1,10 @@
 import nodemailer from "nodemailer";
 import { sanitizeEmailHtml } from "@/lib/email/html";
+import {
+  checkCustomerOperationalCommunication,
+} from "@/lib/supabase/customerCommunicationSuppression";
+import type { OperationalCommunicationKind } from "@/lib/customerCommunicationPreferences";
+import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
 const APPLICATION_EMAIL_SENDER = {
   address: "bookings@zingara.co.za",
@@ -21,7 +26,18 @@ type EmailSendResult =
   | {
       error: string;
       ok: false;
+      suppressed?: false;
+    }
+  | {
+      error: string;
+      ok: false;
+      suppressed: true;
     };
+
+type OperationalCustomerEmailInput = EmailSendInput & {
+  customerId: string;
+  kind: OperationalCommunicationKind;
+};
 
 function parseBoolean(value: string | undefined, fallback: boolean) {
   if (value === undefined) {
@@ -126,4 +142,51 @@ export async function sendZingaraEmail({
       ok: false,
     };
   }
+}
+
+export async function sendOperationalCustomerEmail({
+  customerId,
+  kind,
+  ...email
+}: OperationalCustomerEmailInput): Promise<EmailSendResult> {
+  const serviceClient = getServiceClient();
+
+  if (!serviceClient) {
+    return {
+      error: "Customer communication eligibility could not be verified.",
+      ok: false,
+    };
+  }
+
+  try {
+    const eligibility = await checkCustomerOperationalCommunication(
+      serviceClient,
+      {
+        channel: "email",
+        customerId,
+        kind,
+      },
+    );
+
+    if (!eligibility.allowed) {
+      return {
+        error:
+          eligibility.reason ??
+          "Customer operational updates are temporarily paused.",
+        ok: false,
+        suppressed: true,
+      };
+    }
+  } catch (error) {
+    console.error(
+      "[Zingara Email] Customer communication eligibility check failed",
+      error,
+    );
+    return {
+      error: "Customer communication eligibility could not be verified.",
+      ok: false,
+    };
+  }
+
+  return sendZingaraEmail(email);
 }

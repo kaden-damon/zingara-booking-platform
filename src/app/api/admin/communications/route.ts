@@ -1,5 +1,10 @@
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
-import { sendZingaraEmail } from "@/lib/email/smtp";
+import {
+  getRolePermissions,
+  getServiceClient,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
+import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
+import type { OperationalCommunicationKind } from "@/lib/customerCommunicationPreferences";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -119,16 +124,53 @@ function toSupabaseChannel(
   return channel;
 }
 
+function getOperationalCommunicationKind(
+  trigger: CommunicationTrigger | undefined,
+): OperationalCommunicationKind {
+  if (trigger === "payment-confirmation") {
+    return "payment_confirmation";
+  }
+
+  if (trigger === "cancellation-refund") {
+    return "cancellation_notice";
+  }
+
+  if (trigger === "ticket-resend") {
+    return "ticket_resend";
+  }
+
+  if (trigger === "show-reminder") {
+    return "show_reminder";
+  }
+
+  if (trigger === "post-show-review") {
+    return "post_show_review";
+  }
+
+  if (trigger === "waitlist-promotion") {
+    return "waitlist_update";
+  }
+
+  return trigger === "custom-message" ? "custom_message" : "booking_update";
+}
+
 async function getEmailDeliveryStatus(
   record: CommunicationRecord,
+  customerId: string | null,
   recipient?: string | null,
-  deliveryStatus?: "failed" | "sent",
+  deliveryStatus?: "failed" | "sent" | "suppressed",
 ) {
   if (record.channel !== "email") {
     return deliveryStatus ?? ("sent" as const);
   }
 
-  const result = await sendZingaraEmail({
+  if (!customerId) {
+    return "failed" as const;
+  }
+
+  const result = await sendOperationalCustomerEmail({
+    customerId,
+    kind: getOperationalCommunicationKind(record.trigger),
     message: record.message,
     subject: record.subject,
     to: recipient,
@@ -143,7 +185,38 @@ async function getEmailDeliveryStatus(
     trigger: record.trigger,
   });
 
-  return "failed" as const;
+  return result.suppressed ? ("suppressed" as const) : ("failed" as const);
+}
+
+async function requireCommunicationManager(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.staffProfile || !auth.user) {
+    return {
+      auth: null,
+      error: auth.error ??
+        Response.json(
+          { error: "Active staff authentication is required." },
+          { status: 401 },
+        ),
+    };
+  }
+
+  const role = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+
+  if (!getRolePermissions(role).includes("communications:manage")) {
+    return {
+      auth: null,
+      error: Response.json(
+        { error: "Communication management access is required." },
+        { status: 403 },
+      ),
+    };
+  }
+
+  return { auth, error: null };
 }
 
 async function getCommunicationPayload(
@@ -270,6 +343,12 @@ function getCommunicationRecipient(
 }
 
 export async function POST(request: Request) {
+  const authorization = await requireCommunicationManager(request);
+
+  if (!authorization.auth) {
+    return authorization.error;
+  }
+
   const supabase = getRouteClient();
 
   if (!supabase) {
@@ -283,7 +362,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       booking?: DemoBooking;
       corporateRequest?: CorporateRequest;
-      deliveryStatus?: "failed" | "sent";
+      deliveryStatus?: "failed" | "sent" | "suppressed";
       record?: CommunicationRecord;
     };
 
@@ -310,6 +389,7 @@ export async function POST(request: Request) {
 
     const status = await getEmailDeliveryStatus(
       body.record,
+      payload.customer_id,
       getCommunicationRecipient(body.record, context),
       body.deliveryStatus,
     );
@@ -330,6 +410,12 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const authorization = await requireCommunicationManager(request);
+
+  if (!authorization.auth) {
+    return authorization.error;
+  }
+
   const supabase = getRouteClient();
 
   if (!supabase) {

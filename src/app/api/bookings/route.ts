@@ -41,7 +41,7 @@ import {
   insertCommunicationPayload,
 } from "@/lib/email/communicationIdempotency";
 import { validatePromoCode } from "@/lib/supabase/promoCodes";
-import { sendZingaraEmail } from "@/lib/email/smtp";
+import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import {
   recordPlatformEventBestEffort,
   recordPlatformFailureEventBestEffort,
@@ -688,7 +688,7 @@ function getCommunicationPayload(
   bookingId: string,
   customerId: string,
   showId: string,
-  status: "failed" | "sent" = "sent",
+  status: "failed" | "sent" | "suppressed" = "sent",
 ) {
   return {
     booking_id: bookingId,
@@ -703,12 +703,18 @@ function getCommunicationPayload(
   };
 }
 
-async function getEmailDeliveryStatus(record: CommunicationRecord, booking: DemoBooking) {
+async function getEmailDeliveryStatus(
+  record: CommunicationRecord,
+  booking: DemoBooking,
+  customerId: string,
+) {
   if (record.channel !== "email") {
     return "sent" as const;
   }
 
-  const result = await sendZingaraEmail({
+  const result = await sendOperationalCustomerEmail({
+    customerId,
+    kind: "booking_confirmation",
     message: record.message,
     subject: record.subject,
     to: booking.customer.email,
@@ -724,7 +730,7 @@ async function getEmailDeliveryStatus(record: CommunicationRecord, booking: Demo
     trigger: record.trigger,
   });
 
-  return "failed" as const;
+  return result.suppressed ? ("suppressed" as const) : ("failed" as const);
 }
 
 async function upsertBooking(
@@ -1060,7 +1066,7 @@ async function syncCommunications(
 
     await insertCommunicationPayload(supabase, {
       ...basePayload,
-      status: await getEmailDeliveryStatus(record, booking),
+      status: await getEmailDeliveryStatus(record, booking, customerId),
     });
   }
 }

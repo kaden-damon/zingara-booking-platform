@@ -172,6 +172,10 @@ function toCommunicationRecord(
     message: row.message,
     sentAt: row.sent_at ?? row.created_at,
     subject: row.subject ?? undefined,
+    status:
+      row.status === "failed" || row.status === "suppressed"
+        ? row.status
+        : "sent",
     trigger: toCommunicationTrigger(row.type),
   };
 }

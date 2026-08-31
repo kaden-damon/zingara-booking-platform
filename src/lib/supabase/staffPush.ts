@@ -2,6 +2,14 @@ import { createRequire } from "node:module";
 import { type AdminRole } from "@/lib/zingaraAccess";
 import { defaultVenueSettings } from "@/lib/zingaraDemo";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import {
+  checkCustomerOperationalCommunication,
+  resolveBookingCustomerId,
+} from "@/lib/supabase/customerCommunicationSuppression";
+import {
+  shouldRespectCustomerOperationalPause,
+  type OperationalCommunicationKind,
+} from "@/lib/customerCommunicationPreferences";
 
 const require = createRequire(import.meta.url);
 const webPush = require("web-push") as {
@@ -85,6 +93,19 @@ type GuestPushInput = {
   body?: string;
   title?: string;
   trigger: GuestPushTrigger;
+};
+
+const guestPushCommunicationKinds: Record<
+  GuestPushTrigger,
+  OperationalCommunicationKind
+> = {
+  "custom-message": "custom_message",
+  "payment-received": "payment_confirmation",
+  "reservation-cancelled": "cancellation_notice",
+  "reservation-confirmed": "booking_update",
+  "reservation-pending-payment": "booking_update",
+  "ticket-resend": "ticket_resend",
+  "waitlist-promoted": "waitlist_update",
 };
 
 type StaffIdentityPushInput = {
@@ -691,6 +712,65 @@ export async function sendGuestPushNotification(input: GuestPushInput) {
       sent: 0,
       subscriptionCount: 0,
     };
+  }
+
+  const communicationKind = guestPushCommunicationKinds[input.trigger];
+
+  if (shouldRespectCustomerOperationalPause(communicationKind)) {
+    if (!input.bookingReference) {
+      return {
+        failed: 0,
+        ok: false,
+        sent: 0,
+        subscriptionCount: 0,
+      };
+    }
+
+    try {
+      const customerId = await resolveBookingCustomerId(
+        serviceClient,
+        input.bookingReference,
+      );
+
+      if (!customerId) {
+        return {
+          failed: 0,
+          ok: false,
+          sent: 0,
+          subscriptionCount: 0,
+        };
+      }
+
+      const eligibility = await checkCustomerOperationalCommunication(
+        serviceClient,
+        {
+          channel: "push",
+          customerId,
+          kind: communicationKind,
+        },
+      );
+
+      if (!eligibility.allowed) {
+        return {
+          failed: 0,
+          ok: false,
+          sent: 0,
+          subscriptionCount: 0,
+          suppressed: true,
+        };
+      }
+    } catch (error) {
+      console.error(
+        "[Zingara push] Customer communication eligibility check failed",
+        error,
+      );
+      return {
+        failed: 0,
+        ok: false,
+        sent: 0,
+        subscriptionCount: 0,
+      };
+    }
   }
 
   const { data, error } = await serviceClient

@@ -8,7 +8,7 @@ export type EmailCommunicationPayload = {
   message: string;
   sent_at: string | null;
   show_id: string | null;
-  status: "failed" | "sent";
+  status: "failed" | "sent" | "suppressed";
   subject: string | null;
   type: string;
 };
@@ -79,7 +79,8 @@ function isDuplicateCommunication(
     !sameNullableValue(row.booking_id, payload.booking_id) ||
     row.channel !== payload.channel ||
     !sameNullableValue(row.customer_id, payload.customer_id) ||
-    row.status !== "sent" ||
+    (row.status !== "sent" &&
+      !(oneTimeCommunicationTypes.has(payload.type) && row.status === "suppressed")) ||
     row.type !== payload.type
   ) {
     return false;
@@ -115,7 +116,7 @@ export async function findDuplicateSentCommunication(
     .from("communications")
     .select(communicationSelect)
     .eq("channel", payload.channel)
-    .eq("status", "sent")
+    .in("status", ["sent", "suppressed"])
     .eq("type", payload.type)
     .order("created_at", { ascending: false })
     .limit(25);

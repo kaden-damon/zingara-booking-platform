@@ -398,6 +398,10 @@ function toCommunicationRecord(
     id: row.id,
     message: row.message,
     sentAt: row.sent_at ?? row.created_at,
+    status:
+      row.status === "failed" || row.status === "suppressed"
+        ? row.status
+        : "sent",
     subject: row.subject ?? undefined,
     trigger: toCommunicationTrigger(row.type),
   };

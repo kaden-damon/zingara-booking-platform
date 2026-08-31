@@ -1,4 +1,4 @@
-import { sendZingaraEmail } from "@/lib/email/smtp";
+import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -220,7 +220,9 @@ export async function POST(request: Request) {
       });
     }
 
-    const sendResult = await sendZingaraEmail({
+    const sendResult = await sendOperationalCustomerEmail({
+      customerId: booking.customer_id,
+      kind: "payment_link",
       message,
       subject,
       to: recipient,
@@ -243,7 +245,11 @@ export async function POST(request: Request) {
       message,
       sent_at: sendResult.ok ? now.toISOString() : null,
       show_id: booking.show_id,
-      status: sendResult.ok ? "sent" : "failed",
+      status: sendResult.ok
+        ? "sent"
+        : sendResult.suppressed
+          ? "suppressed"
+          : "failed",
       subject,
       type: "custom_message",
     });
