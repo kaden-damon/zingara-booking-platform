@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   calculateTablePlanFinancialBreakdown,
   getDineplanZoneReceiptFormula,
+  getTablePlanToPayTotalFormula,
   tablePlanCurrencyNumberFormat,
+  tablePlanFinancialColumnHeaders,
   // @ts-expect-error Node's built-in TypeScript test runner requires the extension.
 } from "./tablePlanFinance.ts";
 
@@ -20,12 +22,162 @@ test("uses numeric Rand formatting including explicit zero values", () => {
   );
 });
 
+test("removes payment status and preserves the operational column order", () => {
+  assert.deepEqual(tablePlanFinancialColumnHeaders, [
+    "FULL-PYT-CC",
+    "PRE-PYT /CC",
+    "PRE-PYT /EFT",
+    "FULL-PYT/EFT",
+    "TO PAY",
+    "COMP",
+    "HALAAL MEALS",
+    "KOSHER MEALS",
+    "T/GRT-PAID",
+    "B/TAB PAID",
+    "B/GRAT PAID",
+    "TIPS",
+    "TOTAL PAID",
+  ]);
+  assert.equal(
+    Array.from(tablePlanFinancialColumnHeaders).includes("PAYMENT STATUS"),
+    false,
+  );
+  assert.equal(getTablePlanToPayTotalFormula(90), "SUM(L90)");
+});
+
+test("uses configured pricing only for a proven legacy deposit placeholder", () => {
+  const result = calculateTablePlanFinancialBreakdown(
+    {
+      confirmedPaidAmount: 3_300,
+      configuredUnitPrice: 1_440,
+      guestCount: 6,
+      paymentStatus: "fully_paid",
+      totalAmount: 3_300,
+    },
+    [],
+    {
+      booking_id: "kavisha-fixture",
+      complimentary: false,
+      full_card_amount: 0,
+      full_eft_amount: 0,
+      pre_paid_card_amount: 3_300,
+      pre_paid_eft_amount: 0,
+    },
+  );
+
+  assert.equal(result.ticketObligation, 8_640);
+  assert.equal(result.prePaidCard, 3_300);
+  assert.equal(result.totalPaid, 3_300);
+  assert.equal(result.toPay, 5_340);
+});
+
+test("protects stored historical and custom obligations from price changes", () => {
+  const before = calculateTablePlanFinancialBreakdown(
+    {
+      confirmedPaidAmount: 3_300,
+      configuredUnitPrice: 1_440,
+      guestCount: 4,
+      paymentStatus: "deposit_paid",
+      totalAmount: 5_500,
+    },
+    [],
+  );
+  const after = calculateTablePlanFinancialBreakdown(
+    {
+      confirmedPaidAmount: 3_300,
+      configuredUnitPrice: 1_800,
+      guestCount: 4,
+      paymentStatus: "deposit_paid",
+      totalAmount: 5_500,
+    },
+    [],
+  );
+
+  assert.equal(before.ticketObligation, 5_500);
+  assert.equal(after.ticketObligation, 5_500);
+  assert.equal(before.toPay, 2_200);
+  assert.equal(after.toPay, 2_200);
+});
+
+test("updates configured fallback obligations without repricing stored bookings", () => {
+  const fallbackBefore = calculateTablePlanFinancialBreakdown(
+    {
+      confirmedPaidAmount: 0,
+      configuredUnitPrice: 1_320,
+      guestCount: 2,
+      paymentStatus: "pending_payment",
+      totalAmount: 0,
+    },
+    [],
+  );
+  const fallbackAfter = calculateTablePlanFinancialBreakdown(
+    {
+      confirmedPaidAmount: 0,
+      configuredUnitPrice: 1_400,
+      guestCount: 2,
+      paymentStatus: "pending_payment",
+      totalAmount: 0,
+    },
+    [],
+  );
+
+  assert.equal(fallbackBefore.toPay, 2_640);
+  assert.equal(fallbackAfter.toPay, 2_800);
+});
+
+test("deducts method-unknown ticket value once without fabricating a tender", () => {
+  const result = calculateTablePlanFinancialBreakdown(
+    {
+      bookingOrigin: "data_import",
+      confirmedPaidAmount: 3_300,
+      configuredUnitPrice: 1_440,
+      guestCount: 6,
+      paymentOption: "deposit",
+      paymentStatus: "fully_paid",
+      totalAmount: 3_300,
+    },
+    [],
+    {
+      booking_id: "unknown-method-fixture",
+      complimentary: false,
+      full_card_amount: 0,
+      full_eft_amount: 0,
+      pre_paid_card_amount: 0,
+      pre_paid_eft_amount: 0,
+    },
+  );
+
+  assert.equal(
+    result.fullCard + result.prePaidCard + result.prePaidEft + result.fullEft,
+    0,
+  );
+  assert.equal(result.methodUnknownPaid, 3_300);
+  assert.equal(result.totalPaid, 3_300);
+  assert.equal(result.toPay, 5_340);
+});
+
+test("returns zero after a configured fallback obligation is fully settled", () => {
+  const result = calculateTablePlanFinancialBreakdown(
+    {
+      confirmedPaidAmount: 8_640,
+      configuredUnitPrice: 1_440,
+      guestCount: 6,
+      paymentStatus: "fully_paid",
+      totalAmount: 0,
+    },
+    [],
+  );
+
+  assert.equal(result.ticketObligation, 8_640);
+  assert.equal(result.totalPaid, 8_640);
+  assert.equal(result.toPay, 0);
+});
+
 test("preserves imported fully-paid value without fabricating a method", () => {
   const result = calculateTablePlanFinancialBreakdown(
     {
       confirmedPaidAmount: 2_200,
       guestCount: 4,
-      outstandingAmount: 0,
       paymentStatus: "fully_paid",
       totalAmount: 2_200,
     },
@@ -43,7 +195,6 @@ test("preserves imported fully-paid value without fabricating a method", () => {
   assert.equal(result.methodUnknownPaid, 2_200);
   assert.equal(result.fullCard + result.fullEft, 0);
   assert.equal(result.toPay, 0);
-  assert.equal(result.statusLabel, "Fully Paid");
 });
 
 test("classifies known card and EFT payments without double counting", () => {
@@ -51,7 +202,6 @@ test("classifies known card and EFT payments without double counting", () => {
     {
       confirmedPaidAmount: 1_320,
       guestCount: 1,
-      outstandingAmount: 0,
       paymentStatus: "fully_paid",
       totalAmount: 1_320,
     },
@@ -82,7 +232,6 @@ test("maps PayFast and provider-backed platform payments to online/card", () => 
     {
       confirmedPaidAmount: 1_100,
       guestCount: 2,
-      outstandingAmount: 1_540,
       paymentStatus: "deposit_paid",
       totalAmount: 2_640,
     },
@@ -113,7 +262,6 @@ test("reports partial and unpaid balances from authoritative amounts", () => {
     {
       confirmedPaidAmount: 550,
       guestCount: 1,
-      outstandingAmount: 770,
       paymentStatus: "deposit_paid",
       totalAmount: 1_320,
     },
@@ -130,7 +278,6 @@ test("reports partial and unpaid balances from authoritative amounts", () => {
     {
       confirmedPaidAmount: 0,
       guestCount: 1,
-      outstandingAmount: 1_320,
       paymentStatus: "pending_payment",
       totalAmount: 1_320,
     },
@@ -139,10 +286,8 @@ test("reports partial and unpaid balances from authoritative amounts", () => {
 
   assert.equal(partial.prePaidEft, 550);
   assert.equal(partial.toPay, 770);
-  assert.equal(partial.statusLabel, "Deposit Paid");
   assert.equal(unpaid.totalPaid, 0);
   assert.equal(unpaid.toPay, 1_320);
-  assert.equal(unpaid.statusLabel, "Outstanding R1 320");
 });
 
 test("marks comps without inventing receipts and excludes transaction fees", () => {
@@ -150,7 +295,6 @@ test("marks comps without inventing receipts and excludes transaction fees", () 
     {
       confirmedPaidAmount: 0,
       guestCount: 2,
-      outstandingAmount: 0,
       paymentStatus: "comp_vip",
       totalAmount: 0,
     },
@@ -160,7 +304,6 @@ test("marks comps without inventing receipts and excludes transaction fees", () 
     {
       confirmedPaidAmount: 550,
       guestCount: 1,
-      outstandingAmount: 0,
       paymentStatus: "fully_paid",
       totalAmount: 550,
     },
@@ -178,7 +321,7 @@ test("marks comps without inventing receipts and excludes transaction fees", () 
 
   assert.equal(complimentary.complimentaryAmount, 0);
   assert.equal(complimentary.totalPaid, 0);
-  assert.equal(complimentary.statusLabel, "Complimentary");
+  assert.equal(complimentary.toPay, 0);
   assert.equal(paid.fullCard, 550);
   assert.equal(paid.totalPaid, 550);
 });
@@ -188,7 +331,6 @@ test("preserves source-proven legacy receipts when imported paid truth was lost"
     {
       confirmedPaidAmount: 1_100,
       guestCount: 2,
-      outstandingAmount: 0,
       paymentStatus: "fully_paid",
       totalAmount: 1_100,
     },
@@ -220,7 +362,6 @@ test("keeps recovered ancillary amounts outside ticket receipts", () => {
     {
       confirmedPaidAmount: 11_880,
       guestCount: 8,
-      outstandingAmount: 0,
       paymentStatus: "fully_paid",
       totalAmount: 11_880,
     },
@@ -232,6 +373,7 @@ test("keeps recovered ancillary amounts outside ticket receipts", () => {
       full_eft_amount: 0,
       pre_paid_card_amount: 0,
       pre_paid_eft_amount: 0,
+      source_ticket_amount: 10_560,
       ticket_gratuity_amount: 1_320,
     },
   );
@@ -240,6 +382,8 @@ test("keeps recovered ancillary amounts outside ticket receipts", () => {
   assert.equal(result.ticketGratuityAmount, 1_320);
   assert.equal(result.totalPaid, 10_560);
   assert.equal(result.methodUnknownPaid, 0);
+  assert.equal(result.ticketObligation, 10_560);
+  assert.equal(result.toPay, 0);
 });
 
 test("lets explicit recovered payment evidence override a damaged comp import", () => {
@@ -247,7 +391,6 @@ test("lets explicit recovered payment evidence override a damaged comp import", 
     {
       confirmedPaidAmount: 0,
       guestCount: 30,
-      outstandingAmount: 0,
       paymentStatus: "comp_vip",
       totalAmount: 0,
     },
@@ -264,7 +407,7 @@ test("lets explicit recovered payment evidence override a damaged comp import", 
 
   assert.equal(result.fullEft, 46_200);
   assert.equal(result.complimentaryAmount, 0);
-  assert.equal(result.statusLabel, "Fully Paid");
+  assert.equal(result.toPay, 0);
 });
 
 test("leaves the unclassified remainder visible when legacy evidence is partial", () => {
@@ -272,7 +415,6 @@ test("leaves the unclassified remainder visible when legacy evidence is partial"
     {
       confirmedPaidAmount: 2_200,
       guestCount: 4,
-      outstandingAmount: 0,
       paymentStatus: "fully_paid",
       totalAmount: 2_200,
     },

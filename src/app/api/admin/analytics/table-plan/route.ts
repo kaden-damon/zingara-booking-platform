@@ -12,7 +12,11 @@ import {
   getRolePermissions,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
-import { normalizeShowLocation } from "@/lib/zingaraDemo";
+import {
+  defaultVenueSettings,
+  normalizeShowLocation,
+  normalizeVenueSettings,
+} from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -102,7 +106,11 @@ export async function GET(request: Request) {
       );
     }
 
-    const [{ data: tableRows, error: tableError }, { data: bookingRows, error: bookingError }] =
+    const [
+      { data: tableRows, error: tableError },
+      { data: bookingRows, error: bookingError },
+      { data: venueSettingsRow, error: venueSettingsError },
+    ] =
       await Promise.all([
         auth.serviceClient
           .from("show_tables")
@@ -115,10 +123,18 @@ export async function GET(request: Request) {
         auth.serviceClient
           .from("bookings")
           .select(
-            "id,customer_id,table_id,booking_reference,guest_count,booking_status,payment_status,section,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at",
+            "id,customer_id,table_id,booking_reference,guest_count,booking_status,payment_status,section,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,booking_origin",
           )
           .eq("show_id", typedShow.id)
           .not("table_id", "is", null),
+        auth.serviceClient
+          .from("venue_settings")
+          .select("settings")
+          .eq(
+            "venue_key",
+            defaultVenueSettings.venueId || "zingara-cape-town",
+          )
+          .maybeSingle(),
       ]);
 
     if (tableError) {
@@ -128,6 +144,16 @@ export async function GET(request: Request) {
     if (bookingError) {
       throw bookingError;
     }
+
+    if (venueSettingsError) {
+      throw venueSettingsError;
+    }
+
+    if (!venueSettingsRow?.settings) {
+      throw new Error("Authoritative Venue Configuration is unavailable.");
+    }
+
+    const venueSettings = normalizeVenueSettings(venueSettingsRow.settings);
 
     const bookings = (bookingRows ?? []) as TablePlanBooking[];
     const customerIds = Array.from(
@@ -237,6 +263,12 @@ export async function GET(request: Request) {
 
     const workbook = await buildTablePlanWorkbook({
       bookings,
+      configuredZonePrices: {
+        "golden-circle": venueSettings.zonePricing["golden-circle"].price,
+        "middle-ring": venueSettings.zonePricing["middle-ring"].price,
+        "private-booths": venueSettings.zonePricing["royal-booths"].price,
+        "royal-balcony": venueSettings.zonePricing["royal-balcony"].price,
+      },
       customers: customersWithNameHistory,
       legacyPaymentEvidence:
         (legacyPaymentEvidenceResult.data ?? []) as TablePlanLegacyPaymentEvidence[],

@@ -35,7 +35,7 @@ export type TablePlanFinancialBreakdown = {
   prePaidEft: number;
   halaalMealsAmount: number;
   kosherMealsAmount: number;
-  statusLabel: string;
+  ticketObligation: number;
   ticketGratuityAmount: number;
   totalPaid: number;
   toPay: number;
@@ -43,6 +43,21 @@ export type TablePlanFinancialBreakdown = {
 
 export const tablePlanCurrencyNumberFormat =
   '"R" #,##0.00;[Red]"-R" #,##0.00;"R" 0.00';
+export const tablePlanFinancialColumnHeaders = [
+  "FULL-PYT-CC",
+  "PRE-PYT /CC",
+  "PRE-PYT /EFT",
+  "FULL-PYT/EFT",
+  "TO PAY",
+  "COMP",
+  "HALAAL MEALS",
+  "KOSHER MEALS",
+  "T/GRT-PAID",
+  "B/TAB PAID",
+  "B/GRAT PAID",
+  "TIPS",
+  "TOTAL PAID",
+] as const;
 
 export function getDineplanZoneReceiptFormula(
   firstDataRow: number,
@@ -51,10 +66,16 @@ export function getDineplanZoneReceiptFormula(
   return `SUM(H${firstDataRow}:K${finalDataRow})`;
 }
 
+export function getTablePlanToPayTotalFormula(tableTotalsRow: number) {
+  return `SUM(L${tableTotalsRow})`;
+}
+
 type TablePlanFinancialInput = {
+  bookingOrigin?: string | null;
   confirmedPaidAmount: number;
+  configuredUnitPrice?: number;
   guestCount: number;
-  outstandingAmount: number;
+  paymentOption?: string | null;
   paymentStatus: string;
   totalAmount: number;
 };
@@ -100,6 +121,61 @@ function getPaymentBucket(payment: TablePlanFinancialPayment) {
   return null;
 }
 
+function resolveAuthoritativeTicketObligation(
+  input: TablePlanFinancialInput,
+  totalPaid: number,
+  legacyEvidence?: TablePlanLegacyPaymentEvidence | null,
+) {
+  const storedObligation = toMoney(input.totalAmount);
+  const sourceTicketObligation = toMoney(
+    legacyEvidence?.source_ticket_amount,
+  );
+  const fullPaymentEvidence = toMoney(
+    toMoney(legacyEvidence?.full_card_amount) +
+      toMoney(legacyEvidence?.full_eft_amount),
+  );
+  const prepaymentEvidence = toMoney(
+    toMoney(legacyEvidence?.pre_paid_card_amount) +
+      toMoney(legacyEvidence?.pre_paid_eft_amount),
+  );
+
+  if (sourceTicketObligation > 0) {
+    return sourceTicketObligation;
+  }
+
+  if (fullPaymentEvidence > 0) {
+    return Math.max(storedObligation, fullPaymentEvidence);
+  }
+
+  const importedDepositPlaceholder = Boolean(
+    input.bookingOrigin === "data_import" &&
+      input.paymentOption === "deposit" &&
+      storedObligation > 0 &&
+      storedObligation <= totalPaid,
+  );
+  const storedValueIsProvenPrepayment = Boolean(
+    importedDepositPlaceholder ||
+      (legacyEvidence &&
+        prepaymentEvidence > 0 &&
+        storedObligation > 0 &&
+        storedObligation <= totalPaid),
+  );
+
+  if (storedObligation > 0 && !storedValueIsProvenPrepayment) {
+    return storedObligation;
+  }
+
+  const configuredObligation = toMoney(
+    toMoney(input.configuredUnitPrice) * Math.max(input.guestCount, 0),
+  );
+
+  if (configuredObligation > 0) {
+    return configuredObligation;
+  }
+
+  return Math.max(storedObligation, totalPaid);
+}
+
 export function calculateTablePlanFinancialBreakdown(
   input: TablePlanFinancialInput,
   payments: TablePlanFinancialPayment[],
@@ -107,10 +183,9 @@ export function calculateTablePlanFinancialBreakdown(
 ): TablePlanFinancialBreakdown {
   const totalAmount = toMoney(input.totalAmount);
   const authoritativePaid = toMoney(input.confirmedPaidAmount);
-  const toPay = toMoney(input.outstandingAmount);
   const isComplimentary = legacyEvidence
     ? legacyEvidence.complimentary === true
-    : input.paymentStatus === "comp_vip" || totalAmount === 0;
+    : input.paymentStatus === "comp_vip";
   const breakdown: TablePlanFinancialBreakdown = {
     barGratuityAmount: toMoney(legacyEvidence?.bar_gratuity_amount),
     barTabPaidAmount: toMoney(legacyEvidence?.bar_tab_paid_amount),
@@ -124,19 +199,10 @@ export function calculateTablePlanFinancialBreakdown(
     prePaidEft: 0,
     halaalMealsAmount: toMoney(legacyEvidence?.halaal_meals_amount),
     kosherMealsAmount: toMoney(legacyEvidence?.kosher_meals_amount),
-    statusLabel: isComplimentary
-      ? "Complimentary"
-      : toPay === 0
-        ? "Fully Paid"
-        : input.paymentStatus === "deposit_paid" || authoritativePaid > 0
-          ? "Deposit Paid"
-          : `Outstanding R${toPay.toLocaleString("en-ZA", {
-              maximumFractionDigits: 2,
-              minimumFractionDigits: 0,
-            })}`,
+    ticketObligation: 0,
     ticketGratuityAmount: toMoney(legacyEvidence?.ticket_gratuity_amount),
     totalPaid: isComplimentary ? 0 : authoritativePaid,
-    toPay: isComplimentary ? 0 : toPay,
+    toPay: 0,
   };
   let classifiedPaid = 0;
 
@@ -173,37 +239,46 @@ export function calculateTablePlanFinancialBreakdown(
       classifiedPaid + breakdown.methodUnknownPaid,
     );
 
-    if (!isComplimentary && breakdown.totalPaid > 0 && breakdown.toPay === 0) {
-      breakdown.statusLabel = "Fully Paid";
+  } else {
+    for (const payment of payments) {
+      if (
+        !["deposit_paid", "fully_paid"].includes(payment.payment_status) ||
+        toMoney(payment.amount) <= 0
+      ) {
+        continue;
+      }
+
+      const bucket = getPaymentBucket(payment);
+
+      if (!bucket) {
+        continue;
+      }
+
+      const availableAmount = Math.max(breakdown.totalPaid - classifiedPaid, 0);
+      const classifiedAmount = Math.min(
+        toMoney(payment.amount),
+        availableAmount,
+      );
+
+      breakdown[bucket] += classifiedAmount;
+      classifiedPaid += classifiedAmount;
     }
 
-    return breakdown;
+    breakdown.methodUnknownPaid = toMoney(
+      breakdown.totalPaid - classifiedPaid,
+    );
   }
 
-  for (const payment of payments) {
-    if (
-      !["deposit_paid", "fully_paid"].includes(payment.payment_status) ||
-      toMoney(payment.amount) <= 0
-    ) {
-      continue;
-    }
-
-    const bucket = getPaymentBucket(payment);
-
-    if (!bucket) {
-      continue;
-    }
-
-    const availableAmount = Math.max(breakdown.totalPaid - classifiedPaid, 0);
-    const classifiedAmount = Math.min(toMoney(payment.amount), availableAmount);
-
-    breakdown[bucket] += classifiedAmount;
-    classifiedPaid += classifiedAmount;
-  }
-
-  breakdown.methodUnknownPaid = toMoney(
-    breakdown.totalPaid - classifiedPaid,
-  );
+  breakdown.ticketObligation = isComplimentary
+    ? 0
+    : resolveAuthoritativeTicketObligation(
+        input,
+        breakdown.totalPaid,
+        legacyEvidence,
+      );
+  breakdown.toPay = isComplimentary
+    ? 0
+    : toMoney(breakdown.ticketObligation - breakdown.totalPaid);
 
   return breakdown;
 }
