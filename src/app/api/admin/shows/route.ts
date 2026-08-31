@@ -21,6 +21,7 @@ import {
   recordAuditEvent,
 } from "@/lib/supabase/serverAudit";
 import { notifyAppleWalletShow } from "@/lib/appleWalletSync";
+import { after } from "next/server";
 
 export const dynamic = "force-dynamic";
 
@@ -865,5 +866,117 @@ export async function PUT(request: Request) {
     console.error("[Zingara API] Failed to persist shows", error);
 
     return Response.json({ error: "Shows could not be saved." }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
+    return auth.error;
+  }
+
+  try {
+    const body = (await request.json()) as {
+      lockId?: string;
+      lockSessionId?: string;
+      show?: DemoShow;
+    };
+    const show = body.show;
+
+    if (!show || !normalizeShowLocation(show.location ?? show.venueName)) {
+      return Response.json(
+        { error: "A show with a valid Location is required." },
+        { status: 400 },
+      );
+    }
+
+    const existingRows = await loadShowRows();
+    const beforeRow = existingRows.find(
+      (row) => getShowReference(row) === show.id,
+    );
+
+    if (!beforeRow) {
+      return Response.json({ error: "Show could not be found." }, { status: 404 });
+    }
+
+    const lockResponse = await ensureNoConflictingShowLocks(
+      request,
+      auth,
+      [show.id],
+      body.lockId,
+      body.lockSessionId,
+    );
+
+    if (lockResponse) {
+      return lockResponse;
+    }
+
+    const duplicateShow = findDuplicateActiveShow(show, existingRows);
+
+    if (duplicateShow) {
+      return Response.json(
+        { error: "A show already exists for this location, date and time." },
+        { status: 409 },
+      );
+    }
+
+    const { data, error } = await auth.serviceClient
+      .from("shows")
+      .update(toSupabaseShow(show))
+      .eq("id", beforeRow.id)
+      .select("id,name,description,date,time,venue,status,notes,created_at,updated_at")
+      .maybeSingle();
+
+    if (error || !data) {
+      throw error ?? new Error("Updated show could not be loaded.");
+    }
+
+    const afterRow = data as SupabaseShowRow;
+    const diff = diffAuditFields(
+      beforeRow as Record<string, unknown>,
+      afterRow as Record<string, unknown>,
+      showAuditFields,
+    );
+
+    if (diff.changedFields.length > 0) {
+      await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+        action: "show.edit",
+        afterValues: diff.afterValues,
+        beforeValues: diff.beforeValues,
+        changedFields: diff.changedFields,
+        entityId: afterRow.id,
+        entityLocation: normalizeShowLocation(afterRow.venue) ?? null,
+        entityReference: getShowReference(afterRow),
+        entityType: "show",
+        outcome: "success",
+        request,
+        sourceArea: "Shows",
+      });
+    }
+
+    if (
+      beforeRow.name !== afterRow.name ||
+      beforeRow.date !== afterRow.date ||
+      beforeRow.time !== afterRow.time ||
+      beforeRow.venue !== afterRow.venue ||
+      beforeRow.status !== afterRow.status
+    ) {
+      after(async () => {
+        try {
+          await notifyAppleWalletShow(auth.serviceClient!, afterRow.id);
+        } catch (walletError) {
+          console.error(
+            "[Zingara API] Deferred Apple Wallet show refresh failed",
+            walletError,
+          );
+        }
+      });
+    }
+
+    return Response.json({ show: toDemoShow(afterRow) });
+  } catch (error) {
+    console.error("[Zingara API] Failed to update show", error);
+    return Response.json({ error: "Show could not be saved." }, { status: 500 });
   }
 }

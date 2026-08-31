@@ -3270,7 +3270,10 @@ export function getStoredDemoTables(shows = getStoredDemoShows()) {
   }
 }
 
-export function storeDemoShows(shows: DemoShow[]) {
+export function storeDemoShows(
+  shows: DemoShow[],
+  options: { notify?: boolean } = {},
+) {
   const normalizedShows = dedupeById(
     shows.map(normalizeDemoShow),
     (show) => show.id,
@@ -3291,9 +3294,11 @@ export function storeDemoShows(shows: DemoShow[]) {
       time: getSouthAfricaShowTime(show),
     })),
   });
-  window.dispatchEvent(
-    new CustomEvent("zingara-demo-shows-updated"),
-  );
+  if (options.notify !== false) {
+    window.dispatchEvent(
+      new CustomEvent("zingara-demo-shows-updated"),
+    );
+  }
 }
 
 export function storeDemoBookings(bookings: DemoBooking[]) {

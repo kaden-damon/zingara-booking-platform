@@ -833,8 +833,11 @@ function normalizeReservationClaims(
     : [];
 }
 
-function isPublicPayFastReservation(booking: DemoBooking) {
-  return booking.source === "online" && isAwaitingExternalPayment(booking);
+function usesAtomicTableReservation(booking: DemoBooking) {
+  return (
+    (booking.source === "online" || booking.source === "corporate-direct") &&
+    isAwaitingExternalPayment(booking)
+  );
 }
 
 function isPromoReservationError(error: unknown) {
@@ -1436,7 +1439,7 @@ export async function POST(request: Request) {
       return getBookingCapacityConflictResponse(capacityResult);
     }
 
-    if (isPublicPayFastReservation(booking)) {
+    if (usesAtomicTableReservation(booking)) {
       const reservation = await reservePublicBookingAtomically(
         supabase,
         booking as BookingWithReservationClaims,

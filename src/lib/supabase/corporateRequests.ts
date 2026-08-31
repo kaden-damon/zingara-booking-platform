@@ -72,3 +72,18 @@ export async function saveCorporateRequests(requests: CorporateRequest[]) {
 
   return getCorporateRequests();
 }
+
+export async function convertCorporateRequest(
+  requestId: string,
+  booking: import("@/lib/zingaraDemo").DemoBooking,
+) {
+  return fetchSupabaseApi<{
+    bookingReference: string;
+    durationMs?: number;
+    idempotent: boolean;
+    request: CorporateRequest;
+  }>("/api/admin/corporate-requests/convert", {
+    body: { booking, requestId },
+    method: "POST",
+  });
+}

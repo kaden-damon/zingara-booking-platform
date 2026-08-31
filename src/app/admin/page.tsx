@@ -132,6 +132,7 @@ import {
   parsePageSize,
 } from "../../lib/pagination";
 import {
+  convertCorporateRequest,
   getCorporateRequests,
   saveCorporateRequests as persistCorporateRequests,
 } from "../../lib/supabase/corporateRequests";
@@ -183,7 +184,12 @@ import {
   setPhysicalShowTableCapacity,
   unmergeOperationalShowTable,
   updateOperationalShowTable,
+  updateSingleShow,
 } from "../../lib/supabase/shows";
+import {
+  type AdminActionState,
+  replaceAffectedRecord,
+} from "../../lib/adminActionState";
 import {
   getPhysicalTableDefinition,
   isLegacyPlaceholderTableCode,
@@ -9951,6 +9957,9 @@ export default function AdminDashboardPage() {
     useState("");
   const [convertedCorporateBookingReference, setConvertedCorporateBookingReference] =
     useState("");
+  const [corporateConversionActionState, setCorporateConversionActionState] =
+    useState<AdminActionState>("idle");
+  const corporateConversionInFlightRef = useRef(new Set<string>());
   const [conciergeViewMode, setConciergeViewMode] =
     useState<BookingViewMode>("list");
   const [hideCancelledBookings, setHideCancelledBookings] =
@@ -10053,6 +10062,10 @@ export default function AdminDashboardPage() {
   const [isBulkShowCreating, setIsBulkShowCreating] =
     useState(false);
   const [editingShowId, setEditingShowId] = useState("");
+  const [showSaveState, setShowSaveState] =
+    useState<AdminActionState>("idle");
+  const [showSaveError, setShowSaveError] = useState("");
+  const showSaveInFlightRef = useRef(false);
   const [showDeleteConfirmationId, setShowDeleteConfirmationId] =
     useState("");
   const [showEditForm, setShowEditForm] = useState<ShowEditForm>({
@@ -11531,6 +11544,9 @@ export default function AdminDashboardPage() {
 
   function closeShowEditor() {
     void releaseCurrentShowLock("closed");
+    showSaveInFlightRef.current = false;
+    setShowSaveState("idle");
+    setShowSaveError("");
     setEditingShowId("");
     setShowDeleteConfirmationId("");
     setShowReadOnlyReferences([]);
@@ -13987,26 +14003,6 @@ export default function AdminDashboardPage() {
     setWorkflowStatusConfirmation(null);
   }
 
-  function updateShowOperationalStatus(
-    showId: string,
-    operationalStatus: NonNullable<DemoShow["operationalStatus"]>,
-  ) {
-    if (!canManageShows) {
-      return;
-    }
-
-    saveShows(
-      shows.map((show) =>
-        show.id === showId
-          ? {
-              ...show,
-              operationalStatus,
-            }
-          : show,
-      ),
-    );
-  }
-
   function getBulkSchedulePayload(): BulkShowScheduleInput | null {
     const location = normalizeShowLocation(bulkShowScheduleForm.location);
 
@@ -14167,6 +14163,8 @@ export default function AdminDashboardPage() {
   }
 
   function openShowEditor(show: DemoShow) {
+    setShowSaveState("idle");
+    setShowSaveError("");
     setEditingShowId(show.id);
     setShowEditForm(getShowEditForm(show));
   }
@@ -14186,7 +14184,8 @@ export default function AdminDashboardPage() {
       !normalizeShowLocation(showEditForm.venueName) ||
       !activeShowEditLock ||
       activeShowEditLock.showReference !== editingShowId ||
-      showReadOnlyReferences.includes(editingShowId)
+      showReadOnlyReferences.includes(editingShowId) ||
+      showSaveInFlightRef.current
     ) {
       console.log("[Zingara show management] save blocked", {
         canManageShows,
@@ -14217,14 +14216,13 @@ export default function AdminDashboardPage() {
       time: showEditForm.time,
       venueName: showLocation,
     };
-    const nextShows = shows.map((show) =>
-      show.id === editingShowId
-        ? {
-            ...show,
-            ...updatedShow,
-          }
-        : show,
-    );
+    const currentShow = shows.find((show) => show.id === editingShowId);
+
+    if (!currentShow) {
+      return;
+    }
+
+    const nextShow = { ...currentShow, ...updatedShow };
     const nextBookings = bookings.map((booking) =>
       booking.showId === editingShowId
         ? {
@@ -14234,25 +14232,40 @@ export default function AdminDashboardPage() {
         : booking,
     );
 
+    showSaveInFlightRef.current = true;
+    setShowSaveState("pending");
+    setShowSaveError("");
+
     try {
-      const persistedShows = await replaceShowsWithLock(nextShows, {
+      const persistedShow = await updateSingleShow(nextShow, {
         lockId: activeShowEditLock.id,
         lockSessionId: showLockSessionId,
         lockShowReference: editingShowId,
       });
 
-      setShows(persistedShows);
+      setShows((currentShows) =>
+        replaceAffectedRecord(currentShows, persistedShow),
+      );
+      setBookings(nextBookings);
+      setShowSaveState("success");
       showWorkflowToast("✓ Saved · Show updated");
     } catch (error) {
       console.error("[Zingara show management] show save failed", error);
-      showWorkflowToast("⚠ Could not save show. Refresh locks and try again.");
+      const safeMessage =
+        error instanceof Error && error.message
+          ? error.message
+          : "Could not save show. Refresh locks and try again.";
+      setShowSaveState("error");
+      setShowSaveError(safeMessage);
+      showWorkflowToast(`⚠ ${safeMessage}`);
       await refreshShowEditLocks(editingShowId);
       return;
+    } finally {
+      showSaveInFlightRef.current = false;
     }
 
-    saveBookings(nextBookings);
-    await releaseCurrentShowLock("saved");
-    closeShowEditor();
+    void releaseCurrentShowLock("saved");
+    window.setTimeout(closeShowEditor, 900);
   }
 
   async function duplicateEditedShow() {
@@ -14778,7 +14791,7 @@ export default function AdminDashboardPage() {
     void openBookingDetails(reference);
   }
 
-  function convertCorporateRequestToBooking(
+  async function convertCorporateRequestToBooking(
     request: CorporateRequest,
     showId?: string,
   ) {
@@ -14786,13 +14799,15 @@ export default function AdminDashboardPage() {
       !canManageBookings ||
       request.status !== "confirmed" ||
       request.archivedAt ||
-      request.linkedBookingReference
+      request.linkedBookingReference ||
+      corporateConversionInFlightRef.current.has(request.id)
     ) {
       return;
     }
 
     if (request.guestCount === null) {
       setCorporateConversionStatusRequestId(request.id);
+      setCorporateConversionActionState("error");
       setCorporateConversionStatus(
         "Record an authoritative guest count before converting this enquiry.",
       );
@@ -14803,6 +14818,7 @@ export default function AdminDashboardPage() {
 
     if (matchingShows.length === 0) {
       setCorporateConversionStatusRequestId(request.id);
+      setCorporateConversionActionState("error");
       setCorporateConversionStatus(
         "No active show exists for this date.",
       );
@@ -14816,6 +14832,7 @@ export default function AdminDashboardPage() {
           currentSelections[request.id] ?? matchingShows[0].id,
       }));
       setCorporateConversionStatusRequestId(request.id);
+      setCorporateConversionActionState("error");
       setCorporateConversionStatus(
         "Select a show before converting this request.",
       );
@@ -14825,10 +14842,27 @@ export default function AdminDashboardPage() {
     const selectedConversionShow =
       matchingShows.find((show) => show.id === showId) ??
       matchingShows[0];
+    setCorporateConversionStatusRequestId(request.id);
+    setCorporateConversionActionState("pending");
+    setCorporateConversionStatus("Converting enquiry to booking...");
+    setConvertedCorporateBookingReference("");
+    corporateConversionInFlightRef.current.add(request.id);
+
+    const conversionShowPayload = await getShowsWithTables({
+      tableShow: selectedConversionShow.id,
+    });
+    const conversionShowTables = conversionShowPayload.tablesLoaded
+      ? applyBookingOccupancyToTables(conversionShowPayload.tables, bookings)
+      : tables.filter((table) => table.showId === selectedConversionShow.id);
+    const conversionTables = mergeTablesForShows(
+      tables,
+      conversionShowTables,
+      [selectedConversionShow.id],
+    );
     const zoneId = getCorporateRequestZoneId(request);
     const zone = getZoneById(zoneId) ?? seatingZones[1];
     const allocation = findBestTableAllocation(
-      tables,
+      conversionTables,
       selectedConversionShow.id,
       zoneId,
       request.guestCount,
@@ -14836,9 +14870,11 @@ export default function AdminDashboardPage() {
 
     if (!allocation) {
       setCorporateConversionStatusRequestId(request.id);
+      setCorporateConversionActionState("error");
       setCorporateConversionStatus(
         "No suitable table is available for this request.",
       );
+      corporateConversionInFlightRef.current.delete(request.id);
       return;
     }
 
@@ -14945,50 +14981,66 @@ export default function AdminDashboardPage() {
       communicationHistory: [],
       createdAt: now,
     };
-    const confirmationRecord = createWorkflowCommunication(
-      booking,
-      "reservation-pending",
-      "email",
-    );
+    try {
+      const result = await convertCorporateRequest(
+        request.id,
+        booking,
+      );
+      const authoritativeRequest = result.request;
 
-    saveBookings([
-      {
-        ...booking,
-        communicationHistory: [confirmationRecord],
-      },
-      ...bookings,
-    ]);
-    saveTables(
-      applyTableAllocation(
-        tables,
-        allocation,
-        bookingReference,
-        corporateNotes,
-      ),
-    );
-    saveCorporateRequests(
-      corporateRequests.map((corporateRequest) =>
-        corporateRequest.id === request.id
-          ? {
-              ...corporateRequest,
-              assignedConsultant:
-                corporateRequest.assignedConsultant ?? currentStaff?.name,
-              linkedBookingReference: bookingReference,
-              status: "converted",
-              updatedAt: now,
-            }
-          : corporateRequest,
-      ),
-    );
-    setConvertedCorporateBookingReference(bookingReference);
-    setCorporateConversionStatusRequestId(request.id);
-    setCorporateConversionStatus(
-      "Corporate request successfully converted to booking.",
-    );
-    void sendPreferredBrowserNotification(
-      "new-corporate-request",
-      "booking-confirmed",
-    );
+      setBookings((currentBookings) =>
+        currentBookings.some(
+          (currentBooking) => currentBooking.reference === result.bookingReference,
+        )
+          ? currentBookings
+          : [booking, ...currentBookings],
+      );
+      setTables((currentTables) =>
+        applyTableAllocation(
+          mergeTablesForShows(
+            currentTables,
+            conversionShowTables,
+            [selectedConversionShow.id],
+          ),
+          allocation,
+          result.bookingReference,
+          corporateNotes,
+        ),
+      );
+      setCorporateRequests((currentRequests) =>
+        replaceAffectedRecord(currentRequests, authoritativeRequest),
+      );
+      setConvertedCorporateBookingReference(result.bookingReference);
+      setCorporateConversionActionState("success");
+      setCorporateConversionStatus("Booking created successfully.");
+      showWorkflowToast(`✓ Booking created · ${result.bookingReference}`);
+
+      void getBooking(result.bookingReference).then((authoritativeBooking) => {
+        if (!authoritativeBooking) {
+          return;
+        }
+
+        setBookings((currentBookings) =>
+          currentBookings.map((currentBooking) =>
+            currentBooking.reference === authoritativeBooking.reference
+              ? authoritativeBooking
+              : currentBooking,
+          ),
+        );
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Unable to convert booking.";
+      const uncertain = message.toLowerCase().includes("uncertain");
+
+      setCorporateConversionActionState(uncertain ? "uncertain" : "error");
+      setCorporateConversionStatus(message);
+      showWorkflowToast(`⚠ ${message}`);
+    } finally {
+      corporateConversionInFlightRef.current.delete(request.id);
+    }
   }
 
   function sendCorporatePaymentLink(request: CorporateRequest) {
@@ -24247,16 +24299,27 @@ export default function AdminDashboardPage() {
               <button
                 type="button"
                 onClick={() =>
-                  convertCorporateRequestToBooking(
+                  void convertCorporateRequestToBooking(
                     request,
                     corporateConversionShowSelections[request.id] ??
                       getCorporateConversionShows(request)[0]?.id,
                   )
                 }
-                disabled={!canManageBookings}
-                className="rounded-full border border-emerald-300/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-200 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                aria-busy={
+                  corporateConversionActionState === "pending" &&
+                  corporateConversionStatusRequestId === request.id
+                }
+                disabled={
+                  !canManageBookings ||
+                  (corporateConversionActionState === "pending" &&
+                    corporateConversionStatusRequestId === request.id)
+                }
+                className="min-w-24 rounded-full border border-emerald-300/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-200 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Convert
+                {corporateConversionActionState === "pending" &&
+                corporateConversionStatusRequestId === request.id
+                  ? "Converting..."
+                  : "Convert"}
               </button>
             )}
             {canSendPaymentLink && (
@@ -24322,6 +24385,35 @@ export default function AdminDashboardPage() {
             </button>
           </div>
         </div>
+        {corporateConversionStatus &&
+          corporateConversionStatusRequestId === request.id && (
+            <div
+              role="status"
+              aria-live="polite"
+              aria-busy={corporateConversionActionState === "pending"}
+              className={`mt-4 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm ${
+                corporateConversionActionState === "error" ||
+                corporateConversionActionState === "uncertain"
+                  ? "border-red-300/25 bg-red-950/20 text-red-100"
+                  : "border-emerald-300/20 bg-emerald-950/10 text-emerald-100"
+              }`}
+            >
+              <span>{corporateConversionStatus}</span>
+              {convertedCorporateBookingReference && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    openConvertedCorporateBooking(
+                      convertedCorporateBookingReference,
+                    )
+                  }
+                  className="rounded-full border border-sky-300/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-sky-200 transition hover:bg-sky-300 hover:text-black"
+                >
+                  Open Booking
+                </button>
+              )}
+            </div>
+          )}
       </section>
     );
   }
@@ -26534,7 +26626,7 @@ export default function AdminDashboardPage() {
                               <button
                                 type="button"
                                 onClick={() =>
-                                  convertCorporateRequestToBooking(
+                                  void convertCorporateRequestToBooking(
                                     openCorporateRequest,
                                     corporateConversionShowSelections[
                                       openCorporateRequest.id
@@ -26544,10 +26636,28 @@ export default function AdminDashboardPage() {
                                       )[0]?.id,
                                   )
                                 }
-                                disabled={!canManageBookings}
-                                className="rounded-full border border-emerald-300/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-200 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-busy={
+                                  corporateConversionActionState === "pending" &&
+                                  corporateConversionStatusRequestId ===
+                                    openCorporateRequest.id
+                                }
+                                disabled={
+                                  !canManageBookings ||
+                                  (corporateConversionActionState === "pending" &&
+                                    corporateConversionStatusRequestId ===
+                                      openCorporateRequest.id)
+                                }
+                                className="min-w-44 rounded-full border border-emerald-300/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-200 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                Convert To Booking
+                                {corporateConversionActionState === "pending" &&
+                                corporateConversionStatusRequestId ===
+                                  openCorporateRequest.id
+                                  ? "Converting..."
+                                  : corporateConversionActionState === "success" &&
+                                      corporateConversionStatusRequestId ===
+                                        openCorporateRequest.id
+                                    ? "Booking Created ✓"
+                                    : "Convert To Booking"}
                               </button>
                             )}
                             {canSendPaymentLink && (
@@ -26696,6 +26806,9 @@ export default function AdminDashboardPage() {
                         corporateConversionStatusRequestId ===
                           openCorporateRequest.id && (
                         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-zinc-200">
+                          <span className="sr-only" role="status" aria-live="polite">
+                            {corporateConversionStatus}
+                          </span>
                           <span>{corporateConversionStatus}</span>
                           {convertedCorporateBookingReference && (
                             <button
@@ -26721,7 +26834,17 @@ export default function AdminDashboardPage() {
                   (!convertedCorporateBookingReference ||
                     convertedCorporateBookingReference ===
                       openCorporateRequest.linkedBookingReference) && (
-                    <div className="mt-5 flex flex-wrap items-center gap-3 rounded-[1.5rem] border border-emerald-300/20 bg-emerald-950/10 px-4 py-3 text-sm text-emerald-100">
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      aria-busy={corporateConversionActionState === "pending"}
+                      className={`mt-5 flex flex-wrap items-center gap-3 rounded-[1.5rem] border px-4 py-3 text-sm ${
+                        corporateConversionActionState === "error" ||
+                        corporateConversionActionState === "uncertain"
+                          ? "border-red-300/25 bg-red-950/20 text-red-100"
+                          : "border-emerald-300/20 bg-emerald-950/10 text-emerald-100"
+                      }`}
+                    >
                       <span>{corporateConversionStatus}</span>
                       {convertedCorporateBookingReference && (
                         <button
@@ -33900,16 +34023,37 @@ export default function AdminDashboardPage() {
                   <button
                     type="button"
                     onClick={() => void saveEditedShow()}
+                    aria-busy={showSaveState === "pending"}
                     disabled={
                       isEditingShowReadOnly ||
                       !activeShowEditLock ||
+                      showSaveState === "pending" ||
                       !normalizeShowLocation(showEditForm.venueName)
                     }
-                    className="rounded-full bg-[#D8C36A] px-6 py-3 font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.2)] transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="min-w-36 rounded-full bg-[#D8C36A] px-6 py-3 font-bold text-black shadow-[0_0_24px_rgba(216,195,106,0.2)] transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Save Show
+                    {showSaveState === "pending"
+                      ? "Saving..."
+                      : showSaveState === "success"
+                        ? "Saved ✓"
+                        : showSaveState === "error"
+                          ? "Save Failed"
+                          : "Save Show"}
                   </button>
                 </div>
+                {(showSaveState === "error" || showSaveState === "success") && (
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className={`text-sm font-semibold ${
+                      showSaveState === "error" ? "text-red-200" : "text-emerald-200"
+                    }`}
+                  >
+                    {showSaveState === "error"
+                      ? `${showSaveError} Correct the issue and select Save Show again.`
+                      : "Show saved successfully."}
+                  </p>
+                )}
               </div>
             </section>
           </div>

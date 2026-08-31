@@ -126,7 +126,7 @@ function serializeCorporateRequestNotes(request: CorporateRequest) {
   return `${metadataPrefix}${JSON.stringify(request)}`;
 }
 
-function toSupabaseCorporateRequest(request: CorporateRequest) {
+export function toSupabaseCorporateRequest(request: CorporateRequest) {
   return {
     addons: request.addons,
     alternative_event_date: request.alternativeDate || null,
@@ -151,6 +151,25 @@ function toSupabaseCorporateRequest(request: CorporateRequest) {
     status: toSupabaseStatus(request.status),
     updated_at: request.updatedAt,
   };
+}
+
+export async function loadCorporateRequestRecord(
+  serviceClient: ServiceClient,
+  requestId: string,
+) {
+  const rows = await getCorporateRequestRows(serviceClient);
+  const row = rows.find(
+    (candidate) =>
+      candidate.id === requestId ||
+      parseCorporateRequestNotes(candidate.notes)?.id === requestId,
+  );
+
+  return row
+    ? {
+        request: toCorporateRequest(row),
+        row,
+      }
+    : null;
 }
 
 function toCorporateRequest(row: SupabaseCorporateRequestRow): CorporateRequest {

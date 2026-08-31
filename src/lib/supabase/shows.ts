@@ -221,11 +221,32 @@ export async function createShow(show: DemoShow) {
 }
 
 export async function updateShow(show: DemoShow) {
-  return replaceShows(
-    getStoredDemoShows().map((currentShow) =>
-      currentShow.id === show.id ? show : currentShow,
-    ),
+  return updateSingleShow(show);
+}
+
+export async function updateSingleShow(
+  show: DemoShow,
+  lock: {
+    lockId?: string;
+    lockSessionId?: string;
+    lockShowReference?: string;
+  } = {},
+) {
+  const payload = await fetchSupabaseApi<{ show: DemoShow }>(
+    "/api/admin/shows",
+    {
+      body: { ...lock, show },
+      method: "PATCH",
+    },
   );
+
+  const persistedShow = payload.show ?? show;
+  const nextShows = getStoredDemoShows().map((currentShow) =>
+    currentShow.id === persistedShow.id ? persistedShow : currentShow,
+  );
+
+  storeDemoShows(nextShows, { notify: false });
+  return persistedShow;
 }
 
 export async function archiveShow(showId: string) {
