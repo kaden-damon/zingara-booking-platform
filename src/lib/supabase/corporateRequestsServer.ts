@@ -132,8 +132,8 @@ function toSupabaseCorporateRequest(request: CorporateRequest) {
     alternative_event_date: request.alternativeDate || null,
     archived_at: request.archivedAt ?? null,
     bar_tab: request.barTab || null,
-    company_name: request.companyName || "Corporate Request",
-    contact_name: request.contactName || "Corporate Contact",
+    company_name: request.companyName,
+    contact_name: request.contactName,
     contact_number: request.contactNumber || null,
     created_at: request.createdAt,
     dietary_requirements: request.dietaryRequirements,
@@ -160,9 +160,11 @@ function toCorporateRequest(row: SupabaseCorporateRequestRow): CorporateRequest 
     return {
       ...metadataRequest,
       archivedAt: row.archived_at ?? metadataRequest.archivedAt,
+      guestCount: row.guest_count ?? metadataRequest.guestCount ?? null,
       linkedBookingReference:
         row.linked_booking_reference ??
         metadataRequest.linkedBookingReference,
+      source: row.source === "Data Import" ? "Data Import" : "Corporate Direct",
       status: toCorporateRequestStatus(row.status),
       updatedAt: row.updated_at,
     };
@@ -180,7 +182,7 @@ function toCorporateRequest(row: SupabaseCorporateRequestRow): CorporateRequest 
     createdAt: row.created_at,
     dietaryRequirements: row.dietary_requirements ?? [],
     email: row.email ?? "",
-    guestCount: row.guest_count ?? 1,
+    guestCount: row.guest_count,
     id: row.id,
     linkedBookingReference: row.linked_booking_reference ?? undefined,
     notes: row.notes ?? "",
@@ -190,7 +192,7 @@ function toCorporateRequest(row: SupabaseCorporateRequestRow): CorporateRequest 
     preferredDate: row.preferred_event_date ?? "",
     requestType: toCorporateRequestType(row.request_type),
     seatingPreference: row.seating_preference ?? "",
-    source: "Corporate Direct",
+    source: row.source === "Data Import" ? "Data Import" : "Corporate Direct",
     status: toCorporateRequestStatus(row.status),
     updatedAt: row.updated_at,
   };

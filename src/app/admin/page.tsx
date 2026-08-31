@@ -450,7 +450,7 @@ const notificationPreferenceLabels: Record<NotificationPreferenceKey, string> = 
   "booking-cancelled": "Booking Cancellations",
   "guest-checked-in": "Guest Check-ins",
   "new-booking": "New Bookings",
-  "new-corporate-request": "Corporate Bookings",
+  "new-corporate-request": "Corporate Enquiries",
   "operational-broadcast-sent": "Operational Broadcasts",
   "payment-received": "Payment Received",
   "waitlist-promotion": "Waitlist",
@@ -6700,6 +6700,8 @@ const bookingCalendarMonths = [
 
 const standardBookingPageSizeStorageKey =
   "zingara-admin-standard-booking-page-size";
+const corporateEnquiryPageSizeStorageKey =
+  "zingara-admin-corporate-enquiry-page-size";
 const corporateBookingPageSizeStorageKey =
   "zingara-admin-corporate-booking-page-size";
 
@@ -9490,6 +9492,8 @@ export default function AdminDashboardPage() {
   const [bookingPage, setBookingPage] = useState(1);
   const [standardBookingPageSize, setStandardBookingPageSize] =
     useState(defaultPageSize);
+  const [corporateEnquiryPageSize, setCorporateEnquiryPageSize] =
+    useState(defaultPageSize);
   const [corporateBookingPageSize, setCorporateBookingPageSize] =
     useState(defaultPageSize);
   const [corporateActivePage, setCorporateActivePage] = useState(1);
@@ -10337,6 +10341,9 @@ export default function AdminDashboardPage() {
     const storedCorporatePageSize = parsePageSize(
       window.localStorage.getItem(corporateBookingPageSizeStorageKey),
     );
+    const storedCorporateEnquiryPageSize = parsePageSize(
+      window.localStorage.getItem(corporateEnquiryPageSizeStorageKey),
+    );
 
     if (storedStandardPageSize) {
       setStandardBookingPageSize(storedStandardPageSize);
@@ -10344,6 +10351,10 @@ export default function AdminDashboardPage() {
 
     if (storedCorporatePageSize) {
       setCorporateBookingPageSize(storedCorporatePageSize);
+    }
+
+    if (storedCorporateEnquiryPageSize) {
+      setCorporateEnquiryPageSize(storedCorporateEnquiryPageSize);
     }
 
     setPaginationPreferencesLoaded(true);
@@ -10362,8 +10373,13 @@ export default function AdminDashboardPage() {
       corporateBookingPageSizeStorageKey,
       String(corporateBookingPageSize),
     );
+    window.localStorage.setItem(
+      corporateEnquiryPageSizeStorageKey,
+      String(corporateEnquiryPageSize),
+    );
   }, [
     corporateBookingPageSize,
+    corporateEnquiryPageSize,
     paginationPreferencesLoaded,
     standardBookingPageSize,
   ]);
@@ -14678,6 +14694,14 @@ export default function AdminDashboardPage() {
       request.archivedAt ||
       request.linkedBookingReference
     ) {
+      return;
+    }
+
+    if (request.guestCount === null) {
+      setCorporateConversionStatusRequestId(request.id);
+      setCorporateConversionStatus(
+        "Record an authoritative guest count before converting this enquiry.",
+      );
       return;
     }
 
@@ -23918,12 +23942,12 @@ export default function AdminDashboardPage() {
   const activeCorporatePagination = paginateItems(
     filteredActiveCorporateRequests,
     corporateActivePage,
-    corporateBookingPageSize,
+    corporateEnquiryPageSize,
   );
   const archivedCorporatePagination = paginateItems(
     filteredArchivedCorporateRequests,
     corporateArchivedPage,
-    corporateBookingPageSize,
+    corporateEnquiryPageSize,
   );
   const openCorporateRequest =
     corporateRequests.find(
@@ -23981,7 +24005,8 @@ export default function AdminDashboardPage() {
                 <span className="text-zinc-500">Event Date</span> · {request.preferredDate || "Not supplied"}
               </p>
               <p>
-                <span className="text-zinc-500">Guests</span> · {request.guestCount}
+                <span className="text-zinc-500">Guests</span> ·{" "}
+                {request.guestCount ?? "Not supplied"}
               </p>
               <p>
                 <span className="text-zinc-500">Payment</span> · {paymentSummary.label}
@@ -25245,7 +25270,7 @@ export default function AdminDashboardPage() {
           >
             {[
               ["bookings", "Standard Bookings"],
-              ["corporate", "Corporate Bookings"],
+              ["corporate", "Corporate"],
             ].map(([tabId, label]) => {
               const isActiveBookingSection = activeAdminTab === tabId;
 
@@ -26064,7 +26089,9 @@ export default function AdminDashboardPage() {
                         <dt className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
                           Guest Count
                         </dt>
-                        <dd className="mt-1">{openCorporateRequest.guestCount}</dd>
+                        <dd className="mt-1">
+                          {openCorporateRequest.guestCount ?? "Not supplied"}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -37994,7 +38021,11 @@ export default function AdminDashboardPage() {
                   Corporate Enquiries
                 </p>
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-3xl font-bold">Corporate Bookings</h2>
+                  <h2 className="text-3xl font-bold">Corporate Enquiries</h2>
+                  <span className="rounded-full border border-[#D8C36A]/25 bg-black/35 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C]">
+                    {corporateRequests.length} enquir
+                    {corporateRequests.length === 1 ? "y" : "ies"}
+                  </span>
                   <label className="group relative block w-10 shrink-0 transition-all duration-300 focus-within:w-full sm:focus-within:w-80">
                     <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-[#F2D66C] transition-all duration-300 group-focus-within:left-4 group-focus-within:translate-x-0">
                       <svg
@@ -38018,23 +38049,23 @@ export default function AdminDashboardPage() {
                         setCorporateActivePage(1);
                         setCorporateArchivedPage(1);
                       }}
-                      aria-label="Search corporate bookings"
-                      className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-0 text-sm text-transparent shadow-[0_0_18px_rgba(216,195,106,0.1)] transition-all duration-300 focus:border-[#D8C36A]/70 focus:pr-4 focus:text-white focus:outline-none"
+                      aria-label="Search corporate enquiries"
+                      placeholder="Search corporate enquiries..."
+                      className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-0 text-sm text-transparent shadow-[0_0_18px_rgba(216,195,106,0.1)] transition-all duration-300 placeholder:text-transparent focus:border-[#D8C36A]/70 focus:pr-4 focus:text-white focus:placeholder:text-zinc-500 focus:outline-none"
                     />
                   </label>
                 </div>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-                  Track tentative group enquiries, agent contact requests,
-                  quote status, payment readiness, and corporate direct source
-                  information.
+                  Corporate enquiries and booking requests received before they
+                  are converted into confirmed bookings.
                 </p>
               </div>
               <div className="rounded-2xl border border-[#D8C36A]/25 bg-black/35 px-4 py-3 text-sm text-zinc-300">
                 <span className="font-semibold text-white">
                   {filteredActiveCorporateRequests.length}
                 </span>{" "}
-                active request
-                {filteredActiveCorporateRequests.length === 1 ? "" : "s"}
+                active enquir
+                {filteredActiveCorporateRequests.length === 1 ? "y" : "ies"}
               </div>
             </div>
 
@@ -38090,10 +38121,10 @@ export default function AdminDashboardPage() {
             </div>
 
             <section>
-              <h3 className="text-xl font-bold uppercase">Active Requests</h3>
+              <h3 className="text-xl font-bold uppercase">Active Enquiries</h3>
               {filteredActiveCorporateRequests.length === 0 ? (
                 <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
-                  No active corporate bookings match the current filters.
+                  No active corporate enquiries match the current filters.
                 </div>
               ) : (
                 <div
@@ -38110,26 +38141,25 @@ export default function AdminDashboardPage() {
               )}
               {filteredActiveCorporateRequests.length > 0 && (
                 <BookingPaginationControls
-                  key={`active-corporate-${corporateBookingPageSize}`}
-                  itemLabel="corporate bookings"
+                  key={`active-corporate-${corporateEnquiryPageSize}`}
+                  itemLabel="corporate enquiries"
                   onPageChange={setCorporateActivePage}
                   onPageSizeChange={(pageSize) => {
-                    setCorporateBookingPageSize(pageSize);
+                    setCorporateEnquiryPageSize(pageSize);
                     setCorporateActivePage(1);
                     setCorporateArchivedPage(1);
-                    setBookingPage(1);
                   }}
-                  pageSize={corporateBookingPageSize}
+                  pageSize={corporateEnquiryPageSize}
                   window={activeCorporatePagination.window}
                 />
               )}
             </section>
 
             <section>
-              <h3 className="text-xl font-bold uppercase">Archived Requests</h3>
+              <h3 className="text-xl font-bold uppercase">Archived Enquiries</h3>
               {filteredArchivedCorporateRequests.length === 0 ? (
                 <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
-                  No archived corporate records match the current filters.
+                  No archived corporate enquiries match the current filters.
                 </div>
               ) : (
                 <div
@@ -38148,16 +38178,15 @@ export default function AdminDashboardPage() {
               )}
               {filteredArchivedCorporateRequests.length > 0 && (
                 <BookingPaginationControls
-                  key={`archived-corporate-${corporateBookingPageSize}`}
-                  itemLabel="archived corporate bookings"
+                  key={`archived-corporate-${corporateEnquiryPageSize}`}
+                  itemLabel="archived corporate enquiries"
                   onPageChange={setCorporateArchivedPage}
                   onPageSizeChange={(pageSize) => {
-                    setCorporateBookingPageSize(pageSize);
+                    setCorporateEnquiryPageSize(pageSize);
                     setCorporateActivePage(1);
                     setCorporateArchivedPage(1);
-                    setBookingPage(1);
                   }}
-                  pageSize={corporateBookingPageSize}
+                  pageSize={corporateEnquiryPageSize}
                   window={archivedCorporatePagination.window}
                 />
               )}
@@ -38174,11 +38203,25 @@ export default function AdminDashboardPage() {
                 Booking Management
               </p>
 
-              <h2 className="text-3xl font-bold">
-                {activeAdminTab === "corporate"
-                  ? "Corporate Booking Records"
-                  : "Bookings"}
-              </h2>
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-3xl font-bold">
+                  {activeAdminTab === "corporate"
+                    ? "Corporate Bookings"
+                    : "Bookings"}
+                </h2>
+                {activeAdminTab === "corporate" && (
+                  <span className="rounded-full border border-[#D8C36A]/25 bg-black/35 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C]">
+                    {filteredBookings.length} booking
+                    {filteredBookings.length === 1 ? "" : "s"}
+                  </span>
+                )}
+              </div>
+              {activeAdminTab === "corporate" && (
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+                  Confirmed Corporate bookings created through the Corporate
+                  booking workflow.
+                </p>
+              )}
             </div>
 
             <div className="mt-5 grid gap-4">
@@ -38365,8 +38408,16 @@ export default function AdminDashboardPage() {
                       setBookingSearch(event.target.value);
                       setBookingPage(1);
                     }}
-                    aria-label="Search bookings"
-                    placeholder="Search bookings"
+                    aria-label={
+                      activeAdminTab === "corporate"
+                        ? "Search corporate bookings"
+                        : "Search bookings"
+                    }
+                    placeholder={
+                      activeAdminTab === "corporate"
+                        ? "Search corporate bookings..."
+                        : "Search bookings"
+                    }
                     className="h-11 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-4 text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition placeholder:text-zinc-500 focus:border-[#D8C36A]/70"
                   />
                 </label>

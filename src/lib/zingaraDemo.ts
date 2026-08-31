@@ -646,7 +646,7 @@ export type CorporateRequest = {
   email: string;
   preferredDate: string;
   alternativeDate: string;
-  guestCount: number;
+  guestCount: number | null;
   seatingPreference: string;
   occasion: string;
   otherOccasion: string;
@@ -663,7 +663,7 @@ export type CorporateRequest = {
   paymentLinkToken?: string;
   status: CorporateRequestStatus;
   requestType: "agent-contact" | "corporate-booking";
-  source: "Corporate Direct";
+  source: "Corporate Direct" | "Data Import";
   archivedAt?: string;
   communicationHistory?: CommunicationRecord[];
   linkedBookingReference?: string;
@@ -1796,7 +1796,10 @@ function normalizeCorporateRequest(
     email: getSafeString(request.email),
     preferredDate: getSafeString(request.preferredDate),
     alternativeDate: getSafeString(request.alternativeDate),
-    guestCount: Math.max(1, getSafeNumber(request.guestCount, 1)),
+    guestCount:
+      request.guestCount === null
+        ? null
+        : Math.max(1, getSafeNumber(request.guestCount, 1)),
     seatingPreference: getSafeString(request.seatingPreference),
     occasion: getSafeString(request.occasion),
     otherOccasion: getSafeString(request.otherOccasion),
@@ -1839,7 +1842,8 @@ function normalizeCorporateRequest(
       request.requestType === "agent-contact"
         ? "agent-contact"
         : "corporate-booking",
-    source: "Corporate Direct",
+    source:
+      request.source === "Data Import" ? "Data Import" : "Corporate Direct",
     archivedAt: request.archivedAt
       ? getSafeString(request.archivedAt)
       : undefined,
