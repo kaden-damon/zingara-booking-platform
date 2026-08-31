@@ -6,6 +6,7 @@ const protectedReadRoutes = [
   "../app/api/admin/booking-lifecycle-events/route.ts",
   "../app/api/admin/bookings/route.ts",
   "../app/api/admin/communication-templates/route.ts",
+  "../app/api/admin/communications/route.ts",
   "../app/api/admin/corporate-requests/route.ts",
   "../app/api/admin/customers/route.ts",
   "../app/api/admin/roles/route.ts",

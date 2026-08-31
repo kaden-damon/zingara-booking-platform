@@ -19,7 +19,13 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (!auth.staffProfile) {
+    return auth.error;
+  }
+
   const serviceClient = getServiceClient();
 
   if (!serviceClient) {
