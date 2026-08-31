@@ -20,7 +20,6 @@ import { getAdminAuthSession } from "@/lib/supabase/auth";
 import type { AdminRole, Permission } from "@/lib/zingaraAccess";
 
 type QuickStartContext = {
-  entryGatePassword: string;
   staff: {
     canProcessRefund: boolean;
     locationLabel: string;
@@ -302,8 +301,6 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
 export default function QuickStartPage() {
   const [context, setContext] = useState<QuickStartContext | null>(null);
   const [error, setError] = useState("");
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const [copyStatus, setCopyStatus] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -383,36 +380,6 @@ export default function QuickStartPage() {
   );
   const cards = useMemo(() => (context ? buildGuideCards(context) : null), [context]);
 
-  async function copyEntryGatePassword() {
-    if (!context) {
-      return;
-    }
-
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(context.entryGatePassword);
-      } else {
-        const fallback = document.createElement("textarea");
-        fallback.value = context.entryGatePassword;
-        fallback.setAttribute("readonly", "");
-        fallback.style.position = "fixed";
-        fallback.style.opacity = "0";
-        document.body.appendChild(fallback);
-        fallback.select();
-
-        if (!document.execCommand("copy")) {
-          throw new Error("Clipboard copy was not accepted.");
-        }
-
-        fallback.remove();
-      }
-
-      setCopyStatus("Copied");
-    } catch {
-      setCopyStatus("Copy unavailable. Use Show and copy manually.");
-    }
-  }
-
   if (!context || !cards) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#050505] px-4 text-white">
@@ -478,7 +445,7 @@ export default function QuickStartPage() {
         </section>
 
         <section id="access-setup" className="mt-4 scroll-mt-4">
-          <AdminCollapsibleSection defaultOpen title="Access & Setup" summary="Platform links, Entry Gate access and device setup">
+          <AdminCollapsibleSection defaultOpen title="Access & Setup" summary="Platform links, staff sign-in and device setup">
             <div className="space-y-5">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <a href="https://book.zingara.co.za" className="rounded-xl border border-white/10 bg-black/35 p-4 transition hover:border-[#D8C36A]/50 focus-visible:outline-2 focus-visible:outline-[#F2D66C]">
@@ -491,28 +458,8 @@ export default function QuickStartPage() {
                 </a>
               </div>
 
-              <div className="rounded-xl border border-[#D8C36A]/25 bg-[#120D05] p-4">
-                <label htmlFor="entry-gate-password" className="text-xs font-semibold uppercase tracking-[0.14em] text-[#D8C36A]">Entry Gate Password</label>
-                <input
-                  id="entry-gate-password"
-                  aria-label="Entry Gate password"
-                  readOnly
-                  type={isPasswordVisible ? "text" : "password"}
-                  value={context.entryGatePassword}
-                  className="mt-3 min-h-12 w-full rounded-xl border border-white/10 bg-black px-4 text-base text-white outline-none focus:border-[#D8C36A]/70"
-                />
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:flex">
-                  <button type="button" onClick={() => setIsPasswordVisible((visible) => !visible)} className={secondaryButtonClass} aria-label={isPasswordVisible ? "Hide Entry Gate password" : "Show Entry Gate password"}>
-                    {isPasswordVisible ? "Hide" : "Show"}
-                  </button>
-                  <button type="button" onClick={() => void copyEntryGatePassword()} className={secondaryButtonClass} aria-label="Copy Entry Gate password">
-                    Copy
-                  </button>
-                </div>
-                <p role="status" aria-live="polite" className="mt-2 min-h-5 text-xs text-zinc-400">{copyStatus}</p>
-              </div>
-
-              <Note>Use your individual Zingara staff account to sign in. Never share your personal staff password.</Note>
+              <Note>The public booking platform no longer requires a shared password. Use your individual Zingara staff account to access Admin.</Note>
+              <Note critical>Never share your personal staff password.</Note>
               <p className="text-sm text-zinc-300">Bookmark the Admin page on the device you normally use.</p>
             </div>
           </AdminCollapsibleSection>

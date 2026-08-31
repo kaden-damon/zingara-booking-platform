@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import AuthRedirectHandler from "./AuthRedirectHandler";
-import EntryGateClient from "./EntryGateClient";
+import LocationSelectionClient from "./LocationSelectionClient";
 import PaymentBrandMarks from "./components/PaymentBrandMarks";
 import { royalDecrees } from "../lib/royalDecrees";
 
 export const metadata: Metadata = {
-  title: "ENTRY GATE | The Royal Countess Zingara",
+  title: "Zingara | The Royal Countess",
   description: "Choose your Zingara venue and begin your booking experience.",
 };
 
@@ -39,7 +39,7 @@ export default function Home() {
           </p>
         </div>
 
-        <EntryGateClient />
+        <LocationSelectionClient />
 
         <footer
           className="mt-auto pt-10 text-center text-[0.74rem] leading-relaxed text-white/80 sm:pt-12"

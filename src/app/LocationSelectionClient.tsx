@@ -27,7 +27,7 @@ function rememberLocation(location: string) {
   }
 }
 
-export default function EntryGateClient() {
+export default function LocationSelectionClient() {
   const [selectedLocation, setSelectedLocation] = useState<
     (typeof locations)[number]["value"] | null
   >(null);

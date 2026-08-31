@@ -27,7 +27,6 @@ export async function GET(request: Request) {
 
   return Response.json(
     {
-      entryGatePassword: "StepIntoMagic!",
       staff: {
         canProcessRefund: canProcessRefund(
           auth.staffProfile,

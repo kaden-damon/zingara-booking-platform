@@ -391,8 +391,8 @@ export const royalDecrees: RoyalDecree[] = [
       {
         heading: "Essential Cookies",
         body: [
-          "Essential cookies may be used for private preview access, authentication, session handling, security and the correct operation of the platform.",
-          "Without essential cookies, some areas of the booking platform, admin area or password gate may not work correctly.",
+          "Essential cookies may be used for authentication, session handling, security and the correct operation of the platform.",
+          "Without essential cookies, some areas of the booking platform or admin area may not work correctly.",
         ],
       },
       {

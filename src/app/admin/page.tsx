@@ -1674,7 +1674,7 @@ const gettingStartedLessons: AcademyArticle[] = [
     howTo: [
       "Start with this Getting Started module.",
       "Read each lesson in order.",
-      "Understand that guests begin at the Entry Gate, choose Cape Town or Johannesburg, then choose Book Your Experience or Find My Booking.",
+      "Understand that guests begin on the location landing page, choose Cape Town or Johannesburg, then choose Book Your Experience or Find My Booking.",
       "Use the related actions to open the live area being explained.",
       "Mark lessons as complete as you become comfortable.",
     ],
@@ -1758,7 +1758,7 @@ const gettingStartedLessons: AcademyArticle[] = [
     ],
     difficulty: "beginner",
     howTo: [
-      "Use the Entry Gate to understand the guest's starting point.",
+      "Use the public location landing page to understand the guest's starting point.",
       "Guests choose Cape Town or Johannesburg before entering the booking or lookup journey.",
       "Book Your Experience opens the standard booking flow for the selected location.",
       "Find My Booking opens the secure lookup flow for an existing booking.",
@@ -5756,7 +5756,7 @@ const findMyBookingLessons: AcademyArticle[] = [
     ],
     difficulty: "beginner",
     howTo: [
-      "Open Find My Booking from the Entry Gate after selecting Cape Town or Johannesburg.",
+      "Open Find My Booking from the location landing page after selecting Cape Town or Johannesburg.",
       "Enter the booking reference.",
       "Enter either the matching email address or matching mobile number.",
       "Submit the search.",
@@ -5769,7 +5769,7 @@ const findMyBookingLessons: AcademyArticle[] = [
     relatedActions: ["bookings", "tickets"],
     related: ["Booking Verification", "Downloading Tickets"],
     tips: [
-      "The selected location is carried through from the Entry Gate.",
+      "The selected location is carried through from the location landing page.",
       "Use the booking reference plus email or mobile to protect guest information.",
     ],
     title: "Finding an Existing Booking",
