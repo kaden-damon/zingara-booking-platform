@@ -6,6 +6,7 @@ import {
   type TablePlanShow,
   type TablePlanTable,
 } from "@/lib/exports/tablePlan";
+import type { TablePlanLegacyPaymentEvidence } from "@/lib/exports/tablePlanFinance";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
   getRolePermissions,
@@ -19,6 +20,21 @@ export const runtime = "nodejs";
 type ShowRow = TablePlanShow & {
   notes: string | null;
 };
+
+type CustomerNameAuditRow = {
+  after_values: Record<string, unknown> | null;
+  before_values: Record<string, unknown> | null;
+  created_at: string;
+  entity_id: string;
+};
+
+function normalizeNameValue(value: unknown) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+function isEmailLikeName(value: string) {
+  return value.includes("@");
+}
 
 function getRole(profile: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["staffProfile"]>) {
   return Array.isArray(profile.roles) ? profile.roles[0] : profile.roles;
@@ -130,12 +146,23 @@ export async function GET(request: Request) {
     const paymentRequest = bookingIds.length
       ? auth.serviceClient
           .from("payments")
-          .select("booking_id,payment_type,payment_status,amount,method,notes")
+          .select(
+            "booking_id,payment_type,payment_status,amount,method,notes,provider_transaction_id,provider_gross_amount,transaction_fee_amount",
+          )
           .in("booking_id", bookingIds)
       : Promise.resolve({ data: [], error: null });
-    const [customerResult, paymentResult] = await Promise.all([
+    const legacyPaymentEvidenceRequest = bookingIds.length
+      ? auth.serviceClient
+          .from("legacy_booking_payment_evidence")
+          .select(
+            "booking_id,complimentary,complimentary_amount,source_ticket_amount,full_card_amount,pre_paid_card_amount,pre_paid_eft_amount,full_eft_amount,ticket_gratuity_amount,bar_tab_paid_amount,bar_gratuity_amount,halaal_meals_amount,kosher_meals_amount",
+          )
+          .in("booking_id", bookingIds)
+      : Promise.resolve({ data: [], error: null });
+    const [customerResult, paymentResult, legacyPaymentEvidenceResult] = await Promise.all([
       customerRequest,
       paymentRequest,
+      legacyPaymentEvidenceRequest,
     ]);
 
     if (customerResult.error) {
@@ -146,9 +173,73 @@ export async function GET(request: Request) {
       throw paymentResult.error;
     }
 
+    if (legacyPaymentEvidenceResult.error) {
+      throw legacyPaymentEvidenceResult.error;
+    }
+
+    const customers = (customerResult.data ?? []) as TablePlanCustomer[];
+    const emailNamedCustomerIds = customers
+      .filter((customer) =>
+        isEmailLikeName(
+          `${customer.first_name ?? ""} ${customer.surname ?? ""}`,
+        ),
+      )
+      .map((customer) => customer.id);
+    const customerNameAuditResult = emailNamedCustomerIds.length
+      ? await auth.serviceClient
+          .from("audit_events")
+          .select("entity_id,before_values,after_values,created_at")
+          .eq("action", "customer.edit")
+          .in("entity_id", emailNamedCustomerIds)
+          .order("created_at", { ascending: false })
+      : { data: [], error: null };
+
+    if (customerNameAuditResult.error) {
+      throw customerNameAuditResult.error;
+    }
+
+    const auditsByCustomerId = new Map<string, CustomerNameAuditRow[]>();
+
+    for (const audit of (customerNameAuditResult.data ?? []) as CustomerNameAuditRow[]) {
+      auditsByCustomerId.set(audit.entity_id, [
+        ...(auditsByCustomerId.get(audit.entity_id) ?? []),
+        audit,
+      ]);
+    }
+
+    const customersWithNameHistory = customers.map((customer) => {
+      const currentFirstName = normalizeNameValue(customer.first_name);
+      const matchingAudit = (auditsByCustomerId.get(customer.id) ?? []).find(
+        (audit) => {
+          const afterFirstName = normalizeNameValue(
+            audit.after_values?.first_name,
+          );
+          const beforeFirstName = normalizeNameValue(
+            audit.before_values?.first_name,
+          );
+
+          return (
+            afterFirstName.toLowerCase() === currentFirstName.toLowerCase() &&
+            !isEmailLikeName(beforeFirstName) &&
+            /[A-Za-z]/.test(beforeFirstName)
+          );
+        },
+      );
+
+      return {
+        ...customer,
+        historical_first_name:
+          normalizeNameValue(matchingAudit?.before_values?.first_name) || null,
+        historical_surname:
+          normalizeNameValue(matchingAudit?.before_values?.surname) || null,
+      };
+    });
+
     const workbook = await buildTablePlanWorkbook({
       bookings,
-      customers: (customerResult.data ?? []) as TablePlanCustomer[],
+      customers: customersWithNameHistory,
+      legacyPaymentEvidence:
+        (legacyPaymentEvidenceResult.data ?? []) as TablePlanLegacyPaymentEvidence[],
       payments: (paymentResult.data ?? []) as TablePlanPayment[],
       show: typedShow,
       tables: (tableRows ?? []) as TablePlanTable[],
