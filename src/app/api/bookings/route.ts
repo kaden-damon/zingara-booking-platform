@@ -31,6 +31,12 @@ import {
   verifyInternalBookingHandoff,
 } from "@/lib/bookingProvenance";
 import {
+  getFirstBookingCreateError,
+  mergeCustomerContactValues,
+  normalizeBookingCustomer,
+  validateBookingCreate,
+} from "@/lib/bookingCreateValidation";
+import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
 } from "@/lib/email/communicationIdempotency";
@@ -481,9 +487,16 @@ async function upsertCustomer(
   const existingCustomer = await loadMatchingCustomer();
 
   if (existingCustomer) {
+    const preservedContacts = mergeCustomerContactValues(existingCustomer, {
+      email: payload.email,
+      mobile: payload.mobile,
+    });
     const { data, error } = await supabase
       .from("customers")
-      .update(payload)
+      .update({
+        ...payload,
+        ...preservedContacts,
+      })
       .eq("id", existingCustomer.id)
       .select("id")
       .maybeSingle();
@@ -506,9 +519,19 @@ async function upsertCustomer(
       const concurrentlyInsertedCustomer = await loadMatchingCustomer();
 
       if (concurrentlyInsertedCustomer) {
+        const preservedContacts = mergeCustomerContactValues(
+          concurrentlyInsertedCustomer,
+          {
+            email: payload.email,
+            mobile: payload.mobile,
+          },
+        );
         const { data: updatedCustomer, error: updateError } = await supabase
           .from("customers")
-          .update(payload)
+          .update({
+            ...payload,
+            ...preservedContacts,
+          })
           .eq("id", concurrentlyInsertedCustomer.id)
           .select("id")
           .maybeSingle();
@@ -1260,8 +1283,48 @@ export async function POST(request: Request) {
       ...booking,
       bookingOrigin: provenance.bookingOrigin,
       createdByStaffId: provenance.createdByStaffId,
+      customer: normalizeBookingCustomer(booking.customer),
       source: trustedBookingSource,
     };
+
+    const isTrustedStaff = Boolean(staffProfileId);
+    let isCreate = true;
+
+    if (isTrustedStaff) {
+      const { data: existingBooking, error: existingBookingError } =
+        await supabase
+          .from("bookings")
+          .select("id")
+          .eq("booking_reference", booking.reference)
+          .maybeSingle();
+
+      if (existingBookingError) {
+        throw existingBookingError;
+      }
+
+      isCreate = !existingBooking;
+    }
+
+    const createValidationErrors = validateBookingCreate({
+      bookingSource: trustedBookingSource,
+      customer: booking.customer,
+      isCreate,
+      isTrustedStaff,
+      partySize: booking.partySize,
+    });
+    const createValidationError = getFirstBookingCreateError(
+      createValidationErrors,
+    );
+
+    if (createValidationError) {
+      return Response.json(
+        {
+          error: createValidationError,
+          fieldErrors: createValidationErrors,
+        },
+        { status: 400 },
+      );
+    }
 
     if (booking.source === "online" && isCorporatePartySize(booking.partySize)) {
       return Response.json(

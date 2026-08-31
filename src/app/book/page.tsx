@@ -28,6 +28,12 @@ import {
   isCorporatePartySize,
 } from "../../lib/bookingClassification";
 import {
+  type BookingCreateFieldErrors,
+  getFirstBookingCreateError,
+  getPublicBookingGuidance,
+  validateBookingCreate,
+} from "../../lib/bookingCreateValidation";
+import {
   getBookingJourneyId,
   trackPlatformEvent,
   upsertPlatformPresence,
@@ -628,6 +634,8 @@ export default function BookingPage() {
   const [paymentOption, setPaymentOption] =
     useState<PaymentOption>("full");
   const [paymentRedirectStatus, setPaymentRedirectStatus] = useState("");
+  const [customerValidationErrors, setCustomerValidationErrors] =
+    useState<BookingCreateFieldErrors>({});
   const [postPaymentStatus, setPostPaymentStatus] =
     useState<PostPaymentStatus>("idle");
   const [postPaymentBookingReference, setPostPaymentBookingReference] =
@@ -859,11 +867,106 @@ export default function BookingPage() {
         return getShowTimeValue(firstShow) - getShowTimeValue(secondShow);
       })[0];
   }
-  const customerDetailsComplete = Boolean(
-    customerInfo.name.trim() &&
-      customerInfo.email.trim() &&
-      customerInfo.phone.trim(),
+  const currentCustomerValidationErrors = validateBookingCreate({
+    bookingSource: "online",
+    customer: customerInfo,
+    isCreate: true,
+    isTrustedStaff: false,
+    partySize,
+  });
+  const customerDetailsComplete =
+    Object.keys(currentCustomerValidationErrors).length === 0;
+
+  const publicBookingGuidance = getPublicBookingGuidance(
+    currentCustomerValidationErrors,
   );
+
+  function getCustomerFieldError(
+    field: "email" | "name" | "phone",
+    customer: CustomerInfo,
+  ) {
+    return validateBookingCreate({
+      bookingSource: "online",
+      customer,
+      isCreate: true,
+      isTrustedStaff: false,
+      partySize,
+    })[field];
+  }
+
+  function updateCustomerField(
+    field: "email" | "name" | "phone",
+    value: string,
+  ) {
+    const nextCustomer = { ...customerInfo, [field]: value };
+    setCustomerInfo(nextCustomer);
+
+    if (!customerValidationErrors[field]) {
+      return;
+    }
+
+    const nextError = getCustomerFieldError(field, nextCustomer);
+    setCustomerValidationErrors((currentErrors) => {
+      const nextErrors = { ...currentErrors };
+
+      if (nextError) {
+        nextErrors[field] = nextError;
+      } else {
+        delete nextErrors[field];
+      }
+
+      return nextErrors;
+    });
+  }
+
+  function validateCustomerField(field: "email" | "name" | "phone") {
+    const fieldError = getCustomerFieldError(field, customerInfo);
+
+    setCustomerValidationErrors((currentErrors) => {
+      const nextErrors = { ...currentErrors };
+
+      if (fieldError) {
+        nextErrors[field] = fieldError;
+      } else {
+        delete nextErrors[field];
+      }
+
+      return nextErrors;
+    });
+  }
+
+  function validatePublicCustomerDetails() {
+    const errors = validateBookingCreate({
+      bookingSource: "online",
+      customer: customerInfo,
+      isCreate: true,
+      isTrustedStaff: false,
+      partySize,
+    });
+    const firstError = getFirstBookingCreateError(errors);
+
+    setCustomerValidationErrors(errors);
+
+    if (!firstError) {
+      return true;
+    }
+
+    setPaymentRedirectStatus(firstError);
+    window.requestAnimationFrame(() => {
+      const firstInvalidField = (["name", "phone", "email"] as const).find(
+        (field) => errors[field],
+      );
+      const visibleInput = Array.from(
+        document.querySelectorAll<HTMLInputElement>(
+          `[data-booking-field="${firstInvalidField}"]`,
+        ),
+      ).find((input) => input.offsetParent !== null);
+
+      visibleInput?.focus();
+      visibleInput?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return false;
+  }
   const showStepSummary = selectedShow
     ? `${getCompactDateDisplay(selectedShowDate)} · ${getSouthAfricaShowTime(selectedShow)}`
     : "";
@@ -1561,7 +1664,6 @@ export default function BookingPage() {
     if (
       !selectedZone ||
       !selectedShowId ||
-      !customerDetailsComplete ||
       !isAvailableForBooking(
         selectedZone,
         partySize,
@@ -1569,6 +1671,10 @@ export default function BookingPage() {
         venueConfig,
       )
     ) {
+      return;
+    }
+
+    if (!validatePublicCustomerDetails()) {
       return;
     }
 
@@ -1611,7 +1717,6 @@ export default function BookingPage() {
     if (
       !selectedZone ||
       !selectedShow ||
-      !customerDetailsComplete ||
       !isAvailableForBooking(
         selectedZone,
         partySize,
@@ -1619,6 +1724,10 @@ export default function BookingPage() {
         venueConfig,
       )
     ) {
+      return;
+    }
+
+    if (!validatePublicCustomerDetails()) {
       return;
     }
 
@@ -3167,55 +3276,98 @@ export default function BookingPage() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Full Name
+                    Full Name <span aria-hidden="true">*</span>
                   </span>
                   <input
                     required
-                    value={customerInfo.name}
-                    onChange={(event) =>
-                      setCustomerInfo((currentInfo) => ({
-                        ...currentInfo,
-                        name: event.target.value,
-                      }))
+                    aria-invalid={Boolean(customerValidationErrors.name)}
+                    aria-describedby={
+                      customerValidationErrors.name
+                        ? "booking-name-error"
+                        : undefined
                     }
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base"
+                    autoComplete="name"
+                    data-booking-field="name"
+                    value={customerInfo.name}
+                    onBlur={() => validateCustomerField("name")}
+                    onChange={(event) =>
+                      updateCustomerField("name", event.target.value)
+                    }
+                    className={`w-full rounded-xl border bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base ${customerValidationErrors.name ? "border-red-400" : "border-zinc-700"}`}
                   />
+                  {customerValidationErrors.name && (
+                    <span
+                      id="booking-name-error"
+                      className="mt-1.5 block text-sm font-semibold text-red-200"
+                    >
+                      {customerValidationErrors.name}
+                    </span>
+                  )}
                 </label>
 
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Email
+                    Email Address <span aria-hidden="true">*</span>
                   </span>
                   <input
                     required
+                    aria-invalid={Boolean(customerValidationErrors.email)}
+                    aria-describedby={
+                      customerValidationErrors.email
+                        ? "booking-email-error"
+                        : undefined
+                    }
+                    autoComplete="email"
+                    data-booking-field="email"
                     type="email"
                     value={customerInfo.email}
+                    onBlur={() => validateCustomerField("email")}
                     onChange={(event) =>
-                      setCustomerInfo((currentInfo) => ({
-                        ...currentInfo,
-                        email: event.target.value,
-                      }))
+                      updateCustomerField("email", event.target.value)
                     }
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base"
+                    className={`w-full rounded-xl border bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base ${customerValidationErrors.email ? "border-red-400" : "border-zinc-700"}`}
                   />
+                  {customerValidationErrors.email && (
+                    <span
+                      id="booking-email-error"
+                      className="mt-1.5 block text-sm font-semibold text-red-200"
+                    >
+                      {customerValidationErrors.email}
+                    </span>
+                  )}
                 </label>
 
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Phone Number
+                    Mobile Number <span aria-hidden="true">*</span>
                   </span>
                   <input
                     required
+                    aria-invalid={Boolean(customerValidationErrors.phone)}
+                    aria-describedby={
+                      customerValidationErrors.phone
+                        ? "booking-phone-error"
+                        : undefined
+                    }
+                    autoComplete="tel"
+                    data-booking-field="phone"
+                    inputMode="tel"
                     type="tel"
                     value={customerInfo.phone}
+                    onBlur={() => validateCustomerField("phone")}
                     onChange={(event) =>
-                      setCustomerInfo((currentInfo) => ({
-                        ...currentInfo,
-                        phone: event.target.value,
-                      }))
+                      updateCustomerField("phone", event.target.value)
                     }
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base"
+                    className={`w-full rounded-xl border bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base ${customerValidationErrors.phone ? "border-red-400" : "border-zinc-700"}`}
                   />
+                  {customerValidationErrors.phone && (
+                    <span
+                      id="booking-phone-error"
+                      className="mt-1.5 block text-sm font-semibold text-red-200"
+                    >
+                      {customerValidationErrors.phone}
+                    </span>
+                  )}
                 </label>
 
                 <label className="block sm:col-span-2">
@@ -3233,10 +3385,23 @@ export default function BookingPage() {
                 </label>
               </div>
 
+              {publicBookingGuidance && (
+                <p
+                  aria-live="polite"
+                  className="mt-4 rounded-xl border border-amber-300/30 bg-amber-950/25 px-4 py-3 text-sm font-semibold leading-5 text-amber-100"
+                  role="status"
+                >
+                  {publicBookingGuidance}
+                </p>
+              )}
+
               <button
                 type="button"
-                disabled={!customerDetailsComplete}
-                onClick={() => setActiveBookingStep(4)}
+                onClick={() => {
+                  if (validatePublicCustomerDetails()) {
+                    setActiveBookingStep(4);
+                  }
+                }}
                 className="mt-5 rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:mt-6 sm:py-3 sm:text-base"
               >
                 Continue To Payment
@@ -3244,7 +3409,7 @@ export default function BookingPage() {
             </section>
           )}
 
-          {selectedZone && customerDetailsComplete && activeBookingStep === 4 && (
+          {selectedZone && activeBookingStep === 4 && (
             <div className="mt-5 rounded-[1.25rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#18100A_0%,#111_48%,#050505_100%)] p-3.5 shadow-2xl shadow-black/25 sm:mt-10 sm:rounded-[2rem] sm:p-6">
               <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-end sm:justify-between">
                 <div>
@@ -3466,7 +3631,6 @@ export default function BookingPage() {
               <button
                 type="button"
                 onClick={handleContinueBooking}
-                disabled={!customerDetailsComplete}
                 className="mt-5 w-full rounded-full bg-white px-6 py-2.5 text-base font-semibold text-black transition hover:scale-[1.01] hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:mt-8 sm:w-auto sm:px-8 sm:py-4 sm:text-xl"
               >
                 Continue To Payment
@@ -3735,57 +3899,110 @@ export default function BookingPage() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Full Name
+                    Full Name <span aria-hidden="true">*</span>
                   </span>
                   <input
                     required
-                    value={customerInfo.name}
-                    onChange={(e) =>
-                      setCustomerInfo((current) => ({
-                        ...current,
-                        name: e.target.value,
-                      }))
+                    aria-invalid={Boolean(customerValidationErrors.name)}
+                    aria-describedby={
+                      customerValidationErrors.name
+                        ? "checkout-booking-name-error"
+                        : undefined
                     }
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base"
+                    autoComplete="name"
+                    data-booking-field="name"
+                    value={customerInfo.name}
+                    onBlur={() => validateCustomerField("name")}
+                    onChange={(event) =>
+                      updateCustomerField("name", event.target.value)
+                    }
+                    className={`w-full rounded-xl border bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base ${customerValidationErrors.name ? "border-red-400" : "border-zinc-700"}`}
                   />
+                  {customerValidationErrors.name && (
+                    <span
+                      id="checkout-booking-name-error"
+                      className="mt-1.5 block text-sm font-semibold text-red-200"
+                    >
+                      {customerValidationErrors.name}
+                    </span>
+                  )}
                 </label>
 
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Email
+                    Email Address <span aria-hidden="true">*</span>
                   </span>
                   <input
                     required
+                    aria-invalid={Boolean(customerValidationErrors.email)}
+                    aria-describedby={
+                      customerValidationErrors.email
+                        ? "checkout-booking-email-error"
+                        : undefined
+                    }
+                    autoComplete="email"
+                    data-booking-field="email"
                     type="email"
                     value={customerInfo.email}
-                    onChange={(e) =>
-                      setCustomerInfo((current) => ({
-                        ...current,
-                        email: e.target.value,
-                      }))
+                    onBlur={() => validateCustomerField("email")}
+                    onChange={(event) =>
+                      updateCustomerField("email", event.target.value)
                     }
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base"
+                    className={`w-full rounded-xl border bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base ${customerValidationErrors.email ? "border-red-400" : "border-zinc-700"}`}
                   />
+                  {customerValidationErrors.email && (
+                    <span
+                      id="checkout-booking-email-error"
+                      className="mt-1.5 block text-sm font-semibold text-red-200"
+                    >
+                      {customerValidationErrors.email}
+                    </span>
+                  )}
                 </label>
 
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Phone
+                    Mobile Number <span aria-hidden="true">*</span>
                   </span>
                   <input
                     required
+                    aria-invalid={Boolean(customerValidationErrors.phone)}
+                    aria-describedby={
+                      customerValidationErrors.phone
+                        ? "checkout-booking-phone-error"
+                        : undefined
+                    }
+                    autoComplete="tel"
+                    data-booking-field="phone"
+                    inputMode="tel"
                     type="tel"
                     value={customerInfo.phone}
-                    onChange={(e) =>
-                      setCustomerInfo((current) => ({
-                        ...current,
-                        phone: e.target.value,
-                      }))
+                    onBlur={() => validateCustomerField("phone")}
+                    onChange={(event) =>
+                      updateCustomerField("phone", event.target.value)
                     }
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base"
+                    className={`w-full rounded-xl border bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base ${customerValidationErrors.phone ? "border-red-400" : "border-zinc-700"}`}
                   />
+                  {customerValidationErrors.phone && (
+                    <span
+                      id="checkout-booking-phone-error"
+                      className="mt-1.5 block text-sm font-semibold text-red-200"
+                    >
+                      {customerValidationErrors.phone}
+                    </span>
+                  )}
                 </label>
               </div>
+
+              {publicBookingGuidance && (
+                <p
+                  aria-live="polite"
+                  className="rounded-xl border border-amber-300/30 bg-amber-950/25 px-4 py-3 text-sm font-semibold leading-5 text-amber-100"
+                  role="status"
+                >
+                  {publicBookingGuidance}
+                </p>
+              )}
 
               {paymentRedirectStatus && (
                 <p className="rounded-xl border border-[#D8C36A]/25 bg-black/30 px-4 py-3 text-sm font-semibold text-[#F2D66C]">
