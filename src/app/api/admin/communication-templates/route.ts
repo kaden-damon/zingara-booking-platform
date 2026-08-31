@@ -250,9 +250,15 @@ async function persistTemplates(
   );
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
+  }
+
   try {
-    const serviceClient = getServiceClient();
+    const serviceClient = auth.serviceClient;
     let rows = await loadTemplates();
 
     if (rows.length === 0 && serviceClient) {

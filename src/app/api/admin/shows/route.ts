@@ -554,6 +554,12 @@ function findDuplicateActiveShow(
 }
 
 export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
+  }
+
   try {
     const url = new URL(request.url);
     const tableMonth = url.searchParams.get("tableMonth");

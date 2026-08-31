@@ -13,17 +13,14 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const serviceClient = getServiceClient();
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
 
-  if (!serviceClient) {
-    return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
-    );
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
   }
 
-  const { data, error } = await serviceClient
+  const { data, error } = await auth.serviceClient
     .from("tickets")
     .select("id,booking_id,ticket_code,ticket_url,qr_payload,ticket_status,issued_at,updated_at")
     .order("issued_at", { ascending: false });

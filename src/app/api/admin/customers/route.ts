@@ -363,17 +363,14 @@ async function fetchOtherCustomerMobiles(
   }
 }
 
-export async function GET() {
-  const serviceClient = getServiceClient();
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
 
-  if (!serviceClient) {
-    return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
-    );
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
   }
 
-  const { rows, error } = await fetchAllCustomers(serviceClient);
+  const { rows, error } = await fetchAllCustomers(auth.serviceClient);
 
   if (error) {
     console.error("[Zingara API] Failed to load customers", error);
@@ -388,14 +385,20 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const serviceClient = getServiceClient();
+  const auth = await requireActiveStaff(request);
 
-  if (!serviceClient) {
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+    return auth.error;
+  }
+
+  if (!canManageCustomerIdentity(auth.staffProfile)) {
     return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
+      { error: "Customer edit access is required." },
+      { status: 403 },
     );
   }
+
+  const serviceClient = auth.serviceClient;
 
   try {
     const body = (await request.json()) as { input?: CustomerWriteInput };
@@ -458,14 +461,20 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const serviceClient = getServiceClient();
+  const auth = await requireActiveStaff(request);
 
-  if (!serviceClient) {
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+    return auth.error;
+  }
+
+  if (!canManageCustomerIdentity(auth.staffProfile)) {
     return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
+      { error: "Customer edit access is required." },
+      { status: 403 },
     );
   }
+
+  const serviceClient = auth.serviceClient;
 
   try {
     const body = (await request.json()) as {

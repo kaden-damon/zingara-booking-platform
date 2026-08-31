@@ -1,4 +1,7 @@
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import {
+  getRolePermissions,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
 import {
   loadCorporateRequests,
   persistCorporateRequests,
@@ -7,22 +10,15 @@ import { type CorporateRequest } from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
 
-function getRouteClient() {
-  return getServiceClient();
-}
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
 
-export async function GET() {
-  const serviceClient = getRouteClient();
-
-  if (!serviceClient) {
-    return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
-    );
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
   }
 
   try {
-    const requests = await loadCorporateRequests(serviceClient);
+    const requests = await loadCorporateRequests(auth.serviceClient);
 
     return Response.json({ requests });
   } catch (error) {
@@ -36,12 +32,20 @@ export async function GET() {
 }
 
 async function saveRequests(request: Request) {
-  const serviceClient = getRouteClient();
+  const auth = await requireActiveStaff(request);
 
-  if (!serviceClient) {
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+    return auth.error;
+  }
+
+  const role = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+
+  if (!getRolePermissions(role).includes("bookings:manage")) {
     return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
+      { error: "Booking management access is required." },
+      { status: 403 },
     );
   }
 
@@ -61,7 +65,7 @@ async function saveRequests(request: Request) {
     }
 
     const persistedRequests = await persistCorporateRequests(
-      serviceClient,
+      auth.serviceClient,
       requests,
       { replace: body.replace },
     );

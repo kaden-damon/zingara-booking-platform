@@ -293,14 +293,13 @@ function toLifecyclePayload(event: BookingLifecycleEvent, bookingId: string) {
 }
 
 export async function GET(request: Request) {
-  const serviceClient = getServiceClient();
+  const auth = await requireActiveStaff(request);
 
-  if (!serviceClient) {
-    return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
-    );
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
   }
+
+  const serviceClient = auth.serviceClient;
 
   const url = new URL(request.url);
   const reference = url.searchParams.get("reference");

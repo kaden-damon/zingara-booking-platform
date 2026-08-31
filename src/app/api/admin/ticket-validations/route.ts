@@ -1,18 +1,15 @@
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { requireActiveStaff } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const serviceClient = getServiceClient();
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
 
-  if (!serviceClient) {
-    return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
-    );
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
   }
 
-  const { data, error } = await serviceClient
+  const { data, error } = await auth.serviceClient
     .from("ticket_validations")
     .select("id,ticket_id,booking_id,result,device_label,notes,validated_at")
     .order("validated_at", { ascending: false });

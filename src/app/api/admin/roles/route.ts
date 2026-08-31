@@ -36,18 +36,15 @@ async function getRoleId(role: AdminRole) {
   )?.id;
 }
 
-export async function GET() {
-  const serviceClient = getServiceClient();
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
 
-  if (!serviceClient) {
-    return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
-    );
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
   }
 
   try {
-    const roles = await ensureDefaultRoles(serviceClient);
+    const roles = await ensureDefaultRoles(auth.serviceClient);
 
     return Response.json({ roles: roles.map(toStaffManagementRole) });
   } catch (error) {

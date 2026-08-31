@@ -1,4 +1,7 @@
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import {
+  getRolePermissions,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
 import {
   loadWaitlistEntries,
   persistWaitlistEntries,
@@ -7,22 +10,15 @@ import { type DemoWaitlistEntry } from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
 
-function getRouteClient() {
-  return getServiceClient();
-}
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
 
-export async function GET() {
-  const serviceClient = getRouteClient();
-
-  if (!serviceClient) {
-    return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
-    );
+  if (auth.error || !auth.serviceClient) {
+    return auth.error;
   }
 
   try {
-    const entries = await loadWaitlistEntries(serviceClient);
+    const entries = await loadWaitlistEntries(auth.serviceClient);
 
     return Response.json({ entries });
   } catch (error) {
@@ -36,12 +32,20 @@ export async function GET() {
 }
 
 async function saveEntries(request: Request) {
-  const serviceClient = getRouteClient();
+  const auth = await requireActiveStaff(request);
 
-  if (!serviceClient) {
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+    return auth.error;
+  }
+
+  const role = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+
+  if (!getRolePermissions(role).includes("bookings:manage")) {
     return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
+      { error: "Booking management access is required." },
+      { status: 403 },
     );
   }
 
@@ -59,7 +63,10 @@ async function saveEntries(request: Request) {
       );
     }
 
-    const persistedEntries = await persistWaitlistEntries(serviceClient, entries);
+    const persistedEntries = await persistWaitlistEntries(
+      auth.serviceClient,
+      entries,
+    );
 
     return Response.json({ entries: persistedEntries });
   } catch (error) {
