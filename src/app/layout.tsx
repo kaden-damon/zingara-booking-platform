@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import PwaRuntime from "./components/PwaRuntime";
 import ZingaraHeader from "./components/ZingaraHeader";
+import PublicCookieConsent from "./components/PublicCookieConsent";
 import { publicManifestPath } from "../lib/pwaManifests";
 import { defaultZingaraFaviconUrl } from "../lib/zingaraDemo";
 import "./globals.css";
@@ -90,6 +91,7 @@ export default function RootLayout({
         <PwaRuntime />
         <ZingaraHeader />
         {children}
+        <PublicCookieConsent />
       </body>
     </html>
   );

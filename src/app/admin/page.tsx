@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
+import CookiePrivacyPreferences from "./CookiePrivacyPreferences";
 
 import {
   type AdminRole,
@@ -728,6 +729,7 @@ type SettingsTab =
   | "staff"
   | "venue"
   | "workflows";
+type SystemTab = "issues" | "operations" | "preferences";
 type PromoAdminRecord = {
   active: boolean;
   code: string;
@@ -6649,6 +6651,11 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "audit", label: "Audit Trail" },
   { id: "portability", label: "Portability" },
 ];
+const systemTabs: Array<{ id: SystemTab; label: string }> = [
+  { id: "operations", label: "Operations" },
+  { id: "issues", label: "Issues" },
+  { id: "preferences", label: "Preferences" },
+];
 const userManagementRoles: AdminRole[] = [
   "super-admin",
   "venue-manager",
@@ -9619,6 +9626,8 @@ export default function AdminDashboardPage() {
     useState<AdminSession | null>(null);
   const [activeAdminTab, setActiveAdminTab] =
     useState<AdminTab>("overview");
+  const [activeSystemTab, setActiveSystemTab] =
+    useState<SystemTab>("operations");
   const [openFloorTableManagementZones, setOpenFloorTableManagementZones] =
     useState<SeatingZoneId[]>([]);
   const [dashboardWidgetOrder, setDashboardWidgetOrder] = useState<
@@ -11245,7 +11254,18 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     if (
+      activeAdminTab === "platform-operations" &&
+      !isSuperAdmin &&
+      activeSystemTab === "operations"
+    ) {
+      setActiveSystemTab("issues");
+    }
+  }, [activeAdminTab, activeSystemTab, isSuperAdmin]);
+
+  useEffect(() => {
+    if (
       activeAdminTab !== "platform-operations" ||
+      activeSystemTab !== "operations" ||
       !currentStaff ||
       !isSuperAdmin
     ) {
@@ -11260,6 +11280,7 @@ export default function AdminDashboardPage() {
     return () => window.clearInterval(intervalId);
   }, [
     activeAdminTab,
+    activeSystemTab,
     currentStaff,
     isSuperAdmin,
     platformOperationsBookingSearch,
@@ -11302,7 +11323,12 @@ export default function AdminDashboardPage() {
   const activeBookingEditCount = bookingEditLocks.length;
 
   useEffect(() => {
-    if (activeAdminTab !== "platform-operations" || !currentStaff || !isSuperAdmin) {
+    if (
+      activeAdminTab !== "platform-operations" ||
+      activeSystemTab !== "operations" ||
+      !currentStaff ||
+      !isSuperAdmin
+    ) {
       return;
     }
 
@@ -11313,15 +11339,19 @@ export default function AdminDashboardPage() {
     }, 60000);
 
     return () => window.clearInterval(interval);
-  }, [activeAdminTab, currentStaff?.id, isSuperAdmin]);
+  }, [activeAdminTab, activeSystemTab, currentStaff?.id, isSuperAdmin]);
 
   useEffect(() => {
-    if (activeAdminTab !== "platform-operations" || !currentStaff) {
+    if (
+      activeAdminTab !== "platform-operations" ||
+      activeSystemTab !== "issues" ||
+      !currentStaff
+    ) {
       return;
     }
 
     void refreshStaffIssues();
-  }, [activeAdminTab, currentStaff?.id, staffIssueFilters]);
+  }, [activeAdminTab, activeSystemTab, currentStaff?.id, staffIssueFilters]);
 
   useEffect(() => {
     if (
@@ -32069,9 +32099,45 @@ export default function AdminDashboardPage() {
           </section>
         )}
 
-        {activeAdminTab === "platform-operations" && staffIssueRegisterPanel}
+        {activeAdminTab === "platform-operations" && (
+          <nav
+            aria-label="System sections"
+            className="mb-6 flex flex-wrap gap-2 rounded-lg border border-white/10 bg-zinc-950/80 p-2"
+          >
+            {systemTabs
+              .filter((tab) => tab.id !== "operations" || isSuperAdmin)
+              .map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveSystemTab(tab.id)}
+                  aria-current={activeSystemTab === tab.id ? "page" : undefined}
+                  className={`min-h-11 rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
+                    activeSystemTab === tab.id
+                      ? "bg-[#D8C36A] text-black"
+                      : "border border-white/10 text-zinc-300 hover:border-white/25 hover:text-white"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+          </nav>
+        )}
 
-        {activeAdminTab === "platform-operations" && isSuperAdmin && (
+        {activeAdminTab === "platform-operations" &&
+          activeSystemTab === "issues" &&
+          staffIssueRegisterPanel}
+
+        {activeAdminTab === "platform-operations" &&
+          activeSystemTab === "preferences" && (
+            <section className="mb-10">
+              <CookiePrivacyPreferences isSuperAdmin={isSuperAdmin} />
+            </section>
+          )}
+
+        {activeAdminTab === "platform-operations" &&
+          activeSystemTab === "operations" &&
+          isSuperAdmin && (
           <section className="mb-10 space-y-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>

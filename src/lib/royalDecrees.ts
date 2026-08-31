@@ -83,8 +83,15 @@ export const royalDecrees: RoyalDecree[] = [
       {
         heading: "Acceptance",
         body: [
-          "By using the platform, creating a booking, submitting an enquiry, making payment or attending an experience, guests agree to these Terms & Conditions and the related Royal Decrees displayed on this site.",
+          "By using the platform, creating a booking, submitting an enquiry, making payment or attending an experience, guests agree to these Terms & Conditions and the related Royal Decrees displayed on this site, including the Privacy Policy and Cookie Policy.",
           "If a guest does not agree with these terms, they should not continue with the booking or payment process.",
+        ],
+      },
+      {
+        heading: "Browser Technologies And Privacy Choices",
+        body: [
+          "The platform uses essential browser technologies where required to provide security, preserve core functionality and operate booking, payment and ticket services. Optional analytics or marketing technologies are used only where implemented and permitted by the visitor's saved preferences.",
+          "Optional Analytics or Marketing consent is not a condition of using or booking through Zingara. More information is available in the Privacy Policy and Cookie Policy.",
         ],
       },
       {
@@ -338,6 +345,13 @@ export const royalDecrees: RoyalDecree[] = [
         ],
       },
       {
+        heading: "Website And Browser Information",
+        body: [
+          "The platform may process limited browser and device information through essential technologies needed for security, session handling, service operation, preferences and platform reliability.",
+          "Where optional analytics or marketing technologies are implemented, related browser information is processed only in accordance with the visitor's applicable consent choice. The Cookie Policy explains the categories and how preferences can be changed.",
+        ],
+      },
+      {
         heading: "Data Processors",
         body: [
           "The Royal Countess may use trusted service providers for hosting, database storage, authentication, payment processing, email delivery, push notifications and platform operations.",
@@ -382,36 +396,67 @@ export const royalDecrees: RoyalDecree[] = [
     icon: "🍪",
     sections: [
       {
-        heading: "Purpose",
+        heading: "Purpose And Legal Context",
         body: [
-          "This Cookie Policy explains how The Royal Countess platform uses cookies and browser storage to support secure access, preferences and a smooth guest experience.",
-          "It should be read together with the Privacy Policy.",
+          "This Cookie Policy explains how The Royal Countess booking platform uses cookies and similar browser technologies. It should be read with the Privacy Policy and Terms & Conditions.",
+          "Zingara manages personal information in a South African context under the Protection of Personal Information Act, 2013 (POPIA), the Electronic Communications and Transactions Act, 2002 (ECTA), and other applicable requirements. Different legal grounds may apply to essential service operation and optional technologies; consent is not presented as the legal basis for every essential function.",
         ],
       },
       {
-        heading: "Essential Cookies",
+        heading: "Cookies And Similar Technologies",
         body: [
-          "Essential cookies may be used for authentication, session handling, security and the correct operation of the platform.",
-          "Without essential cookies, some areas of the booking platform or admin area may not work correctly.",
+          "Cookies are small pieces of information a website can ask a browser to retain. Similar technologies include local or session browser storage, authentication storage, service workers, Progressive Web App storage and push-notification subscription state.",
+          "These technologies can remember a choice, maintain a secure session, support installed-app behaviour or allow a feature to work across page navigation. They do not replace Zingara's authoritative booking, payment or ticket records.",
         ],
       },
       {
-        heading: "Preference Storage",
+        heading: "Essential Technologies",
         body: [
-          "Browser storage may be used for selected location, notification preferences, Academy progress, favourites and recently viewed lessons.",
-          "These preferences improve convenience and do not replace official booking, ticket or payment records.",
+          "Zingara uses essential technologies where necessary to operate the booking platform, maintain security and session state, preserve required platform functionality, support public and staff Progressive Web App or service-worker behaviour, and remember privacy choices.",
+          "Essential technologies are always active where genuinely required and cannot be disabled through Zingara's Cookie Preferences. Optional consent is not required for location selection, booking, payment, tickets, Find My Booking or necessary transactional communications.",
         ],
       },
       {
-        heading: "Managing Cookies",
+        heading: "Current Consent Categories",
         body: [
-          "Guests can manage cookies through their browser settings. Blocking or deleting cookies may require a guest to repeat certain steps or sign in again.",
+          "Essential means technologies required for the service, security or a feature the visitor asks to use. Essential is always active where required.",
+          "Analytics means optional technologies that may help Zingara understand use of the platform and improve the experience. Analytics remains off unless enabled and the visitor gives Analytics consent.",
+          "Marketing means optional advertising or marketing technologies that may be introduced separately. Marketing remains off unless implemented, permitted and selected by the visitor.",
         ],
       },
       {
-        heading: "Future Analytics Or Marketing Cookies",
+        heading: "Your Consent Choices",
         body: [
-          "If additional analytics or marketing tools are introduced, this Cookie Policy and the Privacy Policy should be reviewed before those tools are used.",
+          "Accept All enables optional Analytics and Marketing permission. Essential Only keeps both optional categories off. Manage Preferences allows either optional category to be selected independently.",
+          "Visitors can reopen Cookie Preferences from the public platform and withdraw or change optional choices. If the consent version changes after a material policy or technology change, returning visitors may be asked to review their choices again.",
+          "Ignoring or closing the consent experience does not grant optional consent.",
+        ],
+      },
+      {
+        heading: "Analytics And Marketing Technologies",
+        body: [
+          "Zingara does not currently identify any named third-party analytics or advertising provider as active under this policy. Optional providers may be introduced only after they are configured, permitted and covered by the relevant consent category.",
+          "Before or when a future analytics or marketing provider is deployed, this Cookie Policy must be updated with accurate provider, purpose and duration information. Cookie Marketing consent is separate from email marketing subscriptions, SMS marketing subscriptions and necessary transactional communications.",
+        ],
+      },
+      {
+        heading: "Duration And Retention",
+        body: [
+          "Zingara's own consent preference is stored in the visitor's browser until that browser data is cleared, the visitor changes the choice, or Zingara requires review through a new consent version.",
+          "No third-party cookie duration is stated before a provider is implemented and accurately documented.",
+        ],
+      },
+      {
+        heading: "Browser And Device Controls",
+        body: [
+          "Visitors may also delete or restrict cookies and browser storage through browser or device settings. Blocking genuinely essential technologies may require preferences or authentication to be repeated and may affect functionality where technically necessary.",
+          "The complete booking experience remains available when the visitor chooses Essential Only in Zingara's Cookie Preferences.",
+        ],
+      },
+      {
+        heading: "Privacy Questions",
+        body: [
+          "For information about personal information, data-subject rights and Zingara's privacy contact process, read the Privacy Policy and Contact & Company Information in the Legal Centre.",
         ],
       },
     ],
