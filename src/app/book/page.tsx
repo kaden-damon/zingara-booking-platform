@@ -58,7 +58,7 @@ import {
   type PromoDiscountType,
   type DemoShow,
   type SeatingZone,
-  createShortBookingReference,
+  isShortBookingReference,
   createTicketCode,
   calculateConfiguredDeposit,
   defaultVenueSettings,
@@ -353,25 +353,27 @@ function getAvailabilityState(
 }
 
 async function createBookingReference() {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const reference = createShortBookingReference();
-    const response = await fetch(
-      `/api/admin/bookings?reference=${encodeURIComponent(reference)}`,
-      { cache: "no-store" },
+  const response = await fetch("/api/bookings/reference", {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+    method: "POST",
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    reference?: string;
+  };
+
+  if (
+    !response.ok ||
+    !payload.reference ||
+    !isShortBookingReference(payload.reference)
+  ) {
+    throw new Error(
+      payload.error ?? "Booking reference could not be generated.",
     );
-
-    if (!response.ok) {
-      throw new Error("Booking reference could not be verified.");
-    }
-
-    const payload = (await response.json()) as { rows?: unknown[] };
-
-    if ((payload.rows ?? []).length === 0) {
-      return reference;
-    }
   }
 
-  throw new Error("A unique booking reference could not be generated.");
+  return payload.reference;
 }
 
 function createWaitlistReference() {
