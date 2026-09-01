@@ -9327,17 +9327,9 @@ function isLiveCustomerArchived(customer: LiveCustomerRecord | null | undefined)
 }
 
 async function loadLiveCustomerRecords() {
-  const response = await fetch("/api/admin/customers", {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Customer records request failed (${response.status}).`);
-  }
-
-  const payload = (await response.json()) as {
+  const payload = await fetchSupabaseApi<{
     rows?: LiveCustomerRecord[];
-  };
+  }>("/api/admin/customers");
 
   return payload.rows ?? [];
 }
