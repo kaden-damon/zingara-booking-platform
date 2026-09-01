@@ -10,6 +10,7 @@ import {
 
 import PaymentBrandMarks from "../components/PaymentBrandMarks";
 import ScannableQrCode from "../components/ScannableQrCode";
+import PublicMaintenanceBoundary from "./PublicMaintenanceBoundary";
 import {
   registerZingaraPushSubscription,
 } from "../../lib/browserNotifications";
@@ -2494,6 +2495,7 @@ export default function BookingPage() {
   }
 
   return (
+    <PublicMaintenanceBoundary>
     <main className="relative isolate z-10 min-h-screen overflow-x-hidden bg-black px-3 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-6 text-white sm:px-6 sm:py-14 lg:py-16">
       {renderPostPaymentExperience()}
       {bookingReference && isConfirmationOpen && selectedZone ? (
@@ -4464,5 +4466,6 @@ export default function BookingPage() {
         ↑
       </button>
     </main>
+    </PublicMaintenanceBoundary>
   );
 }

@@ -9,6 +9,7 @@ import {
 } from "@/lib/payment-links/customerPaymentLinks";
 import { preparePayFastCheckoutAttempt } from "@/lib/payfast/checkout";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { requirePublicMaintenanceAvailable } from "@/lib/platformMaintenance";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,13 @@ export async function POST(_request: Request, context: PaymentLinkCheckoutContex
       { status: 503 },
     );
   }
+
+  const maintenanceResponse = await requirePublicMaintenanceAvailable(
+    supabase,
+    "payment",
+  );
+
+  if (maintenanceResponse) return maintenanceResponse;
 
   try {
     const link = await loadActivePaymentLink(

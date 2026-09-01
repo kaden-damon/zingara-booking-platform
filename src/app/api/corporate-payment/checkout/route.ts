@@ -6,6 +6,7 @@ import { calculatePayFastTransactionAmounts } from "@/lib/payfast/transactionFee
 import { calculateOutstandingAmount } from "@/lib/paymentControls";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { type DemoBooking } from "@/lib/zingaraDemo";
+import { requirePublicMaintenanceAvailable } from "@/lib/platformMaintenance";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,15 @@ export async function POST(request: Request) {
         { error: "Payment checkout is not configured." },
         { status: 500 },
       );
+    }
+
+    if (body.action !== "preview") {
+      const maintenanceResponse = await requirePublicMaintenanceAvailable(
+        serviceClient,
+        "payment",
+      );
+
+      if (maintenanceResponse) return maintenanceResponse;
     }
 
     const { data, error } = await serviceClient

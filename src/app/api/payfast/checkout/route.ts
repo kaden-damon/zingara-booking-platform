@@ -12,6 +12,7 @@ import {
   rateLimitResponse,
 } from "@/lib/rateLimit";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { requirePublicMaintenanceAvailable } from "@/lib/platformMaintenance";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,13 @@ export async function POST(request: Request) {
         { status: 503 },
       );
     }
+
+    const maintenanceResponse = await requirePublicMaintenanceAvailable(
+      serviceClient,
+      "payment",
+    );
+
+    if (maintenanceResponse) return maintenanceResponse;
 
     const ipLimit = await checkRateLimit(
       request,

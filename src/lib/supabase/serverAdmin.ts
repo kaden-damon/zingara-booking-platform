@@ -5,6 +5,10 @@ import {
   adminRoleLabels,
   rolePermissions,
 } from "@/lib/zingaraAccess";
+import {
+  loadPlatformMaintenance,
+  maintenanceUnavailableResponse,
+} from "@/lib/platformMaintenance";
 
 export type RoleRow = {
   description?: string | null;
@@ -310,6 +314,40 @@ export async function requireActiveStaff(request: Request) {
       staffProfile,
       user,
     };
+  }
+
+  const isMutation = !["GET", "HEAD", "OPTIONS"].includes(
+    request.method.toUpperCase(),
+  );
+
+  if (isMutation && !isSuperAdminProfile(staffProfile)) {
+    try {
+      const { config } = await loadPlatformMaintenance(serviceClient);
+
+      if (config.staff.enabled) {
+        return {
+          error: maintenanceUnavailableResponse(config.staff.message, "staff"),
+          serviceClient,
+          staffProfile,
+          user,
+        };
+      }
+    } catch (maintenanceError) {
+      console.error(
+        "[Zingara Maintenance] Staff guard failed closed",
+        maintenanceError,
+      );
+
+      return {
+        error: maintenanceUnavailableResponse(
+          "The Zingara Admin platform is temporarily unavailable. Please try again shortly.",
+          "staff",
+        ),
+        serviceClient,
+        staffProfile,
+        user,
+      };
+    }
   }
 
   return {

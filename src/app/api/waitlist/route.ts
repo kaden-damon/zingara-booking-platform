@@ -8,6 +8,7 @@ import {
   rateLimitResponse,
 } from "@/lib/rateLimit";
 import { type DemoWaitlistEntry } from "@/lib/zingaraDemo";
+import { requirePublicMaintenanceAvailable } from "@/lib/platformMaintenance";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,13 @@ export async function GET() {
       { status: 503 },
     );
   }
+
+  const maintenanceResponse = await requirePublicMaintenanceAvailable(
+    serviceClient,
+    "booking",
+  );
+
+  if (maintenanceResponse) return maintenanceResponse;
 
   try {
     const entries = await loadWaitlistEntries(serviceClient);

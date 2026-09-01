@@ -13,6 +13,7 @@ import {
 
 import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
 import CookiePrivacyPreferences from "./CookiePrivacyPreferences";
+import SystemMaintenancePanel from "./SystemMaintenancePanel";
 
 import {
   type AdminRole,
@@ -85,6 +86,11 @@ import {
   platformPresenceHeartbeatMs,
   shouldSendPresenceHeartbeat,
 } from "../../lib/platformPresence";
+import {
+  defaultPlatformMaintenanceConfig,
+  normalizePlatformMaintenanceConfig,
+  type PlatformMaintenanceConfig,
+} from "../../lib/platformMaintenance";
 import {
   getTemplates,
   saveTemplates,
@@ -9675,6 +9681,8 @@ export default function AdminDashboardPage() {
     useState<DashboardWidgetId | null>(null);
   const [systemStatus, setSystemStatus] =
     useState<SystemStatusPayload | null>(null);
+  const [platformMaintenance, setPlatformMaintenance] =
+    useState<PlatformMaintenanceConfig>(defaultPlatformMaintenanceConfig);
   const [isSystemStatusLoading, setIsSystemStatusLoading] =
     useState(false);
   const [systemStatusError, setSystemStatusError] = useState("");
@@ -11163,6 +11171,41 @@ export default function AdminDashboardPage() {
     currentStaff?.role === "box-office" ||
     currentStaff?.role === "box-office-staff";
   const isFloorManager = currentStaff?.role === "floor-manager";
+
+  useEffect(() => {
+    if (!currentStaff) return;
+
+    let active = true;
+
+    async function refreshMaintenance() {
+      try {
+        const payload = await fetchSupabaseApi<{ config: unknown }>(
+          "/api/admin/system-maintenance",
+        );
+
+        if (active) {
+          setPlatformMaintenance(
+            normalizePlatformMaintenanceConfig(payload.config),
+          );
+        }
+      } catch (error) {
+        console.error("[Zingara admin] Maintenance status refresh failed", error);
+      }
+    }
+
+    void refreshMaintenance();
+    const interval = window.setInterval(() => void refreshMaintenance(), 30_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refreshMaintenance();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [currentStaff?.id]);
 
   useEffect(() => {
     const customerId = selectedCustomerKey?.startsWith("customer:")
@@ -25419,8 +25462,56 @@ export default function AdminDashboardPage() {
     );
   }
 
+  if (platformMaintenance.staff.enabled && !isSuperAdmin) {
+    return (
+      <main className="grid min-h-screen place-items-center overflow-x-hidden bg-black px-4 py-10 text-white">
+        <section
+          aria-labelledby="staff-maintenance-heading"
+          className="w-full max-w-2xl rounded-3xl border border-[#D8C36A]/45 bg-zinc-950 p-6 text-center shadow-[0_0_70px_rgba(216,195,106,0.15)] sm:p-10"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
+            System Maintenance
+          </p>
+          <h1 id="staff-maintenance-heading" className="mt-3 text-3xl font-bold sm:text-5xl">
+            Zingara Admin is temporarily unavailable
+          </h1>
+          <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-zinc-300">
+            {platformMaintenance.staff.message}
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-7 min-h-12 rounded-full bg-[#D8C36A] px-7 py-3 text-sm font-bold text-black transition hover:bg-[#F2D66C]"
+          >
+            Check Again
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="relative isolate z-10 min-h-screen overflow-x-hidden bg-black px-3 py-8 text-white sm:px-6 sm:py-14 lg:py-16">
+      {platformMaintenance.staff.enabled && isSuperAdmin && (
+        <div className="fixed inset-x-3 top-3 z-[170] mx-auto flex max-w-5xl flex-col gap-3 rounded-lg border border-amber-300/55 bg-amber-950/95 p-4 text-amber-50 shadow-2xl backdrop-blur sm:inset-x-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.12em]">Staff Maintenance Active</p>
+            <p className="mt-1 text-sm text-amber-100/85">
+              {platformMaintenance.staff.message} · Enabled by {platformMaintenance.staff.enabledBy ?? "Super Admin"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveAdminTab("platform-operations");
+              setActiveSystemTab("operations");
+            }}
+            className="min-h-11 shrink-0 rounded-lg bg-amber-200 px-4 py-2 text-sm font-bold text-black"
+          >
+            Open Operations
+          </button>
+        </div>
+      )}
       {workflowToast && (
         <div
           className="fixed bottom-6 right-6 z-[160] rounded-full border border-emerald-300/35 bg-emerald-950/90 px-5 py-3 text-sm font-semibold text-emerald-100 shadow-2xl shadow-emerald-950/30 backdrop-blur"
@@ -32307,6 +32398,7 @@ export default function AdminDashboardPage() {
           activeSystemTab === "operations" &&
           isSuperAdmin && (
           <section className="mb-10 space-y-6">
+            <SystemMaintenancePanel onStateChange={setPlatformMaintenance} />
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">

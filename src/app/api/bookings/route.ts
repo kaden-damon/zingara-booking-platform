@@ -55,6 +55,7 @@ import {
   getServiceClient,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
+import { requirePublicMaintenanceAvailable } from "@/lib/platformMaintenance";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 import { isPublicBookingOpen } from "@/lib/publicBookingSales";
 import {
@@ -1305,6 +1306,16 @@ export async function POST(request: Request) {
     };
 
     const isTrustedStaff = Boolean(staffProfileId);
+
+    if (!isTrustedStaff) {
+      const maintenanceResponse = await requirePublicMaintenanceAvailable(
+        supabase,
+        "booking",
+      );
+
+      if (maintenanceResponse) return maintenanceResponse;
+    }
+
     let isCreate = true;
 
     if (isTrustedStaff) {

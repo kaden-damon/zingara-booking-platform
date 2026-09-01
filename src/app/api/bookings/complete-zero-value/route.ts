@@ -19,6 +19,7 @@ import {
   rateLimitResponse,
 } from "@/lib/rateLimit";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { requirePublicMaintenanceAvailable } from "@/lib/platformMaintenance";
 import {
   sendGuestPushNotification,
   sendStaffPushNotification,
@@ -493,6 +494,13 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
+
+  const maintenanceResponse = await requirePublicMaintenanceAvailable(
+    supabase,
+    "booking",
+  );
+
+  if (maintenanceResponse) return maintenanceResponse;
 
   try {
     const body = (await request.json().catch(() => ({}))) as {
