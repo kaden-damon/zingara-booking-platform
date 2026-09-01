@@ -44,8 +44,8 @@ import {
   TicketPdfDataError,
 } from "../../lib/ticketPdf";
 import { createBooking } from "../../lib/supabase/bookings";
-import { getShowsWithTables } from "../../lib/supabase/shows";
-import { getVenueSettings } from "../../lib/supabase/venueSettings";
+import { getPublicShows } from "../../lib/supabase/shows";
+import { getPublicVenueSettings } from "../../lib/supabase/venueSettings";
 import { createWaitlistEntry } from "../../lib/supabase/waitlist";
 import {
   type BookingAddon,
@@ -1203,20 +1203,15 @@ export default function BookingPage() {
       setShowLoadStatus("loading");
 
       try {
-        const [showPayload, nextVenueSettings] = await Promise.all([
-          getShowsWithTables({ metadataOnly: true }),
-          getVenueSettings(),
+        const [nextShows, nextVenueSettings] = await Promise.all([
+          getPublicShows(),
+          getPublicVenueSettings(),
         ]);
-
-        if (!showPayload.showsLoaded) {
-          throw new Error("Shows could not be loaded.");
-        }
 
         if (!isMounted || requestId !== showLoadRequestRef.current) {
           return;
         }
 
-        const nextShows = showPayload.shows;
         const nextGuestVisibleShows = nextShows.filter(isGuestVisibleShow);
 
         setShows(nextShows);

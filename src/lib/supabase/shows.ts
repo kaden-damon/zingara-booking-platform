@@ -216,6 +216,27 @@ export async function getShows() {
   return (await getShowsWithTables({ metadataOnly: true })).shows;
 }
 
+export async function getPublicShows() {
+  const response = await fetch("/api/shows", {
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(payload.error ?? "Shows could not be loaded.");
+  }
+
+  const payload = (await response.json()) as { shows?: DemoShow[] };
+
+  if (!Array.isArray(payload.shows)) {
+    throw new Error("Shows could not be loaded.");
+  }
+
+  return payload.shows;
+}
+
 export async function createShow(show: DemoShow) {
   return replaceShows([...getStoredDemoShows(), show]);
 }

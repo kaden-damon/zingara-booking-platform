@@ -72,6 +72,31 @@ export async function getVenueSettings() {
   }
 }
 
+export async function getPublicVenueSettings() {
+  const fallbackSettings = getStoredVenueSettings();
+
+  try {
+    const response = await fetch("/api/venue-settings", {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error("Venue settings could not be loaded.");
+    }
+
+    const payload = (await response.json()) as {
+      settings?: DemoVenueSettings | null;
+    };
+
+    return payload.settings
+      ? normalizeVenueSettings(payload.settings)
+      : fallbackSettings;
+  } catch (error) {
+    console.error("[Zingara Supabase] Failed to load public venue settings", error);
+    return fallbackSettings;
+  }
+}
+
 async function persistVenueSettingsToSupabase(settings: DemoVenueSettings) {
   const payload = await fetchSupabaseApi<{
     settings: DemoVenueSettings | null;
