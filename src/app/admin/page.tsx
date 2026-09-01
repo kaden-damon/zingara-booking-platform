@@ -32443,25 +32443,27 @@ export default function AdminDashboardPage() {
         {activeAdminTab === "platform-operations" && (
           <nav
             aria-label="System sections"
-            className="mb-6 flex flex-wrap gap-2 rounded-lg border border-white/10 bg-zinc-950/80 p-2"
+            className="mb-8 rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/70 p-2 shadow-2xl shadow-black/20"
           >
-            {systemTabs
-              .filter((tab) => tab.id !== "operations" || isSuperAdmin)
-              .map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveSystemTab(tab.id)}
-                  aria-current={activeSystemTab === tab.id ? "page" : undefined}
-                  className={`min-h-11 rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
-                    activeSystemTab === tab.id
-                      ? "bg-[#D8C36A] text-black"
-                      : "border border-white/10 text-zinc-300 hover:border-white/25 hover:text-white"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {systemTabs
+                .filter((tab) => tab.id !== "operations" || isSuperAdmin)
+                .map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveSystemTab(tab.id)}
+                    aria-current={activeSystemTab === tab.id ? "page" : undefined}
+                    className={`rounded-2xl px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] transition ${
+                      activeSystemTab === tab.id
+                        ? "bg-[#D8C36A] text-black shadow-[0_0_24px_rgba(216,195,106,0.2)]"
+                        : "border border-white/10 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+            </div>
           </nav>
         )}
 

@@ -19,7 +19,7 @@ const navigationItems = [
     label: "Home",
   },
   {
-    href: "/book",
+    href: "/",
     label: "Book",
   },
   {
@@ -91,6 +91,7 @@ export default function ZingaraHeader() {
   );
   const venueConfig = venueSettings;
   const isLandingPage = pathname === "/";
+  const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   const needsOperationalTopSpace =
     pathname === "/book" ||
     pathname.startsWith("/book/") ||
@@ -174,7 +175,10 @@ export default function ZingaraHeader() {
       setIsScrolled(window.scrollY > 12);
       setIsMenuOpen(false);
 
-      if (window.matchMedia("(max-width: 767px)").matches) {
+      if (
+        isAdminRoute &&
+        window.matchMedia("(max-width: 767px)").matches
+      ) {
         if (scrollPosition <= 12) {
           setIsHeaderHidden(false);
         } else if (Math.abs(scrollDelta) >= 6) {
@@ -226,7 +230,7 @@ export default function ZingaraHeader() {
       window.removeEventListener("scroll", handleWindowScroll);
       document.removeEventListener("scroll", handleNestedScroll, true);
     };
-  }, []);
+  }, [isAdminRoute]);
 
   useEffect(() => {
     setIsMenuOpen(false);
@@ -280,16 +284,20 @@ export default function ZingaraHeader() {
   return (
     <header
       ref={headerRef}
-      className={`zingara-site-header pointer-events-none sticky top-0 z-40 border-b border-[#8D7A2F]/25 bg-black/50 px-4 pb-3 text-white shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl transition-[transform,background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out will-change-transform sm:relative sm:top-auto sm:z-20 sm:translate-y-0 sm:px-5 sm:pb-4 ${
+      className={`zingara-site-header pointer-events-none border-b border-[#8D7A2F]/25 bg-black/50 px-4 pb-3 text-white shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl sm:px-5 sm:pb-4 ${
         needsOperationalTopSpace ? "pt-[62px]" : "pt-3 sm:pt-4"
       } ${
-        isHeaderHidden && !isMenuOpen
-          ? "-translate-y-full"
-          : "translate-y-0"
-      } ${
-        isScrolled
-          ? "sm:border-[#8D7A2F]/25 sm:bg-black/50 sm:shadow-[0_12px_32px_rgba(0,0,0,0.22)] sm:backdrop-blur-xl"
-          : "sm:border-transparent sm:bg-transparent sm:shadow-none sm:backdrop-blur-0"
+        isAdminRoute
+          ? `sticky top-0 z-40 transition-[transform,background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out will-change-transform sm:relative sm:top-auto sm:z-20 sm:translate-y-0 ${
+              isHeaderHidden && !isMenuOpen
+                ? "-translate-y-full"
+                : "translate-y-0"
+            } ${
+              isScrolled
+                ? "sm:border-[#8D7A2F]/25 sm:bg-black/50 sm:shadow-[0_12px_32px_rgba(0,0,0,0.22)] sm:backdrop-blur-xl"
+                : "sm:border-transparent sm:bg-transparent sm:shadow-none sm:backdrop-blur-0"
+            }`
+          : "relative z-20 sm:border-transparent sm:bg-transparent sm:shadow-none sm:backdrop-blur-0"
       }`}
     >
       <div className="relative mx-auto flex max-w-7xl flex-col items-center gap-3">
@@ -317,7 +325,9 @@ export default function ZingaraHeader() {
         <button
           type="button"
           onClick={() => {
-            setIsHeaderHidden(false);
+            if (isAdminRoute) {
+              setIsHeaderHidden(false);
+            }
             setIsMenuOpen((currentValue) => !currentValue);
           }}
           className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-[#D8C36A]/30 bg-black/35 text-[#F2D66C] shadow-[0_0_24px_rgba(216,195,106,0.14)] backdrop-blur-xl transition hover:border-[#F2D66C] sm:h-12 sm:w-12"
