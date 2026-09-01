@@ -61,6 +61,7 @@ import {
   persistBookingCancellation,
   restoreBookings,
   saveBookings as persistBookings,
+  transferBookingShow,
 } from "../../lib/supabase/bookings";
 import { planAdminBookingMutations } from "../../lib/adminBookingPersistence";
 import {
@@ -132,6 +133,10 @@ import {
   isTemporaryOperationalTable,
   isValidMergedOperationalParent,
 } from "../../lib/bookingTableMoves";
+import {
+  getEligibleBookingTransferShows,
+  isBookingEligibleForShowTransfer,
+} from "../../lib/bookingShowTransfers";
 import {
   calculateOutstandingAmount,
   isPaymentLinkEligible,
@@ -10156,6 +10161,14 @@ export default function AdminDashboardPage() {
     useState<SplitMergeReview | null>(null);
   const [expandedBookingReference, setExpandedBookingReference] =
     useState("");
+  const [bookingShowTransfer, setBookingShowTransfer] = useState<{
+    bookingReference: string;
+    destinationShowId: string;
+  } | null>(null);
+  const [bookingShowTransferError, setBookingShowTransferError] =
+    useState("");
+  const [isBookingShowTransferring, setIsBookingShowTransferring] =
+    useState(false);
   const [bookingEditLocks, setBookingEditLocks] = useState<
     BookingEditLock[]
   >([]);
@@ -20993,6 +21006,75 @@ export default function AdminDashboardPage() {
       message: "Manager override check-in recorded.",
       state: "Checked In",
     });
+  }
+
+  function openBookingShowTransfer(booking: DemoBooking) {
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      showWorkflowToast("This booking cannot be moved while it is read-only.");
+      return;
+    }
+
+    if (!isBookingEligibleForShowTransfer(booking.status)) {
+      showWorkflowToast("This booking status is not eligible for a show move.");
+      return;
+    }
+
+    setBookingShowTransfer({
+      bookingReference: booking.reference,
+      destinationShowId: "",
+    });
+    setBookingShowTransferError("");
+  }
+
+  async function confirmBookingShowTransfer(booking: DemoBooking) {
+    const currentShow = getBookingShow(booking);
+    const destinationShow = shows.find(
+      (show) =>
+        show.supabaseId === bookingShowTransfer?.destinationShowId ||
+        show.id === bookingShowTransfer?.destinationShowId,
+    );
+    const expectedShowId = currentShow?.supabaseId;
+    const destinationShowId = destinationShow?.supabaseId;
+
+    if (!expectedShowId || !destinationShowId || !destinationShow) {
+      setBookingShowTransferError("Select an eligible active show.");
+      return;
+    }
+
+    if (isBookingShowTransferring) {
+      return;
+    }
+
+    setIsBookingShowTransferring(true);
+    setBookingShowTransferError("");
+
+    try {
+      const result = await transferBookingShow({
+        bookingReference: booking.reference,
+        destinationShowId,
+        expectedShowId,
+      });
+      const nextBookings = await getBookings();
+
+      setBookings(nextBookings);
+      setTables((currentTables) =>
+        applyBookingOccupancyToTables(currentTables, nextBookings),
+      );
+      setBookingShowTransfer(null);
+      showWorkflowToast(
+        result.tableAssigned
+          ? `${booking.reference} moved successfully and assigned to table ${result.tableCode}.`
+          : `${booking.reference} moved successfully and added to the Floor Assignment Queue.`,
+      );
+    } catch (error) {
+      setBookingShowTransferError(
+        error instanceof Error
+          ? error.message
+          : "The booking could not be moved to the selected show.",
+      );
+    } finally {
+      setIsBookingShowTransferring(false);
+    }
   }
 
   async function moveBooking(
@@ -39565,6 +39647,17 @@ export default function AdminDashboardPage() {
 	                const moveTables = tables.filter((table) =>
 	                  isEligibleManualBookingMoveTarget(table, booking, tables),
 	                );
+                    const currentBookingShow = getBookingShow(booking);
+                    const eligibleTransferShows = getEligibleBookingTransferShows(
+                      shows,
+                      currentBookingShow?.supabaseId ?? booking.showId,
+                    );
+                    const selectedTransferShow = shows.find(
+                      (show) =>
+                        show.supabaseId ===
+                          bookingShowTransfer?.destinationShowId ||
+                        show.id === bookingShowTransfer?.destinationShowId,
+                    );
 
                 return (
                   <section
@@ -40652,6 +40745,178 @@ export default function AdminDashboardPage() {
                             </p>
                           </div>
                         </div>
+                        <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                              Show / Date
+                            </p>
+                            <p className="mt-1 text-sm text-zinc-300">
+                              Move this existing booking to another active performance without changing its identity, price, payment, or ticket.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openBookingShowTransfer(booking)}
+                            disabled={
+                              eligibleTransferShows.length === 0 ||
+                              !isBookingEligibleForShowTransfer(booking.status)
+                            }
+                            className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full border border-[#D8C36A]/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Move to Another Show
+                          </button>
+                        </div>
+                        {bookingShowTransfer?.bookingReference ===
+                          booking.reference && (
+                          <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/75 p-3 backdrop-blur-sm sm:items-center sm:p-5">
+                            <button
+                              type="button"
+                              aria-label="Close show transfer"
+                              onClick={() =>
+                                !isBookingShowTransferring &&
+                                setBookingShowTransfer(null)
+                              }
+                              className="absolute inset-0 cursor-default"
+                            />
+                            <section
+                              role="dialog"
+                              aria-modal="true"
+                              aria-labelledby={`show-transfer-${booking.reference}`}
+                              className="relative z-10 max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-[#D8C36A]/35 bg-zinc-950 p-4 shadow-2xl shadow-black/60 sm:p-6"
+                            >
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+                                Booking Transfer
+                              </p>
+                              <h4
+                                id={`show-transfer-${booking.reference}`}
+                                className="mt-2 text-xl font-bold sm:text-2xl"
+                              >
+                                Move to Another Show
+                              </h4>
+
+                              <div className="mt-5 grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-black/30 p-4 text-sm">
+                                <div className="col-span-2">
+                                  <p className="text-xs uppercase tracking-[0.12em] text-zinc-500">
+                                    Current Performance
+                                  </p>
+                                  <p className="mt-1 font-semibold text-white">
+                                    {getBookingPerformanceLabel(booking)}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs uppercase tracking-[0.12em] text-zinc-500">
+                                    Zone
+                                  </p>
+                                  <p className="mt-1 text-zinc-200">
+                                    {booking.zoneTitle}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs uppercase tracking-[0.12em] text-zinc-500">
+                                    Guests
+                                  </p>
+                                  <p className="mt-1 text-zinc-200">
+                                    {booking.partySize}
+                                  </p>
+                                </div>
+                                <div className="col-span-2">
+                                  <p className="text-xs uppercase tracking-[0.12em] text-zinc-500">
+                                    Current Table
+                                  </p>
+                                  <p className="mt-1 text-zinc-200">
+                                    {booking.tableNumber || "Unassigned"}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <label className="mt-5 block">
+                                <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                                  New Active Show
+                                </span>
+                                <select
+                                  autoFocus
+                                  value={bookingShowTransfer.destinationShowId}
+                                  onChange={(event) => {
+                                    setBookingShowTransfer({
+                                      bookingReference: booking.reference,
+                                      destinationShowId: event.target.value,
+                                    });
+                                    setBookingShowTransferError("");
+                                  }}
+                                  className="min-h-12 w-full rounded-xl border border-white/15 bg-black/50 px-4 py-3 text-sm"
+                                >
+                                  <option value="">Select another show</option>
+                                  {eligibleTransferShows.map((show) => {
+                                    const location = normalizeShowLocation(
+                                      show.location ?? show.venueName,
+                                    );
+                                    const locationLabel = location
+                                      ? getShowLocationOption(location).city
+                                      : show.venueName || "Location not recorded";
+
+                                    return (
+                                      <option
+                                        key={show.supabaseId ?? show.id}
+                                        value={show.supabaseId ?? show.id}
+                                      >
+                                        {locationLabel} · {formatSouthAfricanDate(show.date)} · {getSouthAfricaShowTime(show)}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              </label>
+
+                              {selectedTransferShow && (
+                                <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-950/20 p-4 text-sm text-amber-100">
+                                  <p className="font-semibold">
+                                    Confirm new performance
+                                  </p>
+                                  <p className="mt-1">
+                                    {selectedTransferShow.label} · {formatSouthAfricanDate(selectedTransferShow.date)} · {getSouthAfricaShowTime(selectedTransferShow)}
+                                  </p>
+                                  <p className="mt-2 text-xs leading-relaxed text-amber-100/85">
+                                    The current table will be released. An exact same-code physical table is assigned only if it is configured, free, and large enough; otherwise this booking will enter the Floor Assignment Queue. Existing pricing, payment history, ticket reference, UUID, and QR remain unchanged.
+                                  </p>
+                                </div>
+                              )}
+
+                              {bookingShowTransferError && (
+                                <p
+                                  role="alert"
+                                  className="mt-4 rounded-xl border border-red-300/30 bg-red-950/25 px-4 py-3 text-sm text-red-100"
+                                >
+                                  {bookingShowTransferError}
+                                </p>
+                              )}
+
+                              <div className="mt-6 grid grid-cols-1 gap-3 min-[390px]:grid-cols-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setBookingShowTransfer(null)}
+                                  disabled={isBookingShowTransferring}
+                                  className="min-h-12 rounded-full border border-white/20 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:bg-white hover:text-black disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void confirmBookingShowTransfer(booking)
+                                  }
+                                  disabled={
+                                    isBookingShowTransferring ||
+                                    !bookingShowTransfer.destinationShowId
+                                  }
+                                  className="min-h-12 rounded-full border border-[#D8C36A] bg-[#D8C36A] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                  {isBookingShowTransferring
+                                    ? "Moving Booking..."
+                                    : "Confirm Move"}
+                                </button>
+                              </div>
+                            </section>
+                          </div>
+                        )}
                         {tableCompatibilityWarning && (
                           <div className="mt-4 rounded-2xl border border-red-300/30 bg-red-950/20 p-4 text-sm text-red-100">
                             {tableCompatibilityWarning}

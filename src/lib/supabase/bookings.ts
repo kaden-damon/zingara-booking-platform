@@ -920,6 +920,30 @@ export async function mapBookingPhysicalTable(input: {
   );
 }
 
+export type BookingShowTransferResult = {
+  bookingId: string;
+  bookingReference: string;
+  destinationShowId: string;
+  idempotent: boolean;
+  tableAssigned: boolean;
+  tableCode: string | null;
+  tableId: string | null;
+};
+
+export async function transferBookingShow(input: {
+  bookingReference: string;
+  destinationShowId: string;
+  expectedShowId: string;
+}) {
+  return fetchSupabaseApi<BookingShowTransferResult>("/api/admin/bookings", {
+    body: {
+      action: "transfer-show",
+      ...input,
+    },
+    method: "PATCH",
+  });
+}
+
 export async function persistBookingCancellation(booking: DemoBooking) {
   let result: { idempotent?: boolean };
 

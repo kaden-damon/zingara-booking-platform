@@ -1306,6 +1306,183 @@ async function persistPhysicalTableMapping(
   });
 }
 
+async function persistBookingShowTransfer(
+  request: Request,
+  input: {
+    bookingReference?: string;
+    destinationShowId?: string;
+    expectedShowId?: string;
+  },
+) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
+    return auth.error;
+  }
+
+  const roleRow = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const role = getAdminRoleFromName(roleRow?.name);
+
+  if (!role || !rolePermissions[role].includes("bookings:manage")) {
+    return Response.json(
+      { error: "Booking management access is required." },
+      { status: 403 },
+    );
+  }
+
+  const bookingReference = input.bookingReference?.trim();
+  const destinationShowId = input.destinationShowId?.trim();
+  const expectedShowId = input.expectedShowId?.trim();
+
+  if (!bookingReference || !destinationShowId || !expectedShowId) {
+    return Response.json(
+      { error: "A booking, current show, and destination show are required." },
+      { status: 400 },
+    );
+  }
+
+  const [bookingResult, sourceShowResult, destinationShowResult] =
+    await Promise.all([
+      auth.serviceClient
+        .from("bookings")
+        .select("id,booking_reference,show_id,section,guest_count,booking_status,archived_at")
+        .eq("booking_reference", bookingReference)
+        .maybeSingle(),
+      auth.serviceClient
+        .from("shows")
+        .select("id,name,date,time,venue,status")
+        .eq("id", expectedShowId)
+        .maybeSingle(),
+      auth.serviceClient
+        .from("shows")
+        .select("id,name,date,time,venue,status")
+        .eq("id", destinationShowId)
+        .maybeSingle(),
+    ]);
+
+  if (bookingResult.error || sourceShowResult.error || destinationShowResult.error) {
+    throw (
+      bookingResult.error ?? sourceShowResult.error ?? destinationShowResult.error
+    );
+  }
+
+  const booking = bookingResult.data;
+  const sourceShow = sourceShowResult.data;
+  const destinationShow = destinationShowResult.data;
+
+  if (!booking || !sourceShow || !destinationShow) {
+    return Response.json(
+      { error: "The booking or selected show could not be resolved." },
+      { status: 404 },
+    );
+  }
+
+  if (booking.show_id !== expectedShowId) {
+    return Response.json(
+      { error: "The booking's current show changed. Refresh and try again." },
+      { status: 409 },
+    );
+  }
+
+  if (destinationShow.id === booking.show_id) {
+    return Response.json(
+      { error: "Select a different active show." },
+      { status: 409 },
+    );
+  }
+
+  if (destinationShow.status !== "active") {
+    return Response.json(
+      { error: "The destination show is not active." },
+      { status: 409 },
+    );
+  }
+
+  const venueScope = normalizeStaffVenueScope(auth.staffProfile.venue_scope ?? []);
+  const sourceLocation = normalizeShowLocation(sourceShow.venue);
+  const destinationLocation = normalizeShowLocation(destinationShow.venue);
+  const canAccessLocation = (
+    location: ReturnType<typeof normalizeShowLocation>,
+  ) =>
+    Boolean(
+      location &&
+        (venueScope.includes("all") || venueScope.includes(location)),
+    );
+
+  if (!canAccessLocation(sourceLocation) || !canAccessLocation(destinationLocation)) {
+    return Response.json(
+      { error: "One of these performances is outside your assigned location." },
+      { status: 403 },
+    );
+  }
+
+  const requestId =
+    request.headers.get("x-vercel-id") ??
+    request.headers.get("x-request-id") ??
+    crypto.randomUUID();
+  const { data, error } = await auth.serviceClient.rpc(
+    "transfer_booking_show_atomic",
+    {
+      p_actor_auth_user_id: auth.user.id,
+      p_actor_location_scope: auth.staffProfile.venue_scope ?? [],
+      p_actor_name: auth.staffProfile.full_name ?? auth.user.email,
+      p_actor_role: getActorRoleLabel(role),
+      p_actor_staff_profile_id: auth.staffProfile.id,
+      p_booking_reference: bookingReference,
+      p_destination_show_id: destinationShowId,
+      p_expected_show_id: expectedShowId,
+      p_request_id: requestId,
+      p_user_agent: request.headers.get("user-agent"),
+    },
+  );
+
+  if (error) {
+    const message = error.message ?? "";
+
+    if (
+      message.includes("BOOKING_SHOW_CHANGED") ||
+      message.includes("ARCHIVED_BOOKING_TRANSFER_BLOCKED") ||
+      message.includes("BOOKING_STATUS_TRANSFER_BLOCKED") ||
+      message.includes("DESTINATION_SHOW_NOT_ACTIVE") ||
+      message.includes("BOOKING_ZONE_NOT_SUPPORTED") ||
+      message.includes("ZONE_CAPACITY_EXCEEDED")
+    ) {
+      const publicMessage = message.includes("ZONE_CAPACITY_EXCEEDED")
+        ? "The destination show does not have enough capacity in this seating zone."
+        : "The booking or destination show is no longer eligible for this move.";
+
+      return Response.json({ error: publicMessage }, { status: 409 });
+    }
+
+    throw error;
+  }
+
+  const result = data as {
+    booking_id?: string;
+    destination_show_id?: string;
+    idempotent?: boolean;
+    table_assigned?: boolean;
+    table_code?: string | null;
+    table_id?: string | null;
+  } | null;
+
+  if (!result?.idempotent && result?.booking_id) {
+    await notifyAppleWalletBooking(auth.serviceClient, result.booking_id);
+  }
+
+  return Response.json({
+    bookingId: result?.booking_id ?? booking.id,
+    bookingReference,
+    destinationShowId: result?.destination_show_id ?? destinationShowId,
+    idempotent: Boolean(result?.idempotent),
+    tableAssigned: Boolean(result?.table_assigned),
+    tableCode: result?.table_code ?? null,
+    tableId: result?.table_id ?? null,
+  });
+}
+
 async function runBookingTransaction(request: Request, body?: unknown) {
   const auth = await requireActiveStaff(request);
 
@@ -2088,6 +2265,8 @@ export async function PATCH(request: Request) {
     action?: string;
     booking?: DemoBooking;
     bookingReference?: string;
+    destinationShowId?: string;
+    expectedShowId?: string;
     targetTableId?: string;
   };
   const lockError = await ensureNoConflictingBookingLock(
@@ -2147,6 +2326,19 @@ export async function PATCH(request: Request) {
 
       return Response.json(
         { error: "The operational table mapping could not be saved." },
+        { status: 500 },
+      );
+    }
+  }
+
+  if (body.action === "transfer-show") {
+    try {
+      return await persistBookingShowTransfer(request, body);
+    } catch (error) {
+      console.error("[Zingara API] Failed to transfer booking show", error);
+
+      return Response.json(
+        { error: "The booking could not be moved to the selected show." },
         { status: 500 },
       );
     }
