@@ -40,7 +40,9 @@ test("Admin booking reads remain staff protected", async () => {
 
 test("booking creation precedes PayFast checkout and preserves transaction fee flow", async () => {
   const page = await source("../app/book/page.tsx");
-  const createIndex = page.indexOf("await createBooking(booking, journeyId)");
+  const createIndex = page.indexOf(
+    "await persistPendingCheckoutBooking(reference)",
+  );
   const checkoutIndex = page.indexOf('fetch("/api/payfast/checkout"');
   const checkout = await source("./payfast/checkout.ts");
 

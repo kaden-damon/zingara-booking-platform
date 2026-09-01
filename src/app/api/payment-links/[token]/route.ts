@@ -1,7 +1,7 @@
 import {
   expirePaymentLink,
   getCustomerName,
-  getOutstandingAmount,
+  getPaymentLinkCheckoutAmount,
   isBookingPaymentLinkEligible,
   loadActivePaymentLink,
   loadBookingForPaymentLink,
@@ -107,8 +107,8 @@ export async function GET(_request: Request, context: PaymentLinkContext) {
     );
     const show = await loadShowForPaymentLink(supabase, booking.show_id);
     const metadata = parseBookingMetadata(booking.notes);
-    const outstandingAmount = getOutstandingAmount(booking);
-    const transaction = calculatePayFastTransactionAmounts(outstandingAmount);
+    const paymentAmount = getPaymentLinkCheckoutAmount(link, booking);
+    const transaction = calculatePayFastTransactionAmounts(paymentAmount);
     const location = getShowLocationLabels(show?.venue);
     const showTime = getShowTimeLabel(show?.time);
     const showLabel =
@@ -125,7 +125,7 @@ export async function GET(_request: Request, context: PaymentLinkContext) {
         isPayable: isBookingPaymentLinkEligible(booking),
         locationCode: location.code,
         locationLabel: location.label,
-        outstandingAmount,
+        outstandingAmount: paymentAmount,
         providerGrossAmount: transaction.providerGrossAmount,
         partySize: metadata?.partySize ?? null,
         paymentStatus: booking.payment_status,

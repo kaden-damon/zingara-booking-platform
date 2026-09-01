@@ -33265,7 +33265,7 @@ export default function AdminDashboardPage() {
                         return label === "Create Booking" ? (
                           <a
                             key={label}
-                            href="/book"
+                            href="/book?staffCheckout=1"
                             className="rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/10 p-4 text-center text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                           >
                             {label}

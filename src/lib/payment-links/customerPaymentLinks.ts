@@ -47,6 +47,7 @@ export type PaymentLinkRecordRow = {
   booking_reference: string;
   expires_at: string;
   id: string;
+  metadata: Record<string, unknown> | null;
   status: "active" | "expired" | "revoked" | "used";
 };
 
@@ -97,6 +98,46 @@ export function getOutstandingAmount(row: PaymentLinkBookingRow) {
     row.total_amount,
     row.amount_paid,
   );
+}
+
+export function getSelectedBookingPaymentAmount(row: PaymentLinkBookingRow) {
+  const outstandingAmount = getOutstandingAmount(row);
+  const booking = parseBookingMetadata(row.notes);
+
+  if (booking?.paymentOption !== "deposit") {
+    return outstandingAmount;
+  }
+
+  const depositPercentage = Number(booking.depositPercentage);
+
+  if (!Number.isFinite(depositPercentage) || depositPercentage <= 0) {
+    return outstandingAmount;
+  }
+
+  return Math.min(
+    outstandingAmount,
+    Math.max(
+      Math.round(
+        Math.max(Number(row.total_amount) || 0, 0) *
+          (depositPercentage / 100),
+      ),
+      0,
+    ),
+  );
+}
+
+export function getPaymentLinkCheckoutAmount(
+  link: Pick<PaymentLinkRecordRow, "metadata">,
+  booking: PaymentLinkBookingRow,
+) {
+  const outstandingAmount = getOutstandingAmount(booking);
+  const configuredAmount = Number(link.metadata?.checkoutAmount);
+
+  if (!Number.isFinite(configuredAmount) || configuredAmount <= 0) {
+    return outstandingAmount;
+  }
+
+  return Math.min(configuredAmount, outstandingAmount);
 }
 
 export function isBookingPaymentLinkEligible(row: PaymentLinkBookingRow) {
@@ -176,7 +217,7 @@ export async function loadActivePaymentLink(
   const tokenHash = hashPaymentLinkToken(token.trim());
   const { data, error } = await supabase
     .from("booking_payment_links")
-    .select("id,booking_id,booking_reference,status,expires_at")
+    .select("id,booking_id,booking_reference,status,expires_at,metadata")
     .eq("token_hash", tokenHash)
     .maybeSingle();
 

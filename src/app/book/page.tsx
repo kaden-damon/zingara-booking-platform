@@ -44,7 +44,11 @@ import {
   resolveDownloadableTicketPdfInput,
   TicketPdfDataError,
 } from "../../lib/ticketPdf";
-import { createBooking } from "../../lib/supabase/bookings";
+import {
+  createAdminBooking,
+  createBooking,
+} from "../../lib/supabase/bookings";
+import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
 import { getPublicShows } from "../../lib/supabase/shows";
 import { getPublicVenueSettings } from "../../lib/supabase/venueSettings";
 import { createWaitlistEntry } from "../../lib/supabase/waitlist";
@@ -103,6 +107,27 @@ type PromoValidationPreview = {
   description: string | null;
   discountAmount: number;
   status: string;
+};
+
+type ManualCheckoutStaffResponse = {
+  staff?: {
+    name: string;
+    role: string;
+  };
+};
+
+type ManualPaymentLinkResult = {
+  bookingReference: string;
+  canSend: boolean;
+  paymentUrl: string;
+  token: string;
+};
+
+type ManualPaymentLinkApiResponse = {
+  canSend?: boolean;
+  error?: string;
+  paymentUrl?: string;
+  token?: string;
 };
 
 type TicketPayload = {
@@ -649,6 +674,18 @@ export default function BookingPage() {
     useState("");
   const [isPayFastRedirecting, setIsPayFastRedirecting] =
     useState(false);
+  const [manualCheckoutRole, setManualCheckoutRole] = useState<
+    "none" | "staff" | "super-admin"
+  >("none");
+  const [isManualPaymentLinkCreating, setIsManualPaymentLinkCreating] =
+    useState(false);
+  const [isManualPaymentLinkSending, setIsManualPaymentLinkSending] =
+    useState(false);
+  const [manualPaymentLinkResult, setManualPaymentLinkResult] =
+    useState<ManualPaymentLinkResult | null>(null);
+  const [manualPaymentLinkStatus, setManualPaymentLinkStatus] = useState("");
+  const [manualPaymentLinkBookingReference, setManualPaymentLinkBookingReference] =
+    useState("");
   const [hasAcceptedBookingTerms, setHasAcceptedBookingTerms] =
     useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
@@ -874,11 +911,12 @@ export default function BookingPage() {
         return getShowTimeValue(firstShow) - getShowTimeValue(secondShow);
       })[0];
   }
+  const isTrustedManualCheckout = manualCheckoutRole !== "none";
   const currentCustomerValidationErrors = validateBookingCreate({
-    bookingSource: "online",
+    bookingSource: isTrustedManualCheckout ? "admin" : "online",
     customer: customerInfo,
     isCreate: true,
-    isTrustedStaff: false,
+    isTrustedStaff: isTrustedManualCheckout,
     partySize,
   });
   const customerDetailsComplete =
@@ -893,10 +931,10 @@ export default function BookingPage() {
     customer: CustomerInfo,
   ) {
     return validateBookingCreate({
-      bookingSource: "online",
+      bookingSource: isTrustedManualCheckout ? "admin" : "online",
       customer,
       isCreate: true,
-      isTrustedStaff: false,
+      isTrustedStaff: isTrustedManualCheckout,
       partySize,
     })[field];
   }
@@ -942,12 +980,12 @@ export default function BookingPage() {
     });
   }
 
-  function validatePublicCustomerDetails() {
+  function validateCheckoutCustomerDetails() {
     const errors = validateBookingCreate({
-      bookingSource: "online",
+      bookingSource: isTrustedManualCheckout ? "admin" : "online",
       customer: customerInfo,
       isCreate: true,
-      isTrustedStaff: false,
+      isTrustedStaff: isTrustedManualCheckout,
       partySize,
     });
     const firstError = getFirstBookingCreateError(errors);
@@ -1346,6 +1384,36 @@ export default function BookingPage() {
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
+
+    if (searchParams.get("staffCheckout") !== "1") {
+      return;
+    }
+
+    let isMounted = true;
+
+    fetchSupabaseApi<ManualCheckoutStaffResponse>("/api/admin/quick-start")
+      .then((payload) => {
+        if (!isMounted || !payload.staff) {
+          return;
+        }
+
+        setManualCheckoutRole(
+          payload.staff.role === "super-admin" ? "super-admin" : "staff",
+        );
+      })
+      .catch(() => {
+        if (isMounted) {
+          setManualCheckoutRole("none");
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
     const locationFromQuery = normalizeEntryLocation(
       searchParams.get("location"),
     );
@@ -1676,7 +1744,7 @@ export default function BookingPage() {
       return;
     }
 
-    if (!validatePublicCustomerDetails()) {
+    if (!validateCheckoutCustomerDetails()) {
       return;
     }
 
@@ -1711,6 +1779,76 @@ export default function BookingPage() {
     setWaitlistReference(reference);
   }
 
+  function buildPendingCheckoutBooking(reference: string) {
+    if (!selectedShow || !selectedZone) {
+      throw new Error("A show and seating section are required.");
+    }
+
+    const createdAt = new Date().toISOString();
+    const source = manualCheckoutRole === "none" ? "online" : "admin";
+
+    return {
+      reference,
+      showId: selectedShow.id,
+      zoneId: selectedZone.id,
+      zoneTitle: selectedZone.title,
+      tableId: "",
+      tableNumber: "",
+      partySize,
+      bookingDate: `${selectedShow.date} ${getSouthAfricaShowTime(selectedShow)}`,
+      addons: selectedAddons,
+      addonsTotal,
+      subtotalPrice: subtotal,
+      discountAmount,
+      serviceFeeAmount,
+      totalPrice: total,
+      pricePerPerson: dynamicPricePerPerson,
+      paymentOption,
+      paymentStatus: "pending-payment" as const,
+      journeyId: getBookingJourneyId(),
+      depositPercentage,
+      amountPaid: 0,
+      balanceDue: total,
+      promoCode: appliedPromoCode?.code,
+      promoLabel: appliedPromoCode?.description,
+      source: source as "admin" | "online",
+      customer: customerInfo,
+      status: "pending-payment" as const,
+      lifecycleHistory: [
+        {
+          id: `${reference}-created`,
+          toStatus: "new" as const,
+          note:
+            source === "admin"
+              ? "Manual booking created"
+              : "Online booking created",
+          createdAt,
+        },
+        {
+          id: `${reference}-payment`,
+          fromStatus: "new" as const,
+          toStatus: "pending-payment" as const,
+          note: "Awaiting PayFast payment",
+          createdAt,
+        },
+      ],
+      operationalNotes: customerNotes.trim(),
+      cancellationReason: "",
+      refundNotes: "",
+      communicationHistory: [],
+      createdAt,
+      reservationTableClaims: [],
+    };
+  }
+
+  async function persistPendingCheckoutBooking(reference: string) {
+    const booking = buildPendingCheckoutBooking(reference);
+
+    return manualCheckoutRole === "none"
+      ? createBooking(booking, booking.journeyId)
+      : createAdminBooking(booking, booking.journeyId);
+  }
+
   async function handlePayFastCheckout() {
     if (isPayFastRedirecting) {
       return;
@@ -1729,7 +1867,7 @@ export default function BookingPage() {
       return;
     }
 
-    if (!validatePublicCustomerDetails()) {
+    if (!validateCheckoutCustomerDetails()) {
       return;
     }
 
@@ -1761,59 +1899,8 @@ export default function BookingPage() {
       return;
     }
 
-    const createdAt = new Date().toISOString();
-    const booking = {
-      reference,
-      showId: selectedShow.id,
-      zoneId: selectedZone.id,
-      zoneTitle: selectedZone.title,
-      tableId: "",
-      tableNumber: "",
-      partySize,
-      bookingDate: `${selectedShow.date} ${getSouthAfricaShowTime(selectedShow)}`,
-      addons: selectedAddons,
-      addonsTotal,
-      subtotalPrice: subtotal,
-      discountAmount,
-      serviceFeeAmount,
-      totalPrice: total,
-      pricePerPerson: dynamicPricePerPerson,
-      paymentOption,
-      paymentStatus: "pending-payment" as const,
-      journeyId,
-      depositPercentage,
-      amountPaid: 0,
-      balanceDue: total,
-      promoCode: appliedPromoCode?.code,
-      promoLabel: appliedPromoCode?.description,
-      source: "online" as const,
-      customer: customerInfo,
-      status: "pending-payment" as const,
-      lifecycleHistory: [
-        {
-          id: `${reference}-created`,
-          toStatus: "new" as const,
-          note: "Online booking created",
-          createdAt,
-        },
-        {
-          id: `${reference}-payment`,
-          fromStatus: "new" as const,
-          toStatus: "pending-payment" as const,
-          note: "Awaiting PayFast payment",
-          createdAt,
-        },
-      ],
-      operationalNotes: customerNotes.trim(),
-      cancellationReason: "",
-      refundNotes: "",
-      communicationHistory: [],
-      createdAt,
-      reservationTableClaims: [],
-    };
-
     try {
-      const persistedBooking = await createBooking(booking, journeyId);
+      const persistedBooking = await persistPendingCheckoutBooking(reference);
 
       setAllocatedTableNumber(persistedBooking.tableNumber ?? null);
 
@@ -1927,6 +2014,133 @@ export default function BookingPage() {
           : "public_booking_checkout_failed",
       });
       setIsPayFastRedirecting(false);
+    }
+  }
+
+  async function handleCreateManualPaymentLink() {
+    if (
+      manualCheckoutRole !== "super-admin" ||
+      isManualPaymentLinkCreating ||
+      manualPaymentLinkResult ||
+      getCurrencyCents(amountDueNow) === 0
+    ) {
+      return;
+    }
+
+    if (
+      !selectedZone ||
+      !selectedShow ||
+      !isAvailableForBooking(
+        selectedZone,
+        partySize,
+        occupiedSeatsByZone[selectedZone.id] ?? 0,
+        venueConfig,
+      )
+    ) {
+      return;
+    }
+
+    if (!validateCheckoutCustomerDetails()) {
+      return;
+    }
+
+    if (!hasAcceptedBookingTerms) {
+      setManualPaymentLinkStatus(
+        "Please agree to the Royal Decrees before continuing.",
+      );
+      return;
+    }
+
+    setIsManualPaymentLinkCreating(true);
+    setManualPaymentLinkStatus("Creating secure payment link...");
+
+    try {
+      const reference =
+        manualPaymentLinkBookingReference || (await createBookingReference());
+
+      if (!manualPaymentLinkBookingReference) {
+        setManualPaymentLinkBookingReference(reference);
+      }
+
+      const persistedBooking = await persistPendingCheckoutBooking(reference);
+      const result = await fetchSupabaseApi<ManualPaymentLinkApiResponse>(
+        "/api/admin/bookings/payment-link",
+        {
+          body: {
+            action: "create",
+            bookingReference: reference,
+          },
+          method: "POST",
+        },
+      );
+
+      if (!result.paymentUrl || !result.token) {
+        throw new Error(result.error ?? "Payment link could not be created.");
+      }
+
+      setAllocatedTableNumber(persistedBooking.tableNumber ?? null);
+      setManualPaymentLinkResult({
+        bookingReference: reference,
+        canSend: Boolean(result.canSend),
+        paymentUrl: result.paymentUrl,
+        token: result.token,
+      });
+      setManualPaymentLinkStatus("PAYMENT LINK CREATED ✓");
+    } catch (error) {
+      setManualPaymentLinkStatus(
+        error instanceof Error
+          ? error.message
+          : "Payment link could not be created.",
+      );
+    } finally {
+      setIsManualPaymentLinkCreating(false);
+    }
+  }
+
+  async function handleSendManualPaymentLink() {
+    if (
+      !manualPaymentLinkResult?.canSend ||
+      isManualPaymentLinkSending
+    ) {
+      return;
+    }
+
+    setIsManualPaymentLinkSending(true);
+    setManualPaymentLinkStatus("Sending payment link to guest...");
+
+    try {
+      await fetchSupabaseApi("/api/admin/bookings/payment-link", {
+        body: {
+          action: "send-existing",
+          bookingReference: manualPaymentLinkResult.bookingReference,
+          token: manualPaymentLinkResult.token,
+        },
+        method: "POST",
+      });
+      setManualPaymentLinkStatus("PAYMENT LINK SENT ✓");
+    } catch (error) {
+      setManualPaymentLinkStatus(
+        error instanceof Error
+          ? error.message
+          : "Payment link could not be sent.",
+      );
+    } finally {
+      setIsManualPaymentLinkSending(false);
+    }
+  }
+
+  async function handleCopyManualPaymentLink() {
+    if (!manualPaymentLinkResult) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(manualPaymentLinkResult.paymentUrl);
+      setManualPaymentLinkStatus("PAYMENT LINK COPIED ✓");
+    } catch {
+      setManualPaymentLinkStatus(
+        "Copy was unavailable. Open the link and copy it from the address bar.",
+      );
     }
   }
 
@@ -3360,10 +3574,11 @@ export default function BookingPage() {
 
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Email Address <span aria-hidden="true">*</span>
+                    Email Address{" "}
+                    {!isTrustedManualCheckout && <span aria-hidden="true">*</span>}
                   </span>
                   <input
-                    required
+                    required={!isTrustedManualCheckout}
                     aria-invalid={Boolean(customerValidationErrors.email)}
                     aria-describedby={
                       customerValidationErrors.email
@@ -3392,10 +3607,11 @@ export default function BookingPage() {
 
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Mobile Number <span aria-hidden="true">*</span>
+                    Mobile Number{" "}
+                    {!isTrustedManualCheckout && <span aria-hidden="true">*</span>}
                   </span>
                   <input
-                    required
+                    required={!isTrustedManualCheckout}
                     aria-invalid={Boolean(customerValidationErrors.phone)}
                     aria-describedby={
                       customerValidationErrors.phone
@@ -3451,7 +3667,7 @@ export default function BookingPage() {
               <button
                 type="button"
                 onClick={() => {
-                  if (validatePublicCustomerDetails()) {
+                  if (validateCheckoutCustomerDetails()) {
                     setActiveBookingStep(4);
                   }
                 }}
@@ -3983,10 +4199,11 @@ export default function BookingPage() {
 
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Email Address <span aria-hidden="true">*</span>
+                    Email Address{" "}
+                    {!isTrustedManualCheckout && <span aria-hidden="true">*</span>}
                   </span>
                   <input
-                    required
+                    required={!isTrustedManualCheckout}
                     aria-invalid={Boolean(customerValidationErrors.email)}
                     aria-describedby={
                       customerValidationErrors.email
@@ -4015,10 +4232,11 @@ export default function BookingPage() {
 
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Mobile Number <span aria-hidden="true">*</span>
+                    Mobile Number{" "}
+                    {!isTrustedManualCheckout && <span aria-hidden="true">*</span>}
                   </span>
                   <input
-                    required
+                    required={!isTrustedManualCheckout}
                     aria-invalid={Boolean(customerValidationErrors.phone)}
                     aria-describedby={
                       customerValidationErrors.phone
@@ -4417,32 +4635,119 @@ export default function BookingPage() {
                 </div>
               )}
 
-              <button
-                type="submit"
-                aria-busy={isPayFastRedirecting}
-                disabled={
-                  !selectedShow ||
-                  isPayFastRedirecting ||
-                  !hasAcceptedBookingTerms
-                }
-                className="inline-flex w-full items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"
-              >
-                {isPayFastRedirecting && (
-                  <span
-                    aria-hidden="true"
-                    className="h-4 w-4 animate-spin rounded-full border-2 border-black/25 border-t-black"
-                  />
-                )}
-                {isPayFastRedirecting
-                  ? getCurrencyCents(amountDueNow) === 0
-                    ? "Completing Booking..."
-                    : "Processing Secure Payment..."
-                  : getCurrencyCents(amountDueNow) === 0
-                    ? "Complete Booking"
-                    : "Confirm Booking"}
-              </button>
+              {manualPaymentLinkResult ? (
+                <div className="rounded-2xl border border-emerald-400/40 bg-emerald-950/25 p-4 sm:p-5">
+                  <p className="text-sm font-bold uppercase tracking-[0.16em] text-emerald-300">
+                    PAYMENT LINK CREATED ✓
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-zinc-300">
+                    Booking {manualPaymentLinkResult.bookingReference} is reserved
+                    and remains Pending Payment until PayFast confirms payment.
+                  </p>
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleSendManualPaymentLink()}
+                      disabled={
+                        !manualPaymentLinkResult.canSend ||
+                        isManualPaymentLinkSending
+                      }
+                      className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#D8C36A] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {isManualPaymentLinkSending
+                        ? "SENDING..."
+                        : "SEND TO GUEST"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyManualPaymentLink()}
+                      className="inline-flex min-h-12 items-center justify-center rounded-full border border-[#D8C36A]/50 px-5 py-3 text-sm font-bold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                    >
+                      COPY LINK
+                    </button>
+                  </div>
+                  {!manualPaymentLinkResult.canSend && (
+                    <p className="mt-3 text-sm text-amber-200">
+                      Send to Guest is unavailable because this booking does not
+                      have an email address. Copy Link remains available.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div
+                  className={
+                    manualCheckoutRole === "super-admin" &&
+                    getCurrencyCents(amountDueNow) > 0
+                      ? "grid grid-cols-1 gap-3 sm:grid-cols-2"
+                      : undefined
+                  }
+                >
+                  <button
+                    type="submit"
+                    aria-busy={isPayFastRedirecting}
+                    disabled={
+                      !selectedShow ||
+                      isPayFastRedirecting ||
+                      isManualPaymentLinkCreating ||
+                      !hasAcceptedBookingTerms
+                    }
+                    className="inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"
+                  >
+                    {isPayFastRedirecting && (
+                      <span
+                        aria-hidden="true"
+                        className="h-4 w-4 animate-spin rounded-full border-2 border-black/25 border-t-black"
+                      />
+                    )}
+                    {isPayFastRedirecting
+                      ? getCurrencyCents(amountDueNow) === 0
+                        ? "Completing Booking..."
+                        : "Processing Secure Payment..."
+                      : getCurrencyCents(amountDueNow) === 0
+                        ? "Complete Booking"
+                        : manualCheckoutRole !== "none"
+                          ? "PAY NOW"
+                          : "Confirm Booking"}
+                  </button>
+                  {manualCheckoutRole === "super-admin" &&
+                    getCurrencyCents(amountDueNow) > 0 && (
+                      <button
+                        type="button"
+                        aria-busy={isManualPaymentLinkCreating}
+                        disabled={
+                          !selectedShow ||
+                          isPayFastRedirecting ||
+                          isManualPaymentLinkCreating ||
+                          !hasAcceptedBookingTerms
+                        }
+                        onClick={() => void handleCreateManualPaymentLink()}
+                        className="inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-full border border-[#D8C36A]/60 bg-[#D8C36A]/10 px-6 py-3 text-base font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"
+                      >
+                        {isManualPaymentLinkCreating && (
+                          <span
+                            aria-hidden="true"
+                            className="h-4 w-4 animate-spin rounded-full border-2 border-current/25 border-t-current"
+                          />
+                        )}
+                        {isManualPaymentLinkCreating
+                          ? "CREATING LINK..."
+                          : "SEND PAYMENT LINK"}
+                      </button>
+                    )}
+                </div>
+              )}
+              {manualPaymentLinkStatus && (
+                <p
+                  role="status"
+                  className="text-center text-sm font-semibold text-emerald-300"
+                >
+                  {manualPaymentLinkStatus}
+                </p>
+              )}
               <p className="text-center text-xs leading-5 text-zinc-500">
-                {getCurrencyCents(amountDueNow) === 0
+                {manualPaymentLinkResult
+                  ? "No payment is recorded until the authoritative PayFast ITN succeeds."
+                  : getCurrencyCents(amountDueNow) === 0
                   ? "Your booking will be completed securely. Digital tickets and confirmation email are sent after confirmation."
                   : "Secure online payment. Digital tickets and confirmation email are sent after PayFast confirms payment."}
               </p>

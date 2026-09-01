@@ -855,6 +855,25 @@ export async function createBooking(booking: DemoBooking, journeyId?: string | n
   };
 }
 
+export async function createAdminBooking(
+  booking: DemoBooking,
+  journeyId?: string | null,
+) {
+  const result = await fetchSupabaseApi<CreateBookingResult>(
+    "/api/admin/bookings",
+    {
+      body: { booking, journeyId },
+      method: "POST",
+    },
+  );
+
+  return {
+    ...booking,
+    tableId: result.tableId ?? booking.tableId,
+    tableNumber: result.tableNumber ?? booking.tableNumber,
+  };
+}
+
 export async function updateBooking(booking: DemoBooking) {
   await fetchSupabaseApi("/api/admin/bookings", {
     body: { action: "update-state", booking },

@@ -843,7 +843,9 @@ function normalizeReservationClaims(
 
 function usesAtomicTableReservation(booking: DemoBooking) {
   return (
-    (booking.source === "online" || booking.source === "corporate-direct") &&
+    (booking.source === "online" ||
+      booking.source === "admin" ||
+      booking.source === "corporate-direct") &&
     isAwaitingExternalPayment(booking)
   );
 }

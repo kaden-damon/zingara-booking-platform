@@ -1,7 +1,7 @@
 import {
   createPayFastCheckoutForBookingLink,
   expirePaymentLink,
-  getOutstandingAmount,
+  getPaymentLinkCheckoutAmount,
   isBookingPaymentLinkEligible,
   loadActivePaymentLink,
   loadBookingForPaymentLink,
@@ -101,12 +101,12 @@ export async function POST(_request: Request, context: PaymentLinkCheckoutContex
       );
     }
 
-    const outstandingAmount = getOutstandingAmount(booking);
-    let preparedAmount = outstandingAmount;
+    const paymentAmount = getPaymentLinkCheckoutAmount(link, booking);
+    let preparedAmount = paymentAmount;
 
-    if (outstandingAmount > 0) {
+    if (paymentAmount > 0) {
       const attempt = await preparePayFastCheckoutAttempt(supabase, {
-        amount: outstandingAmount,
+        amount: paymentAmount,
         bookingReference: booking.booking_reference,
       });
 
@@ -117,7 +117,7 @@ export async function POST(_request: Request, context: PaymentLinkCheckoutContex
         );
       }
 
-      preparedAmount = attempt.attempt.amount_due ?? outstandingAmount;
+      preparedAmount = attempt.attempt.booking_applied_amount ?? paymentAmount;
     }
 
     const customer = await loadCustomerForPaymentLink(
