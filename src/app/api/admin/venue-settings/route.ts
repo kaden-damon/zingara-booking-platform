@@ -2,6 +2,7 @@ import {
   type DemoVenueSettings,
   defaultVenueSettings,
   normalizeVenueSettings,
+  showLocationOptions,
 } from "@/lib/zingaraDemo";
 import {
   getServiceClient,
@@ -59,6 +60,22 @@ function validateConfiguration(
   const knownZoneIds = new Set([...configurableZones, "elevated-stage"]);
   if (Object.keys(settings.zonePricing).some((zoneId) => !knownZoneIds.has(zoneId as (typeof configurableZones)[number] | "elevated-stage"))) {
     return "Venue configuration contains an unknown seating zone.";
+  }
+
+  for (const location of showLocationOptions) {
+    const publicBookings =
+      settings.operationalSettings.publicBookings[location.value];
+
+    if (!publicBookings || typeof publicBookings.enabled !== "boolean") {
+      return `Public booking configuration is required for ${location.city}.`;
+    }
+
+    if (
+      publicBookings.opensAt &&
+      !Number.isFinite(Date.parse(publicBookings.opensAt))
+    ) {
+      return `Enter a valid public booking opening time for ${location.city}.`;
+    }
   }
 
   for (const zoneId of configurableZones) {

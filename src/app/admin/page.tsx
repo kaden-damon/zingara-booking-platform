@@ -282,6 +282,13 @@ import {
   showLocationOptions,
   storeDemoTables,
 } from "../../lib/zingaraDemo";
+import {
+  formatPublicBookingOpeningDateTime,
+  getPublicBookingSalesStatus,
+  parseJohannesburgDateTimeInput,
+  publicBookingTimezone,
+  toJohannesburgDateTimeInput,
+} from "../../lib/publicBookingSales";
 import BookingPaginationControls from "./BookingPaginationControls";
 
 type NewTableForm = {
@@ -7027,6 +7034,33 @@ type VenueConfigurationDraft = Record<
   }
 >;
 
+type PublicBookingSalesDraft = Record<
+  EntryLocationKey,
+  {
+    enabled: boolean;
+    opensAt: string;
+  }
+>;
+
+function createPublicBookingSalesDraft(
+  settings: DemoVenueSettings,
+): PublicBookingSalesDraft {
+  return Object.fromEntries(
+    showLocationOptions.map((location) => {
+      const configuration =
+        settings.operationalSettings.publicBookings[location.value];
+
+      return [
+        location.value,
+        {
+          enabled: configuration.enabled,
+          opensAt: toJohannesburgDateTimeInput(configuration.opensAt),
+        },
+      ];
+    }),
+  ) as PublicBookingSalesDraft;
+}
+
 function createVenueConfigurationDraft(
   settings: DemoVenueSettings,
 ): VenueConfigurationDraft {
@@ -9593,6 +9627,10 @@ export default function AdminDashboardPage() {
   const [venueConfigurationDraft, setVenueConfigurationDraft] =
     useState<VenueConfigurationDraft>(() =>
       createVenueConfigurationDraft(defaultVenueSettings),
+    );
+  const [publicBookingSalesDraft, setPublicBookingSalesDraft] =
+    useState<PublicBookingSalesDraft>(() =>
+      createPublicBookingSalesDraft(defaultVenueSettings),
     );
   const [venueConfigurationSaveState, setVenueConfigurationSaveState] =
     useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
@@ -12960,6 +12998,7 @@ export default function AdminDashboardPage() {
   const venueConfig = venueSettings;
   useEffect(() => {
     setVenueConfigurationDraft(createVenueConfigurationDraft(venueSettings));
+    setPublicBookingSalesDraft(createPublicBookingSalesDraft(venueSettings));
   }, [venueSettings]);
   const visibleStaffNotifications = staffNotifications.filter(
     (notification) =>
@@ -15335,10 +15374,48 @@ export default function AdminDashboardPage() {
     setVenueConfigurationError("");
   }
 
+  function updatePublicBookingSalesDraft(
+    location: EntryLocationKey,
+    updates: Partial<PublicBookingSalesDraft[EntryLocationKey]>,
+  ) {
+    if (!isSuperAdmin) return;
+
+    setPublicBookingSalesDraft((current) => ({
+      ...current,
+      [location]: {
+        ...current[location],
+        ...updates,
+      },
+    }));
+    setVenueConfigurationSaveState("dirty");
+    setVenueConfigurationError("");
+  }
+
   async function saveAuthoritativeVenueConfiguration() {
     if (!isSuperAdmin || venueConfigurationSaveState === "saving") return;
 
     const nextZonePricing = { ...venueSettings.zonePricing };
+    const nextPublicBookings = {
+      ...venueSettings.operationalSettings.publicBookings,
+    };
+
+    for (const location of showLocationOptions) {
+      const draft = publicBookingSalesDraft[location.value];
+      const opensAt = parseJohannesburgDateTimeInput(draft.opensAt);
+
+      if (opensAt === undefined) {
+        setVenueConfigurationSaveState("error");
+        setVenueConfigurationError(
+          `Enter a valid ${publicBookingTimezone} opening date and time for ${location.city}.`,
+        );
+        return;
+      }
+
+      nextPublicBookings[location.value] = {
+        enabled: draft.enabled,
+        opensAt,
+      };
+    }
 
     for (const zone of configurableVenueZones) {
       const draft = venueConfigurationDraft[zone.id];
@@ -15376,6 +15453,10 @@ export default function AdminDashboardPage() {
 
     const nextSettings = {
       ...venueSettings,
+      operationalSettings: {
+        ...venueSettings.operationalSettings,
+        publicBookings: nextPublicBookings,
+      },
       zonePricing: nextZonePricing,
     };
 
@@ -31985,7 +32066,7 @@ export default function AdminDashboardPage() {
                       <span className="text-sm text-zinc-400">Saving...</span>
                     )}
                     {venueConfigurationSaveState === "saved" && (
-                      <span className="text-sm text-emerald-400">Saved</span>
+                      <span className="text-sm text-emerald-400">Saved ✓</span>
                     )}
                     <button
                       type="button"
@@ -32003,6 +32084,82 @@ export default function AdminDashboardPage() {
                 {venueConfigurationError && (
                   <p className="mt-3 text-sm text-red-300">{venueConfigurationError}</p>
                 )}
+                <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
+                        Public Bookings
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-zinc-400">
+                        Server-authoritative public sales windows. Staff and existing booking workflows remain available.
+                      </p>
+                    </div>
+                    <span className="text-xs font-semibold text-zinc-500">
+                      {publicBookingTimezone}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {showLocationOptions.map((location) => {
+                      const draft = publicBookingSalesDraft[location.value];
+                      const status = getPublicBookingSalesStatus(
+                        venueSettings,
+                        location.value,
+                      );
+                      const statusLabel =
+                        status.state === "open"
+                          ? "Open"
+                          : status.state === "scheduled"
+                            ? `Scheduled to open ${formatPublicBookingOpeningDateTime(status.opensAt)}`
+                            : "Disabled";
+
+                      return (
+                        <div
+                          key={`public-bookings-${location.value}`}
+                          className="rounded-lg border border-white/10 bg-black/40 p-4"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="font-semibold text-white">{location.city}</p>
+                            <span className="text-xs font-semibold text-[#F2D66C]">
+                              {statusLabel}
+                            </span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-2" role="group" aria-label={`${location.city} public bookings`}>
+                            {([true, false] as const).map((enabled) => (
+                              <button
+                                key={String(enabled)}
+                                type="button"
+                                onClick={() =>
+                                  updatePublicBookingSalesDraft(location.value, { enabled })
+                                }
+                                aria-pressed={draft.enabled === enabled}
+                                className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
+                                  draft.enabled === enabled
+                                    ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                                    : "border-white/15 text-zinc-300 hover:border-white/30"
+                                }`}
+                              >
+                                {enabled ? "Enabled" : "Disabled"}
+                              </button>
+                            ))}
+                          </div>
+                          <label className="mt-3 block text-sm text-zinc-400">
+                            Bookings open from
+                            <input
+                              type="datetime-local"
+                              value={draft.opensAt}
+                              onChange={(event) =>
+                                updatePublicBookingSalesDraft(location.value, {
+                                  opensAt: event.target.value,
+                                })
+                              }
+                              className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                            />
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                   {configurableVenueZones.map((zone) => {
                     const draft = venueConfigurationDraft[zone.id];

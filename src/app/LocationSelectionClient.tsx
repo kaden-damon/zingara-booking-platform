@@ -1,6 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import {
+  defaultVenueSettings,
+  type DemoVenueSettings,
+} from "@/lib/zingaraDemo";
+import {
+  formatPublicBookingOpeningDate,
+  getPublicBookingSalesStatus,
+} from "@/lib/publicBookingSales";
+import { getPublicVenueSettings } from "@/lib/supabase/venueSettings";
 
 const locations = [
   {
@@ -31,6 +41,22 @@ export default function LocationSelectionClient() {
   const [selectedLocation, setSelectedLocation] = useState<
     (typeof locations)[number]["value"] | null
   >(null);
+  const [venueSettings, setVenueSettings] =
+    useState<DemoVenueSettings>(defaultVenueSettings);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void getPublicVenueSettings().then((settings) => {
+      if (isMounted) {
+        setVenueSettings(settings);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <div className="mt-12 grid w-full items-center gap-8 sm:mt-[4.35rem] sm:gap-7 lg:grid-cols-2 lg:gap-[4.6rem]">
@@ -39,6 +65,17 @@ export default function LocationSelectionClient() {
         const isDimmed = Boolean(selectedLocation) && !isSelected;
         const bookHref = `/book?location=${location.value}`;
         const findHref = `/find-booking?location=${location.value}`;
+        const publicBookingStatus = getPublicBookingSalesStatus(
+          venueSettings,
+          location.value,
+        );
+        const isPublicBookingOpen = publicBookingStatus.state === "open";
+        const bookingLabel =
+          publicBookingStatus.state === "scheduled"
+            ? `Bookings Open ${formatPublicBookingOpeningDate(publicBookingStatus.opensAt)}`
+            : publicBookingStatus.state === "disabled"
+              ? "Bookings Closed"
+              : "Book Your Experience";
 
         return (
           <article
@@ -72,14 +109,23 @@ export default function LocationSelectionClient() {
                   {location.label}
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <a
-                    href={bookHref}
-                    tabIndex={isSelected ? 0 : -1}
-                    onClick={() => rememberLocation(location.value)}
-                    className="rounded-full bg-[#d8c36a] px-4 py-3 text-center text-[0.72rem] font-bold uppercase tracking-[0.14em] text-black transition hover:bg-[#f2d66c]"
-                  >
-                    Book Your Experience
-                  </a>
+                  {isPublicBookingOpen ? (
+                    <a
+                      href={bookHref}
+                      tabIndex={isSelected ? 0 : -1}
+                      onClick={() => rememberLocation(location.value)}
+                      className="rounded-full bg-[#d8c36a] px-4 py-3 text-center text-[0.72rem] font-bold uppercase tracking-[0.14em] text-black transition hover:bg-[#f2d66c]"
+                    >
+                      {bookingLabel}
+                    </a>
+                  ) : (
+                    <span
+                      aria-disabled="true"
+                      className="flex min-h-11 items-center justify-center rounded-full border border-[#d8c36a]/35 bg-[#d8c36a]/10 px-4 py-3 text-center text-[0.7rem] font-bold uppercase tracking-[0.12em] text-[#f2d66c]"
+                    >
+                      {bookingLabel}
+                    </span>
+                  )}
                   <a
                     href={findHref}
                     tabIndex={isSelected ? 0 : -1}

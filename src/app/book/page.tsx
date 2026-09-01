@@ -71,6 +71,10 @@ import {
   seatingZones,
 } from "../../lib/zingaraDemo";
 import { calculatePayFastTransactionAmounts } from "../../lib/payfast/transactionFee";
+import {
+  formatPublicBookingOpeningDate,
+  getPublicBookingSalesStatus,
+} from "../../lib/publicBookingSales";
 
 type SeatingOption = SeatingZone;
 
@@ -2436,6 +2440,56 @@ export default function BookingPage() {
           </div>
         </div>
       </section>
+    );
+  }
+
+  const publicBookingStatus = selectedEntryLocation
+    ? getPublicBookingSalesStatus(venueConfig, selectedEntryLocation)
+    : null;
+  const isPublicBookingBlocked =
+    publicBookingStatus && publicBookingStatus.state !== "open";
+
+  if (
+    selectedEntryLocation &&
+    isPublicBookingBlocked &&
+    postPaymentStatus === "idle" &&
+    !bookingReference
+  ) {
+    const openingLabel =
+      publicBookingStatus.state === "scheduled"
+        ? `Bookings Open ${formatPublicBookingOpeningDate(publicBookingStatus.opensAt)}`
+        : "Bookings Closed";
+
+    return (
+      <main className="grid min-h-screen place-items-center overflow-x-hidden bg-black px-4 py-10 text-white sm:px-6">
+        <section className="w-full max-w-2xl rounded-[1.5rem] border border-[#D8C36A]/40 bg-zinc-950 p-6 text-center shadow-[0_0_60px_rgba(216,195,106,0.15)] sm:p-10">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
+            {getEntryLocationLabel(selectedEntryLocation)}
+          </p>
+          <h1 className="mt-4 text-3xl font-bold uppercase leading-tight text-[#F2D66C] sm:text-5xl">
+            {openingLabel}
+          </h1>
+          <p className="mx-auto mt-5 max-w-lg text-base leading-7 text-zinc-300 sm:text-lg">
+            Cape Town remains visible while its public booking window is
+            scheduled. Existing guests can still find and manage their
+            bookings.
+          </p>
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+            <Link
+              href="/"
+              className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]"
+            >
+              Back to Venues
+            </Link>
+            <Link
+              href={`/find-booking?location=${selectedEntryLocation}`}
+              className="inline-flex min-h-12 items-center justify-center rounded-full border border-[#D8C36A]/40 px-6 py-3 text-sm font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A]/10"
+            >
+              Find My Booking
+            </Link>
+          </div>
+        </section>
+      </main>
     );
   }
 

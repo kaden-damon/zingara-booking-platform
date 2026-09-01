@@ -56,6 +56,7 @@ import {
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
+import { isPublicBookingOpen } from "@/lib/publicBookingSales";
 import {
   getBookingCapacityConflictResponse,
   isBookingCapacityError,
@@ -1082,7 +1083,8 @@ async function loadVenueSettings(supabase: SupabaseClient) {
     .maybeSingle();
 
   if (error) {
-    throw error;
+    console.error("[Zingara API] Failed to load venue settings", error);
+    return normalizeVenueSettings(defaultVenueSettings);
   }
 
   return normalizeVenueSettings(
@@ -1346,6 +1348,36 @@ export async function POST(request: Request) {
       );
     }
 
+    const show = await getSupabaseShowRow(supabase, booking);
+
+    if (!show) {
+      return Response.json(
+        { error: "Booking show could not be resolved." },
+        { status: 400 },
+      );
+    }
+
+    if (booking.source === "online" && !isTrustedStaff) {
+      const showLocation = normalizeShowLocation(show.venue);
+      const publicBookingSettings = await loadVenueSettings(supabase);
+
+      if (
+        showLocation &&
+        !isPublicBookingOpen(publicBookingSettings, showLocation)
+      ) {
+        return Response.json(
+          {
+            code: "PUBLIC_BOOKINGS_NOT_OPEN",
+            error:
+              showLocation === "cape-town"
+                ? "Cape Town bookings open 9 September."
+                : "Public bookings are not currently open for this venue.",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     const ipLimit = await checkRateLimit(
       request,
       {
@@ -1405,10 +1437,9 @@ export async function POST(request: Request) {
     }
 
     const customerId = await upsertCustomer(supabase, booking.customer);
-    const show = await getSupabaseShowRow(supabase, booking);
-    const showId = show?.id;
+    const showId = show.id;
 
-    if (!customerId || !show) {
+    if (!customerId) {
       console.error("[Zingara API] Failed to map booking relations", {
         bookingDate: booking.bookingDate,
         bookingReference: booking.reference,

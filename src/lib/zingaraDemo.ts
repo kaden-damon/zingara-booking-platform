@@ -53,6 +53,13 @@ export type DemoVenueSettings = {
     defaultDepositAmount?: number;
     defaultDepositMode?: "fixed" | "percentage";
     defaultDepositPercentage: number;
+    publicBookings: Record<
+      EntryLocationKey,
+      {
+        enabled: boolean;
+        opensAt: string | null;
+      }
+    >;
     ticketRefreshSeconds: number;
     waitlistAutoPromotionEnabled: boolean;
     waitlistAutoPromotionThreshold: number;
@@ -129,6 +136,16 @@ export const defaultVenueSettings: DemoVenueSettings = {
     defaultDepositAmount: defaultStandardDepositPerPerson,
     defaultDepositMode: "fixed",
     defaultDepositPercentage: 50,
+    publicBookings: {
+      "cape-town": {
+        enabled: true,
+        opensAt: "2026-09-08T22:00:00.000Z",
+      },
+      johannesburg: {
+        enabled: true,
+        opensAt: null,
+      },
+    },
     ticketRefreshSeconds: 20,
     waitlistAutoPromotionEnabled: false,
     waitlistAutoPromotionThreshold: 6,
@@ -1452,6 +1469,10 @@ export function normalizeVenueSettings(
     operationalSettings: {
       ...defaultVenueSettings.operationalSettings,
       ...(incoming.operationalSettings ?? {}),
+      publicBookings: {
+        ...defaultVenueSettings.operationalSettings.publicBookings,
+        ...(incoming.operationalSettings?.publicBookings ?? {}),
+      },
     },
     zonePricing,
   } as DemoVenueSettings;
