@@ -73,7 +73,10 @@ test("manual booking uses authenticated Admin creation and atomic reservation", 
     source("../app/admin/page.tsx"),
   ]);
 
-  assert.match(page, /createAdminBooking\(booking, booking\.journeyId\)/);
+  assert.match(
+    page,
+    /createAdminBooking\([\s\S]*booking,[\s\S]*booking\.journeyId,[\s\S]*calendarBookingContext/,
+  );
   assert.match(bookingClient, /"\/api\/admin\/bookings"/);
   assert.match(bookingApi, /booking\.source === "admin"/);
   assert.match(adminPage, /href="\/book\?staffCheckout=1"/);

@@ -111,7 +111,7 @@ test("Corporate pending-payment bookings reuse atomic table reservation", async 
 
   assert.match(
     route,
-    /booking\.source === "online" \|\| booking\.source === "corporate-direct"/,
+    /booking\.source === "online"[\s\S]*booking\.source === "admin"[\s\S]*booking\.source === "corporate-direct"/,
   );
   assert.match(route, /reservePublicBookingAtomically/);
 });

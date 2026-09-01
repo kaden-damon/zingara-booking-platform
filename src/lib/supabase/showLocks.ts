@@ -1,9 +1,11 @@
 import { fetchSupabaseApi } from "./apiClient";
+import type { ShowLockPurpose } from "../showBookingCreation";
 
 export type ShowEditLock = {
   id: string;
   isStale: boolean;
   lastActivityAt: string;
+  lockPurpose: ShowLockPurpose;
   releaseReason?: string | null;
   releasedAt?: string | null;
   sessionId: string;
@@ -41,12 +43,14 @@ export async function getShowEditLocks(reference?: string) {
 
 export async function acquireShowEditLock(input: {
   force?: boolean;
+  purpose?: ShowLockPurpose;
   sessionId: string;
   showReference: string;
 }) {
   return fetchSupabaseApi<ShowLockAcquireResult>("/api/admin/show-locks", {
     body: {
       action: input.force ? "force-takeover" : "acquire",
+      purpose: input.purpose ?? "show-edit",
       sessionId: input.sessionId,
       showReference: input.showReference,
     },
@@ -65,6 +69,17 @@ export async function heartbeatShowEditLock(input: {
       sessionId: input.sessionId,
     },
     method: "POST",
+  });
+}
+
+export async function acquireShowBookingCreationLock(input: {
+  force?: boolean;
+  sessionId: string;
+  showReference: string;
+}) {
+  return acquireShowEditLock({
+    ...input,
+    purpose: "booking-creation",
   });
 }
 

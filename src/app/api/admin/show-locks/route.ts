@@ -6,6 +6,10 @@ import {
   pickAuditFields,
   tryRecordAuditEvent,
 } from "@/lib/supabase/serverAudit";
+import {
+  canReuseShowLock,
+  type ShowLockPurpose,
+} from "@/lib/showBookingCreation";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +19,7 @@ const metadataPrefix = "__zingara_show_meta__:";
 type ShowEditLockRow = {
   id: string;
   last_activity_at: string;
+  lock_purpose?: ShowLockPurpose | null;
   release_reason?: string | null;
   released_at?: string | null;
   session_id: string;
@@ -39,6 +44,7 @@ function toClientLock(lock: ShowEditLockRow) {
     id: lock.id,
     isStale: isLockStale(lock),
     lastActivityAt: lock.last_activity_at,
+    lockPurpose: lock.lock_purpose ?? "show-edit",
     releaseReason: lock.release_reason,
     releasedAt: lock.released_at,
     sessionId: lock.session_id,
@@ -227,6 +233,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     action?: string;
     lockId?: string;
+    purpose?: ShowLockPurpose;
     reason?: string;
     sessionId?: string;
     showReference?: string;
@@ -241,6 +248,11 @@ export async function POST(request: Request) {
   if (action === "acquire" || action === "force-takeover") {
     const showReference = body.showReference?.trim();
     const sessionId = body.sessionId?.trim();
+    const purpose = body.purpose ?? "show-edit";
+
+    if (!(["show-edit", "booking-creation"] as string[]).includes(purpose)) {
+      return Response.json({ error: "Invalid show lock purpose." }, { status: 400 });
+    }
 
     if (
       action === "force-takeover" &&
@@ -277,7 +289,15 @@ export async function POST(request: Request) {
 
     const activeLock = await loadActiveLock(serviceClient, showReference);
 
-    if (activeLock?.staff_profile_id === staffProfile.id) {
+    if (
+      activeLock?.staff_profile_id === staffProfile.id &&
+      canReuseShowLock({
+        existingPurpose: activeLock.lock_purpose ?? "show-edit",
+        existingSessionId: activeLock.session_id,
+        requestedPurpose: purpose,
+        requestedSessionId: sessionId,
+      })
+    ) {
       const { data: updatedLock, error: updateError } = await serviceClient
         .from("show_edit_locks")
         .update({
@@ -313,7 +333,7 @@ export async function POST(request: Request) {
           entityReference: activeLock.show_reference,
           entityType: "show",
           outcome: "blocked",
-          reason: "Another staff member is currently editing this show.",
+          reason: `An exclusive ${activeLock.lock_purpose ?? "show-edit"} lock is active for this show.`,
           request,
           sourceArea: "Shows",
         });
@@ -356,6 +376,7 @@ export async function POST(request: Request) {
       .from("show_edit_locks")
       .insert({
         last_activity_at: now,
+        lock_purpose: purpose,
         session_id: sessionId,
         show_id: show.id,
         show_reference: showReference,
@@ -373,12 +394,18 @@ export async function POST(request: Request) {
       const latestLock = await loadActiveLock(serviceClient, showReference);
 
       if (latestLock) {
+        const ownsLatestLock =
+          latestLock.staff_profile_id === staffProfile.id &&
+          canReuseShowLock({
+            existingPurpose: latestLock.lock_purpose ?? "show-edit",
+            existingSessionId: latestLock.session_id,
+            requestedPurpose: purpose,
+            requestedSessionId: sessionId,
+          });
+
         return Response.json({
           lock: toClientLock(latestLock),
-          status:
-            latestLock.staff_profile_id === staffProfile.id
-              ? "acquired"
-              : "blocked",
+          status: ownsLatestLock ? "acquired" : "blocked",
         });
       }
 
@@ -389,6 +416,7 @@ export async function POST(request: Request) {
       action: "show-lock.acquire",
       afterValues: pickAuditFields(newLock as Record<string, unknown>, [
         "show_reference",
+        "lock_purpose",
         "staff_name",
         "staff_role",
         "started_at",
@@ -410,20 +438,24 @@ export async function POST(request: Request) {
 
   if (action === "heartbeat") {
     const lockId = body.lockId?.trim();
+    const sessionId = body.sessionId?.trim();
 
-    if (!lockId) {
-      return Response.json({ error: "Lock ID is required." }, { status: 400 });
+    if (!lockId || !sessionId) {
+      return Response.json(
+        { error: "Lock ID and session ID are required." },
+        { status: 400 },
+      );
     }
 
     const { data: updatedLock, error: updateError } = await serviceClient
       .from("show_edit_locks")
       .update({
         last_activity_at: now,
-        session_id: body.sessionId?.trim() || undefined,
         updated_at: now,
       })
       .eq("id", lockId)
       .eq("staff_profile_id", staffProfile.id)
+      .eq("session_id", sessionId)
       .is("released_at", null)
       .select("*")
       .maybeSingle();

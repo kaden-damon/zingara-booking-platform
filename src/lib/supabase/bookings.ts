@@ -15,6 +15,7 @@ import { getSupabaseClient } from "./client";
 import { fetchSupabaseApi } from "./apiClient";
 import { getOrCreateCustomerIdFromInfo } from "./customers";
 import { resolveStaffDisplayName } from "@/lib/staffDisplayName";
+import type { CalendarBookingLockContext } from "@/lib/showBookingCreation";
 
 type SupabaseBookingStatus =
   | "cancelled"
@@ -858,11 +859,12 @@ export async function createBooking(booking: DemoBooking, journeyId?: string | n
 export async function createAdminBooking(
   booking: DemoBooking,
   journeyId?: string | null,
+  calendarBookingContext?: CalendarBookingLockContext | null,
 ) {
   const result = await fetchSupabaseApi<CreateBookingResult>(
     "/api/admin/bookings",
     {
-      body: { booking, journeyId },
+      body: { booking, calendarBookingContext, journeyId },
       method: "POST",
     },
   );

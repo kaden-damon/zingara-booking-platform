@@ -370,6 +370,39 @@ export async function GET(request: Request) {
     return auth.error;
   }
 
+  const url = new URL(request.url);
+  const lookup = url.searchParams.get("lookup")?.trim() ?? "";
+
+  if (lookup) {
+    const normalizedEmail = lookup.toLowerCase();
+    const normalizedPhone = lookup.replace(/\D/g, "");
+
+    if (!normalizedEmail.includes("@") && normalizedPhone.length < 7) {
+      return Response.json({ rows: [] });
+    }
+
+    let query = auth.serviceClient
+      .from("customers")
+      .select("id,first_name,surname,email,mobile")
+      .limit(5);
+
+    query = normalizedEmail.includes("@")
+      ? query.ilike("email", normalizedEmail)
+      : query.ilike("mobile", `%${normalizedPhone}%`);
+
+    const { data, error: lookupError } = await query;
+
+    if (lookupError) {
+      console.error("[Zingara API] Failed to look up customers", lookupError);
+      return Response.json(
+        { error: "Customer lookup is temporarily unavailable." },
+        { status: 500 },
+      );
+    }
+
+    return Response.json({ rows: data ?? [] });
+  }
+
   const { rows, error } = await fetchAllCustomers(auth.serviceClient);
 
   if (error) {

@@ -82,11 +82,27 @@ import {
 import { calculatePayFastTransactionAmounts } from "../../lib/payfast/transactionFee";
 import { getTemporaryTablePricePerPerson } from "../../lib/temporaryTablePricing";
 import {
+  hasValidCalendarBookingContext,
+  type CalendarBookingLockContext,
+} from "../../lib/showBookingCreation";
+import {
+  heartbeatShowEditLock,
+  releaseShowEditLock,
+} from "../../lib/supabase/showLocks";
+import {
   formatPublicBookingOpeningDate,
   getPublicBookingSalesStatus,
 } from "../../lib/publicBookingSales";
 
 type SeatingOption = SeatingZone;
+
+type CustomerLookupRow = {
+  email: string | null;
+  first_name: string;
+  id: string;
+  mobile: string | null;
+  surname: string | null;
+};
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -683,6 +699,31 @@ export default function BookingPage() {
   const [manualCheckoutRole, setManualCheckoutRole] = useState<
     "none" | "staff" | "super-admin"
   >("none");
+  const [calendarBookingContext] = useState<CalendarBookingLockContext | null>(
+    () => {
+      if (typeof window === "undefined") return null;
+      const params = new URLSearchParams(window.location.search);
+      const context = {
+        expectedDate: params.get("expectedDate") ?? "",
+        expectedLocation: params.get("expectedLocation") ?? "",
+        expectedTime: params.get("expectedTime") ?? "",
+        lockId: params.get("showLockId") ?? "",
+        sessionId: params.get("showLockSession") ?? "",
+        showReference: params.get("showId") ?? "",
+      };
+
+      return hasValidCalendarBookingContext(context) ? context : null;
+    },
+  );
+  const [calendarBookingType] = useState<"corporate" | "standard">(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("bookingType") === "corporate"
+      ? "corporate"
+      : "standard",
+  );
+  const [calendarLockStatus, setCalendarLockStatus] = useState("");
+  const [corporateCompany, setCorporateCompany] = useState("");
+  const [customerMatches, setCustomerMatches] = useState<CustomerLookupRow[]>([]);
   const [isManualPaymentLinkCreating, setIsManualPaymentLinkCreating] =
     useState(false);
   const [isManualPaymentLinkSending, setIsManualPaymentLinkSending] =
@@ -931,6 +972,9 @@ export default function BookingPage() {
       })[0];
   }
   const isTrustedManualCheckout = manualCheckoutRole !== "none";
+  const isLockedCalendarCheckout = Boolean(calendarBookingContext);
+  const isCorporateCalendarCheckout =
+    isLockedCalendarCheckout && calendarBookingType === "corporate";
   const currentCustomerValidationErrors = validateBookingCreate({
     bookingSource: isTrustedManualCheckout ? "admin" : "online",
     customer: customerInfo,
@@ -1151,7 +1195,7 @@ export default function BookingPage() {
 
   function canNavigateBookingStep(stepIndex: number) {
     if (stepIndex === 0) {
-      return true;
+      return !isLockedCalendarCheckout;
     }
 
     if (stepIndex === 1) {
@@ -1183,6 +1227,7 @@ export default function BookingPage() {
   }
 
   function selectShowDate(dateValue: string) {
+    if (isLockedCalendarCheckout) return;
     if (!showDateSet.has(dateValue)) {
       return;
     }
@@ -1195,6 +1240,7 @@ export default function BookingPage() {
   }
 
   function selectShowTime(showId: string) {
+    if (isLockedCalendarCheckout) return;
     const show = shows.find((currentShow) => currentShow.id === showId);
 
     if (!isGuestBookableShow(show)) {
@@ -1207,6 +1253,7 @@ export default function BookingPage() {
   }
 
   function selectRecommendedShow(show: DemoShow) {
+    if (isLockedCalendarCheckout) return;
     setSelectedShowDate(show.date);
     setSelectedShowId(show.id);
     setCalendarMonth(getMonthKey(show.date));
@@ -1219,7 +1266,7 @@ export default function BookingPage() {
   }
 
   function selectPartySize(nextPartySize: number) {
-    if (isCorporatePartySize(nextPartySize)) {
+    if (!isCorporateCalendarCheckout && isCorporatePartySize(nextPartySize)) {
       window.location.assign(
         `/corporate?guests=${Math.trunc(nextPartySize)}`,
       );
@@ -1368,6 +1415,111 @@ export default function BookingPage() {
       );
     };
   }, []);
+
+  useEffect(() => {
+    if (!calendarBookingContext || showLoadStatus !== "success") return;
+
+    const lockContext = calendarBookingContext;
+
+    const lockedShow = shows.find(
+      (show) => show.id === lockContext.showReference,
+    );
+    const lockedLocation = lockedShow ? getShowVenueKey(lockedShow) : null;
+
+    if (
+      !lockedShow ||
+      !isGuestBookableShow(lockedShow) ||
+      lockedShow.date !== lockContext.expectedDate ||
+      lockedShow.time !== lockContext.expectedTime ||
+      lockedLocation !== lockContext.expectedLocation
+    ) {
+      setCalendarLockStatus(
+        "This performance changed after booking creation began. Cancel and reopen it from the Admin calendar.",
+      );
+      return;
+    }
+
+    setSelectedEntryLocation(lockedLocation);
+    setSelectedShowDate(lockedShow.date);
+    setSelectedShowId(lockedShow.id);
+    setCalendarMonth(getMonthKey(lockedShow.date));
+    setActiveBookingStep(1);
+    setIsCalendarOpen(false);
+    setCalendarLockStatus("SHOW READY ✓");
+  }, [calendarBookingContext, showLoadStatus, shows]);
+
+  useEffect(() => {
+    if (!calendarBookingContext || manualCheckoutRole === "none") return;
+
+    const lockContext = calendarBookingContext;
+    let active = true;
+
+    async function heartbeat() {
+      try {
+        const result = await heartbeatShowEditLock({
+          lockId: lockContext.lockId,
+          sessionId: lockContext.sessionId,
+        });
+
+        if (!active) return;
+        setCalendarLockStatus(
+          result.status === "acquired"
+            ? "SHOW READY ✓"
+            : "Your booking-creation lock is no longer active. Cancel and reopen this show from the Admin calendar.",
+        );
+      } catch {
+        if (active) {
+          setCalendarLockStatus(
+            "The show lock could not be refreshed. Check your connection before continuing.",
+          );
+        }
+      }
+    }
+
+    void heartbeat();
+    const timer = window.setInterval(() => void heartbeat(), 30_000);
+
+    function releaseOnUnload() {
+      void releaseShowEditLock({
+        lockId: lockContext.lockId,
+        reason: "tab-closed",
+        sessionId: lockContext.sessionId,
+      }).catch(() => undefined);
+    }
+
+    window.addEventListener("beforeunload", releaseOnUnload);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("beforeunload", releaseOnUnload);
+    };
+  }, [calendarBookingContext, manualCheckoutRole]);
+
+  useEffect(() => {
+    if (manualCheckoutRole === "none") {
+      setCustomerMatches([]);
+      return;
+    }
+
+    const lookup = customerInfo.email.trim() || customerInfo.phone.trim();
+    const phoneDigits = lookup.replace(/\D/g, "");
+
+    if (!lookup.includes("@") && phoneDigits.length < 7) {
+      setCustomerMatches([]);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      fetchSupabaseApi<{ rows: CustomerLookupRow[] }>(
+        `/api/admin/customers?lookup=${encodeURIComponent(lookup)}`,
+      )
+        .then((payload) => setCustomerMatches(payload.rows ?? []))
+        .catch(() => setCustomerMatches([]));
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [customerInfo.email, customerInfo.phone, manualCheckoutRole]);
 
   useEffect(() => {
     if (
@@ -1848,7 +2000,20 @@ export default function BookingPage() {
     }
 
     const createdAt = new Date().toISOString();
-    const source = manualCheckoutRole === "none" ? "online" : "admin";
+    const source =
+      manualCheckoutRole === "none"
+        ? "online"
+        : isCorporateCalendarCheckout
+          ? "corporate-direct"
+          : "admin";
+    const operationalNotes = [
+      isCorporateCalendarCheckout && corporateCompany.trim()
+        ? `Company: ${corporateCompany.trim()}`
+        : "",
+      customerNotes.trim(),
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     return {
       reference,
@@ -1887,7 +2052,7 @@ export default function BookingPage() {
       balanceDue: total,
       promoCode: appliedPromoCode?.code,
       promoLabel: appliedPromoCode?.description,
-      source: source as "admin" | "online",
+      source: source as "admin" | "corporate-direct" | "online",
       customer: customerInfo,
       status: "pending-payment" as const,
       lifecycleHistory: [
@@ -1908,7 +2073,7 @@ export default function BookingPage() {
           createdAt,
         },
       ],
-      operationalNotes: customerNotes.trim(),
+      operationalNotes,
       cancellationReason: "",
       refundNotes: "",
       communicationHistory: [],
@@ -1921,11 +2086,22 @@ export default function BookingPage() {
 
     return manualCheckoutRole === "none"
       ? createBooking(booking, booking.journeyId)
-      : createAdminBooking(booking, booking.journeyId);
+      : createAdminBooking(
+          booking,
+          booking.journeyId,
+          calendarBookingContext,
+        );
   }
 
   async function handlePayFastCheckout() {
     if (isPayFastRedirecting) {
+      return;
+    }
+
+    if (isLockedCalendarCheckout && calendarLockStatus !== "SHOW READY ✓") {
+      setPaymentRedirectStatus(
+        "The show booking lock is not active. Cancel and reopen the show from Admin.",
+      );
       return;
     }
 
@@ -2099,6 +2275,13 @@ export default function BookingPage() {
       manualPaymentLinkResult ||
       getCurrencyCents(amountDueNow) === 0
     ) {
+      return;
+    }
+
+    if (isLockedCalendarCheckout && calendarLockStatus !== "SHOW READY ✓") {
+      setManualPaymentLinkStatus(
+        "The show booking lock is not active. Cancel and reopen the show from Admin.",
+      );
       return;
     }
 
@@ -2737,7 +2920,9 @@ export default function BookingPage() {
     ? getPublicBookingSalesStatus(venueConfig, selectedEntryLocation)
     : null;
   const isPublicBookingBlocked =
-    publicBookingStatus && publicBookingStatus.state !== "open";
+    manualCheckoutRole === "none" &&
+    publicBookingStatus &&
+    publicBookingStatus.state !== "open";
 
   if (
     selectedEntryLocation &&
@@ -2799,6 +2984,42 @@ export default function BookingPage() {
           {venueConfig.subtitle}
         </p>
 
+        {isLockedCalendarCheckout && (
+          <div className="mb-7 rounded-2xl border border-[#D8C36A]/35 bg-[#D8C36A]/10 p-4 sm:mb-9">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                  {isCorporateCalendarCheckout
+                    ? "Corporate Booking"
+                    : "Standard Booking"}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {calendarLockStatus || "ACQUIRING SHOW..."}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-zinc-400">
+                  The performance is fixed from the Admin calendar. Live availability is checked again when the booking is created.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (calendarBookingContext) {
+                    await releaseShowEditLock({
+                      lockId: calendarBookingContext.lockId,
+                      reason: "cancelled",
+                      sessionId: calendarBookingContext.sessionId,
+                    }).catch(() => undefined);
+                  }
+                  window.location.assign("/admin?section=shows");
+                }}
+                className="min-h-11 shrink-0 rounded-full border border-white/20 px-5 py-2.5 text-sm font-semibold text-zinc-200 transition hover:bg-white hover:text-black"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {selectedEntryLocation && (
           <div className="-mt-5 mb-8 flex justify-start sm:-mt-10 sm:mb-10">
             <span className="inline-flex rounded-full border border-[#D8C36A]/35 bg-[#D8C36A]/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
@@ -2807,7 +3028,7 @@ export default function BookingPage() {
           </div>
         )}
 
-	        <section className="mb-8 sm:mb-10">
+		        {!isLockedCalendarCheckout && <section className="mb-8 sm:mb-10">
 	          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
 	            Select your booking type
 	          </p>
@@ -2835,7 +3056,7 @@ export default function BookingPage() {
 	              </span>
 	            </Link>
 	          </div>
-	        </section>
+		        </section>}
 
         <div className="relative mb-6 sm:mb-12">
           <div className="pointer-events-none absolute left-[10%] right-[10%] top-7 hidden h-px bg-white/10 sm:block">
@@ -3222,7 +3443,9 @@ export default function BookingPage() {
                   Step 2 · Guests
                 </p>
                 <p className="zingara-subheading mt-1.5 max-w-3xl text-sm leading-5 text-zinc-300 sm:mt-2 sm:text-lg sm:leading-6">
-                  Choose 1 to 19 guests. Parties of 20 or more are handled through Corporate Booking.
+                  {isCorporateCalendarCheckout
+                    ? "Enter the agreed Corporate guest count for this performance."
+                    : "Choose 1 to 19 guests. Parties of 20 or more are handled through Corporate Booking."}
                 </p>
               </div>
 
@@ -3243,7 +3466,12 @@ export default function BookingPage() {
                   type="button"
                   onClick={() =>
                     selectPartySize(
-                      Math.min(corporatePartySizeThreshold, partySize + 1),
+                      Math.min(
+                        isCorporateCalendarCheckout
+                          ? 250
+                          : corporatePartySizeThreshold,
+                        partySize + 1,
+                      ),
                     )
                   }
                   className="grid h-10 w-10 place-items-center rounded-full text-xl text-zinc-300 transition hover:bg-white hover:text-black"
@@ -3616,6 +3844,18 @@ export default function BookingPage() {
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+                {isCorporateCalendarCheckout && (
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
+                      Company
+                    </span>
+                    <input
+                      value={corporateCompany}
+                      onChange={(event) => setCorporateCompany(event.target.value)}
+                      className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base"
+                    />
+                  </label>
+                )}
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
                     Full Name <span aria-hidden="true">*</span>
@@ -3728,6 +3968,40 @@ export default function BookingPage() {
                   />
                 </label>
               </div>
+
+              {isTrustedManualCheckout && customerMatches.length > 0 && (
+                <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-black/35 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
+                    Existing Customer Match
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {customerMatches.map((customer) => (
+                      <button
+                        key={customer.id}
+                        type="button"
+                        onClick={() => {
+                          setCustomerInfo({
+                            email: customer.email ?? customerInfo.email,
+                            name: [customer.first_name, customer.surname]
+                              .filter(Boolean)
+                              .join(" "),
+                            phone: customer.mobile ?? customerInfo.phone,
+                          });
+                          setCustomerMatches([]);
+                        }}
+                        className="flex min-h-11 w-full flex-col rounded-xl border border-white/10 px-3 py-2 text-left text-sm transition hover:border-[#D8C36A]/50 hover:bg-[#D8C36A]/10"
+                      >
+                        <span className="font-semibold text-white">
+                          {[customer.first_name, customer.surname].filter(Boolean).join(" ")}
+                        </span>
+                        <span className="mt-0.5 break-words text-xs text-zinc-400">
+                          {[customer.email, customer.mobile].filter(Boolean).join(" · ")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {publicBookingGuidance && (
                 <p
@@ -4784,6 +5058,8 @@ export default function BookingPage() {
                     aria-busy={isPayFastRedirecting}
                     disabled={
                       !selectedShow ||
+                      (isLockedCalendarCheckout &&
+                        calendarLockStatus !== "SHOW READY ✓") ||
                       isPayFastRedirecting ||
                       isManualPaymentLinkCreating ||
                       !hasAcceptedBookingTerms
@@ -4813,6 +5089,8 @@ export default function BookingPage() {
                         aria-busy={isManualPaymentLinkCreating}
                         disabled={
                           !selectedShow ||
+                          (isLockedCalendarCheckout &&
+                            calendarLockStatus !== "SHOW READY ✓") ||
                           isPayFastRedirecting ||
                           isManualPaymentLinkCreating ||
                           !hasAcceptedBookingTerms

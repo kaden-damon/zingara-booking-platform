@@ -216,11 +216,16 @@ import {
 } from "../../lib/supabase/floorPlans";
 import {
   type ShowEditLock,
+  acquireShowBookingCreationLock,
   acquireShowEditLock,
   getShowEditLocks,
   heartbeatShowEditLock,
   releaseShowEditLock,
 } from "../../lib/supabase/showLocks";
+import {
+  buildCalendarBookingHref,
+  type CalendarBookingLockContext,
+} from "../../lib/showBookingCreation";
 import { createTicketValidation } from "../../lib/supabase/ticketValidations";
 import { createTicket, updateTicket } from "../../lib/supabase/tickets";
 import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
@@ -10179,6 +10184,16 @@ export default function AdminDashboardPage() {
     useState<BookingEditLock | null>(null);
   const [activeShowEditLock, setActiveShowEditLock] =
     useState<ShowEditLock | null>(null);
+  const [calendarBookingShow, setCalendarBookingShow] =
+    useState<DemoShow | null>(null);
+  const [calendarBookingLock, setCalendarBookingLock] =
+    useState<ShowEditLock | null>(null);
+  const [calendarBookingBlockingLock, setCalendarBookingBlockingLock] =
+    useState<ShowEditLock | null>(null);
+  const [calendarBookingSessionId, setCalendarBookingSessionId] = useState("");
+  const [calendarBookingStatus, setCalendarBookingStatus] = useState("");
+  const [isCalendarBookingLocking, setIsCalendarBookingLocking] =
+    useState(false);
   const [bookingReadOnlyReferences, setBookingReadOnlyReferences] =
     useState<string[]>([]);
   const [showReadOnlyReferences, setShowReadOnlyReferences] =
@@ -11656,6 +11671,140 @@ export default function AdminDashboardPage() {
     } catch (error) {
       console.error("[Zingara Admin] Failed to release show lock", error);
     }
+  }
+
+  async function releaseCalendarBookingLock(reason = "cancelled") {
+    const lock = calendarBookingLock;
+
+    setCalendarBookingLock(null);
+    setCalendarBookingBlockingLock(null);
+    setCalendarBookingSessionId("");
+    setCalendarBookingShow(null);
+    setCalendarBookingStatus("");
+
+    if (!lock) return;
+
+    try {
+      await releaseShowEditLock({
+        lockId: lock.id,
+        reason,
+        sessionId: lock.sessionId,
+      });
+      await refreshShowEditLocks(lock.showReference);
+    } catch (error) {
+      console.error("[Zingara Admin] Failed to release booking creation lock", error);
+    }
+  }
+
+  async function beginCalendarBooking(show: DemoShow) {
+    if (!canManageBookings || isCalendarBookingLocking) return;
+
+    const sessionId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `show-booking-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    setIsCalendarBookingLocking(true);
+    setCalendarBookingSessionId(sessionId);
+    setCalendarBookingBlockingLock(null);
+    setCalendarBookingStatus("ACQUIRING SHOW...");
+
+    try {
+      const result = await acquireShowBookingCreationLock({
+        sessionId,
+        showReference: show.id,
+      });
+
+      if (result.status !== "acquired" || !result.lock) {
+        setCalendarBookingShow(show);
+        setCalendarBookingLock(null);
+        setCalendarBookingBlockingLock(result.lock ?? null);
+        setCalendarBookingStatus(
+          result.lock
+            ? `SHOW CURRENTLY IN USE\n${result.lock.staffName} is currently ${result.lock.lockPurpose === "booking-creation" ? "creating a booking for" : "editing"} this performance.`
+            : "This show could not be prepared for booking creation.",
+        );
+        return;
+      }
+
+      setCalendarBookingShow(show);
+      setCalendarBookingLock(result.lock);
+      setCalendarBookingBlockingLock(null);
+      setCalendarBookingStatus("SHOW READY ✓");
+      await refreshShowEditLocks(show.id);
+    } catch (error) {
+      console.error("[Zingara Admin] Failed to acquire booking creation lock", error);
+      setCalendarBookingShow(show);
+      setCalendarBookingLock(null);
+      setCalendarBookingStatus("Booking creation is temporarily unavailable.");
+    } finally {
+      setIsCalendarBookingLocking(false);
+    }
+  }
+
+  async function forceCalendarBookingTakeover() {
+    if (
+      !calendarBookingShow ||
+      !calendarBookingSessionId ||
+      !calendarBookingBlockingLock ||
+      !canForceShowTakeover(calendarBookingBlockingLock) ||
+      !window.confirm(
+        `Force takeover from ${calendarBookingBlockingLock.staffName}? Their active show operation will be ended.`,
+      )
+    ) {
+      return;
+    }
+
+    setIsCalendarBookingLocking(true);
+    setCalendarBookingStatus("ACQUIRING SHOW...");
+
+    try {
+      const result = await acquireShowBookingCreationLock({
+        force: true,
+        sessionId: calendarBookingSessionId,
+        showReference: calendarBookingShow.id,
+      });
+
+      if (result.status === "acquired" && result.lock) {
+        setCalendarBookingLock(result.lock);
+        setCalendarBookingBlockingLock(null);
+        setCalendarBookingStatus("SHOW READY ✓");
+        await refreshShowEditLocks(calendarBookingShow.id);
+      } else {
+        setCalendarBookingStatus("Show takeover was not completed.");
+      }
+    } catch (error) {
+      console.error("[Zingara Admin] Failed to force booking takeover", error);
+      setCalendarBookingStatus("Show takeover is not available.");
+    } finally {
+      setIsCalendarBookingLocking(false);
+    }
+  }
+
+  function openCalendarBookingCheckout(
+    bookingType: "corporate" | "standard",
+  ) {
+    if (!calendarBookingShow || !calendarBookingLock) return;
+
+    const location = normalizeShowLocation(
+      calendarBookingShow.location ?? calendarBookingShow.venueName,
+    );
+
+    if (!location) {
+      setCalendarBookingStatus("This show's location could not be resolved.");
+      return;
+    }
+
+    const context: CalendarBookingLockContext = {
+      expectedDate: calendarBookingShow.date,
+      expectedLocation: location,
+      expectedTime: calendarBookingShow.time,
+      lockId: calendarBookingLock.id,
+      sessionId: calendarBookingLock.sessionId,
+      showReference: calendarBookingShow.id,
+    };
+
+    window.location.assign(buildCalendarBookingHref({ bookingType, context }));
   }
 
   function closeBookingDetails() {
@@ -34107,7 +34256,23 @@ export default function AdminDashboardPage() {
                                       </div>
                                     </div>
                                   </div>
-                                  <div className="mt-3 flex flex-wrap gap-1.5">
+                                  {canManageBookings && (
+                                    <button
+                                      type="button"
+                                      aria-label={`Create booking for ${show.label}`}
+                                      title="Create booking"
+                                      disabled={isCalendarBookingLocking}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void beginCalendarBooking(show);
+                                      }}
+                                      onMouseDown={(event) => event.stopPropagation()}
+                                      className="absolute bottom-2 right-2 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-[#D8C36A]/45 bg-black/90 text-2xl font-light leading-none text-[#F2D66C] shadow-lg shadow-black/40 transition hover:border-[#F2D66C] hover:bg-[#D8C36A] hover:text-black focus:outline-none focus:ring-2 focus:ring-[#F2D66C] disabled:cursor-wait disabled:opacity-50"
+                                    >
+                                      +
+                                    </button>
+                                  )}
+                                  <div className="mt-3 flex flex-wrap gap-1.5 pr-11">
                                     {getShowOccupancyChips(show).map((chip) => {
                                       const ratio =
                                         chip.capacity > 0
@@ -34154,6 +34319,74 @@ export default function AdminDashboardPage() {
           </section>
         )}
 
+        {calendarBookingShow && (
+          <div className="fixed inset-0 z-[145] flex items-end justify-center bg-black/75 p-3 backdrop-blur-md sm:items-center sm:p-6">
+            <section
+              aria-labelledby="calendar-booking-title"
+              aria-modal="true"
+              role="dialog"
+              className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-[1.5rem] border border-[#D8C36A]/35 bg-[#080808] p-5 shadow-2xl shadow-black sm:p-7"
+            >
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
+                Create Booking
+              </p>
+              <h3 id="calendar-booking-title" className="mt-2 text-2xl font-bold text-white">
+                {calendarBookingShow.label}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">
+                {formatOperationalShowDate(calendarBookingShow.date)} · {getSouthAfricaShowTime(calendarBookingShow)}
+              </p>
+              <p
+                role="status"
+                className={`mt-5 whitespace-pre-line rounded-xl border p-3 text-sm font-semibold ${
+                  calendarBookingLock
+                    ? "border-emerald-300/30 bg-emerald-950/25 text-emerald-200"
+                    : "border-amber-300/30 bg-amber-950/25 text-amber-100"
+                }`}
+              >
+                {calendarBookingStatus || "Checking show availability..."}
+              </p>
+              {calendarBookingLock && (
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => openCalendarBookingCheckout("standard")}
+                    className="min-h-12 rounded-full bg-[#D8C36A] px-5 py-3 text-sm font-bold uppercase text-black transition hover:bg-[#F2D66C]"
+                  >
+                    Standard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openCalendarBookingCheckout("corporate")}
+                    className="min-h-12 rounded-full border border-[#D8C36A]/55 px-5 py-3 text-sm font-bold uppercase text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                  >
+                    Corporate
+                  </button>
+                </div>
+              )}
+              {!calendarBookingLock &&
+                calendarBookingBlockingLock &&
+                canForceShowTakeover(calendarBookingBlockingLock) && (
+                  <button
+                    type="button"
+                    onClick={() => void forceCalendarBookingTakeover()}
+                    disabled={isCalendarBookingLocking}
+                    className="mt-5 min-h-12 w-full rounded-full border border-red-300/45 px-5 py-3 text-sm font-bold uppercase text-red-100 transition hover:bg-red-200 hover:text-black disabled:opacity-50"
+                  >
+                    Force Takeover
+                  </button>
+                )}
+              <button
+                type="button"
+                onClick={() => void releaseCalendarBookingLock("cancelled")}
+                className="mt-4 min-h-11 w-full rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
+              >
+                Cancel
+              </button>
+            </section>
+          </div>
+        )}
+
         {editingShow && canManageShows && (
           <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/75 p-3 backdrop-blur-md sm:items-center sm:p-6">
             <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] border border-[#8D7A2F]/30 bg-[#070707] shadow-2xl shadow-black">
@@ -34184,12 +34417,17 @@ export default function AdminDashboardPage() {
                   <div className="rounded-2xl border border-amber-300/25 bg-amber-950/20 p-4 text-sm text-amber-50">
                     <p className="font-semibold">
                       {isEditingShowReadOnly
-                        ? "This show is currently being edited."
+                        ? editingShowLock?.lockPurpose === "booking-creation"
+                          ? "A staff booking is currently being created for this show."
+                          : "This show is currently being edited."
                         : showLockStatus || "Editing lock active."}
                     </p>
                     {editingShowLock && (
                       <p className="mt-2 text-amber-100/85">
-                        Currently editing: {editingShowLock.staffName} ·{" "}
+                        {editingShowLock.lockPurpose === "booking-creation"
+                          ? "Creating booking"
+                          : "Currently editing"}
+                        : {editingShowLock.staffName} ·{" "}
                         {editingShowLock.staffRole}
                         <br />
                         Started{" "}

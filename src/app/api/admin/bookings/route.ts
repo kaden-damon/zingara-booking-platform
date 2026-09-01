@@ -23,6 +23,10 @@ import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { rolePermissions } from "@/lib/zingaraAccess";
 import { normalizeShowLocation } from "@/lib/zingaraDemo";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  hasValidCalendarBookingContext,
+  type CalendarBookingLockContext,
+} from "@/lib/showBookingCreation";
 
 export const dynamic = "force-dynamic";
 
@@ -1503,6 +1507,14 @@ async function runBookingTransaction(request: Request, body?: unknown) {
   }
 
   const rawRequestBody = body ?? (await request.json());
+  const calendarBookingContext =
+    typeof rawRequestBody === "object" &&
+    rawRequestBody &&
+    "calendarBookingContext" in rawRequestBody
+      ? (rawRequestBody as {
+          calendarBookingContext?: CalendarBookingLockContext | null;
+        }).calendarBookingContext
+      : null;
   const rawBooking =
     typeof rawRequestBody === "object" && rawRequestBody && "booking" in rawRequestBody
       ? (rawRequestBody as { booking?: DemoBooking }).booking
@@ -1532,6 +1544,74 @@ async function runBookingTransaction(request: Request, body?: unknown) {
     staffProfile: auth.staffProfile,
     user: auth.user,
   };
+
+  if (calendarBookingContext) {
+    if (!hasValidCalendarBookingContext(calendarBookingContext) || !rawBooking) {
+      return Response.json(
+        { error: "A valid calendar booking lock is required." },
+        { status: 409 },
+      );
+    }
+
+    if (
+      !rawBooking.customer.name?.trim() ||
+      !Number.isInteger(rawBooking.partySize) ||
+      rawBooking.partySize < 1
+    ) {
+      return Response.json(
+        { error: "Full Name and a valid Pax value are required." },
+        { status: 400 },
+      );
+    }
+
+    const staleBefore = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: lock, error: lockError } = await supabase
+      .from("show_edit_locks")
+      .select("id,show_id,show_reference,staff_profile_id,session_id,lock_purpose,last_activity_at,released_at")
+      .eq("id", calendarBookingContext.lockId)
+      .eq("show_reference", calendarBookingContext.showReference)
+      .eq("staff_profile_id", auth.staffProfile.id)
+      .eq("session_id", calendarBookingContext.sessionId)
+      .eq("lock_purpose", "booking-creation")
+      .is("released_at", null)
+      .gte("last_activity_at", staleBefore)
+      .maybeSingle();
+
+    if (lockError || !lock) {
+      return Response.json(
+        { error: "Your show booking lock has expired or is no longer active." },
+        { status: 409 },
+      );
+    }
+
+    const { data: lockedShow, error: showError } = await supabase
+      .from("shows")
+      .select("id,date,time,venue,status,notes")
+      .eq("id", lock.show_id)
+      .maybeSingle();
+    const lockedLocation = lockedShow
+      ? normalizeShowLocation(lockedShow.venue)
+      : null;
+
+    if (
+      showError ||
+      !lockedShow ||
+      lockedShow.status !== "active" ||
+      lock.show_reference !== rawBooking.showId ||
+      lockedShow.date !== calendarBookingContext.expectedDate ||
+      lockedShow.time.slice(0, 5) !==
+        calendarBookingContext.expectedTime.slice(0, 5) ||
+      lockedLocation !== calendarBookingContext.expectedLocation
+    ) {
+      return Response.json(
+        {
+          error:
+            "This performance changed after booking creation began. Reopen it from the Admin calendar.",
+        },
+        { status: 409 },
+      );
+    }
+  }
   const { data: beforeBooking } =
     supabase && bookingReference
       ? await supabase
@@ -1613,6 +1693,26 @@ async function runBookingTransaction(request: Request, body?: unknown) {
     method: "POST",
   });
   const payload = await response.json().catch(() => ({}));
+
+  if (response.ok && calendarBookingContext) {
+    const releaseHeaders = new Headers({ "Content-Type": "application/json" });
+
+    if (authorization) releaseHeaders.set("authorization", authorization);
+    if (cookie) releaseHeaders.set("cookie", cookie);
+
+    await fetch(new URL("/api/admin/show-locks", request.url), {
+      body: JSON.stringify({
+        action: "release",
+        lockId: calendarBookingContext.lockId,
+        reason: "booking-created",
+        sessionId: calendarBookingContext.sessionId,
+      }),
+      headers: releaseHeaders,
+      method: "POST",
+    }).catch((error) => {
+      console.error("[Zingara API] Failed to release completed booking lock", error);
+    });
+  }
 
   if (supabase && bookingReference) {
     const { data: afterBooking } = await supabase

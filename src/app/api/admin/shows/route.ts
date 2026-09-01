@@ -469,7 +469,7 @@ async function ensureNoConflictingShowLocks(
   const { data: activeLocks, error } = await auth.serviceClient
     .from("show_edit_locks")
     .select(
-      "id,show_id,show_reference,staff_profile_id,staff_name,staff_role,session_id,last_activity_at,started_at",
+      "id,show_id,show_reference,staff_profile_id,staff_name,staff_role,session_id,lock_purpose,last_activity_at,started_at",
     )
     .in("show_reference", uniqueReferences)
     .is("released_at", null);
@@ -493,10 +493,14 @@ async function ensureNoConflictingShowLocks(
 
   const conflictingLock = (activeLocks ?? []).find((lock) => {
     if (lockId && sessionId) {
-      return lock.id !== lockId || lock.session_id !== sessionId;
+      return (
+        lock.id !== lockId ||
+        lock.session_id !== sessionId ||
+        lock.lock_purpose !== "show-edit"
+      );
     }
 
-    return lock.staff_profile_id !== auth.staffProfile?.id;
+    return true;
   });
 
   if (!conflictingLock) {
