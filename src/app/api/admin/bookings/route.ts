@@ -279,6 +279,27 @@ function serializeBookingNotes(booking: DemoBooking) {
   return `${bookingMetadataPrefix}${JSON.stringify(booking)}`;
 }
 
+function parseSerializedBookingNotes(notes: unknown) {
+  if (typeof notes !== "string" || !notes.startsWith(bookingMetadataPrefix)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(notes.slice(bookingMetadataPrefix.length)) as DemoBooking;
+  } catch {
+    return null;
+  }
+}
+
+function splitCustomerName(name: string) {
+  const [firstName = "Guest", ...surnameParts] = name.trim().split(/\s+/);
+
+  return {
+    firstName: firstName || "Guest",
+    surname: surnameParts.join(" ") || null,
+  };
+}
+
 function toLifecyclePayload(event: BookingLifecycleEvent, bookingId: string) {
   return {
     booking_id: bookingId,
@@ -1637,14 +1658,25 @@ async function persistBookingCancellation(request: Request) {
 async function persistBookingStateUpdate(request: Request, body: {
   booking?: DemoBooking;
 }) {
-  const supabase = getRouteClient();
+  const auth = await requireActiveStaff(request);
 
-  if (!supabase) {
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
+    return auth.error;
+  }
+
+  const roleRow = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const role = getAdminRoleFromName(roleRow?.name);
+
+  if (!role || !rolePermissions[role].includes("bookings:manage")) {
     return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
+      { error: "Booking management access is required." },
+      { status: 403 },
     );
   }
+
+  const supabase = auth.serviceClient;
 
   try {
     const booking = body.booking;
@@ -1729,15 +1761,63 @@ async function persistBookingStateUpdate(request: Request, body: {
       booking.source,
     );
     const classifiedBooking = { ...booking, source: bookingSource };
+    const previousMetadata = parseSerializedBookingNotes(
+      (beforeBooking as { notes?: unknown }).notes,
+    );
+    const customerChanged =
+      JSON.stringify(previousMetadata?.customer ?? null) !==
+      JSON.stringify(classifiedBooking.customer);
+
+    if (customerChanged) {
+      const customerId = (beforeBooking as { customer_id?: string | null })
+        .customer_id;
+
+      if (!customerId) {
+        return Response.json(
+          { error: "The booking has no linked customer to update." },
+          { status: 409 },
+        );
+      }
+
+      const customerName = splitCustomerName(classifiedBooking.customer.name);
+      const { error: customerUpdateError } = await supabase
+        .from("customers")
+        .update({
+          email: classifiedBooking.customer.email.trim() || null,
+          first_name: customerName.firstName,
+          mobile: classifiedBooking.customer.phone.trim() || null,
+          surname: customerName.surname,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", customerId);
+
+      if (customerUpdateError) {
+        throw customerUpdateError;
+      }
+    }
+
     const { data: updatedBooking, error: updateError } = await supabase
       .from("bookings")
       .update({
+        addons_total: booking.addonsTotal ?? 0,
         amount_paid: booking.amountPaid ?? 0,
         balance_outstanding: booking.balanceDue ?? 0,
         booking_source: bookingSource,
         booking_status: toSupabaseBookingStatus(booking.status),
+        company_name:
+          bookingSource === "corporate-direct"
+            ? booking.operationalNotes?.match(/^Company: (.+)$/m)?.[1] ?? null
+            : null,
+        dietary_requirements:
+          booking.operationalNotes?.match(/^Dietary: (.+)$/m)?.[1] ?? null,
+        discount_amount: booking.discountAmount ?? 0,
+        guest_count: booking.partySize,
         notes: serializeBookingNotes(classifiedBooking),
         payment_status: toSupabasePaymentStatus(booking.paymentStatus),
+        service_fee: booking.serviceFeeAmount ?? 0,
+        subtotal_amount: booking.subtotalPrice ?? booking.totalPrice,
+        total_amount: booking.totalPrice,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", bookingId)
       .select(bookingSelect)
@@ -1786,14 +1866,13 @@ async function persistBookingStateUpdate(request: Request, body: {
       }
     }
 
-    const actor = await getAuditActor(request);
     const diff = diffAuditFields(
       beforeBooking as Record<string, unknown>,
       updatedBooking as Record<string, unknown>,
       bookingAuditFields,
     );
 
-    await recordAuditEvent(supabase, actor.staffProfile, actor.user, {
+    await recordAuditEvent(supabase, auth.staffProfile, auth.user, {
       action: "booking.edit",
       afterValues: diff.afterValues,
       beforeValues: diff.beforeValues,
@@ -2101,7 +2180,10 @@ export async function PATCH(request: Request) {
     });
   }
 
-  return runBookingTransaction(request, body);
+  return Response.json(
+    { error: "A supported targeted booking action is required." },
+    { status: 400 },
+  );
 }
 
 export async function DELETE(request: Request) {

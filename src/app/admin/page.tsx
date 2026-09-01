@@ -61,6 +61,7 @@ import {
   restoreBookings,
   saveBookings as persistBookings,
 } from "../../lib/supabase/bookings";
+import { planAdminBookingMutations } from "../../lib/adminBookingPersistence";
 import {
   getAuditTrail,
 } from "../../lib/supabase/auditTrail";
@@ -88,13 +89,15 @@ import {
   getTemplates,
   saveTemplates,
 } from "../../lib/supabase/communicationTemplates";
-import { syncCorporateRequestCommunications } from "../../lib/supabase/communications";
+import {
+  syncBookingCommunications,
+  syncCorporateRequestCommunications,
+} from "../../lib/supabase/communications";
 import {
   getCustomerCrmRecordsFromRows,
   updateCustomerCrmDetails,
   updateCustomerIdentityDetails,
   updateCustomerArchiveStatus,
-  upsertCustomerFromInfo,
 } from "../../lib/supabase/customers";
 import {
   loadCustomerCommunicationSuppressions,
@@ -14720,22 +14723,38 @@ export default function AdminDashboardPage() {
   }
 
   function saveBookings(nextBookings: DemoBooking[]) {
+    const mutations = planAdminBookingMutations(bookings, nextBookings);
+
     setBookings(nextBookings);
-    void persistBookings(nextBookings)
+
+    if (mutations.length === 0) {
+      return;
+    }
+
+    const changedBookings = mutations.map((mutation) => mutation.after);
+    const createReferences = mutations.flatMap((mutation) =>
+      mutation.before ? [] : [mutation.after.reference],
+    );
+
+    void persistBookings(changedBookings, { createReferences })
       .then((persistedBookings) => {
         setBookings(persistedBookings);
         showWorkflowToast("✓ Saved · Booking updated");
         void Promise.all(
-          persistedBookings.flatMap((booking) => [
-            updatePayment(booking),
-            updateTicket(booking),
+          mutations.flatMap((mutation) => [
+            ...(mutation.paymentChanged
+              ? [updatePayment(mutation.after)]
+              : []),
+            ...(mutation.ticketChanged
+              ? [updateTicket(mutation.after)]
+              : []),
+            ...(mutation.communicationChanged
+              ? [syncBookingCommunications(mutation.after)]
+              : []),
           ]),
         );
       })
       .catch(() => showWorkflowToast("⚠ Could not save"));
-    void Promise.all(
-      nextBookings.map((booking) => upsertCustomerFromInfo(booking.customer)),
-    );
   }
 
   function saveCorporateRequests(nextRequests: CorporateRequest[]) {

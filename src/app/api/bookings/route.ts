@@ -741,6 +741,12 @@ async function upsertBooking(
   showId: string,
 ) {
   const payload = getBookingPayload(booking, customerId, showId);
+  const tablePayload = { ...payload };
+
+  // Promo identity is consumed by the reservation RPC and persisted in
+  // promo_redemptions. It is not a column on bookings.
+  delete tablePayload.promo_code_id;
+  delete tablePayload.promo_location;
   const { data: existingRows, error: loadError } = await supabase
     .from("bookings")
     .select("id")
@@ -754,7 +760,7 @@ async function upsertBooking(
   const existingId = (existingRows?.[0] as { id?: string } | undefined)?.id;
 
   if (existingId) {
-    const updatePayload = { ...payload };
+    const updatePayload = { ...tablePayload };
 
     // Table assignment is managed by the authoritative reservation/floor paths.
     // A general booking edit must not silently clear an existing assignment.
@@ -779,7 +785,7 @@ async function upsertBooking(
 
   const { data, error } = await supabase
     .from("bookings")
-    .insert(payload)
+    .insert(tablePayload)
     .select("id")
     .maybeSingle();
 

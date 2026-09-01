@@ -857,7 +857,7 @@ export async function createBooking(booking: DemoBooking, journeyId?: string | n
 
 export async function updateBooking(booking: DemoBooking) {
   await fetchSupabaseApi("/api/admin/bookings", {
-    body: { booking },
+    body: { action: "update-state", booking },
     method: "PATCH",
   });
 
@@ -967,12 +967,18 @@ export async function deleteBooking(id: string) {
   return getBookings();
 }
 
-export async function saveBookings(bookings: DemoBooking[]) {
+export async function saveBookings(
+  bookings: DemoBooking[],
+  options: { createReferences?: string[] } = {},
+) {
+  const createReferences = new Set(options.createReferences ?? []);
   const results = await Promise.allSettled(
     bookings.map(async (booking) => {
       await fetchSupabaseApi("/api/admin/bookings", {
-        body: { booking },
-        method: "PATCH",
+        body: createReferences.has(booking.reference)
+          ? { booking }
+          : { action: "update-state", booking },
+        method: createReferences.has(booking.reference) ? "POST" : "PATCH",
       });
     }),
   );
