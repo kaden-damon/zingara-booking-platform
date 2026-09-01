@@ -12,6 +12,7 @@ import {
   getVenueZoneSeatCapacity,
   seatingZones,
 } from "@/lib/zingaraDemo";
+import { getAuthoritativePublicPricePerPerson } from "@/lib/authoritativePublicPrice";
 
 export type PromoCodeSummary = {
   code: string;
@@ -152,30 +153,6 @@ export function getRemainingVenueSeatsForZone(
   );
 }
 
-export function getDynamicPriceMultiplier(
-  selectedZone: Pick<SeatingZone, "id"> | null,
-  partySize: number,
-  remainingSeats?: number,
-) {
-  if (!selectedZone) {
-    return 1;
-  }
-
-  if (
-    typeof remainingSeats === "number" &&
-    remainingSeats > 0 &&
-    remainingSeats <= partySize * 2
-  ) {
-    return 1.12;
-  }
-
-  if (partySize >= 8) {
-    return 0.95;
-  }
-
-  return 1;
-}
-
 export function calculatePublicBookingPricing(
   input: PublicPricingInput,
 ): PublicPricingResult {
@@ -194,13 +171,12 @@ export function calculatePublicBookingPricing(
     (total, addon) => total + addon.price,
     0,
   );
-  const dynamicPriceMultiplier = getDynamicPriceMultiplier(
-    zone,
-    input.partySize,
-    input.remainingSeats,
-  );
   const configuredZonePrice = getConfiguredZonePrice(settings, zone);
-  const pricePerPerson = Math.round(configuredZonePrice * dynamicPriceMultiplier);
+  const pricePerPerson = getAuthoritativePublicPricePerPerson({
+    configuredPrice: configuredZonePrice,
+    partySize: input.partySize,
+    remainingSeats: input.remainingSeats,
+  });
   const seatingSubtotal = pricePerPerson * input.partySize;
   const includedBookingFeeBreakdown =
     getIncludedBookingFeeBreakdown(seatingSubtotal);

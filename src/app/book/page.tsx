@@ -17,13 +17,13 @@ import {
 import {
   bookingAddons,
   getDiscountAmount,
-  getDynamicPriceMultiplier,
   getRemainingVenueSeatsForZone,
   legacyPromoCodes,
   normalizePromoCode,
   serviceFeeGuestThreshold,
   serviceFeeRate,
 } from "../../lib/pricing";
+import { getAuthoritativePublicPricePerPerson } from "../../lib/authoritativePublicPrice";
 import {
   corporatePartySizeThreshold,
   isCorporatePartySize,
@@ -703,22 +703,21 @@ export default function BookingPage() {
   const hasScrolledToConfirmedRef = useRef(false);
   const venueConfig = venueSettings;
 
-  const dynamicPriceMultiplier = getDynamicPriceMultiplier(
-    selectedZone,
-    partySize,
-    selectedZone && selectedShowId
-      ? getRemainingSeats(
-          selectedZone,
-          occupiedSeatsByZone[selectedZone.id] ?? 0,
-          venueConfig,
-        )
-      : undefined,
-  );
   const configuredZonePrice = selectedZone
     ? getConfiguredZonePrice(venueConfig, selectedZone)
     : 0;
-  const dynamicPricePerPerson = selectedZone
-    ? Math.round(configuredZonePrice * dynamicPriceMultiplier)
+  const pricePerPerson = selectedZone
+    ? getAuthoritativePublicPricePerPerson({
+        configuredPrice: configuredZonePrice,
+        partySize,
+        remainingSeats: selectedShowId
+          ? getRemainingSeats(
+              selectedZone,
+              occupiedSeatsByZone[selectedZone.id] ?? 0,
+              venueConfig,
+            )
+          : undefined,
+      })
     : 0;
   const selectedAddons = bookingAddons.filter((addon) =>
     selectedAddonIds.includes(addon.id),
@@ -728,7 +727,7 @@ export default function BookingPage() {
     0,
   );
   const seatingSubtotal =
-    selectedZone ? dynamicPricePerPerson * partySize : 0;
+    selectedZone ? pricePerPerson * partySize : 0;
   const subtotal = seatingSubtotal + addonsTotal;
   const fallbackPromoCode = getPromoCode(promoCodeInput);
   const appliedPromoCode =
@@ -1802,7 +1801,7 @@ export default function BookingPage() {
       discountAmount,
       serviceFeeAmount,
       totalPrice: total,
-      pricePerPerson: dynamicPricePerPerson,
+      pricePerPerson,
       paymentOption,
       paymentStatus: "pending-payment" as const,
       journeyId: getBookingJourneyId(),
@@ -3744,19 +3743,9 @@ export default function BookingPage() {
                         Price Per Person
                       </p>
                       <p className="mt-1 text-lg font-bold sm:text-xl">
-                        {formatCurrency(dynamicPricePerPerson)}
+                        {formatCurrency(pricePerPerson)}
                       </p>
                     </div>
-                    {dynamicPriceMultiplier !== 1 && (
-                      <span className="text-left">
-                        <span className="inline-flex rounded-full border border-[#D8C36A]/30 bg-[#D8C36A]/10 px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-[#F2D66C]">
-                          Dynamic rate
-                        </span>
-                        <span className="mt-1.5 block text-xs text-zinc-400">
-                          Dynamic rate applied due to group size.
-                        </span>
-                      </span>
-                    )}
                   </div>
                 </div>
 
