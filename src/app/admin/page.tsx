@@ -306,6 +306,7 @@ import {
 import BookingPaginationControls from "./BookingPaginationControls";
 
 type NewTableForm = {
+  customPricePerPerson: string;
   tableNumber: string;
   seatCapacity: number;
 };
@@ -6880,6 +6881,7 @@ function getBlankNewTables() {
     (forms, zone) => ({
       ...forms,
       [zone.id]: {
+        customPricePerPerson: "",
         tableNumber: "",
         seatCapacity: 2,
       },
@@ -15885,6 +15887,9 @@ export default function AdminDashboardPage() {
     try {
       await createOperationalShowTable({
         capacity: newTable.seatCapacity,
+        customPricePerPerson: newTable.customPricePerPerson
+          ? Number(newTable.customPricePerPerson)
+          : null,
         showReference: selectedShowId,
         tableCode: tableNumber,
         zoneId,
@@ -15893,6 +15898,7 @@ export default function AdminDashboardPage() {
       setNewTables((currentForms) => ({
         ...currentForms,
         [zoneId]: {
+          customPricePerPerson: "",
           tableNumber: "",
           seatCapacity: 2,
         },
@@ -15985,6 +15991,7 @@ export default function AdminDashboardPage() {
     try {
       await updateOperationalShowTable({
         capacity: nextTable.seatCapacity,
+        customPricePerPerson: nextTable.customPricePerPerson ?? null,
         notes: nextTable.guestNotes,
         showReference: selectedShowId,
         status: nextTable.status,
@@ -38306,7 +38313,7 @@ export default function AdminDashboardPage() {
                 >
                   <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-end">
 
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_120px_auto]">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_120px_180px_auto]">
                       <input
                         value={newTables[zone.id].tableNumber}
                         onChange={(event) =>
@@ -38321,6 +38328,27 @@ export default function AdminDashboardPage() {
                         placeholder="Temporary table name"
                         className="rounded-xl border border-white/15 bg-zinc-950 px-4 py-3"
                       />
+
+                      <label className="min-w-0">
+                        <span className="sr-only">Custom price per person</span>
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={newTables[zone.id].customPricePerPerson}
+                          onChange={(event) =>
+                            setNewTables((currentForms) => ({
+                              ...currentForms,
+                              [zone.id]: {
+                                ...currentForms[zone.id],
+                                customPricePerPerson: event.target.value,
+                              },
+                            }))
+                          }
+                          placeholder="Custom price pp (optional)"
+                          className="w-full rounded-xl border border-white/15 bg-zinc-950 px-4 py-3"
+                        />
+                      </label>
 
                       <input
                         type="number"
@@ -38497,6 +38525,13 @@ export default function AdminDashboardPage() {
                                   Temporary
                                 </span>
                               )}
+                              {isTemporaryOperationalTable(table) && (
+                                <span className="rounded-full border border-[#D8C36A]/35 bg-[#D8C36A]/10 px-2 py-0.5 text-[0.58rem] font-semibold uppercase tracking-[0.12em] text-[#F2D66C]">
+                                  {table.customPricePerPerson
+                                    ? `${formatCurrency(table.customPricePerPerson)} pp`
+                                    : "Standard Zone Price"}
+                                </span>
+                              )}
                               {table.mergeable === false && (
                                 <span className="rounded-full border border-purple-300/30 bg-purple-950/20 px-2 py-0.5 text-[0.58rem] font-semibold uppercase tracking-[0.12em] text-purple-200">
                                   Merge Off
@@ -38625,6 +38660,34 @@ export default function AdminDashboardPage() {
                                   Venue default: {baseSeatCapacity} seats
                                 </p>
                               )}
+                            </label>
+                          )}
+
+                          {isTemporaryOperationalTable(table) && (
+                            <label>
+                              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                Custom Price Per Person
+                              </span>
+                              <input
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                value={table.customPricePerPerson ?? ""}
+                                onChange={(event) =>
+                                  updateTable(table.id, {
+                                    customPricePerPerson: event.target.value
+                                      ? Number(event.target.value)
+                                      : undefined,
+                                  })
+                                }
+                                placeholder="Blank uses standard zone price"
+                                className="w-full rounded-xl border border-white/15 bg-zinc-950 px-4 py-3"
+                              />
+                              <p className="mt-2 text-xs text-zinc-400">
+                                {table.customPricePerPerson
+                                  ? `${formatCurrency(table.customPricePerPerson)} pp for this table and show only.`
+                                  : "Standard zone price applies."}
+                              </p>
                             </label>
                           )}
 

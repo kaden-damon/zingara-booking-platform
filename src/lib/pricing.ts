@@ -41,6 +41,7 @@ export type PromoValidationResult = {
 
 export type PublicPricingInput = {
   addons?: BookingAddon[];
+  authoritativePricePerPerson?: number;
   partySize: number;
   paymentOption?: DemoBooking["paymentOption"];
   promo?: PromoValidationResult | null;
@@ -172,11 +173,13 @@ export function calculatePublicBookingPricing(
     0,
   );
   const configuredZonePrice = getConfiguredZonePrice(settings, zone);
-  const pricePerPerson = getAuthoritativePublicPricePerPerson({
-    configuredPrice: configuredZonePrice,
-    partySize: input.partySize,
-    remainingSeats: input.remainingSeats,
-  });
+  const pricePerPerson =
+    input.authoritativePricePerPerson ??
+    getAuthoritativePublicPricePerPerson({
+      configuredPrice: configuredZonePrice,
+      partySize: input.partySize,
+      remainingSeats: input.remainingSeats,
+    });
   const seatingSubtotal = pricePerPerson * input.partySize;
   const includedBookingFeeBreakdown =
     getIncludedBookingFeeBreakdown(seatingSubtotal);

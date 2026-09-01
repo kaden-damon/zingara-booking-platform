@@ -377,6 +377,7 @@ export async function createBulkShowSchedule(input: BulkShowScheduleInput) {
 
 export async function createOperationalShowTable(input: {
   capacity: number;
+  customPricePerPerson?: number | null;
   showReference: string;
   tableCode: string;
   zoneId: string;
@@ -385,6 +386,29 @@ export async function createOperationalShowTable(input: {
     body: { action: "create", ...input },
     method: "POST",
   });
+}
+
+export type CustomPricedTemporaryTable = {
+  capacity: number;
+  customPricePerPerson: number;
+  id: string;
+  tableCode: string;
+};
+
+export async function getCustomPricedTemporaryTables(input: {
+  partySize: number;
+  showReference: string;
+  zoneId: string;
+}) {
+  const query = new URLSearchParams({
+    partySize: String(input.partySize),
+    showReference: input.showReference,
+    zoneId: input.zoneId,
+  });
+
+  return fetchSupabaseApi<{ tables: CustomPricedTemporaryTable[] }>(
+    `/api/admin/show-tables?${query.toString()}`,
+  );
 }
 
 export async function mergeOperationalShowTables(input: {
@@ -427,6 +451,7 @@ export async function setPhysicalShowTableCapacity(input: {
 
 export async function updateOperationalShowTable(input: {
   capacity: number;
+  customPricePerPerson?: number | null;
   notes: string;
   showReference: string;
   status: DemoTable["status"];

@@ -41,6 +41,7 @@ import {
   insertCommunicationPayload,
 } from "@/lib/email/communicationIdempotency";
 import { validatePromoCode } from "@/lib/supabase/promoCodes";
+import { normalizeTemporaryTableCustomPrice } from "@/lib/temporaryTablePricing";
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import {
   recordPlatformEventBestEffort,
@@ -143,6 +144,22 @@ type SupabaseShowRow = {
   notes: string | null;
   time: string;
   venue: string | null;
+};
+
+type CustomPricedTemporaryTableRow = {
+  availability_scope: string;
+  booking_id: string | null;
+  capacity: number | null;
+  custom_price_per_person: number | null;
+  id: string;
+  is_override: boolean;
+  is_physical: boolean;
+  merged_from: string[] | null;
+  merged_parent_id: string | null;
+  section: string;
+  show_id: string;
+  status: string;
+  table_code: string;
 };
 
 type BookingTableReservationClaim = {
@@ -1141,10 +1158,70 @@ async function getRemainingSeatsForServerPricing(
   );
 }
 
+async function resolveCustomPricedTemporaryTable(
+  supabase: SupabaseClient,
+  booking: DemoBooking,
+  showId: string,
+) {
+  const tableId = booking.tableId?.trim();
+
+  if (!tableId) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("show_tables")
+    .select("id,show_id,table_code,section,capacity,status,booking_id,is_physical,is_override,availability_scope,merged_from,merged_parent_id,custom_price_per_person")
+    .eq("id", tableId)
+    .eq("show_id", showId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  const table = data as CustomPricedTemporaryTableRow | null;
+  const bookingZone = normalizeReservationClaimSection(
+    booking.zoneId,
+    booking.zoneTitle,
+  );
+  const tableZone = normalizeReservationClaimSection(
+    table?.section,
+    booking.zoneTitle,
+  );
+
+  if (
+    !table ||
+    table.is_physical ||
+    !table.is_override ||
+    table.availability_scope !== "operational" ||
+    table.merged_parent_id ||
+    (table.merged_from ?? []).length > 0 ||
+    table.status !== "available" ||
+    table.booking_id ||
+    Number(table.capacity) < booking.partySize ||
+    tableZone !== bookingZone ||
+    table.custom_price_per_person === null
+  ) {
+    throw new Error("CUSTOM_PRICED_TEMPORARY_TABLE_UNAVAILABLE");
+  }
+
+  return {
+    capacity: Number(table.capacity),
+    customPricePerPerson: normalizeTemporaryTableCustomPrice(
+      table.custom_price_per_person,
+    ) as number,
+    id: table.id,
+    section: tableZone,
+    tableCode: table.table_code,
+  };
+}
+
 async function withAuthoritativePublicPricing(
   supabase: SupabaseClient,
   booking: DemoBooking,
   show: SupabaseShowRow,
+  authoritativePricePerPerson?: number,
 ): Promise<DemoBooking> {
   const zone = seatingZones.find((candidate) => candidate.id === booking.zoneId);
 
@@ -1161,6 +1238,7 @@ async function withAuthoritativePublicPricing(
   );
   const preliminaryPricing = calculatePublicBookingPricing({
     addons: booking.addons,
+    authoritativePricePerPerson,
     partySize: booking.partySize,
     paymentOption: booking.paymentOption,
     remainingSeats,
@@ -1176,6 +1254,7 @@ async function withAuthoritativePublicPricing(
   });
   const pricing = calculatePublicBookingPricing({
     addons: booking.addons,
+    authoritativePricePerPerson,
     partySize: booking.partySize,
     paymentOption: booking.paymentOption,
     promo: promo.status === "valid" ? promo : null,
@@ -1193,6 +1272,9 @@ async function withAuthoritativePublicPricing(
 
   return {
     ...booking,
+    agreedPriceSource: authoritativePricePerPerson
+      ? "temporary-table"
+      : "standard-zone",
     addons: pricing.addons,
     addonsTotal: pricing.addonsTotal,
     balanceDue: pricing.total,
@@ -1310,6 +1392,15 @@ export async function POST(request: Request) {
     const isTrustedStaff = Boolean(staffProfileId);
 
     if (!isTrustedStaff) {
+      booking = {
+        ...booking,
+        reservationTableClaims: [],
+        tableId: "",
+        tableNumber: "",
+      };
+    }
+
+    if (!isTrustedStaff) {
       const maintenanceResponse = await requirePublicMaintenanceAvailable(
         supabase,
         "booking",
@@ -1374,6 +1465,56 @@ export async function POST(request: Request) {
         { error: "Booking show could not be resolved." },
         { status: 400 },
       );
+    }
+
+    let customPricedTemporaryTable: Awaited<
+      ReturnType<typeof resolveCustomPricedTemporaryTable>
+    > = null;
+
+    if (isTrustedStaff && booking.tableId) {
+      try {
+        customPricedTemporaryTable = await resolveCustomPricedTemporaryTable(
+          supabase,
+          booking,
+          show.id,
+        );
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "CUSTOM_PRICED_TEMPORARY_TABLE_UNAVAILABLE"
+        ) {
+          return Response.json(
+            {
+              error:
+                "The selected custom-priced temporary table is no longer available. Refresh and choose again.",
+            },
+            { status: 409 },
+          );
+        }
+
+        throw error;
+      }
+
+      if (!customPricedTemporaryTable) {
+        return Response.json(
+          { error: "The selected temporary table could not be resolved." },
+          { status: 409 },
+        );
+      }
+
+      booking = {
+        ...booking,
+        reservationTableClaims: [
+          {
+            capacity: customPricedTemporaryTable.capacity,
+            primary: true,
+            section: customPricedTemporaryTable.section,
+            tableCode: customPricedTemporaryTable.tableCode,
+          },
+        ],
+        tableId: customPricedTemporaryTable.id,
+        tableNumber: customPricedTemporaryTable.tableCode,
+      };
     }
 
     if (booking.source === "online" && !isTrustedStaff) {
@@ -1473,8 +1614,16 @@ export async function POST(request: Request) {
       );
     }
 
-    if (booking.source === "online" && isAwaitingExternalPayment(booking)) {
-      booking = await withAuthoritativePublicPricing(supabase, booking, show);
+    if (
+      (booking.source === "online" || customPricedTemporaryTable) &&
+      isAwaitingExternalPayment(booking)
+    ) {
+      booking = await withAuthoritativePublicPricing(
+        supabase,
+        booking,
+        show,
+        customPricedTemporaryTable?.customPricePerPerson,
+      );
     }
 
     const capacityResult = await validateBookingCapacityIncrease(supabase, {

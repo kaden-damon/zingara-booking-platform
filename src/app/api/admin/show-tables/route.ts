@@ -11,6 +11,7 @@ import {
 } from "@/lib/supabase/serverAdmin";
 import { getPhysicalTableDefinition } from "@/lib/physicalTables";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
+import { normalizeTemporaryTableCustomPrice } from "@/lib/temporaryTablePricing";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ type ShowTableRow = {
   booking_id: string | null;
   capacity: number | null;
   capacity_configured: boolean;
+  custom_price_per_person: number | null;
   id: string;
   is_override: boolean;
   is_physical: boolean;
@@ -141,7 +143,7 @@ async function loadZoneTables(
 ) {
   const { data, error } = await serviceClient
     .from("show_tables")
-    .select("id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical,is_override,availability_scope,merged_from,merged_parent_id,override_notes,updated_at")
+    .select("id,table_code,section,capacity,capacity_configured,custom_price_per_person,status,booking_id,is_physical,is_override,availability_scope,merged_from,merged_parent_id,override_notes,updated_at")
     .eq("show_id", showId)
     .in("section", getZoneSectionLookupTitles(zoneId));
 
@@ -150,6 +152,79 @@ async function loadZoneTables(
   }
 
   return (data ?? []) as ShowTableRow[];
+}
+
+export async function GET(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+    return auth.error;
+  }
+
+  if (!getStaffRolePermissions(auth.staffProfile).includes("bookings:manage")) {
+    return Response.json(
+      { error: "Booking management access is required." },
+      { status: 403 },
+    );
+  }
+
+  try {
+    const url = new URL(request.url);
+    const showReference = url.searchParams.get("showReference")?.trim() ?? "";
+    const zoneId = url.searchParams.get("zoneId")?.trim() ?? "";
+    const partySize = Math.max(
+      Math.trunc(Number(url.searchParams.get("partySize")) || 0),
+      1,
+    );
+
+    if (!showReference || !isValidSeatingZoneId(zoneId)) {
+      return Response.json(
+        { error: "A valid show and seating zone are required." },
+        { status: 400 },
+      );
+    }
+
+    const show = await resolveShow(auth.serviceClient, showReference);
+
+    if (!show) {
+      return Response.json({ error: "Show could not be resolved." }, { status: 404 });
+    }
+
+    if (!canAccessShow(auth.staffProfile, show)) {
+      return Response.json(
+        { error: "This show is outside your assigned location." },
+        { status: 403 },
+      );
+    }
+
+    const tables = (await loadZoneTables(auth.serviceClient, show.id, zoneId))
+      .filter(
+        (table) =>
+          isTemporaryOperationalTable(table) &&
+          table.custom_price_per_person !== null &&
+          Number(table.custom_price_per_person) > 0 &&
+          table.status === "available" &&
+          !table.booking_id &&
+          Number(table.capacity) >= partySize,
+      )
+      .map((table) => ({
+        capacity: Number(table.capacity),
+        customPricePerPerson: Number(table.custom_price_per_person),
+        id: table.id,
+        tableCode: table.table_code,
+      }));
+
+    return Response.json(
+      { tables },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
+  } catch (error) {
+    console.error("[Zingara API] Custom-priced temporary tables could not be loaded", error);
+    return Response.json(
+      { error: "Temporary table pricing could not be loaded." },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: Request) {
@@ -170,6 +245,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       action?: "create" | "merge" | "set-capacity" | "unmerge" | "update";
       capacity?: number;
+      customPricePerPerson?: number | null;
       notes?: string;
       status?: string;
       tableId?: string;
@@ -226,6 +302,22 @@ export async function POST(request: Request) {
         : Math.trunc(Number(body.capacity) || 0);
       const status = body.status?.trim() ?? table.status;
       const notes = body.notes?.trim().slice(0, 500) ?? "";
+      const customPricePerPerson = isTemporaryOperationalTable(table)
+        ? Object.prototype.hasOwnProperty.call(body, "customPricePerPerson")
+          ? normalizeTemporaryTableCustomPrice(body.customPricePerPerson)
+          : table.custom_price_per_person
+        : null;
+
+      if (
+        !isTemporaryOperationalTable(table) &&
+        body.customPricePerPerson !== undefined &&
+        body.customPricePerPerson !== null
+      ) {
+        return Response.json(
+          { error: "Custom pricing is available only for temporary tables." },
+          { status: 400 },
+        );
+      }
 
       if (
         isTemporaryOperationalTable(table) &&
@@ -277,12 +369,14 @@ export async function POST(request: Request) {
 
       const beforeValues = {
         capacity: table.capacity,
+        custom_price_per_person: table.custom_price_per_person,
         override_notes: table.override_notes,
         status: table.status,
         table_code: table.table_code,
       };
       const updates = {
         ...(table.is_physical ? {} : { capacity, capacity_configured: true }),
+        custom_price_per_person: customPricePerPerson,
         override_notes: notes || null,
         status,
         table_code: tableCode,
@@ -294,7 +388,7 @@ export async function POST(request: Request) {
         .eq("id", table.id)
         .eq("show_id", show.id)
         .eq("updated_at", table.updated_at)
-        .select("id,table_code,capacity,status,override_notes")
+        .select("id,table_code,capacity,custom_price_per_person,status,override_notes")
         .maybeSingle();
 
       if (error || !updatedTable) {
@@ -316,7 +410,13 @@ export async function POST(request: Request) {
           action: "show_table.updated",
           afterValues: updates,
           beforeValues,
-          changedFields: ["table_code", "capacity", "status", "override_notes"],
+          changedFields: [
+            "table_code",
+            "capacity",
+            "custom_price_per_person",
+            "status",
+            "override_notes",
+          ],
           entityId: show.id,
           entityReference: `${show.id}:${tableCode}`,
           entityType: "show",
@@ -429,6 +529,9 @@ export async function POST(request: Request) {
     if (body.action === "create") {
       const tableCode = body.tableCode?.trim() ?? "";
       const capacity = Math.trunc(Number(body.capacity) || 0);
+      const customPricePerPerson = normalizeTemporaryTableCustomPrice(
+        body.customPricePerPerson,
+      );
 
       if (!tableCode || capacity < 1) {
         return Response.json(
@@ -467,10 +570,13 @@ export async function POST(request: Request) {
         );
       }
 
-      const { error } = await auth.serviceClient.from("show_tables").insert({
+      const { data: createdTable, error } = await auth.serviceClient
+        .from("show_tables")
+        .insert({
         availability_scope: "operational",
         capacity,
         capacity_configured: true,
+        custom_price_per_person: customPricePerPerson,
         is_override: true,
         is_physical: false,
         override_notes: "Created from Operations Floor table management.",
@@ -478,13 +584,37 @@ export async function POST(request: Request) {
         show_id: show.id,
         status: "available",
         table_code: tableCode,
-      });
+      })
+        .select("id,table_code,capacity,custom_price_per_person")
+        .single();
 
       if (error) {
         throw error;
       }
 
-      return Response.json({ ok: true });
+      await tryRecordAuditEvent(
+        auth.serviceClient,
+        auth.staffProfile,
+        auth.user,
+        {
+          action: "show_table.created",
+          afterValues: createdTable,
+          changedFields: [
+            "table_code",
+            "capacity",
+            "custom_price_per_person",
+          ],
+          entityId: show.id,
+          entityReference: `${show.id}:${tableCode}`,
+          entityType: "show",
+          outcome: "success",
+          reason: `Created temporary operational table ${tableCode} for the selected performance.`,
+          request,
+          sourceArea: "Operations Floor",
+        },
+      );
+
+      return Response.json({ ok: true, table: createdTable });
     }
 
     if (body.action === "merge") {

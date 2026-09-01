@@ -404,6 +404,7 @@ export type DemoTable = {
   availabilityScope?: TableAvailabilityScope;
   authoritativeId?: string;
   capacityConfigured?: boolean;
+  customPricePerPerson?: number;
   id: string;
   physicalTable?: boolean;
   showId?: string;
@@ -586,6 +587,13 @@ export type DemoBooking = {
   serviceFeeAmount?: number;
   totalPrice: number;
   pricePerPerson: number;
+  agreedPriceSource?: "standard-zone" | "temporary-table";
+  reservationTableClaims?: Array<{
+    capacity: number;
+    primary?: boolean;
+    section: string;
+    tableCode: string;
+  }>;
   paymentOption?: PaymentOption;
   paymentStatus?: PaymentStatus;
   depositPercentage?: number;
@@ -2816,6 +2824,10 @@ function normalizeTablesForShows(
         table.availabilityScope === "operational" ? "operational" : "public",
       authoritativeId: getSafeString(table.authoritativeId) || undefined,
       capacityConfigured: table.capacityConfigured !== false,
+      customPricePerPerson:
+        getSafeNumber(table.customPricePerPerson) > 0
+          ? getSafeNumber(table.customPricePerPerson)
+          : undefined,
       physicalTable: table.physicalTable === true,
       seatCapacity:
         table.capacityConfigured === false

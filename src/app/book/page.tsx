@@ -50,6 +50,10 @@ import {
 } from "../../lib/supabase/bookings";
 import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
 import { getPublicShows } from "../../lib/supabase/shows";
+import {
+  type CustomPricedTemporaryTable,
+  getCustomPricedTemporaryTables,
+} from "../../lib/supabase/shows";
 import { getPublicVenueSettings } from "../../lib/supabase/venueSettings";
 import { createWaitlistEntry } from "../../lib/supabase/waitlist";
 import {
@@ -76,6 +80,7 @@ import {
   seatingZones,
 } from "../../lib/zingaraDemo";
 import { calculatePayFastTransactionAmounts } from "../../lib/payfast/transactionFee";
+import { getTemporaryTablePricePerPerson } from "../../lib/temporaryTablePricing";
 import {
   formatPublicBookingOpeningDate,
   getPublicBookingSalesStatus,
@@ -112,6 +117,7 @@ type PromoValidationPreview = {
 type ManualCheckoutStaffResponse = {
   staff?: {
     name: string;
+    permissions?: string[];
     role: string;
   };
 };
@@ -686,6 +692,11 @@ export default function BookingPage() {
   const [manualPaymentLinkStatus, setManualPaymentLinkStatus] = useState("");
   const [manualPaymentLinkBookingReference, setManualPaymentLinkBookingReference] =
     useState("");
+  const [customPricedTemporaryTables, setCustomPricedTemporaryTables] =
+    useState<CustomPricedTemporaryTable[]>([]);
+  const [selectedTemporaryTableId, setSelectedTemporaryTableId] = useState("");
+  const [temporaryTablePricingStatus, setTemporaryTablePricingStatus] =
+    useState("");
   const [hasAcceptedBookingTerms, setHasAcceptedBookingTerms] =
     useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
@@ -706,17 +717,26 @@ export default function BookingPage() {
   const configuredZonePrice = selectedZone
     ? getConfiguredZonePrice(venueConfig, selectedZone)
     : 0;
+  const selectedTemporaryTable = customPricedTemporaryTables.find(
+    (table) => table.id === selectedTemporaryTableId,
+  );
   const pricePerPerson = selectedZone
-    ? getAuthoritativePublicPricePerPerson({
-        configuredPrice: configuredZonePrice,
-        partySize,
-        remainingSeats: selectedShowId
-          ? getRemainingSeats(
-              selectedZone,
-              occupiedSeatsByZone[selectedZone.id] ?? 0,
-              venueConfig,
-            )
-          : undefined,
+    ? getTemporaryTablePricePerPerson({
+        configuredZonePrice: getAuthoritativePublicPricePerPerson({
+          configuredPrice: configuredZonePrice,
+          partySize,
+          remainingSeats: selectedShowId
+            ? getRemainingSeats(
+                selectedZone,
+                occupiedSeatsByZone[selectedZone.id] ?? 0,
+                venueConfig,
+              )
+            : undefined,
+        }),
+        customPricePerPerson:
+          manualCheckoutRole !== "none"
+            ? selectedTemporaryTable?.customPricePerPerson
+            : null,
       })
     : 0;
   const selectedAddons = bookingAddons.filter((addon) =>
@@ -1350,6 +1370,50 @@ export default function BookingPage() {
   }, []);
 
   useEffect(() => {
+    if (
+      manualCheckoutRole === "none" ||
+      !selectedShowId ||
+      !selectedZone
+    ) {
+      setCustomPricedTemporaryTables([]);
+      setSelectedTemporaryTableId("");
+      setTemporaryTablePricingStatus("");
+      return;
+    }
+
+    let isMounted = true;
+    setTemporaryTablePricingStatus("Loading temporary table pricing...");
+
+    getCustomPricedTemporaryTables({
+      partySize,
+      showReference: selectedShowId,
+      zoneId: selectedZone.id,
+    })
+      .then(({ tables }) => {
+        if (!isMounted) return;
+
+        setCustomPricedTemporaryTables(tables);
+        setSelectedTemporaryTableId((currentId) =>
+          tables.some((table) => table.id === currentId) ? currentId : "",
+        );
+        setTemporaryTablePricingStatus("");
+      })
+      .catch(() => {
+        if (!isMounted) return;
+
+        setCustomPricedTemporaryTables([]);
+        setSelectedTemporaryTableId("");
+        setTemporaryTablePricingStatus(
+          "Temporary table pricing is unavailable. Standard zone pricing remains selected.",
+        );
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [manualCheckoutRole, partySize, selectedShowId, selectedZone]);
+
+  useEffect(() => {
     const installState = getBookingInstallState();
 
     setIsIOSDevice(installState.isIOS);
@@ -1791,8 +1855,8 @@ export default function BookingPage() {
       showId: selectedShow.id,
       zoneId: selectedZone.id,
       zoneTitle: selectedZone.title,
-      tableId: "",
-      tableNumber: "",
+      tableId: selectedTemporaryTable?.id ?? "",
+      tableNumber: selectedTemporaryTable?.tableCode ?? "",
       partySize,
       bookingDate: `${selectedShow.date} ${getSouthAfricaShowTime(selectedShow)}`,
       addons: selectedAddons,
@@ -1802,6 +1866,19 @@ export default function BookingPage() {
       serviceFeeAmount,
       totalPrice: total,
       pricePerPerson,
+      agreedPriceSource: selectedTemporaryTable
+        ? ("temporary-table" as const)
+        : ("standard-zone" as const),
+      reservationTableClaims: selectedTemporaryTable
+        ? [
+            {
+              capacity: selectedTemporaryTable.capacity,
+              primary: true,
+              section: selectedZone.id,
+              tableCode: selectedTemporaryTable.tableCode,
+            },
+          ]
+        : [],
       paymentOption,
       paymentStatus: "pending-payment" as const,
       journeyId: getBookingJourneyId(),
@@ -1836,7 +1913,6 @@ export default function BookingPage() {
       refundNotes: "",
       communicationHistory: [],
       createdAt,
-      reservationTableClaims: [],
     };
   }
 
@@ -3697,6 +3773,38 @@ export default function BookingPage() {
                 </span>
               </div>
 
+              {manualCheckoutRole !== "none" &&
+                (customPricedTemporaryTables.length > 0 ||
+                  temporaryTablePricingStatus) && (
+                  <div className="mb-4 rounded-xl border border-[#D8C36A]/30 bg-black/35 p-4 sm:mb-5 sm:rounded-2xl">
+                    <label>
+                      <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                        Staff Table Pricing
+                      </span>
+                      <select
+                        value={selectedTemporaryTableId}
+                        onChange={(event) =>
+                          setSelectedTemporaryTableId(event.target.value)
+                        }
+                        className="mt-2 w-full rounded-xl border border-white/15 bg-zinc-950 px-4 py-3 text-white"
+                      >
+                        <option value="">Standard zone price</option>
+                        {customPricedTemporaryTables.map((table) => (
+                          <option key={table.id} value={table.id}>
+                            {table.tableCode} · {formatCurrency(table.customPricePerPerson)} pp
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <p className="mt-2 text-xs leading-5 text-zinc-400">
+                      {selectedTemporaryTable
+                        ? `${selectedTemporaryTable.tableCode} is deliberately assigned at ${formatCurrency(selectedTemporaryTable.customPricePerPerson)} per person for this booking.`
+                        : temporaryTablePricingStatus ||
+                          "No custom-priced temporary table selected."}
+                    </p>
+                  </div>
+                )}
+
               <div className="grid grid-cols-2 gap-2 text-xs sm:gap-3 sm:text-sm lg:grid-cols-4">
                 <div className="col-span-2 rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-1 sm:rounded-2xl sm:p-4">
                   <p className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-zinc-500 sm:text-xs">
@@ -3730,7 +3838,7 @@ export default function BookingPage() {
                     Seating Assignment
                   </p>
                   <p className="mt-1.5 font-semibold text-white sm:mt-2">
-                    Section selected
+                    {selectedTemporaryTable?.tableCode ?? "Section selected"}
                   </p>
                 </div>
               </div>

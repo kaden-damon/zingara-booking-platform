@@ -50,6 +50,7 @@ type SupabaseShowTableRow = {
   booking_id: string | null;
   capacity: number | null;
   capacity_configured?: boolean | null;
+  custom_price_per_person?: number | null;
   id: string;
   is_physical?: boolean | null;
   merged_from?: string[] | null;
@@ -272,6 +273,10 @@ function toDemoTable(
     guestNotes: row.override_notes ?? "",
     id: row.id,
     capacityConfigured,
+    customPricePerPerson:
+      Number(row.custom_price_per_person) > 0
+        ? Number(row.custom_price_per_person)
+        : undefined,
     physicalTable: row.is_physical === true,
     mergedFrom: mergedFrom.length > 0 ? mergedFrom : undefined,
     mergedInto: row.merged_parent_id
