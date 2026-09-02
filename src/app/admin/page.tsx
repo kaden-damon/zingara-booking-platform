@@ -12,6 +12,11 @@ import {
 } from "react";
 
 import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
+import {
+  FinancialReconciliationModal,
+  GuestCountReconciliationModal,
+  type BookingReconciliationDetails,
+} from "./BookingReconciliationModal";
 import CookiePrivacyPreferences from "./CookiePrivacyPreferences";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
 
@@ -1621,6 +1626,22 @@ const academyLearningPaths: Record<AdminRole, AcademyLearningPath> = {
     ],
     role: "box-office-staff",
     title: "Box Office Staff",
+  },
+  "box-office-manager": {
+    certification: "Box Office Manager Certification",
+    moduleIds: [
+      "getting-started",
+      "bookings",
+      "find-my-booking",
+      "corporate-bookings",
+      "crm-guests",
+      "waitlist",
+      "communications",
+      "tickets-check-in",
+      "analytics-reporting",
+    ],
+    role: "box-office-manager",
+    title: "Box Office Manager",
   },
   concierge: {
     certification: "Venue Manager Certification",
@@ -6853,6 +6874,7 @@ const systemTabs: Array<{ id: SystemTab; label: string }> = [
 const userManagementRoles: AdminRole[] = [
   "super-admin",
   "venue-manager",
+  "box-office-manager",
   "concierge",
   "floor-manager",
   "box-office",
@@ -6862,6 +6884,7 @@ const userManagementRoles: AdminRole[] = [
 const permissionLabels: Record<Permission, string> = {
   "analytics:read": "Analytics Access",
   "bookings:manage": "Bookings Manage",
+  "bookings:reconcile": "Booking Reconciliation",
   "communications:manage": "Communications Manage",
   "crm:read": "CRM Access",
   "settings:manage": "Settings Access",
@@ -6875,6 +6898,7 @@ const permissionBadges: Record<
 > = {
   "analytics:read": { label: "Analytics", short: "AN" },
   "bookings:manage": { label: "Bookings", short: "BK" },
+  "bookings:reconcile": { label: "Reconcile", short: "RC" },
   "communications:manage": { label: "Comms", short: "CM" },
   "crm:read": { label: "CRM", short: "CR" },
   "settings:manage": { label: "Settings", short: "ST" },
@@ -9834,6 +9858,21 @@ export default function AdminDashboardPage() {
     useState<CustomMessageSendState>({});
   const [paymentLinkSendState, setPaymentLinkSendState] =
     useState<PaymentLinkSendState>({});
+  const [financialReconciliation, setFinancialReconciliation] = useState<{
+    amountPaid: number;
+    details: BookingReconciliationDetails;
+    error: string;
+    isSaving: boolean;
+    reason: string;
+    totalAmount: number;
+  } | null>(null);
+  const [guestCountReconciliation, setGuestCountReconciliation] = useState<{
+    details: BookingReconciliationDetails;
+    error: string;
+    guestCount: number;
+    isSaving: boolean;
+    reason: string;
+  } | null>(null);
   const [broadcastForm, setBroadcastForm] =
     useState<BroadcastForm>({
       channel: "email",
@@ -11329,6 +11368,10 @@ export default function AdminDashboardPage() {
   const canManageBookings = hasPermission(
     currentStaff,
     "bookings:manage",
+  );
+  const canReconcileBookings = hasPermission(
+    currentStaff,
+    "bookings:reconcile",
   );
   const canManageShows = hasPermission(
     currentStaff,
@@ -21762,10 +21805,136 @@ export default function AdminDashboardPage() {
     setBookings(await getBookings());
   }
 
+  async function loadBookingReconciliationDetails(booking: DemoBooking) {
+    if (!canReconcileBookings || isBookingReadOnly(booking.reference)) {
+      showWorkflowToast("Booking reconciliation is not available.");
+      return null;
+    }
+
+    try {
+      return await fetchSupabaseApi<BookingReconciliationDetails>(
+        `/api/admin/bookings/reconciliation?bookingReference=${encodeURIComponent(booking.reference)}`,
+      );
+    } catch (error) {
+      showWorkflowToast(
+        error instanceof Error
+          ? error.message
+          : "Booking reconciliation details could not be loaded.",
+      );
+      return null;
+    }
+  }
+
+  async function openFinancialReconciliation(booking: DemoBooking) {
+    const details = await loadBookingReconciliationDetails(booking);
+    if (!details) return;
+
+    setFinancialReconciliation({
+      amountPaid: details.booking.amountPaid,
+      details,
+      error: "",
+      isSaving: false,
+      reason: "",
+      totalAmount: details.booking.totalAmount,
+    });
+  }
+
+  async function openGuestCountReconciliation(booking: DemoBooking) {
+    const details = await loadBookingReconciliationDetails(booking);
+    if (!details) return;
+
+    setGuestCountReconciliation({
+      details,
+      error: "",
+      guestCount: details.booking.guestCount,
+      isSaving: false,
+      reason: "",
+    });
+  }
+
+  async function saveFinancialReconciliation() {
+    if (!financialReconciliation) return;
+
+    setFinancialReconciliation((current) =>
+      current ? { ...current, error: "", isSaving: true } : current,
+    );
+
+    try {
+      await fetchSupabaseApi("/api/admin/bookings/reconciliation", {
+        body: {
+          action: "financial",
+          amountPaid: financialReconciliation.amountPaid,
+          bookingReference:
+            financialReconciliation.details.booking.bookingReference,
+          expectedUpdatedAt:
+            financialReconciliation.details.booking.updatedAt,
+          reason: financialReconciliation.reason,
+          totalAmount: financialReconciliation.totalAmount,
+        },
+        method: "POST",
+      });
+      setBookings(await getBookings());
+      setFinancialReconciliation(null);
+      showWorkflowToast("Payment details reconciled.");
+    } catch (error) {
+      setFinancialReconciliation((current) =>
+        current
+          ? {
+              ...current,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Payment details could not be reconciled.",
+              isSaving: false,
+            }
+          : current,
+      );
+    }
+  }
+
+  async function saveGuestCountReconciliation() {
+    if (!guestCountReconciliation) return;
+
+    setGuestCountReconciliation((current) =>
+      current ? { ...current, error: "", isSaving: true } : current,
+    );
+
+    try {
+      await fetchSupabaseApi("/api/admin/bookings/reconciliation", {
+        body: {
+          action: "guest-count",
+          bookingReference:
+            guestCountReconciliation.details.booking.bookingReference,
+          expectedUpdatedAt:
+            guestCountReconciliation.details.booking.updatedAt,
+          guestCount: guestCountReconciliation.guestCount,
+          reason: guestCountReconciliation.reason,
+        },
+        method: "POST",
+      });
+      setBookings(await getBookings());
+      setGuestCountReconciliation(null);
+      showWorkflowToast("Guest count reconciled.");
+    } catch (error) {
+      setGuestCountReconciliation((current) =>
+        current
+          ? {
+              ...current,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Guest count could not be reconciled.",
+              isSaving: false,
+            }
+          : current,
+      );
+    }
+  }
+
   function canSendCustomerPaymentLink(booking: DemoBooking) {
     const financials = getBookingFinancials(booking);
 
-    if (!canManageBookings || !canManageCommunications) {
+    if (!canReconcileBookings || !canManageCommunications) {
       return false;
     }
 
@@ -40986,23 +41155,45 @@ export default function AdminDashboardPage() {
                               >
                                 Mark Deposit Paid
                               </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  sendCustomerPaymentLink(booking)
-                                }
-                                disabled={
-                                  paymentLinkSendState[booking.reference]
-                                    ?.isSending ||
-                                  !canSendCustomerPaymentLink(booking)
-                                }
-                                className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {paymentLinkSendState[booking.reference]
-                                  ?.isSending
-                                  ? "Sending Link..."
-                                  : "Send Payment Link"}
-                              </button>
+                              {canReconcileBookings && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void openFinancialReconciliation(booking)
+                                    }
+                                    className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                                  >
+                                    Edit Payment Details
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void openGuestCountReconciliation(booking)
+                                    }
+                                    className="rounded-full border border-sky-300/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-sky-100 transition hover:bg-sky-300 hover:text-black"
+                                  >
+                                    Edit Guest Count
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      sendCustomerPaymentLink(booking)
+                                    }
+                                    disabled={
+                                      paymentLinkSendState[booking.reference]
+                                        ?.isSending ||
+                                      !canSendCustomerPaymentLink(booking)
+                                    }
+                                    className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {paymentLinkSendState[booking.reference]
+                                      ?.isSending
+                                      ? "Sending Link..."
+                                      : "Send Payment Link"}
+                                  </button>
+                                </>
+                              )}
                               <button
                                 type="button"
                                 onClick={() =>
@@ -41567,6 +41758,56 @@ export default function AdminDashboardPage() {
         )}
         </div>
       </div>
+
+      {financialReconciliation && (
+        <FinancialReconciliationModal
+          amountPaid={financialReconciliation.amountPaid}
+          details={financialReconciliation.details}
+          error={financialReconciliation.error}
+          isSaving={financialReconciliation.isSaving}
+          onAmountPaidChange={(amountPaid) =>
+            setFinancialReconciliation((current) =>
+              current ? { ...current, amountPaid } : current,
+            )
+          }
+          onClose={() => setFinancialReconciliation(null)}
+          onReasonChange={(reason) =>
+            setFinancialReconciliation((current) =>
+              current ? { ...current, reason } : current,
+            )
+          }
+          onSave={() => void saveFinancialReconciliation()}
+          onTotalAmountChange={(totalAmount) =>
+            setFinancialReconciliation((current) =>
+              current ? { ...current, totalAmount } : current,
+            )
+          }
+          reason={financialReconciliation.reason}
+          totalAmount={financialReconciliation.totalAmount}
+        />
+      )}
+
+      {guestCountReconciliation && (
+        <GuestCountReconciliationModal
+          details={guestCountReconciliation.details}
+          error={guestCountReconciliation.error}
+          guestCount={guestCountReconciliation.guestCount}
+          isSaving={guestCountReconciliation.isSaving}
+          onClose={() => setGuestCountReconciliation(null)}
+          onGuestCountChange={(guestCount) =>
+            setGuestCountReconciliation((current) =>
+              current ? { ...current, guestCount } : current,
+            )
+          }
+          onReasonChange={(reason) =>
+            setGuestCountReconciliation((current) =>
+              current ? { ...current, reason } : current,
+            )
+          }
+          onSave={() => void saveGuestCountReconciliation()}
+          reason={guestCountReconciliation.reason}
+        />
+      )}
 
       {isWorkflowSendConfirmOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 p-4 text-white backdrop-blur-md">

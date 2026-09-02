@@ -641,6 +641,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       : metadataBooking.tableNumber;
     const booking = {
       ...metadataBooking,
+      addonsTotal: row.addons_total,
       amountPaid: row.amount_paid,
       customer: authoritativeCustomer ?? metadataBooking.customer,
       customerId: row.customer_id,
@@ -651,16 +652,20 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       bookingOrigin: row.booking_origin ?? "legacy_unknown",
       createdByStaffId: row.created_by_staff_id ?? undefined,
       createdByStaffName: resolveStaffDisplayName(row.created_by_staff),
+      discountAmount: row.discount_amount,
       partySize: row.guest_count,
       paymentStatus: toDemoPaymentStatus(row.payment_status),
+      serviceFeeAmount: row.service_fee,
       source: row.booking_source as DemoBooking["source"],
       status: toDemoBookingStatus(row.booking_status),
       supabaseBookingId: row.id,
+      subtotalPrice: row.subtotal_amount,
       tableId: hasReleasedCancelledTable
         ? ""
         : row.table_id ?? metadataBooking.tableId,
       tableNumber: authoritativeTableNumber,
       totalPrice: row.total_amount,
+      updatedAt: row.updated_at,
       showId: authoritativeShowId,
       zoneId: authoritativeZoneId,
       zoneTitle: getDisplayZoneTitle(
@@ -725,6 +730,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     tableNumber,
     ticketCode: createTicketCode(row.booking_reference),
     totalPrice: row.total_amount,
+    updatedAt: row.updated_at,
     zoneId,
     zoneTitle,
   };

@@ -628,6 +628,7 @@ export type DemoBooking = {
   arrivalTime?: string;
   communicationHistory: CommunicationRecord[];
   createdAt: string;
+  updatedAt?: string;
 };
 export type GuestTicket = {
   checkedInAt?: string;

@@ -77,6 +77,13 @@ export async function POST(request: Request) {
       : staffProfile.roles;
     const permissions = getRolePermissions(role);
 
+    if (!permissions.includes("bookings:reconcile")) {
+      return Response.json(
+        { error: "Booking reconciliation access is required to send a payment link." },
+        { status: 403 },
+      );
+    }
+
     if (isManualCheckoutAction && !isSuperAdminProfile(staffProfile)) {
       return Response.json(
         { error: "Super Admin access is required to create a manual payment link." },

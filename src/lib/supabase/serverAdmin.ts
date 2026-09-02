@@ -52,11 +52,16 @@ export const defaultRoleSeeds: Array<{
     description: "Box office booking, communication, ticket, and waitlist access.",
     role: "box-office-staff",
   },
+  {
+    description: "Controlled booking reconciliation and box office management access.",
+    role: "box-office-manager",
+  },
 ];
 
 export const permissionLabels: Record<Permission, string> = {
   "analytics:read": "Analytics access",
   "bookings:manage": "Bookings manage",
+  "bookings:reconcile": "Booking financial and guest-count reconciliation",
   "communications:manage": "Communications manage",
   "crm:read": "CRM access",
   "settings:manage": "Settings access",

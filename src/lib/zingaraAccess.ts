@@ -1,5 +1,6 @@
 export type AdminRole =
   | "box-office"
+  | "box-office-manager"
   | "super-admin"
   | "concierge"
   | "finance"
@@ -11,6 +12,7 @@ export type AdminRole =
 export type Permission =
   | "analytics:read"
   | "bookings:manage"
+  | "bookings:reconcile"
   | "communications:manage"
   | "crm:read"
   | "settings:manage"
@@ -30,6 +32,7 @@ export type StaffSession = {
 
 export const adminRoleLabels: Record<AdminRole, string> = {
   "box-office": "Box Office",
+  "box-office-manager": "Box Office Manager",
   "box-office-staff": "Box Office Staff",
   concierge: "Concierge",
   finance: "Finance",
@@ -52,6 +55,14 @@ export const rolePermissions: Record<AdminRole, Permission[]> = {
     "tickets:validate",
     "waitlist:manage",
   ],
+  "box-office-manager": [
+    "bookings:manage",
+    "bookings:reconcile",
+    "communications:manage",
+    "crm:read",
+    "tickets:validate",
+    "waitlist:manage",
+  ],
   concierge: ["tickets:validate"],
   finance: ["analytics:read"],
   "floor-manager": ["tables:manage", "tickets:validate"],
@@ -59,6 +70,7 @@ export const rolePermissions: Record<AdminRole, Permission[]> = {
   "super-admin": [
     "analytics:read",
     "bookings:manage",
+    "bookings:reconcile",
     "communications:manage",
     "crm:read",
     "settings:manage",
