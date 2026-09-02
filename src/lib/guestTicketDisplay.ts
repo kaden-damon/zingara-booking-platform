@@ -1,14 +1,10 @@
 import type { DemoBooking, GuestTicket } from "./zingaraDemo";
 
-function normalizeDisplayText(value: string | undefined) {
-  return (value ?? "").trim();
-}
-
 export function canShowGuestVisibleTable(
   booking: Pick<DemoBooking, "status"> | null | undefined,
   ticket: Pick<GuestTicket, "status"> | null | undefined,
 ) {
-  return ticket?.status === "checked-in" || booking?.status === "checked-in";
+  return Boolean(booking && ticket);
 }
 
 export function resolveGuestVisibleTable(
@@ -19,5 +15,5 @@ export function resolveGuestVisibleTable(
     return "";
   }
 
-  return normalizeDisplayText(booking?.tableNumber);
+  return "TBC";
 }

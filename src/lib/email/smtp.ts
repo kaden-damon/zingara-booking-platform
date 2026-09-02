@@ -1,4 +1,9 @@
 import nodemailer from "nodemailer";
+import {
+  brandedCustomerEmailMarker,
+  createBrandedCustomerEmail,
+  type EmailAttachment,
+} from "@/lib/email/customerEmail";
 import { sanitizeEmailHtml } from "@/lib/email/html";
 import {
   checkCustomerOperationalCommunication,
@@ -11,13 +16,7 @@ const APPLICATION_EMAIL_SENDER = {
   name: "Zingara Bookings",
 } as const;
 
-export type EmailAttachment = {
-  cid: string;
-  content: Buffer;
-  contentDisposition?: "attachment" | "inline";
-  contentType?: string;
-  filename: string;
-};
+export type { EmailAttachment } from "@/lib/email/customerEmail";
 
 type EmailSendInput = {
   attachments?: EmailAttachment[];
@@ -199,5 +198,16 @@ export async function sendOperationalCustomerEmail({
     };
   }
 
-  return sendZingaraEmail(email);
+  if (email.html?.includes(brandedCustomerEmailMarker)) {
+    return sendZingaraEmail(email);
+  }
+
+  const branded = await createBrandedCustomerEmail(email);
+
+  return sendZingaraEmail({
+    ...email,
+    attachments: [...branded.attachments, ...(email.attachments ?? [])],
+    html: branded.html,
+    message: branded.message,
+  });
 }

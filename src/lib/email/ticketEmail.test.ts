@@ -7,10 +7,13 @@ async function source(path: string) {
 }
 
 test("ticket email contains the complete branded ticket presentation", async () => {
-  const email = await source("./ticketEmail.ts");
+  const [email, shell] = await Promise.all([
+    source("./ticketEmail.ts"),
+    source("./customerEmail.ts"),
+  ]);
 
-  assert.match(email, /ZINGARA/);
-  assert.match(email, /THE ROYAL COUNTESS/);
+  assert.match(shell, /ZINGARA/);
+  assert.match(shell, /THE ROYAL COUNTESS/);
   assert.match(email, /YOUR TICKET/);
   assert.match(email, /Booking reference/);
   assert.match(email, /Seating section/);
