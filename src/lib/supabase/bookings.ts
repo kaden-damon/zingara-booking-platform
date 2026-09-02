@@ -642,7 +642,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       ? row.table_row?.table_code ?? metadataBooking.tableNumber
       : hasReleasedCancelledTable
         ? "Released"
-      : metadataBooking.tableNumber;
+        : "Requires floor assignment";
     const booking = {
       ...metadataBooking,
       addonsTotal: row.addons_total,
@@ -671,7 +671,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       subtotalPrice: row.subtotal_amount,
       tableId: hasReleasedCancelledTable
         ? ""
-        : row.table_id ?? metadataBooking.tableId,
+        : row.table_id ?? "requires-floor-assignment",
       tableNumber: authoritativeTableNumber,
       totalPrice: row.total_amount,
       updatedAt: row.updated_at,

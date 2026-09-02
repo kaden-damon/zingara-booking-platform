@@ -111,20 +111,29 @@ test("dashboard metrics preserve show-specific financial dimensions", () => {
 });
 
 test("manifests keep unallocated imports visible and deposits narrowly defined", async () => {
-  const source = await readFile(
+  const adminSource = await readFile(
     new URL("../app/admin/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const bookingSource = await readFile(
+    new URL("./supabase/bookings.ts", import.meta.url),
     "utf8",
   );
 
   assert.match(
-    source,
+    adminSource,
     /return !matchingTable;/,
     "physical table matching must be authoritative even when legacy metadata retains a table label",
   );
   assert.match(
-    source,
+    adminSource,
     /getBookingPaymentStatus\(booking\) === "deposit-paid"[\s\S]*?financials\.amountPaid/,
     "manifest deposits must exclude fully paid receipts",
+  );
+  assert.match(
+    bookingSource,
+    /row\.table_id \?\? "requires-floor-assignment"/,
+    "authoritative null table assignments must not revive stale legacy metadata",
   );
 });
 
