@@ -10316,6 +10316,9 @@ export default function AdminDashboardPage() {
     useState(false);
   const [isWorkflowSending, setIsWorkflowSending] = useState(false);
   const [workflowToast, setWorkflowToast] = useState("");
+  const [ticketEmailSendState, setTicketEmailSendState] = useState<
+    Record<string, "error" | "idle" | "sending" | "sent">
+  >({});
   const workflowToastTimerRef = useRef<number | null>(null);
   const [newShow, setNewShow] = useState<NewShowForm>({
     address: "",
@@ -21777,16 +21780,69 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    sendWorkflowCommunication(booking, "ticket-resend", channel, {
-      message: `${communicationChannelLabels[channel]} ticket sent to ${
-        channel === "email"
-          ? booking.customer.email
-          : channel === "sms"
-            ? booking.customer.phone
-            : "registered app devices"
-      } · Live ticket ${getTicketUrl(booking.reference)}`,
-      updateSummary: `Ticket resent by ${currentStaff?.name ?? "staff"}.`,
-    });
+    const record = createWorkflowCommunication(
+      booking,
+      "ticket-resend",
+      channel,
+      {
+        message: `${communicationChannelLabels[channel]} ticket sent to ${
+          channel === "email"
+            ? booking.customer.email
+            : booking.customer.phone
+        } · Live ticket ${getTicketUrl(booking.reference)}`,
+        updateSummary: `Ticket resent by ${currentStaff?.name ?? "staff"}.`,
+      },
+    );
+
+    setTicketEmailSendState((current) => ({
+      ...current,
+      [booking.reference]: "sending",
+    }));
+
+    try {
+      const result = await persistCustomGuestCommunication(booking, record);
+      const status = result.row?.status ?? (result.deduped ? "sent" : null);
+
+      setBookings((currentBookings) =>
+        appendCommunicationToBookings(
+          currentBookings,
+          booking.reference,
+          () => ({
+            ...record,
+            id: result.row?.id ?? record.id,
+            status: status ?? undefined,
+            sentAt:
+              result.row?.sent_at ?? result.row?.created_at ?? record.sentAt,
+          }),
+        ),
+      );
+
+      if (status !== "sent") {
+        setTicketEmailSendState((current) => ({
+          ...current,
+          [booking.reference]: "error",
+        }));
+        showWorkflowToast(
+          status === "suppressed"
+            ? "Email updates are temporarily paused for this customer."
+            : "⚠ Ticket email could not be sent.",
+        );
+        return;
+      }
+
+      setTicketEmailSendState((current) => ({
+        ...current,
+        [booking.reference]: "sent",
+      }));
+      showWorkflowToast("✓ Ticket sent successfully.");
+    } catch (error) {
+      console.error("[Zingara Admin] Ticket email failed", error);
+      setTicketEmailSendState((current) => ({
+        ...current,
+        [booking.reference]: "error",
+      }));
+      showWorkflowToast("⚠ Ticket email could not be sent.");
+    }
   }
 
   function resendConfirmation(booking: DemoBooking) {
@@ -40969,12 +41025,26 @@ export default function AdminDashboardPage() {
                             <div className="flex flex-wrap gap-2">
                               <button
                                 type="button"
+                                disabled={
+                                  ticketEmailSendState[booking.reference] ===
+                                  "sending"
+                                }
                                 onClick={() =>
                                   sendTicket(booking, "email")
                                 }
-                                className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                                className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-wait disabled:opacity-60"
                               >
-                                Resend Ticket
+                                {ticketEmailSendState[booking.reference] ===
+                                "sending"
+                                  ? "Sending..."
+                                  : ticketEmailSendState[booking.reference] ===
+                                      "sent"
+                                    ? "Ticket Sent ✓"
+                                    : ticketEmailSendState[
+                                          booking.reference
+                                        ] === "error"
+                                      ? "Send Failed"
+                                      : "Resend Ticket"}
                               </button>
                               <button
                                 type="button"

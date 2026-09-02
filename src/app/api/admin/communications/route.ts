@@ -4,6 +4,7 @@ import {
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
+import { createZingaraTicketEmail } from "@/lib/email/ticketEmail";
 import type { OperationalCommunicationKind } from "@/lib/customerCommunicationPreferences";
 import {
   findDuplicateSentCommunication,
@@ -15,6 +16,9 @@ import {
   type CommunicationTrigger,
   type CorporateRequest,
   type DemoBooking,
+  getGuestTicketsForBooking,
+  getDisplayZoneTitle,
+  normalizeShowLocation,
 } from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
@@ -165,6 +169,7 @@ async function getEmailDeliveryStatus(
   customerId: string | null,
   recipient?: string | null,
   deliveryStatus?: "failed" | "sent" | "suppressed",
+  bookingReference?: string,
 ) {
   if (record.channel !== "email") {
     return deliveryStatus ?? ("sent" as const);
@@ -174,13 +179,24 @@ async function getEmailDeliveryStatus(
     return "failed" as const;
   }
 
-  const result = await sendOperationalCustomerEmail({
+  let email: Parameters<typeof sendOperationalCustomerEmail>[0] = {
     customerId,
     kind: getOperationalCommunicationKind(record.trigger),
     message: record.message,
     subject: record.subject,
     to: recipient,
-  });
+  };
+
+  if (record.trigger === "ticket-resend" && bookingReference) {
+    const ticketEmail = await loadAuthoritativeTicketEmail(bookingReference);
+    email = {
+      ...email,
+      ...ticketEmail.email,
+      to: ticketEmail.recipient,
+    };
+  }
+
+  const result = await sendOperationalCustomerEmail(email);
 
   if (result.ok) {
     return "sent" as const;
@@ -192,6 +208,137 @@ async function getEmailDeliveryStatus(
   });
 
   return result.suppressed ? ("suppressed" as const) : ("failed" as const);
+}
+
+const bookingMetadataPrefix = "__zingara_booking_meta__:";
+
+function parseBookingMetadata(notes: string | null) {
+  if (!notes?.startsWith(bookingMetadataPrefix)) return null;
+
+  try {
+    return JSON.parse(notes.slice(bookingMetadataPrefix.length)) as DemoBooking;
+  } catch {
+    return null;
+  }
+}
+
+async function loadAuthoritativeTicketEmail(bookingReference: string) {
+  const supabase = getRouteClient();
+
+  if (!supabase) throw new Error("Supabase client is not configured.");
+
+  const { data: bookingRow, error: bookingError } = await supabase
+    .from("bookings")
+    .select(
+      "id,customer_id,show_id,table_id,booking_reference,guest_count,section,notes,created_at,booking_status,total_amount",
+    )
+    .eq("booking_reference", bookingReference)
+    .maybeSingle();
+
+  if (bookingError) throw bookingError;
+  if (!bookingRow) throw new Error("Authoritative booking could not be found.");
+
+  const [customerResult, showResult, ticketResult, tableResult] =
+    await Promise.all([
+      supabase
+        .from("customers")
+        .select("first_name,surname,email,mobile")
+        .eq("id", bookingRow.customer_id)
+        .maybeSingle(),
+      supabase
+        .from("shows")
+        .select("id,name,date,time,venue")
+        .eq("id", bookingRow.show_id)
+        .maybeSingle(),
+      supabase
+        .from("tickets")
+        .select("ticket_code,qr_payload,ticket_status")
+        .eq("booking_id", bookingRow.id)
+        .order("issued_at", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      bookingRow.table_id
+        ? supabase
+            .from("show_tables")
+            .select("table_code,booking_id")
+            .eq("id", bookingRow.table_id)
+            .eq("booking_id", bookingRow.id)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+
+  for (const result of [customerResult, showResult, ticketResult, tableResult]) {
+    if (result.error) throw result.error;
+  }
+
+  const customer = customerResult.data;
+  const showRow = showResult.data;
+  const ticketRow = ticketResult.data;
+
+  const metadata = parseBookingMetadata(bookingRow.notes);
+  const ticketCode = ticketRow?.ticket_code ?? metadata?.ticketCode;
+  const qrPayload = ticketRow?.qr_payload ?? ticketCode;
+
+  if (!customer?.email) throw new Error("Ticket recipient email is missing.");
+  if (!ticketCode || !qrPayload) {
+    throw new Error("Authoritative ticket identity is missing.");
+  }
+  const customerName = [customer.first_name, customer.surname]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const booking: DemoBooking = {
+    ...(metadata ?? {
+      bookingDate: showRow?.date ?? "",
+      communicationHistory: [],
+      createdAt: bookingRow.created_at,
+      customer: { email: customer.email, name: customerName, phone: customer.mobile ?? "" },
+      partySize: bookingRow.guest_count,
+      pricePerPerson: 0,
+      reference: bookingRow.booking_reference,
+      status: "confirmed",
+      tableId: "",
+      tableNumber: "",
+      totalPrice: Number(bookingRow.total_amount) || 0,
+      zoneId: "middle-ring",
+      zoneTitle: bookingRow.section ?? "Middle Ring",
+    }),
+    customer: {
+      email: customer.email,
+      name: customerName || metadata?.customer.name || "Guest",
+      phone: customer.mobile ?? metadata?.customer.phone ?? "",
+    },
+    partySize: bookingRow.guest_count,
+    reference: bookingRow.booking_reference,
+    showId: bookingRow.show_id,
+    tableId: bookingRow.table_id ?? "",
+    tableNumber: tableResult.data?.table_code ?? metadata?.tableNumber ?? "",
+    ticketCode,
+    zoneTitle: getDisplayZoneTitle(metadata?.zoneId, bookingRow.section ?? metadata?.zoneTitle),
+  };
+  const ticket = getGuestTicketsForBooking(booking).find(
+    (candidate) => candidate.ticketCode === ticketCode,
+  );
+  const show = showRow
+    ? {
+        date: showRow.date,
+        id: showRow.id,
+        label: showRow.name,
+        location: normalizeShowLocation(showRow.venue) ?? undefined,
+        time: showRow.time.slice(0, 5),
+        venueName: showRow.venue,
+      }
+    : null;
+
+  return {
+    email: await createZingaraTicketEmail({
+      booking,
+      qrPayload,
+      show,
+      ticket,
+    }),
+    recipient: customer.email,
+  };
 }
 
 async function requireCommunicationManager(request: Request) {
@@ -398,6 +545,7 @@ export async function POST(request: Request) {
       payload.customer_id,
       getCommunicationRecipient(body.record, context),
       body.deliveryStatus,
+      body.booking?.reference,
     );
     const data = await insertCommunicationPayload(supabase, {
       ...payload,

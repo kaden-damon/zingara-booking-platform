@@ -19,6 +19,7 @@ import {
 } from "@/lib/email/communicationIdempotency";
 import { resolveGuestVisibleTable } from "@/lib/guestTicketDisplay";
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
+import { createZingaraTicketEmail } from "@/lib/email/ticketEmail";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -458,6 +459,9 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
   const activeTicket =
     guestTickets.find((ticket) => ticket.ticketCode === normalizedReference) ??
     guestTickets[0];
+  const activeTicketRow = ticketRows.find(
+    (row) => row.ticket_code === activeTicket.ticketCode,
+  );
   const [{ data: showRow }, { data: venueRow }] = await Promise.all([
     supabase
       .from("shows")
@@ -478,6 +482,8 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
 
   return {
     activeTicket,
+    activeTicketQrPayload:
+      activeTicketRow?.qr_payload ?? getTicketQrPayload(activeTicket.ticketCode),
     bookingId: bookingRow.id,
     customerId: bookingRow.customer_id,
     booking: {
@@ -781,18 +787,13 @@ export async function POST(request: Request, context: TicketRouteContext) {
         );
       }
 
-      const ticketUrl = new URL(
-        getTicketUrlForCode(payload.activeTicket.ticketCode),
-        request.url,
-      ).toString();
-      const message =
-        body.action === "resend"
-          ? `Your Zingara ticket has been resent.\n\nOpen your ticket: ${ticketUrl}`
-          : `Your Zingara ticket is ready.\n\nOpen your ticket: ${ticketUrl}`;
-      const subject =
-        body.action === "resend"
-          ? "Your Zingara Ticket Resend"
-          : "Your Zingara Ticket";
+      const ticketEmail = await createZingaraTicketEmail({
+        booking: payload.booking,
+        qrPayload: payload.activeTicketQrPayload,
+        show: payload.show,
+        ticket: payload.activeTicket,
+      });
+      const { message, subject } = ticketEmail;
       const baseCommunicationPayload = {
         booking_id: payload.bookingId,
         channel: "email",
@@ -821,7 +822,9 @@ export async function POST(request: Request, context: TicketRouteContext) {
       }
 
       const result = await sendOperationalCustomerEmail({
+        attachments: ticketEmail.attachments,
         customerId: payload.customerId,
+        html: ticketEmail.html,
         kind: "ticket_resend",
         message,
         subject,

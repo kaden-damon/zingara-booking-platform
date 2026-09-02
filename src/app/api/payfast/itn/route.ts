@@ -13,6 +13,7 @@ import {
   type PaymentOption,
 } from "@/lib/zingaraDemo";
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
+import { createZingaraTicketEmail } from "@/lib/email/ticketEmail";
 import { getPayFastConfig } from "@/lib/payfast/config";
 import {
   createPayFastItnParamString,
@@ -440,7 +441,7 @@ async function ensureTicket(
   const ticketCode = booking.ticketCode ?? createTicketCode(booking.reference);
   const { data: rows, error: loadError } = await supabase
     .from("tickets")
-    .select("id")
+    .select("id,ticket_code,qr_payload")
     .eq("ticket_code", ticketCode)
     .limit(1);
 
@@ -448,10 +449,16 @@ async function ensureTicket(
     throw loadError;
   }
 
-  const existingId = (rows?.[0] as { id?: string } | undefined)?.id;
+  const existingTicket = rows?.[0] as
+    | { id?: string; qr_payload?: string; ticket_code?: string }
+    | undefined;
 
-  if (existingId) {
-    return existingId;
+  if (existingTicket?.id) {
+    return {
+      id: existingTicket.id,
+      qrPayload: existingTicket.qr_payload ?? ticketCode,
+      ticketCode: existingTicket.ticket_code ?? ticketCode,
+    };
   }
 
   const { data, error } = await supabase
@@ -464,14 +471,14 @@ async function ensureTicket(
       ticket_status: "valid",
       ticket_url: getTicketUrl(booking.reference),
     })
-    .select("id")
+    .select("id,ticket_code,qr_payload")
     .maybeSingle();
 
   if (error) {
     if (error.code === "23505") {
       const { data: duplicate, error: reloadError } = await supabase
         .from("tickets")
-        .select("id")
+        .select("id,ticket_code,qr_payload")
         .eq("ticket_code", ticketCode)
         .maybeSingle();
 
@@ -479,13 +486,25 @@ async function ensureTicket(
         throw reloadError;
       }
 
-      return (duplicate as { id?: string } | null)?.id;
+      return duplicate
+        ? {
+            id: duplicate.id,
+            qrPayload: duplicate.qr_payload ?? ticketCode,
+            ticketCode: duplicate.ticket_code ?? ticketCode,
+          }
+        : null;
     }
 
     throw error;
   }
 
-  return (data as { id?: string } | null)?.id;
+  return data
+    ? {
+        id: data.id,
+        qrPayload: data.qr_payload ?? ticketCode,
+        ticketCode: data.ticket_code ?? ticketCode,
+      }
+    : null;
 }
 
 async function ensureLifecycleEvent(
@@ -538,6 +557,7 @@ async function ensureCommunication(
   show: DemoShow | undefined,
   trigger: CommunicationTrigger,
   templates: Awaited<ReturnType<typeof loadTemplates>>,
+  ticket?: { qrPayload: string; ticketCode: string } | null,
 ) {
   const type = getSupabaseCommunicationType(trigger);
   const template = getCommunicationTemplate(templates, trigger, "email");
@@ -546,11 +566,17 @@ async function ensureCommunication(
     return null;
   }
 
-  const renderedMessage = renderCommunicationTemplate(
-    template.body,
-    booking,
-    show,
-  );
+  const ticketEmail =
+    trigger === "reservation-confirmed" && ticket
+      ? await createZingaraTicketEmail({
+          booking,
+          qrPayload: ticket.qrPayload,
+          show,
+        })
+      : null;
+  const renderedMessage =
+    ticketEmail?.message ??
+    renderCommunicationTemplate(template.body, booking, show);
   const paymentTransactionSummary =
     trigger === "payment-confirmation" &&
     typeof booking.lastProviderGrossAmount === "number" &&
@@ -567,7 +593,9 @@ async function ensureCommunication(
     message: paymentTransactionSummary
       ? `${renderedMessage}\n\n${paymentTransactionSummary}`
       : renderedMessage,
-    subject: renderCommunicationTemplate(template.subject, booking, show),
+    subject:
+      ticketEmail?.subject ??
+      renderCommunicationTemplate(template.subject, booking, show),
     templateId: template.id,
     trigger,
   });
@@ -594,8 +622,13 @@ async function ensureCommunication(
   }
 
   const result = await sendOperationalCustomerEmail({
+    attachments: ticketEmail?.attachments,
     customerId,
-    kind: "payment_confirmation",
+    html: ticketEmail?.html,
+    kind:
+      trigger === "reservation-confirmed"
+        ? "booking_confirmation"
+        : "payment_confirmation",
     message: record.message,
     subject: record.subject,
     to: booking.customer.email,
@@ -687,7 +720,7 @@ async function confirmPayment(
     coreResult.status === "already_confirmed" || Boolean(coreResult.was_confirmed);
   const bookingWasConfirmed = Boolean(coreResult.booking_was_confirmed);
 
-  await ensureTicket(supabase, bookingId, updatedBooking);
+  const ensuredTicket = await ensureTicket(supabase, bookingId, updatedBooking);
   await ensureLifecycleEvent(supabase, bookingId, {
     createdAt: now,
     fromStatus: "pending_payment",
@@ -714,6 +747,7 @@ async function confirmPayment(
     show,
     "reservation-confirmed",
     templates,
+    ensuredTicket,
   );
   await ensureCommunication(
     supabase,

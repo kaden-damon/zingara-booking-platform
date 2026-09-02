@@ -11,7 +11,16 @@ const APPLICATION_EMAIL_SENDER = {
   name: "Zingara Bookings",
 } as const;
 
+export type EmailAttachment = {
+  cid: string;
+  content: Buffer;
+  contentDisposition?: "attachment" | "inline";
+  contentType?: string;
+  filename: string;
+};
+
 type EmailSendInput = {
+  attachments?: EmailAttachment[];
   html?: string | null;
   message: string;
   subject?: string | null;
@@ -82,6 +91,7 @@ function getEmailConfig() {
 }
 
 export async function sendZingaraEmail({
+  attachments,
   html,
   message,
   subject,
@@ -117,6 +127,7 @@ export async function sendZingaraEmail({
     });
 
     await transporter.sendMail({
+      attachments,
       from: {
         address: config.fromAddress,
         name: config.fromName,
