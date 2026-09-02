@@ -12940,7 +12940,7 @@ export default function AdminDashboardPage() {
           table.bookingReference === booking.supabaseBookingId,
       );
 
-      return !matchingTable && getManifestBookingTableLabel(booking) === "Requires floor assignment";
+      return !matchingTable;
     });
   const sortedDailyManifestBookings = [...manifestBookings].sort(
     (left, right) => {
@@ -12980,7 +12980,11 @@ export default function AdminDashboardPage() {
         checkedIn: summary.checkedIn + getArrivedGuestCount(booking),
         complimentary:
           summary.complimentary + (booking.totalPrice === 0 ? 1 : 0),
-        depositsReceived: summary.depositsReceived + financials.amountPaid,
+        depositsReceived:
+          summary.depositsReceived +
+          (getBookingPaymentStatus(booking) === "deposit-paid"
+            ? financials.amountPaid
+            : 0),
         outstandingBalance:
           summary.outstandingBalance + financials.balanceDue,
         totalBookings: summary.totalBookings + 1,

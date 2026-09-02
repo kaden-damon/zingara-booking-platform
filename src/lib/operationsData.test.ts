@@ -110,6 +110,24 @@ test("dashboard metrics preserve show-specific financial dimensions", () => {
   });
 });
 
+test("manifests keep unallocated imports visible and deposits narrowly defined", async () => {
+  const source = await readFile(
+    new URL("../app/admin/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /return !matchingTable;/,
+    "physical table matching must be authoritative even when legacy metadata retains a table label",
+  );
+  assert.match(
+    source,
+    /getBookingPaymentStatus\(booking\) === "deposit-paid"[\s\S]*?financials\.amountPaid/,
+    "manifest deposits must exclude fully paid receipts",
+  );
+});
+
 test("individual ticket arrivals contribute without marking the whole booking arrived", () => {
   const partial = booking({
     guestTickets: [
