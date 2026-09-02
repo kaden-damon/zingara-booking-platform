@@ -135,6 +135,11 @@ test("manifests keep unallocated imports visible and deposits narrowly defined",
     /row\.table_id \?\? "requires-floor-assignment"/,
     "authoritative null table assignments must not revive stale legacy metadata",
   );
+  assert.match(
+    bookingSource,
+    /row\.table_row\?\.section \?\? row\.section \?\? metadataBooking\.zoneId/,
+    "authoritative booking sections must take precedence over stale legacy zone metadata",
+  );
 });
 
 test("individual ticket arrivals contribute without marking the whole booking arrived", () => {

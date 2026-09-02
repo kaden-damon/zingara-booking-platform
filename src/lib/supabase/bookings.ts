@@ -633,9 +633,9 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     );
     const authoritativeShowId =
       parseShowNotes(row.show_row?.notes ?? null) || row.show_id;
-    const authoritativeZoneId = row.table_id
-      ? normalizeBookingSection(row.table_row?.section ?? row.section)
-      : metadataBooking.zoneId;
+    const authoritativeZoneId = normalizeBookingSection(
+      row.table_row?.section ?? row.section ?? metadataBooking.zoneId,
+    );
     const hasReleasedCancelledTable =
       row.booking_status === "cancelled" && !row.table_id;
     const authoritativeTableNumber = row.table_id
