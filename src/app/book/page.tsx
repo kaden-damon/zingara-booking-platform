@@ -93,6 +93,7 @@ import {
   formatPublicBookingOpeningDate,
   getPublicBookingSalesStatus,
 } from "../../lib/publicBookingSales";
+import { getPublicBookingCutoff } from "../../lib/bookingDeadlines";
 
 type SeatingOption = SeatingZone;
 
@@ -935,7 +936,18 @@ export default function BookingPage() {
   const selectedDateShows = locationVisibleShows.filter(
     (show) => show.date === selectedShowDate,
   );
-  const selectedShowIsBookable = isGuestBookableShow(selectedShow);
+  const isShowPastPublicCutoff = (show: DemoShow | undefined) => {
+    if (!show) return false;
+    const location = getShowVenueKey(show);
+    if (!location) return false;
+    return getPublicBookingCutoff({
+      date: show.date,
+      location,
+      settings: venueConfig,
+    }).closed;
+  };
+  const selectedShowIsBookable =
+    isGuestBookableShow(selectedShow) && !isShowPastPublicCutoff(selectedShow);
   const hasBookableSeatingOption =
     selectedShowId &&
     selectedShowIsBookable &&
@@ -3328,7 +3340,19 @@ export default function BookingPage() {
                         (show) => show.date === dateValue,
                       ),
                     );
-                    const isAvailableDate = showDateSet.has(dateValue);
+                    const dateShows = locationVisibleShows.filter(
+                      (show) => show.date === dateValue,
+                    );
+                    const isAvailableDate =
+                      showDateSet.has(dateValue) &&
+                      dateShows.some(
+                        (show) =>
+                          isGuestBookableShow(show) &&
+                          !isShowPastPublicCutoff(show),
+                      );
+                    const dateCutoffClosed =
+                      dateShows.length > 0 &&
+                      dateShows.every((show) => isShowPastPublicCutoff(show));
                     const isSelectedDate =
                       selectedShowDate === dateValue;
 
@@ -3339,13 +3363,17 @@ export default function BookingPage() {
                         disabled={!isAvailableDate}
                         onClick={() => selectShowDate(dateValue)}
                         title={
-                          dateStatus
+                          dateCutoffClosed
+                            ? "Online bookings closed"
+                            : dateStatus
                             ? bookingCalendarStatusLabels[dateStatus]
                             : "Unavailable"
                         }
                         className={`aspect-square rounded-lg border text-xs font-semibold transition sm:rounded-xl sm:text-sm ${
                           isSelectedDate
                             ? "border-white bg-[#D8C36A] text-black shadow-[0_0_28px_rgba(216,195,106,0.35)]"
+                            : dateCutoffClosed
+                              ? "cursor-not-allowed border-white/10 bg-zinc-900/60 text-zinc-500"
                             : dateStatus
                               ? bookingCalendarStatusClasses[dateStatus]
                               : "cursor-not-allowed border-white/5 bg-zinc-900/60 text-zinc-700"
@@ -3397,7 +3425,9 @@ export default function BookingPage() {
                 {selectedDateShows.map((show) => {
                   const isSelectedTime = selectedShowId === show.id;
                   const showStatus = getGuestShowStatus(show);
-                  const isBookableTime = isGuestBookableShow(show);
+                  const cutoffClosed = isShowPastPublicCutoff(show);
+                  const isBookableTime =
+                    isGuestBookableShow(show) && !cutoffClosed;
 
                   return (
                     <button
@@ -3429,7 +3459,9 @@ export default function BookingPage() {
                                   : "border-zinc-500/35 text-zinc-400"
                         }`}
                       >
-                        {bookingCalendarStatusLabels[showStatus]}
+                        {cutoffClosed
+                          ? "Online bookings closed"
+                          : bookingCalendarStatusLabels[showStatus]}
                       </span>
                     </button>
                   );

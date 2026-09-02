@@ -318,6 +318,7 @@ import {
   publicBookingTimezone,
   toJohannesburgDateTimeInput,
 } from "../../lib/publicBookingSales";
+import { getCorporatePaymentHoldStatus } from "../../lib/bookingDeadlines";
 import BookingPaginationControls from "./BookingPaginationControls";
 
 type NewTableForm = {
@@ -7250,6 +7251,11 @@ type PublicBookingSalesDraft = Record<
   {
     enabled: boolean;
     opensAt: string;
+    sameDayCutoffEnabled: boolean;
+    sameDayCutoffTime: string;
+    corporatePaymentHoldEnabled: boolean;
+    corporatePaymentHoldDays: string;
+    corporatePaymentReminderDays: string;
   }
 >;
 
@@ -7260,12 +7266,19 @@ function createPublicBookingSalesDraft(
     showLocationOptions.map((location) => {
       const configuration =
         settings.operationalSettings.publicBookings[location.value];
+      const corporateHold =
+        settings.operationalSettings.corporatePaymentHolds[location.value];
 
       return [
         location.value,
         {
           enabled: configuration.enabled,
           opensAt: toJohannesburgDateTimeInput(configuration.opensAt),
+          sameDayCutoffEnabled: configuration.sameDayCutoffEnabled,
+          sameDayCutoffTime: configuration.sameDayCutoffTime,
+          corporatePaymentHoldEnabled: corporateHold.enabled,
+          corporatePaymentHoldDays: String(corporateHold.durationDays),
+          corporatePaymentReminderDays: String(corporateHold.reminderDaysBefore),
         },
       ];
     }),
@@ -15826,6 +15839,9 @@ export default function AdminDashboardPage() {
     const nextPublicBookings = {
       ...venueSettings.operationalSettings.publicBookings,
     };
+    const nextCorporatePaymentHolds = {
+      ...venueSettings.operationalSettings.corporatePaymentHolds,
+    };
 
     for (const location of showLocationOptions) {
       const draft = publicBookingSalesDraft[location.value];
@@ -15839,9 +15855,31 @@ export default function AdminDashboardPage() {
         return;
       }
 
+      const holdDays = Number(draft.corporatePaymentHoldDays);
+      const reminderDays = Number(draft.corporatePaymentReminderDays);
+
+      if (
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.sameDayCutoffTime) ||
+        !Number.isInteger(holdDays) || holdDays < 1 || holdDays > 90 ||
+        !Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays >= holdDays
+      ) {
+        setVenueConfigurationSaveState("error");
+        setVenueConfigurationError(
+          `Enter a valid cutoff and Corporate hold/reminder duration for ${location.city}.`,
+        );
+        return;
+      }
+
       nextPublicBookings[location.value] = {
         enabled: draft.enabled,
         opensAt,
+        sameDayCutoffEnabled: draft.sameDayCutoffEnabled,
+        sameDayCutoffTime: draft.sameDayCutoffTime,
+      };
+      nextCorporatePaymentHolds[location.value] = {
+        durationDays: holdDays,
+        enabled: draft.corporatePaymentHoldEnabled,
+        reminderDaysBefore: reminderDays,
       };
     }
 
@@ -15883,6 +15921,7 @@ export default function AdminDashboardPage() {
       ...venueSettings,
       operationalSettings: {
         ...venueSettings.operationalSettings,
+        corporatePaymentHolds: nextCorporatePaymentHolds,
         publicBookings: nextPublicBookings,
       },
       zonePricing: nextZonePricing,
@@ -32786,6 +32825,78 @@ export default function AdminDashboardPage() {
                               className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
                             />
                           </label>
+                          <div className="mt-3 border-t border-white/10 pt-3">
+                            <label className="flex min-h-11 items-center gap-3 text-sm text-zinc-300">
+                              <input
+                                type="checkbox"
+                                checked={draft.sameDayCutoffEnabled}
+                                onChange={(event) =>
+                                  updatePublicBookingSalesDraft(location.value, {
+                                    sameDayCutoffEnabled: event.target.checked,
+                                  })
+                                }
+                              />
+                              Same-day public booking cutoff
+                            </label>
+                            <label className="mt-2 block text-sm text-zinc-400">
+                              Cutoff time (SAST)
+                              <input
+                                type="time"
+                                value={draft.sameDayCutoffTime}
+                                onChange={(event) =>
+                                  updatePublicBookingSalesDraft(location.value, {
+                                    sameDayCutoffTime: event.target.value,
+                                  })
+                                }
+                                className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                              />
+                            </label>
+                          </div>
+                          <div className="mt-3 border-t border-white/10 pt-3">
+                            <label className="flex min-h-11 items-center gap-3 text-sm text-zinc-300">
+                              <input
+                                type="checkbox"
+                                checked={draft.corporatePaymentHoldEnabled}
+                                onChange={(event) =>
+                                  updatePublicBookingSalesDraft(location.value, {
+                                    corporatePaymentHoldEnabled: event.target.checked,
+                                  })
+                                }
+                              />
+                              Corporate payment hold
+                            </label>
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                              <label className="text-sm text-zinc-400">
+                                Hold days
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={90}
+                                  value={draft.corporatePaymentHoldDays}
+                                  onChange={(event) =>
+                                    updatePublicBookingSalesDraft(location.value, {
+                                      corporatePaymentHoldDays: event.target.value,
+                                    })
+                                  }
+                                  className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                                />
+                              </label>
+                              <label className="text-sm text-zinc-400">
+                                Reminder days
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={draft.corporatePaymentReminderDays}
+                                  onChange={(event) =>
+                                    updatePublicBookingSalesDraft(location.value, {
+                                      corporatePaymentReminderDays: event.target.value,
+                                    })
+                                  }
+                                  className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                                />
+                              </label>
+                            </div>
+                          </div>
                         </div>
                       );
                     })}
@@ -40298,6 +40409,23 @@ export default function AdminDashboardPage() {
 	                              Corporate
 	                            </span>
 	                          )}
+                          {isCorporateBooking && booking.corporatePaymentDeadline && (
+                            <span className="inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-amber-300/35 bg-amber-950/25 px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] text-amber-100">
+                              {getCorporatePaymentHoldStatus({
+                                amountPaid: booking.amountPaid ?? 0,
+                                deadline: booking.corporatePaymentDeadline,
+                                expiredAt: booking.corporatePaymentExpiredAt,
+                              }) === "payment-received"
+                                ? "Payment received"
+                                : getCorporatePaymentHoldStatus({
+                                      amountPaid: booking.amountPaid ?? 0,
+                                      deadline: booking.corporatePaymentDeadline,
+                                      expiredAt: booking.corporatePaymentExpiredAt,
+                                    }) === "expired"
+                                  ? "Payment expired"
+                                  : "Awaiting payment"}
+                            </span>
+                          )}
                           <span className="inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-sky-300/30 bg-sky-950/25 px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] text-sky-100">
                             {
                               bookingOriginLabels[
@@ -40529,6 +40657,27 @@ export default function AdminDashboardPage() {
                         </p>
                       )}
                     </div>
+                    {isCorporateBooking && booking.corporatePaymentDeadline && (
+                      <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-950/15 p-4 text-sm text-amber-50">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-200">
+                          Corporate Payment Hold
+                        </p>
+                        <p className="mt-2">
+                          Payment deadline: {new Intl.DateTimeFormat("en-ZA", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                            timeZone: "Africa/Johannesburg",
+                          }).format(new Date(booking.corporatePaymentDeadline))}
+                        </p>
+                        <p className="mt-1 text-amber-100/75">
+                          {getCorporatePaymentHoldStatus({
+                            amountPaid: booking.amountPaid ?? 0,
+                            deadline: booking.corporatePaymentDeadline,
+                            expiredAt: booking.corporatePaymentExpiredAt,
+                          }).replaceAll("-", " ")}
+                        </p>
+                      </div>
+                    )}
 
                     {bookingLockedByOther && bookingLock && (
                       <div className="mt-4 rounded-2xl border border-sky-300/30 bg-sky-950/20 p-4">

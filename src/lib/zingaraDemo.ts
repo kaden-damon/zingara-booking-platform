@@ -56,8 +56,18 @@ export type DemoVenueSettings = {
     publicBookings: Record<
       EntryLocationKey,
       {
+        sameDayCutoffEnabled: boolean;
+        sameDayCutoffTime: string;
         enabled: boolean;
         opensAt: string | null;
+      }
+    >;
+    corporatePaymentHolds: Record<
+      EntryLocationKey,
+      {
+        enabled: boolean;
+        durationDays: number;
+        reminderDaysBefore: number;
       }
     >;
     ticketRefreshSeconds: number;
@@ -140,10 +150,26 @@ export const defaultVenueSettings: DemoVenueSettings = {
       "cape-town": {
         enabled: true,
         opensAt: "2026-09-08T22:00:00.000Z",
+        sameDayCutoffEnabled: true,
+        sameDayCutoffTime: "12:00",
       },
       johannesburg: {
         enabled: true,
         opensAt: null,
+        sameDayCutoffEnabled: true,
+        sameDayCutoffTime: "12:00",
+      },
+    },
+    corporatePaymentHolds: {
+      "cape-town": {
+        durationDays: 7,
+        enabled: true,
+        reminderDaysBefore: 1,
+      },
+      johannesburg: {
+        durationDays: 7,
+        enabled: true,
+        reminderDaysBefore: 1,
       },
     },
     ticketRefreshSeconds: 20,
@@ -605,6 +631,10 @@ export type DemoBooking = {
   guestTickets?: GuestTicket[];
   corporatePaymentLinkSentAt?: string;
   corporatePaymentToken?: string;
+  corporatePaymentDeadline?: string;
+  corporatePaymentExpiredAt?: string;
+  corporatePaymentReminderAt?: string;
+  corporatePaymentReminderSentAt?: string;
   promoCode?: string;
   promoCodeId?: string;
   promoLabel?: string;
@@ -1478,10 +1508,24 @@ export function normalizeVenueSettings(
     operationalSettings: {
       ...defaultVenueSettings.operationalSettings,
       ...(incoming.operationalSettings ?? {}),
-      publicBookings: {
-        ...defaultVenueSettings.operationalSettings.publicBookings,
-        ...(incoming.operationalSettings?.publicBookings ?? {}),
-      },
+      publicBookings: Object.fromEntries(
+        showLocationOptions.map((location) => [
+          location.value,
+          {
+            ...defaultVenueSettings.operationalSettings.publicBookings[location.value],
+            ...(incoming.operationalSettings?.publicBookings?.[location.value] ?? {}),
+          },
+        ]),
+      ) as DemoVenueSettings["operationalSettings"]["publicBookings"],
+      corporatePaymentHolds: Object.fromEntries(
+        showLocationOptions.map((location) => [
+          location.value,
+          {
+            ...defaultVenueSettings.operationalSettings.corporatePaymentHolds[location.value],
+            ...(incoming.operationalSettings?.corporatePaymentHolds?.[location.value] ?? {}),
+          },
+        ]),
+      ) as DemoVenueSettings["operationalSettings"]["corporatePaymentHolds"],
     },
     zonePricing,
   } as DemoVenueSettings;

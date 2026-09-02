@@ -76,6 +76,29 @@ function validateConfiguration(
     ) {
       return `Enter a valid public booking opening time for ${location.city}.`;
     }
+
+    if (
+      typeof publicBookings.sameDayCutoffEnabled !== "boolean" ||
+      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(publicBookings.sameDayCutoffTime)
+    ) {
+      return `Enter a valid same-day booking cutoff for ${location.city}.`;
+    }
+
+    const corporateHold =
+      settings.operationalSettings.corporatePaymentHolds[location.value];
+
+    if (
+      !corporateHold ||
+      typeof corporateHold.enabled !== "boolean" ||
+      !Number.isInteger(corporateHold.durationDays) ||
+      corporateHold.durationDays < 1 ||
+      corporateHold.durationDays > 90 ||
+      !Number.isInteger(corporateHold.reminderDaysBefore) ||
+      corporateHold.reminderDaysBefore < 0 ||
+      corporateHold.reminderDaysBefore >= corporateHold.durationDays
+    ) {
+      return `Enter a valid Corporate payment hold for ${location.city}.`;
+    }
   }
 
   for (const zoneId of configurableZones) {

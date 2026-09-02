@@ -59,6 +59,7 @@ import {
 import { requirePublicMaintenanceAvailable } from "@/lib/platformMaintenance";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 import { isPublicBookingOpen } from "@/lib/publicBookingSales";
+import { getPublicBookingCutoff } from "@/lib/bookingDeadlines";
 import {
   getBookingCapacityConflictResponse,
   isBookingCapacityError,
@@ -1535,6 +1536,26 @@ export async function POST(request: Request) {
           },
           { status: 403 },
         );
+      }
+
+      if (showLocation) {
+        const cutoff = getPublicBookingCutoff({
+          date: show.date,
+          location: showLocation,
+          settings: publicBookingSettings,
+        });
+
+        if (cutoff.closed) {
+          return Response.json(
+            {
+              code: "PUBLIC_BOOKING_CUTOFF_REACHED",
+              cutoffAt: cutoff.cutoffAt,
+              error:
+                "Online bookings for this performance have closed. Please contact the Box Office for assistance.",
+            },
+            { status: 409 },
+          );
+        }
       }
     }
 

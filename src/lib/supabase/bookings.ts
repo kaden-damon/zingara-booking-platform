@@ -48,6 +48,10 @@ type SupabaseBookingRow = {
   booking_source: string;
   booking_status: SupabaseBookingStatus;
   company_name: string | null;
+  corporate_payment_deadline: string | null;
+  corporate_payment_expired_at: string | null;
+  corporate_payment_reminder_at: string | null;
+  corporate_payment_reminder_sent_at: string | null;
   created_at: string;
   created_by_staff_id: string | null;
   created_by_staff?: {
@@ -652,6 +656,11 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       bookingOrigin: row.booking_origin ?? "legacy_unknown",
       createdByStaffId: row.created_by_staff_id ?? undefined,
       createdByStaffName: resolveStaffDisplayName(row.created_by_staff),
+      corporatePaymentDeadline: row.corporate_payment_deadline ?? undefined,
+      corporatePaymentExpiredAt: row.corporate_payment_expired_at ?? undefined,
+      corporatePaymentReminderAt: row.corporate_payment_reminder_at ?? undefined,
+      corporatePaymentReminderSentAt:
+        row.corporate_payment_reminder_sent_at ?? undefined,
       discountAmount: row.discount_amount,
       partySize: row.guest_count,
       paymentStatus: toDemoPaymentStatus(row.payment_status),
@@ -707,6 +716,11 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     createdAt: row.created_at,
     createdByStaffId: row.created_by_staff_id ?? undefined,
     createdByStaffName: resolveStaffDisplayName(row.created_by_staff),
+    corporatePaymentDeadline: row.corporate_payment_deadline ?? undefined,
+    corporatePaymentExpiredAt: row.corporate_payment_expired_at ?? undefined,
+    corporatePaymentReminderAt: row.corporate_payment_reminder_at ?? undefined,
+    corporatePaymentReminderSentAt:
+      row.corporate_payment_reminder_sent_at ?? undefined,
     customer: getDemoCustomerFromCustomerRow(row.customer_row) ?? {
       email: "",
       name: "Imported Guest",
