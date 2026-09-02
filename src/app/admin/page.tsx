@@ -12,11 +12,16 @@ import {
 } from "react";
 
 import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
+import { AdminSearchInput } from "./AdminSearchInput";
 import {
   FinancialReconciliationModal,
   GuestCountReconciliationModal,
   type BookingReconciliationDetails,
 } from "./BookingReconciliationModal";
+import {
+  CustomerIdentityEditor,
+  type CustomerIdentityDraft,
+} from "./CustomerIdentityEditor";
 import CookiePrivacyPreferences from "./CookiePrivacyPreferences";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
 
@@ -737,12 +742,6 @@ type AnalyticsSectionId =
 type BookingArchiveFilter = "active" | "all" | "archived";
 type CustomerArchiveFilter = "active" | "all" | "archived";
 type CustomerNameStatusFilter = "all" | "complete" | "incomplete";
-type CustomerIdentityFormState = {
-  email: string;
-  firstName: string;
-  lastName: string;
-  mobile: string;
-};
 type BookingViewMode = "grid" | "list";
 type FloorZoneFilter = SeatingZoneId | "all";
 type OperationsTab =
@@ -9788,13 +9787,6 @@ export default function AdminDashboardPage() {
     useState<CustomerNameStatusFilter>("all");
   const [editingCustomerIdentityId, setEditingCustomerIdentityId] =
     useState<string | null>(null);
-  const [customerIdentityForm, setCustomerIdentityForm] =
-    useState<CustomerIdentityFormState>({
-      email: "",
-      firstName: "",
-      lastName: "",
-      mobile: "",
-    });
   const [customerIdentityError, setCustomerIdentityError] =
     useState("");
   const [isCustomerIdentitySaving, setIsCustomerIdentitySaving] =
@@ -21852,7 +21844,11 @@ export default function AdminDashboardPage() {
     });
   }
 
-  async function saveFinancialReconciliation() {
+  async function saveFinancialReconciliation(draft: {
+    amountPaid: number;
+    reason: string;
+    totalAmount: number;
+  }) {
     if (!financialReconciliation) return;
 
     setFinancialReconciliation((current) =>
@@ -21863,13 +21859,13 @@ export default function AdminDashboardPage() {
       await fetchSupabaseApi("/api/admin/bookings/reconciliation", {
         body: {
           action: "financial",
-          amountPaid: financialReconciliation.amountPaid,
+          amountPaid: draft.amountPaid,
           bookingReference:
             financialReconciliation.details.booking.bookingReference,
           expectedUpdatedAt:
             financialReconciliation.details.booking.updatedAt,
-          reason: financialReconciliation.reason,
-          totalAmount: financialReconciliation.totalAmount,
+          reason: draft.reason,
+          totalAmount: draft.totalAmount,
         },
         method: "POST",
       });
@@ -21892,7 +21888,10 @@ export default function AdminDashboardPage() {
     }
   }
 
-  async function saveGuestCountReconciliation() {
+  async function saveGuestCountReconciliation(draft: {
+    guestCount: number;
+    reason: string;
+  }) {
     if (!guestCountReconciliation) return;
 
     setGuestCountReconciliation((current) =>
@@ -21907,8 +21906,8 @@ export default function AdminDashboardPage() {
             guestCountReconciliation.details.booking.bookingReference,
           expectedUpdatedAt:
             guestCountReconciliation.details.booking.updatedAt,
-          guestCount: guestCountReconciliation.guestCount,
-          reason: guestCountReconciliation.reason,
+          guestCount: draft.guestCount,
+          reason: draft.reason,
         },
         method: "POST",
       });
@@ -22860,38 +22859,21 @@ export default function AdminDashboardPage() {
       setCustomerIdentityError(
         "The linked customer record is no longer available.",
       );
-      populateCustomerIdentityForm(null);
       return;
     }
 
-    populateCustomerIdentityForm(customer);
     setEditingCustomerIdentityId(customer.id);
     setCustomerIdentityError("");
-  }
-
-  function populateCustomerIdentityForm(customer: LiveCustomerRecord | null) {
-    const nameParts = customer
-      ? deriveCustomerNameParts({
-          firstName: customer.first_name,
-          lastName: customer.surname,
-        })
-      : null;
-
-    setCustomerIdentityForm({
-      email: customer?.email ?? "",
-      firstName: nameParts?.firstName ?? "",
-      lastName: nameParts?.lastName ?? "",
-      mobile: customer?.mobile ?? "",
-    });
   }
 
   function cancelCustomerIdentityEdit() {
     setEditingCustomerIdentityId(null);
     setCustomerIdentityError("");
-    populateCustomerIdentityForm(null);
   }
 
-  async function saveCustomerIdentityDetails() {
+  async function saveCustomerIdentityDetails(
+    customerIdentityForm: CustomerIdentityDraft,
+  ) {
     if (!editingCustomerIdentityId || !canManageBookings) {
       return;
     }
@@ -22986,109 +22968,24 @@ export default function AdminDashboardPage() {
       );
     }
 
+    const nameParts = deriveCustomerNameParts({
+      firstName: customer.first_name,
+      lastName: customer.surname,
+    });
+
     return (
-      <div className="rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/10 p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
-              Edit Customer Details
-            </p>
-            <p className="mt-1 text-sm text-zinc-300">
-              Updates the linked customer profile used by Admin booking views.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={cancelCustomerIdentityEdit}
-            disabled={isCustomerIdentitySaving}
-            className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-200 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Cancel
-          </button>
-        </div>
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <label>
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              First Name
-            </span>
-            <input
-              value={customerIdentityForm.firstName}
-              onChange={(event) =>
-                setCustomerIdentityForm((currentForm) => ({
-                  ...currentForm,
-                  firstName: event.target.value,
-                }))
-              }
-              disabled={isCustomerIdentitySaving}
-              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
-            />
-          </label>
-          <label>
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Last Name
-            </span>
-            <input
-              value={customerIdentityForm.lastName}
-              onChange={(event) =>
-                setCustomerIdentityForm((currentForm) => ({
-                  ...currentForm,
-                  lastName: event.target.value,
-                }))
-              }
-              disabled={isCustomerIdentitySaving}
-              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
-            />
-          </label>
-          <label>
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Email
-            </span>
-            <input
-              autoComplete="email"
-              type="email"
-              value={customerIdentityForm.email}
-              onChange={(event) =>
-                setCustomerIdentityForm((currentForm) => ({
-                  ...currentForm,
-                  email: event.target.value,
-                }))
-              }
-              disabled={isCustomerIdentitySaving}
-              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
-            />
-          </label>
-          <label>
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Mobile
-            </span>
-            <input
-              autoComplete="tel"
-              value={customerIdentityForm.mobile}
-              onChange={(event) =>
-                setCustomerIdentityForm((currentForm) => ({
-                  ...currentForm,
-                  mobile: event.target.value,
-                }))
-              }
-              disabled={isCustomerIdentitySaving}
-              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
-            />
-          </label>
-        </div>
-        {customerIdentityError && (
-          <p className="mt-3 text-sm font-semibold text-red-200">
-            {customerIdentityError}
-          </p>
-        )}
-        <button
-          type="button"
-          onClick={() => void saveCustomerIdentityDetails()}
-          disabled={isCustomerIdentitySaving}
-          className="mt-4 rounded-full border border-emerald-300/40 px-5 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-100 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isCustomerIdentitySaving ? "Saving..." : "Save Changes"}
-        </button>
-      </div>
+      <CustomerIdentityEditor
+        error={customerIdentityError}
+        initialValue={{
+          email: customer.email ?? "",
+          firstName: nameParts.firstName,
+          lastName: nameParts.lastName,
+          mobile: customer.mobile ?? "",
+        }}
+        isSaving={isCustomerIdentitySaving}
+        onCancel={cancelCustomerIdentityEdit}
+        onSave={(draft) => void saveCustomerIdentityDetails(draft)}
+      />
     );
   }
 
@@ -23488,8 +23385,22 @@ export default function AdminDashboardPage() {
     );
   }
 
-  const filteredBookings = bookings.filter((booking) =>
-    bookingMatchesCurrentFilters(booking),
+  const filteredBookings = useMemo(
+    () =>
+      bookings.filter((booking) => bookingMatchesCurrentFilters(booking)),
+    [
+      activeAdminTab,
+      bookingArchiveFilter,
+      bookingDateFilter,
+      bookingSearch,
+      bookingShowFilter,
+      bookingSourceFilter,
+      bookingStatusFilter,
+      bookings,
+      corporateRequests,
+      hideCancelledBookings,
+      shows,
+    ],
   );
   const activeBookingPageSize =
     activeAdminTab === "corporate"
@@ -24531,7 +24442,7 @@ export default function AdminDashboardPage() {
     waitlistTotal > 0
       ? (convertedWaitlistCount / waitlistTotal) * 100
       : 0;
-  const customerProfiles = (() => {
+  const customerProfiles = useMemo(() => {
     const profilesByIdentity = bookings.reduce(
       (profiles, booking) => {
         const customerKey = getCustomerKey(booking.customer);
@@ -24623,7 +24534,18 @@ export default function AdminDashboardPage() {
     }
 
     return Object.values(profilesByIdentity).map((profile) => {
-      const liveCustomer = getLiveCustomerForProfile(profile);
+      const liveCustomer = profile.customerId
+        ? liveCustomerRecords.find(
+            (record) => record.id === profile.customerId,
+          ) ?? null
+        : resolveLiveCustomer({
+            customer: {
+              email: profile.customer.email,
+              key: profile.key,
+              phone: profile.customer.phone,
+            },
+            records: liveCustomerRecords,
+          }) ?? null;
       const activeBookings = profile.bookingHistory.filter(
       (booking) => (booking.status ?? "confirmed") !== "cancelled",
     );
@@ -24749,26 +24671,44 @@ export default function AdminDashboardPage() {
       (firstProfile, secondProfile) =>
         secondProfile.totalSpend - firstProfile.totalSpend,
     );
-  })();
+  }, [bookings, customerCrmRecords, liveCustomerRecords, waitlist]);
   const hasLoadedLiveCustomerRecords = customerDataLoadStatus === "loaded";
-  const activeCustomerCount = hasLoadedLiveCustomerRecords
-    ? customerProfiles.filter((profile) => !profile.archivedAt).length
-    : 0;
-  const archivedCustomerCount = hasLoadedLiveCustomerRecords
-    ? customerProfiles.length - activeCustomerCount
-    : 0;
-  const incompleteCustomerNameCount = hasLoadedLiveCustomerRecords
-    ? customerProfiles.filter((profile) => {
-        if (profile.archivedAt) {
-          return false;
-        }
+  const {
+    activeCustomerCount,
+    archivedCustomerCount,
+    incompleteCustomerNameCount,
+  } = useMemo(() => {
+    if (!hasLoadedLiveCustomerRecords) {
+      return {
+        activeCustomerCount: 0,
+        archivedCustomerCount: 0,
+        incompleteCustomerNameCount: 0,
+      };
+    }
 
-        return !getCustomerProfileNameStatus(profile).isComplete;
-      }).length
-    : 0;
+    let activeCount = 0;
+    let incompleteNameCount = 0;
+
+    for (const profile of customerProfiles) {
+      if (profile.archivedAt) continue;
+      activeCount += 1;
+
+      if (!getCustomerProfileNameStatus(profile).isComplete) {
+        incompleteNameCount += 1;
+      }
+    }
+
+    return {
+      activeCustomerCount: activeCount,
+      archivedCustomerCount: customerProfiles.length - activeCount,
+      incompleteCustomerNameCount: incompleteNameCount,
+    };
+  }, [customerProfiles, hasLoadedLiveCustomerRecords]);
   const customerSearchTerm = customerSearch.trim().toLowerCase();
-  const filteredCustomerProfiles = hasLoadedLiveCustomerRecords
-    ? customerProfiles.filter((profile) => {
+  const filteredCustomerProfiles = useMemo(
+    () =>
+      hasLoadedLiveCustomerRecords
+        ? customerProfiles.filter((profile) => {
         if (customerArchiveFilter === "active" && profile.archivedAt) {
           return false;
         }
@@ -24814,8 +24754,16 @@ export default function AdminDashboardPage() {
             tag.toLowerCase().includes(customerSearchTerm),
           )
         );
-      })
-    : [];
+          })
+        : [],
+    [
+      customerArchiveFilter,
+      customerNameStatusFilter,
+      customerProfiles,
+      customerSearchTerm,
+      hasLoadedLiveCustomerRecords,
+    ],
+  );
   const selectedCustomerProfile =
     customerProfiles.find(
       (profile) =>
@@ -24879,7 +24827,6 @@ export default function AdminDashboardPage() {
 
     setEditingCustomerIdentityId(null);
     setCustomerIdentityError("");
-    populateCustomerIdentityForm(null);
   }, [
     activeAdminTab,
     selectedLiveCustomerRecord,
@@ -28590,9 +28537,9 @@ export default function AdminDashboardPage() {
 
               <label className="text-sm text-zinc-400">
                 Search
-                <input
+                <AdminSearchInput
                   value={manifestSearch}
-                  onChange={(event) => setManifestSearch(event.target.value)}
+                  onSearchChange={setManifestSearch}
                   placeholder="Reference, guest, contact, table"
                   className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
                 />
@@ -31224,9 +31171,9 @@ export default function AdminDashboardPage() {
                       persisted redemptions.
                     </p>
                   </div>
-                  <input
+                  <AdminSearchInput
                     value={promoCodeSearch}
-                    onChange={(event) => setPromoCodeSearch(event.target.value)}
+                    onSearchChange={setPromoCodeSearch}
                     className="w-full rounded-full border border-white/10 bg-zinc-950 px-4 py-2 text-sm text-white sm:max-w-xs"
                     placeholder="Search codes"
                   />
@@ -33042,11 +32989,9 @@ export default function AdminDashboardPage() {
               </label>
               <label className="md:col-span-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
                 Booking Reference
-                <input
+                <AdminSearchInput
                   value={platformOperationsBookingSearch}
-                  onChange={(event) =>
-                    setPlatformOperationsBookingSearch(event.target.value)
-                  }
+                  onSearchChange={setPlatformOperationsBookingSearch}
                   placeholder="Optional booking reference"
                   className="mt-2 w-full rounded-2xl border border-white/10 bg-black px-3 py-2 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
                 />
@@ -34358,9 +34303,9 @@ export default function AdminDashboardPage() {
                       </option>
                     ))}
                   </select>
-                  <input
+                  <AdminSearchInput
                     value={showSearch}
-                    onChange={(event) => setShowSearch(event.target.value)}
+                    onSearchChange={setShowSearch}
                     placeholder="Search shows"
                     className="rounded-xl border border-white/15 bg-black px-4 py-3 text-sm text-white"
                   />
@@ -35745,11 +35690,9 @@ export default function AdminDashboardPage() {
                         <path d="m20 20-4.35-4.35" />
                       </svg>
                     </span>
-                    <input
+                    <AdminSearchInput
                       value={customerSearch}
-                      onChange={(event) =>
-                        setCustomerSearch(event.target.value)
-                      }
+                      onSearchChange={setCustomerSearch}
                       aria-label="Search customers"
                       className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-0 text-sm text-transparent shadow-[0_0_18px_rgba(216,195,106,0.1)] transition-all duration-300 focus:border-[#D8C36A]/70 focus:pr-4 focus:text-white focus:outline-none"
                     />
@@ -36669,11 +36612,9 @@ export default function AdminDashboardPage() {
                       <path d="m20 20-4.35-4.35" />
                     </svg>
                   </span>
-                  <input
+                  <AdminSearchInput
                     value={waitlistSearch}
-                    onChange={(event) =>
-                      setWaitlistSearch(event.target.value)
-                    }
+                    onSearchChange={setWaitlistSearch}
                     aria-label="Search selected show waitlist"
                     placeholder="Search guests or references"
                     className="h-11 w-full rounded-full border border-white/10 bg-black/45 pl-12 pr-4 text-sm text-white shadow-[0_0_18px_rgba(216,195,106,0.08)] transition placeholder:text-zinc-600 focus:border-[#D8C36A]/55 focus:outline-none"
@@ -37782,11 +37723,9 @@ export default function AdminDashboardPage() {
                       <path d="m20 20-4.35-4.35" />
                     </svg>
                   </span>
-                  <input
+                  <AdminSearchInput
                     value={staffSearch}
-                    onChange={(event) =>
-                      setStaffSearch(event.target.value)
-                    }
+                    onSearchChange={setStaffSearch}
                     aria-label="Search guest arrivals"
                     className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-0 text-sm text-transparent shadow-[0_0_18px_rgba(216,195,106,0.1)] transition-all duration-300 focus:border-[#D8C36A]/70 focus:pr-4 focus:text-white focus:outline-none"
                   />
@@ -39637,10 +39576,10 @@ export default function AdminDashboardPage() {
                         <path d="m20 20-4.35-4.35" />
                       </svg>
                     </span>
-                    <input
+                    <AdminSearchInput
                       value={corporateSearch}
-                      onChange={(event) => {
-                        setCorporateSearch(event.target.value);
+                      onSearchChange={(value) => {
+                        setCorporateSearch(value);
                         setCorporateActivePage(1);
                         setCorporateArchivedPage(1);
                       }}
@@ -39997,10 +39936,10 @@ export default function AdminDashboardPage() {
                       <path d="m20 20-4.35-4.35" />
                     </svg>
                   </span>
-                  <input
+                  <AdminSearchInput
                     value={bookingSearch}
-                    onChange={(event) => {
-                      setBookingSearch(event.target.value);
+                    onSearchChange={(value) => {
+                      setBookingSearch(value);
                       setBookingPage(1);
                     }}
                     aria-label={
@@ -41765,23 +41704,8 @@ export default function AdminDashboardPage() {
           details={financialReconciliation.details}
           error={financialReconciliation.error}
           isSaving={financialReconciliation.isSaving}
-          onAmountPaidChange={(amountPaid) =>
-            setFinancialReconciliation((current) =>
-              current ? { ...current, amountPaid } : current,
-            )
-          }
           onClose={() => setFinancialReconciliation(null)}
-          onReasonChange={(reason) =>
-            setFinancialReconciliation((current) =>
-              current ? { ...current, reason } : current,
-            )
-          }
-          onSave={() => void saveFinancialReconciliation()}
-          onTotalAmountChange={(totalAmount) =>
-            setFinancialReconciliation((current) =>
-              current ? { ...current, totalAmount } : current,
-            )
-          }
+          onSave={(draft) => void saveFinancialReconciliation(draft)}
           reason={financialReconciliation.reason}
           totalAmount={financialReconciliation.totalAmount}
         />
@@ -41794,17 +41718,7 @@ export default function AdminDashboardPage() {
           guestCount={guestCountReconciliation.guestCount}
           isSaving={guestCountReconciliation.isSaving}
           onClose={() => setGuestCountReconciliation(null)}
-          onGuestCountChange={(guestCount) =>
-            setGuestCountReconciliation((current) =>
-              current ? { ...current, guestCount } : current,
-            )
-          }
-          onReasonChange={(reason) =>
-            setGuestCountReconciliation((current) =>
-              current ? { ...current, reason } : current,
-            )
-          }
-          onSave={() => void saveGuestCountReconciliation()}
+          onSave={(draft) => void saveGuestCountReconciliation(draft)}
           reason={guestCountReconciliation.reason}
         />
       )}
