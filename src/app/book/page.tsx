@@ -3021,7 +3021,13 @@ export default function BookingPage() {
         )}
 
         {selectedEntryLocation && (
-          <div className="-mt-5 mb-8 flex justify-start sm:-mt-10 sm:mb-10">
+          <div
+            className={
+              isLockedCalendarCheckout
+                ? "mb-8 flex justify-start sm:mb-10"
+                : "-mt-5 mb-8 flex justify-start sm:-mt-10 sm:mb-10"
+            }
+          >
             <span className="inline-flex rounded-full border border-[#D8C36A]/35 bg-[#D8C36A]/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
               {getEntryLocationLabel(selectedEntryLocation)}
             </span>
