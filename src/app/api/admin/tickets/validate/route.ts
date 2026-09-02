@@ -27,6 +27,24 @@ const terminalTicketStatuses = new Set([
   "void",
 ]);
 
+const showMetadataPrefix = "__zingara_show_meta__:";
+
+function getLegacyShowReference(notes: string | null) {
+  if (!notes?.startsWith(showMetadataPrefix)) {
+    return "";
+  }
+
+  try {
+    const metadata = JSON.parse(notes.slice(showMetadataPrefix.length)) as {
+      legacyId?: string;
+    };
+
+    return metadata.legacyId?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export async function POST(request: Request) {
   const auth = await requireActiveStaff(request);
 
@@ -60,6 +78,7 @@ export async function POST(request: Request) {
       deviceLabel?: string;
       notes?: string;
       result?: SupabaseValidationResult;
+      showReference?: string;
       validatedAt?: string;
     };
 
@@ -73,6 +92,13 @@ export async function POST(request: Request) {
     if (!body.result) {
       return Response.json(
         { error: "Validation result is required." },
+        { status: 400 },
+      );
+    }
+
+    if (body.result === "checked_in" && !body.showReference) {
+      return Response.json(
+        { error: "A selected performance is required for check-in." },
         { status: 400 },
       );
     }
@@ -108,6 +134,43 @@ export async function POST(request: Request) {
         { error: "Ticket could not be resolved for validation." },
         { status: 404 },
       );
+    }
+
+    if (body.showReference) {
+      const { data: bookingRow, error: bookingError } = await supabase
+        .from("bookings")
+        .select("show_id")
+        .eq("id", ticket.booking_id)
+        .maybeSingle();
+
+      if (bookingError) {
+        throw bookingError;
+      }
+
+      const { data: showRow, error: showError } = bookingRow?.show_id
+        ? await supabase
+            .from("shows")
+            .select("id,notes")
+            .eq("id", bookingRow.show_id)
+            .maybeSingle()
+        : { data: null, error: null };
+
+      if (showError) {
+        throw showError;
+      }
+
+      const showIdentities = [
+        bookingRow?.show_id,
+        showRow?.id,
+        getLegacyShowReference(showRow?.notes ?? null),
+      ].filter(Boolean);
+
+      if (!showIdentities.includes(body.showReference)) {
+        return Response.json(
+          { error: "This ticket does not belong to the selected performance." },
+          { status: 409 },
+        );
+      }
     }
 
     if (

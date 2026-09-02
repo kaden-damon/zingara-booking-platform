@@ -319,6 +319,15 @@ import {
   toJohannesburgDateTimeInput,
 } from "../../lib/publicBookingSales";
 import { getCorporatePaymentHoldStatus } from "../../lib/bookingDeadlines";
+import {
+  bookingBelongsToOperationalShow,
+  getArrivedGuestCount,
+  getDefaultOperationalShow,
+  getOperationalDashboardMetrics,
+  getOperationalShowBookings,
+  getOperationalShowIdentityValues,
+  getSouthAfricaOperationalDate,
+} from "../../lib/operationsData";
 import BookingPaginationControls from "./BookingPaginationControls";
 
 type NewTableForm = {
@@ -6997,29 +7006,11 @@ function getCurrentShowCalendarMonth() {
 }
 
 function getCurrentSouthAfricaDate() {
-  return new Intl.DateTimeFormat("en-CA", {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone: "Africa/Johannesburg",
-    year: "numeric",
-  }).format(new Date());
+  return getSouthAfricaOperationalDate();
 }
 
 function getNextRelevantOperationalShow(shows: DemoShow[]) {
-  const today = getCurrentSouthAfricaDate();
-  const activeShows = [...shows]
-    .filter(
-      (show) =>
-        !show.archivedAt &&
-        (show.operationalStatus ?? "active") === "active",
-    )
-    .sort((left, right) =>
-      `${left.date}T${left.time || "00:00"}`.localeCompare(
-        `${right.date}T${right.time || "00:00"}`,
-      ),
-    );
-
-  return activeShows.find((show) => show.date >= today) ?? activeShows[0];
+  return getDefaultOperationalShow(shows, getCurrentSouthAfricaDate());
 }
 
 const operationalReportLabels: Record<OperationalReportType, string> = {
@@ -12591,9 +12582,6 @@ export default function AdminDashboardPage() {
   const operationalBookings = bookings.filter(
     isOperationallyActiveBooking,
   );
-  const todaysOperationalBookings = operationalBookings.filter(
-    (booking) => booking.bookingDate === southAfricaToday,
-  );
   const getBookingPaidAmount = (booking: DemoBooking) =>
     Math.max(booking.amountPaid ?? 0, 0);
   const getBookingOutstandingAmount = (booking: DemoBooking) =>
@@ -12602,9 +12590,7 @@ export default function AdminDashboardPage() {
       0,
     );
   function getShowIdentityValues(show?: DemoShow | null) {
-    return [show?.id, show?.supabaseId].filter(
-      (id): id is string => Boolean(id),
-    );
+    return getOperationalShowIdentityValues(show);
   }
   function getShowByIdentity(showId?: string | null) {
     if (!showId) {
@@ -12614,15 +12600,7 @@ export default function AdminDashboardPage() {
     return shows.find((show) => getShowIdentityValues(show).includes(showId));
   }
   function bookingBelongsToShow(booking: DemoBooking, show?: DemoShow | null) {
-    if (!show) {
-      return false;
-    }
-
-    if (!booking.showId) {
-      return false;
-    }
-
-    return getShowIdentityValues(show).includes(booking.showId);
+    return bookingBelongsToOperationalShow(booking, show);
   }
   const getOperationsBookingShow = (booking: DemoBooking) =>
     getShowByIdentity(booking.showId);
@@ -12631,70 +12609,64 @@ export default function AdminDashboardPage() {
 
     return normalizeShowLocation(show?.location ?? show?.venueName);
   };
+  const selectedShow = getShowByIdentity(selectedShowId);
+  const selectedDashboardBookings = getOperationalShowBookings(
+    bookings,
+    selectedShow,
+  );
+  const selectedDashboardMetrics = getOperationalDashboardMetrics(
+    selectedDashboardBookings,
+  );
+  const selectedDashboardReferences = new Set(
+    selectedDashboardBookings.map((booking) => booking.reference),
+  );
+  const selectedShowEditCount = bookingEditLocks.filter((lock) =>
+    selectedDashboardReferences.has(lock.bookingReference),
+  ).length;
   const operationsDashboardKpis = [
     {
       accent: "border-[#D8C36A]/35 bg-[#D8C36A]/10",
-      label: "Today's Bookings",
-      value: todaysOperationalBookings.length.toString(),
+      label: "Selected Show Bookings",
+      value: selectedDashboardMetrics.bookings.toString(),
     },
     {
       accent: "border-emerald-300/30 bg-emerald-950/20",
-      label: "Today's Guests",
-      value: todaysOperationalBookings
-        .reduce((total, booking) => total + booking.partySize, 0)
-        .toString(),
+      label: "Selected Show Guests",
+      value: selectedDashboardMetrics.guests.toString(),
     },
     {
       accent: "border-sky-300/30 bg-sky-950/20",
-      label: "Today's Revenue",
-      value: formatCurrency(
-        todaysOperationalBookings.reduce(
-          (total, booking) => total + getBookingPaidAmount(booking),
-          0,
-        ),
-      ),
+      label: "Selected Show Booking Value",
+      value: formatCurrency(selectedDashboardMetrics.bookingValue),
+    },
+    {
+      accent: "border-cyan-300/30 bg-cyan-950/20",
+      label: "Selected Show Revenue Collected",
+      value: formatCurrency(selectedDashboardMetrics.paid),
     },
     {
       accent: "border-amber-300/30 bg-amber-950/20",
-      label: "Outstanding Balances",
-      value: formatCurrency(
-        operationalBookings.reduce(
-          (total, booking) => total + getBookingOutstandingAmount(booking),
-          0,
-        ),
-      ),
+      label: "Selected Show Outstanding",
+      value: formatCurrency(selectedDashboardMetrics.outstanding),
     },
     {
       accent: "border-lime-300/30 bg-lime-950/20",
-      label: "Deposits Received",
-      value: formatCurrency(
-        operationalBookings
-          .filter((booking) => booking.paymentOption === "deposit")
-          .reduce(
-            (total, booking) => total + getBookingPaidAmount(booking),
-            0,
-          ),
-      ),
+      label: "Selected Show Deposits Received",
+      value: formatCurrency(selectedDashboardMetrics.depositsReceived),
     },
     {
       accent: "border-fuchsia-300/30 bg-fuchsia-950/20",
-      label: "Complimentary Bookings",
-      value: operationalBookings
-        .filter((booking) => booking.totalPrice === 0)
-        .length.toString(),
+      label: "Selected Show Complimentary",
+      value: selectedDashboardMetrics.complimentaryBookings.toString(),
     },
     {
       accent: "border-violet-300/30 bg-violet-950/20",
-      label: "Corporate Bookings",
-      value: operationalBookings
-        .filter((booking) =>
-          (booking.source ?? "").toLowerCase().includes("corporate"),
-        )
-        .length.toString(),
+      label: "Selected Show Corporate",
+      value: selectedDashboardMetrics.corporateBookings.toString(),
     },
     {
       accent: "border-orange-300/30 bg-orange-950/20",
-      label: "Upcoming Shows",
+      label: "Global · Upcoming Shows",
       value: shows
         .filter(
           (show) =>
@@ -12705,22 +12677,22 @@ export default function AdminDashboardPage() {
     },
     {
       accent: "border-rose-300/30 bg-rose-950/20",
-      label: "Cape Town Bookings",
+      label: "Global · Cape Town Bookings",
       value: operationalBookings
         .filter((booking) => getBookingLocation(booking) === "cape-town")
         .length.toString(),
     },
     {
       accent: "border-teal-300/30 bg-teal-950/20",
-      label: "Johannesburg Bookings",
+      label: "Global · Johannesburg Bookings",
       value: operationalBookings
         .filter((booking) => getBookingLocation(booking) === "johannesburg")
         .length.toString(),
     },
     {
       accent: "border-sky-300/30 bg-sky-950/20",
-      label: "Bookings Being Edited",
-      value: activeBookingEditCount.toString(),
+      label: "Selected Show Being Edited",
+      value: selectedShowEditCount.toString(),
     },
   ];
   const permittedManifestLocations = (() => {
@@ -12872,6 +12844,7 @@ export default function AdminDashboardPage() {
   const manifestSearchTerm = manifestSearch.trim().toLowerCase();
   const getManifestCheckInStatus = (booking: DemoBooking) => {
     const status = booking.status ?? "confirmed";
+    const arrived = getArrivedGuestCount(booking);
 
     if (status === "checked-in") {
       return "Checked In";
@@ -12881,7 +12854,11 @@ export default function AdminDashboardPage() {
       return "No Show";
     }
 
-    if (booking.arrivalTime) {
+    if (arrived > 0 && arrived < booking.partySize) {
+      return `${arrived}/${booking.partySize} Arrived`;
+    }
+
+    if (arrived > 0 || booking.arrivalTime) {
       return "Arrived";
     }
 
@@ -12896,6 +12873,10 @@ export default function AdminDashboardPage() {
 
     if (manifestStatusFilter === "active") {
       return isOperationallyActiveBooking(booking);
+    }
+
+    if (manifestStatusFilter === "checked-in") {
+      return getArrivedGuestCount(booking) > 0;
     }
 
     return status === manifestStatusFilter;
@@ -12996,9 +12977,7 @@ export default function AdminDashboardPage() {
       const financials = getBookingFinancials(booking);
 
       return {
-        checkedIn:
-          summary.checkedIn +
-          ((booking.status ?? "confirmed") === "checked-in" ? 1 : 0),
+        checkedIn: summary.checkedIn + getArrivedGuestCount(booking),
         complimentary:
           summary.complimentary + (booking.totalPrice === 0 ? 1 : 0),
         depositsReceived: summary.depositsReceived + financials.amountPaid,
@@ -13355,6 +13334,21 @@ export default function AdminDashboardPage() {
       Boolean(location && permittedManifestLocations.includes(location))
     );
   });
+  const selectedOperationalShowIndex = floorSelectableShows.findIndex(
+    (show) => getShowIdentityValues(show).includes(selectedShowId),
+  );
+  const previousOperationalShow =
+    selectedOperationalShowIndex > 0
+      ? floorSelectableShows[selectedOperationalShowIndex - 1]
+      : null;
+  const nextOperationalShow =
+    selectedOperationalShowIndex >= 0 &&
+    selectedOperationalShowIndex < floorSelectableShows.length - 1
+      ? floorSelectableShows[selectedOperationalShowIndex + 1]
+      : null;
+  const todayOperationalShow = floorSelectableShows.find(
+    (show) => show.date === southAfricaToday,
+  );
   const todayCheckInShows = floorSelectableShows.filter(
     (show) => show.date === southAfricaToday,
   );
@@ -20717,7 +20711,8 @@ export default function AdminDashboardPage() {
   function checkInGuest(booking: DemoBooking) {
     if (
       !canCheckInGuests ||
-      !isOperationallyActiveBooking(booking)
+      !isOperationallyActiveBooking(booking) ||
+      !bookingBelongsToShow(booking, effectiveCheckInShow)
     ) {
       return;
     }
@@ -20760,6 +20755,7 @@ export default function AdminDashboardPage() {
       deviceLabel: "Manual Check-In",
       notes: "Manual check-in recorded.",
       result: "checked_in",
+      showReference: effectiveCheckInShowId,
     });
     void sendPreferredBrowserNotification(
       "guest-checked-in",
@@ -20839,6 +20835,27 @@ export default function AdminDashboardPage() {
     const { booking, guestTicket, waitlistEntry } = findTicketRecord(code);
 
     if (booking) {
+      if (
+        effectiveCheckInShow &&
+        !bookingBelongsToShow(booking, effectiveCheckInShow)
+      ) {
+        setTicketValidationResult({
+          booking,
+          guestTicket,
+          message: "This ticket belongs to a different performance.",
+          state: "Invalid",
+        });
+        void createTicketValidation({
+          booking,
+          code: guestTicket?.ticketCode ?? normalizeTicketReference(code),
+          deviceLabel: isScannerOpen ? "QR Scanner" : "Manual Validation",
+          notes: "Ticket rejected because it belongs to another performance.",
+          result: "invalid",
+          showReference: effectiveCheckInShowId,
+        });
+        return;
+      }
+
       const state = guestTicket
         ? guestTicket.status === "checked-in"
           ? "Checked In"
@@ -20868,6 +20885,7 @@ export default function AdminDashboardPage() {
             ? "Ticket scanned and accepted for check-in."
             : `Ticket scan rejected: ${state}.`,
         result: createValidationResultForState(state),
+        showReference: effectiveCheckInShowId,
       });
       return;
     }
@@ -20884,6 +20902,7 @@ export default function AdminDashboardPage() {
         deviceLabel: isScannerOpen ? "QR Scanner" : "Manual Validation",
         notes: "Waitlist ticket rejected at entrance validation.",
         result: "invalid",
+        showReference: effectiveCheckInShowId,
       });
       return;
     }
@@ -20897,6 +20916,7 @@ export default function AdminDashboardPage() {
       deviceLabel: isScannerOpen ? "QR Scanner" : "Manual Validation",
       notes: "Invalid ticket code scanned.",
       result: "invalid",
+      showReference: effectiveCheckInShowId,
     });
   }
 
@@ -21113,6 +21133,18 @@ export default function AdminDashboardPage() {
         (currentBooking) =>
           currentBooking.reference === booking.reference,
       ) ?? booking;
+    if (
+      !effectiveCheckInShow ||
+      !bookingBelongsToShow(freshBooking, effectiveCheckInShow)
+    ) {
+      setTicketValidationResult({
+        booking: freshBooking,
+        guestTicket,
+        message: "This ticket belongs to a different performance.",
+        state: "Invalid",
+      });
+      return;
+    }
     const freshState = getBookingTicketState(freshBooking);
     const freshGuestTicket = guestTicket
       ? getGuestTicketsForBooking(freshBooking).find(
@@ -21182,6 +21214,7 @@ export default function AdminDashboardPage() {
         deviceLabel: "Entrance Check-In",
         notes: "Individual ticket accepted and guest checked in.",
         result: "checked_in",
+        showReference: effectiveCheckInShowId,
       });
       void sendPreferredBrowserNotification(
       "guest-checked-in",
@@ -21253,6 +21286,7 @@ export default function AdminDashboardPage() {
       deviceLabel: "Entrance Check-In",
       notes: "Ticket accepted and guest checked in.",
       result: "checked_in",
+      showReference: effectiveCheckInShowId,
     });
     void sendPreferredBrowserNotification(
       "guest-checked-in",
@@ -21281,6 +21315,19 @@ export default function AdminDashboardPage() {
         (currentBooking) =>
           currentBooking.reference === booking.reference,
       ) ?? booking;
+
+    if (
+      !effectiveCheckInShow ||
+      !bookingBelongsToShow(freshBooking, effectiveCheckInShow)
+    ) {
+      setTicketValidationResult({
+        booking: freshBooking,
+        guestTicket,
+        message: "Manager override blocked: ticket belongs to another performance.",
+        state: "Invalid",
+      });
+      return;
+    }
 
     if ((freshBooking.status ?? "confirmed") === "cancelled") {
       setTicketValidationResult({
@@ -21334,6 +21381,7 @@ export default function AdminDashboardPage() {
         deviceLabel: "Manager Override",
         notes: "Manager override individual ticket check-in recorded.",
         result: "checked_in",
+        showReference: effectiveCheckInShowId,
       });
       void sendPreferredBrowserNotification(
       "guest-checked-in",
@@ -21393,6 +21441,7 @@ export default function AdminDashboardPage() {
       deviceLabel: "Manager Override",
       notes: "Manager override check-in recorded.",
       result: "checked_in",
+      showReference: effectiveCheckInShowId,
     });
     void sendPreferredBrowserNotification(
       "guest-checked-in",
@@ -23575,12 +23624,12 @@ export default function AdminDashboardPage() {
       (_, index) => index + 1,
     ),
   ];
-  const selectedShowBookings = activeBookingsForOperations.filter(
-    (booking) => booking.showId === selectedShowId,
-  );
-  const activeShowBookings = selectedShowBookings.filter(
-    isOperationallyActiveBooking,
-  );
+  const selectedShowBookings = selectedShow
+    ? activeBookingsForOperations.filter((booking) =>
+        bookingBelongsToShow(booking, selectedShow),
+      )
+    : [];
+  const activeShowBookings = getOperationalShowBookings(bookings, selectedShow);
   const selectedShowFloorAssignmentBookings = activeShowBookings
     .filter(
       (booking) =>
@@ -23619,15 +23668,12 @@ export default function AdminDashboardPage() {
         left.table.tableNumber.localeCompare(right.table.tableNumber) ||
         left.booking.reference.localeCompare(right.booking.reference),
     );
-  const checkedInBookings = activeShowBookings.filter(
-    (booking) => (booking.status ?? "confirmed") === "checked-in",
-  );
   const reservedGuests = activeShowBookings.reduce(
     (total, booking) => total + booking.partySize,
     0,
   );
-  const arrivedGuests = checkedInBookings.reduce(
-    (total, booking) => total + booking.partySize,
+  const arrivedGuests = activeShowBookings.reduce(
+    (total, booking) => total + getArrivedGuestCount(booking),
     0,
   );
   const selectedShowCapacity = seatingZones.reduce(
@@ -23671,23 +23717,21 @@ export default function AdminDashboardPage() {
       .includes("vip"),
   ).length;
   const staffSearchTerm = staffSearch.trim().toLowerCase();
-  const checkInShowBookings = effectiveCheckInShowId
-    ? activeBookingsForOperations.filter(
-        (booking) => booking.showId === effectiveCheckInShowId,
+  const checkInShowBookings = effectiveCheckInShow
+    ? activeBookingsForOperations.filter((booking) =>
+        bookingBelongsToShow(booking, effectiveCheckInShow),
       )
     : [];
-  const activeCheckInBookings = checkInShowBookings.filter(
-    isOperationallyActiveBooking,
-  );
-  const checkedInCheckInBookings = activeCheckInBookings.filter(
-    (booking) => (booking.status ?? "confirmed") === "checked-in",
+  const activeCheckInBookings = getOperationalShowBookings(
+    bookings,
+    effectiveCheckInShow,
   );
   const checkInReservedGuests = activeCheckInBookings.reduce(
     (total, booking) => total + booking.partySize,
     0,
   );
-  const checkInArrivedGuests = checkedInCheckInBookings.reduce(
-    (total, booking) => total + booking.partySize,
+  const checkInArrivedGuests = activeCheckInBookings.reduce(
+    (total, booking) => total + getArrivedGuestCount(booking),
     0,
   );
   const checkInShowCapacity = effectiveCheckInShowId
@@ -23734,9 +23778,6 @@ export default function AdminDashboardPage() {
       booking.tableNumber.toLowerCase().includes(staffSearchTerm)
     );
   });
-  const selectedShow = shows.find(
-    (show) => show.id === selectedShowId,
-  );
   const workflowShows = shows.filter(
     (show) => {
       const status = show.operationalStatus ?? "active";
@@ -24199,7 +24240,11 @@ export default function AdminDashboardPage() {
       table.showId === selectedShowId && table.mergedFrom?.length,
   ).length;
   const selectedShowWaitlist = hasHydrated
-    ? waitlist.filter((entry) => entry.showId === selectedShowId)
+    ? waitlist.filter(
+        (entry) =>
+          selectedShow &&
+          getShowIdentityValues(selectedShow).includes(entry.showId),
+      )
     : [];
   const activeWaitlistCount = selectedShowWaitlist.filter(
     (entry) => entry.status === "waiting" || entry.status === "promoted",
@@ -28687,7 +28732,7 @@ export default function AdminDashboardPage() {
               {[
                 ["Total Bookings", manifestSummary.totalBookings],
                 ["Total Guests", manifestSummary.totalGuests],
-                ["Checked In", manifestSummary.checkedIn],
+                ["Arrived Guests", manifestSummary.checkedIn],
                 [
                   "Outstanding",
                   formatCurrency(manifestSummary.outstandingBalance),
@@ -29154,13 +29199,54 @@ export default function AdminDashboardPage() {
                   Operations Dashboard
                 </h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
-                  Live booking visibility for today’s service, upcoming
-                  shows, balances, deposits, and location demand.
+                  Live booking visibility for one selected performance, with
+                  global figures labelled separately.
                 </p>
               </div>
-              <span className="w-fit rounded-full border border-[#D8C36A]/35 bg-black/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
-                Today · {formatOperationalShowDate(southAfricaToday)}
-              </span>
+              <div className="w-full max-w-xl">
+                <PerformanceCalendarSelector
+                  buttonClassName="w-full rounded-xl border border-[#D8C36A]/35 bg-black/50 px-4 py-3 text-left text-sm font-semibold text-white transition hover:border-[#D8C36A]/70 focus:border-[#D8C36A] focus:outline-none"
+                  emptyLabel="No active performances"
+                  label="Operations Dashboard Performance"
+                  locations={permittedManifestLocations}
+                  onSelect={setSelectedShowId}
+                  selectedShowId={selectedShowId}
+                  shows={floorSelectableShows}
+                />
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!previousOperationalShow}
+                    onClick={() =>
+                      previousOperationalShow &&
+                      setSelectedShowId(previousOperationalShow.id)
+                    }
+                    className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-zinc-300 disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    Previous Show
+                  </button>
+                  {todayOperationalShow && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedShowId(todayOperationalShow.id)}
+                      className="rounded-full border border-[#D8C36A]/35 px-3 py-2 text-xs font-semibold text-[#F2D66C]"
+                    >
+                      Today
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!nextOperationalShow}
+                    onClick={() =>
+                      nextOperationalShow &&
+                      setSelectedShowId(nextOperationalShow.id)
+                    }
+                    className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-zinc-300 disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    Next Show
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -29178,13 +29264,13 @@ export default function AdminDashboardPage() {
                 </article>
               ))}
             </div>
-            {activeBookingEditCount > 0 && (
+            {selectedShowEditCount > 0 && (
               <div className="mt-4 rounded-2xl border border-sky-300/25 bg-sky-950/20 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-semibold text-white">
-                      {activeBookingEditCount} booking
-                      {activeBookingEditCount === 1 ? "" : "s"} currently
+                      {selectedShowEditCount} booking
+                      {selectedShowEditCount === 1 ? "" : "s"} currently
                       being edited.
                     </p>
                     <p className="mt-1 text-sm text-zinc-400">

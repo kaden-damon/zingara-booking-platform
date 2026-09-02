@@ -110,12 +110,14 @@ export async function createTicketValidation({
   deviceLabel = "Box Office",
   notes,
   result,
+  showReference,
 }: {
   booking?: DemoBooking;
   code?: string;
   deviceLabel?: string;
   notes?: string;
   result: SupabaseValidationResult;
+  showReference?: string;
 }) {
   const validatedAt = new Date().toISOString();
   const fallbackValidation: TicketValidationRecord = {
@@ -142,6 +144,7 @@ export async function createTicketValidation({
         deviceLabel,
         notes,
         result,
+        showReference,
         validatedAt,
       },
       method: "POST",
