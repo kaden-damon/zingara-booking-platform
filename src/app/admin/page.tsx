@@ -25,8 +25,10 @@ import {
 } from "./CustomerIdentityEditor";
 import CookiePrivacyPreferences from "./CookiePrivacyPreferences";
 import ManagementAnalytics from "./ManagementAnalytics";
+import { useReportGenerationLock } from "./useReportGenerationLock";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
 import CorporateConversionModal from "./CorporateConversionModal";
+import { getReportGenerationLockMessage } from "../../lib/reportGenerationLock";
 
 import {
   type AdminRole,
@@ -754,6 +756,7 @@ type AnalyticsSectionId =
   | "addon-revenue"
   | "promo-code-usage"
   | "customer-value";
+type AnalyticsWorkspace = "reports" | "sales";
 type BookingArchiveFilter = "active" | "all" | "archived";
 type CustomerArchiveFilter = "active" | "all" | "archived";
 type CustomerNameStatusFilter = "all" | "complete" | "incomplete";
@@ -6973,6 +6976,7 @@ const corporateWorkspaceSessionStorageKey =
   "zingara-admin-corporate-workspace";
 const corporateEnquiryStateSessionStorageKey =
   "zingara-admin-corporate-enquiry-state";
+const analyticsWorkspaceSessionStorageKey = "zingara-admin-analytics-workspace";
 
 const defaultBulkShowScheduleForm: BulkShowScheduleForm = {
   address: "",
@@ -9997,6 +10001,9 @@ export default function AdminDashboardPage() {
   const [openAnalyticsSections, setOpenAnalyticsSections] = useState<
     AnalyticsSectionId[]
   >(["per-show-revenue"]);
+  const [analyticsWorkspace, setAnalyticsWorkspace] =
+    useState<AnalyticsWorkspace>("sales");
+  const [analyticsWorkspaceLoaded, setAnalyticsWorkspaceLoaded] = useState(false);
   const [activeOperationsTab, setActiveOperationsTab] =
     useState<OperationsTab>("dashboard");
   const [activeDataPortabilityEntity, setActiveDataPortabilityEntity] =
@@ -10494,6 +10501,16 @@ export default function AdminDashboardPage() {
   const [analyticsShowId, setAnalyticsShowId] = useState("");
   const [tablePlanExportStatus, setTablePlanExportStatus] = useState("");
   const [isTablePlanExporting, setIsTablePlanExporting] = useState(false);
+  const [isOperationalReportExporting, setIsOperationalReportExporting] =
+    useState(false);
+  const [operationalReportExportStatus, setOperationalReportExportStatus] =
+    useState("");
+  const {
+    acquire: acquireReportGenerationLock,
+    lock: reportGenerationLock,
+    refresh: refreshReportGenerationLock,
+    release: releaseReportGenerationLock,
+  } = useReportGenerationLock(activeAdminTab === "analytics");
   const [isAnalyticsShowPending, startAnalyticsShowTransition] = useTransition();
   const [manifestLocationFilter, setManifestLocationFilter] =
     useState<ManifestLocationFilter>("all");
@@ -10847,6 +10864,24 @@ export default function AdminDashboardPage() {
     corporateViewMode,
     corporateWorkspace,
   ]);
+
+  useEffect(() => {
+    const storedWorkspace = window.sessionStorage.getItem(
+      analyticsWorkspaceSessionStorageKey,
+    );
+    if (storedWorkspace === "sales" || storedWorkspace === "reports") {
+      setAnalyticsWorkspace(storedWorkspace);
+    }
+    setAnalyticsWorkspaceLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!analyticsWorkspaceLoaded) return;
+    window.sessionStorage.setItem(
+      analyticsWorkspaceSessionStorageKey,
+      analyticsWorkspace,
+    );
+  }, [analyticsWorkspace, analyticsWorkspaceLoaded]);
 
   useEffect(() => {
     if (!currentStaff) {
@@ -17874,12 +17909,57 @@ export default function AdminDashboardPage() {
     URL.revokeObjectURL(url);
   }
 
+  async function runWithReportGenerationLock(
+    reportType: string,
+    reportScope: Record<string, unknown>,
+    generate: () => void | Promise<void>,
+  ) {
+    if (isOperationalReportExporting || reportGenerationLock) {
+      setOperationalReportExportStatus(
+        getReportGenerationLockMessage(reportGenerationLock) ||
+          "A report is already being generated.",
+      );
+      return;
+    }
+
+    setIsOperationalReportExporting(true);
+    setOperationalReportExportStatus("Generating report...");
+    let lockToken = "";
+    let outcome: "failed" | "success" = "failed";
+
+    try {
+      const lock = await acquireReportGenerationLock(reportType, reportScope);
+      if (!lock.token) throw new Error("The report lock could not be acquired.");
+      lockToken = lock.token;
+      await generate();
+      outcome = "success";
+      setOperationalReportExportStatus("Report generated successfully.");
+    } catch (error) {
+      setOperationalReportExportStatus(
+        error instanceof Error ? error.message : "The report could not be generated.",
+      );
+    } finally {
+      if (lockToken) {
+        await releaseReportGenerationLock(
+          lockToken,
+          reportType,
+          reportScope,
+          outcome,
+        ).catch(() => undefined);
+      }
+      setIsOperationalReportExporting(false);
+      await refreshReportGenerationLock();
+    }
+  }
+
   async function downloadTablePlan() {
     const showId = analyticsSelectedShow?.supabaseId;
 
-    if (!showId || isTablePlanExporting) {
+    if (!showId || isTablePlanExporting || reportGenerationLock) {
       setTablePlanExportStatus(
-        showId
+        reportGenerationLock
+          ? getReportGenerationLockMessage(reportGenerationLock)
+          : showId
           ? "A table plan export is already in progress."
           : "Select an available performance first.",
       );
@@ -17928,6 +18008,7 @@ export default function AdminDashboardPage() {
       );
     } finally {
       setIsTablePlanExporting(false);
+      await refreshReportGenerationLock();
     }
   }
 
@@ -18354,31 +18435,40 @@ export default function AdminDashboardPage() {
     );
   }
 
-  function downloadOperationsExport(exportId: OperationsExportId, format: ExportFormat) {
+  async function downloadOperationsExport(exportId: OperationsExportId, format: ExportFormat) {
     if (!hasHydrated) {
       return;
     }
 
-    const sheets = getOperationsExportSheets(exportId);
-    const title = getOperationsExportTitle(exportId);
-    const subtitle =
-      exportId === "daily-manifest" || exportId === "floor-manifest"
-        ? `${manifestLocationLabel} · ${manifestSelectedShow?.label ?? "No show selected"}`
-        : `${financialLocationLabel} · ${getExportPeriodLabel()}`;
-    const blob =
-      format === "xlsx"
-        ? createXlsxBlob(sheets)
-        : createReportPdfBlob({
-            landscape:
-              exportId === "floor-manifest" ||
-              exportId === "future-booking-revenue" ||
-              exportId === "payments-received",
-            sheets,
-            subtitle,
-            title,
-          });
+    const reportType = `${getOperationsExportTitle(exportId)} ${format.toUpperCase()}`;
+    const reportScope = {
+      date: exportId === "daily-manifest" || exportId === "floor-manifest" ? manifestSelectedShow?.date ?? null : getExportPeriodLabel(),
+      location: exportId === "daily-manifest" || exportId === "floor-manifest" ? manifestLocationLabel : financialLocationLabel,
+      showId: manifestSelectedShow?.supabaseId ?? manifestSelectedShow?.id ?? null,
+    };
 
-    downloadBlobFile(getOperationsExportFilename(exportId, format), blob);
+    await runWithReportGenerationLock(reportType, reportScope, () => {
+      const sheets = getOperationsExportSheets(exportId);
+      const title = getOperationsExportTitle(exportId);
+      const subtitle =
+        exportId === "daily-manifest" || exportId === "floor-manifest"
+          ? `${manifestLocationLabel} · ${manifestSelectedShow?.label ?? "No show selected"}`
+          : `${financialLocationLabel} · ${getExportPeriodLabel()}`;
+      const blob =
+        format === "xlsx"
+          ? createXlsxBlob(sheets)
+          : createReportPdfBlob({
+              landscape:
+                exportId === "floor-manifest" ||
+                exportId === "future-booking-revenue" ||
+                exportId === "payments-received",
+              sheets,
+              subtitle,
+              title,
+            });
+
+      downloadBlobFile(getOperationsExportFilename(exportId, format), blob);
+    });
   }
 
   function getPortabilityColumns(entity: DataPortabilityEntity) {
@@ -20789,31 +20879,52 @@ export default function AdminDashboardPage() {
     }
   }
 
-  function exportReport(reportType: OperationalReportType) {
-    const csv = createCsv(getReportRows(reportType));
-
-    downloadTextFile(
-      `${reportType}-${analyticsSelectedShow?.supabaseId ?? analyticsSelectedShow?.id ?? "no-show"}.csv`,
-      csv,
-      "text/csv;charset=utf-8",
+  async function exportReport(reportType: OperationalReportType) {
+    const reportScope = {
+      date: reportDateFilter || analyticsSelectedShow?.date || null,
+      paymentStatus: reportPaymentFilter,
+      seatingZone: reportZoneFilter,
+      showId: analyticsSelectedShow?.supabaseId ?? analyticsSelectedShow?.id ?? null,
+      status: reportStatusFilter,
+    };
+    await runWithReportGenerationLock(
+      `${operationalReportLabels[reportType]} CSV`,
+      reportScope,
+      () => {
+        const csv = createCsv(getReportRows(reportType));
+        downloadTextFile(
+          `${reportType}-${analyticsSelectedShow?.supabaseId ?? analyticsSelectedShow?.id ?? "no-show"}.csv`,
+          csv,
+          "text/csv;charset=utf-8",
+        );
+      },
     );
   }
 
-  function printReport(reportType: OperationalReportType) {
-    const rows = getReportRows(reportType) as Array<
-      Record<string, string | number | undefined>
-    >;
-    const headers = rows[0] ? Object.keys(rows[0]) : [];
-    const html = `<!doctype html><html><head><title>${operationalReportLabels[reportType]}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ccc;padding:8px;text-align:left;font-size:12px}th{background:#eee}</style></head><body><h1>${operationalReportLabels[reportType]}</h1><p>${getShowLabel(analyticsSelectedShow)}</p><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((header) => `<td>${String(row[header] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
-    const printWindow = window.open("", "_blank");
-
-    if (!printWindow) {
-      return;
-    }
-
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.print();
+  async function printReport(reportType: OperationalReportType) {
+    const reportScope = {
+      date: reportDateFilter || analyticsSelectedShow?.date || null,
+      paymentStatus: reportPaymentFilter,
+      seatingZone: reportZoneFilter,
+      showId: analyticsSelectedShow?.supabaseId ?? analyticsSelectedShow?.id ?? null,
+      status: reportStatusFilter,
+    };
+    await runWithReportGenerationLock(
+      `${operationalReportLabels[reportType]} Printable View`,
+      reportScope,
+      () => {
+        const rows = getReportRows(reportType) as Array<
+          Record<string, string | number | undefined>
+        >;
+        const headers = rows[0] ? Object.keys(rows[0]) : [];
+        const html = `<!doctype html><html><head><title>${operationalReportLabels[reportType]}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ccc;padding:8px;text-align:left;font-size:12px}th{background:#eee}</style></head><body><h1>${operationalReportLabels[reportType]}</h1><p>${getShowLabel(analyticsSelectedShow)}</p><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((header) => `<td>${String(row[header] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
+        const printWindow = window.open("", "_blank");
+        if (!printWindow) throw new Error("The printable report window was blocked by the browser.");
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.print();
+      },
+    );
   }
 
   function checkInGuest(booking: DemoBooking) {
@@ -35468,8 +35579,36 @@ export default function AdminDashboardPage() {
 
         {activeAdminTab === "analytics" && canViewAnalytics && (
           <section className="mb-10 rounded-2xl border border-[#D8C36A]/35 bg-[radial-gradient(circle_at_top,#251909_0%,#101010_48%,#050505_100%)] p-6 shadow-2xl shadow-[#8D7A2F]/10">
-            <ManagementAnalytics />
+            <nav
+              aria-label="Analytics workspaces"
+              className="mb-8 grid w-full grid-cols-1 gap-2 rounded-[1.25rem] border border-white/10 bg-black/35 p-2 sm:grid-cols-2"
+            >
+              {(
+                [
+                  ["sales", "Sales & Performance Demand"],
+                  ["reports", "Manifests, Check-In Sheets & Floor Reports"],
+                ] as Array<[AnalyticsWorkspace, string]>
+              ).map(([workspace, label]) => (
+                <button
+                  key={workspace}
+                  type="button"
+                  onClick={() => setAnalyticsWorkspace(workspace)}
+                  aria-pressed={analyticsWorkspace === workspace}
+                  className={`min-h-12 rounded-2xl px-4 py-3 text-center text-xs font-semibold uppercase tracking-[0.1em] transition sm:text-sm ${
+                    analyticsWorkspace === workspace
+                      ? "bg-[#D8C36A] text-black shadow-[0_0_28px_rgba(216,195,106,0.18)]"
+                      : "border border-white/10 bg-black/30 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
 
+            {analyticsWorkspace === "sales" && <ManagementAnalytics />}
+
+            {analyticsWorkspace === "sales" && (
+              <>
             <div className="mb-6 flex flex-col gap-5 border-t border-white/10 pt-8 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
               <div className="min-w-0">
                 <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
@@ -35555,7 +35694,10 @@ export default function AdminDashboardPage() {
                 </p>
               </div>
             </div>
+              </>
+            )}
 
+            {analyticsWorkspace === "reports" && (
             <div className="mb-6 rounded-2xl border border-white/10 bg-black/35 p-5">
               <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
                 <div>
@@ -35565,8 +35707,35 @@ export default function AdminDashboardPage() {
                   <h3 className="zingara-heading mt-1 text-2xl font-bold">
                     Manifests, Check-In Sheets & Floor Reports
                   </h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+                    Generate operational documents without leaving the live Check-In and Floor workflows in Operations.
+                  </p>
+                </div>
+                <div className="w-full max-w-full rounded-2xl border border-white/10 bg-black/35 p-3 sm:w-fit lg:shrink-0">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500 lg:text-right">
+                    Report Performance
+                  </p>
+                  <PerformanceCalendarSelector
+                    buttonClassName="w-full rounded-full border border-white/15 bg-black/35 px-4 py-2 text-left text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white sm:w-auto"
+                    emptyLabel="No permitted performances"
+                    label="Report Performance"
+                    locations={permittedManifestLocations}
+                    onSelect={selectAnalyticsShow}
+                    selectedShowId={analyticsSelectedShow?.supabaseId ?? analyticsSelectedShow?.id ?? ""}
+                    shows={analyticsShows}
+                  />
                 </div>
               </div>
+
+              {reportGenerationLock && (
+                <p className="mb-5 rounded-xl border border-amber-300/25 bg-amber-950/20 px-4 py-3 text-sm text-amber-100" role="status">
+                  <span className="block font-semibold uppercase tracking-[0.08em]">Report currently being generated</span>
+                  <span className="mt-1 block">{getReportGenerationLockMessage(reportGenerationLock)}</span>
+                </p>
+              )}
+              {operationalReportExportStatus && (
+                <p className="mb-5 text-sm text-zinc-300" role="status">{operationalReportExportStatus}</p>
+              )}
 
               <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-5">
                 <label className="text-sm text-zinc-400">
@@ -35669,14 +35838,16 @@ export default function AdminDashboardPage() {
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => exportReport(reportType)}
+                        onClick={() => void exportReport(reportType)}
+                        disabled={isOperationalReportExporting || Boolean(reportGenerationLock)}
                         className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                       >
                         CSV
                       </button>
                       <button
                         type="button"
-                        onClick={() => printReport(reportType)}
+                        onClick={() => void printReport(reportType)}
+                        disabled={isOperationalReportExporting || Boolean(reportGenerationLock)}
                         className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:bg-white hover:text-black"
                       >
                         Printable View
@@ -35692,7 +35863,8 @@ export default function AdminDashboardPage() {
                       onClick={() => void downloadTablePlan()}
                       disabled={
                         !analyticsSelectedShow?.supabaseId ||
-                        isTablePlanExporting
+                        isTablePlanExporting ||
+                        Boolean(reportGenerationLock)
                       }
                       className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -35716,7 +35888,9 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             </div>
+            )}
 
+            {analyticsWorkspace === "sales" && (
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
                 <button
@@ -36095,6 +36269,7 @@ export default function AdminDashboardPage() {
                 )}
               </div>
             </div>
+            )}
           </section>
         )}
 

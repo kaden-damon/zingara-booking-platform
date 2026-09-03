@@ -11,6 +11,7 @@ export type AuditEntityType =
   | "data-portability-export"
   | "payment"
   | "promo-code"
+  | "report-generation"
   | "security"
   | "show"
   | "staff"

@@ -13,6 +13,10 @@ import {
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 import {
+  acquireReportGenerationLock,
+  releaseReportGenerationLock,
+} from "@/lib/supabase/reportGenerationLockServer";
+import {
   defaultVenueSettings,
   normalizeShowLocation,
   normalizeVenueSettings,
@@ -57,7 +61,7 @@ function getFileLocation(location: "cape-town" | "johannesburg") {
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
 
-  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
     return auth.error ?? Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
@@ -74,7 +78,28 @@ export async function GET(request: Request) {
     return Response.json({ error: "A performance is required." }, { status: 400 });
   }
 
+  const reportType = "Table Plan Workbook";
+  const reportScope = { showId: requestedShowId };
+  let lockToken = "";
+  let outcome: "failed" | "success" = "failed";
+
   try {
+    const lock = await acquireReportGenerationLock({
+      reportScope,
+      reportType,
+      request,
+      serviceClient: auth.serviceClient,
+      staffProfile: auth.staffProfile,
+      user: auth.user,
+    });
+    if (!lock.acquired || !lock.token) {
+      return Response.json(
+        { error: lock.ownerName ? `${lock.ownerName} is currently generating a report.` : "A report is currently being generated." },
+        { status: 423 },
+      );
+    }
+    lockToken = lock.token;
+
     const { data: show, error: showError } = await auth.serviceClient
       .from("shows")
       .select("id,name,date,time,venue,notes")
@@ -278,6 +303,7 @@ export async function GET(request: Request) {
     });
     const filename = `Zingara_Table_Plan_${getFileLocation(location)}_${typedShow.date}.xlsx`;
 
+    outcome = "success";
     return new Response(new Uint8Array(workbook), {
       headers: {
         "Cache-Control": "private, no-store",
@@ -293,5 +319,20 @@ export async function GET(request: Request) {
       { error: "The table plan could not be generated." },
       { status: 500 },
     );
+  } finally {
+    if (lockToken) {
+      await releaseReportGenerationLock({
+        lockToken,
+        outcome,
+        reportScope,
+        reportType,
+        request,
+        serviceClient: auth.serviceClient,
+        staffProfile: auth.staffProfile,
+        user: auth.user,
+      }).catch((releaseError) => {
+        console.error("[Zingara table plan export] Lock release failed", releaseError);
+      });
+    }
   }
 }
