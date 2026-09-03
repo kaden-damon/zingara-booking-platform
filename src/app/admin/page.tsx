@@ -13,6 +13,7 @@ import {
 
 import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
 import { AdminSearchInput } from "./AdminSearchInput";
+import { CompactBookingList } from "./CompactBookingList";
 import {
   FinancialReconciliationModal,
   GuestCountReconciliationModal,
@@ -161,6 +162,12 @@ import {
   paginateItems,
   parsePageSize,
 } from "../../lib/pagination";
+import {
+  sortCompactBookingRows,
+  type CompactBookingRow,
+  type CompactBookingSortDirection,
+  type CompactBookingSortKey,
+} from "../../lib/compactBookingView";
 import {
   convertCorporateRequest,
   getCorporateRequests,
@@ -769,7 +776,7 @@ type AnalyticsWorkspace = "reports" | "revenue" | "sales";
 type BookingArchiveFilter = "active" | "all" | "archived";
 type CustomerArchiveFilter = "active" | "all" | "archived";
 type CustomerNameStatusFilter = "all" | "complete" | "incomplete";
-type BookingViewMode = "grid" | "list";
+type BookingViewMode = "compact" | "grid" | "list";
 type FloorZoneFilter = SeatingZoneId | "all";
 type OperationsTab =
   | "dashboard"
@@ -6981,6 +6988,7 @@ const corporateEnquiryPageSizeStorageKey =
   "zingara-admin-corporate-enquiry-page-size";
 const corporateBookingPageSizeStorageKey =
   "zingara-admin-corporate-booking-page-size";
+const bookingViewModeSessionStorageKey = "zingara-admin-booking-view-mode";
 const corporateWorkspaceSessionStorageKey =
   "zingara-admin-corporate-workspace";
 const corporateEnquiryStateSessionStorageKey =
@@ -9736,6 +9744,53 @@ function getBookingFinancials(booking: DemoBooking) {
   };
 }
 
+function getCompactBookingStatusTone(
+  status: BookingStatus,
+): CompactBookingRow["statusTone"] {
+  if (status === "cancelled" || status === "refunded") return "red";
+  if (status === "completed" || status === "confirmed") return "green";
+  if (status === "checked-in") return "sky";
+  if (status === "waitlisted") return "purple";
+  if (status === "no-show") return "zinc";
+  return "amber";
+}
+
+function getCompactBookingRow(booking: DemoBooking): CompactBookingRow {
+  const financials = getBookingFinancials(booking);
+  const status = booking.status ?? "confirmed";
+  const tableNumber = booking.tableNumber?.trim();
+  const hasPhysicalTable =
+    Boolean(tableNumber) && tableNumber?.toLowerCase() !== "unassigned";
+  const sourceLabel =
+    booking.source === "corporate-direct"
+      ? "Corporate"
+      : booking.bookingOrigin === "data_import"
+        ? "Data Import"
+        : booking.bookingOrigin === "admin_staff"
+          ? "Staff / Manual"
+          : bookingSourceLabels[booking.source ?? "online"];
+
+  return {
+    balanceDue: financials.balanceDue,
+    balanceLabel:
+      financials.balanceDue > 0
+        ? `${formatCurrency(financials.balanceDue)} due`
+        : "R0 due",
+    customerName: booking.customer.name || "Unnamed Guest",
+    pax: booking.partySize,
+    paymentLabel: paymentStatusLabels[financials.paymentStatus],
+    paymentSortValue: financials.paymentStatus,
+    reference: booking.reference,
+    section: booking.zoneTitle || "Zone not recorded",
+    sourceLabel,
+    statusLabel: bookingStatusLabels[status],
+    statusTone: getCompactBookingStatusTone(status),
+    tableLabel: hasPhysicalTable
+      ? `Table ${tableNumber}`
+      : "Floor Assignment",
+  };
+}
+
 function getBookingPaymentStatus(
   booking: Pick<
     DemoBooking,
@@ -10258,6 +10313,12 @@ export default function AdminDashboardPage() {
   ] = useState("");
   const [bookingViewMode, setBookingViewMode] =
     useState<BookingViewMode>("list");
+  const [bookingViewModeSessionLoaded, setBookingViewModeSessionLoaded] =
+    useState(false);
+  const [compactBookingSortKey, setCompactBookingSortKey] =
+    useState<CompactBookingSortKey>("name");
+  const [compactBookingSortDirection, setCompactBookingSortDirection] =
+    useState<CompactBookingSortDirection>("asc");
   const [corporateViewMode, setCorporateViewMode] =
     useState<BookingViewMode>("list");
   const [corporateWorkspace, setCorporateWorkspace] =
@@ -10786,6 +10847,33 @@ export default function AdminDashboardPage() {
     paginationPreferencesLoaded,
     standardBookingPageSize,
   ]);
+
+  useEffect(() => {
+    const storedViewMode = window.sessionStorage.getItem(
+      bookingViewModeSessionStorageKey,
+    );
+
+    if (
+      storedViewMode === "compact" ||
+      storedViewMode === "grid" ||
+      storedViewMode === "list"
+    ) {
+      setBookingViewMode(storedViewMode);
+    }
+
+    setBookingViewModeSessionLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!bookingViewModeSessionLoaded) {
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      bookingViewModeSessionStorageKey,
+      bookingViewMode,
+    );
+  }, [bookingViewMode, bookingViewModeSessionLoaded]);
 
   useEffect(() => {
     const storedWorkspace = window.sessionStorage.getItem(
@@ -23791,8 +23879,30 @@ export default function AdminDashboardPage() {
     activeAdminTab === "corporate"
       ? corporateBookingPageSize
       : standardBookingPageSize;
-  const bookingPagination = paginateItems(
+  const compactSortedBookings = useMemo(() => {
+    if (bookingViewMode !== "compact") {
+      return filteredBookings;
+    }
+
+    const bookingByReference = new Map(
+      filteredBookings.map((booking) => [booking.reference, booking]),
+    );
+
+    return sortCompactBookingRows(
+      filteredBookings.map(getCompactBookingRow),
+      compactBookingSortKey,
+      compactBookingSortDirection,
+    )
+      .map((row) => bookingByReference.get(row.reference))
+      .filter((booking): booking is DemoBooking => Boolean(booking));
+  }, [
+    bookingViewMode,
+    compactBookingSortDirection,
+    compactBookingSortKey,
     filteredBookings,
+  ]);
+  const bookingPagination = paginateItems(
+    compactSortedBookings,
     bookingPage,
     activeBookingPageSize,
   );
@@ -23840,6 +23950,19 @@ export default function AdminDashboardPage() {
       {} as Partial<Record<BookingStatus, number>>,
     );
   const paginatedBookings = bookingPagination.items;
+  const compactPaginatedRows = useMemo(
+    () =>
+      bookingViewMode === "compact"
+        ? paginatedBookings.map(getCompactBookingRow)
+        : [],
+    [bookingViewMode, paginatedBookings],
+  );
+  const renderedBookingCards =
+    bookingViewMode === "compact"
+      ? paginatedBookings.filter(
+          (booking) => booking.reference === expandedBookingReference,
+        )
+      : paginatedBookings;
   const bookingFilterDates = Array.from(
     new Set(shows.map((show) => show.date).filter(Boolean)),
   ).sort();
@@ -40759,12 +40882,13 @@ export default function AdminDashboardPage() {
                 <div
                   role="group"
                   aria-label="Bookings view mode"
-                  className="grid grid-cols-2 gap-1 rounded-full border border-white/15 bg-black/35 p-1"
+                  className="grid grid-cols-3 gap-1 rounded-full border border-white/15 bg-black/35 p-1"
                 >
                   {(
                     [
                       ["list", "List"],
                       ["grid", "Grid"],
+                      ["compact", "Compact"],
                     ] as Array<[BookingViewMode, string]>
                   ).map(([mode, label]) => (
                     <button
@@ -40886,14 +41010,38 @@ export default function AdminDashboardPage() {
             </div>
           ) : (
             <>
+            {bookingViewMode === "compact" && (
+              <CompactBookingList
+                direction={compactBookingSortDirection}
+                loadingReference={bookingDetailLoadingReference}
+                onOpenBooking={(reference) => {
+                  void openBookingDetails(reference);
+                }}
+                onSortChange={(key) => {
+                  if (key === compactBookingSortKey) {
+                    setCompactBookingSortDirection((current) =>
+                      current === "asc" ? "desc" : "asc",
+                    );
+                  } else {
+                    setCompactBookingSortKey(key);
+                    setCompactBookingSortDirection("asc");
+                  }
+                  setBookingPage(1);
+                }}
+                rows={compactPaginatedRows}
+                sortKey={compactBookingSortKey}
+              />
+            )}
             <div
               className={
-                bookingViewMode === "grid"
+                bookingViewMode === "compact"
+                  ? "contents"
+                  : bookingViewMode === "grid"
                   ? "grid grid-cols-1 items-start gap-3 md:grid-cols-2 xl:grid-cols-3"
                   : "grid grid-cols-1 gap-3 sm:gap-4"
               }
             >
-              {paginatedBookings.map((booking) => {
+              {renderedBookingCards.map((booking) => {
                 const financials = getBookingFinancials(booking);
                 const bookingPayments = paymentRows.filter(
                   (payment) =>
@@ -40963,7 +41111,7 @@ export default function AdminDashboardPage() {
                 return (
                   <section
                     key={booking.reference}
-                    className={`min-w-0 self-start overflow-hidden rounded-2xl border border-[#8D7A2F]/25 bg-zinc-950/95 p-3 shadow-xl shadow-black/15 transition hover:border-[#D8C36A]/45 sm:p-4 ${
+                    className={bookingViewMode === "compact" ? "contents" : `min-w-0 self-start overflow-hidden rounded-2xl border border-[#8D7A2F]/25 bg-zinc-950/95 p-3 shadow-xl shadow-black/15 transition hover:border-[#D8C36A]/45 sm:p-4 ${
                       bookingViewMode === "grid"
                         ? "min-h-[245px]"
                         : "sm:p-5"
@@ -40971,7 +41119,9 @@ export default function AdminDashboardPage() {
                   >
                     <div
                       className={
-                        bookingViewMode === "grid"
+                        bookingViewMode === "compact"
+                          ? "hidden"
+                          : bookingViewMode === "grid"
                           ? "grid grid-cols-1 gap-4"
                           : "grid grid-cols-1 gap-4 lg:grid-cols-[minmax(260px,1fr)_auto] lg:items-center"
                       }
