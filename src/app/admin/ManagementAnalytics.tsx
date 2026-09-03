@@ -10,6 +10,8 @@ import {
   type ManagementAnalyticsFilters,
   weekdayNames,
 } from "@/lib/managementAnalytics";
+import { getAdminAuthSession } from "@/lib/supabase/auth";
+import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
 const money = new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" });
 const integer = new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 0 });
@@ -50,14 +52,13 @@ export default function ManagementAnalytics() {
   const [filters, setFilters] = useState<ManagementAnalyticsFilters>(defaultManagementAnalyticsFilters);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [sort, setSort] = useState<"date" | "guests" | "occupancy" | "bookingValue">("date");
 
   const load = async () => {
     setLoading(true); setError("");
     try {
-      const response = await fetch("/api/admin/analytics/management", { cache: "no-store" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Management analytics could not be loaded.");
+      const body = await fetchSupabaseApi<{ dataset: ManagementAnalyticsDataset }>("/api/admin/analytics/management");
       setDataset(body.dataset);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Management analytics could not be loaded.");
@@ -66,10 +67,8 @@ export default function ManagementAnalytics() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/admin/analytics/management", { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error || "Management analytics could not be loaded.");
+    fetchSupabaseApi<{ dataset: ManagementAnalyticsDataset }>("/api/admin/analytics/management")
+      .then((body) => {
         if (active) setDataset(body.dataset);
       })
       .catch((loadError: unknown) => {
@@ -93,6 +92,21 @@ export default function ManagementAnalytics() {
     const to = range === "yesterday" ? from : today;
     setFilters((current) => ({ ...current, bookingCreatedFrom: from, bookingCreatedTo: to }));
   };
+  const exportReport = async () => {
+    if (exporting) return;
+    setExporting(true); setError("");
+    try {
+      const auth = await getAdminAuthSession();
+      if (!auth) throw new Error("Your Admin session has expired. Sign in again.");
+      const response = await fetch(`/api/admin/analytics/management/export?${filtersToSearchParams(filters)}`, { headers: { Authorization: `Bearer ${auth.session.access_token}` } });
+      if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "Management analytics export could not be generated."); }
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? "Zingara_Management_Analytics.xlsx";
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
+    } catch (exportError) { setError(exportError instanceof Error ? exportError.message : "Management analytics export could not be generated."); }
+    finally { setExporting(false); }
+  };
 
   if (loading) return <section className="mb-8 border-y border-[#D8C36A]/25 py-12 text-center text-zinc-400" aria-busy="true">Loading Management Analytics...</section>;
   if (error || !dataset || !analytics) return <section className="mb-8 border-y border-red-300/25 py-10 text-center"><p className="text-red-200">{error || "Management analytics could not be loaded."}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-full border border-white/20 px-5 py-2 text-sm font-semibold">Retry</button></section>;
@@ -105,7 +119,7 @@ export default function ManagementAnalytics() {
       <header className="border-b border-[#D8C36A]/30 pb-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">Management Analytics</p><h2 className="zingara-heading mt-2 text-3xl font-bold">Sales & Performance Demand</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Booking activity measures genuine acquisition. Performance demand measures every legitimate active guest occupying a show, including imported legacy bookings.</p></div>
-          <a href={`/api/admin/analytics/management/export?${filtersToSearchParams(filters)}`} className="inline-flex h-11 items-center justify-center rounded-full border border-[#D8C36A]/60 px-5 text-sm font-bold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black">Export Report</a>
+          <button type="button" onClick={() => void exportReport()} disabled={exporting} className="inline-flex h-11 items-center justify-center rounded-full border border-[#D8C36A]/60 px-5 text-sm font-bold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-wait disabled:opacity-60">{exporting ? "Generating..." : "Export Report"}</button>
         </div>
         <p className="mt-3 text-xs text-zinc-500">Authoritative cutoff {new Date(dataset.asOf).toLocaleString("en-ZA", { timeZone: analyticsTimezone })} SAST</p>
       </header>

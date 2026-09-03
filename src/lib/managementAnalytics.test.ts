@@ -122,5 +122,6 @@ test("management routes require analytics permission and export eight named shee
 test("Analytics UI is isolated from Admin root state and offers required management controls", async () => {
   const component = await readFile(new URL("../app/admin/ManagementAnalytics.tsx", import.meta.url), "utf8");
   assert.match(component, /Performance Demand/); assert.match(component, /Tuesday/); assert.match(component, /Midweek vs Weekend/); assert.match(component, /Performance Month Demand/); assert.match(component, /Booking Lead Time/); assert.match(component, /Export Report/);
+  assert.match(component, /fetchSupabaseApi/); assert.match(component, /Authorization: `Bearer/);
   assert.doesNotMatch(component, /setBookings|setCustomers|saveBookings/);
 });
