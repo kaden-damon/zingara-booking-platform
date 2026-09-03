@@ -26,6 +26,7 @@ import {
 import CookiePrivacyPreferences from "./CookiePrivacyPreferences";
 import ManagementAnalytics from "./ManagementAnalytics";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
+import CorporateConversionModal from "./CorporateConversionModal";
 
 import {
   type AdminRole,
@@ -163,6 +164,10 @@ import {
   getCorporateRequests,
   saveCorporateRequests as persistCorporateRequests,
 } from "../../lib/supabase/corporateRequests";
+import {
+  isCorporateRequestConversionEligible,
+  type CorporateConversionReview,
+} from "../../lib/corporateConversionReview";
 import { getPayments, updatePayment } from "../../lib/supabase/payments";
 import {
   getOrCreateStaffProfileSession,
@@ -690,18 +695,6 @@ function createCorporatePaymentToken() {
   return `corp-pay-${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 10)}`;
-}
-
-function getCorporateAddonPrice(addon: string) {
-  const matchedPrice = addon.match(/R([\d,]+)/);
-
-  return matchedPrice
-    ? Number(matchedPrice[1].replaceAll(",", ""))
-    : 0;
-}
-
-function getCorporateDietarySurcharge(request: CorporateRequest) {
-  return request.dietaryRequirements.includes("Strict Halaal") ? 250 : 0;
 }
 
 const corporateRequestStatusClasses: Record<
@@ -10244,9 +10237,9 @@ export default function AdminDashboardPage() {
   const [openCorporateRequestId, setOpenCorporateRequestId] =
     useState("");
   const [
-    corporateConversionShowSelections,
-    setCorporateConversionShowSelections,
-  ] = useState<Record<string, string>>({});
+    corporateConversionReviewRequestId,
+    setCorporateConversionReviewRequestId,
+  ] = useState("");
   const [corporateConversionStatus, setCorporateConversionStatus] =
     useState("");
   const [corporateConversionStatusRequestId, setCorporateConversionStatusRequestId] =
@@ -15294,15 +15287,6 @@ export default function AdminDashboardPage() {
     setDeleteCorporateRequestId("");
   }
 
-  function getCorporateConversionShows(request: CorporateRequest) {
-    return shows.filter(
-      (show) =>
-        !show.archivedAt &&
-        show.date === request.preferredDate &&
-        (show.operationalStatus ?? "active") === "active",
-    );
-  }
-
   function getCorporateRequestZoneId(request: CorporateRequest) {
     const normalizedPreference = request.seatingPreference
       .trim()
@@ -15327,115 +15311,65 @@ export default function AdminDashboardPage() {
     void openBookingDetails(reference);
   }
 
+  function openCorporateConversionReview(request: CorporateRequest) {
+    if (!canManageBookings || !isCorporateRequestConversionEligible(request)) {
+      return;
+    }
+
+    setCorporateConversionStatus("");
+    setCorporateConversionStatusRequestId(request.id);
+    setConvertedCorporateBookingReference("");
+    setCorporateConversionActionState("idle");
+    setCorporateConversionReviewRequestId(request.id);
+  }
+
   async function convertCorporateRequestToBooking(
     request: CorporateRequest,
-    showId?: string,
+    review: CorporateConversionReview,
   ) {
     if (
       !canManageBookings ||
-      request.status !== "confirmed" ||
-      request.archivedAt ||
-      request.linkedBookingReference ||
+      !isCorporateRequestConversionEligible(request) ||
       corporateConversionInFlightRef.current.has(request.id)
     ) {
       return;
     }
 
-    if (request.guestCount === null) {
-      setCorporateConversionStatusRequestId(request.id);
+    const selectedConversionShow = shows.find(
+      (show) =>
+        show.id === review.showId &&
+        !show.archivedAt &&
+        (show.operationalStatus ?? "active") === "active" &&
+        normalizeShowLocation(show.location ?? show.venueName) === review.venue,
+    );
+    const zone = getZoneById(review.zoneId);
+
+    if (!selectedConversionShow || !zone) {
       setCorporateConversionActionState("error");
       setCorporateConversionStatus(
-        "Record an authoritative guest count before converting this enquiry.",
+        "The selected performance or seating zone is no longer available.",
       );
       return;
     }
 
-    const matchingShows = getCorporateConversionShows(request);
-
-    if (matchingShows.length === 0) {
-      setCorporateConversionStatusRequestId(request.id);
-      setCorporateConversionActionState("error");
-      setCorporateConversionStatus(
-        "No active show exists for this date.",
-      );
-      return;
-    }
-
-    if (matchingShows.length > 1 && !showId) {
-      setCorporateConversionShowSelections((currentSelections) => ({
-        ...currentSelections,
-        [request.id]:
-          currentSelections[request.id] ?? matchingShows[0].id,
-      }));
-      setCorporateConversionStatusRequestId(request.id);
-      setCorporateConversionActionState("error");
-      setCorporateConversionStatus(
-        "Select a show before converting this request.",
-      );
-      return;
-    }
-
-    const selectedConversionShow =
-      matchingShows.find((show) => show.id === showId) ??
-      matchingShows[0];
     setCorporateConversionStatusRequestId(request.id);
     setCorporateConversionActionState("pending");
     setCorporateConversionStatus("Converting enquiry to booking...");
     setConvertedCorporateBookingReference("");
     corporateConversionInFlightRef.current.add(request.id);
 
-    const conversionShowPayload = await getShowsWithTables({
-      tableShow: selectedConversionShow.id,
-    });
-    const conversionShowTables = conversionShowPayload.tablesLoaded
-      ? applyBookingOccupancyToTables(conversionShowPayload.tables, bookings)
-      : tables.filter((table) => table.showId === selectedConversionShow.id);
-    const conversionTables = mergeTablesForShows(
-      tables,
-      conversionShowTables,
-      [selectedConversionShow.id],
-    );
-    const zoneId = getCorporateRequestZoneId(request);
-    const zone = getZoneById(zoneId) ?? seatingZones[1];
-    const allocation = findBestTableAllocation(
-      conversionTables,
-      selectedConversionShow.id,
-      zoneId,
-      request.guestCount,
-    );
-
-    if (!allocation) {
-      setCorporateConversionStatusRequestId(request.id);
-      setCorporateConversionActionState("error");
-      setCorporateConversionStatus(
-        "No suitable table is available for this request.",
-      );
-      corporateConversionInFlightRef.current.delete(request.id);
-      return;
-    }
-
     const bookingReference = createAvailableBookingReference(bookings);
     const now = new Date().toISOString();
-    const pricePerPerson =
-      venueSettings.zonePricing[zoneId]?.price ?? zone.price;
-    const subtotalPrice = pricePerPerson * request.guestCount;
-    const dietarySurcharge = getCorporateDietarySurcharge(request);
     const corporateAddons = request.addons.map((addon, index) => ({
       id: `${request.id}-addon-${index + 1}`,
       name: addon,
-      price: getCorporateAddonPrice(addon),
+      price: 0,
     }));
-    const corporateAddonsTotal = corporateAddons.reduce(
-      (total, addon) => total + addon.price,
-      0,
-    );
-    const serviceFeeAmount =
-      request.guestCount >= 6 ? Math.round(subtotalPrice * 0.125) : 0;
-    const totalPrice =
-      subtotalPrice +
-      serviceFeeAmount +
-      corporateAddonsTotal +
-      dietarySurcharge;
+    const bookingStatus =
+      review.paymentStatus === "fully-paid" ||
+      review.paymentStatus === "comp-vip"
+        ? "confirmed"
+        : "pending-payment";
     const corporateNotes = [
       request.notes,
       request.dietaryRequirements.length > 0
@@ -15453,15 +15387,11 @@ export default function AdminDashboardPage() {
       request.addons.length > 0
         ? `Corporate add-ons: ${request.addons.join(", ")}`
         : "",
-      corporateAddonsTotal > 0
-        ? `Corporate add-ons total: ${formatCurrency(corporateAddonsTotal)}`
-        : "",
-      dietarySurcharge > 0
-        ? `Dietary surcharge total: ${formatCurrency(dietarySurcharge)}`
-        : "",
       request.locationAcknowledgement
         ? `Confirmed location: ${request.locationAcknowledgement}`
         : "",
+      `Agreed ticket obligation: ${formatCurrency(review.ticketTotal)}`,
+      `Authoritative amount paid at conversion: ${formatCurrency(review.amountPaid)}`,
       `Company: ${request.companyName}`,
     ]
       .filter(Boolean)
@@ -15469,24 +15399,29 @@ export default function AdminDashboardPage() {
     const booking: DemoBooking = {
       reference: bookingReference,
       showId: selectedConversionShow.id,
-      zoneId,
+      zoneId: review.zoneId,
       zoneTitle: zone.title,
-      tableId: allocation.table.id,
-      tableNumber: allocation.table.tableNumber,
-      partySize: request.guestCount,
+      tableId: "",
+      tableNumber: "",
+      partySize: review.pax,
       bookingDate: getShowLabel(selectedConversionShow),
       addons: corporateAddons,
-      addonsTotal: corporateAddonsTotal,
-      subtotalPrice,
+      addonsTotal: 0,
+      subtotalPrice: review.ticketTotal,
       discountAmount: 0,
-      serviceFeeAmount,
-      totalPrice,
-      pricePerPerson,
-      paymentOption: "deposit",
-      paymentStatus: "pending-payment",
-      depositPercentage: 0,
-      amountPaid: 0,
-      balanceDue: totalPrice,
+      serviceFeeAmount: 0,
+      totalPrice: review.ticketTotal,
+      pricePerPerson:
+        review.pax > 0 ? review.ticketTotal / review.pax : 0,
+      paymentOption:
+        review.paymentBasis === "deposit" ? "deposit" : "full",
+      paymentStatus: review.paymentStatus,
+      depositPercentage:
+        review.ticketTotal > 0
+          ? (review.amountPaid / review.ticketTotal) * 100
+          : 0,
+      amountPaid: review.amountPaid,
+      balanceDue: review.ticketTotal - review.amountPaid,
       source: "corporate-direct",
       ticketCode: createTicketCode(bookingReference),
       ticketIssuedAt: now,
@@ -15495,7 +15430,7 @@ export default function AdminDashboardPage() {
         name: request.contactName,
         phone: request.contactNumber,
       },
-      status: "pending-payment",
+      status: bookingStatus,
       lifecycleHistory: [
         {
           id: `${bookingReference}-created`,
@@ -15504,10 +15439,10 @@ export default function AdminDashboardPage() {
           createdAt: now,
         },
         {
-          id: `${bookingReference}-pending-payment`,
+          id: `${bookingReference}-${bookingStatus}`,
           fromStatus: "new",
-          toStatus: "pending-payment",
-          note: "Converted from confirmed corporate request",
+          toStatus: bookingStatus,
+          note: "Converted from reviewed corporate enquiry",
           createdAt: now,
         },
       ],
@@ -15531,21 +15466,10 @@ export default function AdminDashboardPage() {
           ? currentBookings
           : [booking, ...currentBookings],
       );
-      setTables((currentTables) =>
-        applyTableAllocation(
-          mergeTablesForShows(
-            currentTables,
-            conversionShowTables,
-            [selectedConversionShow.id],
-          ),
-          allocation,
-          result.bookingReference,
-          corporateNotes,
-        ),
-      );
       setCorporateRequests((currentRequests) =>
         replaceAffectedRecord(currentRequests, authoritativeRequest),
       );
+      setCorporateConversionReviewRequestId("");
       setConvertedCorporateBookingReference(result.bookingReference);
       setCorporateConversionActionState("success");
       setCorporateConversionStatus("Booking created successfully.");
@@ -25125,6 +25049,10 @@ export default function AdminDashboardPage() {
     corporateRequests.find(
       (request) => request.id === openCorporateRequestId,
     ) ?? null;
+  const corporateConversionReviewRequest =
+    corporateRequests.find(
+      (request) => request.id === corporateConversionReviewRequestId,
+    ) ?? null;
 
   function renderCorporateRequestCard(
     request: CorporateRequest,
@@ -25215,18 +25143,11 @@ export default function AdminDashboardPage() {
             >
               Edit Request
             </button>
-            {!request.linkedBookingReference &&
-              request.status === "confirmed" &&
+            {isCorporateRequestConversionEligible(request) &&
               !options.isArchived && (
               <button
                 type="button"
-                onClick={() =>
-                  void convertCorporateRequestToBooking(
-                    request,
-                    corporateConversionShowSelections[request.id] ??
-                      getCorporateConversionShows(request)[0]?.id,
-                  )
-                }
+                onClick={() => openCorporateConversionReview(request)}
                 aria-busy={
                   corporateConversionActionState === "pending" &&
                   corporateConversionStatusRequestId === request.id
@@ -25241,7 +25162,7 @@ export default function AdminDashboardPage() {
                 {corporateConversionActionState === "pending" &&
                 corporateConversionStatusRequestId === request.id
                   ? "Converting..."
-                  : "Convert"}
+                  : "Convert To Booking"}
               </button>
             )}
             {canSendPaymentLink && (
@@ -27596,20 +27517,14 @@ export default function AdminDashboardPage() {
                           </div>
 
                           <div className="mt-5 flex flex-wrap gap-2">
-                            {openCorporateRequest.status === "confirmed" &&
-                              !openCorporateRequest.linkedBookingReference &&
-                              !openCorporateRequest.archivedAt && (
+                            {isCorporateRequestConversionEligible(
+                              openCorporateRequest,
+                            ) && (
                               <button
                                 type="button"
                                 onClick={() =>
-                                  void convertCorporateRequestToBooking(
+                                  openCorporateConversionReview(
                                     openCorporateRequest,
-                                    corporateConversionShowSelections[
-                                      openCorporateRequest.id
-                                    ] ??
-                                      getCorporateConversionShows(
-                                        openCorporateRequest,
-                                      )[0]?.id,
                                   )
                                 }
                                 aria-busy={
@@ -27724,60 +27639,18 @@ export default function AdminDashboardPage() {
                   );
                 })()}
 
-                {openCorporateRequest.status === "confirmed" &&
-                  !openCorporateRequest.archivedAt &&
-                  !openCorporateRequest.linkedBookingReference && (
+                {isCorporateRequestConversionEligible(
+                  openCorporateRequest,
+                ) && (
                     <div className="mt-5 rounded-[1.5rem] border border-emerald-300/20 bg-emerald-950/10 p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200">
                         Booking Conversion
                       </p>
-                      {getCorporateConversionShows(openCorporateRequest)
-                        .length === 0 ? (
-                        <p className="mt-3 rounded-2xl border border-red-300/25 bg-red-950/20 px-4 py-3 text-sm font-semibold text-red-100">
-                          No active show exists for this date.
-                        </p>
-                      ) : getCorporateConversionShows(openCorporateRequest)
-                          .length > 1 ? (
-                        <div className="mt-4">
-                            <label className="flex-1 text-sm text-zinc-400">
-                              Select Show
-                              <select
-                                value={
-                                  corporateConversionShowSelections[
-                                    openCorporateRequest.id
-                                  ] ??
-                                  getCorporateConversionShows(
-                                    openCorporateRequest,
-                                  )[0]?.id ??
-                                  ""
-                                }
-                                onChange={(event) =>
-                                  setCorporateConversionShowSelections(
-                                    (currentSelections) => ({
-                                      ...currentSelections,
-                                      [openCorporateRequest.id]:
-                                        event.target.value,
-                                    }),
-                                  )
-                                }
-                                className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-sm font-semibold text-white outline-none transition focus:border-[#D8C36A]/70"
-                              >
-                                {getCorporateConversionShows(
-                                  openCorporateRequest,
-                                ).map((show) => (
-                                  <option key={show.id} value={show.id}>
-                                    {getShowLabel(show)}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                        </div>
-                      ) : (
-                        <p className="mt-3 rounded-2xl border border-emerald-300/15 bg-black/35 px-4 py-3 text-sm text-emerald-100">
-                          Active show match found. Use Convert To Booking in
-                          Quick Actions.
-                        </p>
-                      )}
+                      <p className="mt-3 rounded-2xl border border-emerald-300/15 bg-black/35 px-4 py-3 text-sm leading-6 text-emerald-100">
+                        Review the venue, performance, guest count, seating zone,
+                        and authoritative financials before conversion. Large
+                        parties enter Floor Assignment for multi-table allocation.
+                      </p>
                       {corporateConversionStatus &&
                         corporateConversionStatusRequestId ===
                           openCorporateRequest.id && (
@@ -42211,6 +42084,37 @@ export default function AdminDashboardPage() {
         )}
         </div>
       </div>
+
+      {corporateConversionReviewRequest && (
+        <CorporateConversionModal
+          key={corporateConversionReviewRequest.id}
+          error={
+            corporateConversionStatusRequestId ===
+              corporateConversionReviewRequest.id &&
+            (corporateConversionActionState === "error" ||
+              corporateConversionActionState === "uncertain")
+              ? corporateConversionStatus
+              : ""
+          }
+          initialZoneId={getCorporateRequestZoneId(
+            corporateConversionReviewRequest,
+          )}
+          isSubmitting={
+            corporateConversionActionState === "pending" &&
+            corporateConversionStatusRequestId ===
+              corporateConversionReviewRequest.id
+          }
+          onClose={() => setCorporateConversionReviewRequestId("")}
+          onConfirm={(review) =>
+            void convertCorporateRequestToBooking(
+              corporateConversionReviewRequest,
+              review,
+            )
+          }
+          request={corporateConversionReviewRequest}
+          shows={shows}
+        />
+      )}
 
       {financialReconciliation && (
         <FinancialReconciliationModal

@@ -862,6 +862,10 @@ function normalizeReservationClaims(
 }
 
 function usesAtomicTableReservation(booking: DemoBooking) {
+  if (booking.source === "corporate-direct" && booking.corporateRequestId) {
+    return true;
+  }
+
   return (
     (booking.source === "online" ||
       booking.source === "admin" ||

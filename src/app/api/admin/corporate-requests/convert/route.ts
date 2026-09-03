@@ -4,7 +4,14 @@ import {
   getAdminRoleFromName,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
-import type { DemoBooking } from "@/lib/zingaraDemo";
+import {
+  getBookingCapacityConflictResponse,
+  validateBookingCapacityIncrease,
+} from "@/lib/supabase/bookingCapacity";
+import {
+  getDisplayZoneTitle,
+  type DemoBooking,
+} from "@/lib/zingaraDemo";
 import { getCorporateConversionGate } from "@/lib/corporateConversionGuard";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +29,70 @@ function safeConversionError(error: unknown) {
   return error instanceof Error && error.message
     ? error.message
     : "Unable to convert booking.";
+}
+
+function getLegacyShowId(notes: string | null) {
+  if (!notes?.startsWith("__zingara_show_meta__:")) return "";
+
+  try {
+    return String(
+      (JSON.parse(notes.slice("__zingara_show_meta__:".length)) as {
+        legacyId?: unknown;
+      }).legacyId ?? "",
+    );
+  } catch {
+    return "";
+  }
+}
+
+function hasValidReviewedFinancials(booking: DemoBooking) {
+  const total = Number(booking.totalPrice);
+  const paid = Number(booking.amountPaid);
+  const outstanding = Number(booking.balanceDue);
+
+  if (
+    !Number.isFinite(total) ||
+    !Number.isFinite(paid) ||
+    !Number.isFinite(outstanding) ||
+    total < 0 ||
+    paid < 0 ||
+    paid > total ||
+    Math.abs(total - paid - outstanding) > 0.005
+  ) {
+    return false;
+  }
+
+  if (booking.paymentStatus === "comp-vip") {
+    return (
+      booking.status === "confirmed" &&
+      total === 0 &&
+      paid === 0 &&
+      outstanding === 0
+    );
+  }
+  if (booking.paymentStatus === "fully-paid") {
+    return (
+      booking.status === "confirmed" &&
+      total > 0 &&
+      paid === total &&
+      outstanding === 0
+    );
+  }
+  if (booking.paymentStatus === "deposit-paid") {
+    return (
+      booking.status === "pending-payment" &&
+      paid > 0 &&
+      paid < total &&
+      outstanding > 0
+    );
+  }
+
+  return (
+    booking.status === "pending-payment" &&
+    booking.paymentStatus === "pending-payment" &&
+    total > 0 &&
+    paid === 0
+  );
 }
 
 export async function POST(request: Request) {
@@ -51,9 +122,9 @@ export async function POST(request: Request) {
   const booking = body.booking;
   const requestId = body.requestId?.trim();
 
-  if (!requestId || !booking?.reference || !booking.tableId) {
+  if (!requestId || !booking?.reference) {
     return Response.json(
-      { error: "A Corporate enquiry and table-backed booking are required." },
+      { error: "A Corporate enquiry and reviewed booking are required." },
       { status: 400 },
     );
   }
@@ -83,7 +154,8 @@ export async function POST(request: Request) {
 
   if (
     booking.source !== "corporate-direct" ||
-    booking.partySize !== record.request.guestCount ||
+    !Number.isInteger(booking.partySize) ||
+    booking.partySize <= 0 ||
     booking.customer.name.trim() !== record.request.contactName.trim() ||
     booking.customer.email.trim().toLowerCase() !==
       record.request.email.trim().toLowerCase()
@@ -94,42 +166,94 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: table, error: tableError } = await auth.serviceClient
-    .from("show_tables")
-    .select("id,show_id,table_code,section,capacity,status,booking_id,merged_parent_id")
-    .eq("id", booking.tableId)
-    .maybeSingle();
-
-  if (tableError || !table) {
+  if (!hasValidReviewedFinancials(booking)) {
     return Response.json(
-      { error: "The selected table is no longer available." },
+      { error: "The reviewed Corporate financials are incomplete or inconsistent." },
+      { status: 400 },
+    );
+  }
+
+  const { data: showRows, error: showsError } = await auth.serviceClient
+    .from("shows")
+    .select("id,notes,status")
+    .in("status", ["active", "special_event"]);
+  const show = (showRows ?? []).find(
+    (row) =>
+      row.id === booking.showId || getLegacyShowId(row.notes) === booking.showId,
+  );
+
+  if (showsError || !show) {
+    return Response.json(
+      { error: "The selected performance is no longer available." },
       { status: 409 },
     );
   }
 
-  if (
-    table.status !== "available" ||
-    table.booking_id ||
-    table.merged_parent_id ||
-    Number(table.capacity) < booking.partySize
-  ) {
-    return Response.json(
-      { error: "The selected table is no longer available." },
-      { status: 409 },
-    );
+  const capacityResult = await validateBookingCapacityIncrease(
+    auth.serviceClient,
+    {
+      bookingReference: booking.reference,
+      bookingStatus:
+        booking.status === "pending-payment" ? "pending_payment" : booking.status,
+      guestCount: booking.partySize,
+      section: getDisplayZoneTitle(booking.zoneId, booking.zoneTitle),
+      showId: show.id,
+    },
+  );
+
+  if (!capacityResult.allowed) {
+    return getBookingCapacityConflictResponse(capacityResult);
+  }
+
+  let table: {
+    booking_id: string | null;
+    capacity: number;
+    id: string;
+    merged_parent_id: string | null;
+    section: string | null;
+    show_id: string;
+    status: string;
+    table_code: string;
+  } | null = null;
+
+  if (booking.tableId) {
+    const { data, error } = await auth.serviceClient
+      .from("show_tables")
+      .select("id,show_id,table_code,section,capacity,status,booking_id,merged_parent_id")
+      .eq("id", booking.tableId)
+      .maybeSingle();
+
+    table = data;
+
+    if (
+      error ||
+      !table ||
+      table.show_id !== show.id ||
+      table.status !== "available" ||
+      table.booking_id ||
+      table.merged_parent_id ||
+      Number(table.capacity) < booking.partySize
+    ) {
+      return Response.json(
+        { error: "The selected table is no longer available." },
+        { status: 409 },
+      );
+    }
   }
 
   const bookingWithClaim: ConversionBooking = {
     ...booking,
     corporateRequestId: record.row.id,
-    reservationTableClaims: [
-      {
-        capacity: Number(table.capacity),
-        primary: true,
-        section: table.section ?? booking.zoneTitle,
-        tableCode: table.table_code,
-      },
-    ],
+    reservationTableClaims: table
+      ? [
+          {
+            capacity: Number(table.capacity),
+            primary: true,
+            section: table.section ?? booking.zoneTitle,
+            tableCode: table.table_code,
+          },
+        ]
+      : [],
   };
 
   try {

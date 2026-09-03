@@ -18,7 +18,10 @@ export function getCorporateConversionGate(
     };
   }
 
-  if (request.status !== "confirmed" || request.archivedAt) {
+  if (
+    !["confirmed", "quote-sent"].includes(request.status) ||
+    request.archivedAt
+  ) {
     return {
       outcome: "blocked",
       reason: "This Corporate enquiry is no longer eligible for conversion.",

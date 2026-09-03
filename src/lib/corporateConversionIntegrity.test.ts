@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import {
+  isCorporateRequestConversionEligible,
+  parseCorporateConversionReview,
+  validateCorporateConversionReview,
+} from "./corporateConversionReview.ts";
+
 async function source(path: string) {
   return readFile(new URL(path, import.meta.url), "utf8");
 }
@@ -112,6 +118,129 @@ test("Corporate conversion retains payment-hold and server permission architectu
   assert.match(holdMigration, /new\.booking_source <> 'corporate-direct'/);
   assert.match(holdMigration, /new\.booking_origin::text <> 'corporate'/);
   assert.match(holdMigration, /new\.corporate_payment_deadline := least/);
+});
+
+test("eligible Corporate enquiry states expose conversion without allowing terminal states", () => {
+  const request = {
+    archivedAt: undefined,
+    linkedBookingReference: undefined,
+  };
+
+  assert.equal(
+    isCorporateRequestConversionEligible({ ...request, status: "quote-sent" }),
+    true,
+  );
+  assert.equal(
+    isCorporateRequestConversionEligible({ ...request, status: "confirmed" }),
+    true,
+  );
+  assert.equal(
+    isCorporateRequestConversionEligible({ ...request, status: "converted" }),
+    false,
+  );
+  assert.equal(
+    isCorporateRequestConversionEligible({ ...request, status: "cancelled" }),
+    false,
+  );
+  assert.equal(
+    isCorporateRequestConversionEligible({
+      ...request,
+      archivedAt: "2026-09-03T12:00:00+02:00",
+      status: "quote-sent",
+    }),
+    false,
+  );
+});
+
+test("review requires authoritative financials and reconciles paid and outstanding", () => {
+  const base = {
+    amountPaid: "",
+    paymentBasis: "unpaid" as const,
+    pax: "73",
+    showId: "show-27-november",
+    ticketTotal: "",
+    venue: "cape-town" as const,
+    zoneId: "middle-ring",
+  };
+
+  assert.deepEqual(validateCorporateConversionReview(base), {
+    amountPaid:
+      "Enter the authoritative amount already paid, including R0.00.",
+    ticketTotal: "Enter the agreed ticket obligation.",
+  });
+  assert.equal(parseCorporateConversionReview(base), null);
+
+  assert.deepEqual(
+    parseCorporateConversionReview({
+      ...base,
+      amountPaid: "25000",
+      paymentBasis: "deposit",
+      ticketTotal: "100000",
+    }),
+    {
+      amountPaid: 25000,
+      paymentBasis: "deposit",
+      paymentStatus: "deposit-paid",
+      pax: 73,
+      showId: "show-27-november",
+      ticketTotal: 100000,
+      venue: "cape-town",
+      zoneId: "middle-ring",
+    },
+  );
+});
+
+test("large Corporate conversion uses zone entitlement without requiring one table", async () => {
+  const [page, conversionRoute, bookingRoute] = await Promise.all([
+    source("../app/admin/page.tsx"),
+    source("../app/api/admin/corporate-requests/convert/route.ts"),
+    source("../app/api/bookings/route.ts"),
+  ]);
+
+  assert.match(page, /tableId: ""/);
+  assert.match(page, /tableNumber: ""/);
+  assert.doesNotMatch(page, /No suitable table is available for this request/);
+  assert.doesNotMatch(conversionRoute, /!booking\?\.reference \|\| !booking\.tableId/);
+  assert.match(conversionRoute, /reservationTableClaims: table[\s\S]*: \[\]/);
+  assert.match(
+    bookingRoute,
+    /booking\.source === "corporate-direct" && booking\.corporateRequestId/,
+  );
+  assert.match(bookingRoute, /reserve_public_booking_entitlement/);
+});
+
+test("reviewed conversion remains capacity protected and failure-safe", async () => {
+  const [route, migration] = await Promise.all([
+    source("../app/api/admin/corporate-requests/convert/route.ts"),
+    source(
+      "../../supabase/migrations/20260903160000_phase_39_58a_corporate_conversion_eligibility.sql",
+    ),
+  ]);
+
+  assert.match(route, /validateBookingCapacityIncrease/);
+  assert.match(route, /getBookingCapacityConflictResponse/);
+  assert.match(route, /hasValidReviewedFinancials/);
+  assert.match(migration, /status::text not in \('confirmed', 'quote_sent'\)/);
+  assert.match(migration, /status::text in \('confirmed', 'quote_sent'\)/);
+  assert.doesNotMatch(route, /\.from\("corporate_requests"\)\s*\.update/);
+});
+
+test("Corporate UI provides a review action and does not infer current zone pricing", async () => {
+  const [page, modal] = await Promise.all([
+    source("../app/admin/page.tsx"),
+    source("../app/admin/CorporateConversionModal.tsx"),
+  ]);
+
+  assert.match(page, /openCorporateConversionReview/);
+  assert.match(page, /Convert To Booking/);
+  assert.match(modal, /Agreed Ticket Obligation/);
+  assert.match(modal, /Amount Already Paid/);
+  assert.match(modal, /Large parties are created as a show and zone entitlement/);
+  const conversionHandler = page.slice(
+    page.indexOf("async function convertCorporateRequestToBooking"),
+    page.indexOf("function sendCorporatePaymentLink"),
+  );
+  assert.doesNotMatch(conversionHandler, /venueSettings\.zonePricing/);
 });
 
 test("standard staff tables no longer enter the custom temporary pricing failure path", async () => {
