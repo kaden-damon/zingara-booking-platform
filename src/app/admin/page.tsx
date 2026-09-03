@@ -236,6 +236,7 @@ import {
   buildCalendarBookingHref,
   type CalendarBookingLockContext,
 } from "../../lib/showBookingCreation";
+import { getStandardShowTime } from "../../lib/showScheduleDefaults";
 import { createTicketValidation } from "../../lib/supabase/ticketValidations";
 import { createTicket, updateTicket } from "../../lib/supabase/tickets";
 import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
@@ -14533,7 +14534,7 @@ export default function AdminDashboardPage() {
         daysOfWeek: [2, 3, 4, 5, 6, 0],
         location,
         tagline: "JOBURG'S MOST MAGICAL ESCAPE",
-        time: "18:00",
+        time: getStandardShowTime(location),
         title: "Zingara Johannesburg, The Royal Countess Dinner Show",
         tuesdayDisabled: true,
       });
@@ -14553,7 +14554,7 @@ export default function AdminDashboardPage() {
       daysOfWeek: [2, 3, 4, 5, 6, 0],
       location,
       tagline: "A New Chapter Awaits",
-      time: "17:00",
+      time: getStandardShowTime(location),
       title: "Zingara Cape Town, The Royal Countess Dinner Show",
       tuesdayDisabled: true,
     });
