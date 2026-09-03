@@ -94,6 +94,7 @@ import {
   getPublicBookingSalesStatus,
 } from "../../lib/publicBookingSales";
 import { getPublicBookingCutoff } from "../../lib/bookingDeadlines";
+import { getComplimentarySubmissionEligibility } from "../../lib/complimentarySubmission";
 
 type SeatingOption = SeatingZone;
 
@@ -1019,6 +1020,27 @@ export default function BookingPage() {
   });
   const customerDetailsComplete =
     Object.keys(currentCustomerValidationErrors).length === 0;
+  const selectedZoneHasCapacity = Boolean(
+    selectedZone &&
+      isAvailableForBooking(
+        selectedZone,
+        partySize,
+        occupiedSeatsByZone[selectedZone.id] ?? 0,
+        venueConfig,
+      ),
+  );
+  const complimentarySubmissionEligibility =
+    getComplimentarySubmissionEligibility({
+      customerDetailsComplete,
+      hasAcceptedTerms: hasAcceptedBookingTerms,
+      hasAvailableCapacity: selectedZoneHasCapacity,
+      hasSelectedShow: Boolean(selectedShow),
+      hasSelectedZone: Boolean(selectedZone),
+      isBookingSubmitting: isPayFastRedirecting,
+      isShowLockReady:
+        !isLockedCalendarCheckout || calendarLockStatus === "SHOW READY ✓",
+      isTrustedStaff: isTrustedManualCheckout,
+    });
 
   const publicBookingGuidance = getPublicBookingGuidance(
     currentCustomerValidationErrors,
@@ -5243,14 +5265,14 @@ export default function BookingPage() {
                   <button
                     type="submit"
                     aria-busy={isPayFastRedirecting}
-                    disabled={
-                      !selectedShow ||
-                      (isLockedCalendarCheckout &&
-                        calendarLockStatus !== "SHOW READY ✓") ||
-                      isPayFastRedirecting ||
-                      isManualPaymentLinkCreating ||
-                      !hasAcceptedBookingTerms
-                    }
+                    disabled={isComplimentary
+                      ? !complimentarySubmissionEligibility.allowed
+                      : !selectedShow ||
+                        (isLockedCalendarCheckout &&
+                          calendarLockStatus !== "SHOW READY ✓") ||
+                        isPayFastRedirecting ||
+                        isManualPaymentLinkCreating ||
+                        !hasAcceptedBookingTerms}
                     className="inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"
                   >
                     {isPayFastRedirecting && (
@@ -5273,6 +5295,16 @@ export default function BookingPage() {
                           ? "PAY NOW"
                           : "Confirm Booking"}
                   </button>
+                  {isComplimentary &&
+                    !complimentarySubmissionEligibility.allowed &&
+                    !isPayFastRedirecting && (
+                      <p
+                        className="text-center text-sm font-semibold text-amber-200"
+                        role="status"
+                      >
+                        {complimentarySubmissionEligibility.reason}
+                      </p>
+                    )}
                   {!isComplimentary &&
                     manualCheckoutRole === "super-admin" &&
                     getCurrencyCents(amountDueNow) > 0 && (
