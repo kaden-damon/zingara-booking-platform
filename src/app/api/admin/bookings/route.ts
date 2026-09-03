@@ -814,8 +814,6 @@ async function persistBookingTableAssignment(
 
   if (
     !booking?.reference ||
-    !booking.showId ||
-    !booking.tableNumber ||
     !booking.tableId
   ) {
     return Response.json(
@@ -851,177 +849,61 @@ async function persistBookingTableAssignment(
 
   const bookingId = (beforeBooking as { id: string }).id;
   const showId = (beforeBooking as { show_id: string }).show_id;
-  const { data: targetTable, error: tableLoadError } =
-    await auth.serviceClient
-      .from("show_tables")
-      .select("id,show_id,table_code,section,status,booking_id")
-      .eq("show_id", showId)
-      .eq("table_code", booking.tableNumber)
-      .maybeSingle();
 
-  if (tableLoadError) {
-    throw tableLoadError;
+  const { data: show, error: showError } = await auth.serviceClient
+    .from("shows")
+    .select("id,venue")
+    .eq("id", showId)
+    .maybeSingle();
+
+  if (showError) {
+    throw showError;
   }
 
-  const target = targetTable as ShowTableAssignmentRow | null;
+  const location = normalizeShowLocation(show?.venue);
+  const venueScope = normalizeStaffVenueScope(auth.staffProfile.venue_scope ?? []);
 
-  if (!target || target.section !== booking.zoneId) {
+  if (!location || (!venueScope.includes("all") && !venueScope.includes(location))) {
     return Response.json(
-      { error: "The selected table could not be resolved for this booking." },
-      { status: 404 },
+      { error: "This performance is outside your assigned location." },
+      { status: 403 },
     );
   }
 
-  if (target.status === "disabled") {
-    return Response.json(
-      { error: `${target.table_code} is blocked and cannot accept bookings.` },
-      { status: 409 },
-    );
-  }
+  const { data: assignment, error: assignmentError } =
+    await auth.serviceClient.rpc("assign_unallocated_booking_table_atomic", {
+      p_booking_id: bookingId,
+      p_target_table_id: booking.tableId,
+    });
 
-  if (target.booking_id && target.booking_id !== bookingId) {
-    return Response.json(
-      { error: `${target.table_code} is already reserved for another booking.` },
-      { status: 409 },
-    );
-  }
+  if (assignmentError) {
+    const knownConflict = [
+      "BOOKING_ALREADY_ASSIGNED",
+      "BOOKING_NOT_ASSIGNABLE",
+      "MERGED_TABLE_NOT_AVAILABLE",
+      "TABLE_NOT_AVAILABLE",
+    ].some((code) => assignmentError.message.includes(code));
 
-  const { data: previousClaims, error: previousClaimsError } =
-    await auth.serviceClient
-      .from("show_tables")
-      .select("id,show_id,table_code,section,status,booking_id")
-      .eq("booking_id", bookingId);
-
-  if (previousClaimsError) {
-    throw previousClaimsError;
-  }
-
-  let claimQuery = auth.serviceClient
-    .from("show_tables")
-    .update({
-      booking_id: bookingId,
-      status: "booked",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", target.id);
-
-  if (target.booking_id !== bookingId) {
-    claimQuery = claimQuery
-      .is("booking_id", null)
-      .eq("status", "available");
-  }
-
-  const { data: claimedRows, error: claimError } = await claimQuery.select(
-    "id,show_id,table_code,section,status,booking_id",
-  );
-
-  if (claimError) {
-    throw claimError;
-  }
-
-  const claimedTable = (claimedRows?.[0] ?? null) as
-    | ShowTableAssignmentRow
-    | null;
-
-  if (!claimedTable) {
-    return Response.json(
-      {
-        error:
-          "The selected table is no longer available. Refresh Floor and choose another table.",
-      },
-      { status: 409 },
-    );
-  }
-
-  const { data: updatedBooking, error: bookingUpdateError } =
-    await auth.serviceClient
-      .from("bookings")
-      .update({
-        notes: serializeBookingNotes(booking),
-        section: booking.zoneTitle,
-        table_id: claimedTable.id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", bookingId)
-      .eq("show_id", showId)
-      .select(bookingSelect)
-      .maybeSingle();
-
-  if (bookingUpdateError || !updatedBooking) {
-    await auth.serviceClient
-      .from("show_tables")
-      .update({
-        booking_id: target.booking_id,
-        status: target.status,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", target.id);
-
-    if (bookingUpdateError) {
-      throw bookingUpdateError;
+    if (knownConflict) {
+      return Response.json(
+        {
+          error:
+            "The selected table is no longer valid for this booking. Refresh Floor and choose another table.",
+        },
+        { status: 409 },
+      );
     }
 
-    return Response.json(
-      { error: "The booking table assignment could not be saved." },
-      { status: 409 },
-    );
+    throw assignmentError;
   }
 
-  const priorClaims = (previousClaims ?? []) as ShowTableAssignmentRow[];
-  const priorClaimIds = priorClaims
-    .filter((table) => table.id !== claimedTable.id)
-    .map((table) => table.id);
-
-  if (priorClaimIds.length > 0) {
-    const { error: releaseError } = await auth.serviceClient
-      .from("show_tables")
-      .update({
-        booking_id: null,
-        status: "available",
-        updated_at: new Date().toISOString(),
-      })
-      .in("id", priorClaimIds)
-      .eq("booking_id", bookingId);
-
-    if (releaseError) {
-      await auth.serviceClient
-        .from("bookings")
-        .update({
-          notes: (beforeBooking as { notes: string | null }).notes,
-          section: (beforeBooking as { section: string | null }).section,
-          table_id: (beforeBooking as { table_id: string | null }).table_id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", bookingId);
-      await auth.serviceClient
-        .from("show_tables")
-        .update({
-          booking_id: target.booking_id,
-          status: target.status,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", target.id);
-
-      for (const priorClaim of priorClaims) {
-        await auth.serviceClient
-          .from("show_tables")
-          .update({
-            booking_id: priorClaim.booking_id,
-            status: priorClaim.status,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", priorClaim.id);
-      }
-
-      throw releaseError;
-    }
-  }
-
-  const diff = diffAuditFields(
-    beforeBooking as Record<string, unknown>,
-    updatedBooking as Record<string, unknown>,
-    bookingAuditFields,
-  );
+  const result = assignment as {
+    booking_id: string;
+    booking_reference: string;
+    show_id: string;
+    table_code: string;
+    table_id: string;
+  };
 
   await tryRecordAuditEvent(
     auth.serviceClient,
@@ -1029,14 +911,16 @@ async function persistBookingTableAssignment(
     auth.user,
     {
       action: "booking.table-assign",
-      afterValues: diff.afterValues,
-      beforeValues: diff.beforeValues,
-      changedFields: diff.changedFields,
+      afterValues: { table_id: result.table_id },
+      beforeValues: {
+        table_id: (beforeBooking as { table_id: string | null }).table_id,
+      },
+      changedFields: ["table_id"],
       entityId: bookingId,
       entityReference: booking.reference,
       entityType: "booking",
       outcome: "success",
-      reason: `Assigned table ${claimedTable.table_code}.`,
+      reason: `Assigned table ${result.table_code}.`,
       request,
       sourceArea: "Operations Floor",
     },
@@ -1045,11 +929,11 @@ async function persistBookingTableAssignment(
   await notifyAppleWalletBooking(auth.serviceClient, bookingId);
 
   return Response.json({
-    bookingId,
-    bookingReference: booking.reference,
-    showId,
-    tableCode: claimedTable.table_code,
-    tableId: claimedTable.id,
+    bookingId: result.booking_id,
+    bookingReference: result.booking_reference,
+    showId: result.show_id,
+    tableCode: result.table_code,
+    tableId: result.table_id,
   });
 }
 
