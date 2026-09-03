@@ -76,13 +76,10 @@ test("only trusted Corporate booking metadata can establish a link", async () =>
 test("converted enquiries are historical and never part of Active Enquiries", async () => {
   const page = await source("../app/admin/page.tsx");
 
-  assert.match(
-    page,
-    /activeCorporateBookingRequests[\s\S]*request\.status !== "converted"/,
-  );
-  assert.match(page, /Converted Enquiries/);
-  assert.match(page, /status === "converted"/);
-  assert.match(page, /status !== "converted"/);
+  assert.match(page, /getCorporateEnquiryLifecycleCounts/);
+  assert.match(page, /aria-label="Corporate enquiry lifecycle"/);
+  assert.match(page, /\["converted", "Converted"\]/);
+  assert.match(page, /corporateLifecycle === lifecycle/);
 });
 
 test("generic status editing cannot manufacture a Converted enquiry", async () => {

@@ -169,6 +169,14 @@ import {
   type CorporateConversionReview,
 } from "../../lib/corporateConversionReview";
 import { getCorporateSeatingZoneId } from "../../lib/corporateZoneMapping";
+import {
+  filterCorporateEnquiries,
+  getCorporateEnquiryLifecycle,
+  getCorporateEnquiryLifecycleCounts,
+  getCorporateFilterOptions,
+  type CorporateEnquiryLifecycle,
+  type CorporateWorkspace,
+} from "../../lib/corporateWorkspace";
 import { getPayments, updatePayment } from "../../lib/supabase/payments";
 import {
   getOrCreateStaffProfileSession,
@@ -6961,6 +6969,10 @@ const corporateEnquiryPageSizeStorageKey =
   "zingara-admin-corporate-enquiry-page-size";
 const corporateBookingPageSizeStorageKey =
   "zingara-admin-corporate-booking-page-size";
+const corporateWorkspaceSessionStorageKey =
+  "zingara-admin-corporate-workspace";
+const corporateEnquiryStateSessionStorageKey =
+  "zingara-admin-corporate-enquiry-state";
 
 const defaultBulkShowScheduleForm: BulkShowScheduleForm = {
   address: "",
@@ -9800,9 +9812,7 @@ export default function AdminDashboardPage() {
     useState(defaultPageSize);
   const [corporateBookingPageSize, setCorporateBookingPageSize] =
     useState(defaultPageSize);
-  const [corporateActivePage, setCorporateActivePage] = useState(1);
-  const [corporateConvertedPage, setCorporateConvertedPage] = useState(1);
-  const [corporateArchivedPage, setCorporateArchivedPage] = useState(1);
+  const [corporateEnquiryPage, setCorporateEnquiryPage] = useState(1);
   const [paginationPreferencesLoaded, setPaginationPreferencesLoaded] =
     useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -10232,9 +10242,20 @@ export default function AdminDashboardPage() {
     useState<BookingViewMode>("list");
   const [corporateViewMode, setCorporateViewMode] =
     useState<BookingViewMode>("list");
+  const [corporateWorkspace, setCorporateWorkspace] =
+    useState<CorporateWorkspace>("enquiries");
+  const [corporateLifecycle, setCorporateLifecycle] =
+    useState<CorporateEnquiryLifecycle>("active");
   const [corporateSearch, setCorporateSearch] = useState("");
   const [corporateStatusFilter, setCorporateStatusFilter] =
-    useState<CorporateRequestStatus | "archived" | "all">("all");
+    useState<CorporateRequestStatus | "all">("all");
+  const [corporateLocationFilter, setCorporateLocationFilter] =
+    useState("all");
+  const [corporateDateFilter, setCorporateDateFilter] = useState("all");
+  const [corporateConsultantFilter, setCorporateConsultantFilter] =
+    useState("all");
+  const [corporateSessionStateLoaded, setCorporateSessionStateLoaded] =
+    useState(false);
   const [openCorporateRequestId, setOpenCorporateRequestId] =
     useState("");
   const [
@@ -10739,6 +10760,95 @@ export default function AdminDashboardPage() {
   ]);
 
   useEffect(() => {
+    const storedWorkspace = window.sessionStorage.getItem(
+      corporateWorkspaceSessionStorageKey,
+    );
+
+    if (storedWorkspace === "enquiries" || storedWorkspace === "bookings") {
+      setCorporateWorkspace(storedWorkspace);
+    }
+
+    try {
+      const storedState = JSON.parse(
+        window.sessionStorage.getItem(
+          corporateEnquiryStateSessionStorageKey,
+        ) ?? "null",
+      ) as {
+        consultant?: string;
+        date?: string;
+        lifecycle?: CorporateEnquiryLifecycle;
+        location?: string;
+        page?: number;
+        search?: string;
+        status?: CorporateRequestStatus | "all";
+        viewMode?: BookingViewMode;
+      } | null;
+
+      if (!storedState) {
+        setCorporateSessionStateLoaded(true);
+        return;
+      }
+
+      if (
+        storedState.lifecycle === "active" ||
+        storedState.lifecycle === "converted" ||
+        storedState.lifecycle === "archived" ||
+        storedState.lifecycle === "all"
+      ) {
+        setCorporateLifecycle(storedState.lifecycle);
+      }
+      setCorporateSearch(storedState.search ?? "");
+      setCorporateStatusFilter(storedState.status ?? "all");
+      setCorporateLocationFilter(storedState.location ?? "all");
+      setCorporateDateFilter(storedState.date ?? "all");
+      setCorporateConsultantFilter(storedState.consultant ?? "all");
+      setCorporateEnquiryPage(Math.max(1, storedState.page ?? 1));
+      if (storedState.viewMode === "list" || storedState.viewMode === "grid") {
+        setCorporateViewMode(storedState.viewMode);
+      }
+    } catch {
+      window.sessionStorage.removeItem(corporateEnquiryStateSessionStorageKey);
+    } finally {
+      setCorporateSessionStateLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!corporateSessionStateLoaded) {
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      corporateWorkspaceSessionStorageKey,
+      corporateWorkspace,
+    );
+    window.sessionStorage.setItem(
+      corporateEnquiryStateSessionStorageKey,
+      JSON.stringify({
+        consultant: corporateConsultantFilter,
+        date: corporateDateFilter,
+        lifecycle: corporateLifecycle,
+        location: corporateLocationFilter,
+        page: corporateEnquiryPage,
+        search: corporateSearch,
+        status: corporateStatusFilter,
+        viewMode: corporateViewMode,
+      }),
+    );
+  }, [
+    corporateConsultantFilter,
+    corporateDateFilter,
+    corporateEnquiryPage,
+    corporateLifecycle,
+    corporateLocationFilter,
+    corporateSearch,
+    corporateSessionStateLoaded,
+    corporateStatusFilter,
+    corporateViewMode,
+    corporateWorkspace,
+  ]);
+
+  useEffect(() => {
     if (!currentStaff) {
       return;
     }
@@ -11153,6 +11263,7 @@ export default function AdminDashboardPage() {
         }
       } else if (corporateRequestId) {
         setActiveAdminTab("corporate");
+        setCorporateWorkspace("enquiries");
         setOpenCorporateRequestId(corporateRequestId);
       } else if (section === "bookings") {
         setActiveAdminTab("bookings");
@@ -11161,6 +11272,7 @@ export default function AdminDashboardPage() {
         setActiveOperationsTab("waitlist");
       } else if (section === "corporate") {
         setActiveAdminTab("corporate");
+        setCorporateWorkspace("enquiries");
       } else if (section === "floor") {
         setActiveAdminTab("operations");
         setActiveOperationsTab("floor");
@@ -15294,10 +15406,20 @@ export default function AdminDashboardPage() {
 
   function openConvertedCorporateBooking(reference: string) {
     setOpenCorporateRequestId("");
-    setActiveAdminTab("bookings");
+    setCorporateWorkspace("bookings");
+    setActiveAdminTab("corporate");
     setBookingSearch(reference);
     setBookingPage(1);
     void openBookingDetails(reference);
+  }
+
+  function openCorporateEnquiryFromBooking(request: CorporateRequest) {
+    setCorporateWorkspace("enquiries");
+    setCorporateLifecycle(getCorporateEnquiryLifecycle(request));
+    setCorporateSearch(request.linkedBookingReference ?? request.companyName);
+    setCorporateEnquiryPage(1);
+    setOpenCorporateRequestId(request.id);
+    setActiveAdminTab("corporate");
   }
 
   function openCorporateConversionReview(request: CorporateRequest) {
@@ -23520,9 +23642,14 @@ export default function AdminDashboardPage() {
     );
   }
 
+  const isBookingManagementWorkspace =
+    activeAdminTab === "bookings" ||
+    (activeAdminTab === "corporate" && corporateWorkspace === "bookings");
   const filteredBookings = useMemo(
     () =>
-      bookings.filter((booking) => bookingMatchesCurrentFilters(booking)),
+      isBookingManagementWorkspace
+        ? bookings.filter((booking) => bookingMatchesCurrentFilters(booking))
+        : [],
     [
       activeAdminTab,
       bookingArchiveFilter,
@@ -23533,7 +23660,9 @@ export default function AdminDashboardPage() {
       bookingStatusFilter,
       bookings,
       corporateRequests,
+      corporateWorkspace,
       hideCancelledBookings,
+      isBookingManagementWorkspace,
       shows,
     ],
   );
@@ -23546,9 +23675,15 @@ export default function AdminDashboardPage() {
     bookingPage,
     activeBookingPageSize,
   );
-  const filteredArchivableBookings = getFilteredArchivableBookings();
-  const allArchivableBookings = getAllNonArchivedBookings();
-  const archivedBookingCount = bookings.filter(isArchivedBooking).length;
+  const filteredArchivableBookings = isBookingManagementWorkspace
+    ? getFilteredArchivableBookings()
+    : [];
+  const allArchivableBookings = isBookingManagementWorkspace
+    ? getAllNonArchivedBookings()
+    : [];
+  const archivedBookingCount = isBookingManagementWorkspace
+    ? bookings.filter(isArchivedBooking).length
+    : 0;
   const nonArchivedBookingCount = allArchivableBookings.length;
   const nonArchivedCancelledBookingCount = allArchivableBookings.filter(
     (booking) => (booking.status ?? "confirmed") === "cancelled",
@@ -24969,69 +25104,47 @@ export default function AdminDashboardPage() {
   const topCustomerProfiles = customerProfiles
     .filter((profile) => !profile.archivedAt)
     .slice(0, 4);
-  const activeCorporateBookingRequests = corporateRequests.filter(
-    (request) =>
-      !request.archivedAt &&
-      request.status !== "converted" &&
-      request.requestType === "corporate-booking",
+  const corporateEnquiryLifecycleCounts = useMemo(
+    () => getCorporateEnquiryLifecycleCounts(corporateRequests),
+    [corporateRequests],
   );
-  const activeAgentContactRequests = corporateRequests.filter(
-    (request) =>
-      !request.archivedAt &&
-      request.status !== "converted" &&
-      request.requestType === "agent-contact",
+  const corporateFilterOptions = useMemo(
+    () => getCorporateFilterOptions(corporateRequests),
+    [corporateRequests],
   );
-  const convertedCorporateRequests = corporateRequests.filter(
-    (request) => !request.archivedAt && request.status === "converted",
+  const corporateBookingCount = useMemo(
+    () =>
+      bookings.filter((booking) => isCorporateBookingSource(booking.source))
+        .length,
+    [bookings],
   );
-  const archivedCorporateRequests = corporateRequests.filter(
-    (request) => Boolean(request.archivedAt),
+  const filteredCorporateRequests = useMemo(
+    () =>
+      activeAdminTab === "corporate" && corporateWorkspace === "enquiries"
+        ? filterCorporateEnquiries(corporateRequests, {
+            consultant: corporateConsultantFilter,
+            date: corporateDateFilter,
+            lifecycle: corporateLifecycle,
+            location: corporateLocationFilter,
+            search: corporateSearch,
+            status: corporateStatusFilter,
+          })
+        : [],
+    [
+      activeAdminTab,
+      corporateConsultantFilter,
+      corporateDateFilter,
+      corporateLifecycle,
+      corporateLocationFilter,
+      corporateRequests,
+      corporateSearch,
+      corporateStatusFilter,
+      corporateWorkspace,
+    ],
   );
-  const corporateSearchTerm = corporateSearch.trim().toLowerCase();
-  const corporateMatchesSearch = (request: CorporateRequest) =>
-    !corporateSearchTerm ||
-    request.companyName.toLowerCase().includes(corporateSearchTerm) ||
-    request.contactName.toLowerCase().includes(corporateSearchTerm) ||
-    request.email.toLowerCase().includes(corporateSearchTerm) ||
-    request.contactNumber.toLowerCase().includes(corporateSearchTerm);
-  const corporateMatchesStatus = (request: CorporateRequest) =>
-    corporateStatusFilter === "all" ||
-    (corporateStatusFilter === "archived"
-      ? Boolean(request.archivedAt)
-      : request.status === corporateStatusFilter);
-  const filteredActiveCorporateRequests = [
-    ...activeCorporateBookingRequests,
-    ...activeAgentContactRequests,
-  ].filter(
-    (request) =>
-      corporateMatchesSearch(request) && corporateMatchesStatus(request),
-  );
-  const filteredArchivedCorporateRequests =
-    archivedCorporateRequests.filter(
-      (request) =>
-        corporateMatchesSearch(request) &&
-        (corporateStatusFilter === "all" ||
-          corporateStatusFilter === "archived"),
-    );
-  const filteredConvertedCorporateRequests = convertedCorporateRequests.filter(
-    (request) =>
-      corporateMatchesSearch(request) &&
-      (corporateStatusFilter === "all" ||
-        corporateStatusFilter === "converted"),
-  );
-  const activeCorporatePagination = paginateItems(
-    filteredActiveCorporateRequests,
-    corporateActivePage,
-    corporateEnquiryPageSize,
-  );
-  const archivedCorporatePagination = paginateItems(
-    filteredArchivedCorporateRequests,
-    corporateArchivedPage,
-    corporateEnquiryPageSize,
-  );
-  const convertedCorporatePagination = paginateItems(
-    filteredConvertedCorporateRequests,
-    corporateConvertedPage,
+  const corporateEnquiryPagination = paginateItems(
+    filteredCorporateRequests,
+    corporateEnquiryPage,
     corporateEnquiryPageSize,
   );
   const openCorporateRequest =
@@ -25204,7 +25317,7 @@ export default function AdminDashboardPage() {
                 }
                 className="rounded-full border border-sky-300/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-sky-200 transition hover:bg-sky-300 hover:text-black"
               >
-                Open Booking
+                View Booking
               </button>
             )}
             <button
@@ -25241,7 +25354,7 @@ export default function AdminDashboardPage() {
                   }
                   className="rounded-full border border-sky-300/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-sky-200 transition hover:bg-sky-300 hover:text-black"
                 >
-                  Open Booking
+                  View Booking
                 </button>
               )}
             </div>
@@ -26439,7 +26552,7 @@ export default function AdminDashboardPage() {
             className="mb-8 flex flex-col gap-2 rounded-[1.25rem] border border-white/10 bg-black/35 p-2 sm:w-fit sm:flex-row"
           >
             {[
-              ["bookings", "Standard Bookings"],
+              ["bookings", "Standard"],
               ["corporate", "Corporate"],
             ].map(([tabId, label]) => {
               const isActiveBookingSection = activeAdminTab === tabId;
@@ -26459,6 +26572,45 @@ export default function AdminDashboardPage() {
                 </button>
               );
             })}
+          </nav>
+        )}
+
+        {activeAdminTab === "corporate" && canViewBookingManagement && (
+          <nav
+            aria-label="Corporate workspaces"
+            className="mb-8 grid w-full grid-cols-2 gap-2 rounded-[1.25rem] border border-white/10 bg-black/35 p-2"
+          >
+            {(
+              [
+                ["enquiries", "Enquiries", corporateRequests.length],
+                ["bookings", "Bookings", corporateBookingCount],
+              ] as Array<[CorporateWorkspace, string, number]>
+            ).map(([workspace, label, count]) => (
+              <button
+                key={workspace}
+                type="button"
+                onClick={() => {
+                  setCorporateWorkspace(workspace);
+                  closeBookingDetails();
+                }}
+                className={`flex min-h-11 items-center justify-center gap-2 rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition sm:px-5 ${
+                  corporateWorkspace === workspace
+                    ? "bg-[#D8C36A] text-black"
+                    : "border border-white/10 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
+                }`}
+              >
+                <span>{label}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[0.62rem] ${
+                    corporateWorkspace === workspace
+                      ? "bg-black/15 text-black"
+                      : "bg-white/10 text-zinc-300"
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            ))}
           </nav>
         )}
 
@@ -39831,8 +39983,10 @@ export default function AdminDashboardPage() {
         </div>
         )}
 
-        {activeAdminTab === "corporate" && canViewBookingManagement && (
-          <div className="mt-12 space-y-8 border-t border-zinc-800 pt-10">
+        {activeAdminTab === "corporate" &&
+          corporateWorkspace === "enquiries" &&
+          canViewBookingManagement && (
+          <div className="space-y-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
@@ -39844,35 +39998,6 @@ export default function AdminDashboardPage() {
                     {corporateRequests.length} enquir
                     {corporateRequests.length === 1 ? "y" : "ies"}
                   </span>
-                  <label className="group relative block w-10 shrink-0 transition-all duration-300 focus-within:w-full sm:focus-within:w-80">
-                    <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-[#F2D66C] transition-all duration-300 group-focus-within:left-4 group-focus-within:translate-x-0">
-                      <svg
-                        aria-hidden="true"
-                        viewBox="0 0 24 24"
-                        className="h-5 w-5"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2.5"
-                      >
-                        <circle cx="11" cy="11" r="7" />
-                        <path d="m20 20-4.35-4.35" />
-                      </svg>
-                    </span>
-                    <AdminSearchInput
-                      value={corporateSearch}
-                      onSearchChange={(value) => {
-                        setCorporateSearch(value);
-                        setCorporateActivePage(1);
-                        setCorporateConvertedPage(1);
-                        setCorporateArchivedPage(1);
-                      }}
-                      aria-label="Search corporate enquiries"
-                      placeholder="Search corporate enquiries..."
-                      className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-0 text-sm text-transparent shadow-[0_0_18px_rgba(216,195,106,0.1)] transition-all duration-300 placeholder:text-transparent focus:border-[#D8C36A]/70 focus:pr-4 focus:text-white focus:placeholder:text-zinc-500 focus:outline-none"
-                    />
-                  </label>
                 </div>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
                   Corporate enquiries and booking requests received before they
@@ -39881,29 +40006,45 @@ export default function AdminDashboardPage() {
               </div>
               <div className="rounded-2xl border border-[#D8C36A]/25 bg-black/35 px-4 py-3 text-sm text-zinc-300">
                 <span className="font-semibold text-white">
-                  {filteredActiveCorporateRequests.length}
+                  {filteredCorporateRequests.length}
                 </span>{" "}
-                active enquir
-                {filteredActiveCorporateRequests.length === 1 ? "y" : "ies"}
+                matching enquir
+                {filteredCorporateRequests.length === 1 ? "y" : "ies"}
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <label className="relative inline-flex w-full sm:w-auto">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <label className="relative block min-w-0">
+                <span className="sr-only">Filter enquiries by location</span>
+                <select
+                  value={corporateLocationFilter}
+                  onChange={(event) => {
+                    setCorporateLocationFilter(event.target.value);
+                    setCorporateEnquiryPage(1);
+                  }}
+                  className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                >
+                  <option value="all">All Locations</option>
+                  {corporateFilterOptions.locations.map((location) => (
+                    <option key={location} value={location}>
+                      {location}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">▾</span>
+              </label>
+
+              <label className="relative block min-w-0">
+                <span className="sr-only">Filter enquiries by status</span>
                 <select
                   value={corporateStatusFilter}
                   onChange={(event) => {
                     setCorporateStatusFilter(
-                      event.target.value as
-                        | CorporateRequestStatus
-                        | "archived"
-                        | "all",
+                      event.target.value as CorporateRequestStatus | "all",
                     );
-                    setCorporateActivePage(1);
-                    setCorporateConvertedPage(1);
-                    setCorporateArchivedPage(1);
+                    setCorporateEnquiryPage(1);
                   }}
-                  className="w-full appearance-none rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 sm:w-auto"
+                  className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
                 >
                   <option value="all">All Statuses</option>
                   {(
@@ -39915,12 +40056,111 @@ export default function AdminDashboardPage() {
                       {corporateRequestStatusLabels[status]}
                     </option>
                   ))}
-                  <option value="archived">Archived</option>
                 </select>
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
-                  ▾
-                </span>
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">▾</span>
               </label>
+
+              <label className="relative block min-w-0">
+                <span className="sr-only">Filter enquiries by date</span>
+                <select
+                  value={corporateDateFilter}
+                  onChange={(event) => {
+                    setCorporateDateFilter(event.target.value);
+                    setCorporateEnquiryPage(1);
+                  }}
+                  className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                >
+                  <option value="all">All Dates</option>
+                  {corporateFilterOptions.dates.map((date) => (
+                    <option key={date} value={date}>{date}</option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">▾</span>
+              </label>
+
+              <label className="relative block min-w-0">
+                <span className="sr-only">Filter enquiries by consultant</span>
+                <select
+                  value={corporateConsultantFilter}
+                  onChange={(event) => {
+                    setCorporateConsultantFilter(event.target.value);
+                    setCorporateEnquiryPage(1);
+                  }}
+                  className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                >
+                  <option value="all">All Consultants</option>
+                  {corporateFilterOptions.consultants.map((consultant) => (
+                    <option key={consultant} value={consultant}>{consultant}</option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">▾</span>
+              </label>
+
+              <label className="relative block min-w-0">
+                <span
+                  className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-[#F2D66C]"
+                  aria-hidden="true"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2.5"
+                  >
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-4.35-4.35" />
+                  </svg>
+                </span>
+                <AdminSearchInput
+                  value={corporateSearch}
+                  onSearchChange={(value) => {
+                    setCorporateSearch(value);
+                    setCorporateEnquiryPage(1);
+                  }}
+                  aria-label="Search corporate enquiries"
+                  placeholder="Search corporate enquiries..."
+                  className="h-11 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-4 text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition placeholder:text-zinc-500 focus:border-[#D8C36A]/70"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div
+                role="group"
+                aria-label="Corporate enquiry lifecycle"
+                className="grid w-full grid-cols-2 gap-1 rounded-[1.25rem] border border-white/10 bg-black/35 p-1 sm:grid-cols-4 lg:w-auto"
+              >
+                {(
+                  [
+                    ["active", "Active"],
+                    ["converted", "Converted"],
+                    ["archived", "Archived"],
+                    ["all", "All"],
+                  ] as Array<[CorporateEnquiryLifecycle, string]>
+                ).map(([lifecycle, label]) => (
+                  <button
+                    key={lifecycle}
+                    type="button"
+                    onClick={() => {
+                      setCorporateLifecycle(lifecycle);
+                      setCorporateEnquiryPage(1);
+                    }}
+                    className={`flex min-h-10 items-center justify-center gap-2 rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition ${
+                      corporateLifecycle === lifecycle
+                        ? "bg-[#D8C36A] text-black"
+                        : "text-zinc-300 hover:text-white"
+                    }`}
+                  >
+                    <span>{label}</span>
+                    <span className="rounded-full bg-black/15 px-1.5 py-0.5 text-[0.6rem]">
+                      {corporateEnquiryLifecycleCounts[lifecycle]}
+                    </span>
+                  </button>
+                ))}
+              </div>
 
               <div className="inline-flex w-full rounded-full border border-white/10 bg-black/35 p-1 sm:w-auto">
                 {(["list", "grid"] as BookingViewMode[]).map((mode) => (
@@ -39934,125 +40174,52 @@ export default function AdminDashboardPage() {
                         : "text-zinc-400 hover:text-white"
                     }`}
                   >
-                    {mode === "list" ? "List View" : "Grid View"}
+                    {mode === "list" ? "List" : "Grid"}
                   </button>
                 ))}
               </div>
             </div>
 
             <section>
-              <h3 className="text-xl font-bold uppercase">Active Enquiries</h3>
-              {filteredActiveCorporateRequests.length === 0 ? (
-                <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
-                  No active corporate enquiries match the current filters.
+              {filteredCorporateRequests.length === 0 ? (
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
+                  No corporate enquiries match the selected lifecycle and filters.
                 </div>
               ) : (
                 <div
-                  className={`mt-4 grid gap-4 ${
+                  className={`grid gap-4 ${
                     corporateViewMode === "grid"
                       ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
                       : "grid-cols-1"
                   }`}
                 >
-                  {activeCorporatePagination.items.map((request) =>
-                    renderCorporateRequestCard(request),
-                  )}
-                </div>
-              )}
-              {filteredActiveCorporateRequests.length > 0 && (
-                <BookingPaginationControls
-                  key={`active-corporate-${corporateEnquiryPageSize}`}
-                  itemLabel="corporate enquiries"
-                  onPageChange={setCorporateActivePage}
-                  onPageSizeChange={(pageSize) => {
-                    setCorporateEnquiryPageSize(pageSize);
-                    setCorporateActivePage(1);
-                    setCorporateConvertedPage(1);
-                    setCorporateArchivedPage(1);
-                  }}
-                  pageSize={corporateEnquiryPageSize}
-                  window={activeCorporatePagination.window}
-                />
-              )}
-            </section>
-
-            <section>
-              <h3 className="text-xl font-bold uppercase">Converted Enquiries</h3>
-              {filteredConvertedCorporateRequests.length === 0 ? (
-                <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
-                  No converted corporate enquiries match the current filters.
-                </div>
-              ) : (
-                <div
-                  className={`mt-4 grid gap-4 ${
-                    corporateViewMode === "grid"
-                      ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
-                      : "grid-cols-1"
-                  }`}
-                >
-                  {convertedCorporatePagination.items.map((request) =>
-                    renderCorporateRequestCard(request),
-                  )}
-                </div>
-              )}
-              {filteredConvertedCorporateRequests.length > 0 && (
-                <BookingPaginationControls
-                  key={`converted-corporate-${corporateEnquiryPageSize}`}
-                  itemLabel="converted corporate enquiries"
-                  onPageChange={setCorporateConvertedPage}
-                  onPageSizeChange={(pageSize) => {
-                    setCorporateEnquiryPageSize(pageSize);
-                    setCorporateActivePage(1);
-                    setCorporateConvertedPage(1);
-                    setCorporateArchivedPage(1);
-                  }}
-                  pageSize={corporateEnquiryPageSize}
-                  window={convertedCorporatePagination.window}
-                />
-              )}
-            </section>
-
-            <section>
-              <h3 className="text-xl font-bold uppercase">Archived Enquiries</h3>
-              {filteredArchivedCorporateRequests.length === 0 ? (
-                <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
-                  No archived corporate enquiries match the current filters.
-                </div>
-              ) : (
-                <div
-                  className={`mt-4 grid gap-4 ${
-                    corporateViewMode === "grid"
-                      ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
-                      : "grid-cols-1"
-                  }`}
-                >
-                  {archivedCorporatePagination.items.map((request) =>
+                  {corporateEnquiryPagination.items.map((request) =>
                     renderCorporateRequestCard(request, {
-                      isArchived: true,
+                      isArchived: Boolean(request.archivedAt),
                     }),
                   )}
                 </div>
               )}
-              {filteredArchivedCorporateRequests.length > 0 && (
+              {filteredCorporateRequests.length > 0 && (
                 <BookingPaginationControls
-                  key={`archived-corporate-${corporateEnquiryPageSize}`}
-                  itemLabel="archived corporate enquiries"
-                  onPageChange={setCorporateArchivedPage}
+                  key={`${corporateLifecycle}-corporate-${corporateEnquiryPageSize}`}
+                  itemLabel="corporate enquiries"
+                  onPageChange={setCorporateEnquiryPage}
                   onPageSizeChange={(pageSize) => {
                     setCorporateEnquiryPageSize(pageSize);
-                    setCorporateActivePage(1);
-                    setCorporateConvertedPage(1);
-                    setCorporateArchivedPage(1);
+                    setCorporateEnquiryPage(1);
                   }}
                   pageSize={corporateEnquiryPageSize}
-                  window={archivedCorporatePagination.window}
+                  window={corporateEnquiryPagination.window}
                 />
               )}
             </section>
           </div>
         )}
 
-        {(activeAdminTab === "bookings" || activeAdminTab === "corporate") &&
+        {(activeAdminTab === "bookings" ||
+          (activeAdminTab === "corporate" &&
+            corporateWorkspace === "bookings")) &&
           canViewBookingManagement && (
         <div className="mt-12 border-t border-zinc-800 pt-10">
           <div className="mb-4">
@@ -40542,6 +40709,12 @@ export default function AdminDashboardPage() {
 	                  getCorporateBookingCompanyName(booking);
 	                const isCorporateBooking =
 	                  booking.source === "corporate-direct";
+	                const linkedCorporateRequest = isCorporateBooking
+	                  ? corporateRequests.find(
+	                      (request) =>
+	                        request.linkedBookingReference === booking.reference,
+	                    )
+	                  : undefined;
 	                const bookingPerformanceLabel =
 	                  getBookingPerformanceLabel(booking);
                     const linkedBookingCustomer =
@@ -40737,6 +40910,20 @@ export default function AdminDashboardPage() {
                             className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full border border-[#D8C36A]/40 px-3 py-2 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-4 sm:text-sm"
                           >
                             Open Profile
+                          </button>
+                        )}
+
+                        {linkedCorporateRequest && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openCorporateEnquiryFromBooking(
+                                linkedCorporateRequest,
+                              )
+                            }
+                            className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-full border border-sky-300/35 px-3 py-2 text-xs font-semibold text-sky-200 transition hover:bg-sky-300 hover:text-black sm:px-4 sm:text-sm"
+                          >
+                            View Enquiry
                           </button>
                         )}
 
