@@ -18,6 +18,33 @@ import { useReportGenerationLock } from "./useReportGenerationLock";
 const money = new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" });
 const integer = new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 0 });
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
+const analyticsFiltersSessionStorageKey = "zingara-admin-management-analytics-filters";
+
+function restoreFilters(value: string | null): ManagementAnalyticsFilters {
+  if (!value) return defaultManagementAnalyticsFilters;
+
+  try {
+    const stored = JSON.parse(value) as Partial<ManagementAnalyticsFilters>;
+    const restored = { ...defaultManagementAnalyticsFilters };
+    const stringKeys = Object.keys(restored).filter(
+      (key) => key !== "dayOfWeek",
+    ) as Array<Exclude<keyof ManagementAnalyticsFilters, "dayOfWeek">>;
+
+    for (const key of stringKeys) {
+      if (typeof stored[key] === "string") {
+        restored[key] = stored[key] as never;
+      }
+    }
+    restored.dayOfWeek = Array.isArray(stored.dayOfWeek)
+      ? stored.dayOfWeek.filter(
+          (day): day is number => Number.isInteger(day) && day >= 0 && day <= 6,
+        )
+      : [];
+    return restored;
+  } catch {
+    return defaultManagementAnalyticsFilters;
+  }
+}
 
 function dateKey(date: Date) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: analyticsTimezone }).format(date);
@@ -99,6 +126,7 @@ function AnalyticsSection({
 export default function ManagementAnalytics() {
   const [dataset, setDataset] = useState<ManagementAnalyticsDataset | null>(null);
   const [filters, setFilters] = useState<ManagementAnalyticsFilters>(defaultManagementAnalyticsFilters);
+  const [filtersLoaded, setFiltersLoaded] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -109,6 +137,21 @@ export default function ManagementAnalytics() {
     "performance-demand",
   ]);
   const { lock: reportLock, refresh: refreshReportLock } = useReportGenerationLock();
+
+  useEffect(() => {
+    setFilters(
+      restoreFilters(sessionStorage.getItem(analyticsFiltersSessionStorageKey)),
+    );
+    setFiltersLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersLoaded) return;
+    sessionStorage.setItem(
+      analyticsFiltersSessionStorageKey,
+      JSON.stringify(filters),
+    );
+  }, [filters, filtersLoaded]);
 
   const load = async () => {
     setLoading(true); setError("");

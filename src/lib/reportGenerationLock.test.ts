@@ -26,6 +26,9 @@ test("Analytics workspace navigation wraps without horizontal overflow", () => {
 
 test("Phase 39.57 filters stay global and analytical sections collapse", () => {
   assert.match(analytics, /aria-labelledby="analytics-filters"/);
+  assert.match(analytics, /zingara-admin-management-analytics-filters/);
+  assert.match(analytics, /sessionStorage\.setItem/);
+  assert.match(analytics, /restoreFilters\(sessionStorage\.getItem/);
   assert.match(analytics, /"booking-activity",\s*"performance-demand"/);
   for (const title of [
     "Booking Activity",
