@@ -635,6 +635,7 @@ function getBookingPayload(
       bookingSource === "corporate-direct"
         ? booking.operationalNotes?.match(/^Company: (.+)$/m)?.[1] ?? null
         : null,
+    corporate_request_id: booking.corporateRequestId ?? null,
     customer_id: customerId,
     created_by_staff_id: booking.createdByStaffId ?? null,
     dietary_requirements:
@@ -1183,6 +1184,11 @@ async function resolveCustomPricedTemporaryTable(
   }
 
   const table = data as CustomPricedTemporaryTableRow | null;
+
+  if (!table || table.custom_price_per_person === null) {
+    return null;
+  }
+
   const bookingZone = normalizeReservationClaimSection(
     booking.zoneId,
     booking.zoneTitle,
@@ -1193,7 +1199,6 @@ async function resolveCustomPricedTemporaryTable(
   );
 
   if (
-    !table ||
     table.is_physical ||
     !table.is_override ||
     table.availability_scope !== "operational" ||
@@ -1202,8 +1207,7 @@ async function resolveCustomPricedTemporaryTable(
     table.status !== "available" ||
     table.booking_id ||
     Number(table.capacity) < booking.partySize ||
-    tableZone !== bookingZone ||
-    table.custom_price_per_person === null
+    tableZone !== bookingZone
   ) {
     throw new Error("CUSTOM_PRICED_TEMPORARY_TABLE_UNAVAILABLE");
   }
@@ -1409,6 +1413,7 @@ export async function POST(request: Request) {
     if (!isTrustedStaff) {
       booking = {
         ...booking,
+        corporateRequestId: undefined,
         reservationTableClaims: [],
         tableId: "",
         tableNumber: "",
@@ -1510,26 +1515,21 @@ export async function POST(request: Request) {
         throw error;
       }
 
-      if (!customPricedTemporaryTable) {
-        return Response.json(
-          { error: "The selected temporary table could not be resolved." },
-          { status: 409 },
-        );
+      if (customPricedTemporaryTable) {
+        booking = {
+          ...booking,
+          reservationTableClaims: [
+            {
+              capacity: customPricedTemporaryTable.capacity,
+              primary: true,
+              section: customPricedTemporaryTable.section,
+              tableCode: customPricedTemporaryTable.tableCode,
+            },
+          ],
+          tableId: customPricedTemporaryTable.id,
+          tableNumber: customPricedTemporaryTable.tableCode,
+        };
       }
-
-      booking = {
-        ...booking,
-        reservationTableClaims: [
-          {
-            capacity: customPricedTemporaryTable.capacity,
-            primary: true,
-            section: customPricedTemporaryTable.section,
-            tableCode: customPricedTemporaryTable.tableCode,
-          },
-        ],
-        tableId: customPricedTemporaryTable.id,
-        tableNumber: customPricedTemporaryTable.tableCode,
-      };
     }
 
     if (booking.source === "online" && !isTrustedStaff) {

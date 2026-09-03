@@ -1,8 +1,5 @@
 import { rolePermissions } from "@/lib/zingaraAccess";
-import {
-  loadCorporateRequestRecord,
-  toSupabaseCorporateRequest,
-} from "@/lib/supabase/corporateRequestsServer";
+import { loadCorporateRequestRecord } from "@/lib/supabase/corporateRequestsServer";
 import {
   getAdminRoleFromName,
   requireActiveStaff,
@@ -122,52 +119,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const now = new Date().toISOString();
-  const convertedRequest = {
-    ...record.request,
-    assignedConsultant:
-      record.request.assignedConsultant ??
-      auth.staffProfile.full_name ??
-      auth.user.email ??
-      undefined,
-    linkedBookingReference: booking.reference,
-    status: "converted" as const,
-    updatedAt: now,
-  };
-  const convertedPayload = toSupabaseCorporateRequest(convertedRequest);
-  const { data: claimedRow, error: claimError } = await auth.serviceClient
-    .from("corporate_requests")
-    .update(convertedPayload)
-    .eq("id", record.row.id)
-    .eq("status", "confirmed")
-    .is("linked_booking_reference", null)
-    .is("archived_at", null)
-    .select("id")
-    .maybeSingle();
-
-  if (claimError) {
-    return Response.json({ error: "Unable to reserve this conversion." }, { status: 500 });
-  }
-
-  if (!claimedRow) {
-    const latest = await loadCorporateRequestRecord(auth.serviceClient, requestId);
-
-    if (latest?.request.linkedBookingReference) {
-      return Response.json({
-        bookingReference: latest.request.linkedBookingReference,
-        idempotent: true,
-        request: latest.request,
-      });
-    }
-
-    return Response.json(
-      { error: "This Corporate enquiry changed before conversion. Refresh status." },
-      { status: 409 },
-    );
-  }
-
   const bookingWithClaim: ConversionBooking = {
     ...booking,
+    corporateRequestId: record.row.id,
     reservationTableClaims: [
       {
         capacity: Number(table.capacity),
@@ -199,44 +153,41 @@ export async function POST(request: Request) {
       throw new Error(bookingResult.error ?? "Unable to create booking.");
     }
 
+    const convertedRecord = await loadCorporateRequestRecord(
+      auth.serviceClient,
+      record.row.id,
+    );
+
+    if (
+      !convertedRecord ||
+      convertedRecord.request.status !== "converted" ||
+      convertedRecord.request.linkedBookingReference !== booking.reference ||
+      convertedRecord.row.linked_booking_id === null
+    ) {
+      throw new Error(
+        "Corporate booking was created without an authoritative enquiry link.",
+      );
+    }
+
     return Response.json({
       bookingReference: booking.reference,
       durationMs: Math.round(performance.now() - startedAt),
       idempotent: false,
-      request: convertedRequest,
+      request: convertedRecord.request,
     });
   } catch (error) {
-    const { data: existingBooking } = await auth.serviceClient
-      .from("bookings")
-      .select("booking_reference")
-      .eq("booking_reference", booking.reference)
-      .maybeSingle();
+    const latest = await loadCorporateRequestRecord(
+      auth.serviceClient,
+      record.row.id,
+    );
 
-    if (existingBooking) {
+    if (latest?.request.linkedBookingReference) {
       return Response.json({
-        bookingReference: booking.reference,
+        bookingReference: latest.request.linkedBookingReference,
         durationMs: Math.round(performance.now() - startedAt),
         idempotent: true,
-        request: convertedRequest,
+        request: latest.request,
       });
-    }
-
-    const previousPayload = toSupabaseCorporateRequest(record.request);
-    const { error: rollbackError } = await auth.serviceClient
-      .from("corporate_requests")
-      .update(previousPayload)
-      .eq("id", record.row.id)
-      .eq("linked_booking_reference", booking.reference);
-
-    if (rollbackError) {
-      return Response.json(
-        {
-          error:
-            "Conversion result is uncertain. Refresh the enquiry before taking another action.",
-          uncertain: true,
-        },
-        { status: 503 },
-      );
     }
 
     return Response.json({ error: safeConversionError(error) }, { status: 409 });

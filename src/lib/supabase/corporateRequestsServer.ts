@@ -33,6 +33,7 @@ type SupabaseCorporateRequestRow = {
   email: string | null;
   guest_count: number | null;
   id: string;
+  linked_booking_id: string | null;
   linked_booking_reference: string | null;
   notes: string | null;
   occasion: string | null;
@@ -48,7 +49,7 @@ type SupabaseCorporateRequestRow = {
 
 const metadataPrefix = "__zingara_corporate_request_meta__:";
 const corporateRequestSelect =
-  "id,request_type,status,company_name,contact_name,contact_number,email,preferred_event_date,alternative_event_date,guest_count,seating_preference,occasion,other_description,dietary_requirements,other_dietary_requirement,bar_tab,addons,notes,source,archived_at,linked_booking_reference,created_at,updated_at";
+  "id,request_type,status,company_name,contact_name,contact_number,email,preferred_event_date,alternative_event_date,guest_count,seating_preference,occasion,other_description,dietary_requirements,other_dietary_requirement,bar_tab,addons,notes,source,archived_at,linked_booking_id,linked_booking_reference,created_at,updated_at";
 
 function toSupabaseStatus(
   status: CorporateRequestStatus,
@@ -249,8 +250,10 @@ export async function persistCorporateRequests(
       const payload = toSupabaseCorporateRequest(request);
       const existingRow = existingRows.find(
         (row) =>
+          row.id === request.id ||
           parseCorporateRequestNotes(row.notes)?.id === request.id ||
-          row.linked_booking_reference === request.linkedBookingReference,
+          (Boolean(request.linkedBookingReference) &&
+            row.linked_booking_reference === request.linkedBookingReference),
       );
 
       if (existingRow) {

@@ -9807,6 +9807,7 @@ export default function AdminDashboardPage() {
   const [corporateBookingPageSize, setCorporateBookingPageSize] =
     useState(defaultPageSize);
   const [corporateActivePage, setCorporateActivePage] = useState(1);
+  const [corporateConvertedPage, setCorporateConvertedPage] = useState(1);
   const [corporateArchivedPage, setCorporateArchivedPage] = useState(1);
   const [paginationPreferencesLoaded, setPaginationPreferencesLoaded] =
     useState(false);
@@ -15231,7 +15232,7 @@ export default function AdminDashboardPage() {
     requestId: string,
     status: CorporateRequestStatus,
   ) {
-    if (!canManageBookings) {
+    if (!canManageBookings || status === "converted") {
       return;
     }
 
@@ -25057,11 +25058,18 @@ export default function AdminDashboardPage() {
     .slice(0, 4);
   const activeCorporateBookingRequests = corporateRequests.filter(
     (request) =>
-      !request.archivedAt && request.requestType === "corporate-booking",
+      !request.archivedAt &&
+      request.status !== "converted" &&
+      request.requestType === "corporate-booking",
   );
   const activeAgentContactRequests = corporateRequests.filter(
     (request) =>
-      !request.archivedAt && request.requestType === "agent-contact",
+      !request.archivedAt &&
+      request.status !== "converted" &&
+      request.requestType === "agent-contact",
+  );
+  const convertedCorporateRequests = corporateRequests.filter(
+    (request) => !request.archivedAt && request.status === "converted",
   );
   const archivedCorporateRequests = corporateRequests.filter(
     (request) => Boolean(request.archivedAt),
@@ -25092,6 +25100,12 @@ export default function AdminDashboardPage() {
         (corporateStatusFilter === "all" ||
           corporateStatusFilter === "archived"),
     );
+  const filteredConvertedCorporateRequests = convertedCorporateRequests.filter(
+    (request) =>
+      corporateMatchesSearch(request) &&
+      (corporateStatusFilter === "all" ||
+        corporateStatusFilter === "converted"),
+  );
   const activeCorporatePagination = paginateItems(
     filteredActiveCorporateRequests,
     corporateActivePage,
@@ -25100,6 +25114,11 @@ export default function AdminDashboardPage() {
   const archivedCorporatePagination = paginateItems(
     filteredArchivedCorporateRequests,
     corporateArchivedPage,
+    corporateEnquiryPageSize,
+  );
+  const convertedCorporatePagination = paginateItems(
+    filteredConvertedCorporateRequests,
+    corporateConvertedPage,
     corporateEnquiryPageSize,
   );
   const openCorporateRequest =
@@ -25255,7 +25274,7 @@ export default function AdminDashboardPage() {
                 Resend Confirmation
               </button>
             )}
-            {!options.isArchived && (
+            {!options.isArchived && request.status !== "converted" && (
               <button
                 type="button"
                 onClick={() => cancelCorporateRequest(request)}
@@ -27490,14 +27509,20 @@ export default function AdminDashboardPage() {
                               event.target.value as CorporateRequestStatus,
                             )
                           }
-                          disabled={!canManageBookings}
+                          disabled={
+                            !canManageBookings ||
+                            openCorporateRequest.status === "converted"
+                          }
                           className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-sm font-semibold text-white outline-none transition focus:border-[#D8C36A]/70 disabled:cursor-not-allowed disabled:opacity-50"
                         >
+                          {openCorporateRequest.status === "converted" && (
+                            <option value="converted">Converted</option>
+                          )}
                           {(
                             Object.keys(
                               corporateRequestStatusLabels,
                             ) as CorporateRequestStatus[]
-                          ).map((status) => (
+                          ).filter((status) => status !== "converted").map((status) => (
                             <option key={status} value={status}>
                               {corporateRequestStatusLabels[status]}
                             </option>
@@ -39978,6 +40003,7 @@ export default function AdminDashboardPage() {
                       onSearchChange={(value) => {
                         setCorporateSearch(value);
                         setCorporateActivePage(1);
+                        setCorporateConvertedPage(1);
                         setCorporateArchivedPage(1);
                       }}
                       aria-label="Search corporate enquiries"
@@ -40012,6 +40038,7 @@ export default function AdminDashboardPage() {
                         | "all",
                     );
                     setCorporateActivePage(1);
+                    setCorporateConvertedPage(1);
                     setCorporateArchivedPage(1);
                   }}
                   className="w-full appearance-none rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 sm:w-auto"
@@ -40078,10 +40105,47 @@ export default function AdminDashboardPage() {
                   onPageSizeChange={(pageSize) => {
                     setCorporateEnquiryPageSize(pageSize);
                     setCorporateActivePage(1);
+                    setCorporateConvertedPage(1);
                     setCorporateArchivedPage(1);
                   }}
                   pageSize={corporateEnquiryPageSize}
                   window={activeCorporatePagination.window}
+                />
+              )}
+            </section>
+
+            <section>
+              <h3 className="text-xl font-bold uppercase">Converted Enquiries</h3>
+              {filteredConvertedCorporateRequests.length === 0 ? (
+                <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
+                  No converted corporate enquiries match the current filters.
+                </div>
+              ) : (
+                <div
+                  className={`mt-4 grid gap-4 ${
+                    corporateViewMode === "grid"
+                      ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
+                      : "grid-cols-1"
+                  }`}
+                >
+                  {convertedCorporatePagination.items.map((request) =>
+                    renderCorporateRequestCard(request),
+                  )}
+                </div>
+              )}
+              {filteredConvertedCorporateRequests.length > 0 && (
+                <BookingPaginationControls
+                  key={`converted-corporate-${corporateEnquiryPageSize}`}
+                  itemLabel="converted corporate enquiries"
+                  onPageChange={setCorporateConvertedPage}
+                  onPageSizeChange={(pageSize) => {
+                    setCorporateEnquiryPageSize(pageSize);
+                    setCorporateActivePage(1);
+                    setCorporateConvertedPage(1);
+                    setCorporateArchivedPage(1);
+                  }}
+                  pageSize={corporateEnquiryPageSize}
+                  window={convertedCorporatePagination.window}
                 />
               )}
             </section>
@@ -40115,6 +40179,7 @@ export default function AdminDashboardPage() {
                   onPageSizeChange={(pageSize) => {
                     setCorporateEnquiryPageSize(pageSize);
                     setCorporateActivePage(1);
+                    setCorporateConvertedPage(1);
                     setCorporateArchivedPage(1);
                   }}
                   pageSize={corporateEnquiryPageSize}

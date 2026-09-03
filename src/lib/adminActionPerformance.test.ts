@@ -36,7 +36,8 @@ test("conversion route has no communication, PayFast, or refund action", async (
 
   assert.doesNotMatch(route, /sendStaffPushNotification|sendOperationalCustomerEmail/);
   assert.doesNotMatch(route, /payfast|refunds\//i);
-  assert.match(route, /is\("linked_booking_reference", null\)/);
+  assert.match(route, /corporateRequestId: record\.row\.id/);
+  assert.doesNotMatch(route, /\.from\("corporate_requests"\)\s*\.update/);
 });
 
 test("single-show route keeps lock enforcement and avoids full-set replacement", async () => {
