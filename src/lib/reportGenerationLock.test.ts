@@ -13,15 +13,38 @@ const migration = readFileSync(new URL("../../supabase/migrations/20260903190000
 test("Analytics defaults to Sales and renders one workspace at a time", () => {
   assert.match(page, /useState<AnalyticsWorkspace>\("sales"\)/);
   assert.match(page, /Sales & Performance Demand/);
+  assert.match(page, /Revenue & Demand Reporting/);
   assert.match(page, /Manifests, Check-In Sheets & Floor Reports/);
   assert.match(page, /analyticsWorkspace === "sales" && <ManagementAnalytics/);
+  assert.match(page, /analyticsWorkspace === "revenue" && \(/);
   assert.match(page, /analyticsWorkspace === "reports" && \(/);
 });
 
 test("Analytics workspace navigation wraps without horizontal overflow", () => {
   assert.match(page, /aria-label="Analytics workspaces"/);
-  assert.match(page, /grid-cols-1[^\n]+sm:grid-cols-2/);
+  assert.match(page, /grid-cols-1[^\n]+md:grid-cols-3/);
   assert.match(page, /min-h-12/);
+});
+
+test("Revenue analytics is isolated from the Sales workspace", () => {
+  assert.match(page, /type AnalyticsWorkspace = "reports" \| "revenue" \| "sales"/);
+  assert.match(
+    page,
+    /activeAdminTab === "analytics" && analyticsWorkspace === "revenue"/,
+  );
+  assert.doesNotMatch(
+    page,
+    /analyticsWorkspace === "sales" && \(\s*<>\s*<div[^>]+border-t[^>]*>[\s\S]*?Revenue & Demand Reporting/,
+  );
+  assert.match(page, /toggleAnalyticsSection\("booking-source-mix"\)/);
+  assert.match(page, /toggleAnalyticsSection\("waitlist-conversion"\)/);
+});
+
+test("Analytics session state accepts all three workspaces", () => {
+  assert.match(page, /storedWorkspace === "sales"/);
+  assert.match(page, /storedWorkspace === "revenue"/);
+  assert.match(page, /storedWorkspace === "reports"/);
+  assert.match(page, /sessionStorage\.setItem\([\s\S]*?analyticsWorkspace/);
 });
 
 test("Phase 39.57 filters stay global and analytical sections collapse", () => {

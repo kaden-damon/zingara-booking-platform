@@ -762,8 +762,10 @@ type AnalyticsSectionId =
   | "occupancy-trends"
   | "addon-revenue"
   | "promo-code-usage"
+  | "booking-source-mix"
+  | "waitlist-conversion"
   | "customer-value";
-type AnalyticsWorkspace = "reports" | "sales";
+type AnalyticsWorkspace = "reports" | "revenue" | "sales";
 type BookingArchiveFilter = "active" | "all" | "archived";
 type CustomerArchiveFilter = "active" | "all" | "archived";
 type CustomerNameStatusFilter = "all" | "complete" | "incomplete";
@@ -10878,7 +10880,11 @@ export default function AdminDashboardPage() {
     const storedWorkspace = window.sessionStorage.getItem(
       analyticsWorkspaceSessionStorageKey,
     );
-    if (storedWorkspace === "sales" || storedWorkspace === "reports") {
+    if (
+      storedWorkspace === "sales" ||
+      storedWorkspace === "revenue" ||
+      storedWorkspace === "reports"
+    ) {
       setAnalyticsWorkspace(storedWorkspace);
     }
     setAnalyticsWorkspaceLoaded(true);
@@ -24633,9 +24639,14 @@ export default function AdminDashboardPage() {
         new Date(right.record.sentAt).getTime() -
         new Date(left.record.sentAt).getTime(),
     );
-  const allActiveBookings = bookings.filter(
-    (booking) => (booking.status ?? "confirmed") !== "cancelled",
-  );
+  const shouldPrepareRevenueAnalytics =
+    activeAdminTab === "overview" ||
+    (activeAdminTab === "analytics" && analyticsWorkspace === "revenue");
+  const allActiveBookings = shouldPrepareRevenueAnalytics
+    ? bookings.filter(
+        (booking) => (booking.status ?? "confirmed") !== "cancelled",
+      )
+    : [];
   const allActiveGuests = allActiveBookings.reduce(
     (total, booking) => total + booking.partySize,
     0,
@@ -35585,11 +35596,12 @@ export default function AdminDashboardPage() {
           <section className="mb-10 rounded-2xl border border-[#D8C36A]/35 bg-[radial-gradient(circle_at_top,#251909_0%,#101010_48%,#050505_100%)] p-6 shadow-2xl shadow-[#8D7A2F]/10">
             <nav
               aria-label="Analytics workspaces"
-              className="mb-8 grid w-full grid-cols-1 gap-2 rounded-[1.25rem] border border-white/10 bg-black/35 p-2 sm:grid-cols-2"
+              className="mb-8 grid w-full grid-cols-1 gap-2 rounded-[1.25rem] border border-white/10 bg-black/35 p-2 md:grid-cols-3"
             >
               {(
                 [
                   ["sales", "Sales & Performance Demand"],
+                  ["revenue", "Revenue & Demand Reporting"],
                   ["reports", "Manifests, Check-In Sheets & Floor Reports"],
                 ] as Array<[AnalyticsWorkspace, string]>
               ).map(([workspace, label]) => (
@@ -35611,7 +35623,7 @@ export default function AdminDashboardPage() {
 
             {analyticsWorkspace === "sales" && <ManagementAnalytics />}
 
-            {analyticsWorkspace === "sales" && (
+            {analyticsWorkspace === "revenue" && (
               <>
             <div className="mb-6 flex flex-col gap-5 border-t border-white/10 pt-8 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
               <div className="min-w-0">
@@ -35894,7 +35906,7 @@ export default function AdminDashboardPage() {
             </div>
             )}
 
-            {analyticsWorkspace === "sales" && (
+            {analyticsWorkspace === "revenue" && (
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
                 <button
@@ -36125,13 +36137,26 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  Booking Source Summary
-                </p>
-                <h3 className="zingara-heading mt-1 text-2xl font-bold">
-                  Channel Mix
-                </h3>
+                <button
+                  type="button"
+                  onClick={() => toggleAnalyticsSection("booking-source-mix")}
+                  className="flex w-full items-center justify-between gap-4 text-left"
+                  aria-expanded={openAnalyticsSections.includes("booking-source-mix")}
+                >
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Booking Source Summary
+                    </p>
+                    <h3 className="zingara-heading mt-1 text-2xl font-bold">
+                      Channel Mix
+                    </h3>
+                  </div>
+                  <span className="text-2xl text-[#D8C36A]">
+                    {openAnalyticsSections.includes("booking-source-mix") ? "⌃" : "⌄"}
+                  </span>
+                </button>
 
+                {openAnalyticsSections.includes("booking-source-mix") && (
                 <div className="mt-5 space-y-4">
                   {sourceSummaries.length === 0 ? (
                     <p className="rounded-2xl border border-white/10 bg-zinc-950 p-4 text-zinc-400">
@@ -36167,17 +36192,32 @@ export default function AdminDashboardPage() {
                     ))
                   )}
                 </div>
+                )}
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  Waitlist Funnel
-                </p>
-                <h3 className="zingara-heading mt-1 text-2xl font-bold">
-                  Conversion Health
-                </h3>
+                <button
+                  type="button"
+                  onClick={() => toggleAnalyticsSection("waitlist-conversion")}
+                  className="flex w-full items-center justify-between gap-4 text-left"
+                  aria-expanded={openAnalyticsSections.includes("waitlist-conversion")}
+                >
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Waitlist Funnel
+                    </p>
+                    <h3 className="zingara-heading mt-1 text-2xl font-bold">
+                      Conversion Health
+                    </h3>
+                  </div>
+                  <span className="text-2xl text-[#D8C36A]">
+                    {openAnalyticsSections.includes("waitlist-conversion") ? "⌃" : "⌄"}
+                  </span>
+                </button>
 
-                <div className="mt-5 grid grid-cols-2 gap-3">
+                {openAnalyticsSections.includes("waitlist-conversion") && (
+                <div className="mt-5">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-amber-300/20 bg-amber-950/15 p-4">
                     <p className="text-xs uppercase tracking-[0.16em] text-amber-200">
                       Total Entries
@@ -36211,6 +36251,8 @@ export default function AdminDashboardPage() {
                   {formatPercent(waitlistConversionRate)} of waitlist
                   demand has been converted into confirmed bookings.
                 </p>
+                </div>
+                )}
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
