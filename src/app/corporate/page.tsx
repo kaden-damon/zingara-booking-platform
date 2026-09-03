@@ -4,7 +4,6 @@ import { type FormEvent, useEffect, useState } from "react";
 
 import { corporatePartySizeThreshold } from "../../lib/bookingClassification";
 import { getTemplates } from "../../lib/supabase/communicationTemplates";
-import { syncCorporateRequestCommunications } from "../../lib/supabase/communications";
 import { createCorporateRequest } from "../../lib/supabase/corporateRequests";
 import {
   type CorporateRequest,
@@ -271,7 +270,6 @@ export default function CorporateBookingPage() {
       };
 
       await createCorporateRequest(requestWithCommunication);
-      void syncCorporateRequestCommunications(requestWithCommunication);
       setSubmissionStatus(
         requestType === "agent-contact"
           ? "Agent contact request received."

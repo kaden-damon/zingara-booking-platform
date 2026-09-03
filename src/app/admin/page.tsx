@@ -32586,6 +32586,31 @@ export default function AdminDashboardPage() {
                       className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
                     />
                   </label>
+                  {showLocationOptions.map((location) => (
+                    <label
+                      key={`corporate-email-${location.value}`}
+                      className="text-sm text-zinc-400"
+                    >
+                      {location.city} Corporate Enquiries
+                      <input
+                        type="email"
+                        value={
+                          venueConfig.operationalSettings
+                            .corporateEnquiryRecipients[location.value]
+                        }
+                        onChange={(event) =>
+                          updateVenueSettingsSection("operationalSettings", {
+                            corporateEnquiryRecipients: {
+                              ...venueConfig.operationalSettings
+                                .corporateEnquiryRecipients,
+                              [location.value]: event.target.value,
+                            },
+                          })
+                        }
+                        className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
+                      />
+                    </label>
+                  ))}
                   <label className="text-sm text-zinc-400">
                     Support Phone
                     <input

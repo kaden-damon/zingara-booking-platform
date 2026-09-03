@@ -86,8 +86,17 @@ function validateConfiguration(
 
     const corporateHold =
       settings.operationalSettings.corporatePaymentHolds[location.value];
+    const corporateRecipient =
+      settings.operationalSettings.corporateEnquiryRecipients[location.value];
     const friendsAndFamily =
       settings.operationalSettings.friendsAndFamily[location.value];
+
+    if (
+      !corporateRecipient ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(corporateRecipient)
+    ) {
+      return `Enter a valid Corporate enquiry email for ${location.city}.`;
+    }
 
     if (
       !corporateHold ||

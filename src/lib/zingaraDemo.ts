@@ -70,6 +70,7 @@ export type DemoVenueSettings = {
         reminderDaysBefore: number;
       }
     >;
+    corporateEnquiryRecipients: Record<EntryLocationKey, string>;
     friendsAndFamily: Record<
       EntryLocationKey,
       {
@@ -178,6 +179,10 @@ export const defaultVenueSettings: DemoVenueSettings = {
         enabled: true,
         reminderDaysBefore: 1,
       },
+    },
+    corporateEnquiryRecipients: {
+      "cape-town": "corporatebookingcpt@zingara.co.za",
+      johannesburg: "corporatebookings@zingara.co.za",
     },
     friendsAndFamily: {
       "cape-town": {
@@ -1550,6 +1555,17 @@ export function normalizeVenueSettings(
           },
         ]),
       ) as DemoVenueSettings["operationalSettings"]["corporatePaymentHolds"],
+      corporateEnquiryRecipients: Object.fromEntries(
+        showLocationOptions.map((location) => [
+          location.value,
+          incoming.operationalSettings?.corporateEnquiryRecipients?.[
+            location.value
+          ]?.trim() ||
+            defaultVenueSettings.operationalSettings.corporateEnquiryRecipients[
+              location.value
+            ],
+        ]),
+      ) as DemoVenueSettings["operationalSettings"]["corporateEnquiryRecipients"],
       friendsAndFamily: Object.fromEntries(
         showLocationOptions.map((location) => [
           location.value,

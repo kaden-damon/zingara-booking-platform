@@ -35,8 +35,11 @@ export async function GET() {
       venueId: data?.venue_key || defaultVenueSettings.venueId,
       venueName: data?.name || defaultVenueSettings.venueName,
     });
-  const { friendsAndFamily: _staffPricing, ...publicOperationalSettings } =
-    settings.operationalSettings;
+  const {
+    corporateEnquiryRecipients: _corporateRecipients,
+    friendsAndFamily: _staffPricing,
+    ...publicOperationalSettings
+  } = settings.operationalSettings;
 
   return Response.json({
     settings: {
