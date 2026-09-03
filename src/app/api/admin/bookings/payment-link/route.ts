@@ -6,6 +6,7 @@ import {
 import {
   createPaymentLinkToken,
   getCustomerName,
+  getManagedPaymentLinkStatus,
   getOutstandingAmount,
   getPaymentLinkCheckoutAmount,
   getPaymentLinkUrl,
@@ -15,7 +16,14 @@ import {
   loadActivePaymentLink,
   loadBookingForPaymentLink,
   loadCustomerForPaymentLink,
+  loadLatestPaymentLinkForBooking,
+  loadPaymentLinkById,
+  parseBookingMetadata,
 } from "@/lib/payment-links/customerPaymentLinks";
+import {
+  openPaymentLinkToken,
+  sealPaymentLinkToken,
+} from "@/lib/payment-links/paymentLinkTokenVault";
 import {
   getRolePermissions,
   isSuperAdminProfile,
@@ -31,8 +39,24 @@ type PaymentLinkRequest = {
     | "send-existing"
     | "send-existing-outstanding";
   bookingReference?: string;
+  linkId?: string;
   token?: string;
 };
+
+function getPaymentLinkPermissions(
+  staffProfile: NonNullable<Parameters<typeof isSuperAdminProfile>[0]>,
+) {
+  const role = Array.isArray(staffProfile.roles)
+    ? staffProfile.roles[0]
+    : staffProfile.roles;
+  const permissions = getRolePermissions(role);
+
+  return {
+    canManage: permissions.includes("bookings:manage"),
+    canReconcile: permissions.includes("bookings:reconcile"),
+    canSend: permissions.includes("communications:manage"),
+  };
+}
 
 function createPaymentLinkMessage(input: {
   amount: number;
@@ -62,6 +86,27 @@ function isMissingPaymentLinkTable(error: unknown) {
   );
 }
 
+function getManagedLinkToken(
+  link: Awaited<ReturnType<typeof loadPaymentLinkById>>,
+  bookingNotes: string | null,
+) {
+  if (!link) {
+    return null;
+  }
+
+  const protectedToken = openPaymentLinkToken(link.metadata?.tokenEnvelope);
+
+  if (protectedToken) {
+    return protectedToken;
+  }
+
+  const legacyToken = parseBookingMetadata(bookingNotes)?.corporatePaymentToken?.trim();
+
+  return legacyToken && hashPaymentLinkToken(legacyToken) === link.token_hash
+    ? legacyToken
+    : null;
+}
+
 export async function POST(request: Request) {
   const { error, serviceClient, staffProfile, user } =
     await requireActiveStaff(request);
@@ -76,12 +121,10 @@ export async function POST(request: Request) {
     const action = body.action ?? "create-and-send";
     const isManualCheckoutAction =
       action === "create" || action === "send-existing";
-    const role = Array.isArray(staffProfile.roles)
-      ? staffProfile.roles[0]
-      : staffProfile.roles;
-    const permissions = getRolePermissions(role);
+    const { canManage, canReconcile, canSend } =
+      getPaymentLinkPermissions(staffProfile);
 
-    if (!permissions.includes("bookings:reconcile")) {
+    if (!canReconcile) {
       return Response.json(
         { error: "Booking reconciliation access is required to send a payment link." },
         { status: 403 },
@@ -96,8 +139,8 @@ export async function POST(request: Request) {
     }
 
     if (
-      !permissions.includes("bookings:manage") ||
-      (action !== "create" && !permissions.includes("communications:manage"))
+      !canManage ||
+      (action !== "create" && action !== "create-outstanding" && !canSend)
     ) {
       return Response.json(
         { error: "Booking and communication management access is required." },
@@ -252,16 +295,21 @@ export async function POST(request: Request) {
       action === "send-existing" ||
       action === "send-existing-outstanding"
     ) {
-      const token = body.token?.trim();
+      const requestedLink = body.linkId
+        ? await loadPaymentLinkById(supabase, body.linkId)
+        : null;
+      const token =
+        body.token?.trim() ??
+        getManagedLinkToken(requestedLink, authoritativeBooking.notes);
 
       if (!token) {
         return Response.json(
-          { error: "Payment link token is required." },
-          { status: 400 },
+          { error: "This payment link cannot be reopened. Create a replacement link." },
+          { status: 409 },
         );
       }
 
-      const link = await loadActivePaymentLink(supabase, token);
+      const link = requestedLink ?? (await loadActivePaymentLink(supabase, token));
 
       if (
         !link ||
@@ -361,6 +409,7 @@ export async function POST(request: Request) {
           manualCheckout: action === "create",
           outstandingReconciliation: action === "create-outstanding",
           recipient,
+          tokenEnvelope: sealPaymentLinkToken(token),
         },
         token_hash: hashPaymentLinkToken(token),
       })
@@ -371,7 +420,16 @@ export async function POST(request: Request) {
       throw linkError;
     }
 
-    if (action === "create" || action === "create-outstanding") {
+    if (action === "create") {
+      return Response.json({
+        canSend: Boolean(recipient),
+        linkId: linkRow?.id ?? null,
+        paymentUrl,
+        token,
+      });
+    }
+
+    if (action === "create-outstanding") {
       return Response.json({
         canSend: Boolean(recipient),
         linkId: linkRow?.id ?? null,
@@ -400,5 +458,75 @@ export async function POST(request: Request) {
       { error: "Payment link could not be sent." },
       { status: 500 },
     );
+  }
+}
+
+export async function GET(request: Request) {
+  const { error, serviceClient, staffProfile } = await requireActiveStaff(request);
+
+  if (error || !serviceClient || !staffProfile) {
+    return error ?? Response.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const { canManage, canReconcile } = getPaymentLinkPermissions(staffProfile);
+
+  if (!canManage || !canReconcile) {
+    return Response.json(
+      { error: "Booking reconciliation access is required to view payment links." },
+      { status: 403 },
+    );
+  }
+
+  try {
+    const bookingReference = new URL(request.url).searchParams
+      .get("bookingReference")
+      ?.trim()
+      .toUpperCase();
+
+    if (!bookingReference) {
+      return Response.json({ error: "Booking reference is required." }, { status: 400 });
+    }
+
+    const booking = await loadBookingForPaymentLink(serviceClient, bookingReference);
+
+    if (!booking) {
+      return Response.json({ error: "Booking could not be found." }, { status: 404 });
+    }
+
+    const link = await loadLatestPaymentLinkForBooking(serviceClient, booking.id);
+
+    if (!link) {
+      return Response.json({ link: null }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    const status = getManagedPaymentLinkStatus(link, booking);
+    const token =
+      status === "active"
+        ? getManagedLinkToken(link, booking.notes)
+        : null;
+
+    return Response.json(
+      {
+        link: {
+          amount: getPaymentLinkCheckoutAmount(link, booking),
+          createdAt: link.created_at,
+          createdBy: link.metadata?.createdByStaffName ?? null,
+          expiresAt: link.expires_at,
+          id: link.id,
+          paymentUrl: token ? getPaymentLinkUrl(request, token) : null,
+          sentAt: link.sent_at,
+          status,
+        },
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (loadError) {
+    console.error("[Zingara Payment Link] Failed to load link", loadError);
+
+    if (isMissingPaymentLinkTable(loadError)) {
+      return Response.json({ error: "Payment links are not configured yet." }, { status: 503 });
+    }
+
+    return Response.json({ error: "Payment link could not be loaded." }, { status: 500 });
   }
 }

@@ -45,11 +45,23 @@ export type PaymentLinkShowRow = {
 export type PaymentLinkRecordRow = {
   booking_id: string;
   booking_reference: string;
+  created_at: string;
+  created_by: string | null;
   expires_at: string;
   id: string;
   metadata: Record<string, unknown> | null;
+  revoked_at: string | null;
+  sent_at: string | null;
   status: "active" | "expired" | "revoked" | "used";
+  token_hash: string;
+  used_at: string | null;
 };
+
+export type ManagedPaymentLinkStatus =
+  | "active"
+  | "expired"
+  | "paid"
+  | "revoked";
 
 export type PaymentLinkCheckoutResult =
   | {
@@ -226,6 +238,69 @@ export async function loadActivePaymentLink(
   }
 
   return data as PaymentLinkRecordRow | null;
+}
+
+export async function loadPaymentLinkById(
+  supabase: SupabaseClient,
+  linkId: string,
+) {
+  const { data, error } = await supabase
+    .from("booking_payment_links")
+    .select(
+      "id,booking_id,booking_reference,status,expires_at,metadata,created_at,created_by,sent_at,used_at,revoked_at,token_hash",
+    )
+    .eq("id", linkId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as PaymentLinkRecordRow | null;
+}
+
+export async function loadLatestPaymentLinkForBooking(
+  supabase: SupabaseClient,
+  bookingId: string,
+) {
+  const { data, error } = await supabase
+    .from("booking_payment_links")
+    .select(
+      "id,booking_id,booking_reference,status,expires_at,metadata,created_at,created_by,sent_at,used_at,revoked_at,token_hash",
+    )
+    .eq("booking_id", bookingId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as PaymentLinkRecordRow | null;
+}
+
+export function getManagedPaymentLinkStatus(
+  link: Pick<PaymentLinkRecordRow, "expires_at" | "status">,
+  booking: PaymentLinkBookingRow,
+  now = new Date(),
+): ManagedPaymentLinkStatus {
+  if (link.status === "used" || getOutstandingAmount(booking) <= 0) {
+    return "paid";
+  }
+
+  if (link.status === "revoked") {
+    return "revoked";
+  }
+
+  if (
+    link.status === "expired" ||
+    new Date(link.expires_at).getTime() <= now.getTime()
+  ) {
+    return "expired";
+  }
+
+  return "active";
 }
 
 export async function expirePaymentLink(

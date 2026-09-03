@@ -436,6 +436,23 @@ type PaymentLinkSendState = Record<
     tone: "error" | "success";
   }
 >;
+type PaymentLinkDetails = {
+  amount: number;
+  createdAt: string;
+  createdBy: string | null;
+  expiresAt: string;
+  id: string;
+  paymentUrl: string | null;
+  sentAt: string | null;
+  status: "active" | "expired" | "paid" | "revoked";
+};
+type PaymentLinkDetailsState = Record<
+  string,
+  {
+    isLoading: boolean;
+    link: PaymentLinkDetails | null;
+  }
+>;
 type BroadcastForm = {
   channel: CommunicationChannel;
   message: string;
@@ -696,16 +713,6 @@ function formatCorporateDietaryRequirement(requirement: string) {
   return requirement === "Strict Halaal"
     ? "Strict Halaal · R250"
     : requirement;
-}
-
-function createCorporatePaymentToken() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `corp-pay-${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 10)}`;
 }
 
 const corporateRequestStatusClasses: Record<
@@ -9893,6 +9900,8 @@ export default function AdminDashboardPage() {
     useState<CustomMessageSendState>({});
   const [paymentLinkSendState, setPaymentLinkSendState] =
     useState<PaymentLinkSendState>({});
+  const [paymentLinkDetailsState, setPaymentLinkDetailsState] =
+    useState<PaymentLinkDetailsState>({});
   const [financialReconciliation, setFinancialReconciliation] = useState<{
     amountPaid: number;
     details: BookingReconciliationDetails;
@@ -11583,6 +11592,14 @@ export default function AdminDashboardPage() {
     currentStaff?.role === "box-office" ||
     currentStaff?.role === "box-office-staff";
   const isFloorManager = currentStaff?.role === "floor-manager";
+
+  useEffect(() => {
+    if (!expandedBookingReference || !canReconcileBookings) {
+      return;
+    }
+
+    void loadManagedPaymentLink(expandedBookingReference);
+  }, [canReconcileBookings, expandedBookingReference]);
 
   useEffect(() => {
     if (!currentStaff) return;
@@ -15649,7 +15666,7 @@ export default function AdminDashboardPage() {
     }
   }
 
-  function sendCorporatePaymentLink(request: CorporateRequest) {
+  async function sendCorporatePaymentLink(request: CorporateRequest) {
     if (!canManageBookings || !request.linkedBookingReference) {
       return;
     }
@@ -15661,92 +15678,9 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    const financials = getBookingFinancials(linkedBooking);
-
-    if (financials.balanceDue <= 0) {
-      showWorkflowToast("✓ Saved · Corporate booking already paid");
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const token =
-      request.paymentLinkToken ??
-      linkedBooking.corporatePaymentToken ??
-      createCorporatePaymentToken();
-    const paymentLink = getCorporatePaymentLink(request, token);
-
-    if (!paymentLink) {
-      showWorkflowToast("⚠ Could not save");
-      return;
-    }
-
-    const paymentRecord = createCommunicationRecord({
-      booking: linkedBooking,
-      channel: "email",
-      message: [
-        `Dear ${linkedBooking.customer.name || "guest"},`,
-        "",
-        `Your secure payment link for corporate booking ${linkedBooking.reference} is ready:`,
-        paymentLink,
-        "",
-        `Outstanding balance: ${formatCurrency(financials.balanceDue)}.`,
-        "",
-        "Payment is processed through the existing secure PayFast checkout.",
-      ].join("\n"),
-      sentAt: now,
-      subject: `Payment link for ${linkedBooking.reference}`,
-      trigger: "custom-message",
-    });
-    const updatedBooking: DemoBooking = {
-      ...linkedBooking,
-      corporatePaymentLinkSentAt: now,
-      corporatePaymentToken: token,
-      communicationHistory: [
-        paymentRecord,
-        ...(linkedBooking.communicationHistory ?? []),
-      ],
-      lifecycleHistory: [
-        {
-          id: `${linkedBooking.reference}-payment-link-${now}`,
-          fromStatus: linkedBooking.status,
-          toStatus: linkedBooking.status,
-          note: "Payment Link Sent",
-          createdAt: now,
-        },
-        ...(linkedBooking.lifecycleHistory ?? []),
-      ],
-      operationalNotes: [
-        linkedBooking.operationalNotes ?? "",
-        `Corporate payment token: ${token}`,
-        `Corporate payment link sent: ${now}`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    };
-
-    saveBookings(
-      bookings.map((booking) =>
-        booking.reference === linkedBooking.reference
-          ? updatedBooking
-          : booking,
-      ),
-    );
-    saveCorporateRequests(
-      corporateRequests.map((corporateRequest) =>
-        corporateRequest.id === request.id
-          ? {
-              ...corporateRequest,
-              assignedConsultant:
-                corporateRequest.assignedConsultant ?? currentStaff?.name,
-              paymentLinkSentAt: now,
-              paymentLinkToken: token,
-              updatedAt: now,
-            }
-          : corporateRequest,
-      ),
-    );
     setCorporateConversionStatusRequestId(request.id);
-    setCorporateConversionStatus("Payment link sent.");
+    const existingLink = await loadManagedPaymentLink(linkedBooking.reference);
+    await sendCustomerPaymentLink(linkedBooking, existingLink);
   }
 
   function cancelCorporateRequest(request: CorporateRequest) {
@@ -22317,7 +22251,78 @@ export default function AdminDashboardPage() {
     );
   }
 
-  async function sendCustomerPaymentLink(booking: DemoBooking) {
+  async function loadManagedPaymentLink(bookingReference: string) {
+    setPaymentLinkDetailsState((currentState) => ({
+      ...currentState,
+      [bookingReference]: {
+        isLoading: true,
+        link: currentState[bookingReference]?.link ?? null,
+      },
+    }));
+
+    try {
+      const result = await fetchSupabaseApi<{ link: PaymentLinkDetails | null }>(
+        `/api/admin/bookings/payment-link?bookingReference=${encodeURIComponent(bookingReference)}`,
+      );
+
+      setPaymentLinkDetailsState((currentState) => ({
+        ...currentState,
+        [bookingReference]: { isLoading: false, link: result.link },
+      }));
+      return result.link;
+    } catch (error) {
+      console.error("[Zingara Admin] Payment link load failed", error);
+      setPaymentLinkDetailsState((currentState) => ({
+        ...currentState,
+        [bookingReference]: { isLoading: false, link: null },
+      }));
+      return null;
+    }
+  }
+
+  function viewManagedPaymentLink(booking: DemoBooking) {
+    const link = paymentLinkDetailsState[booking.reference]?.link;
+
+    if (link?.status !== "active" || !link.paymentUrl) {
+      return;
+    }
+
+    window.open(link.paymentUrl, "_blank", "noopener,noreferrer");
+  }
+
+  async function copyManagedPaymentLink(booking: DemoBooking) {
+    const link = paymentLinkDetailsState[booking.reference]?.link;
+
+    if (link?.status !== "active" || !link.paymentUrl) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(link.paymentUrl);
+      setPaymentLinkSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message: "LINK COPIED ✓",
+          tone: "success",
+        },
+      }));
+    } catch {
+      setPaymentLinkSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message: "Payment link could not be copied.",
+          tone: "error",
+        },
+      }));
+    }
+  }
+
+  async function sendCustomerPaymentLink(
+    booking: DemoBooking,
+    managedLink = paymentLinkDetailsState[booking.reference]?.link ?? null,
+  ) {
     if (!canSendCustomerPaymentLink(booking)) {
       setPaymentLinkSendState((currentState) => ({
         ...currentState,
@@ -22340,8 +22345,11 @@ export default function AdminDashboardPage() {
     }));
 
     try {
+      const existingLink = managedLink;
       const result = await fetchSupabaseApi<{
         deduped?: boolean;
+        linkId?: string | null;
+        paymentUrl?: string;
         row?: {
           created_at?: string | null;
           id?: string;
@@ -22352,7 +22360,15 @@ export default function AdminDashboardPage() {
         } | null;
       }>("/api/admin/bookings/payment-link", {
         body: {
+          action:
+            existingLink?.status === "active" && existingLink.paymentUrl
+              ? "send-existing-outstanding"
+              : undefined,
           bookingReference: booking.reference,
+          linkId:
+            existingLink?.status === "active" && existingLink.paymentUrl
+              ? existingLink.id
+              : undefined,
         },
         method: "POST",
       });
@@ -22392,6 +22408,7 @@ export default function AdminDashboardPage() {
           tone: "success",
         },
       }));
+      await loadManagedPaymentLink(booking.reference);
     } catch (error) {
       console.error("[Zingara Admin] Payment link send failed", error);
       setPaymentLinkSendState((currentState) => ({
@@ -23680,19 +23697,6 @@ export default function AdminDashboardPage() {
       balanceDue: financials.balanceDue,
       label: "Pending Payment",
     };
-  }
-
-  function getCorporatePaymentLink(request: CorporateRequest, token: string) {
-    if (typeof window === "undefined" || !request.linkedBookingReference) {
-      return "";
-    }
-
-    const paymentUrl = new URL("/corporate/payment", window.location.origin);
-
-    paymentUrl.searchParams.set("booking", request.linkedBookingReference);
-    paymentUrl.searchParams.set("token", token);
-
-    return paymentUrl.toString();
   }
 
   function getCorporateTimeline(request: CorporateRequest) {
@@ -40880,6 +40884,11 @@ export default function AdminDashboardPage() {
                       Boolean(bookingLock) && !isOwnBookingLock(bookingLock);
                     const bookingIsReadOnly =
                       isBookingReadOnly(booking.reference);
+	                const paymentLinkDetails =
+	                  paymentLinkDetailsState[booking.reference]?.link ?? null;
+	                const activeManagedPaymentLink =
+	                  paymentLinkDetails?.status === "active" &&
+	                  Boolean(paymentLinkDetails.paymentUrl);
 	                const corporateCompanyName =
 	                  getCorporateBookingCompanyName(booking);
 	                const isCorporateBooking =
@@ -41818,6 +41827,26 @@ export default function AdminDashboardPage() {
                                     )}
                                   </p>
                                 ))}
+                              {paymentLinkDetails && (
+                                <div className="mt-3 rounded-xl border border-[#D8C36A]/20 bg-[#D8C36A]/5 px-3 py-2 text-xs text-zinc-300">
+                                  <p className="font-semibold uppercase tracking-[0.12em] text-[#F2D66C]">
+                                    Payment Link · {paymentLinkDetails.status}
+                                  </p>
+                                  <p className="mt-1">
+                                    Amount {formatCurrency(paymentLinkDetails.amount)}
+                                    {" · "}Created {formatSouthAfricanTimestamp(paymentLinkDetails.createdAt)}
+                                  </p>
+                                  <p className="mt-1 text-zinc-400">
+                                    Expires {formatSouthAfricanTimestamp(paymentLinkDetails.expiresAt)}
+                                  </p>
+                                  {paymentLinkDetails.status === "active" &&
+                                    !paymentLinkDetails.paymentUrl && (
+                                      <p className="mt-1 text-amber-200">
+                                        This older link cannot be reopened. Create a replacement before sending.
+                                      </p>
+                                    )}
+                                </div>
+                              )}
                             </div>
                             <div className="flex flex-wrap gap-2">
                               <button
@@ -41852,23 +41881,57 @@ export default function AdminDashboardPage() {
                                   >
                                     Edit Guest Count
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      sendCustomerPaymentLink(booking)
-                                    }
-                                    disabled={
-                                      paymentLinkSendState[booking.reference]
-                                        ?.isSending ||
-                                      !canSendCustomerPaymentLink(booking)
-                                    }
-                                    className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-                                  >
-                                    {paymentLinkSendState[booking.reference]
-                                      ?.isSending
-                                      ? "Sending Link..."
-                                      : "Send Payment Link"}
-                                  </button>
+                                  {activeManagedPaymentLink ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => viewManagedPaymentLink(booking)}
+                                        className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                                      >
+                                        View Payment Link
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void copyManagedPaymentLink(booking)}
+                                        className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                                      >
+                                        Copy Link
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void sendCustomerPaymentLink(booking)}
+                                        disabled={
+                                          paymentLinkSendState[booking.reference]
+                                            ?.isSending ||
+                                          !canSendCustomerPaymentLink(booking)
+                                        }
+                                        className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                        {paymentLinkSendState[booking.reference]
+                                          ?.isSending
+                                          ? "Resending Link..."
+                                          : "Resend Payment Link"}
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => void sendCustomerPaymentLink(booking)}
+                                      disabled={
+                                        paymentLinkSendState[booking.reference]
+                                          ?.isSending ||
+                                        !canSendCustomerPaymentLink(booking)
+                                      }
+                                      className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {paymentLinkSendState[booking.reference]
+                                        ?.isSending
+                                        ? "Sending Link..."
+                                        : paymentLinkDetails?.status === "active"
+                                          ? "Create Replacement Link"
+                                          : "Send Payment Link"}
+                                    </button>
+                                  )}
                                 </>
                               )}
                               <button
