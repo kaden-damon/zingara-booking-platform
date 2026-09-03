@@ -24,6 +24,7 @@ import {
   type CustomerIdentityDraft,
 } from "./CustomerIdentityEditor";
 import CookiePrivacyPreferences from "./CookiePrivacyPreferences";
+import ManagementAnalytics from "./ManagementAnalytics";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
 
 import {
@@ -35428,7 +35429,9 @@ export default function AdminDashboardPage() {
 
         {activeAdminTab === "analytics" && canViewAnalytics && (
           <section className="mb-10 rounded-2xl border border-[#D8C36A]/35 bg-[radial-gradient(circle_at_top,#251909_0%,#101010_48%,#050505_100%)] p-6 shadow-2xl shadow-[#8D7A2F]/10">
-            <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
+            <ManagementAnalytics />
+
+            <div className="mb-6 flex flex-col gap-5 border-t border-white/10 pt-8 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
               <div className="min-w-0">
                 <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
                   Advanced Analytics
