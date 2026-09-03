@@ -53,6 +53,19 @@ test("booking creation precedes PayFast checkout and preserves transaction fee f
   assert.match(checkout, /transactionFeeAmount/);
 });
 
+test("checkout telemetry distinguishes booking creation from PayFast preparation", async () => {
+  const page = await source("../app/book/page.tsx");
+
+  assert.match(
+    page,
+    /let checkoutOperation: "create_booking" \| "prepare_payfast_checkout"/,
+  );
+  assert.match(page, /checkoutOperation = "prepare_payfast_checkout"/);
+  assert.match(page, /operation: checkoutOperation/);
+  assert.match(page, /"public_booking_create_failed"/);
+  assert.match(page, /"public_booking_checkout_failed"/);
+});
+
 test("PayFast handoff retains live-configured action and ITN URL", async () => {
   const checkout = await source("./payfast/checkout.ts");
   const config = await source("./payfast/config.ts");

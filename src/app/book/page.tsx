@@ -2150,6 +2150,8 @@ export default function BookingPage() {
 
     const journeyId = getBookingJourneyId();
     let reference = "";
+    let checkoutOperation: "create_booking" | "prepare_payfast_checkout" =
+      "create_booking";
 
     try {
       reference = await createBookingReference();
@@ -2215,6 +2217,7 @@ export default function BookingPage() {
         return;
       }
 
+      checkoutOperation = "prepare_payfast_checkout";
       const response = await fetch("/api/payfast/checkout", {
         body: JSON.stringify({
           amount: amountDueNow,
@@ -2271,10 +2274,12 @@ export default function BookingPage() {
           stage: "Checkout",
           status: isAvailabilityConflict ? "availability-conflict" : "checkout-failed",
         },
-        operation: "prepare_payfast_checkout",
+        operation: checkoutOperation,
         safeFingerprint: isAvailabilityConflict
           ? "public_booking_availability_conflict"
-          : "public_booking_checkout_failed",
+          : checkoutOperation === "create_booking"
+            ? "public_booking_create_failed"
+            : "public_booking_checkout_failed",
       });
       setIsPayFastRedirecting(false);
     }
@@ -2928,8 +2933,11 @@ export default function BookingPage() {
     );
   }
 
-  const publicBookingStatus = selectedEntryLocation
-    ? getPublicBookingSalesStatus(venueConfig, selectedEntryLocation)
+  const publicBookingLocation =
+    selectedEntryLocation ??
+    (selectedShow ? getShowVenueKey(selectedShow) : null);
+  const publicBookingStatus = publicBookingLocation
+    ? getPublicBookingSalesStatus(venueConfig, publicBookingLocation)
     : null;
   const isPublicBookingBlocked =
     manualCheckoutRole === "none" &&
@@ -2937,7 +2945,7 @@ export default function BookingPage() {
     publicBookingStatus.state !== "open";
 
   if (
-    selectedEntryLocation &&
+    publicBookingLocation &&
     isPublicBookingBlocked &&
     postPaymentStatus === "idle" &&
     !bookingReference
@@ -2951,7 +2959,7 @@ export default function BookingPage() {
       <main className="grid min-h-screen place-items-center overflow-x-hidden bg-black px-4 py-10 text-white sm:px-6">
         <section className="w-full max-w-2xl rounded-[1.5rem] border border-[#D8C36A]/40 bg-zinc-950 p-6 text-center shadow-[0_0_60px_rgba(216,195,106,0.15)] sm:p-10">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
-            {getEntryLocationLabel(selectedEntryLocation)}
+            {getEntryLocationLabel(publicBookingLocation)}
           </p>
           <h1 className="mt-4 text-3xl font-bold uppercase leading-tight text-[#F2D66C] sm:text-5xl">
             {openingLabel}
@@ -2969,7 +2977,7 @@ export default function BookingPage() {
               Back to Venues
             </Link>
             <Link
-              href={`/find-booking?location=${selectedEntryLocation}`}
+              href={`/find-booking?location=${publicBookingLocation}`}
               className="inline-flex min-h-12 items-center justify-center rounded-full border border-[#D8C36A]/40 px-6 py-3 text-sm font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A]/10"
             >
               Find My Booking

@@ -89,6 +89,10 @@ test("direct Cape Town booking route renders a blocked state", async () => {
   );
 
   assert.match(source, /getPublicBookingSalesStatus/);
+  assert.match(
+    source,
+    /selectedEntryLocation \?\?[\s\S]*getShowVenueKey\(selectedShow\)/,
+  );
   assert.match(source, /isPublicBookingBlocked/);
   assert.match(source, /Back to Venues/);
 });
