@@ -636,13 +636,21 @@ export type DemoBooking = {
   serviceFeeAmount?: number;
   totalPrice: number;
   pricePerPerson: number;
-  agreedPriceSource?: "friends-family" | "standard-zone" | "temporary-table";
+  agreedPriceSource?:
+    | "complimentary"
+    | "friends-family"
+    | "standard-zone"
+    | "temporary-table";
   pricingProvenance?: {
     agreedPricePerPerson: number;
     authorizedByStaffId?: string;
     depositPerPerson: number;
     paymentModel: PaymentOption;
-    source: "friends-family" | "standard-zone" | "temporary-table";
+    source:
+      | "complimentary"
+      | "friends-family"
+      | "standard-zone"
+      | "temporary-table";
   };
   reservationTableClaims?: Array<{
     capacity: number;

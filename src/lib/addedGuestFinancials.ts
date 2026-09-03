@@ -27,6 +27,14 @@ export function resolveAddedGuestPricingBasis(input: {
   const provenanceRate = positiveMoney(provenance?.agreedPricePerPerson);
   const provenanceDeposit = positiveMoney(provenance?.depositPerPerson);
 
+  if (provenance?.source === "complimentary") {
+    return {
+      paymentBasis: "full",
+      source: "complimentary",
+      unitAmount: 0,
+    };
+  }
+
   if (
     provenance &&
     (provenance.paymentModel === "deposit" || provenance.paymentModel === "full") &&

@@ -79,6 +79,35 @@ test("decreases never reduce financials", () => {
   assert.deepEqual(result, { addedGuests: 0, additionalAmount: 0, newOutstanding: 3000 });
 });
 
+test("complimentary provenance keeps added guests at R0", () => {
+  const basis = resolveAddedGuestPricingBasis({
+    bookingOrigin: "admin_staff",
+    metadata: {
+      pricingProvenance: {
+        agreedPricePerPerson: 0,
+        depositPerPerson: 0,
+        paymentModel: "full",
+        source: "complimentary",
+      },
+    },
+  });
+
+  assert.deepEqual(basis, {
+    paymentBasis: "full",
+    source: "complimentary",
+    unitAmount: 0,
+  });
+  assert.deepEqual(
+    calculateAddedGuestFinancials({
+      basis,
+      currentGuestCount: 4,
+      currentOutstanding: 0,
+      newGuestCount: 6,
+    }),
+    { addedGuests: 2, additionalAmount: 0, newOutstanding: 0 },
+  );
+});
+
 test("atomic RPC increments obligation and outstanding without changing paid", async () => {
   const migration = await source("../../supabase/migrations/20260903120000_phase_39_55_added_guest_financials.sql");
   assert.match(migration, /v_booking\.balance_outstanding \+ v_additional_amount/);

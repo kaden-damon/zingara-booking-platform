@@ -701,7 +701,7 @@ export default function BookingPage() {
     "box-office-manager" | "none" | "staff" | "super-admin"
   >("none");
   const [staffPricingMode, setStaffPricingMode] = useState<
-    "friends-family" | "standard"
+    "complimentary" | "friends-family" | "standard"
   >("standard");
   const [calendarBookingContext] = useState<CalendarBookingLockContext | null>(
     () => {
@@ -775,8 +775,12 @@ export default function BookingPage() {
     Number(friendsAndFamilyConfiguration?.ratePerPerson) > 0;
   const isFriendsAndFamily =
     canUseFriendsAndFamily && staffPricingMode === "friends-family";
+  const isComplimentary =
+    manualCheckoutRole !== "none" && staffPricingMode === "complimentary";
   const pricePerPerson = selectedZone
-    ? isFriendsAndFamily
+    ? isComplimentary
+      ? 0
+      : isFriendsAndFamily
       ? Number(friendsAndFamilyConfiguration?.ratePerPerson)
       : getTemporaryTablePricePerPerson({
         configuredZonePrice: getAuthoritativePublicPricePerPerson({
@@ -799,10 +803,9 @@ export default function BookingPage() {
   const selectedAddons = bookingAddons.filter((addon) =>
     selectedAddonIds.includes(addon.id),
   );
-  const addonsTotal = selectedAddons.reduce(
-    (sum, addon) => sum + addon.price,
-    0,
-  );
+  const addonsTotal = isComplimentary
+    ? 0
+    : selectedAddons.reduce((sum, addon) => sum + addon.price, 0);
   const seatingSubtotal =
     selectedZone ? pricePerPerson * partySize : 0;
   const subtotal = seatingSubtotal + addonsTotal;
@@ -817,20 +820,24 @@ export default function BookingPage() {
           value: promoValidationPreview.discountAmount,
         }
       : fallbackPromoCode;
-  const discountAmount =
-    promoValidationPreview?.status === "valid"
+  const discountAmount = isComplimentary
+    ? 0
+    : promoValidationPreview?.status === "valid"
       ? promoValidationPreview.discountAmount
       : getDiscountAmount(fallbackPromoCode, subtotal);
   const discountedSubtotal = Math.max(subtotal - discountAmount, 0);
-  const serviceFeeAmount =
-    partySize >= serviceFeeGuestThreshold
+  const serviceFeeAmount = isComplimentary
+    ? 0
+    : partySize >= serviceFeeGuestThreshold
       ? Math.round(discountedSubtotal * serviceFeeRate)
       : 0;
   const total = discountedSubtotal + serviceFeeAmount;
   const depositPerPerson = selectedZone
     ? getConfiguredZoneDepositAmount(venueConfig, selectedZone)
     : (venueConfig.operationalSettings.defaultDepositAmount ?? 0);
-  const depositAmount = selectedZone
+  const depositAmount = isComplimentary
+    ? 0
+    : selectedZone
     ? calculateConfiguredDeposit(
         venueConfig,
         selectedZone,
@@ -840,8 +847,9 @@ export default function BookingPage() {
     : Math.min(total, depositPerPerson * partySize);
   const depositPercentage =
     total > 0 ? (depositAmount / total) * 100 : 100;
-  const amountDueNow =
-    paymentOption === "deposit" ? depositAmount : total;
+  const amountDueNow = isComplimentary
+    ? 0
+    : paymentOption === "deposit" ? depositAmount : total;
   const payFastTransaction =
     calculatePayFastTransactionAmounts(amountDueNow);
   const balanceDue = Math.max(total - amountDueNow, 0);
@@ -1108,7 +1116,9 @@ export default function BookingPage() {
   const seatingStepSummary = selectedZone ? selectedZone.title : "";
   const mobileSeatingStepSummary = selectedZone ? selectedZone.title : "";
   const paymentStepSummary = bookingReference
-    ? paymentOption === "deposit"
+    ? isComplimentary
+      ? "Complimentary"
+      : paymentOption === "deposit"
       ? balanceDue > 0
         ? `Deposit Paid · ${formatCurrency(balanceDue)} Outstanding`
         : "Deposit Paid"
@@ -1635,7 +1645,11 @@ export default function BookingPage() {
 
     fetchSupabaseApi<ManualCheckoutStaffResponse>("/api/admin/quick-start")
       .then((payload) => {
-        if (!isMounted || !payload.staff) {
+        if (
+          !isMounted ||
+          !payload.staff ||
+          !payload.staff.permissions?.includes("bookings:manage")
+        ) {
           return;
         }
 
@@ -2066,7 +2080,9 @@ export default function BookingPage() {
       serviceFeeAmount,
       totalPrice: total,
       pricePerPerson,
-      agreedPriceSource: selectedTemporaryTable
+      agreedPriceSource: isComplimentary
+        ? ("complimentary" as const)
+        : selectedTemporaryTable
         ? ("temporary-table" as const)
         : isFriendsAndFamily
           ? ("friends-family" as const)
@@ -2082,7 +2098,9 @@ export default function BookingPage() {
           ]
         : [],
       paymentOption,
-      paymentStatus: "pending-payment" as const,
+      paymentStatus: isComplimentary
+        ? ("comp-vip" as const)
+        : ("pending-payment" as const),
       journeyId: getBookingJourneyId(),
       depositPercentage,
       amountPaid: 0,
@@ -2091,8 +2109,10 @@ export default function BookingPage() {
       promoLabel: appliedPromoCode?.description,
       source: source as "admin" | "corporate-direct" | "online",
       customer: customerInfo,
-      status: "pending-payment" as const,
-      lifecycleHistory: [
+      status: isComplimentary
+        ? ("confirmed" as const)
+        : ("pending-payment" as const),
+      lifecycleHistory: isComplimentary ? [] : [
         {
           id: `${reference}-created`,
           toStatus: "new" as const,
@@ -2193,6 +2213,16 @@ export default function BookingPage() {
       const persistedBooking = await persistPendingCheckoutBooking(reference);
 
       setAllocatedTableNumber(persistedBooking.tableNumber ?? null);
+
+      if (isComplimentary) {
+        setBookingReference(persistedBooking.reference);
+        setPaymentRedirectStatus("");
+        setShowTicketReadyPrompt(true);
+        setActiveBookingStep(4);
+        setIsConfirmationOpen(true);
+        setIsPayFastRedirecting(false);
+        return;
+      }
 
       if (getCurrencyCents(amountDueNow) === 0) {
         const response = await fetch("/api/bookings/complete-zero-value", {
@@ -4109,8 +4139,9 @@ export default function BookingPage() {
                     Payment Summary
                   </h2>
                   <p className="mt-2 text-sm leading-5 text-zinc-300 sm:mt-3 sm:text-base sm:leading-6">
-                    Review the amount due today, choose full payment
-                    or deposit, then continue to secure checkout.
+                    {isComplimentary
+                      ? "Review the complimentary booking details, then confirm the reservation."
+                      : "Review the amount due today, choose full payment or deposit, then continue to secure checkout."}
                   </p>
                 </div>
                 <span className="w-fit rounded-full border border-[#D8C36A]/30 bg-black/30 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] sm:px-4 sm:py-2 sm:text-sm">
@@ -4118,36 +4149,58 @@ export default function BookingPage() {
                 </span>
               </div>
 
-              {canUseFriendsAndFamily && (
+              {manualCheckoutRole !== "none" && (
                 <div className="mb-4 rounded-xl border border-[#D8C36A]/30 bg-black/35 p-4 sm:mb-5 sm:rounded-2xl">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
                     Staff Pricing
                   </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2" role="group" aria-label="Staff pricing">
+                  <div
+                    className={`mt-3 grid gap-2 ${canUseFriendsAndFamily ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2"}`}
+                    role="group"
+                    aria-label="Staff pricing"
+                  >
                     <button
                       type="button"
-                      aria-pressed={!isFriendsAndFamily}
+                      aria-pressed={staffPricingMode === "standard"}
                       onClick={() => setStaffPricingMode("standard")}
-                      className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase ${!isFriendsAndFamily ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
+                      className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase ${staffPricingMode === "standard" ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
                     >
                       Standard Rate
                     </button>
+                    {canUseFriendsAndFamily && (
+                      <button
+                        type="button"
+                        aria-pressed={isFriendsAndFamily}
+                        onClick={() => {
+                          setStaffPricingMode("friends-family");
+                          setSelectedTemporaryTableId("");
+                          setPromoCodeInput("");
+                          setPromoValidationPreview(null);
+                        }}
+                        className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase ${isFriendsAndFamily ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
+                      >
+                        Friends &amp; Family
+                      </button>
+                    )}
                     <button
                       type="button"
-                      aria-pressed={isFriendsAndFamily}
+                      aria-pressed={isComplimentary}
                       onClick={() => {
-                        setStaffPricingMode("friends-family");
+                        setStaffPricingMode("complimentary");
+                        setPaymentOption("full");
                         setSelectedTemporaryTableId("");
                         setPromoCodeInput("");
                         setPromoValidationPreview(null);
                       }}
-                      className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase ${isFriendsAndFamily ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
+                      className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase ${isComplimentary ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
                     >
-                      Friends &amp; Family
+                      Complimentary
                     </button>
                   </div>
                   <p className="mt-2 text-xs text-zinc-400">
-                    {isFriendsAndFamily
+                    {isComplimentary
+                      ? "100% complimentary booking. No payment or Booking Fee will be created."
+                      : isFriendsAndFamily
                       ? `${formatCurrency(Number(friendsAndFamilyConfiguration?.ratePerPerson))} per person. This agreed rate is saved with the booking.`
                       : "The configured zone price applies."}
                   </p>
@@ -4156,6 +4209,7 @@ export default function BookingPage() {
 
               {manualCheckoutRole !== "none" &&
                 !isFriendsAndFamily &&
+                !isComplimentary &&
                 (customPricedTemporaryTables.length > 0 ||
                   temporaryTablePricingStatus) && (
                   <div className="mb-4 rounded-xl border border-[#D8C36A]/30 bg-black/35 p-4 sm:mb-5 sm:rounded-2xl">
@@ -4240,6 +4294,17 @@ export default function BookingPage() {
                 </div>
 
                 <div className="border-t border-zinc-700 pt-3 sm:pt-4">
+                  {isComplimentary ? (
+                    <div className="mb-3 rounded-xl border border-[#D8C36A]/35 bg-[#D8C36A]/10 p-4 sm:mb-5 sm:rounded-2xl">
+                      <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#F2D66C]">
+                        Complimentary Booking
+                      </p>
+                      <p className="mt-2 text-lg font-bold text-white">R0 Due</p>
+                      <p className="mt-1 text-sm leading-6 text-zinc-300">
+                        No payment option, Booking Fee, payment link or PayFast checkout applies.
+                      </p>
+                    </div>
+                  ) : (
                   <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2 sm:mb-5 sm:gap-4">
                     <label className="rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-4">
                       <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-3 sm:text-sm">
@@ -4308,6 +4373,7 @@ export default function BookingPage() {
                         ))}
                     </label>
                   </div>
+                  )}
 
                   <div className="mb-3 rounded-xl border border-white/10 bg-black/25 p-3 text-sm text-zinc-300 sm:mb-4 sm:rounded-2xl sm:p-4">
                     <div className="flex justify-between gap-4">
@@ -4596,17 +4662,21 @@ export default function BookingPage() {
                   Payment Plan
                 </p>
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
-                  {paymentOption === "deposit"
+                  {isComplimentary
+                    ? "Complimentary"
+                    : paymentOption === "deposit"
                     ? `${formatCurrency(depositPerPerson)} pp Deposit`
                     : "Full Payment"}
                 </p>
                 <p className="mt-1.5 text-sm text-zinc-300 sm:mt-2">
-                  Booking amount due today: {formatCurrency(amountDueNow)}
-                  {payFastTransaction.transactionFeeAmount > 0 &&
+                  {isComplimentary
+                    ? "R0 due · No Booking Fee or payment required"
+                    : `Booking amount due today: ${formatCurrency(amountDueNow)}`}
+                  {!isComplimentary && payFastTransaction.transactionFeeAmount > 0 &&
                     ` · Transaction fee: ${formatCurrency(payFastTransaction.transactionFeeAmount)}`}
-                  {payFastTransaction.providerGrossAmount > 0 &&
+                  {!isComplimentary && payFastTransaction.providerGrossAmount > 0 &&
                     ` · Total payable: ${formatCurrency(payFastTransaction.providerGrossAmount)}`}
-                  {balanceDue > 0 &&
+                  {!isComplimentary && balanceDue > 0 &&
                     ` · Balance due: ${formatCurrency(balanceDue)}`}
                 </p>
               </div>
@@ -4817,6 +4887,7 @@ export default function BookingPage() {
                 </div>
               )}
 
+              {!isComplimentary && (
               <div className="rounded-xl border border-[#D8C36A]/20 bg-black/25 p-3 text-center sm:rounded-2xl sm:p-4">
                 <p className="text-center text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
                   Accepted Secure Payment Methods
@@ -4825,6 +4896,7 @@ export default function BookingPage() {
                   <PaymentBrandMarks />
                 </div>
               </div>
+              )}
 
               <label className="flex gap-3 rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3 text-sm leading-6 text-zinc-300 sm:rounded-2xl sm:p-4">
                 <input
@@ -4904,7 +4976,7 @@ export default function BookingPage() {
                       </div>
                       <div>
                         <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
-                          Transaction Fee
+                          {isComplimentary ? "Booking Fee" : "Transaction Fee"}
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
                           {formatCurrency(
@@ -4914,7 +4986,7 @@ export default function BookingPage() {
                       </div>
                       <div>
                         <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
-                          Total Paid
+                          {isComplimentary ? "Amount Due" : "Total Paid"}
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
                           {formatCurrency(
@@ -4927,7 +4999,7 @@ export default function BookingPage() {
                           Status
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
-                          Confirmed
+                          {isComplimentary ? "Complimentary" : "Confirmed"}
                         </p>
                       </div>
                     </div>
@@ -5161,6 +5233,7 @@ export default function BookingPage() {
               ) : (
                 <div
                   className={
+                    !isComplimentary &&
                     manualCheckoutRole === "super-admin" &&
                     getCurrencyCents(amountDueNow) > 0
                       ? "grid grid-cols-1 gap-3 sm:grid-cols-2"
@@ -5187,16 +5260,21 @@ export default function BookingPage() {
                       />
                     )}
                     {isPayFastRedirecting
-                      ? getCurrencyCents(amountDueNow) === 0
+                      ? isComplimentary
+                        ? "Creating Complimentary Booking..."
+                        : getCurrencyCents(amountDueNow) === 0
                         ? "Completing Booking..."
                         : "Processing Secure Payment..."
-                      : getCurrencyCents(amountDueNow) === 0
+                      : isComplimentary
+                        ? "Create Complimentary Booking"
+                        : getCurrencyCents(amountDueNow) === 0
                         ? "Complete Booking"
                         : manualCheckoutRole !== "none"
                           ? "PAY NOW"
                           : "Confirm Booking"}
                   </button>
-                  {manualCheckoutRole === "super-admin" &&
+                  {!isComplimentary &&
+                    manualCheckoutRole === "super-admin" &&
                     getCurrencyCents(amountDueNow) > 0 && (
                       <button
                         type="button"
@@ -5236,6 +5314,8 @@ export default function BookingPage() {
               <p className="text-center text-xs leading-5 text-zinc-500">
                 {manualPaymentLinkResult
                   ? "No payment is recorded until the authoritative PayFast ITN succeeds."
+                  : isComplimentary
+                  ? "This reservation is settled as complimentary. No payment or payment link is created."
                   : getCurrencyCents(amountDueNow) === 0
                   ? "Your booking will be completed securely. Digital tickets and confirmation email are sent after confirmation."
                   : "Secure online payment. Digital tickets and confirmation email are sent after PayFast confirms payment."}

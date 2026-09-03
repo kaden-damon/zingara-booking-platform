@@ -62,6 +62,10 @@ import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 import { isPublicBookingOpen } from "@/lib/publicBookingSales";
 import { getPublicBookingCutoff } from "@/lib/bookingDeadlines";
 import {
+  applyAuthoritativeComplimentaryBooking,
+  isComplimentaryBooking,
+} from "@/lib/internalComplimentaryBooking";
+import {
   getBookingCapacityConflictResponse,
   isBookingCapacityError,
   validateBookingCapacityIncrease,
@@ -1414,6 +1418,13 @@ export async function POST(request: Request) {
 
     const isTrustedStaff = Boolean(staffProfileId);
 
+    if (isComplimentaryBooking(booking) && !isTrustedStaff) {
+      return Response.json(
+        { error: "Complimentary pricing requires authorised staff booking access." },
+        { status: 403 },
+      );
+    }
+
     if (!isTrustedStaff) {
       booking = {
         ...booking,
@@ -1657,6 +1668,28 @@ export async function POST(request: Request) {
     let agreedPriceSource: NonNullable<DemoBooking["agreedPriceSource"]> =
       customPricedTemporaryTable ? "temporary-table" : "standard-zone";
 
+    if (isComplimentaryBooking(booking)) {
+      if (!isTrustedStaff || !staffProfileId) {
+        return Response.json(
+          { error: "Complimentary pricing requires authorised staff booking access." },
+          { status: 403 },
+        );
+      }
+
+      if (booking.promoCode?.trim()) {
+        return Response.json(
+          { error: "Complimentary pricing cannot be combined with promo pricing." },
+          { status: 409 },
+        );
+      }
+
+      booking = applyAuthoritativeComplimentaryBooking({
+        booking,
+        staffProfileId,
+      });
+      agreedPriceSource = "complimentary";
+    }
+
     if (booking.agreedPriceSource === "friends-family") {
       if (
         !isTrustedStaff ||
@@ -1797,7 +1830,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const paymentId = await upsertPayment(supabase, booking, bookingId);
+    const paymentId = isComplimentaryBooking(booking)
+      ? undefined
+      : await upsertPayment(supabase, booking, bookingId);
     const ticketId = isAwaitingExternalPayment(booking)
       ? null
       : await upsertTicket(supabase, booking, bookingId);
