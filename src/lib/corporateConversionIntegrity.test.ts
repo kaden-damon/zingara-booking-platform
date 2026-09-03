@@ -7,6 +7,7 @@ import {
   parseCorporateConversionReview,
   validateCorporateConversionReview,
 } from "./corporateConversionReview.ts";
+import { getCorporateSeatingZoneId } from "./corporateZoneMapping.ts";
 
 async function source(path: string) {
   return readFile(new URL(path, import.meta.url), "utf8");
@@ -241,6 +242,59 @@ test("Corporate UI provides a review action and does not infer current zone pric
     page.indexOf("function sendCorporatePaymentLink"),
   );
   assert.doesNotMatch(conversionHandler, /venueSettings\.zonePricing/);
+});
+
+test("Corporate conversion maps canonical seating aliases without positional fallback", () => {
+  assert.equal(getCorporateSeatingZoneId("MR"), "middle-ring");
+  assert.equal(
+    getCorporateSeatingZoneId("MR / Middle Ring"),
+    "middle-ring",
+  );
+  assert.equal(getCorporateSeatingZoneId("GC"), "golden-circle");
+  assert.equal(getCorporateSeatingZoneId("Golden Circle"), "golden-circle");
+  assert.equal(getCorporateSeatingZoneId("PB"), "royal-booths");
+  assert.equal(getCorporateSeatingZoneId("Private Booths"), "royal-booths");
+  assert.equal(getCorporateSeatingZoneId("RB"), "royal-balcony");
+  assert.equal(getCorporateSeatingZoneId("Royal Balcony"), "royal-balcony");
+  assert.equal(getCorporateSeatingZoneId("Unknown premium area"), null);
+});
+
+test("Corporate conversion rejects unknown or inconsistent zone payloads", async () => {
+  const [page, route] = await Promise.all([
+    source("../app/admin/page.tsx"),
+    source("../app/api/admin/corporate-requests/convert/route.ts"),
+  ]);
+
+  assert.match(
+    page,
+    /getCorporateSeatingZoneId\(request\.seatingPreference\) \?\? ""/,
+  );
+  assert.doesNotMatch(
+    page.slice(
+      page.indexOf("function getCorporateRequestZoneId"),
+      page.indexOf("function openConvertedCorporateBooking"),
+    ),
+    /seatingZones\[1\]/,
+  );
+  assert.match(route, /canonicalZoneId !== booking\.zoneId/);
+  assert.match(route, /canonicalZoneTitle !== booking\.zoneTitle/);
+  assert.match(route, /Select a valid authoritative Corporate seating zone/);
+});
+
+test("IFF correction is exact, guarded, capacity-safe, and audited", async () => {
+  const migration = await source(
+    "../../supabase/migrations/20260903170000_phase_39_58b_correct_iff_corporate_zone.sql",
+  );
+
+  assert.match(migration, /booking_reference = 'ZNG-43V3AQ'/);
+  assert.match(migration, /seating_preference <> 'MR'/);
+  assert.match(migration, /v_booking\.section <> 'Golden Circle'/);
+  assert.match(migration, /v_existing_middle_ring_pax \+ v_booking\.guest_count > v_capacity/);
+  assert.match(migration, /set section = 'Middle Ring'/);
+  assert.match(migration, /'zoneId', 'middle-ring'/);
+  assert.match(migration, /'corporate\.booking-zone-corrected'/);
+  assert.doesNotMatch(migration, /update public\.corporate_requests/);
+  assert.doesNotMatch(migration, /update public\.payments/);
 });
 
 test("standard staff tables no longer enter the custom temporary pricing failure path", async () => {

@@ -168,6 +168,7 @@ import {
   isCorporateRequestConversionEligible,
   type CorporateConversionReview,
 } from "../../lib/corporateConversionReview";
+import { getCorporateSeatingZoneId } from "../../lib/corporateZoneMapping";
 import { getPayments, updatePayment } from "../../lib/supabase/payments";
 import {
   getOrCreateStaffProfileSession,
@@ -15288,19 +15289,7 @@ export default function AdminDashboardPage() {
   }
 
   function getCorporateRequestZoneId(request: CorporateRequest) {
-    const normalizedPreference = request.seatingPreference
-      .trim()
-      .toLowerCase();
-    const matchedZone =
-      seatingZones.find(
-        (zone) => zone.title.toLowerCase() === normalizedPreference,
-      ) ??
-      seatingZones.find((zone) =>
-        normalizedPreference.includes(zone.title.toLowerCase()),
-      ) ??
-      seatingZones[1];
-
-    return matchedZone.id;
+    return getCorporateSeatingZoneId(request.seatingPreference) ?? "";
   }
 
   function openConvertedCorporateBooking(reference: string) {

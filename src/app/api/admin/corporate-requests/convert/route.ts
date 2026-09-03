@@ -13,6 +13,7 @@ import {
   type DemoBooking,
 } from "@/lib/zingaraDemo";
 import { getCorporateConversionGate } from "@/lib/corporateConversionGuard";
+import { getCorporateSeatingZoneId } from "@/lib/corporateZoneMapping";
 
 export const dynamic = "force-dynamic";
 
@@ -169,6 +170,23 @@ export async function POST(request: Request) {
   if (!hasValidReviewedFinancials(booking)) {
     return Response.json(
       { error: "The reviewed Corporate financials are incomplete or inconsistent." },
+      { status: 400 },
+    );
+  }
+
+  const canonicalZoneId = getCorporateSeatingZoneId(booking.zoneId);
+  const canonicalZoneTitle = getDisplayZoneTitle(
+    canonicalZoneId,
+    booking.zoneTitle,
+  );
+
+  if (
+    !canonicalZoneId ||
+    canonicalZoneId !== booking.zoneId ||
+    canonicalZoneTitle !== booking.zoneTitle
+  ) {
+    return Response.json(
+      { error: "Select a valid authoritative Corporate seating zone." },
       { status: 400 },
     );
   }
