@@ -8,6 +8,11 @@ import {
   validateFinancialReconciliation,
   validateGuestCountReconciliation,
 } from "@/lib/bookingReconciliation";
+import {
+  calculateAddedGuestFinancials,
+  type AddedGuestPricingBasis,
+} from "@/lib/addedGuestFinancials";
+import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
 export type BookingReconciliationDetails = {
   booking: {
@@ -28,6 +33,16 @@ export type BookingReconciliationDetails = {
     label: string;
   }[];
   providerBackedAmount: number;
+  addedGuestPricingBasis: AddedGuestPricingBasis;
+};
+
+export type GuestCountReconciliationResult = {
+  additional_amount: number;
+  added_guests: number;
+  balance_outstanding: number;
+  booking_reference: string;
+  payment_basis: "deposit" | "full";
+  unit_amount: number;
 };
 
 type BaseProps = {
@@ -170,6 +185,7 @@ export function GuestCountReconciliationModal(
     guestCount: number;
     onSave: (draft: { guestCount: number; reason: string }) => void;
     reason: string;
+    result: GuestCountReconciliationResult | null;
   },
 ) {
   const { booking } = props.details;
@@ -178,6 +194,42 @@ export function GuestCountReconciliationModal(
     reason: props.reason,
   });
   const validation = validateGuestCountReconciliation(draft);
+  const financials = calculateAddedGuestFinancials({
+    basis: props.details.addedGuestPricingBasis,
+    currentGuestCount: booking.guestCount,
+    currentOutstanding: booking.balanceOutstanding,
+    newGuestCount: draft.guestCount,
+  });
+  const [link, setLink] = useState<{ canSend: boolean; paymentUrl: string; token: string } | null>(null);
+  const [linkStatus, setLinkStatus] = useState("");
+
+  async function createPaymentLink() {
+    setLinkStatus("Creating payment link...");
+    try {
+      const created = await fetchSupabaseApi<{ canSend: boolean; paymentUrl: string; token: string }>(
+        "/api/admin/bookings/payment-link",
+        { body: { action: "create-outstanding", bookingReference: booking.bookingReference }, method: "POST" },
+      );
+      setLink(created);
+      setLinkStatus("PAYMENT LINK CREATED ✓");
+    } catch (error) {
+      setLinkStatus(error instanceof Error ? error.message : "Payment link could not be created.");
+    }
+  }
+
+  async function sendPaymentLink() {
+    if (!link) return;
+    setLinkStatus("Sending payment link...");
+    try {
+      await fetchSupabaseApi("/api/admin/bookings/payment-link", {
+        body: { action: "send-existing-outstanding", bookingReference: booking.bookingReference, token: link.token },
+        method: "POST",
+      });
+      setLinkStatus("PAYMENT LINK SENT ✓");
+    } catch (error) {
+      setLinkStatus(error instanceof Error ? error.message : "Payment link could not be sent.");
+    }
+  }
 
   return (
     <ModalFrame onClose={props.onClose} title="Edit Guest Count">
@@ -193,15 +245,42 @@ export function GuestCountReconciliationModal(
         </label>
       </div>
       <p className="mt-4 text-sm text-zinc-300">Current table: {booking.tableCode ?? "Floor Assignment Queue"} · {booking.zone}</p>
-      <p className="mt-1 text-xs text-zinc-500">The agreed booking obligation and all payment values remain unchanged. If the table no longer fits, the booking will move safely to the Floor Assignment Queue.</p>
+      {financials.addedGuests > 0 ? (
+        <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
+          <p>Added guests: {financials.addedGuests}</p>
+          <p>Basis: {props.details.addedGuestPricingBasis.paymentBasis === "deposit" ? "Original deposit" : props.details.addedGuestPricingBasis.paymentBasis === "full" ? "Original agreed ticket rate" : "Not authoritative"}</p>
+          <p>Rate: {props.details.addedGuestPricingBasis.unitAmount === null ? "Requires financial reconciliation" : `R${props.details.addedGuestPricingBasis.unitAmount.toFixed(2)} pp`}</p>
+          <p>Additional obligation: {financials.additionalAmount === null ? "Unavailable" : `R${financials.additionalAmount.toFixed(2)}`}</p>
+          <p>New outstanding: {financials.newOutstanding === null ? "Unavailable" : `R${financials.newOutstanding.toFixed(2)}`}</p>
+        </div>
+      ) : (
+        <p className="mt-1 text-xs text-zinc-500">Reducing guests does not reduce the agreed obligation or create a refund. Use financial reconciliation for a separate approved adjustment.</p>
+      )}
+      <p className="mt-2 text-xs text-zinc-500">If the table no longer fits, the booking will move safely to the Floor Assignment Queue.</p>
       <label className="mt-4 block">
         <span className="mb-2 block text-xs font-semibold uppercase text-zinc-400">Reason for change *</span>
         <textarea rows={3} value={draft.reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} className="w-full rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]" />
       </label>
       {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
-      <button type="button" disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount} onClick={() => props.onSave(draft)} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
+      {!props.result && <button type="button" disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || (financials.addedGuests > 0 && financials.additionalAmount === null)} onClick={() => props.onSave(draft)} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
         {props.isSaving ? "Saving..." : "Confirm Guest Count"}
-      </button>
+      </button>}
+      {props.result?.added_guests ? (
+        <div className="mt-5 rounded-xl border border-emerald-400/25 bg-emerald-950/20 p-4">
+          <p className="text-sm font-semibold text-emerald-200">GUEST COUNT UPDATED ✓</p>
+          <p className="mt-1 text-xs text-zinc-300">R{props.result.additional_amount.toFixed(2)} added · R{props.result.balance_outstanding.toFixed(2)} outstanding</p>
+          {!link ? (
+            <button type="button" onClick={() => void createPaymentLink()} className="mt-3 min-h-11 w-full rounded-full bg-[#D8C36A] px-4 text-xs font-semibold uppercase text-black">Create Payment Link</button>
+          ) : (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button type="button" disabled={!link.canSend} onClick={() => void sendPaymentLink()} className="min-h-11 rounded-full border border-white/20 px-3 text-xs font-semibold uppercase text-white disabled:opacity-40">Send To Guest</button>
+              <button type="button" onClick={() => { void navigator.clipboard.writeText(link.paymentUrl); setLinkStatus("PAYMENT LINK COPIED ✓"); }} className="min-h-11 rounded-full bg-[#D8C36A] px-3 text-xs font-semibold uppercase text-black">Copy Link</button>
+            </div>
+          )}
+          {link && !link.canSend && <p className="mt-2 text-xs text-amber-200">No customer email is available. Copy Link remains available.</p>}
+          {linkStatus && <p aria-live="polite" className="mt-2 text-xs text-zinc-300">{linkStatus}</p>}
+        </div>
+      ) : null}
     </ModalFrame>
   );
 }

@@ -17,6 +17,7 @@ import {
   FinancialReconciliationModal,
   GuestCountReconciliationModal,
   type BookingReconciliationDetails,
+  type GuestCountReconciliationResult,
 } from "./BookingReconciliationModal";
 import {
   CustomerIdentityEditor,
@@ -7251,6 +7252,29 @@ type PublicBookingSalesDraft = Record<
   }
 >;
 
+type FriendsAndFamilyDraft = Record<
+  EntryLocationKey,
+  { enabled: boolean; ratePerPerson: string }
+>;
+
+function createFriendsAndFamilyDraft(
+  settings: DemoVenueSettings,
+): FriendsAndFamilyDraft {
+  return Object.fromEntries(
+    showLocationOptions.map((location) => {
+      const configuration =
+        settings.operationalSettings.friendsAndFamily[location.value];
+      return [
+        location.value,
+        {
+          enabled: configuration.enabled,
+          ratePerPerson: String(configuration.ratePerPerson || ""),
+        },
+      ];
+    }),
+  ) as FriendsAndFamilyDraft;
+}
+
 function createPublicBookingSalesDraft(
   settings: DemoVenueSettings,
 ): PublicBookingSalesDraft {
@@ -9841,6 +9865,10 @@ export default function AdminDashboardPage() {
     useState<PublicBookingSalesDraft>(() =>
       createPublicBookingSalesDraft(defaultVenueSettings),
     );
+  const [friendsAndFamilyDraft, setFriendsAndFamilyDraft] =
+    useState<FriendsAndFamilyDraft>(() =>
+      createFriendsAndFamilyDraft(defaultVenueSettings),
+    );
   const [venueConfigurationSaveState, setVenueConfigurationSaveState] =
     useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
   const [venueConfigurationError, setVenueConfigurationError] = useState("");
@@ -9869,6 +9897,7 @@ export default function AdminDashboardPage() {
     guestCount: number;
     isSaving: boolean;
     reason: string;
+    result: GuestCountReconciliationResult | null;
   } | null>(null);
   const [broadcastForm, setBroadcastForm] =
     useState<BroadcastForm>({
@@ -13426,6 +13455,7 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     setVenueConfigurationDraft(createVenueConfigurationDraft(venueSettings));
     setPublicBookingSalesDraft(createPublicBookingSalesDraft(venueSettings));
+    setFriendsAndFamilyDraft(createFriendsAndFamilyDraft(venueSettings));
   }, [venueSettings]);
   const visibleStaffNotifications = staffNotifications.filter(
     (notification) =>
@@ -15834,6 +15864,20 @@ export default function AdminDashboardPage() {
     setVenueConfigurationError("");
   }
 
+  function updateFriendsAndFamilyDraft(
+    location: EntryLocationKey,
+    updates: Partial<FriendsAndFamilyDraft[EntryLocationKey]>,
+  ) {
+    if (!isSuperAdmin) return;
+
+    setFriendsAndFamilyDraft((current) => ({
+      ...current,
+      [location]: { ...current[location], ...updates },
+    }));
+    setVenueConfigurationSaveState("dirty");
+    setVenueConfigurationError("");
+  }
+
   async function saveAuthoritativeVenueConfiguration() {
     if (!isSuperAdmin || venueConfigurationSaveState === "saving") return;
 
@@ -15843,6 +15887,9 @@ export default function AdminDashboardPage() {
     };
     const nextCorporatePaymentHolds = {
       ...venueSettings.operationalSettings.corporatePaymentHolds,
+    };
+    const nextFriendsAndFamily = {
+      ...venueSettings.operationalSettings.friendsAndFamily,
     };
 
     for (const location of showLocationOptions) {
@@ -15882,6 +15929,24 @@ export default function AdminDashboardPage() {
         durationDays: holdDays,
         enabled: draft.corporatePaymentHoldEnabled,
         reminderDaysBefore: reminderDays,
+      };
+
+
+      const friendsAndFamily = friendsAndFamilyDraft[location.value];
+      const friendsAndFamilyRate = Number(friendsAndFamily.ratePerPerson);
+      if (
+        friendsAndFamily.enabled &&
+        (!Number.isFinite(friendsAndFamilyRate) || friendsAndFamilyRate <= 0)
+      ) {
+        setVenueConfigurationSaveState("error");
+        setVenueConfigurationError(
+          `Enter a positive Friends & Family rate for ${location.city}.`,
+        );
+        return;
+      }
+      nextFriendsAndFamily[location.value] = {
+        enabled: friendsAndFamily.enabled,
+        ratePerPerson: friendsAndFamily.enabled ? friendsAndFamilyRate : 0,
       };
     }
 
@@ -15924,6 +15989,7 @@ export default function AdminDashboardPage() {
       operationalSettings: {
         ...venueSettings.operationalSettings,
         corporatePaymentHolds: nextCorporatePaymentHolds,
+        friendsAndFamily: nextFriendsAndFamily,
         publicBookings: nextPublicBookings,
       },
       zonePricing: nextZonePricing,
@@ -21990,6 +22056,7 @@ export default function AdminDashboardPage() {
       guestCount: details.booking.guestCount,
       isSaving: false,
       reason: "",
+      result: null,
     });
   }
 
@@ -22048,7 +22115,7 @@ export default function AdminDashboardPage() {
     );
 
     try {
-      await fetchSupabaseApi("/api/admin/bookings/reconciliation", {
+      const response = await fetchSupabaseApi<{ result: GuestCountReconciliationResult }>("/api/admin/bookings/reconciliation", {
         body: {
           action: "guest-count",
           bookingReference:
@@ -22061,7 +22128,11 @@ export default function AdminDashboardPage() {
         method: "POST",
       });
       setBookings(await getBookings());
-      setGuestCountReconciliation(null);
+      setGuestCountReconciliation((current) =>
+        current
+          ? { ...current, error: "", isSaving: false, result: response.result }
+          : current,
+      );
       showWorkflowToast("Guest count reconciled.");
     } catch (error) {
       setGuestCountReconciliation((current) =>
@@ -33049,6 +33120,46 @@ export default function AdminDashboardPage() {
                     })}
                   </div>
                 </div>
+                <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
+                  <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
+                    Friends &amp; Family
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-zinc-400">
+                    Optional staff-only rate for future manual bookings. Existing bookings keep their agreed price.
+                  </p>
+                  <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {showLocationOptions.map((location) => {
+                      const draft = friendsAndFamilyDraft[location.value];
+                      return (
+                        <div key={`friends-family-${location.value}`} className="rounded-lg border border-white/10 bg-black/40 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-semibold text-white">{location.city}</p>
+                            <label className="flex items-center gap-2 text-sm text-zinc-300">
+                              <input
+                                type="checkbox"
+                                checked={draft.enabled}
+                                onChange={(event) => updateFriendsAndFamilyDraft(location.value, { enabled: event.target.checked })}
+                              />
+                              Enabled
+                            </label>
+                          </div>
+                          <label className="mt-3 block text-sm text-zinc-400">
+                            Rate per person (R)
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={draft.ratePerPerson}
+                              disabled={!draft.enabled}
+                              onChange={(event) => updateFriendsAndFamilyDraft(location.value, { ratePerPerson: event.target.value })}
+                              className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white disabled:opacity-45"
+                            />
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                   {configurableVenueZones.map((zone) => {
                     const draft = venueConfigurationDraft[zone.id];
@@ -42030,6 +42141,7 @@ export default function AdminDashboardPage() {
           onClose={() => setGuestCountReconciliation(null)}
           onSave={(draft) => void saveGuestCountReconciliation(draft)}
           reason={guestCountReconciliation.reason}
+          result={guestCountReconciliation.result}
         />
       )}
 

@@ -86,6 +86,8 @@ function validateConfiguration(
 
     const corporateHold =
       settings.operationalSettings.corporatePaymentHolds[location.value];
+    const friendsAndFamily =
+      settings.operationalSettings.friendsAndFamily[location.value];
 
     if (
       !corporateHold ||
@@ -98,6 +100,15 @@ function validateConfiguration(
       corporateHold.reminderDaysBefore >= corporateHold.durationDays
     ) {
       return `Enter a valid Corporate payment hold for ${location.city}.`;
+    }
+
+    if (
+      !friendsAndFamily ||
+      typeof friendsAndFamily.enabled !== "boolean" ||
+      !Number.isFinite(friendsAndFamily.ratePerPerson) ||
+      (friendsAndFamily.enabled && friendsAndFamily.ratePerPerson <= 0)
+    ) {
+      return `Enter a valid Friends & Family rate for ${location.city}.`;
     }
   }
 

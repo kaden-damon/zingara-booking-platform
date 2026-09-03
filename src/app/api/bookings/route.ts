@@ -53,6 +53,7 @@ import {
   rateLimitResponse,
 } from "@/lib/rateLimit";
 import {
+  getAdminRoleFromName,
   getServiceClient,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
@@ -1223,6 +1224,8 @@ async function withAuthoritativePublicPricing(
   booking: DemoBooking,
   show: SupabaseShowRow,
   authoritativePricePerPerson?: number,
+  agreedPriceSource: NonNullable<DemoBooking["agreedPriceSource"]> = "standard-zone",
+  authorizedByStaffId?: string,
 ): Promise<DemoBooking> {
   const zone = seatingZones.find((candidate) => candidate.id === booking.zoneId);
 
@@ -1273,9 +1276,7 @@ async function withAuthoritativePublicPricing(
 
   return {
     ...booking,
-    agreedPriceSource: authoritativePricePerPerson
-      ? "temporary-table"
-      : "standard-zone",
+    agreedPriceSource,
     addons: pricing.addons,
     addonsTotal: pricing.addonsTotal,
     balanceDue: pricing.total,
@@ -1284,6 +1285,14 @@ async function withAuthoritativePublicPricing(
     lifecycleHistory,
     paymentOption: booking.paymentOption === "deposit" ? "deposit" : "full",
     pricePerPerson: pricing.pricePerPerson,
+    pricingProvenance: {
+      agreedPricePerPerson: pricing.pricePerPerson,
+      authorizedByStaffId,
+      depositPerPerson:
+        booking.partySize > 0 ? pricing.depositAmount / booking.partySize : 0,
+      paymentModel: booking.paymentOption === "deposit" ? "deposit" : "full",
+      source: agreedPriceSource,
+    },
     promoCode: promo.status === "valid" ? promo.code : undefined,
     promoCodeId: promo.status === "valid" ? promo.promoCodeId : undefined,
     promoLabel: promo.status === "valid" ? promo.description : undefined,
@@ -1357,6 +1366,7 @@ export async function POST(request: Request) {
     }
 
     let staffProfileId: string | null = null;
+    let staffRole: ReturnType<typeof getAdminRoleFromName> | null = null;
 
     if (isTrustedInternalHandoff) {
       const staffAuth = await requireActiveStaff(request);
@@ -1373,6 +1383,10 @@ export async function POST(request: Request) {
       }
 
       staffProfileId = staffAuth.staffProfile.id;
+      const roleRow = Array.isArray(staffAuth.staffProfile.roles)
+        ? staffAuth.staffProfile.roles[0]
+        : staffAuth.staffProfile.roles;
+      staffRole = getAdminRoleFromName(roleRow?.name);
     }
     const trustedBookingSource = resolveTrustedBookingSource({
       requestedSource: booking.source,
@@ -1635,15 +1649,58 @@ export async function POST(request: Request) {
       );
     }
 
+    let staffPricingRate: number | undefined;
+    let agreedPriceSource: NonNullable<DemoBooking["agreedPriceSource"]> =
+      customPricedTemporaryTable ? "temporary-table" : "standard-zone";
+
+    if (booking.agreedPriceSource === "friends-family") {
+      if (
+        !isTrustedStaff ||
+        !staffRole ||
+        !["box-office-manager", "super-admin"].includes(staffRole)
+      ) {
+        return Response.json(
+          { error: "Friends & Family pricing requires Box Office Manager access." },
+          { status: 403 },
+        );
+      }
+      if (customPricedTemporaryTable || booking.promoCode?.trim()) {
+        return Response.json(
+          { error: "Friends & Family pricing cannot be combined with temporary-table or promo pricing." },
+          { status: 409 },
+        );
+      }
+
+      const location = normalizeShowLocation(show.venue);
+      const settings = await loadVenueSettings(supabase);
+      const configuration = location
+        ? settings.operationalSettings.friendsAndFamily[location]
+        : null;
+      if (
+        !configuration?.enabled ||
+        !Number.isFinite(configuration.ratePerPerson) ||
+        configuration.ratePerPerson <= 0
+      ) {
+        return Response.json(
+          { error: "Friends & Family pricing is not configured for this venue." },
+          { status: 409 },
+        );
+      }
+      staffPricingRate = configuration.ratePerPerson;
+      agreedPriceSource = "friends-family";
+    }
+
     if (
-      (booking.source === "online" || customPricedTemporaryTable) &&
+      (booking.source === "online" || customPricedTemporaryTable || staffPricingRate) &&
       isAwaitingExternalPayment(booking)
     ) {
       booking = await withAuthoritativePublicPricing(
         supabase,
         booking,
         show,
-        customPricedTemporaryTable?.customPricePerPerson,
+        staffPricingRate ?? customPricedTemporaryTable?.customPricePerPerson,
+        agreedPriceSource,
+        staffProfileId ?? undefined,
       );
     }
 

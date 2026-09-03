@@ -54,7 +54,7 @@ import {
   type CustomPricedTemporaryTable,
   getCustomPricedTemporaryTables,
 } from "../../lib/supabase/shows";
-import { getPublicVenueSettings } from "../../lib/supabase/venueSettings";
+import { getPublicVenueSettings, getVenueSettings } from "../../lib/supabase/venueSettings";
 import { createWaitlistEntry } from "../../lib/supabase/waitlist";
 import {
   type BookingAddon,
@@ -698,8 +698,11 @@ export default function BookingPage() {
   const [isPayFastRedirecting, setIsPayFastRedirecting] =
     useState(false);
   const [manualCheckoutRole, setManualCheckoutRole] = useState<
-    "none" | "staff" | "super-admin"
+    "box-office-manager" | "none" | "staff" | "super-admin"
   >("none");
+  const [staffPricingMode, setStaffPricingMode] = useState<
+    "friends-family" | "standard"
+  >("standard");
   const [calendarBookingContext] = useState<CalendarBookingLockContext | null>(
     () => {
       if (typeof window === "undefined") return null;
@@ -762,8 +765,20 @@ export default function BookingPage() {
   const selectedTemporaryTable = customPricedTemporaryTables.find(
     (table) => table.id === selectedTemporaryTableId,
   );
+  const friendsAndFamilyConfiguration = selectedEntryLocation
+    ? venueConfig.operationalSettings.friendsAndFamily[selectedEntryLocation]
+    : null;
+  const canUseFriendsAndFamily =
+    (manualCheckoutRole === "box-office-manager" ||
+      manualCheckoutRole === "super-admin") &&
+    Boolean(friendsAndFamilyConfiguration?.enabled) &&
+    Number(friendsAndFamilyConfiguration?.ratePerPerson) > 0;
+  const isFriendsAndFamily =
+    canUseFriendsAndFamily && staffPricingMode === "friends-family";
   const pricePerPerson = selectedZone
-    ? getTemporaryTablePricePerPerson({
+    ? isFriendsAndFamily
+      ? Number(friendsAndFamilyConfiguration?.ratePerPerson)
+      : getTemporaryTablePricePerPerson({
         configuredZonePrice: getAuthoritativePublicPricePerPerson({
           configuredPrice: configuredZonePrice,
           partySize,
@@ -1625,8 +1640,16 @@ export default function BookingPage() {
         }
 
         setManualCheckoutRole(
-          payload.staff.role === "super-admin" ? "super-admin" : "staff",
+          payload.staff.role === "super-admin"
+            ? "super-admin"
+            : payload.staff.role === "box-office-manager"
+              ? "box-office-manager"
+              : "staff",
         );
+        return getVenueSettings();
+      })
+      .then((settings) => {
+        if (isMounted && settings) setVenueSettings(settings);
       })
       .catch(() => {
         if (isMounted) {
@@ -2045,7 +2068,9 @@ export default function BookingPage() {
       pricePerPerson,
       agreedPriceSource: selectedTemporaryTable
         ? ("temporary-table" as const)
-        : ("standard-zone" as const),
+        : isFriendsAndFamily
+          ? ("friends-family" as const)
+          : ("standard-zone" as const),
       reservationTableClaims: selectedTemporaryTable
         ? [
             {
@@ -4093,7 +4118,44 @@ export default function BookingPage() {
                 </span>
               </div>
 
+              {canUseFriendsAndFamily && (
+                <div className="mb-4 rounded-xl border border-[#D8C36A]/30 bg-black/35 p-4 sm:mb-5 sm:rounded-2xl">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                    Staff Pricing
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2" role="group" aria-label="Staff pricing">
+                    <button
+                      type="button"
+                      aria-pressed={!isFriendsAndFamily}
+                      onClick={() => setStaffPricingMode("standard")}
+                      className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase ${!isFriendsAndFamily ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
+                    >
+                      Standard Rate
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={isFriendsAndFamily}
+                      onClick={() => {
+                        setStaffPricingMode("friends-family");
+                        setSelectedTemporaryTableId("");
+                        setPromoCodeInput("");
+                        setPromoValidationPreview(null);
+                      }}
+                      className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase ${isFriendsAndFamily ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
+                    >
+                      Friends &amp; Family
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-400">
+                    {isFriendsAndFamily
+                      ? `${formatCurrency(Number(friendsAndFamilyConfiguration?.ratePerPerson))} per person. This agreed rate is saved with the booking.`
+                      : "The configured zone price applies."}
+                  </p>
+                </div>
+              )}
+
               {manualCheckoutRole !== "none" &&
+                !isFriendsAndFamily &&
                 (customPricedTemporaryTables.length > 0 ||
                   temporaryTablePricingStatus) && (
                   <div className="mb-4 rounded-xl border border-[#D8C36A]/30 bg-black/35 p-4 sm:mb-5 sm:rounded-2xl">
@@ -4207,12 +4269,18 @@ export default function BookingPage() {
                       </span>
                       <input
                         value={promoCodeInput}
+                        disabled={isFriendsAndFamily}
                         onChange={(event) =>
                           setPromoCodeInput(event.target.value)
                         }
                         placeholder="COUNTESS10"
-                        className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm uppercase sm:px-4 sm:py-3 sm:text-base"
+                        className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm uppercase disabled:cursor-not-allowed disabled:opacity-45 sm:px-4 sm:py-3 sm:text-base"
                       />
+                      {isFriendsAndFamily && (
+                        <span className="mt-2 block text-xs text-zinc-400">
+                          Promo codes are not combined with Friends &amp; Family pricing.
+                        </span>
+                      )}
                       {promoCodeInput &&
                         (isPromoValidationLoading ? (
                           <span className="mt-2 block text-sm text-zinc-300">

@@ -30,11 +30,18 @@ export async function GET() {
     );
   }
 
-  return Response.json({
-    settings: normalizeVenueSettings({
+  const settings = normalizeVenueSettings({
       ...((data?.settings as Record<string, unknown> | null) ?? {}),
       venueId: data?.venue_key || defaultVenueSettings.venueId,
       venueName: data?.name || defaultVenueSettings.venueName,
-    }),
+    });
+  const { friendsAndFamily: _staffPricing, ...publicOperationalSettings } =
+    settings.operationalSettings;
+
+  return Response.json({
+    settings: {
+      ...settings,
+      operationalSettings: publicOperationalSettings,
+    },
   });
 }

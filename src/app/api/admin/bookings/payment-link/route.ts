@@ -25,7 +25,11 @@ import {
 export const dynamic = "force-dynamic";
 
 type PaymentLinkRequest = {
-  action?: "create" | "send-existing";
+  action?:
+    | "create"
+    | "create-outstanding"
+    | "send-existing"
+    | "send-existing-outstanding";
   bookingReference?: string;
   token?: string;
 };
@@ -244,7 +248,10 @@ export async function POST(request: Request) {
       });
     }
 
-    if (action === "send-existing") {
+    if (
+      action === "send-existing" ||
+      action === "send-existing-outstanding"
+    ) {
       const token = body.token?.trim();
 
       if (!token) {
@@ -277,14 +284,14 @@ export async function POST(request: Request) {
       });
     }
 
-    if (action !== "create" && !recipient) {
+    if (action !== "create" && action !== "create-outstanding" && !recipient) {
       return Response.json(
         { error: "This booking does not have a customer email address." },
         { status: 409 },
       );
     }
 
-    if (action !== "create") {
+    if (action !== "create" && action !== "create-outstanding") {
       const { data: recentActiveLink, error: recentActiveLinkError } =
         await supabase
           .from("booking_payment_links")
@@ -352,6 +359,7 @@ export async function POST(request: Request) {
           checkoutAmount: amount,
           createdByStaffName: staffProfile?.full_name ?? null,
           manualCheckout: action === "create",
+          outstandingReconciliation: action === "create-outstanding",
           recipient,
         },
         token_hash: hashPaymentLinkToken(token),
@@ -363,7 +371,7 @@ export async function POST(request: Request) {
       throw linkError;
     }
 
-    if (action === "create") {
+    if (action === "create" || action === "create-outstanding") {
       return Response.json({
         canSend: Boolean(recipient),
         linkId: linkRow?.id ?? null,

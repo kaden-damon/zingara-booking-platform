@@ -5,6 +5,7 @@ import {
   validateGuestCountReconciliation,
 } from "@/lib/bookingReconciliation";
 import { getIncludedBookingFeeBreakdown } from "@/lib/zingaraDemo";
+import { resolveAddedGuestPricingBasis } from "@/lib/addedGuestFinancials";
 import {
   getRolePermissions,
   requireActiveStaff,
@@ -59,6 +60,16 @@ function mapLegacyEvidence(rows: Record<string, unknown>[]) {
     .filter((item) => item.amount > 0);
 }
 
+function parseBookingMetadata(notes: string | null) {
+  const prefix = "__zingara_booking_meta__:";
+  if (!notes?.startsWith(prefix)) return null;
+  try {
+    return JSON.parse(notes.slice(prefix.length)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
 
@@ -82,7 +93,7 @@ export async function GET(request: Request) {
   try {
     const { data: booking, error } = await auth.serviceClient
       .from("bookings")
-      .select("id,booking_reference,guest_count,payment_status,section,service_fee,subtotal_amount,addons_total,total_amount,amount_paid,balance_outstanding,table_id,updated_at,show_tables:table_id(table_code)")
+      .select("id,booking_reference,booking_origin,notes,guest_count,payment_status,section,service_fee,subtotal_amount,addons_total,total_amount,amount_paid,balance_outstanding,table_id,updated_at,show_tables:table_id(table_code)")
       .eq("booking_reference", bookingReference)
       .maybeSingle();
 
@@ -128,6 +139,10 @@ export async function GET(request: Request) {
     const table = Array.isArray(booking.show_tables)
       ? booking.show_tables[0]
       : booking.show_tables;
+    const addedGuestPricingBasis = resolveAddedGuestPricingBasis({
+      bookingOrigin: booking.booking_origin,
+      metadata: parseBookingMetadata(booking.notes),
+    });
 
     return Response.json({
       booking: {
@@ -149,6 +164,7 @@ export async function GET(request: Request) {
       },
       legacyEvidence,
       providerBackedAmount,
+      addedGuestPricingBasis,
     });
   } catch (error) {
     console.error("[Zingara Reconciliation] Load failed", error);
@@ -203,7 +219,7 @@ export async function POST(request: Request) {
       body.action === "financial"
         ? "reconcile_booking_financials_atomic"
         : body.action === "guest-count"
-          ? "reconcile_booking_guest_count_atomic"
+          ? "reconcile_booking_guest_count_financials_atomic"
           : null;
 
     if (!rpcName) {
@@ -264,6 +280,9 @@ export async function POST(request: Request) {
       }
       if (message.includes("BOOKING_TABLE_STATE_INVALID")) {
         return Response.json({ error: "The current table assignment must be repaired before changing guest count." }, { status: 409 });
+      }
+      if (message.includes("ADDED_GUEST_FINANCIAL_BASIS_REQUIRED")) {
+        return Response.json({ error: "The original payment basis is not authoritative for this legacy booking. Reconcile its financials separately before adding guests." }, { status: 409 });
       }
       if (message.includes("BOOKING_RECONCILIATION_NOT_ALLOWED")) {
         return Response.json({ error: "This booking is not eligible for reconciliation." }, { status: 409 });

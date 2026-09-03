@@ -70,6 +70,13 @@ export type DemoVenueSettings = {
         reminderDaysBefore: number;
       }
     >;
+    friendsAndFamily: Record<
+      EntryLocationKey,
+      {
+        enabled: boolean;
+        ratePerPerson: number;
+      }
+    >;
     ticketRefreshSeconds: number;
     waitlistAutoPromotionEnabled: boolean;
     waitlistAutoPromotionThreshold: number;
@@ -170,6 +177,16 @@ export const defaultVenueSettings: DemoVenueSettings = {
         durationDays: 7,
         enabled: true,
         reminderDaysBefore: 1,
+      },
+    },
+    friendsAndFamily: {
+      "cape-town": {
+        enabled: false,
+        ratePerPerson: 0,
+      },
+      johannesburg: {
+        enabled: false,
+        ratePerPerson: 0,
       },
     },
     ticketRefreshSeconds: 20,
@@ -613,7 +630,14 @@ export type DemoBooking = {
   serviceFeeAmount?: number;
   totalPrice: number;
   pricePerPerson: number;
-  agreedPriceSource?: "standard-zone" | "temporary-table";
+  agreedPriceSource?: "friends-family" | "standard-zone" | "temporary-table";
+  pricingProvenance?: {
+    agreedPricePerPerson: number;
+    authorizedByStaffId?: string;
+    depositPerPerson: number;
+    paymentModel: PaymentOption;
+    source: "friends-family" | "standard-zone" | "temporary-table";
+  };
   reservationTableClaims?: Array<{
     capacity: number;
     primary?: boolean;
@@ -1526,6 +1550,15 @@ export function normalizeVenueSettings(
           },
         ]),
       ) as DemoVenueSettings["operationalSettings"]["corporatePaymentHolds"],
+      friendsAndFamily: Object.fromEntries(
+        showLocationOptions.map((location) => [
+          location.value,
+          {
+            ...defaultVenueSettings.operationalSettings.friendsAndFamily[location.value],
+            ...(incoming.operationalSettings?.friendsAndFamily?.[location.value] ?? {}),
+          },
+        ]),
+      ) as DemoVenueSettings["operationalSettings"]["friendsAndFamily"],
     },
     zonePricing,
   } as DemoVenueSettings;
