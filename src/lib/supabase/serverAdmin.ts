@@ -125,6 +125,17 @@ export function getAdminRoleFromName(
   return matchedRole ?? "venue-manager";
 }
 
+export function isKnownAdminRoleName(name: string | null | undefined) {
+  const normalizedName = name?.trim().toLowerCase();
+
+  return Boolean(
+    normalizedName &&
+      Object.values(adminRoleLabels).some(
+        (label) => label.toLowerCase() === normalizedName,
+      ),
+  );
+}
+
 export function getRolePermissions(row: RoleRow | null | undefined) {
   const permissionKeys = row?.role_permissions
     ?.map((rolePermission) => rolePermission.permissions?.key)
@@ -133,8 +144,12 @@ export function getRolePermissions(row: RoleRow | null | undefined) {
     );
   const role = getAdminRoleFromName(row?.name);
 
-  return permissionKeys && permissionKeys.length > 0
-    ? permissionKeys
+  if (!isKnownAdminRoleName(row?.name)) {
+    return [];
+  }
+
+  return Array.isArray(row?.role_permissions)
+    ? permissionKeys ?? []
     : rolePermissions[role] ?? [];
 }
 
@@ -313,6 +328,22 @@ export async function requireActiveStaff(request: Request) {
     return {
       error: Response.json(
         { error: "An active staff profile is required." },
+        { status: 403 },
+      ),
+      serviceClient,
+      staffProfile,
+      user,
+    };
+  }
+
+  const role = Array.isArray(staffProfile.roles)
+    ? staffProfile.roles[0]
+    : staffProfile.roles;
+
+  if (!isKnownAdminRoleName(role?.name)) {
+    return {
+      error: Response.json(
+        { error: "A valid staff role is required." },
         { status: 403 },
       ),
       serviceClient,

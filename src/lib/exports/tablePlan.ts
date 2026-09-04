@@ -147,6 +147,10 @@ const dynamicMergeAddresses = [
 const monetaryColumns = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 const southAfricanCurrencyNumberFormat = tablePlanCurrencyNumberFormat;
 
+export function neutralizeSpreadsheetFormula(value: string) {
+  return /^[=+\-@]/.test(value.trimStart()) ? `'${value}` : value;
+}
+
 function cloneStyle(cell: Cell) {
   return structuredClone(cell.style);
 }
@@ -381,9 +385,13 @@ function populateBookingDataRow(
   );
 
   row.getCell(4).value = Math.max(Number(booking.guest_count) || 0, 0);
-  row.getCell(5).value = getCustomerName(customer);
-  row.getCell(6).value = customer?.mobile?.trim() || null;
-  row.getCell(7).value = referenceAndContact || booking.booking_reference;
+  row.getCell(5).value = neutralizeSpreadsheetFormula(getCustomerName(customer));
+  row.getCell(6).value = customer?.mobile?.trim()
+    ? neutralizeSpreadsheetFormula(customer.mobile.trim())
+    : null;
+  row.getCell(7).value = neutralizeSpreadsheetFormula(
+    referenceAndContact || booking.booking_reference,
+  );
   setMoneyValue(row.getCell(8), financials.fullCard);
   setMoneyValue(row.getCell(9), financials.prePaidCard);
   setMoneyValue(row.getCell(10), financials.prePaidEft);
@@ -862,9 +870,15 @@ function populateNotesSheet(
       const row = worksheet.getRow(rowNumber);
       const entry = entries[zone][index];
 
-      row.getCell(2).value = entry?.[0] ?? null;
-      row.getCell(3).value = entry?.[1] ?? null;
-      row.getCell(4).value = entry?.[2] ?? null;
+      row.getCell(2).value = entry
+        ? neutralizeSpreadsheetFormula(entry[0])
+        : null;
+      row.getCell(3).value = entry
+        ? neutralizeSpreadsheetFormula(entry[1])
+        : null;
+      row.getCell(4).value = entry
+        ? neutralizeSpreadsheetFormula(entry[2])
+        : null;
     });
   }
 }
@@ -1061,7 +1075,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
         return;
       }
 
-      row.getCell(2).value = table.table_code;
+      row.getCell(2).value = neutralizeSpreadsheetFormula(table.table_code);
       row.getCell(3).value = table.capacity_configured
         ? Math.max(Number(table.capacity) || 0, 0)
         : null;
@@ -1072,9 +1086,11 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
       }
 
       if (table.status === "disabled") {
-        row.getCell(7).value = ["DISABLED", table.override_notes?.trim()]
-          .filter(Boolean)
-          .join(" · ");
+        row.getCell(7).value = neutralizeSpreadsheetFormula(
+          ["DISABLED", table.override_notes?.trim()]
+            .filter(Boolean)
+            .join(" · "),
+        );
         return;
       }
 

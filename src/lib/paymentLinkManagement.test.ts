@@ -48,7 +48,8 @@ test("expired revoked and paid links are not exposed as usable URLs", async () =
   assert.match(helper, /link\.status === "used".*getOutstandingAmount\(booking\) <= 0/s);
   assert.match(helper, /link\.status === "revoked"/);
   assert.match(helper, /link\.status === "expired"/);
-  assert.match(route, /status === "active"[\s\S]*openPaymentLinkToken/);
+  assert.match(route, /status === "active"[\s\S]*getManagedLinkToken\(link, booking\.notes\)/);
+  assert.match(route, /function getManagedLinkToken[\s\S]*openPaymentLinkToken/);
   assert.match(route, /paymentUrl: token \? getPaymentLinkUrl\(request, token\) : null/);
 });
 
@@ -60,7 +61,7 @@ test("resend resolves an existing managed link instead of creating another token
   );
 
   assert.match(resendBranch, /loadPaymentLinkById\(supabase, body\.linkId\)/);
-  assert.match(resendBranch, /openPaymentLinkToken/);
+  assert.match(resendBranch, /getManagedLinkToken\(requestedLink, authoritativeBooking\.notes\)/);
   assert.match(resendBranch, /revokeOnFailure: false/);
   assert.doesNotMatch(resendBranch, /createPaymentLinkToken/);
   assert.doesNotMatch(resendBranch, /\.insert\(/);

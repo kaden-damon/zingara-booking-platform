@@ -10,7 +10,11 @@ import {
   recordPlatformFailureEventBestEffort,
   recoverPlatformIncidentBestEffort,
 } from "@/lib/platformTelemetry";
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import {
+  getRolePermissions,
+  getServiceClient,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +32,23 @@ export async function POST(request: Request) {
   const serviceClient = getServiceClient();
 
   try {
+    const auth = await requireActiveStaff(request);
+
+    if (auth.error || !auth.staffProfile) {
+      return auth.error;
+    }
+
+    const role = Array.isArray(auth.staffProfile.roles)
+      ? auth.staffProfile.roles[0]
+      : auth.staffProfile.roles;
+
+    if (!getRolePermissions(role).includes("communications:manage")) {
+      return Response.json(
+        { error: "Communication management access is required." },
+        { status: 403 },
+      );
+    }
+
     const body = (await request.json()) as {
       bookingReference?: string;
       message?: string;

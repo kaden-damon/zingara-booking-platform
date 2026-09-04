@@ -2098,8 +2098,8 @@ export default function BookingPage() {
       createdAt: new Date().toISOString(),
     };
 
-    await createWaitlistEntry(entry);
-    setWaitlistReference(reference);
+    const persistedEntry = await createWaitlistEntry(entry);
+    setWaitlistReference(persistedEntry.id);
   }
 
   function buildPendingCheckoutBooking(reference: string) {

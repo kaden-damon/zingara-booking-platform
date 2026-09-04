@@ -5,7 +5,9 @@ import {
   getAdminRoleFromName,
   getRequestingUser,
   getServiceClient,
+  isKnownAdminRoleName,
 } from "@/lib/supabase/serverAdmin";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rateLimit";
 import { type AdminRole } from "@/lib/zingaraAccess";
 
 export const dynamic = "force-dynamic";
@@ -199,12 +201,61 @@ async function getStaffContext(request: Request) {
 
   const role = Array.isArray(data.roles) ? data.roles[0] : data.roles;
 
+  if (!isKnownAdminRoleName(role?.name)) {
+    return undefined;
+  }
+
   return {
     email: data.email,
     name: data.full_name,
     role: getAdminRoleFromName(role?.name),
     staffProfileId: data.id,
     userId: data.user_id,
+  };
+}
+
+async function getVerifiedGuestContext(
+  serviceClient: NonNullable<ReturnType<typeof getServiceClient>>,
+  bookingReference: string,
+  claimedEmail: string | undefined,
+) {
+  const normalizedEmail = claimedEmail?.trim().toLowerCase() ?? "";
+
+  if (!bookingReference || !normalizedEmail) {
+    return undefined;
+  }
+
+  const { data: booking, error: bookingError } = await serviceClient
+    .from("bookings")
+    .select("customer_id")
+    .eq("booking_reference", bookingReference)
+    .maybeSingle();
+
+  if (bookingError || !booking?.customer_id) {
+    return undefined;
+  }
+
+  const { data: customer, error: customerError } = await serviceClient
+    .from("customers")
+    .select("email,first_name,surname")
+    .eq("id", booking.customer_id)
+    .maybeSingle();
+
+  if (
+    customerError ||
+    !customer?.email ||
+    customer.email.trim().toLowerCase() !== normalizedEmail
+  ) {
+    return undefined;
+  }
+
+  return {
+    bookingReference,
+    customerEmail: customer.email,
+    customerName: [customer.first_name, customer.surname]
+      .filter(Boolean)
+      .join(" ")
+      .trim(),
   };
 }
 
@@ -237,25 +288,59 @@ export async function POST(request: Request) {
       body.context?.bookingReference,
     );
 
-    if (!staffContext && !guestBookingReference) {
+    const serviceClient = getServiceClient();
+
+    if (!serviceClient) {
       return Response.json(
-        { error: "An authenticated staff session or booking reference is required." },
+        { error: "Push notifications are temporarily unavailable." },
+        { status: 503 },
+      );
+    }
+
+    const ipLimit = await checkRateLimit(
+      request,
+      { limit: 12, scope: "push_subscription_ip", windowSeconds: 300 },
+      [],
+      serviceClient,
+    );
+
+    if (!ipLimit.allowed) {
+      return rateLimitResponse(ipLimit.retryAfterSeconds);
+    }
+
+    const guestContext = staffContext
+      ? undefined
+      : await getVerifiedGuestContext(
+          serviceClient,
+          guestBookingReference,
+          body.context?.customerEmail,
+        );
+
+    if (!staffContext && !guestContext) {
+      return Response.json(
+        { error: "The booking details could not be verified." },
         { status: 401 },
       );
     }
 
-    console.info("[Zingara push diagnostics] Subscription registration requested", {
-      hasStaffContext: Boolean(staffContext),
-      role: staffContext?.role ?? null,
-      staffEmail: staffContext?.email ?? null,
-      staffProfileId: staffContext?.staffProfileId ?? null,
-      userId: staffContext?.userId ?? null,
-    });
+    if (guestContext) {
+      const bookingLimit = await checkRateLimit(
+        request,
+        { limit: 4, scope: "push_subscription_booking", windowSeconds: 600 },
+        [guestContext.bookingReference, guestContext.customerEmail],
+        serviceClient,
+      );
+
+      if (!bookingLimit.allowed) {
+        return rateLimitResponse(bookingLimit.retryAfterSeconds);
+      }
+    }
+
     const subscription = normalizeSubscription(
       body.subscription,
       request,
       staffContext,
-      body.context,
+      guestContext,
     );
 
     if (!subscription) {
@@ -265,14 +350,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const { row, serviceClient } = await getVenueSettingsRow();
+    const { row } = await getVenueSettingsRow();
     const existingSubscriptions = getPushSubscriptions(row);
-    console.info("[Zingara push diagnostics] Existing subscriptions loaded", {
-      existingCount: existingSubscriptions.length,
-      existingRoles: existingSubscriptions.map(
-        (currentSubscription) => currentSubscription.role ?? null,
-      ),
-    });
     const existingSubscription = existingSubscriptions.find(
       (currentSubscription) =>
         currentSubscription.endpoint === subscription.endpoint,
@@ -328,13 +407,6 @@ export async function POST(request: Request) {
     if (error) {
       throw error;
     }
-
-    console.info("[Zingara push diagnostics] Subscription persisted", {
-      endpointTail: subscription.endpoint.slice(-16),
-      role: subscription.role ?? null,
-      staffEmail: subscription.staffEmail ?? null,
-      subscriptionCount: nextSubscriptions.length,
-    });
 
     return Response.json({
       ok: true,

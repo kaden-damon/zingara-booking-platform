@@ -1,8 +1,5 @@
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
-import {
-  loadWaitlistEntries,
-  persistWaitlistEntries,
-} from "@/lib/supabase/waitlistServer";
+import { persistWaitlistEntries } from "@/lib/supabase/waitlistServer";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -17,34 +14,10 @@ function getRouteClient() {
 }
 
 export async function GET() {
-  const serviceClient = getRouteClient();
-
-  if (!serviceClient) {
-    return Response.json(
-      { error: "Waitlist is temporarily unavailable." },
-      { status: 503 },
-    );
-  }
-
-  const maintenanceResponse = await requirePublicMaintenanceAvailable(
-    serviceClient,
-    "booking",
+  return Response.json(
+    { error: "Waitlist records are available through authenticated Admin." },
+    { status: 401 },
   );
-
-  if (maintenanceResponse) return maintenanceResponse;
-
-  try {
-    const entries = await loadWaitlistEntries(serviceClient);
-
-    return Response.json({ entries });
-  } catch (error) {
-    console.error("[Zingara API] Failed to load waitlist entries", error);
-
-    return Response.json(
-      { error: "Waitlist entries could not be loaded." },
-      { status: 500 },
-    );
-  }
 }
 
 export async function POST(request: Request) {
@@ -57,21 +30,39 @@ export async function POST(request: Request) {
     );
   }
 
+  const maintenanceResponse = await requirePublicMaintenanceAvailable(
+    serviceClient,
+    "booking",
+  );
+
+  if (maintenanceResponse) return maintenanceResponse;
+
   try {
-    const body = (await request.json()) as {
+    const body = (await request.json().catch(() => ({}))) as {
       entries?: DemoWaitlistEntry[];
       entry?: DemoWaitlistEntry;
     };
-    const entries = body.entries ?? (body.entry ? [body.entry] : []);
+    const submittedEntry = body.entry;
 
-    if (entries.length === 0) {
+    if (!submittedEntry || body.entries) {
       return Response.json(
-        { error: "A waitlist entry is required." },
+        { error: "One waitlist entry is required." },
         { status: 400 },
       );
     }
 
-    const primaryEntry = entries[0];
+    const now = new Date().toISOString();
+    const entry: DemoWaitlistEntry = {
+      ...submittedEntry,
+      bookingReference: undefined,
+      communicationHistory: [],
+      convertedAt: undefined,
+      createdAt: now,
+      id: `WLT-${crypto.randomUUID()}`,
+      promotedAt: undefined,
+      status: "waiting",
+    };
+
     const ipLimit = await checkRateLimit(
       request,
       {
@@ -79,7 +70,7 @@ export async function POST(request: Request) {
         scope: "waitlist_ip",
         windowSeconds: 300,
       },
-      [primaryEntry?.showId],
+      [entry.showId],
       serviceClient,
     );
 
@@ -102,7 +93,7 @@ export async function POST(request: Request) {
         scope: "waitlist_contact",
         windowSeconds: 600,
       },
-      [primaryEntry?.customer.email, primaryEntry?.customer.phone],
+      [entry.customer.email, entry.customer.phone],
       serviceClient,
     );
 
@@ -118,9 +109,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const persistedEntries = await persistWaitlistEntries(serviceClient, entries);
+    if (
+      !entry.showId ||
+      !Number.isInteger(entry.partySize) ||
+      entry.partySize < 1 ||
+      entry.partySize >= 20 ||
+      entry.customer.name.trim().length < 2 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        entry.customer.email.trim().toLowerCase(),
+      ) ||
+      entry.customer.phone.replace(/\D/g, "").length < 7
+    ) {
+      return Response.json(
+        { error: "Complete all required waitlist details." },
+        { status: 400 },
+      );
+    }
 
-    return Response.json({ entries: persistedEntries });
+    const persistedEntries = await persistWaitlistEntries(serviceClient, [
+      entry,
+    ]);
+    const createdEntry = persistedEntries.find(
+      (candidate) => candidate.id === entry.id,
+    );
+
+    return Response.json({ entry: createdEntry ?? entry }, { status: 201 });
   } catch (error) {
     console.error("[Zingara API] Failed to save waitlist entry", error);
 

@@ -51,9 +51,15 @@ export async function getWaitlistEntry(id: string) {
 }
 
 export async function createWaitlistEntry(entry: DemoWaitlistEntry) {
-  await persistWaitlistEntriesToSupabase([entry], "/api/waitlist");
+  const payload = await fetchSupabaseApi<{ entry: DemoWaitlistEntry }>(
+    "/api/waitlist",
+    {
+      body: { entry },
+      method: "POST",
+    },
+  );
 
-  return entry;
+  return payload.entry;
 }
 
 export async function updateWaitlistEntry(entry: DemoWaitlistEntry) {

@@ -4,11 +4,8 @@ import {
 } from "@/lib/email/corporateEnquiryEmail";
 import { resolveCorporateEnquiryLocation } from "@/lib/corporateEnquiryRouting";
 import { corporatePartySizeThreshold } from "@/lib/bookingClassification";
-import {
-  loadCorporateRequestRecord,
-  loadCorporateRequests,
-  persistCorporateRequests,
-} from "@/lib/supabase/corporateRequestsServer";
+import { persistCorporateRequests } from "@/lib/supabase/corporateRequestsServer";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rateLimit";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 import {
   defaultVenueSettings,
@@ -40,27 +37,10 @@ async function loadVenueSettings(
 }
 
 export async function GET() {
-  const serviceClient = getRouteClient();
-
-  if (!serviceClient) {
-    return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
-    );
-  }
-
-  try {
-    const requests = await loadCorporateRequests(serviceClient);
-
-    return Response.json({ requests });
-  } catch (error) {
-    console.error("[Zingara API] Failed to load corporate requests", error);
-
-    return Response.json(
-      { error: "Corporate requests could not be loaded." },
-      { status: 500 },
-    );
-  }
+  return Response.json(
+    { error: "Corporate requests are available through authenticated Admin." },
+    { status: 401 },
+  );
 }
 
 export async function POST(request: Request) {
@@ -74,25 +54,62 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as {
+    const body = (await request.json().catch(() => ({}))) as {
       request?: CorporateRequest;
       requests?: CorporateRequest[];
     };
-    const requests = body.requests ?? (body.request ? [body.request] : []);
+    const submittedRequest = body.request;
 
-    if (requests.length === 0) {
+    if (!submittedRequest || body.requests) {
       return Response.json(
-        { error: "A corporate request is required." },
+        { error: "One Corporate enquiry is required." },
         { status: 400 },
       );
     }
 
+    const now = new Date().toISOString();
+    const corporateRequest: CorporateRequest = {
+      ...submittedRequest,
+      archivedAt: undefined,
+      assignedConsultant: undefined,
+      cancelledAt: undefined,
+      cancellationReason: undefined,
+      communicationHistory: [],
+      createdAt: now,
+      id: `CORP-${crypto.randomUUID()}`,
+      linkedBookingReference: undefined,
+      paymentLinkSentAt: undefined,
+      paymentLinkToken: undefined,
+      source: "Corporate Direct",
+      status: "corporate-tentative",
+      updatedAt: now,
+    };
+
+    const ipLimit = await checkRateLimit(
+      request,
+      { limit: 8, scope: "corporate_enquiry_ip", windowSeconds: 600 },
+      [],
+      serviceClient,
+    );
+
+    if (!ipLimit.allowed) {
+      return rateLimitResponse(ipLimit.retryAfterSeconds);
+    }
+
+    const contactLimit = await checkRateLimit(
+      request,
+      { limit: 3, scope: "corporate_enquiry_contact", windowSeconds: 3600 },
+      [corporateRequest.email, corporateRequest.contactNumber],
+      serviceClient,
+    );
+
+    if (!contactLimit.allowed) {
+      return rateLimitResponse(contactLimit.retryAfterSeconds);
+    }
+
     if (
-      requests.some(
-        (corporateRequest) =>
-          !resolveCorporateEnquiryLocation(
-            corporateRequest.locationAcknowledgement,
-          ),
+      !resolveCorporateEnquiryLocation(
+        corporateRequest.locationAcknowledgement,
       )
     ) {
       return Response.json(
@@ -102,12 +119,10 @@ export async function POST(request: Request) {
     }
 
     if (
-      requests.some(
-        (corporateRequest) =>
-          typeof corporateRequest.guestCount !== "number" ||
-          !Number.isInteger(corporateRequest.guestCount) ||
-          corporateRequest.guestCount < corporatePartySizeThreshold,
-      )
+      typeof corporateRequest.guestCount !== "number" ||
+      !Number.isInteger(corporateRequest.guestCount) ||
+      corporateRequest.guestCount < corporatePartySizeThreshold ||
+      corporateRequest.guestCount > 2000
     ) {
       return Response.json(
         {
@@ -117,52 +132,38 @@ export async function POST(request: Request) {
       );
     }
 
-    const existingRequests = await Promise.all(
-      requests.map((corporateRequest) =>
-        loadCorporateRequestRecord(serviceClient, corporateRequest.id),
-      ),
-    );
+    if (
+      corporateRequest.contactName.trim().length < 2 ||
+      corporateRequest.companyName.trim().length < 2 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        corporateRequest.email.trim().toLowerCase(),
+      ) ||
+      corporateRequest.contactNumber.replace(/\D/g, "").length < 7
+    ) {
+      return Response.json(
+        { error: "Complete all required Corporate enquiry contact details." },
+        { status: 400 },
+      );
+    }
+
     const persistedRequests = await persistCorporateRequests(
       serviceClient,
-      requests,
+      [corporateRequest],
     );
-    const createdRequests = requests.filter(
-      (_corporateRequest, index) => !existingRequests[index],
+    const createdRequest = persistedRequests.find(
+      (candidate) => candidate.id === corporateRequest.id,
     );
 
-    if (createdRequests.length > 0) {
+    if (createdRequest) {
       try {
         const settings = await loadVenueSettings(serviceClient);
-        const notificationResults = await Promise.allSettled(
-          createdRequests.map(async (corporateRequest) => {
-            await Promise.all([
-              sendCorporateEnquiryEmails(
-                serviceClient,
-                corporateRequest,
-                settings,
-              ),
-              sendStaffPushNotification({
-                corporateRequestId: corporateRequest.id,
-                trigger: "new-corporate-request",
-              }),
-            ]);
+        await Promise.all([
+          sendCorporateEnquiryEmails(serviceClient, createdRequest, settings),
+          sendStaffPushNotification({
+            corporateRequestId: createdRequest.id,
+            trigger: "new-corporate-request",
           }),
-        );
-
-        notificationResults.forEach((result, index) => {
-          if (result.status === "rejected") {
-            console.error(
-              "[Zingara API] Corporate enquiry notification failed",
-              {
-                corporateRequestId: createdRequests[index]?.id,
-                error:
-                  result.reason instanceof Error
-                    ? result.reason.message
-                    : "Unknown notification failure.",
-              },
-            );
-          }
-        });
+        ]);
       } catch (error) {
         console.error(
           "[Zingara API] Corporate enquiry notifications could not start",
@@ -171,7 +172,10 @@ export async function POST(request: Request) {
       }
     }
 
-    return Response.json({ requests: persistedRequests });
+    return Response.json(
+      { request: createdRequest ?? corporateRequest },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("[Zingara API] Failed to save corporate request", error);
 

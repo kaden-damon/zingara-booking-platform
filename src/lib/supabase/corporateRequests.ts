@@ -54,11 +54,15 @@ export async function getCorporateRequest(id: string) {
 }
 
 export async function createCorporateRequest(request: CorporateRequest) {
-  await persistCorporateRequestsToSupabase([request], {
-    route: "/api/corporate-requests",
-  });
+  const payload = await fetchSupabaseApi<{ request: CorporateRequest }>(
+    "/api/corporate-requests",
+    {
+      body: { request },
+      method: "POST",
+    },
+  );
 
-  return request;
+  return payload.request;
 }
 
 export async function updateCorporateRequest(request: CorporateRequest) {
