@@ -8,6 +8,7 @@ import {
   diffAuditFields,
   pickAuditFields,
   recordAuditEvent,
+  toAuditJsonValue,
   tryRecordAuditEvent,
 } from "@/lib/supabase/serverAudit";
 import { getActorRoleLabel } from "@/lib/auditTrail";
@@ -1671,6 +1672,45 @@ async function runBookingTransaction(request: Request, body?: unknown) {
           request,
           sourceArea: "Bookings",
         });
+
+        if (
+          !beforeBooking &&
+          (rawBooking?.corporatePaymentBasis === "invoice-outstanding" ||
+            rawBooking?.corporatePaymentBasis === "invoice-paid")
+        ) {
+          const createdBooking = afterBooking as Record<string, unknown>;
+
+          await recordAuditEvent(supabase, actor.staffProfile, actor.user, {
+            action: "corporate.invoice-booking.created",
+            afterValues: {
+              amount_paid: toAuditJsonValue(createdBooking.amount_paid),
+              balance_outstanding: toAuditJsonValue(
+                createdBooking.balance_outstanding,
+              ),
+              booking_reference: bookingReference,
+              obligation: toAuditJsonValue(createdBooking.total_amount),
+              payment_basis: rawBooking.corporatePaymentBasis,
+              payment_method: "eft",
+            },
+            changedFields: [
+              "total_amount",
+              "amount_paid",
+              "balance_outstanding",
+              "payment_status",
+            ],
+            entityId:
+              (afterBooking as { id?: string } | null)?.id ?? null,
+            entityReference: bookingReference,
+            entityType: "booking",
+            outcome: "success",
+            reason:
+              rawBooking.corporatePaymentBasis === "invoice-paid"
+                ? "Corporate booking created as invoiced and paid in full by EFT."
+                : "Corporate booking created with invoice / EFT payment outstanding.",
+            request,
+            sourceArea: "Corporate Bookings",
+          });
+        }
 
         const bookingId = (afterBooking as { id?: string } | null)?.id;
         const walletFields = new Set([

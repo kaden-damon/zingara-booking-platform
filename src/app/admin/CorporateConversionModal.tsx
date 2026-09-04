@@ -50,6 +50,7 @@ export default function CorporateConversionModal({
   );
   const [draft, setDraft] = useState<CorporateConversionReviewDraft>({
     amountPaid: "",
+    outstandingAmount: "",
     paymentBasis: "unpaid",
     pax: request.guestCount?.toString() ?? "",
     showId: initialShow?.id ?? "",
@@ -73,7 +74,11 @@ export default function CorporateConversionModal({
   const ticketTotal = Number(draft.ticketTotal);
   const amountPaid = Number(draft.amountPaid);
   const outstanding =
-    draft.ticketTotal.trim() && draft.amountPaid.trim()
+    draft.paymentBasis === "invoice-outstanding"
+      ? draft.outstandingAmount.trim()
+        ? Number(draft.outstandingAmount)
+        : null
+      : draft.ticketTotal.trim() && draft.amountPaid.trim()
       ? Math.max(ticketTotal - amountPaid, 0)
       : null;
 
@@ -187,7 +192,20 @@ export default function CorporateConversionModal({
               inputMode="decimal"
               placeholder="R0.00"
               value={draft.ticketTotal}
-              onChange={(event) => updateDraft({ ticketTotal: event.target.value })}
+              onChange={(event) => {
+                const ticketTotal = event.target.value;
+                updateDraft({
+                  amountPaid:
+                    draft.paymentBasis === "invoice-paid"
+                      ? ticketTotal
+                      : draft.amountPaid,
+                  outstandingAmount:
+                    draft.paymentBasis === "invoice-outstanding"
+                      ? ticketTotal
+                      : draft.outstandingAmount,
+                  ticketTotal,
+                });
+              }}
               className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
             />
             {errors.ticketTotal && <span className="text-xs text-red-300">{errors.ticketTotal}</span>}
@@ -198,33 +216,96 @@ export default function CorporateConversionModal({
             <select
               value={draft.paymentBasis}
               onChange={(event) =>
-                updateDraft({
-                  paymentBasis: event.target.value as CorporateConversionPaymentBasis,
-                })
+                {
+                  const paymentBasis = event.target
+                    .value as CorporateConversionPaymentBasis;
+                  updateDraft({
+                    amountPaid:
+                      paymentBasis === "invoice-paid"
+                        ? draft.ticketTotal
+                        : paymentBasis === "invoice-outstanding"
+                          ? "0"
+                          : draft.amountPaid,
+                    outstandingAmount:
+                      paymentBasis === "invoice-outstanding"
+                        ? draft.ticketTotal
+                        : "",
+                    paymentBasis,
+                  });
+                }
               }
               className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
             >
               <option value="unpaid">Unpaid / Pending Payment</option>
               <option value="deposit">Deposit / Part Paid</option>
               <option value="fully-paid">Fully Paid</option>
+              <option value="invoice-outstanding">
+                Invoiced – Outstanding Payment
+              </option>
+              <option value="invoice-paid">Invoiced – Paid In Full</option>
               <option value="complimentary">Complimentary</option>
             </select>
           </label>
 
-          <label className="grid gap-2 text-sm text-zinc-300">
-            Amount Already Paid
-            <input
-              min="0"
-              step="0.01"
-              type="number"
-              inputMode="decimal"
-              placeholder="R0.00"
-              value={draft.amountPaid}
-              onChange={(event) => updateDraft({ amountPaid: event.target.value })}
-              className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
-            />
-            {errors.amountPaid && <span className="text-xs text-red-300">{errors.amountPaid}</span>}
-          </label>
+          {draft.paymentBasis === "invoice-outstanding" ? (
+            <label className="grid gap-2 text-sm text-zinc-300">
+              Outstanding Amount
+              <input
+                min="0.01"
+                step="0.01"
+                type="number"
+                inputMode="decimal"
+                placeholder="R0.00"
+                value={draft.outstandingAmount}
+                onChange={(event) =>
+                  updateDraft({ outstandingAmount: event.target.value })
+                }
+                className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
+              />
+              <span className="text-xs leading-5 text-zinc-400">
+                Payment will be collected manually by invoice/EFT. No payment
+                link will be created.
+              </span>
+              {errors.outstandingAmount && (
+                <span className="text-xs text-red-300">
+                  {errors.outstandingAmount}
+                </span>
+              )}
+              {errors.amountPaid && (
+                <span className="text-xs text-red-300">{errors.amountPaid}</span>
+              )}
+            </label>
+          ) : draft.paymentBasis === "invoice-paid" ? (
+            <div className="rounded-xl border border-emerald-300/25 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-100 sm:self-end">
+              <p className="font-semibold uppercase tracking-[0.1em]">
+                Paid In Full By Invoice / EFT
+              </p>
+              <p className="mt-1 text-xs leading-5 text-emerald-100/80">
+                The full obligation will be recorded as manual EFT evidence. No
+                online payment is required.
+              </p>
+              {errors.amountPaid && (
+                <span className="mt-2 block text-xs text-red-300">
+                  {errors.amountPaid}
+                </span>
+              )}
+            </div>
+          ) : (
+            <label className="grid gap-2 text-sm text-zinc-300">
+              Amount Already Paid
+              <input
+                min="0"
+                step="0.01"
+                type="number"
+                inputMode="decimal"
+                placeholder="R0.00"
+                value={draft.amountPaid}
+                onChange={(event) => updateDraft({ amountPaid: event.target.value })}
+                className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
+              />
+              {errors.amountPaid && <span className="text-xs text-red-300">{errors.amountPaid}</span>}
+            </label>
+          )}
 
           <div className="rounded-xl border border-[#D8C36A]/25 bg-black/40 px-4 py-3 text-sm sm:self-end">
             <span className="text-zinc-500">Outstanding</span>

@@ -93,6 +93,10 @@ import {
 } from "../../lib/publicBookingSales";
 import { getPublicBookingCutoff } from "../../lib/bookingDeadlines";
 import { getComplimentarySubmissionEligibility } from "../../lib/complimentarySubmission";
+import {
+  type CorporateInvoicePaymentBasis,
+  validateCorporateInvoiceFinancials,
+} from "../../lib/corporateInvoicePayments";
 
 type SeatingOption = SeatingZone;
 
@@ -720,6 +724,11 @@ export default function BookingPage() {
   );
   const [calendarLockStatus, setCalendarLockStatus] = useState("");
   const [corporateCompany, setCorporateCompany] = useState("");
+  const [corporatePaymentBasis, setCorporatePaymentBasis] = useState<
+    "online" | CorporateInvoicePaymentBasis
+  >("online");
+  const [corporateOutstandingAmount, setCorporateOutstandingAmount] =
+    useState("");
   const [customerMatches, setCustomerMatches] = useState<CustomerLookupRow[]>([]);
   const [isManualPaymentLinkCreating, setIsManualPaymentLinkCreating] =
     useState(false);
@@ -751,6 +760,16 @@ export default function BookingPage() {
   const showLoadRequestRef = useRef(0);
   const hasScrolledToConfirmedRef = useRef(false);
   const venueConfig = venueSettings;
+  const isLockedCalendarCheckout = Boolean(calendarBookingContext);
+  const isCorporateCalendarCheckout =
+    isLockedCalendarCheckout && calendarBookingType === "corporate";
+  const isCorporateInvoiceOutstanding =
+    isCorporateCalendarCheckout &&
+    corporatePaymentBasis === "invoice-outstanding";
+  const isCorporateInvoicePaid =
+    isCorporateCalendarCheckout && corporatePaymentBasis === "invoice-paid";
+  const isCorporateInvoice =
+    isCorporateInvoiceOutstanding || isCorporateInvoicePaid;
 
   const configuredZonePrice = selectedZone
     ? getConfiguredZonePrice(venueConfig, selectedZone)
@@ -839,12 +858,19 @@ export default function BookingPage() {
     : Math.min(total, depositPerPerson * partySize);
   const depositPercentage =
     total > 0 ? (depositAmount / total) * 100 : 100;
-  const amountDueNow = isComplimentary
+  const amountDueNow = isComplimentary || isCorporateInvoice
     ? 0
     : paymentOption === "deposit" ? depositAmount : total;
   const payFastTransaction =
     calculatePayFastTransactionAmounts(amountDueNow);
-  const balanceDue = Math.max(total - amountDueNow, 0);
+  const invoiceOutstandingAmount = corporateOutstandingAmount.trim()
+    ? Number(corporateOutstandingAmount)
+    : total;
+  const balanceDue = isCorporateInvoiceOutstanding
+    ? invoiceOutstandingAmount
+    : isCorporateInvoicePaid
+      ? 0
+      : Math.max(total - amountDueNow, 0);
   const selectedShow = shows.find(
     (show) => show.id === selectedShowId,
   );
@@ -999,9 +1025,6 @@ export default function BookingPage() {
       })[0];
   }
   const isTrustedManualCheckout = manualCheckoutRole !== "none";
-  const isLockedCalendarCheckout = Boolean(calendarBookingContext);
-  const isCorporateCalendarCheckout =
-    isLockedCalendarCheckout && calendarBookingType === "corporate";
   const currentCustomerValidationErrors = validateBookingCreate({
     bookingSource: isTrustedManualCheckout ? "admin" : "online",
     customer: customerInfo,
@@ -1032,6 +1055,26 @@ export default function BookingPage() {
         !isLockedCalendarCheckout || calendarLockStatus === "SHOW READY ✓",
       isTrustedStaff: isTrustedManualCheckout,
     });
+  const corporateInvoiceFinancialError = isCorporateInvoice
+    ? validateCorporateInvoiceFinancials({
+        amountPaid: isCorporateInvoicePaid ? total : 0,
+        balanceDue,
+        corporateInvoiceOutstandingAmount: isCorporateInvoicePaid
+          ? 0
+          : invoiceOutstandingAmount,
+        corporatePaymentBasis,
+        paymentStatus: isCorporateInvoicePaid
+          ? "fully-paid"
+          : "pending-payment",
+        source: "corporate-direct",
+        status: isCorporateInvoicePaid ? "confirmed" : "pending-payment",
+        totalPrice: total,
+      })
+    : null;
+  const corporateInvoiceSubmissionAllowed =
+    isCorporateInvoice &&
+    complimentarySubmissionEligibility.allowed &&
+    !corporateInvoiceFinancialError;
 
   const publicBookingGuidance = getPublicBookingGuidance(
     currentCustomerValidationErrors,
@@ -1131,13 +1174,21 @@ export default function BookingPage() {
   const paymentStepSummary = bookingReference
     ? isComplimentary
       ? "Complimentary"
+      : isCorporateInvoiceOutstanding
+        ? `${formatCurrency(invoiceOutstandingAmount)} Awaiting EFT`
+        : isCorporateInvoicePaid
+          ? "Paid By EFT"
       : paymentOption === "deposit"
       ? balanceDue > 0
         ? `Deposit Paid · ${formatCurrency(balanceDue)} Outstanding`
         : "Deposit Paid"
       : "Paid"
     : customerDetailsComplete
-      ? `${formatCurrency(amountDueNow)} Due`
+      ? isCorporateInvoiceOutstanding
+        ? `${formatCurrency(invoiceOutstandingAmount)} Outstanding`
+        : isCorporateInvoicePaid
+          ? "Paid By EFT"
+          : `${formatCurrency(amountDueNow)} Due`
       : "";
   const shouldShowInstallOpportunity =
     !isStandaloneApp && (Boolean(installPrompt) || isIOSDevice);
@@ -2111,18 +2162,28 @@ export default function BookingPage() {
           ]
         : [],
       paymentOption,
+      corporatePaymentBasis: isCorporateInvoice
+        ? corporatePaymentBasis
+        : undefined,
+      corporateInvoiceOutstandingAmount: isCorporateInvoice
+        ? isCorporateInvoicePaid
+          ? 0
+          : invoiceOutstandingAmount
+        : undefined,
       paymentStatus: isComplimentary
         ? ("comp-vip" as const)
-        : ("pending-payment" as const),
+        : isCorporateInvoicePaid
+          ? ("fully-paid" as const)
+          : ("pending-payment" as const),
       journeyId: getBookingJourneyId(),
       depositPercentage,
-      amountPaid: 0,
-      balanceDue: total,
+      amountPaid: isCorporateInvoicePaid ? total : 0,
+      balanceDue,
       promoCode: appliedPromoCode?.code,
       promoLabel: appliedPromoCode?.description,
       source: source as "admin" | "corporate-direct" | "online",
       customer: customerInfo,
-      status: isComplimentary
+      status: isComplimentary || isCorporateInvoicePaid
         ? ("confirmed" as const)
         : ("pending-payment" as const),
       lifecycleHistory: isComplimentary ? [] : [
@@ -2132,14 +2193,22 @@ export default function BookingPage() {
           note:
             source === "admin"
               ? "Manual booking created"
-              : "Online booking created",
+              : isCorporateInvoice
+                ? "Corporate invoice booking created"
+                : "Online booking created",
           createdAt,
         },
         {
           id: `${reference}-payment`,
           fromStatus: "new" as const,
-          toStatus: "pending-payment" as const,
-          note: "Awaiting PayFast payment",
+          toStatus: isCorporateInvoicePaid
+            ? ("confirmed" as const)
+            : ("pending-payment" as const),
+          note: isCorporateInvoicePaid
+            ? "Invoice settled in full by manual EFT"
+            : isCorporateInvoiceOutstanding
+              ? "Awaiting payment by invoice / EFT"
+              : "Awaiting PayFast payment",
           createdAt,
         },
       ],
@@ -2349,6 +2418,52 @@ export default function BookingPage() {
             ? "public_booking_create_failed"
             : "public_booking_checkout_failed",
       });
+      setIsPayFastRedirecting(false);
+    }
+  }
+
+  async function handleCreateCorporateInvoiceBooking() {
+    if (
+      !isCorporateInvoice ||
+      !corporateInvoiceSubmissionAllowed ||
+      isPayFastRedirecting
+    ) {
+      setPaymentRedirectStatus(
+        corporateInvoiceFinancialError ||
+          complimentarySubmissionEligibility.reason ||
+          "Complete the required Corporate booking details.",
+      );
+      return;
+    }
+
+    if (!validateCheckoutCustomerDetails()) {
+      return;
+    }
+
+    setIsPayFastRedirecting(true);
+    setPaymentRedirectStatus(
+      isCorporateInvoicePaid
+        ? "Recording paid Corporate invoice..."
+        : "Creating Corporate invoice booking...",
+    );
+
+    try {
+      const reference = await createBookingReference();
+      const persistedBooking = await persistPendingCheckoutBooking(reference);
+
+      setAllocatedTableNumber(persistedBooking.tableNumber ?? null);
+      setBookingReference(persistedBooking.reference);
+      setPaymentRedirectStatus("");
+      setShowTicketReadyPrompt(isCorporateInvoicePaid);
+      setIsConfirmationOpen(true);
+      setActiveBookingStep(4);
+    } catch (error) {
+      setPaymentRedirectStatus(
+        error instanceof Error
+          ? error.message
+          : "The Corporate invoice booking could not be created.",
+      );
+    } finally {
       setIsPayFastRedirecting(false);
     }
   }
@@ -4154,6 +4269,8 @@ export default function BookingPage() {
                   <p className="mt-2 text-sm leading-5 text-zinc-300 sm:mt-3 sm:text-base sm:leading-6">
                     {isComplimentary
                       ? "Review the complimentary booking details, then confirm the reservation."
+                      : isCorporateInvoice
+                        ? "Review the Corporate booking and invoice / EFT settlement state. No online checkout or payment link will be created."
                       : "Review the amount due today, choose full payment or deposit, then continue to secure checkout."}
                   </p>
                 </div>
@@ -4200,6 +4317,7 @@ export default function BookingPage() {
                       aria-pressed={isComplimentary}
                       onClick={() => {
                         setStaffPricingMode("complimentary");
+                        setCorporatePaymentBasis("online");
                         setPaymentOption("full");
                         setSelectedTemporaryTableId("");
                         setPromoCodeInput("");
@@ -4324,12 +4442,31 @@ export default function BookingPage() {
                         Payment Option
                       </span>
                       <select
-                        value={paymentOption}
-                        onChange={(event) =>
-                          setPaymentOption(
-                            event.target.value as PaymentOption,
-                          )
+                        value={
+                          isCorporateInvoice
+                            ? corporatePaymentBasis
+                            : paymentOption
                         }
+                        onChange={(event) => {
+                          const value = event.target.value;
+
+                          if (
+                            value === "invoice-outstanding" ||
+                            value === "invoice-paid"
+                          ) {
+                            setCorporatePaymentBasis(value);
+                            setPaymentOption("full");
+                            setCorporateOutstandingAmount(
+                              value === "invoice-outstanding"
+                                ? total.toFixed(2)
+                                : "",
+                            );
+                            return;
+                          }
+
+                          setCorporatePaymentBasis("online");
+                          setPaymentOption(value as PaymentOption);
+                        }}
                         className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm sm:px-4 sm:py-3 sm:text-base"
                       >
                         <option value="full">
@@ -4338,8 +4475,60 @@ export default function BookingPage() {
                         <option value="deposit">
                           Deposit Only ({formatCurrency(depositPerPerson)} pp)
                         </option>
+                        {isCorporateCalendarCheckout && (
+                          <>
+                            <option value="invoice-outstanding">
+                              Invoiced – Outstanding Payment
+                            </option>
+                            <option value="invoice-paid">
+                              Invoiced – Paid In Full
+                            </option>
+                          </>
+                        )}
                       </select>
                     </label>
+
+                    {isCorporateInvoiceOutstanding && (
+                      <label className="rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3 sm:rounded-2xl sm:p-4">
+                        <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-3 sm:text-sm">
+                          Outstanding Amount
+                        </span>
+                        <input
+                          min="0.01"
+                          max={total}
+                          step="0.01"
+                          inputMode="decimal"
+                          type="number"
+                          value={corporateOutstandingAmount}
+                          onChange={(event) =>
+                            setCorporateOutstandingAmount(event.target.value)
+                          }
+                          placeholder="R0.00"
+                          className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm sm:px-4 sm:py-3 sm:text-base"
+                        />
+                        <span className="mt-2 block text-xs leading-5 text-zinc-400">
+                          Payment will be collected manually by invoice/EFT. No
+                          payment link will be created.
+                        </span>
+                        {corporateInvoiceFinancialError && (
+                          <span className="mt-2 block text-xs text-red-300">
+                            {corporateInvoiceFinancialError}
+                          </span>
+                        )}
+                      </label>
+                    )}
+
+                    {isCorporateInvoicePaid && (
+                      <div className="rounded-xl border border-emerald-300/25 bg-emerald-950/20 p-3 sm:rounded-2xl sm:p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200">
+                          Paid In Full By Invoice / EFT
+                        </p>
+                        <p className="mt-2 text-xs leading-5 text-emerald-100/80">
+                          The full obligation is recorded as manual EFT evidence.
+                          No online payment is required.
+                        </p>
+                      </div>
+                    )}
 
                     <label className="rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-4">
                       <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-3 sm:text-sm">
@@ -4667,6 +4856,10 @@ export default function BookingPage() {
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
                   {isComplimentary
                     ? "Complimentary"
+                    : isCorporateInvoiceOutstanding
+                      ? "Invoiced – Awaiting EFT"
+                      : isCorporateInvoicePaid
+                        ? "Invoiced – Paid In Full By EFT"
                     : paymentOption === "deposit"
                     ? `${formatCurrency(depositPerPerson)} pp Deposit`
                     : "Full Payment"}
@@ -4674,12 +4867,16 @@ export default function BookingPage() {
                 <p className="mt-1.5 text-sm text-zinc-300 sm:mt-2">
                   {isComplimentary
                     ? "R0 due · No Booking Fee or payment required"
+                    : isCorporateInvoiceOutstanding
+                      ? `${formatCurrency(invoiceOutstandingAmount)} outstanding · No payment link created`
+                      : isCorporateInvoicePaid
+                        ? `${formatCurrency(total)} paid manually by EFT · R0 outstanding`
                     : `Booking amount due today: ${formatCurrency(amountDueNow)}`}
-                  {!isComplimentary && payFastTransaction.transactionFeeAmount > 0 &&
+                  {!isComplimentary && !isCorporateInvoice && payFastTransaction.transactionFeeAmount > 0 &&
                     ` · Transaction fee: ${formatCurrency(payFastTransaction.transactionFeeAmount)}`}
-                  {!isComplimentary && payFastTransaction.providerGrossAmount > 0 &&
+                  {!isComplimentary && !isCorporateInvoice && payFastTransaction.providerGrossAmount > 0 &&
                     ` · Total payable: ${formatCurrency(payFastTransaction.providerGrossAmount)}`}
-                  {!isComplimentary && balanceDue > 0 &&
+                  {!isComplimentary && !isCorporateInvoice && balanceDue > 0 &&
                     ` · Balance due: ${formatCurrency(balanceDue)}`}
                 </p>
               </div>
@@ -4716,7 +4913,11 @@ export default function BookingPage() {
               className="mt-5 space-y-4 sm:mt-8 sm:space-y-5"
               onSubmit={(e) => {
                 e.preventDefault();
-                void handlePayFastCheckout();
+                if (isCorporateInvoice) {
+                  void handleCreateCorporateInvoiceBooking();
+                } else {
+                  void handlePayFastCheckout();
+                }
               }}
             >
               <h3 className="zingara-heading text-lg font-bold sm:text-xl">
@@ -5237,6 +5438,7 @@ export default function BookingPage() {
                 <div
                   className={
                     !isComplimentary &&
+                    !isCorporateInvoice &&
                     manualCheckoutRole === "super-admin" &&
                     getCurrencyCents(amountDueNow) > 0
                       ? "grid grid-cols-1 gap-3 sm:grid-cols-2"
@@ -5246,8 +5448,10 @@ export default function BookingPage() {
                   <button
                     type="submit"
                     aria-busy={isPayFastRedirecting}
-                    disabled={isComplimentary
-                      ? !complimentarySubmissionEligibility.allowed
+                    disabled={isComplimentary || isCorporateInvoice
+                      ? isCorporateInvoice
+                        ? !corporateInvoiceSubmissionAllowed
+                        : !complimentarySubmissionEligibility.allowed
                       : !selectedShow ||
                         (isLockedCalendarCheckout &&
                           calendarLockStatus !== "SHOW READY ✓") ||
@@ -5265,28 +5469,40 @@ export default function BookingPage() {
                     {isPayFastRedirecting
                       ? isComplimentary
                         ? "Creating Complimentary Booking..."
+                        : isCorporateInvoice
+                          ? "Creating Invoice Booking..."
                         : getCurrencyCents(amountDueNow) === 0
                         ? "Completing Booking..."
                         : "Processing Secure Payment..."
                       : isComplimentary
                         ? "Create Complimentary Booking"
+                        : isCorporateInvoiceOutstanding
+                          ? "Create Invoiced Booking"
+                          : isCorporateInvoicePaid
+                            ? "Create Paid EFT Booking"
                         : getCurrencyCents(amountDueNow) === 0
                         ? "Complete Booking"
                         : manualCheckoutRole !== "none"
                           ? "PAY NOW"
                           : "Confirm Booking"}
                   </button>
-                  {isComplimentary &&
-                    !complimentarySubmissionEligibility.allowed &&
+                  {(isComplimentary || isCorporateInvoice) &&
+                    !(isCorporateInvoice
+                      ? corporateInvoiceSubmissionAllowed
+                      : complimentarySubmissionEligibility.allowed) &&
                     !isPayFastRedirecting && (
                       <p
                         className="text-center text-sm font-semibold text-amber-200"
                         role="status"
                       >
-                        {complimentarySubmissionEligibility.reason}
+                        {isCorporateInvoice
+                          ? corporateInvoiceFinancialError ||
+                            complimentarySubmissionEligibility.reason
+                          : complimentarySubmissionEligibility.reason}
                       </p>
                     )}
                   {!isComplimentary &&
+                    !isCorporateInvoice &&
                     manualCheckoutRole === "super-admin" &&
                     getCurrencyCents(amountDueNow) > 0 && (
                       <button
@@ -5329,6 +5545,10 @@ export default function BookingPage() {
                   ? "No payment is recorded until the authoritative PayFast ITN succeeds."
                   : isComplimentary
                   ? "This reservation is settled as complimentary. No payment or payment link is created."
+                  : isCorporateInvoiceOutstanding
+                    ? "This Corporate reservation remains Awaiting Payment. Reconcile the EFT after POP is received, or create a managed payment link later from Booking Details."
+                    : isCorporateInvoicePaid
+                      ? "This Corporate reservation is settled by manual EFT evidence. PayFast and payment links are not used."
                   : getCurrencyCents(amountDueNow) === 0
                   ? "Your booking will be completed securely. Digital tickets and confirmation email are sent after confirmation."
                   : "Secure online payment. Digital tickets and confirmation email are sent after PayFast confirms payment."}

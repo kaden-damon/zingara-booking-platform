@@ -20,10 +20,13 @@ export type CorporateConversionPaymentBasis =
   | "complimentary"
   | "deposit"
   | "fully-paid"
+  | "invoice-outstanding"
+  | "invoice-paid"
   | "unpaid";
 
 export type CorporateConversionReview = {
   amountPaid: number;
+  outstandingAmount: number;
   paymentBasis: CorporateConversionPaymentBasis;
   paymentStatus: PaymentStatus;
   pax: number;
@@ -35,6 +38,7 @@ export type CorporateConversionReview = {
 
 export type CorporateConversionReviewDraft = {
   amountPaid: string;
+  outstandingAmount: string;
   paymentBasis: CorporateConversionPaymentBasis;
   pax: string;
   showId: string;
@@ -63,6 +67,7 @@ export function validateCorporateConversionReview(
   const pax = Number(draft.pax);
   const ticketTotal = Number(draft.ticketTotal);
   const amountPaid = Number(draft.amountPaid);
+  const outstandingAmount = Number(draft.outstandingAmount);
 
   if (!draft.venue) errors.venue = "Select the authoritative venue.";
   if (!draft.showId) errors.showId = "Select the authoritative performance.";
@@ -84,10 +89,29 @@ export function validateCorporateConversionReview(
     errors.amountPaid = "Enter the authoritative amount already paid, including R0.00.";
   }
 
+  if (draft.paymentBasis === "invoice-outstanding") {
+    if (
+      draft.outstandingAmount.trim() === "" ||
+      !Number.isFinite(outstandingAmount) ||
+      outstandingAmount <= 0 ||
+      outstandingAmount > ticketTotal
+    ) {
+      errors.outstandingAmount =
+        "Outstanding Amount must be greater than R0.00 and no more than the ticket obligation.";
+    } else if (outstandingAmount !== ticketTotal) {
+      errors.outstandingAmount =
+        "A new unpaid invoice must keep the full obligation outstanding. Record any prior EFT separately.";
+    }
+  }
+
   if (!errors.ticketTotal && !errors.amountPaid) {
     if (amountPaid > ticketTotal) {
       errors.amountPaid = "Amount paid cannot exceed the ticket obligation.";
-    } else if (draft.paymentBasis === "unpaid" && amountPaid !== 0) {
+    } else if (
+      (draft.paymentBasis === "unpaid" ||
+        draft.paymentBasis === "invoice-outstanding") &&
+      amountPaid !== 0
+    ) {
       errors.amountPaid = "Unpaid bookings must have R0.00 already paid.";
     } else if (
       draft.paymentBasis === "deposit" &&
@@ -95,7 +119,8 @@ export function validateCorporateConversionReview(
     ) {
       errors.amountPaid = "A deposit must be greater than R0.00 and less than the ticket obligation.";
     } else if (
-      draft.paymentBasis === "fully-paid" &&
+      (draft.paymentBasis === "fully-paid" ||
+        draft.paymentBasis === "invoice-paid") &&
       amountPaid !== ticketTotal
     ) {
       errors.amountPaid = "A fully paid booking must have the full ticket obligation paid.";
@@ -119,10 +144,12 @@ export function parseCorporateConversionReview(
 
   const ticketTotal = Number(draft.ticketTotal);
   const amountPaid = Number(draft.amountPaid);
+  const outstandingAmount = Number(draft.outstandingAmount);
   const paymentStatus: PaymentStatus =
     draft.paymentBasis === "complimentary"
       ? "comp-vip"
-      : draft.paymentBasis === "fully-paid"
+      : draft.paymentBasis === "fully-paid" ||
+          draft.paymentBasis === "invoice-paid"
         ? "fully-paid"
         : draft.paymentBasis === "deposit"
           ? "deposit-paid"
@@ -130,6 +157,10 @@ export function parseCorporateConversionReview(
 
   return {
     amountPaid,
+    outstandingAmount:
+      draft.paymentBasis === "invoice-outstanding"
+        ? outstandingAmount
+        : ticketTotal - amountPaid,
     paymentBasis: draft.paymentBasis,
     paymentStatus,
     pax: Number(draft.pax),

@@ -99,7 +99,7 @@ test("pending-payment lifecycle remains ITN-authoritative", async () => {
     source("../app/api/payfast/itn/route.ts"),
   ]);
 
-  assert.match(page, /paymentStatus: "pending-payment"/);
+  assert.match(page, /paymentStatus:[\s\S]{0,100}"pending-payment"/);
   assert.match(page, /remains Pending Payment until PayFast confirms payment/);
   assert.match(checkout, /prepare_payfast_checkout_attempt/);
   assert.match(itn, /confirm_payfast_payment_core/);

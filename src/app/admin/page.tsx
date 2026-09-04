@@ -15634,6 +15634,11 @@ export default function AdminDashboardPage() {
         : "",
       `Agreed ticket obligation: ${formatCurrency(review.ticketTotal)}`,
       `Authoritative amount paid at conversion: ${formatCurrency(review.amountPaid)}`,
+      review.paymentBasis === "invoice-outstanding"
+        ? `Payment basis: Invoice / EFT · ${formatCurrency(review.outstandingAmount)} outstanding`
+        : review.paymentBasis === "invoice-paid"
+          ? "Payment basis: Invoice / EFT · paid in full"
+          : "",
       `Company: ${request.companyName}`,
     ]
       .filter(Boolean)
@@ -15657,13 +15662,27 @@ export default function AdminDashboardPage() {
         review.pax > 0 ? review.ticketTotal / review.pax : 0,
       paymentOption:
         review.paymentBasis === "deposit" ? "deposit" : "full",
+      corporatePaymentBasis:
+        review.paymentBasis === "invoice-outstanding" ||
+        review.paymentBasis === "invoice-paid"
+          ? review.paymentBasis
+          : undefined,
+      corporateInvoiceOutstandingAmount:
+        review.paymentBasis === "invoice-outstanding"
+          ? review.outstandingAmount
+          : review.paymentBasis === "invoice-paid"
+            ? 0
+            : undefined,
       paymentStatus: review.paymentStatus,
       depositPercentage:
         review.ticketTotal > 0
           ? (review.amountPaid / review.ticketTotal) * 100
           : 0,
       amountPaid: review.amountPaid,
-      balanceDue: review.ticketTotal - review.amountPaid,
+      balanceDue:
+        review.paymentBasis === "invoice-outstanding"
+          ? review.outstandingAmount
+          : review.ticketTotal - review.amountPaid,
       source: "corporate-direct",
       ticketCode: createTicketCode(bookingReference),
       ticketIssuedAt: now,
@@ -41452,6 +41471,23 @@ export default function AdminDashboardPage() {
                         </p>
                       )}
                     </div>
+                    {isCorporateBooking && booking.corporatePaymentBasis && (
+                      <div className="mt-4 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
+                          Payment Basis
+                        </p>
+                        <p className="mt-2 font-semibold text-white">
+                          {booking.corporatePaymentBasis === "invoice-paid"
+                            ? "Invoice / EFT · Paid In Full"
+                            : "Invoice / EFT · Awaiting Payment"}
+                        </p>
+                        <p className="mt-1 text-zinc-400">
+                          {booking.corporatePaymentBasis === "invoice-paid"
+                            ? "Manual EFT evidence recorded. No PayFast transaction applies."
+                            : `${formatCurrency(booking.balanceDue ?? 0)} remains outstanding. Payment may be reconciled after POP or collected later through a managed payment link.`}
+                        </p>
+                      </div>
+                    )}
                     {booking.promoRedemption && (
                       <div className="mt-4 grid gap-3 rounded-2xl border border-emerald-300/20 bg-emerald-950/10 p-4 sm:grid-cols-3">
                         <div>

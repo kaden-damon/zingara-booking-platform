@@ -66,6 +66,11 @@ import {
   isComplimentaryBooking,
 } from "@/lib/internalComplimentaryBooking";
 import {
+  applyCorporateInvoiceFinancials,
+  isCorporateInvoicePaymentBasis,
+  validateCorporateInvoiceFinancials,
+} from "@/lib/corporateInvoicePayments";
+import {
   getBookingCapacityConflictResponse,
   isBookingCapacityError,
   validateBookingCapacityIncrease,
@@ -668,11 +673,19 @@ function getBookingPayload(
 }
 
 function getPaymentPayload(booking: DemoBooking, bookingId: string) {
+  const isPaidInvoice = booking.corporatePaymentBasis === "invoice-paid";
+  const isOutstandingInvoice =
+    booking.corporatePaymentBasis === "invoice-outstanding";
+
   return {
     amount: getPaymentAmount(booking),
     booking_id: bookingId,
-    method: "platform",
-    notes: booking.refundNotes || booking.paymentOption || null,
+    method: isPaidInvoice ? "eft" : isOutstandingInvoice ? "invoice" : "platform",
+    notes: isPaidInvoice
+      ? "Corporate invoice paid in full by manual EFT"
+      : isOutstandingInvoice
+        ? "Corporate invoice awaiting EFT payment"
+        : booking.refundNotes || booking.paymentOption || null,
     payment_status: toSupabasePaymentStatus(booking.paymentStatus),
     payment_type: getPaymentType(booking),
     processed_at: new Date().toISOString(),
@@ -866,6 +879,10 @@ function normalizeReservationClaims(
 }
 
 function usesAtomicTableReservation(booking: DemoBooking) {
+  if (isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis)) {
+    return true;
+  }
+
   if (booking.source === "corporate-direct" && booking.corporateRequestId) {
     return true;
   }
@@ -1418,6 +1435,19 @@ export async function POST(request: Request) {
 
     const isTrustedStaff = Boolean(staffProfileId);
 
+    if (
+      isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis) &&
+      (!isTrustedStaff || booking.source !== "corporate-direct")
+    ) {
+      return Response.json(
+        {
+          error:
+            "Invoice / EFT settlement requires authorised internal Corporate booking access.",
+        },
+        { status: 403 },
+      );
+    }
+
     if (isComplimentaryBooking(booking) && !isTrustedStaff) {
       return Response.json(
         { error: "Complimentary pricing requires authorised staff booking access." },
@@ -1728,8 +1758,13 @@ export async function POST(request: Request) {
     }
 
     if (
-      (booking.source === "online" || customPricedTemporaryTable || staffPricingRate) &&
-      isAwaitingExternalPayment(booking)
+      (booking.source === "online" ||
+        customPricedTemporaryTable ||
+        staffPricingRate ||
+        (isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis) &&
+          !booking.corporateRequestId)) &&
+      (isAwaitingExternalPayment(booking) ||
+        isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis))
     ) {
       booking = await withAuthoritativePublicPricing(
         supabase,
@@ -1739,6 +1774,15 @@ export async function POST(request: Request) {
         agreedPriceSource,
         staffProfileId ?? undefined,
       );
+    }
+
+    if (isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis)) {
+      booking = applyCorporateInvoiceFinancials(booking);
+      const invoiceValidationError = validateCorporateInvoiceFinancials(booking);
+
+      if (invoiceValidationError) {
+        return Response.json({ error: invoiceValidationError }, { status: 400 });
+      }
     }
 
     const capacityResult = await validateBookingCapacityIncrease(supabase, {
@@ -1768,6 +1812,12 @@ export async function POST(request: Request) {
       if (reservation.bookingId) {
         await syncLifecycleEvents(supabase, booking, reservation.bookingId);
       }
+
+      const invoiceTicketId =
+        booking.corporatePaymentBasis === "invoice-paid" &&
+        reservation.bookingId
+          ? await upsertTicket(supabase, booking, reservation.bookingId)
+          : null;
 
       recordPlatformEventBestEffort(
         {
@@ -1800,7 +1850,7 @@ export async function POST(request: Request) {
         paymentId: reservation.paymentId,
         tableId: reservation.tableId,
         tableNumber: reservation.tableNumber,
-        ticketId: null,
+        ticketId: invoiceTicketId,
       });
     }
 

@@ -106,9 +106,17 @@ test("public UI cannot enter complimentary mode", async () => {
 test("complimentary booking keeps normal capacity validation and ticket flow", async () => {
   const route = await source("../app/api/bookings/route.ts");
   const capacityIndex = route.indexOf("validateBookingCapacityIncrease");
+  const reservationIndex = route.indexOf(
+    "const reservation = await reservePublicBookingAtomically",
+  );
   const bookingIndex = route.indexOf("const bookingId = await upsertBooking");
-  const ticketIndex = route.indexOf("await upsertTicket");
-  assert.ok(capacityIndex > 0 && capacityIndex < bookingIndex);
-  assert.ok(ticketIndex > bookingIndex);
+  const ticketIndexes = [...route.matchAll(/await upsertTicket/g)].map(
+    (match) => match.index,
+  );
+  assert.ok(capacityIndex > 0 && capacityIndex < reservationIndex);
+  assert.ok(capacityIndex < bookingIndex);
+  assert.equal(ticketIndexes.length, 2);
+  assert.ok(ticketIndexes.some((index) => index > reservationIndex));
+  assert.ok(ticketIndexes.some((index) => index > bookingIndex));
   assert.doesNotMatch(route, /isComplimentaryBooking\(booking\)[\s\S]{0,160}capacity.*bypass/i);
 });

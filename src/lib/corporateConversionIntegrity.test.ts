@@ -153,6 +153,7 @@ test("eligible Corporate enquiry states expose conversion without allowing termi
 test("review requires authoritative financials and reconciles paid and outstanding", () => {
   const base = {
     amountPaid: "",
+    outstandingAmount: "",
     paymentBasis: "unpaid" as const,
     pax: "73",
     showId: "show-27-november",
@@ -177,6 +178,7 @@ test("review requires authoritative financials and reconciles paid and outstandi
     }),
     {
       amountPaid: 25000,
+      outstandingAmount: 75000,
       paymentBasis: "deposit",
       paymentStatus: "deposit-paid",
       pax: 73,

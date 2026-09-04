@@ -673,6 +673,10 @@ export type DemoBooking = {
   corporatePaymentExpiredAt?: string;
   corporatePaymentReminderAt?: string;
   corporatePaymentReminderSentAt?: string;
+  corporatePaymentBasis?:
+    | "invoice-outstanding"
+    | "invoice-paid";
+  corporateInvoiceOutstandingAmount?: number;
   promoCode?: string;
   promoCodeId?: string;
   promoLabel?: string;
