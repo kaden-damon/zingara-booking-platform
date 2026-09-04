@@ -16,6 +16,7 @@ export type CompactBookingRow = {
   pax: number;
   paymentLabel: string;
   paymentSortValue: string;
+  promoCode?: string;
   reference: string;
   section: string;
   sourceLabel: string;

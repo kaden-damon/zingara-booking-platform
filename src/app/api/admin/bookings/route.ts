@@ -450,6 +450,7 @@ export async function GET(request: Request) {
     { rows: customers, error: customersError },
     { rows: tables, error: tablesError },
     { rows: shows, error: showsError },
+    { rows: promoRedemptions, error: promoRedemptionsError },
   ] = await Promise.all([
     includeHistory
       ? fetchAggregateRows(
@@ -498,6 +499,13 @@ export async function GET(request: Request) {
           showIds,
         )
       : Promise.resolve({ rows: [], error: null }),
+    fetchAggregateRows(
+      serviceClient,
+      "promo_redemptions",
+      "booking_id,discount_amount,subtotal_amount,redeemed_at,promo_code:promo_codes(code)",
+      "booking_id",
+      bookingIds,
+    ),
   ]);
 
   if (communicationsError) {
@@ -532,6 +540,17 @@ export async function GET(request: Request) {
     console.error(
       "[Zingara API] Failed to load booking show aggregate",
       showsError,
+    );
+  }
+
+  if (promoRedemptionsError) {
+    console.error(
+      "[Zingara API] Failed to load booking promo redemption aggregate",
+      promoRedemptionsError,
+    );
+    return Response.json(
+      { error: "Booking promo evidence could not be loaded." },
+      { status: 500 },
     );
   }
 
@@ -610,6 +629,19 @@ export async function GET(request: Request) {
     }
   }
 
+  const promoRedemptionsByBookingId = new Map<string, unknown>();
+
+  for (const redemption of promoRedemptions ?? []) {
+    if (
+      redemption &&
+      typeof redemption === "object" &&
+      "booking_id" in redemption &&
+      typeof redemption.booking_id === "string"
+    ) {
+      promoRedemptionsByBookingId.set(redemption.booking_id, redemption);
+    }
+  }
+
   return Response.json({
     rows: rows.map((booking) => ({
       ...booking,
@@ -618,6 +650,8 @@ export async function GET(request: Request) {
         ? customersById.get(booking.customer_id) ?? null
         : null,
       lifecycle_event_rows: lifecycleByBookingId.get(booking.id) ?? [],
+      promo_redemption_row:
+        promoRedemptionsByBookingId.get(booking.id) ?? null,
       show_row: showsById.get(booking.show_id) ?? null,
       table_row: booking.table_id
         ? tablesById.get(booking.table_id) ?? null

@@ -677,6 +677,12 @@ export type DemoBooking = {
   promoCodeId?: string;
   promoLabel?: string;
   promoLocation?: EntryLocationKey;
+  promoRedemption?: {
+    code: string;
+    discountAmount: number;
+    redeemedAt: string;
+    subtotalAmount: number;
+  };
   source?: BookingSource;
   bookingOrigin?: BookingOrigin;
   createdByStaffId?: string;

@@ -138,6 +138,12 @@ type SupabaseBookingAggregateRow = SupabaseBookingRow & {
     surname: string | null;
   } | null;
   lifecycle_event_rows?: SupabaseLifecycleEventRow[];
+  promo_redemption_row?: {
+    discount_amount: number;
+    promo_code: { code: string } | Array<{ code: string }> | null;
+    redeemed_at: string;
+    subtotal_amount: number;
+  } | null;
   show_row?: {
     id: string;
     notes: string | null;
@@ -148,6 +154,30 @@ type SupabaseBookingAggregateRow = SupabaseBookingRow & {
     table_code: string;
   } | null;
 };
+
+function getPersistedPromoRedemption(row: SupabaseBookingAggregateRow) {
+  const redemption = row.promo_redemption_row;
+
+  if (!redemption) {
+    return undefined;
+  }
+
+  const promoRelation = Array.isArray(redemption.promo_code)
+    ? redemption.promo_code[0]
+    : redemption.promo_code;
+  const code = promoRelation?.code?.trim().toUpperCase();
+
+  if (!code) {
+    return undefined;
+  }
+
+  return {
+    code,
+    discountAmount: Number(redemption.discount_amount) || 0,
+    redeemedAt: redemption.redeemed_at,
+    subtotalAmount: Number(redemption.subtotal_amount) || 0,
+  };
+}
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
 const showMetadataPrefix = "__zingara_show_meta__:";
@@ -626,6 +656,7 @@ function mergeLifecycleHistory(
 
 async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBooking> {
   const metadataBooking = parseBookingNotes(row.notes);
+  const promoRedemption = getPersistedPromoRedemption(row);
 
   if (metadataBooking) {
     const authoritativeCustomer = getDemoCustomerFromCustomerRow(
@@ -664,6 +695,8 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       discountAmount: row.discount_amount,
       partySize: row.guest_count,
       paymentStatus: toDemoPaymentStatus(row.payment_status),
+      promoCode: promoRedemption?.code,
+      promoRedemption,
       serviceFeeAmount: row.service_fee,
       source: row.booking_source as DemoBooking["source"],
       status: toDemoBookingStatus(row.booking_status),
@@ -731,6 +764,8 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     operationalNotes: row.notes ?? "",
     partySize: row.guest_count,
     paymentStatus: toDemoPaymentStatus(row.payment_status),
+    promoCode: promoRedemption?.code,
+    promoRedemption,
     pricePerPerson:
       row.guest_count > 0 ? Math.round(row.total_amount / row.guest_count) : 0,
     reference: row.booking_reference,

@@ -169,6 +169,13 @@ import {
   type CompactBookingSortKey,
 } from "../../lib/compactBookingView";
 import {
+  bookingMatchesPromoFilter,
+  getPersistedBookingPromoCode,
+  getPersistedPromoDiscountLabel,
+  getPersistedPromoFilterOptions,
+  type BookingPromoFilter,
+} from "../../lib/bookingPromoUsage";
+import {
   convertCorporateRequest,
   getCorporateRequests,
   saveCorporateRequests as persistCorporateRequests,
@@ -9761,7 +9768,7 @@ function getCompactBookingRow(booking: DemoBooking): CompactBookingRow {
   const tableNumber = booking.tableNumber?.trim();
   const hasPhysicalTable =
     Boolean(tableNumber) && tableNumber?.toLowerCase() !== "unassigned";
-  const sourceLabel =
+  const baseSourceLabel =
     booking.source === "corporate-direct"
       ? "Corporate"
       : booking.bookingOrigin === "data_import"
@@ -9769,6 +9776,7 @@ function getCompactBookingRow(booking: DemoBooking): CompactBookingRow {
         : booking.bookingOrigin === "admin_staff"
           ? "Staff / Manual"
           : bookingSourceLabels[booking.source ?? "online"];
+  const promoCode = getPersistedBookingPromoCode(booking);
 
   return {
     balanceDue: financials.balanceDue,
@@ -9780,9 +9788,10 @@ function getCompactBookingRow(booking: DemoBooking): CompactBookingRow {
     pax: booking.partySize,
     paymentLabel: paymentStatusLabels[financials.paymentStatus],
     paymentSortValue: financials.paymentStatus,
+    promoCode: promoCode || undefined,
     reference: booking.reference,
     section: booking.zoneTitle || "Zone not recorded",
-    sourceLabel,
+    sourceLabel: promoCode ? `${baseSourceLabel} · ${promoCode}` : baseSourceLabel,
     statusLabel: bookingStatusLabels[status],
     statusTone: getCompactBookingStatusTone(status),
     tableLabel: hasPhysicalTable
@@ -10374,6 +10383,8 @@ export default function AdminDashboardPage() {
   const [bookingDateFilter, setBookingDateFilter] = useState("all");
   const [bookingSourceFilter, setBookingSourceFilter] =
     useState<BookingSource | "all">("all");
+  const [bookingPromoFilter, setBookingPromoFilter] =
+    useState<BookingPromoFilter>("all");
   const [isBookingCalendarOpen, setIsBookingCalendarOpen] =
     useState(false);
   const [hideCancelledConcierge, setHideCancelledConcierge] =
@@ -13181,6 +13192,7 @@ export default function AdminDashboardPage() {
       booking.reference,
       booking.customer.name,
       booking.customer.email,
+      getPersistedBookingPromoCode(booking),
       booking.customer.phone,
       booking.tableNumber,
       booking.zoneTitle,
@@ -23657,6 +23669,10 @@ export default function AdminDashboardPage() {
       return false;
     }
 
+    if (!bookingMatchesPromoFilter(booking, bookingPromoFilter)) {
+      return false;
+    }
+
     return !searchTerm || getBookingSearchText(booking).includes(searchTerm);
   }
 
@@ -23687,6 +23703,12 @@ export default function AdminDashboardPage() {
       bookingSourceFilter === "all"
         ? "All sources"
         : bookingSourceLabels[bookingSourceFilter];
+    const selectedPromo =
+      bookingPromoFilter === "all"
+        ? "All promo codes"
+        : bookingPromoFilter === "none"
+          ? "No promo code"
+          : `Promo: ${bookingPromoFilter}`;
     const selectedArchiveView =
       bookingArchiveFilter === "active"
         ? "Active view"
@@ -23700,6 +23722,7 @@ export default function AdminDashboardPage() {
       bookingDateFilter === "all" ? "All dates" : bookingDateFilter,
       selectedStatus,
       selectedSource,
+      selectedPromo,
       hideCancelledBookings ? "Cancelled hidden" : "Cancelled included",
       bookingSearch.trim() ? `Search: ${bookingSearch.trim()}` : "No search",
     ].join(" · ");
@@ -23863,6 +23886,7 @@ export default function AdminDashboardPage() {
       activeAdminTab,
       bookingArchiveFilter,
       bookingDateFilter,
+      bookingPromoFilter,
       bookingSearch,
       bookingShowFilter,
       bookingSourceFilter,
@@ -23874,6 +23898,10 @@ export default function AdminDashboardPage() {
       isBookingManagementWorkspace,
       shows,
     ],
+  );
+  const persistedPromoFilterOptions = useMemo(
+    () => getPersistedPromoFilterOptions(bookings),
+    [bookings],
   );
   const activeBookingPageSize =
     activeAdminTab === "corporate"
@@ -40594,8 +40622,8 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="mt-5 grid gap-4">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(13rem,1.1fr)_minmax(11rem,0.9fr)_minmax(11rem,0.9fr)_minmax(10rem,0.8fr)_minmax(14rem,1.2fr)]">
-	                <div className="relative block min-w-0">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(13rem,1.1fr)_minmax(11rem,0.9fr)_minmax(11rem,0.9fr)_minmax(11rem,0.9fr)_minmax(10rem,0.8fr)_minmax(14rem,1.2fr)]">
+                <div className="relative block min-w-0">
                     <span className="sr-only">Filter bookings by show</span>
                     <PerformanceCalendarSelector
                       allowAllShows
@@ -40610,36 +40638,36 @@ export default function AdminDashboardPage() {
                       selectedShowId={bookingShowFilter}
                       shows={shows}
                     />
-	                  <span className="pointer-events-none absolute right-3 top-[1.38rem] -translate-y-1/2 text-[0.6rem] text-zinc-500">
-	                    ▾
-	                  </span>
-	                </div>
+                  <span className="pointer-events-none absolute right-3 top-[1.38rem] -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    ▾
+                  </span>
+                </div>
 
-	                <label className="relative block min-w-0">
+                <label className="relative block min-w-0">
                     <span className="sr-only">Filter bookings by source</span>
-	                  <select
-	                    value={bookingSourceFilter}
-	                    onChange={(event) => {
-	                      setBookingSourceFilter(
-	                        event.target.value as BookingSource | "all",
-	                      );
-	                      setBookingPage(1);
-	                    }}
-	                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
-	                  >
-	                    <option value="all">All Sources</option>
-	                    {(
-	                      Object.keys(bookingSourceLabels) as BookingSource[]
-	                    ).map((source) => (
-	                      <option key={source} value={source}>
-	                        {bookingSourceLabels[source]}
-	                      </option>
-	                    ))}
-	                  </select>
-	                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
-	                    ▾
-	                  </span>
-	                </label>
+                  <select
+                    value={bookingSourceFilter}
+                    onChange={(event) => {
+                      setBookingSourceFilter(
+                        event.target.value as BookingSource | "all",
+                      );
+                      setBookingPage(1);
+                    }}
+                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                  >
+                    <option value="all">All Sources</option>
+                    {(
+                      Object.keys(bookingSourceLabels) as BookingSource[]
+                    ).map((source) => (
+                      <option key={source} value={source}>
+                        {bookingSourceLabels[source]}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    ▾
+                  </span>
+                </label>
 
                 <label className="relative block min-w-0">
                   <span className="sr-only">Filter bookings by status</span>
@@ -40665,7 +40693,30 @@ export default function AdminDashboardPage() {
                   </span>
                 </label>
 
-	                <div className="relative min-w-0">
+                <label className="relative block min-w-0">
+                  <span className="sr-only">Filter bookings by promo code</span>
+                  <select
+                    value={bookingPromoFilter}
+                    onChange={(event) => {
+                      setBookingPromoFilter(event.target.value);
+                      setBookingPage(1);
+                    }}
+                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                  >
+                    <option value="all">All Promo Codes</option>
+                    <option value="none">No Promo Code</option>
+                    {persistedPromoFilterOptions.map((code) => (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    ▾
+                  </span>
+                </label>
+
+                <div className="relative min-w-0">
                   <button
                     type="button"
                     onClick={() =>
@@ -40968,14 +41019,16 @@ export default function AdminDashboardPage() {
                 </span>{" "}
                 archived
               </p>
-	              {(bookingSearch ||
+              {(bookingSearch ||
+                  bookingPromoFilter !== "all" ||
                   bookingSourceFilter !== "all" ||
                   bookingStatusFilter !== "all" ||
                   bookingArchiveFilter !== "active") && (
-	                <button
-	                  type="button"
+                <button
+                  type="button"
 	                  onClick={() => {
 	                    setBookingSearch("");
+	                    setBookingPromoFilter("all");
 	                    setBookingSourceFilter("all");
                       setBookingStatusFilter("all");
                       setBookingArchiveFilter("active");
@@ -41433,6 +41486,34 @@ export default function AdminDashboardPage() {
                         </p>
                       )}
                     </div>
+                    {booking.promoRedemption && (
+                      <div className="mt-4 grid gap-3 rounded-2xl border border-emerald-300/20 bg-emerald-950/10 p-4 sm:grid-cols-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                            Promo Code
+                          </p>
+                          <p className="mt-1 font-mono text-sm font-semibold text-emerald-200">
+                            {booking.promoRedemption.code}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                            Discount
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-white">
+                            {getPersistedPromoDiscountLabel(booking)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                            Discount Value
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-white">
+                            {formatCurrency(booking.promoRedemption.discountAmount)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                     {isCorporateBooking && booking.corporatePaymentDeadline && (
                       <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-950/15 p-4 text-sm text-amber-50">
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-200">
