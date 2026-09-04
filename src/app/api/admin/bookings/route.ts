@@ -28,6 +28,7 @@ import {
   hasValidCalendarBookingContext,
   type CalendarBookingLockContext,
 } from "@/lib/showBookingCreation";
+import { getDietaryRequirementsProjection } from "@/lib/bookingMetadataDraft";
 
 export const dynamic = "force-dynamic";
 
@@ -2143,6 +2144,183 @@ async function persistBookingStateUpdate(request: Request, body: {
   }
 }
 
+async function persistBookingMetadataUpdate(
+  request: Request,
+  body: {
+    bookingReference?: string;
+    expectedUpdatedAt?: string;
+    operationalNotes?: string;
+  },
+) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
+    return auth.error;
+  }
+
+  const roleRow = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const role = getAdminRoleFromName(roleRow?.name);
+
+  if (!role || !rolePermissions[role].includes("bookings:manage")) {
+    return Response.json(
+      { error: "Booking management access is required." },
+      { status: 403 },
+    );
+  }
+
+  const bookingReference = body.bookingReference?.trim();
+  const operationalNotes = body.operationalNotes;
+
+  if (!bookingReference || typeof operationalNotes !== "string") {
+    return Response.json(
+      { error: "Booking notes and a booking reference are required." },
+      { status: 400 },
+    );
+  }
+
+  const { data: beforeBooking, error: beforeError } = await auth.serviceClient
+    .from("bookings")
+    .select(bookingSelect)
+    .eq("booking_reference", bookingReference)
+    .maybeSingle();
+
+  if (beforeError) throw beforeError;
+
+  if (!beforeBooking) {
+    return Response.json(
+      { error: "Booking could not be resolved." },
+      { status: 404 },
+    );
+  }
+
+  if ((beforeBooking as { archived_at?: string | null }).archived_at) {
+    return Response.json(
+      { error: "Archived bookings must be restored before editing." },
+      { status: 409 },
+    );
+  }
+
+  const { data: show, error: showError } = await auth.serviceClient
+    .from("shows")
+    .select("venue")
+    .eq("id", (beforeBooking as { show_id: string }).show_id)
+    .maybeSingle();
+
+  if (showError) throw showError;
+
+  const location = normalizeShowLocation(show?.venue);
+  const venueScope = normalizeStaffVenueScope(auth.staffProfile.venue_scope ?? []);
+
+  if (!location || (!venueScope.includes("all") && !venueScope.includes(location))) {
+    return Response.json(
+      { error: "This performance is outside your assigned location." },
+      { status: 403 },
+    );
+  }
+
+  const previousUpdatedAt = (beforeBooking as { updated_at?: string }).updated_at;
+
+  if (!body.expectedUpdatedAt || previousUpdatedAt !== body.expectedUpdatedAt) {
+    return Response.json(
+      {
+        error:
+          "This booking changed while you were editing. Your draft is preserved; reload the booking and review before saving.",
+      },
+      { status: 409 },
+    );
+  }
+
+  const previousMetadata = parseSerializedBookingNotes(
+    (beforeBooking as { notes?: unknown }).notes,
+  );
+  const previousOperationalNotes = previousMetadata
+    ? previousMetadata.operationalNotes ?? ""
+    : String((beforeBooking as { notes?: unknown }).notes ?? "");
+
+  if (previousOperationalNotes === operationalNotes) {
+    return Response.json({
+      operationalNotes,
+      updatedAt: previousUpdatedAt,
+    });
+  }
+
+  const nextUpdatedAt = new Date().toISOString();
+  const nextNotes = previousMetadata
+    ? serializeBookingNotes({
+        ...previousMetadata,
+        operationalNotes,
+        updatedAt: nextUpdatedAt,
+      })
+    : operationalNotes;
+  const { data: updatedBooking, error: updateError } = await auth.serviceClient
+    .from("bookings")
+    .update({
+      dietary_requirements: getDietaryRequirementsProjection(operationalNotes),
+      notes: nextNotes,
+      updated_at: nextUpdatedAt,
+    })
+    .eq("id", (beforeBooking as { id: string }).id)
+    .eq("updated_at", previousUpdatedAt)
+    .select("id,updated_at")
+    .maybeSingle();
+
+  if (updateError) throw updateError;
+
+  if (!updatedBooking) {
+    return Response.json(
+      {
+        error:
+          "This booking changed while you were editing. Your draft is preserved; reload the booking and review before saving.",
+      },
+      { status: 409 },
+    );
+  }
+
+  try {
+    await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+      action: "booking.metadata-edit",
+      afterValues: { operationalNotes },
+      beforeValues: { operationalNotes: previousOperationalNotes },
+      changedFields: ["operationalNotes"],
+      entityId: (beforeBooking as { id: string }).id,
+      entityLocation: location,
+      entityReference: bookingReference,
+      entityType: "booking",
+      outcome: "success",
+      request,
+      sourceArea: "Bookings",
+    });
+  } catch (auditError) {
+    const { error: rollbackError } = await auth.serviceClient
+      .from("bookings")
+      .update({
+        dietary_requirements: (
+          beforeBooking as { dietary_requirements?: string | null }
+        ).dietary_requirements ?? null,
+        notes: (beforeBooking as { notes?: string | null }).notes ?? null,
+        updated_at: previousUpdatedAt,
+      })
+      .eq("id", (beforeBooking as { id: string }).id)
+      .eq("updated_at", nextUpdatedAt);
+
+    if (rollbackError) {
+      console.error(
+        "[Zingara API] Booking metadata audit rollback failed",
+        rollbackError,
+      );
+    }
+
+    throw auditError;
+  }
+
+  return Response.json({
+    operationalNotes,
+    updatedAt: (updatedBooking as { updated_at: string }).updated_at,
+  });
+}
+
 async function setBookingArchiveState(
   request: Request,
   options: {
@@ -2325,6 +2503,8 @@ export async function PATCH(request: Request) {
     bookingReference?: string;
     destinationShowId?: string;
     expectedShowId?: string;
+    expectedUpdatedAt?: string;
+    operationalNotes?: string;
     targetTableId?: string;
   };
   const lockError = await ensureNoConflictingBookingLock(
@@ -2414,6 +2594,19 @@ export async function PATCH(request: Request) {
 
   if (body.action === "update-state") {
     return persistBookingStateUpdate(request, body);
+  }
+
+  if (body.action === "update-metadata") {
+    try {
+      return await persistBookingMetadataUpdate(request, body);
+    } catch (error) {
+      console.error("[Zingara API] Failed to persist booking metadata", error);
+
+      return Response.json(
+        { error: "Booking notes could not be saved." },
+        { status: 500 },
+      );
+    }
   }
 
   if (body.action === "archive" || body.action === "restore") {

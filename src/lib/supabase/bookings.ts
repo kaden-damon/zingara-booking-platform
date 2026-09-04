@@ -1093,3 +1093,20 @@ export async function saveBookings(
 
   return getBookings();
 }
+
+export async function saveBookingMetadata(input: {
+  bookingReference: string;
+  expectedUpdatedAt?: string;
+  operationalNotes: string;
+}) {
+  return fetchSupabaseApi<{
+    operationalNotes: string;
+    updatedAt: string;
+  }>("/api/admin/bookings", {
+    body: {
+      action: "update-metadata",
+      ...input,
+    },
+    method: "PATCH",
+  });
+}

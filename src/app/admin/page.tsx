@@ -13,6 +13,7 @@ import {
 
 import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
 import { AdminSearchInput } from "./AdminSearchInput";
+import { BookingMetadataDraftEditor } from "./BookingMetadataDraftEditor";
 import { CompactBookingList } from "./CompactBookingList";
 import {
   FinancialReconciliationModal,
@@ -10548,6 +10549,12 @@ export default function AdminDashboardPage() {
     useState<SplitMergeReview | null>(null);
   const [expandedBookingReference, setExpandedBookingReference] =
     useState("");
+  const [dirtyBookingMetadataReference, setDirtyBookingMetadataReference] =
+    useState("");
+  const [pendingBookingDetailsReference, setPendingBookingDetailsReference] =
+    useState<string | null>(null);
+  const [isBookingUnsavedWarningOpen, setIsBookingUnsavedWarningOpen] =
+    useState(false);
   const [bookingShowTransfer, setBookingShowTransfer] = useState<{
     bookingReference: string;
     destinationShowId: string;
@@ -10783,7 +10790,7 @@ export default function AdminDashboardPage() {
     }
   }
 
-  async function openBookingDetails(reference: string) {
+  async function loadBookingDetails(reference: string) {
     if (bookingDetailLoadingReference === reference) {
       return;
     }
@@ -10813,6 +10820,20 @@ export default function AdminDashboardPage() {
     } finally {
       setBookingDetailLoadingReference("");
     }
+  }
+
+  function openBookingDetails(reference: string) {
+    if (
+      expandedBookingReference &&
+      dirtyBookingMetadataReference === expandedBookingReference &&
+      reference !== expandedBookingReference
+    ) {
+      setPendingBookingDetailsReference(reference);
+      setIsBookingUnsavedWarningOpen(true);
+      return;
+    }
+
+    void loadBookingDetails(reference);
   }
 
   async function refreshLiveCustomerRecords() {
@@ -12349,9 +12370,32 @@ export default function AdminDashboardPage() {
     window.location.assign(buildCalendarBookingHref({ bookingType, context }));
   }
 
-  function closeBookingDetails() {
-    void releaseCurrentBookingLock("closed");
+  function forceCloseBookingDetails(reason = "closed") {
+    setDirtyBookingMetadataReference("");
+    setIsBookingUnsavedWarningOpen(false);
+    setPendingBookingDetailsReference(null);
+    void releaseCurrentBookingLock(reason);
     setExpandedBookingReference("");
+  }
+
+  function closeBookingDetails() {
+    if (dirtyBookingMetadataReference === expandedBookingReference) {
+      setPendingBookingDetailsReference(null);
+      setIsBookingUnsavedWarningOpen(true);
+      return;
+    }
+
+    forceCloseBookingDetails();
+  }
+
+  function discardBookingMetadataDraft() {
+    const nextReference = pendingBookingDetailsReference;
+
+    forceCloseBookingDetails("discarded-unsaved-changes");
+
+    if (nextReference) {
+      void loadBookingDetails(nextReference);
+    }
   }
 
   function closeShowEditor() {
@@ -16965,33 +17009,6 @@ export default function AdminDashboardPage() {
                 ...booking.customer,
                 [field]: value,
               },
-            }
-          : booking,
-      ),
-    );
-  }
-
-  function updateBookingOperationalField(
-    reference: string,
-    field:
-      | "cancellationReason"
-      | "operationalNotes"
-      | "refundNotes",
-    value: string,
-  ) {
-    if (!canManageBookings || isBookingReadOnly(reference)) {
-      if (isBookingReadOnly(reference)) {
-        showWorkflowToast("This booking is currently being edited.");
-      }
-      return;
-    }
-
-    saveBookings(
-      bookings.map((booking) =>
-        booking.reference === reference
-          ? {
-              ...booking,
-              [field]: value,
             }
           : booking,
       ),
@@ -42646,60 +42663,56 @@ export default function AdminDashboardPage() {
                           </div>
                         )}
                         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-                          <label
-                            className="rounded-2xl border border-white/10 bg-black/30 p-4 lg:col-span-3"
-                          >
-                            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                              Booking Notes / Dietary Requirements
-                            </span>
-                            <textarea
-                              value={booking.operationalNotes ?? ""}
-                              onChange={(event) =>
-                                updateBookingOperationalField(
-                                  booking.reference,
-                                  "operationalNotes",
-                                  event.target.value,
-                                )
-                              }
-                              rows={3}
-                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
-                              placeholder="Dietary requirements, celebration notes, access needs, seating preferences, or internal context."
-                            />
-                          </label>
-                          <label className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                          <BookingMetadataDraftEditor
+                            key={booking.reference}
+                            bookingReference={booking.reference}
+                            disabled={
+                              !canManageBookings ||
+                              isBookingReadOnly(booking.reference) ||
+                              isArchivedBooking(booking)
+                            }
+                            initialNotes={booking.operationalNotes}
+                            initialUpdatedAt={booking.updatedAt}
+                            onDirtyChange={(dirty) =>
+                              setDirtyBookingMetadataReference(
+                                dirty ? booking.reference : "",
+                              )
+                            }
+                            onSaved={(result) => {
+                              setBookings((currentBookings) =>
+                                currentBookings.map((currentBooking) =>
+                                  currentBooking.reference === booking.reference
+                                    ? {
+                                        ...currentBooking,
+                                        operationalNotes:
+                                          result.operationalNotes,
+                                        updatedAt: result.updatedAt,
+                                      }
+                                    : currentBooking,
+                                ),
+                              );
+                              setDirtyBookingMetadataReference("");
+                              showWorkflowToast(
+                                "✓ Saved · Booking notes updated",
+                              );
+                            }}
+                          />
+                          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
                             <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                               Cancellation Reason
                             </span>
-                            <textarea
-                              value={booking.cancellationReason ?? ""}
-                              onChange={(event) =>
-                                updateBookingOperationalField(
-                                  booking.reference,
-                                  "cancellationReason",
-                                  event.target.value,
-                                )
-                              }
-                              rows={3}
-                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
-                            />
-                          </label>
-                          <label className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                            <p className="min-h-12 whitespace-pre-wrap rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-zinc-300">
+                              {booking.cancellationReason || "Not recorded"}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
                             <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                               Refund Notes
                             </span>
-                            <textarea
-                              value={booking.refundNotes ?? ""}
-                              onChange={(event) =>
-                                updateBookingOperationalField(
-                                  booking.reference,
-                                  "refundNotes",
-                                  event.target.value,
-                                )
-                              }
-                              rows={3}
-                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
-                            />
-                          </label>
+                            <p className="min-h-12 whitespace-pre-wrap rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-zinc-300">
+                              {booking.refundNotes || "Not recorded"}
+                            </p>
+                          </div>
                           <AdminCollapsibleSection
                             contentClassName="p-4"
                             summary={`${(booking.lifecycleHistory ?? []).length} status event${(booking.lifecycleHistory ?? []).length === 1 ? "" : "s"}`}
@@ -42841,6 +42854,44 @@ export default function AdminDashboardPage() {
           request={corporateConversionReviewRequest}
           shows={shows}
         />
+      )}
+
+      {isBookingUnsavedWarningOpen && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/80 p-4 text-white backdrop-blur-md">
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="booking-unsaved-title"
+            className="w-full max-w-md rounded-[1.5rem] border border-amber-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/50"
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200">
+              Unsaved Changes
+            </p>
+            <h2 id="booking-unsaved-title" className="mt-3 text-xl font-bold">
+              You have unsaved changes to this booking.
+            </h2>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={discardBookingMetadataDraft}
+                className="min-h-11 rounded-full border border-red-300/35 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.1em] text-red-200 transition hover:bg-red-300 hover:text-black"
+              >
+                Discard Changes
+              </button>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  setIsBookingUnsavedWarningOpen(false);
+                  setPendingBookingDetailsReference(null);
+                }}
+                className="min-h-11 rounded-full border border-[#D8C36A] bg-[#D8C36A] px-5 py-2.5 text-xs font-bold uppercase tracking-[0.1em] text-black transition hover:bg-[#F2D66C]"
+              >
+                Keep Editing
+              </button>
+            </div>
+          </section>
+        </div>
       )}
 
       {financialReconciliation && (
