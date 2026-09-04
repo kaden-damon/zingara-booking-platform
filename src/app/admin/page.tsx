@@ -21,6 +21,7 @@ import {
   type BookingReconciliationDetails,
   type GuestCountReconciliationResult,
 } from "./BookingReconciliationModal";
+import type { LegacyGuestIncreasePaymentBasis } from "@/lib/addedGuestFinancials";
 import {
   CustomerIdentityEditor,
   type CustomerIdentityDraft,
@@ -22429,6 +22430,8 @@ export default function AdminDashboardPage() {
 
   async function saveGuestCountReconciliation(draft: {
     guestCount: number;
+    manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;
+    manualUnitAmount?: number;
     reason: string;
   }) {
     if (!guestCountReconciliation || guestCountReconciliationInFlightRef.current) return;
@@ -22448,6 +22451,8 @@ export default function AdminDashboardPage() {
           expectedUpdatedAt:
             guestCountReconciliation.details.booking.updatedAt,
           guestCount: draft.guestCount,
+          manualPaymentBasis: draft.manualPaymentBasis,
+          manualUnitAmount: draft.manualUnitAmount,
           reason: draft.reason,
         },
         method: "POST",

@@ -93,7 +93,7 @@ export async function GET(request: Request) {
   try {
     const { data: booking, error } = await auth.serviceClient
       .from("bookings")
-      .select("id,booking_reference,booking_origin,notes,guest_count,payment_status,section,service_fee,subtotal_amount,addons_total,total_amount,amount_paid,balance_outstanding,table_id,updated_at,show_tables:table_id(table_code)")
+      .select("id,booking_reference,booking_origin,notes,guest_count,payment_status,section,service_fee,subtotal_amount,addons_total,total_amount,amount_paid,balance_outstanding,table_id,updated_at,show_tables:table_id(table_code,capacity)")
       .eq("booking_reference", bookingReference)
       .maybeSingle();
 
@@ -157,6 +157,9 @@ export async function GET(request: Request) {
             : 0),
         guestCount: Number(booking.guest_count),
         paymentStatus: booking.payment_status,
+        tableCapacity: table?.capacity === null || table?.capacity === undefined
+          ? null
+          : Number(table.capacity),
         tableCode: table?.table_code ?? null,
         totalAmount: Number(booking.total_amount),
         updatedAt: booking.updated_at,
@@ -195,6 +198,8 @@ export async function POST(request: Request) {
       bookingReference?: string;
       expectedUpdatedAt?: string;
       guestCount?: number;
+      manualPaymentBasis?: "deposit" | "full";
+      manualUnitAmount?: number;
       reason?: string;
       totalAmount?: number;
     };
@@ -215,11 +220,15 @@ export async function POST(request: Request) {
       return Response.json({ error: "This booking is currently being edited." }, { status: 409 });
     }
 
+    const hasManualFinancialBasis =
+      body.manualPaymentBasis !== undefined || body.manualUnitAmount !== undefined;
     const rpcName =
       body.action === "financial"
         ? "reconcile_booking_financials_atomic"
         : body.action === "guest-count"
-          ? "reconcile_booking_guest_count_financials_atomic"
+          ? hasManualFinancialBasis
+            ? "reconcile_legacy_booking_guest_count_financials_atomic"
+            : "reconcile_booking_guest_count_financials_atomic"
           : null;
 
     if (!rpcName) {
@@ -242,6 +251,18 @@ export async function POST(request: Request) {
       });
       if (validationError) {
         return Response.json({ error: validationError }, { status: 400 });
+      }
+      if (
+        hasManualFinancialBasis &&
+        (body.manualPaymentBasis !== "deposit" && body.manualPaymentBasis !== "full")
+      ) {
+        return Response.json({ error: "Select Full Ticket Rate or Deposit Basis." }, { status: 400 });
+      }
+      if (
+        hasManualFinancialBasis &&
+        (!Number.isFinite(body.manualUnitAmount) || Number(body.manualUnitAmount) <= 0)
+      ) {
+        return Response.json({ error: "Enter a valid positive rate for each added guest." }, { status: 400 });
       }
     }
 
@@ -267,6 +288,12 @@ export async function POST(request: Request) {
         : {
             ...requestMetadata,
             p_guest_count: Number(body.guestCount),
+            ...(hasManualFinancialBasis
+              ? {
+                  p_payment_basis: body.manualPaymentBasis,
+                  p_unit_amount: toMoney(Number(body.manualUnitAmount)),
+                }
+              : {}),
           };
     const { data, error } = await auth.serviceClient.rpc(rpcName, parameters);
 
@@ -295,6 +322,12 @@ export async function POST(request: Request) {
       }
       if (message.includes("ADDED_GUEST_FINANCIAL_BASIS_REQUIRED")) {
         return Response.json({ error: "The original payment basis is not authoritative for this legacy booking. Reconcile its financials separately before adding guests." }, { status: 409 });
+      }
+      if (message.includes("LEGACY_MANUAL_BASIS_NOT_ALLOWED")) {
+        return Response.json({ error: "Manual legacy pricing is only available for imported bookings without authoritative pricing metadata." }, { status: 409 });
+      }
+      if (message.includes("LEGACY_INCREASE_REQUIRED")) {
+        return Response.json({ error: "Manual legacy pricing can only be used when adding guests." }, { status: 400 });
       }
       if (message.includes("BOOKING_RECONCILIATION_NOT_ALLOWED")) {
         return Response.json({ error: "This booking is not eligible for reconciliation." }, { status: 409 });

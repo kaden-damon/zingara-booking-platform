@@ -12,6 +12,39 @@ export type AddedGuestPricingBasis =
       unitAmount: null;
     };
 
+export type LegacyGuestIncreasePaymentBasis = "deposit" | "full";
+
+export function calculateAuthorizedLegacyIncrease(input: {
+  amountPaid: number;
+  currentTotal: number;
+  currentGuestCount: number;
+  newGuestCount: number;
+  paymentBasis: LegacyGuestIncreasePaymentBasis | "";
+  unitAmount: number;
+}) {
+  const addedGuests = Math.max(input.newGuestCount - input.currentGuestCount, 0);
+  const validBasis = input.paymentBasis === "deposit" || input.paymentBasis === "full";
+  const validRate = Number.isFinite(input.unitAmount) && input.unitAmount > 0;
+  const additionalAmount =
+    addedGuests > 0 && validBasis && validRate
+      ? Math.round(addedGuests * input.unitAmount * 100) / 100
+      : null;
+  const newTotal =
+    additionalAmount === null
+      ? null
+      : Math.round((input.currentTotal + additionalAmount) * 100) / 100;
+
+  return {
+    addedGuests,
+    additionalAmount,
+    newOutstanding:
+      newTotal === null
+        ? null
+        : Math.max(Math.round((newTotal - input.amountPaid) * 100) / 100, 0),
+    newTotal,
+  };
+}
+
 function positiveMoney(value: unknown) {
   const amount = Number(value);
   return Number.isFinite(amount) && amount > 0

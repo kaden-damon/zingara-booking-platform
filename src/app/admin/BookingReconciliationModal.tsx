@@ -9,8 +9,10 @@ import {
   validateGuestCountReconciliation,
 } from "@/lib/bookingReconciliation";
 import {
+  calculateAuthorizedLegacyIncrease,
   calculateAddedGuestFinancials,
   type AddedGuestPricingBasis,
+  type LegacyGuestIncreasePaymentBasis,
 } from "@/lib/addedGuestFinancials";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
@@ -23,6 +25,7 @@ export type BookingReconciliationDetails = {
     depositAmount: number;
     guestCount: number;
     paymentStatus: string;
+    tableCapacity: number | null;
     tableCode: string | null;
     totalAmount: number;
     updatedAt: string;
@@ -183,7 +186,12 @@ export function FinancialReconciliationModal(
 export function GuestCountReconciliationModal(
   props: BaseProps & {
     guestCount: number;
-    onSave: (draft: { guestCount: number; reason: string }) => void;
+    onSave: (draft: {
+      guestCount: number;
+      manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;
+      manualUnitAmount?: number;
+      reason: string;
+    }) => void;
     reason: string;
     result: GuestCountReconciliationResult | null;
   },
@@ -191,6 +199,8 @@ export function GuestCountReconciliationModal(
   const { booking } = props.details;
   const [draft, setDraft] = useState({
     guestCount: props.guestCount,
+    manualPaymentBasis: "" as LegacyGuestIncreasePaymentBasis | "",
+    manualUnitAmount: 0,
     reason: props.reason,
   });
   const validation = validateGuestCountReconciliation(draft);
@@ -200,6 +210,18 @@ export function GuestCountReconciliationModal(
     currentOutstanding: booking.balanceOutstanding,
     newGuestCount: draft.guestCount,
   });
+  const requiresManualFinancialBasis =
+    financials.addedGuests > 0 && financials.additionalAmount === null;
+  const manualFinancials = calculateAuthorizedLegacyIncrease({
+    amountPaid: booking.amountPaid,
+    currentGuestCount: booking.guestCount,
+    currentTotal: booking.totalAmount,
+    newGuestCount: draft.guestCount,
+    paymentBasis: draft.manualPaymentBasis,
+    unitAmount: draft.manualUnitAmount,
+  });
+  const manualFinancialsValid =
+    !requiresManualFinancialBasis || manualFinancials.additionalAmount !== null;
   const [link, setLink] = useState<{ canSend: boolean; paymentUrl: string; token: string } | null>(null);
   const [linkStatus, setLinkStatus] = useState("");
 
@@ -256,13 +278,61 @@ export function GuestCountReconciliationModal(
       ) : (
         <p className="mt-1 text-xs text-zinc-500">Reducing guests does not reduce the agreed obligation or create a refund. Use financial reconciliation for a separate approved adjustment.</p>
       )}
+      {requiresManualFinancialBasis && (
+        <section className="mt-4 rounded-xl border border-amber-300/30 bg-amber-950/15 p-4">
+          <p className="text-xs font-semibold uppercase text-amber-200">Financial Reconciliation Required</p>
+          <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-zinc-200">
+            <p>Existing payment<br /><strong>R{booking.amountPaid.toFixed(2)}</strong></p>
+            <p>Existing outstanding<br /><strong>R{booking.balanceOutstanding.toFixed(2)}</strong></p>
+            <p>Added guests<br /><strong>{financials.addedGuests}</strong></p>
+          </div>
+          <p className="mt-4 text-xs font-semibold uppercase text-zinc-400">Payment basis *</p>
+          <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="Payment basis">
+            {(["full", "deposit"] as const).map((basis) => (
+              <button
+                key={basis}
+                type="button"
+                aria-pressed={draft.manualPaymentBasis === basis}
+                onClick={() => setDraft((current) => ({ ...current, manualPaymentBasis: basis }))}
+                className={`min-h-11 rounded-full border px-3 text-xs font-semibold uppercase ${draft.manualPaymentBasis === basis ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/20 text-white hover:border-[#D8C36A]"}`}
+              >
+                {basis === "full" ? "Full Ticket Rate" : "Deposit Basis"}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4">
+            <MoneyInput
+              label={draft.manualPaymentBasis === "deposit" ? "Deposit per added guest" : "Agreed rate per added guest"}
+              value={draft.manualUnitAmount}
+              onChange={(manualUnitAmount) => setDraft((current) => ({ ...current, manualUnitAmount }))}
+            />
+          </div>
+          <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-300">
+            <p className="font-semibold uppercase text-[#F2D66C]">Confirmation Preview</p>
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
+              <p>Current guests<br /><strong>{booking.guestCount}</strong></p>
+              <p>New guests<br /><strong>{draft.guestCount}</strong></p>
+              <p>Added guests<br /><strong>{financials.addedGuests}</strong></p>
+              <p>Payment basis<br /><strong>{draft.manualPaymentBasis === "full" ? "Full Ticket Rate" : draft.manualPaymentBasis === "deposit" ? "Deposit Basis" : "Select basis"}</strong></p>
+              <p>Rate per added guest<br /><strong>{draft.manualUnitAmount > 0 ? `R${draft.manualUnitAmount.toFixed(2)}` : "Required"}</strong></p>
+              <p>Additional obligation<br /><strong>{manualFinancials.additionalAmount === null ? "Unavailable" : `R${manualFinancials.additionalAmount.toFixed(2)}`}</strong></p>
+              <p>Current paid<br /><strong>R{booking.amountPaid.toFixed(2)}</strong></p>
+              <p>Current outstanding<br /><strong>R{booking.balanceOutstanding.toFixed(2)}</strong></p>
+              <p>New obligation<br /><strong>{manualFinancials.newTotal === null ? "Unavailable" : `R${manualFinancials.newTotal.toFixed(2)}`}</strong></p>
+              <p>New outstanding<br /><strong>{manualFinancials.newOutstanding === null ? "Unavailable" : `R${manualFinancials.newOutstanding.toFixed(2)}`}</strong></p>
+              <p className="col-span-2">Table<br /><strong>{booking.tableCode ? `${booking.tableCode} · ${booking.tableCapacity !== null && draft.guestCount <= booking.tableCapacity ? `Fits ${draft.guestCount} guests` : "Moves safely to Floor Assignment Queue if undersized"}` : "Floor Assignment Queue"}</strong></p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-zinc-500">The entered basis is recorded as staff-authorised legacy reconciliation. Current venue pricing is not inferred.</p>
+        </section>
+      )}
       <p className="mt-2 text-xs text-zinc-500">If the table no longer fits, the booking will move safely to the Floor Assignment Queue.</p>
       <label className="mt-4 block">
         <span className="mb-2 block text-xs font-semibold uppercase text-zinc-400">Reason for change *</span>
         <textarea rows={3} value={draft.reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} className="w-full rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]" />
       </label>
       {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
-      {!props.result && <button type="button" disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || (financials.addedGuests > 0 && financials.additionalAmount === null)} onClick={() => props.onSave(draft)} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
+      {!props.result && <button type="button" disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || !manualFinancialsValid} onClick={() => props.onSave({ guestCount: draft.guestCount, manualPaymentBasis: requiresManualFinancialBasis ? draft.manualPaymentBasis || undefined : undefined, manualUnitAmount: requiresManualFinancialBasis ? draft.manualUnitAmount : undefined, reason: draft.reason })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
         {props.isSaving ? "UPDATING..." : "CONFIRM GUEST COUNT"}
       </button>}
       {props.result ? (
