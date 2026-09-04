@@ -797,6 +797,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
 type GetBookingsOptions = {
   includeHistory?: boolean;
   reference?: string;
+  showId?: string;
   throwOnError?: boolean;
 };
 
@@ -810,6 +811,10 @@ async function getSupabaseBookings(options: GetBookingsOptions = {}) {
 
     if (options.reference) {
       searchParams.set("reference", options.reference);
+    }
+
+    if (options.showId) {
+      searchParams.set("showId", options.showId);
     }
 
     const query = searchParams.toString();

@@ -250,8 +250,12 @@ import {
 } from "../../lib/adminActionState";
 import {
   getPhysicalTableDefinition,
-  isLegacyPlaceholderTableCode,
 } from "../../lib/physicalTables";
+import {
+  getFloorInventoryStats,
+  isFloorInventoryTable,
+  isLegacyFloorPlaceholder,
+} from "../../lib/floorInventory";
 import type { InitialFloorPlan } from "../../lib/floorAllocator";
 import {
   applyInitialFloorPlan,
@@ -7199,18 +7203,6 @@ function getZoneTables(
   );
 }
 
-function isLegacyPlaceholderTable(table: DemoTable) {
-  return (
-    table.physicalTable !== true &&
-    table.availabilityScope !== "operational" &&
-    isLegacyPlaceholderTableCode(table.zoneId, table.tableNumber)
-  );
-}
-
-function isFloorInventoryTable(table: DemoTable) {
-  return table.physicalTable === true || !isLegacyPlaceholderTable(table);
-}
-
 function getZoneStats(
   tables: DemoTable[],
   bookings: DemoBooking[],
@@ -7219,18 +7211,7 @@ function getZoneStats(
   capacityOverride?: number,
 ) {
   const zoneTables = getZoneTables(tables, showId, zone.id);
-  const physicalTables = zoneTables.filter(
-    (table) => table.physicalTable === true,
-  );
-  const configuredPhysicalTables = physicalTables.filter(
-    (table) =>
-      table.capacityConfigured !== false &&
-      table.status !== "disabled",
-  );
-  const operationalTableCapacity = configuredPhysicalTables.reduce(
-    (total, table) => total + table.seatCapacity,
-    0,
-  );
+  const inventoryStats = getFloorInventoryStats(zoneTables);
   const bookedSeats = bookings
     .filter(
       (booking) =>
@@ -7243,17 +7224,7 @@ function getZoneStats(
 
   return {
     bookedSeats,
-    configuredPhysicalTableCount: configuredPhysicalTables.length,
-    operationalTableCapacity,
-    physicalTableCount: physicalTables.length,
-    temporaryOperationalTableCount: zoneTables.filter(
-      (table) =>
-        table.physicalTable !== true && !isLegacyPlaceholderTable(table),
-    ).length,
-    unconfiguredPhysicalTableCount: physicalTables.filter(
-      (table) =>
-        table.capacityConfigured === false,
-    ).length,
+    ...inventoryStats,
     overCapacitySeats: Math.max(bookedSeats - totalCapacity, 0),
     remainingSeats: Math.max(totalCapacity - bookedSeats, 0),
     totalCapacity,
@@ -10529,6 +10500,12 @@ export default function AdminDashboardPage() {
   const [mergeSelections, setMergeSelections] =
     useState<MergeSelection>(getBlankMergeSelections);
   const [operationalTableAction, setOperationalTableAction] = useState("");
+  const [completedOperationalTableAction, setCompletedOperationalTableAction] =
+    useState("");
+  const [floorAssignmentAction, setFloorAssignmentAction] = useState<{
+    reference: string;
+    status: "assigned" | "assigning";
+  } | null>(null);
   const [physicalCapacityDrafts, setPhysicalCapacityDrafts] = useState<
     Record<string, string>
   >({});
@@ -16512,6 +16489,24 @@ export default function AdminDashboardPage() {
     });
   }
 
+  function completeOperationalTableAction(action: string) {
+    setCompletedOperationalTableAction(action);
+    window.setTimeout(() => {
+      setCompletedOperationalTableAction((current) =>
+        current === action ? "" : current,
+      );
+    }, 1200);
+  }
+
+  function completeFloorAssignment(reference: string) {
+    setFloorAssignmentAction({ reference, status: "assigned" });
+    window.setTimeout(() => {
+      setFloorAssignmentAction((current) =>
+        current?.reference === reference ? null : current,
+      );
+    }, 1200);
+  }
+
   async function createTable(zoneId: SeatingZoneId) {
     const newTable = newTables[zoneId];
     const tableNumber = newTable.tableNumber.trim();
@@ -16550,6 +16545,7 @@ export default function AdminDashboardPage() {
       showWorkflowToast(
         `${tableNumber} was added as a temporary operational table for this performance.`,
       );
+      completeOperationalTableAction(`create-${zoneId}`);
     } catch (error) {
       showWorkflowToast(
         error instanceof Error
@@ -16599,6 +16595,7 @@ export default function AdminDashboardPage() {
       showWorkflowToast(
         `Table ${table.tableNumber} was configured for ${capacity} seats.`,
       );
+      completeOperationalTableAction(`capacity-${table.id}`);
     } catch (error) {
       showWorkflowToast(
         error instanceof Error
@@ -16613,6 +16610,7 @@ export default function AdminDashboardPage() {
   async function saveOperationalTableChanges(
     table: DemoTable,
     updates: Partial<Pick<DemoTable, "status">> = {},
+    actionKind: "toggle" | "update" = "update",
   ) {
     const currentTable = tables.find(
       (candidate) => candidate.id === table.id,
@@ -16630,7 +16628,8 @@ export default function AdminDashboardPage() {
     }
 
     const nextTable = { ...currentTable, ...updates };
-    setOperationalTableAction(`update-${table.id}`);
+    const action = `${actionKind}-${table.id}`;
+    setOperationalTableAction(action);
 
     try {
       await updateOperationalShowTable({
@@ -16647,6 +16646,7 @@ export default function AdminDashboardPage() {
       showWorkflowToast(
         `Table ${nextTable.tableNumber} changes were saved for this performance.`,
       );
+      completeOperationalTableAction(action);
     } catch (error) {
       await refreshAssignedShowState(selectedShowId).catch(() => undefined);
       showWorkflowToast(
@@ -16715,6 +16715,10 @@ export default function AdminDashboardPage() {
     }
 
     floorAssignmentInFlightRef.current.add(booking.reference);
+    setFloorAssignmentAction({
+      reference: booking.reference,
+      status: "assigning",
+    });
 
     try {
       await mapBookingPhysicalTable({
@@ -16730,6 +16734,7 @@ export default function AdminDashboardPage() {
       showWorkflowToast(
         `${booking.reference} now uses ${targetZone.title} table ${targetTable.tableNumber}.`,
       );
+      completeFloorAssignment(booking.reference);
       return true;
     } catch (error) {
       await refreshAssignedShowState(booking.showId).catch(() => undefined);
@@ -16741,6 +16746,12 @@ export default function AdminDashboardPage() {
       return false;
     } finally {
       floorAssignmentInFlightRef.current.delete(booking.reference);
+      setFloorAssignmentAction((current) =>
+        current?.reference === booking.reference &&
+        current.status === "assigning"
+          ? null
+          : current,
+      );
     }
   }
 
@@ -16817,7 +16828,7 @@ export default function AdminDashboardPage() {
     void saveOperationalTableChanges(table, {
       status:
         table.status === "disabled" ? "available" : "disabled",
-    });
+    }, "toggle");
   }
 
   async function mergeTable(
@@ -16894,6 +16905,7 @@ export default function AdminDashboardPage() {
           ? `${selectedCodes.join(", ")} added to ${primaryTable.tableNumber}.`
           : `${[primaryTable.tableNumber, ...selectedCodes].join(" + ")} merged for this performance.`,
       );
+      completeOperationalTableAction(`merge-${primaryTable.id}`);
     } catch (error) {
       showWorkflowToast(
         error instanceof Error
@@ -16975,6 +16987,7 @@ export default function AdminDashboardPage() {
       showWorkflowToast(
         `${mergedTable.tableNumber} was restored to its physical member tables.`,
       );
+      completeOperationalTableAction(`unmerge-${mergedTable.id}`);
       setSplitMergeReview(null);
     } catch (error) {
       await refreshAssignedShowState(selectedShowId).catch(() => undefined);
@@ -21901,10 +21914,19 @@ export default function AdminDashboardPage() {
   async function refreshAssignedShowState(showId: string) {
     showLoadRequestRef.current += 1;
     selectedShowTableLoadRequestRef.current += 1;
+    const selectedShow = shows.find(
+      (show) => show.id === showId || show.supabaseId === showId,
+    );
+    const authoritativeShowId = selectedShow?.supabaseId ?? showId;
+    const showAliases = new Set(
+      [showId, selectedShow?.id, selectedShow?.supabaseId].filter(
+        (value): value is string => Boolean(value),
+      ),
+    );
 
     const [nextShowPayload, nextBookings] = await Promise.all([
       getShowsWithTables({ tableShow: showId }),
-      getBookings(),
+      getBookings({ showId: authoritativeShowId, throwOnError: true }),
     ]);
 
     if (!nextShowPayload.tablesLoaded) {
@@ -21916,7 +21938,12 @@ export default function AdminDashboardPage() {
       nextBookings,
     );
 
-    setBookings(nextBookings);
+    setBookings((currentBookings) => [
+      ...currentBookings.filter(
+        (booking) => !booking.showId || !showAliases.has(booking.showId),
+      ),
+      ...nextBookings,
+    ]);
     setTables((currentTables) =>
       mergeTablesForShows(currentTables, selectedShowTables, [showId]),
     );
@@ -22049,6 +22076,10 @@ export default function AdminDashboardPage() {
     }
 
     floorAssignmentInFlightRef.current.add(booking.reference);
+    setFloorAssignmentAction({
+      reference: booking.reference,
+      status: "assigning",
+    });
 
     try {
       await assignBookingTable(assignedBooking);
@@ -22056,6 +22087,7 @@ export default function AdminDashboardPage() {
       showWorkflowToast(
         `Assigned ${booking.reference} to ${allocation.table.tableNumber}.`,
       );
+      completeFloorAssignment(booking.reference);
     } catch (error) {
       await refreshAssignedShowState(booking.showId).catch(() => undefined);
       showWorkflowToast(
@@ -22065,6 +22097,12 @@ export default function AdminDashboardPage() {
       );
     } finally {
       floorAssignmentInFlightRef.current.delete(booking.reference);
+      setFloorAssignmentAction((current) =>
+        current?.reference === booking.reference &&
+        current.status === "assigning"
+          ? null
+          : current,
+      );
     }
   }
 
@@ -24096,7 +24134,7 @@ export default function AdminDashboardPage() {
   const selectedShowLegacyAssignments = tables
     .filter(
       (table) =>
-        table.showId === selectedShowId && isLegacyPlaceholderTable(table),
+        table.showId === selectedShowId && isLegacyFloorPlaceholder(table),
     )
     .flatMap((table) => {
       const booking = activeShowBookings.find(
@@ -28953,7 +28991,11 @@ export default function AdminDashboardPage() {
                   type="button"
                   disabled={
                     Boolean(splitMergeReview.booking) ||
-                    Boolean(operationalTableAction)
+                    Boolean(
+                      operationalTableAction ||
+                        completedOperationalTableAction ===
+                          `unmerge-${splitMergeReview.table.id}`,
+                    )
                   }
                   onClick={() =>
                     void splitMergedTable(splitMergeReview.table)
@@ -28961,10 +29003,13 @@ export default function AdminDashboardPage() {
                   className="rounded-full border border-sky-300/40 bg-sky-300 px-5 py-3 font-semibold text-black transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   {splitMergeReview.booking
-                    ? "Reallocate Booking First"
+                      ? "Reallocate Booking First"
                     : operationalTableAction ===
                         `unmerge-${splitMergeReview.table.id}`
-                      ? "Restoring..."
+                      ? "RESTORING..."
+                      : completedOperationalTableAction ===
+                          `unmerge-${splitMergeReview.table.id}`
+                        ? "RESTORED ✓"
                       : "Restore Original Tables"}
                 </button>
               </div>
@@ -38998,7 +39043,12 @@ export default function AdminDashboardPage() {
                     selectedShowId,
                     zone.id,
                   ).filter((table) => table.physicalTable === true);
-                  const zoneOccupancyCounts = physicalZoneTables.reduce(
+                  const floorZoneTables = getZoneTables(
+                    tables,
+                    selectedShowId,
+                    zone.id,
+                  ).filter(isFloorInventoryTable);
+                  const zoneOccupancyCounts = floorZoneTables.reduce(
                     (counts, table) => {
                       if (table.capacityConfigured === false) {
                         return {
@@ -39064,7 +39114,8 @@ export default function AdminDashboardPage() {
                       <p className="mt-1 text-xs leading-5 text-zinc-400">
                         {zoneOccupancyCounts.available} available ·{" "}
                         {zoneOccupancyCounts.reserved} reserved ·{" "}
-                        {zoneOccupancyCounts["checked-in"]} arrived
+                        {zoneOccupancyCounts["checked-in"]} arrived ·{" "}
+                        {stats.assignableTableCapacity} assignable seats
                       </p>
                     </button>
                   );
@@ -39355,10 +39406,18 @@ export default function AdminDashboardPage() {
                         <button
                           type="button"
                           onClick={() => assignFloorQueuedBooking(booking)}
-                          disabled={!allocation || !canManageBookings}
+                          disabled={
+                            !allocation ||
+                            !canManageBookings ||
+                            floorAssignmentAction?.reference === booking.reference
+                          }
                           className="rounded-full bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          Assign Suggested Table
+                          {floorAssignmentAction?.reference === booking.reference
+                            ? floorAssignmentAction.status === "assigning"
+                              ? "ASSIGNING..."
+                              : "ASSIGNED ✓"
+                            : "Assign Suggested Table"}
                         </button>
                         {!allocation && (
                           <button
@@ -39467,7 +39526,7 @@ export default function AdminDashboardPage() {
                           type="button"
                           disabled={
                             !physicalMappingSelections[booking.reference] ||
-                            floorAssignmentInFlightRef.current.has(booking.reference)
+                            floorAssignmentAction?.reference === booking.reference
                           }
                           onClick={() => {
                             const targetTableId =
@@ -39485,7 +39544,11 @@ export default function AdminDashboardPage() {
                           }}
                           className="rounded-xl bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          Map Operational Table
+                          {floorAssignmentAction?.reference === booking.reference
+                            ? floorAssignmentAction.status === "assigning"
+                              ? "ASSIGNING..."
+                              : "ASSIGNED ✓"
+                            : "Map Operational Table"}
                         </button>
                       </div>
 
@@ -39534,7 +39597,7 @@ export default function AdminDashboardPage() {
                 !table.mergedFrom?.length &&
                 !table.mergedInto,
             );
-            const zoneOccupancyCounts = physicalZoneTables.reduce(
+            const zoneOccupancyCounts = zoneTables.reduce(
               (counts, table) => {
                 if (table.capacityConfigured === false) {
                   return {
@@ -39617,7 +39680,12 @@ export default function AdminDashboardPage() {
                       </p>
                       <p className="mt-2 text-sm font-semibold text-white">
                         {stats.physicalTableCount} physical ·{" "}
-                        {stats.configuredPhysicalTableCount} configured
+                        {stats.temporaryOperationalTableCount} temporary ·{" "}
+                        {stats.mergedOperationalTableCount} merged
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-300">
+                        {stats.operationalTableCapacity} seats represented ·{" "}
+                        {stats.assignableTableCapacity} currently assignable
                       </p>
                       {stats.unconfiguredPhysicalTableCount > 0 && (
                         <p className="mt-1 text-xs text-amber-100">
@@ -39647,11 +39715,6 @@ export default function AdminDashboardPage() {
                           </>
                         )}
                       </p>
-                      {stats.temporaryOperationalTableCount > 0 && (
-                        <p className="mt-1 text-xs text-sky-200">
-                          {stats.temporaryOperationalTableCount} temporary operational table{stats.temporaryOperationalTableCount === 1 ? "" : "s"}
-                        </p>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -39732,11 +39795,16 @@ export default function AdminDashboardPage() {
                       <button
                         type="button"
                         onClick={() => createTable(zone.id)}
-                        disabled={Boolean(operationalTableAction)}
+                        disabled={Boolean(
+                          operationalTableAction ||
+                            completedOperationalTableAction === `create-${zone.id}`,
+                        )}
                         className="rounded-full bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {operationalTableAction === `create-${zone.id}`
-                          ? "Creating..."
+                          ? "ADDING..."
+                          : completedOperationalTableAction === `create-${zone.id}`
+                            ? "ADDED ✓"
                           : "Add Temporary Table"}
                       </button>
                     </div>
@@ -39986,11 +40054,16 @@ export default function AdminDashboardPage() {
                                 <button
                                   type="button"
                                   onClick={() => savePhysicalTableCapacity(table)}
-                                  disabled={Boolean(operationalTableAction)}
+                                  disabled={Boolean(
+                                    operationalTableAction ||
+                                      completedOperationalTableAction === `capacity-${table.id}`,
+                                  )}
                                   className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   {operationalTableAction === `capacity-${table.id}`
-                                    ? "Saving..."
+                                    ? "SAVING..."
+                                    : completedOperationalTableAction === `capacity-${table.id}`
+                                      ? "SAVED ✓"
                                     : table.capacityConfigured === false
                                       ? "Set Capacity"
                                       : "Save Capacity"}
@@ -40116,12 +40189,17 @@ export default function AdminDashboardPage() {
                             onClick={() => saveOperationalTableChanges(table)}
                             disabled={
                               !table.authoritativeId ||
-                              Boolean(operationalTableAction)
+                              Boolean(
+                                operationalTableAction ||
+                                  completedOperationalTableAction === `update-${table.id}`,
+                              )
                             }
                             className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {operationalTableAction === `update-${table.id}`
-                              ? "Saving..."
+                              ? "SAVING..."
+                              : completedOperationalTableAction === `update-${table.id}`
+                                ? "SAVED ✓"
                               : "Save Table Changes"}
                           </button>
                         </div>
@@ -40201,9 +40279,8 @@ export default function AdminDashboardPage() {
                                     value={selectedFloorMoveTargetId}
                                     disabled={
                                       !canManageBookings ||
-                                      floorAssignmentInFlightRef.current.has(
-                                        allocatedBooking.reference,
-                                      )
+                                      floorAssignmentAction?.reference ===
+                                        allocatedBooking.reference
                                     }
                                     onChange={(event) =>
                                       setPhysicalMappingSelections(
@@ -40226,9 +40303,8 @@ export default function AdminDashboardPage() {
                                     disabled={
                                       !selectedFloorMoveTargetId ||
                                       !canManageBookings ||
-                                      floorAssignmentInFlightRef.current.has(
-                                        allocatedBooking.reference,
-                                      )
+                                      floorAssignmentAction?.reference ===
+                                        allocatedBooking.reference
                                     }
                                     onClick={() =>
                                       void moveBooking(
@@ -40238,7 +40314,12 @@ export default function AdminDashboardPage() {
                                     }
                                     className="rounded-xl bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
                                   >
-                                    Move to table
+                                    {floorAssignmentAction?.reference ===
+                                    allocatedBooking.reference
+                                      ? floorAssignmentAction.status === "assigning"
+                                        ? "ASSIGNING..."
+                                        : "ASSIGNED ✓"
+                                      : "Move to table"}
                                   </button>
                                 </div>
                                 {floorMoveTargets.length === 0 && (
@@ -40339,7 +40420,10 @@ export default function AdminDashboardPage() {
                                   type="button"
                                   disabled={
                                     selectedMergeTargets.length === 0 ||
-                                    Boolean(operationalTableAction)
+                                    Boolean(
+                                      operationalTableAction ||
+                                        completedOperationalTableAction === `merge-${table.id}`,
+                                    )
                                   }
                                   onClick={() =>
                                     void mergeTable(zone.id, table)
@@ -40348,7 +40432,9 @@ export default function AdminDashboardPage() {
                                 >
                                   {operationalTableAction ===
                                   `merge-${table.id}`
-                                    ? "Merging..."
+                                    ? "MERGING..."
+                                    : completedOperationalTableAction === `merge-${table.id}`
+                                      ? "MERGED ✓"
                                     : table.mergedFrom?.length
                                       ? "Add Selected Tables"
                                       : "Merge Selected Tables"}
@@ -40372,11 +40458,20 @@ export default function AdminDashboardPage() {
                             <button
                               type="button"
                               onClick={() => toggleDisabled(table)}
-                              disabled={Boolean(operationalTableAction)}
+                              disabled={Boolean(
+                                operationalTableAction ||
+                                  completedOperationalTableAction === `toggle-${table.id}`,
+                              )}
                               className="rounded-full border border-white/20 px-5 py-3 font-semibold transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              {operationalTableAction === `update-${table.id}`
-                                ? "Saving..."
+                              {operationalTableAction === `toggle-${table.id}`
+                                ? table.status === "disabled"
+                                  ? "ENABLING..."
+                                  : "DISABLING..."
+                                : completedOperationalTableAction === `toggle-${table.id}`
+                                  ? table.status === "disabled"
+                                    ? "DISABLED ✓"
+                                    : "ENABLED ✓"
                                 : table.status === "disabled"
                                   ? "Enable"
                                   : "Disable"}

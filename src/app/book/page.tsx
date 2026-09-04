@@ -97,6 +97,7 @@ import {
   type CorporateInvoicePaymentBasis,
   validateCorporateInvoiceFinancials,
 } from "../../lib/corporateInvoicePayments";
+import { getBookingSeatingEligibility } from "../../lib/bookingSeatingAvailability";
 
 type SeatingOption = SeatingZone;
 
@@ -335,13 +336,6 @@ const royalBalconyUpperHotspotPath =
 const royalBalconyLowerHotspotPath =
   "M390.95,250.95c-13.84,51.19-47.58,94.2-92.43,120.19h175.44v-120.19h-83Z";
 
-function isAvailableForParty(
-  option: SeatingOption,
-  guests: number,
-) {
-  return guests >= option.minGuests && guests <= option.maxGuests;
-}
-
 function getRemainingSeats(
   option: SeatingOption,
   occupiedSeats: number,
@@ -355,31 +349,15 @@ function isAvailableForBooking(
   guests: number,
   occupiedSeats = 0,
   settings: DemoVenueSettings = defaultVenueSettings,
+  isInternalCorporate = false,
 ) {
-  return (
-    isAvailableForParty(option, guests) &&
-    getRemainingSeats(option, occupiedSeats, settings) >= guests
-  );
-}
-
-function getAvailabilityMessage(
-  isGroupSizeAvailable: boolean,
-  hasEnoughVenueCapacity: boolean,
-  isLimited = false,
-) {
-  if (!isGroupSizeAvailable) {
-    return "Not Available For This Group Size";
-  }
-
-  if (!hasEnoughVenueCapacity) {
-    return "Not Enough Seats Available";
-  }
-
-  if (isLimited) {
-    return "Limited";
-  }
-
-  return "Available";
+  return getBookingSeatingEligibility({
+    isInternalCorporate,
+    maxGuests: option.maxGuests,
+    minGuests: option.minGuests,
+    partySize: guests,
+    remainingSeats: getRemainingSeats(option, occupiedSeats, settings),
+  }).isAvailable;
 }
 
 function getAvailabilityState(
@@ -387,22 +365,32 @@ function getAvailabilityState(
   guests: number,
   occupiedSeats: number,
   settings: DemoVenueSettings = defaultVenueSettings,
+  isInternalCorporate = false,
+  hasExplicitTableAssignment = false,
 ) {
   const remainingSeats = getRemainingSeats(option, occupiedSeats, settings);
-  const isGroupSizeAvailable = isAvailableForParty(option, guests);
-  const hasEnoughVenueCapacity = remainingSeats >= guests;
-  const isAvailable = isGroupSizeAvailable && hasEnoughVenueCapacity;
+  const baseEligibility = getBookingSeatingEligibility({
+    hasExplicitTableAssignment,
+    isInternalCorporate,
+    maxGuests: option.maxGuests,
+    minGuests: option.minGuests,
+    partySize: guests,
+    remainingSeats,
+  });
   const isLimited =
-    isAvailable && remainingSeats <= Math.max(guests * 2, 6);
+    baseEligibility.isAvailable && remainingSeats <= Math.max(guests * 2, 6);
+  const eligibility = getBookingSeatingEligibility({
+    hasExplicitTableAssignment,
+    isInternalCorporate,
+    isLimited,
+    maxGuests: option.maxGuests,
+    minGuests: option.minGuests,
+    partySize: guests,
+    remainingSeats,
+  });
 
   return {
-    availabilityMessage: getAvailabilityMessage(
-      isGroupSizeAvailable,
-      hasEnoughVenueCapacity,
-      isLimited,
-    ),
-    isAvailable,
-    isGroupSizeAvailable,
+    ...eligibility,
     isLimited,
     remainingSeats,
   };
@@ -998,6 +986,7 @@ export default function BookingPage() {
         partySize,
         occupiedSeatsByZone[zone.id] ?? 0,
         venueConfig,
+        isCorporateCalendarCheckout,
       ),
     );
   const canJoinWaitlist =
@@ -1041,6 +1030,7 @@ export default function BookingPage() {
         partySize,
         occupiedSeatsByZone[selectedZone.id] ?? 0,
         venueConfig,
+        isCorporateCalendarCheckout,
       ),
   );
   const complimentarySubmissionEligibility =
@@ -1389,6 +1379,7 @@ export default function BookingPage() {
         nextPartySize,
         occupiedSeatsByZone[currentZone.id] ?? 0,
         venueConfig,
+        isCorporateCalendarCheckout,
       )
         ? null
         : currentZone,
@@ -1400,6 +1391,7 @@ export default function BookingPage() {
         nextPartySize,
         occupiedSeatsByZone[currentZone.id] ?? 0,
         venueConfig,
+        isCorporateCalendarCheckout,
       )
         ? null
         : currentZone,
@@ -2067,6 +2059,7 @@ export default function BookingPage() {
         partySize,
         occupiedSeatsByZone[selectedZone.id] ?? 0,
         venueConfig,
+        isCorporateCalendarCheckout,
       )
     ) {
       return;
@@ -2252,6 +2245,7 @@ export default function BookingPage() {
         partySize,
         occupiedSeatsByZone[selectedZone.id] ?? 0,
         venueConfig,
+        isCorporateCalendarCheckout,
       )
     ) {
       return;
@@ -2493,6 +2487,7 @@ export default function BookingPage() {
         partySize,
         occupiedSeatsByZone[selectedZone.id] ?? 0,
         venueConfig,
+        isCorporateCalendarCheckout,
       )
     ) {
       return;
@@ -2654,6 +2649,8 @@ export default function BookingPage() {
       partySize,
       occupiedSeatsByZone[option.id] ?? 0,
       venueConfig,
+      isCorporateCalendarCheckout,
+      Boolean(selectedTemporaryTable),
     );
 
     return {
@@ -3841,10 +3838,10 @@ export default function BookingPage() {
               {selectedZone ? (
                 (() => {
                   const availability = getZoneAvailability(selectedZone);
-                  const status = availability.isLimited
-                    ? "Limited"
-                    : "Available";
-                  const statusClass = availability.isLimited
+                  const status = availability.availabilityMessage;
+                  const statusClass = availability.requiresFloorAssignment
+                    ? "border-sky-300/45 bg-sky-950/25 text-sky-100"
+                    : availability.isLimited
                     ? "border-amber-300/45 bg-amber-950/25 text-amber-100"
                     : "border-emerald-300/35 bg-emerald-950/20 text-emerald-200";
 
@@ -3869,6 +3866,12 @@ export default function BookingPage() {
                         )}{" "}
                         pp · {availability.remainingSeats} Seats Available
                       </p>
+                      {availability.requiresFloorAssignment && (
+                        <p className="mt-2 text-sm text-sky-100">
+                          Zone capacity is available. Physical table allocation
+                          will be completed in Floor Operations.
+                        </p>
+                      )}
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -4667,11 +4670,15 @@ export default function BookingPage() {
                 partySize,
                 occupiedSeatsByZone[previewSeatingZone.id] ?? 0,
                 venueConfig,
+                isCorporateCalendarCheckout,
+                Boolean(selectedTemporaryTable),
               );
               const status = availability.availabilityMessage;
               const statusClass = !availability.isAvailable
                 ? "border-zinc-600 bg-black/40 text-zinc-300"
-                : availability.isLimited
+                : availability.requiresFloorAssignment
+                  ? "border-sky-300/45 bg-sky-950/25 text-sky-100"
+                  : availability.isLimited
                   ? "border-amber-300/45 bg-amber-950/25 text-amber-100"
                   : "border-emerald-300/35 bg-emerald-950/20 text-emerald-200";
               const recommendedShow = !availability.isAvailable
@@ -4718,6 +4725,13 @@ export default function BookingPage() {
                   <p className="mt-4 text-sm leading-6 text-zinc-300">
                     {previewSeatingZone.description}
                   </p>
+
+                  {availability.requiresFloorAssignment && (
+                    <p className="mt-3 text-sm leading-6 text-sky-100">
+                      Zone capacity is available. Physical table allocation
+                      will be completed in Floor Operations.
+                    </p>
+                  )}
 
                   {!availability.isAvailable && recommendedShow && (
                     <div className="mt-4 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/10 p-4">

@@ -164,6 +164,7 @@ function getBookingSectionForTableZone(section: string | null | undefined) {
 async function fetchAdminBookingRows(
   serviceClient: SupabaseClient,
   reference: string | null,
+  showId: string | null,
 ) {
   const rows: AdminBookingRow[] = [];
 
@@ -172,6 +173,10 @@ async function fetchAdminBookingRows(
 
     if (reference) {
       query = query.eq("booking_reference", reference);
+    }
+
+    if (showId) {
+      query = query.eq("show_id", showId);
     }
 
     const { data, error } = await query
@@ -330,6 +335,7 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const reference = url.searchParams.get("reference");
+  const showId = url.searchParams.get("showId");
   const includeHistory = url.searchParams.get("includeHistory") !== "0";
   const historyOnly = url.searchParams.get("historyOnly") === "1";
 
@@ -418,7 +424,11 @@ export async function GET(request: Request) {
       })),
     });
   }
-  const { rows, error } = await fetchAdminBookingRows(serviceClient, reference);
+  const { rows, error } = await fetchAdminBookingRows(
+    serviceClient,
+    reference,
+    showId,
+  );
 
   if (error) {
     console.error("[Zingara API] Failed to load bookings", error);
