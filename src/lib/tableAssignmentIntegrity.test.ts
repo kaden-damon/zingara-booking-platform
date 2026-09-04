@@ -22,7 +22,7 @@ test("Floor Queue assignment is one atomic service-role operation", async () => 
 
 test("atomic assignment rejects wrong show, zone, capacity, and ownership", async () => {
   const migration = await source(
-    "../../supabase/migrations/20260903100000_phase_39_53_atomic_floor_assignment.sql",
+    "../../supabase/migrations/20260904180000_phase_39_69_merged_floor_assignment.sql",
   );
 
   assert.match(migration, /v_target\.show_id <> v_booking\.show_id/);
@@ -35,7 +35,7 @@ test("atomic assignment rejects wrong show, zone, capacity, and ownership", asyn
 
 test("atomic assignment is unavailable to browser roles", async () => {
   const migration = await source(
-    "../../supabase/migrations/20260903100000_phase_39_53_atomic_floor_assignment.sql",
+    "../../supabase/migrations/20260904180000_phase_39_69_merged_floor_assignment.sql",
   );
 
   assert.match(migration, /security definer/);

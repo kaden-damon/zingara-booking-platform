@@ -1,4 +1,9 @@
-import type { DemoBooking, DemoTable, SeatingZoneId } from "./zingaraDemo";
+import {
+  isValidMergedOperationalTable,
+  type DemoBooking,
+  type DemoTable,
+  type SeatingZoneId,
+} from "./zingaraDemo";
 
 const manualMoveZoneOrder: SeatingZoneId[] = [
   "golden-circle",
@@ -11,42 +16,7 @@ export function isValidMergedOperationalParent(
   table: DemoTable,
   tables: DemoTable[],
 ) {
-  const memberIds = table.mergedFrom ?? [];
-
-  if (
-    table.physicalTable === true ||
-    table.availabilityScope !== "operational" ||
-    !table.authoritativeId ||
-    table.capacityConfigured === false ||
-    table.mergedInto ||
-    memberIds.length < 2 ||
-    new Set(memberIds).size !== memberIds.length
-  ) {
-    return false;
-  }
-
-  const members = memberIds.map((memberId) =>
-    tables.find((candidate) => candidate.id === memberId),
-  );
-
-  return (
-    members.every(
-      (member) =>
-        Boolean(member?.authoritativeId) &&
-        member?.showId === table.showId &&
-        member?.zoneId === table.zoneId &&
-        member?.physicalTable === true &&
-        member?.capacityConfigured !== false &&
-        member?.status === "disabled" &&
-        member?.mergedInto === table.id &&
-        !member?.mergedFrom?.length &&
-        !member?.bookingReference,
-    ) &&
-    members.reduce(
-      (total, member) => total + (member?.seatCapacity ?? 0),
-      0,
-    ) === table.seatCapacity
-  );
+  return isValidMergedOperationalTable(table, tables);
 }
 
 export function isTemporaryOperationalTable(table: DemoTable) {

@@ -921,10 +921,14 @@ async function persistBookingTableAssignment(
     ].some((code) => assignmentError.message.includes(code));
 
     if (knownConflict) {
+      const bookingNoLongerAssignable =
+        assignmentError.message.includes("BOOKING_NOT_ASSIGNABLE");
+
       return Response.json(
         {
-          error:
-            "The selected table is no longer valid for this booking. Refresh Floor and choose another table.",
+          error: bookingNoLongerAssignable
+            ? "This booking is no longer eligible for Floor assignment. Refresh Floor and review its status."
+            : "The selected table is no longer valid for this booking. Refresh Floor and choose another table.",
         },
         { status: 409 },
       );
