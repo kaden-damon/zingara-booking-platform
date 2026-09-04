@@ -5440,7 +5440,7 @@ const settingsLessons: AcademyArticle[] = [
     relatedActions: ["bookings"],
     related: ["Payment Gateway Settings", "Analytics Overview"],
     tips: [
-      "COUNTESS10, ROYAL500, and STAGE15 are examples of code formats, not automatic permission to distribute them.",
+      "Treat every promo code as confidential campaign information and distribute it only when authorised.",
       "The platform calculates final pricing from the saved promo settings.",
     ],
     title: "Promo Code Management",
@@ -31517,7 +31517,7 @@ export default function AdminDashboardPage() {
                         }))
                       }
                       className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm uppercase text-white"
-                      placeholder="COUNTESS10"
+                      placeholder="SUMMER10"
                     />
                   </label>
                   <label className="text-sm text-zinc-300">
@@ -31533,7 +31533,7 @@ export default function AdminDashboardPage() {
                         }))
                       }
                       className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white"
-                      placeholder="10% Royal Countess guest saving"
+                      placeholder="Approved campaign saving"
                     />
                   </label>
                   <div className="grid gap-3 sm:grid-cols-2">

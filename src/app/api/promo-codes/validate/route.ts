@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   const limit = await checkRateLimit(
     request,
     {
-      limit: 45,
+      limit: 15,
       scope: "public_promo_validate_ip",
       windowSeconds: 60,
     },
@@ -97,11 +97,20 @@ export async function POST(request: Request) {
       subtotal: Math.max(Number(body.subtotal) || 0, 0),
     });
 
+    if (promo.status !== "valid") {
+      return Response.json({
+        code: null,
+        description: null,
+        discountAmount: 0,
+        status: "invalid",
+      });
+    }
+
     return Response.json({
       code: promo.code ?? null,
-      description: promo.description ?? null,
-      discountAmount: promo.status === "valid" ? promo.discountAmount : 0,
-      status: promo.status,
+      description: "Promo code applied.",
+      discountAmount: promo.discountAmount,
+      status: "valid",
     });
   } catch (error) {
     console.error("[Zingara Promo] Validation failed", error);

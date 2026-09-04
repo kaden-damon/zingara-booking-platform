@@ -89,27 +89,6 @@ export const bookingAddons: BookingAddon[] = [
   },
 ];
 
-export const legacyPromoCodes: PromoCodeSummary[] = [
-  {
-    code: "COUNTESS10",
-    description: "10% Royal Countess guest saving",
-    discountType: "percentage",
-    value: 10,
-  },
-  {
-    code: "ROYAL500",
-    description: "R500 private table credit",
-    discountType: "fixed",
-    value: 500,
-  },
-  {
-    code: "STAGE15",
-    description: "15% elevated stage celebration rate",
-    discountType: "percentage",
-    value: 15,
-  },
-];
-
 export const serviceFeeGuestThreshold = 6;
 export const serviceFeeRate = 0.125;
 

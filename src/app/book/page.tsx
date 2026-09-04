@@ -16,9 +16,7 @@ import {
 } from "../../lib/browserNotifications";
 import {
   bookingAddons,
-  getDiscountAmount,
   getRemainingVenueSeatsForZone,
-  legacyPromoCodes,
   normalizePromoCode,
   serviceFeeGuestThreshold,
   serviceFeeRate,
@@ -444,12 +442,6 @@ function formatCurrency(amount: number) {
   return `R${amount.toLocaleString()}`;
 }
 
-function getPromoCode(code: string) {
-  const normalizedCode = normalizePromoCode(code);
-
-  return legacyPromoCodes.find((promo) => promo.code === normalizedCode);
-}
-
 function getMonthKey(dateValue: string) {
   const [year = "2026", month = "01"] = dateValue.split("-");
 
@@ -810,7 +802,6 @@ export default function BookingPage() {
   const seatingSubtotal =
     selectedZone ? pricePerPerson * partySize : 0;
   const subtotal = seatingSubtotal + addonsTotal;
-  const fallbackPromoCode = getPromoCode(promoCodeInput);
   const appliedPromoCode =
     promoValidationPreview?.status === "valid"
       ? {
@@ -820,12 +811,12 @@ export default function BookingPage() {
           discountType: "fixed" as const,
           value: promoValidationPreview.discountAmount,
         }
-      : fallbackPromoCode;
+      : null;
   const discountAmount = isComplimentary
     ? 0
     : promoValidationPreview?.status === "valid"
       ? promoValidationPreview.discountAmount
-      : getDiscountAmount(fallbackPromoCode, subtotal);
+      : 0;
   const discountedSubtotal = Math.max(subtotal - discountAmount, 0);
   const serviceFeeAmount = isComplimentary
     ? 0
@@ -4357,10 +4348,11 @@ export default function BookingPage() {
                       <input
                         value={promoCodeInput}
                         disabled={isFriendsAndFamily}
-                        onChange={(event) =>
-                          setPromoCodeInput(event.target.value)
-                        }
-                        placeholder="COUNTESS10"
+                        onChange={(event) => {
+                          setPromoCodeInput(event.target.value);
+                          setPromoValidationPreview(null);
+                        }}
+                        placeholder="ENTER CODE"
                         className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm uppercase disabled:cursor-not-allowed disabled:opacity-45 sm:px-4 sm:py-3 sm:text-base"
                       />
                       {isFriendsAndFamily && (
@@ -4379,18 +4371,7 @@ export default function BookingPage() {
                           </span>
                         ) : (
                           <span className="mt-2 block text-sm text-amber-200">
-                            {promoValidationPreview?.status === "expired"
-                              ? "Promo code has expired."
-                              : promoValidationPreview?.status ===
-                                  "usage_exhausted"
-                                ? "Promo code has reached its usage limit."
-                                : promoValidationPreview?.status ===
-                                    "scheduled"
-                                  ? "Promo code is not active yet."
-                                  : promoValidationPreview?.status ===
-                                      "not_applicable"
-                                    ? "Promo code is not available for this booking."
-                                    : "Promo code not recognized."}
+                            Promo code is not valid for this booking.
                           </span>
                         ))}
                     </label>
