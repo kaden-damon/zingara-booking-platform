@@ -7,6 +7,7 @@ import {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculateOutstandingAmount } from "@/lib/paymentControls";
 import { calculatePayFastTransactionAmounts } from "@/lib/payfast/transactionFee";
+import { normalizePayFastCellNumber } from "@/lib/payfast/phone";
 
 export type PayFastCheckoutPayload = {
   amount?: number;
@@ -48,10 +49,6 @@ function splitName(name: string | undefined) {
     firstName,
     lastName: surnameParts.join(" "),
   };
-}
-
-function normalizePhone(phone: string | undefined) {
-  return phone?.replace(/[^\d+]/g, "") || undefined;
 }
 
 export async function getAuthoritativeCheckoutAmount(
@@ -176,10 +173,19 @@ export async function createExistingBookingPayFastCheckout(
     ),
   };
   const { firstName, lastName } = splitName(payload.customer?.name);
+  const normalizedPhone = normalizePayFastCellNumber(payload.customer?.phone);
+
+  if (!normalizedPhone.valid) {
+    return {
+      error: normalizedPhone.error,
+      status: 400,
+    };
+  }
+
   const paymentData = createPayFastPaymentData(
     {
       amount: transaction.providerGrossAmount,
-      cellNumber: normalizePhone(payload.customer?.phone),
+      cellNumber: normalizedPhone.cellNumber,
       customString1: payload.bookingReference,
       customString2: payload.section,
       emailAddress: payload.customer?.email,
