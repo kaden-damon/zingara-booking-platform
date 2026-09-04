@@ -6,9 +6,11 @@ import {
   bookingBelongsToOperationalShow,
   getArrivedGuestCount,
   getDefaultOperationalShow,
+  getInternalShowAvailabilityLabel,
   getOperationalDashboardMetrics,
   getOperationalShowBookings,
   getSouthAfricaOperationalDate,
+  isInternallyManageableShow,
 } from "./operationsData.ts";
 import type { DemoBooking, DemoShow } from "./zingaraDemo.ts";
 
@@ -154,7 +156,40 @@ test("individual ticket arrivals contribute without marking the whole booking ar
   assert.equal(getArrivedGuestCount(booking({ status: "checked-in" })), 2);
 });
 
-test("default show selects today, otherwise the next active performance", () => {
+test("internal operations keep sold-out and publicly inactive performances manageable", () => {
+  assert.equal(isInternallyManageableShow(show({ operationalStatus: "active" })), true);
+  assert.equal(isInternallyManageableShow(show({ operationalStatus: "sold-out" })), true);
+  assert.equal(isInternallyManageableShow(show({ operationalStatus: "inactive" })), true);
+  assert.equal(isInternallyManageableShow(show({ operationalStatus: "special-event" })), true);
+});
+
+test("internal operations exclude archived and non-performance records", () => {
+  assert.equal(
+    isInternallyManageableShow(
+      show({ archivedAt: "2026-09-01T00:00:00Z", operationalStatus: "inactive" }),
+    ),
+    false,
+  );
+  assert.equal(isInternallyManageableShow(show({ operationalStatus: "blackout" })), false);
+  assert.equal(
+    isInternallyManageableShow(show({ operationalStatus: "venue-closure" })),
+    false,
+  );
+});
+
+test("internal show labels distinguish public availability without disabling access", () => {
+  assert.equal(getInternalShowAvailabilityLabel(show()), "Available");
+  assert.equal(
+    getInternalShowAvailabilityLabel(show({ operationalStatus: "sold-out" })),
+    "Sold Out",
+  );
+  assert.equal(
+    getInternalShowAvailabilityLabel(show({ operationalStatus: "inactive" })),
+    "Public Closed",
+  );
+});
+
+test("default show selects today, otherwise the next internally manageable performance", () => {
   const tomorrow = show({ date: "2026-09-03", id: "tomorrow" });
   const today = show({ id: "today" });
   const inactiveToday = show({ id: "inactive", operationalStatus: "inactive" });
@@ -162,8 +197,22 @@ test("default show selects today, otherwise the next active performance", () => 
   assert.equal(getDefaultOperationalShow([tomorrow, today], "2026-09-02")?.id, "today");
   assert.equal(
     getDefaultOperationalShow([tomorrow, inactiveToday], "2026-09-02")?.id,
-    "tomorrow",
+    "inactive",
   );
+});
+
+test("Operations selectors share internal eligibility while public booking stays separate", async () => {
+  const page = await readFile(new URL("../app/admin/page.tsx", import.meta.url), "utf8");
+  const publicPage = await readFile(new URL("../app/book/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /const floorSelectableShows[\s\S]*isInternallyManageableShow\(show\)/);
+  assert.match(page, /const permittedManifestShows[\s\S]*isInternallyManageableShow\(show\)/);
+  assert.match(page, /const financialShows[\s\S]*isInternallyManageableShow\(show\)/);
+  assert.match(page, /shows=\{floorSelectableShows\}/);
+  assert.match(page, /shows=\{permittedManifestShows\}/);
+  assert.match(page, /shows=\{financialShows\}/);
+  assert.match(publicPage, /function isGuestBookableShow/);
+  assert.match(publicPage, /return status === "active" \|\| status === "special-event"/);
 });
 
 test("operational date follows Africa/Johannesburg across the UTC boundary", () => {

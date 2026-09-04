@@ -356,10 +356,12 @@ import {
   bookingBelongsToOperationalShow,
   getArrivedGuestCount,
   getDefaultOperationalShow,
+  getInternalShowAvailabilityLabel,
   getOperationalDashboardMetrics,
   getOperationalShowBookings,
   getOperationalShowIdentityValues,
   getSouthAfricaOperationalDate,
+  isInternallyManageableShow,
 } from "../../lib/operationsData";
 import BookingPaginationControls from "./BookingPaginationControls";
 
@@ -7686,6 +7688,24 @@ function getFloorShowSelectorLabel(show: DemoShow) {
   return `${locationLabel} · ${formatFloorShowSelectorDate(show.date)} · ${getSouthAfricaShowTime(show)}`;
 }
 
+function getInternalShowStatusClass(show: DemoShow) {
+  const status = show.operationalStatus ?? "active";
+
+  if (status === "sold-out") {
+    return "border-rose-300/35 bg-rose-950/35 text-rose-200";
+  }
+
+  if (status === "inactive") {
+    return "border-amber-300/35 bg-amber-950/35 text-amber-100";
+  }
+
+  if (status === "special-event") {
+    return "border-sky-300/35 bg-sky-950/35 text-sky-100";
+  }
+
+  return "border-emerald-300/30 bg-emerald-950/30 text-emerald-200";
+}
+
 type PerformanceCalendarSelectorProps = {
   allLabel?: string;
   allowAllShows?: boolean;
@@ -7887,11 +7907,20 @@ function PerformanceCalendarSelector({
           "mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-left text-white transition hover:border-[#D8C36A]/60 focus:border-[#D8C36A]/70 focus:outline-none"
         }
       >
-        {selectedShow
-          ? getFloorShowSelectorLabel(selectedShow)
-          : allowAllShows && selectedShowId === "all"
-            ? allLabel
-            : emptyLabel}
+        {selectedShow ? (
+          <span className="flex flex-wrap items-center justify-between gap-2">
+            <span>{getFloorShowSelectorLabel(selectedShow)}</span>
+            <span
+              className={`rounded-full border px-2 py-1 text-[0.58rem] font-bold uppercase tracking-[0.1em] ${getInternalShowStatusClass(selectedShow)}`}
+            >
+              {getInternalShowAvailabilityLabel(selectedShow)}
+            </span>
+          </span>
+        ) : allowAllShows && selectedShowId === "all" ? (
+          allLabel
+        ) : (
+          emptyLabel
+        )}
       </button>
 
       {isOpen && (
@@ -7968,6 +7997,7 @@ function PerformanceCalendarSelector({
               const isAvailable = showsForDate.length > 0;
               const isSelected = selectedDate === dateValue;
               const isToday = dateValue === today;
+              const dateStatus = showsForDate[0];
 
               return (
                 <button
@@ -7977,14 +8007,23 @@ function PerformanceCalendarSelector({
                   onClick={() => selectDate(dateValue)}
                   title={
                     isAvailable
-                      ? `${showsForDate.length} active performance${showsForDate.length === 1 ? "" : "s"}`
-                      : "No active performance"
+                      ? showsForDate
+                          .map(
+                            (show) =>
+                              `${getSouthAfricaShowTime(show)} · ${getInternalShowAvailabilityLabel(show)}`,
+                          )
+                          .join("\n")
+                      : "No operational performance"
                   }
                   className={`aspect-square rounded-xl text-sm font-semibold transition ${
                     isSelected
                       ? "bg-[#D8C36A] text-black"
                       : isAvailable
-                        ? "border border-[#D8C36A]/25 bg-[#D8C36A]/10 text-[#F2D66C] hover:bg-[#D8C36A]/20"
+                        ? dateStatus?.operationalStatus === "sold-out"
+                          ? "border border-rose-300/35 bg-rose-950/25 text-rose-200 hover:bg-rose-950/45"
+                          : dateStatus?.operationalStatus === "inactive"
+                            ? "border border-amber-300/35 bg-amber-950/25 text-amber-100 hover:bg-amber-950/45"
+                            : "border border-[#D8C36A]/25 bg-[#D8C36A]/10 text-[#F2D66C] hover:bg-[#D8C36A]/20"
                         : isToday
                           ? "border border-white/15 bg-white/[0.04] text-zinc-500"
                           : "bg-white/[0.03] text-zinc-700"
@@ -8043,7 +8082,8 @@ function PerformanceCalendarSelector({
                           : "border-white/15 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/60 hover:text-white"
                       }`}
                     >
-                      {locationLabel} · {getSouthAfricaShowTime(show)}
+                      {locationLabel} · {getSouthAfricaShowTime(show)} ·{" "}
+                      {getInternalShowAvailabilityLabel(show)}
                     </button>
                   );
                 })}
@@ -13092,7 +13132,7 @@ export default function AdminDashboardPage() {
     normalizeShowLocation(show.location ?? show.venueName);
   const permittedManifestShows = shows
     .filter((show) => {
-      if (show.archivedAt) {
+      if (!isInternallyManageableShow(show)) {
         return false;
       }
 
@@ -13334,7 +13374,7 @@ export default function AdminDashboardPage() {
       const location = getShowManifestLocation(show);
 
       return (
-        !show.archivedAt &&
+        isInternallyManageableShow(show) &&
         Boolean(location) &&
         financialPermittedLocations.includes(location as EntryLocationKey) &&
         (effectiveFinancialLocation === "all" ||
@@ -13623,12 +13663,10 @@ export default function AdminDashboardPage() {
     );
   });
   const floorSelectableShows = floorSelectorShows.filter((show) => {
-    const status = show.operationalStatus ?? "active";
     const location = normalizeShowLocation(show.location ?? show.venueName);
 
     return (
-      !show.archivedAt &&
-      status === "active" &&
+      isInternallyManageableShow(show) &&
       Boolean(location && permittedManifestLocations.includes(location))
     );
   });

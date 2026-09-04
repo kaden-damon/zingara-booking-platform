@@ -8,6 +8,11 @@ const nonOperationalStatuses = new Set([
   "waitlisted",
 ]);
 
+const nonManageableShowStatuses = new Set([
+  "blackout",
+  "venue-closure",
+]);
+
 function isOperationalBooking(
   booking: Pick<DemoBooking, "archivedAt" | "status">,
 ) {
@@ -52,6 +57,35 @@ export function getOperationalShowBookings(
       isOperationalBooking(booking) &&
       bookingBelongsToOperationalShow(booking, show),
   );
+}
+
+export function isInternallyManageableShow(
+  show: Pick<DemoShow, "archivedAt" | "operationalStatus">,
+) {
+  return (
+    !show.archivedAt &&
+    !nonManageableShowStatuses.has(show.operationalStatus ?? "active")
+  );
+}
+
+export function getInternalShowAvailabilityLabel(
+  show: Pick<DemoShow, "operationalStatus">,
+) {
+  const status = show.operationalStatus ?? "active";
+
+  if (status === "sold-out") {
+    return "Sold Out";
+  }
+
+  if (status === "inactive") {
+    return "Public Closed";
+  }
+
+  if (status === "special-event") {
+    return "Special Event";
+  }
+
+  return "Available";
 }
 
 export function getArrivedGuestCount(booking: DemoBooking) {
@@ -113,12 +147,8 @@ export function getDefaultOperationalShow(
   shows: DemoShow[],
   southAfricaToday: string,
 ) {
-  const activeShows = [...shows]
-    .filter(
-      (show) =>
-        !show.archivedAt &&
-        (show.operationalStatus ?? "active") === "active",
-    )
+  const manageableShows = [...shows]
+    .filter(isInternallyManageableShow)
     .sort((left, right) =>
       `${left.date}T${left.time || "00:00"}`.localeCompare(
         `${right.date}T${right.time || "00:00"}`,
@@ -126,8 +156,8 @@ export function getDefaultOperationalShow(
     );
 
   return (
-    activeShows.find((show) => show.date === southAfricaToday) ??
-    activeShows.find((show) => show.date > southAfricaToday) ??
-    activeShows[0]
+    manageableShows.find((show) => show.date === southAfricaToday) ??
+    manageableShows.find((show) => show.date > southAfricaToday) ??
+    manageableShows[0]
   );
 }
