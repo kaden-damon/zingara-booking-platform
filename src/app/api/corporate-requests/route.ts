@@ -3,6 +3,7 @@ import {
   sendCorporateEnquiryEmails,
 } from "@/lib/email/corporateEnquiryEmail";
 import { resolveCorporateEnquiryLocation } from "@/lib/corporateEnquiryRouting";
+import { corporatePartySizeThreshold } from "@/lib/bookingClassification";
 import {
   loadCorporateRequestRecord,
   loadCorporateRequests,
@@ -96,6 +97,22 @@ export async function POST(request: Request) {
     ) {
       return Response.json(
         { error: "A valid Corporate enquiry venue is required." },
+        { status: 400 },
+      );
+    }
+
+    if (
+      requests.some(
+        (corporateRequest) =>
+          typeof corporateRequest.guestCount !== "number" ||
+          !Number.isInteger(corporateRequest.guestCount) ||
+          corporateRequest.guestCount < corporatePartySizeThreshold,
+      )
+    ) {
+      return Response.json(
+        {
+          error: `Corporate enquiries require at least ${corporatePartySizeThreshold} guests. Use Standard Booking for smaller parties.`,
+        },
         { status: 400 },
       );
     }

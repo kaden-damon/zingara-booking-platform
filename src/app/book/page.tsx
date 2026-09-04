@@ -10,6 +10,7 @@ import {
 
 import PaymentBrandMarks from "../components/PaymentBrandMarks";
 import ScannableQrCode from "../components/ScannableQrCode";
+import YourEvening from "../components/YourEvening";
 import PublicMaintenanceBoundary from "./PublicMaintenanceBoundary";
 import {
   registerZingaraPushSubscription,
@@ -98,6 +99,7 @@ import {
   validateCorporateInvoiceFinancials,
 } from "../../lib/corporateInvoicePayments";
 import { getBookingSeatingEligibility } from "../../lib/bookingSeatingAvailability";
+import { getCustomerExperienceTimes } from "../../lib/experienceTimes";
 
 type SeatingOption = SeatingZone;
 
@@ -1157,7 +1159,7 @@ export default function BookingPage() {
     return false;
   }
   const showStepSummary = selectedShow
-    ? `${getCompactDateDisplay(selectedShowDate)} · ${getSouthAfricaShowTime(selectedShow)}`
+    ? getCompactDateDisplay(selectedShowDate)
     : "";
   const seatingStepSummary = selectedZone ? selectedZone.title : "";
   const mobileSeatingStepSummary = selectedZone ? selectedZone.title : "";
@@ -3018,16 +3020,6 @@ export default function BookingPage() {
                   </p>
                   <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
                     <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                      Show Time
-                    </span>
-                    <span className="mt-1 block font-semibold text-white">
-                      {selectedShow
-                        ? getSouthAfricaShowTime(selectedShow)
-                        : ""}
-                    </span>
-                  </p>
-                  <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
-                    <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
                       Venue
                     </span>
                     <span className="mt-1 block font-semibold text-white">
@@ -3063,6 +3055,13 @@ export default function BookingPage() {
                     </span>
                   </p>
                 </div>
+                {selectedShow && (
+                  <YourEvening
+                    settings={venueConfig}
+                    location={selectedEntryLocation ?? getShowVenueKey(selectedShow)}
+                    className="mt-4"
+                  />
+                )}
                 <p className="mt-4 break-all rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 font-mono text-[0.65rem] text-zinc-400 sm:text-sm">
                   {ticketCode}
                 </p>
@@ -3246,6 +3245,9 @@ export default function BookingPage() {
 	              <span className="block text-sm font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
 	                Standard Booking
 	              </span>
+	              <span className="mt-1 block text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300">
+	                1–19 Guests
+	              </span>
 	              <span className="mt-2 block text-sm text-zinc-400">
 	                Continue with the dinner show booking journey.
 	              </span>
@@ -3256,6 +3258,9 @@ export default function BookingPage() {
 	            >
 	              <span className="block text-sm font-semibold uppercase tracking-[0.16em] text-white">
 	                Corporate Booking
+	              </span>
+	              <span className="mt-1 block text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300">
+	                20+ Guests
 	              </span>
 	              <span className="mt-2 block text-sm text-zinc-400">
 	                Create a business, group, or event enquiry.
@@ -3398,11 +3403,10 @@ export default function BookingPage() {
           {activeBookingStep === 0 && (
           <div className="relative text-left">
             <p className="zingara-heading text-xl font-bold text-white min-[390px]:text-2xl sm:text-3xl">
-              Step 1 · Select Show Date
+              Step 1 · Select Your Date
             </p>
             <p className="zingara-subheading mt-1.5 max-w-2xl text-sm leading-5 text-zinc-300 sm:mt-2 sm:text-lg sm:leading-6">
-              Choose a show date and time to view live seating
-              availability.
+              Choose your preferred experience date to view live seating availability.
             </p>
 
             <button
@@ -3606,10 +3610,10 @@ export default function BookingPage() {
           {selectedShowDate && (activeBookingStep === 0 || !selectedShowId) && (
             <div className="text-left">
               <p className="zingara-subheading mb-3 text-lg text-zinc-300">
-                Available Show Times
+                Select Your Experience Date
               </p>
 
-              <div className="flex max-w-xs flex-wrap justify-start gap-3 sm:max-w-sm">
+              <div className="flex max-w-md flex-wrap justify-start gap-3">
                 {selectedDateShows.map((show) => {
                   const isSelectedTime = selectedShowId === show.id;
                   const showStatus = getGuestShowStatus(show);
@@ -3623,7 +3627,7 @@ export default function BookingPage() {
                       type="button"
                       disabled={!isBookableTime}
                       onClick={() => selectShowTime(show.id)}
-                      className={`min-w-32 rounded-2xl border px-4 py-3 text-center transition sm:min-w-40 sm:px-5 sm:py-4 ${
+                      className={`w-full rounded-2xl border px-4 py-3 text-left transition sm:px-5 sm:py-4 ${
                         isSelectedTime
                           ? "border-white bg-[#D8C36A] text-black shadow-[0_0_28px_rgba(216,195,106,0.25)]"
                           : isBookableTime
@@ -3631,8 +3635,22 @@ export default function BookingPage() {
                             : "cursor-not-allowed border-white/10 bg-zinc-950/60 text-zinc-500"
                       }`}
                     >
-                      <span className="block text-2xl font-bold sm:text-3xl">
-                        {getSouthAfricaShowTime(show)}
+                      <span className="block text-base font-bold sm:text-lg">
+                        {getDateDisplay(show.date)}
+                      </span>
+                      <span className="mt-3 grid grid-cols-2 gap-3 text-xs uppercase tracking-[0.1em]">
+                        <span>
+                          <span className="block opacity-65">Grounds Open</span>
+                          <span className="mt-1 block text-base font-bold normal-case tracking-normal">
+                            {getCustomerExperienceTimes(venueConfig, getShowVenueKey(show))?.groundsOpen}
+                          </span>
+                        </span>
+                        <span>
+                          <span className="block opacity-65">Show Starts</span>
+                          <span className="mt-1 block text-base font-bold normal-case tracking-normal">
+                            {getCustomerExperienceTimes(venueConfig, getShowVenueKey(show))?.showStarts}
+                          </span>
+                        </span>
                       </span>
                       <span
                         className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[0.58rem] font-semibold uppercase tracking-[0.12em] ${
@@ -3660,6 +3678,13 @@ export default function BookingPage() {
 
           {selectedShowId && (
             <>
+              {activeBookingStep === 1 && (
+                <YourEvening
+                  settings={venueConfig}
+                  location={selectedEntryLocation ?? getShowVenueKey(selectedShow)}
+                  className="mb-6"
+                />
+              )}
 
           {activeBookingStep === 1 && (
           <div className="max-w-5xl rounded-[1.5rem] border border-[#8D7A2F]/30 bg-zinc-950/70 p-3.5 sm:rounded-[2rem] sm:p-5">
@@ -4378,10 +4403,19 @@ export default function BookingPage() {
               <div className="grid grid-cols-2 gap-2 text-xs sm:gap-3 sm:text-sm lg:grid-cols-4">
                 <div className="col-span-2 rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-1 sm:rounded-2xl sm:p-4">
                   <p className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-zinc-500 sm:text-xs">
-                    Show:
+                    Date
                   </p>
                   <p className="mt-1.5 text-sm font-semibold leading-5 text-white sm:mt-2 sm:text-base">
-                    {getCompactShowDateTime(selectedShow)}
+                    {selectedShow ? getCompactDateDisplay(selectedShow.date) : "To be confirmed"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-4">
+                  <p className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-zinc-500 sm:text-xs">
+                    Venue
+                  </p>
+                  <p className="mt-1.5 font-semibold text-white sm:mt-2">
+                    {getEntryLocationLabel(selectedEntryLocation ?? getShowVenueKey(selectedShow))}
                   </p>
                 </div>
 
@@ -4412,6 +4446,12 @@ export default function BookingPage() {
                   </p>
                 </div>
               </div>
+
+              <YourEvening
+                settings={venueConfig}
+                location={selectedEntryLocation ?? getShowVenueKey(selectedShow)}
+                className="mt-3"
+              />
 
               <div className="mt-3 space-y-3 text-sm sm:mt-5 sm:space-y-4 sm:text-base">
                 <div className="rounded-xl border border-[#D8C36A]/20 bg-black/30 p-3 sm:rounded-2xl sm:p-5">
@@ -4812,12 +4852,21 @@ export default function BookingPage() {
                 </p>
               </div>
 
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-5">
+                <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-zinc-500 sm:text-xs">
+                  Venue
+                </p>
+                <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
+                  {getEntryLocationLabel(selectedEntryLocation ?? getShowVenueKey(selectedShow))}
+                </p>
+              </div>
+
               <div className="col-span-2 rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-1 sm:rounded-2xl sm:p-5">
                 <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-zinc-500 sm:text-xs">
-                  Booking Date
+                  Date
                 </p>
                 <p className="mt-1.5 text-base font-bold leading-6 sm:mt-2 sm:text-lg sm:leading-7">
-                  {getCompactShowDateTime(selectedShow)}
+                  {selectedShow ? getCompactDateDisplay(selectedShow.date) : "To be confirmed"}
                 </p>
               </div>
 
@@ -4922,6 +4971,12 @@ export default function BookingPage() {
                 </div>
               </div>
             </div>
+
+            <YourEvening
+              settings={venueConfig}
+              location={selectedEntryLocation ?? getShowVenueKey(selectedShow)}
+              className="mt-4"
+            />
 
             <form
               className="mt-5 space-y-4 sm:mt-8 sm:space-y-5"
@@ -5250,10 +5305,16 @@ export default function BookingPage() {
                           </p>
                           <p>
                             <span className="text-zinc-500">
-                              Show:
+                              Date:
                             </span>{" "}
-                            {getCompactShowDateTime(selectedShow)}
+                            {selectedShow ? getCompactDateDisplay(selectedShow.date) : "To be confirmed"}
                           </p>
+                          <YourEvening
+                            settings={venueConfig}
+                            location={selectedEntryLocation ?? getShowVenueKey(selectedShow)}
+                            compact
+                            className="mt-3"
+                          />
                           <p>
                             <span className="text-zinc-500">
                               Zone:

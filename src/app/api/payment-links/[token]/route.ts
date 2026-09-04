@@ -11,6 +11,8 @@ import {
 } from "@/lib/payment-links/customerPaymentLinks";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { calculatePayFastTransactionAmounts } from "@/lib/payfast/transactionFee";
+import { getCustomerExperienceTimes } from "@/lib/experienceTimes";
+import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 import {
   getShowLocationOption,
   normalizeShowLocation,
@@ -106,14 +108,17 @@ export async function GET(_request: Request, context: PaymentLinkContext) {
       booking.customer_id,
     );
     const show = await loadShowForPaymentLink(supabase, booking.show_id);
+    const venueSettings = await loadServerVenueSettings(supabase);
     const metadata = parseBookingMetadata(booking.notes);
     const paymentAmount = getPaymentLinkCheckoutAmount(link, booking);
     const transaction = calculatePayFastTransactionAmounts(paymentAmount);
     const location = getShowLocationLabels(show?.venue);
     const showTime = getShowTimeLabel(show?.time);
+    const showLocation = normalizeShowLocation(show?.venue ?? "");
+    const experienceTimes = getCustomerExperienceTimes(venueSettings, showLocation);
     const showLabel =
-      show?.date && showTime
-        ? `${location.code} · ${show.date} · ${showTime}`
+      show?.date
+        ? `${location.label} · ${show.date}`
         : metadata?.bookingDate ?? "Show not recorded";
 
     return Response.json({
@@ -122,6 +127,7 @@ export async function GET(_request: Request, context: PaymentLinkContext) {
         bookingReference: booking.booking_reference,
         customerName: getCustomerName(customer) || metadata?.customer.name || "Guest",
         expiresAt: link.expires_at,
+        experienceTimes,
         isPayable: isBookingPaymentLinkEligible(booking),
         locationCode: location.code,
         locationLabel: location.label,

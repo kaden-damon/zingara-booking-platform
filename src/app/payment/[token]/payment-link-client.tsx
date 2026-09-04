@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import YourEvening from "../../components/YourEvening";
+import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
 
 type PaymentLinkLookupResponse = {
   booking?: {
@@ -8,6 +10,7 @@ type PaymentLinkLookupResponse = {
     bookingReference: string;
     customerName: string;
     expiresAt: string;
+    experienceTimes: CustomerExperienceTimes | null;
     isPayable: boolean;
     locationCode: string;
     locationLabel: string;
@@ -229,13 +232,27 @@ export default function PaymentLinkClient({ token }: { token: string }) {
                   {booking.bookingReference}
                 </span>
               </p>
-              <p className="sm:col-span-2">
-                <span className="text-zinc-500">Performance</span>
+              <p>
+                <span className="text-zinc-500">Venue</span>
                 <br />
                 <span className="font-semibold text-white">
-                  {booking.showLabel}
+                  {booking.locationLabel}
                 </span>
               </p>
+              <p>
+                <span className="text-zinc-500">Date</span>
+                <br />
+                <span className="font-semibold text-white">
+                  {booking.showDate ?? "To be confirmed"}
+                </span>
+              </p>
+              {booking.experienceTimes && (
+                <YourEvening
+                  times={booking.experienceTimes}
+                  compact
+                  className="sm:col-span-2"
+                />
+              )}
               <p>
                 <span className="text-zinc-500">Section</span>
                 <br />

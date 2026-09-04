@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import ScannableQrCode from "../../components/ScannableQrCode";
+import YourEvening from "../../components/YourEvening";
 import { registerZingaraPushSubscription } from "../../../lib/browserNotifications";
 import {
   createDownloadableTicketPdf,
@@ -19,7 +20,7 @@ import {
   type TicketState,
   defaultVenueSettings,
   getBookingTicketState,
-  getCompactShowDateTime,
+  getSouthAfricaShowDate,
   getIncludedBookingFeeBreakdown,
   getShowLocationOption,
   getTicketStateClasses,
@@ -552,12 +553,19 @@ export default function LiveTicketClient({
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    Show
+                    Date
                   </p>
                   <p className="mt-2 font-semibold">
-                    {getCompactShowDateTime(show ?? undefined)}
+                    {show ? getSouthAfricaShowDate(show) : "To be confirmed"}
                   </p>
                 </div>
+                {showLocation && (
+                  <YourEvening
+                    settings={venueConfig}
+                    location={showLocation}
+                    className="sm:col-span-2"
+                  />
+                )}
                 {ticketLocationOption && (
                   <>
                     <div className="rounded-2xl border border-white/10 bg-black/35 p-5">

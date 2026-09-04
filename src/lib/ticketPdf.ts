@@ -6,6 +6,7 @@ import type {
   GuestTicket,
 } from "./zingaraDemo";
 import { resolveGuestVisibleTable } from "./guestTicketDisplay";
+import { getCustomerExperienceTimes } from "./experienceTimes";
 import {
   getDisplayZoneTitle,
   normalizeShowLocation,
@@ -30,8 +31,11 @@ export type TicketPdfLocation = "cape-town" | "johannesburg";
 export type DownloadableTicketPdfInput = {
   courtName?: string;
   guestName: string;
+  groundsOpen: string;
+  guestSeating: string;
   location: TicketPdfLocation;
   showDate: string;
+  showStarts: string;
   tableSeat: string;
   ticketCode: string;
   ticketIndex: number;
@@ -406,6 +410,14 @@ export function resolveDownloadableTicketPdfInput(
   }
 
   const location = resolveTicketLocation(source);
+  const experienceTimes = getCustomerExperienceTimes(
+    source.venueSettings,
+    location.key,
+  );
+
+  if (!experienceTimes) {
+    throw new TicketPdfDataError(["customer experience times"]);
+  }
   const tableNumber = normalizeTicketText(
     resolveGuestVisibleTable(source.booking, source.ticket),
   );
@@ -413,8 +425,11 @@ export function resolveDownloadableTicketPdfInput(
   return {
     courtName: location.courtName,
     guestName: normalizeTicketText(source.ticket.fullName),
+    groundsOpen: experienceTimes.groundsOpen,
+    guestSeating: experienceTimes.guestSeating,
     location: location.key,
     showDate: formatTicketDisplayDate(source.show?.date),
+    showStarts: experienceTimes.showStarts,
     tableSeat: tableNumber ? `Table ${tableNumber}` : "",
     ticketCode: normalizeTicketText(source.ticket.ticketCode),
     ticketIndex: source.ticket.index,
@@ -453,6 +468,9 @@ export async function createDownloadableTicketPdf(
     input.venueName ?? venueCopy.venueName,
   );
   const showDate = requireTicketText("show date", input.showDate);
+  const groundsOpen = requireTicketText("grounds open", input.groundsOpen);
+  const guestSeating = requireTicketText("guest seating", input.guestSeating);
+  const showStarts = requireTicketText("show starts", input.showStarts);
   const ticketCode = requireTicketText("ticket code", input.ticketCode);
   const zoneTitle = requireTicketText("seating zone", input.zoneTitle);
 
@@ -561,23 +579,46 @@ export async function createDownloadableTicketPdf(
     });
   }
   context.fillStyle = "#FFFFFF";
-  fitText(context, courtName, centre, 1316, 720, {
+  fitText(context, courtName, centre, 1292, 720, {
     family: sansFont,
     maxSize: 44,
     minSize: 28,
     weight: "400",
   });
-  fitText(context, venueName, centre, 1408, 720, {
+  fitText(context, venueName, centre, 1365, 720, {
     family: sansFont,
     maxSize: 42,
     minSize: 28,
     weight: "400",
   });
-  fitText(context, showDate, centre, 1502, 720, {
+  fitText(context, showDate, centre, 1438, 720, {
     family: sansFont,
     maxSize: 43,
     minSize: 28,
     weight: "400",
+  });
+
+  const schedule = [
+    ["GROUNDS OPEN", groundsOpen],
+    ["GUEST SEATING", guestSeating],
+    ["SHOW STARTS", showStarts],
+  ] as const;
+  schedule.forEach(([label, value], index) => {
+    const x = 270 + index * 270;
+    context.fillStyle = index === 2 ? "#D8C36A" : "#A1A1AA";
+    fitText(context, label, x, 1505, 230, {
+      family: sansFont,
+      maxSize: 19,
+      minSize: 14,
+      weight: "700",
+    });
+    context.fillStyle = index === 2 ? "#F2D66C" : "#FFFFFF";
+    fitText(context, value, x, 1545, 210, {
+      family: sansFont,
+      maxSize: 31,
+      minSize: 23,
+      weight: "700",
+    });
   });
 
   fillRoundedRect(context, 317, 1601, 446, 494, 62, "#000000");

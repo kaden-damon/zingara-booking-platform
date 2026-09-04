@@ -1,4 +1,5 @@
 import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
+import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
 
 export const demoBookingsStorageKey = "zingara-demo-bookings";
 export const demoShowsStorageKey = "zingara-demo-shows";
@@ -71,6 +72,7 @@ export type DemoVenueSettings = {
       }
     >;
     corporateEnquiryRecipients: Record<EntryLocationKey, string>;
+    customerExperienceTimes: Record<EntryLocationKey, CustomerExperienceTimes>;
     friendsAndFamily: Record<
       EntryLocationKey,
       {
@@ -183,6 +185,18 @@ export const defaultVenueSettings: DemoVenueSettings = {
     corporateEnquiryRecipients: {
       "cape-town": "corporatebookingcpt@zingara.co.za",
       johannesburg: "corporatebookings@zingara.co.za",
+    },
+    customerExperienceTimes: {
+      "cape-town": {
+        groundsOpen: "17:30",
+        guestSeating: "19:00",
+        showStarts: "20:00",
+      },
+      johannesburg: {
+        groundsOpen: "17:00",
+        guestSeating: "18:30",
+        showStarts: "19:30",
+      },
     },
     friendsAndFamily: {
       "cape-town": {
@@ -1585,6 +1599,19 @@ export function normalizeVenueSettings(
             ],
         ]),
       ) as DemoVenueSettings["operationalSettings"]["corporateEnquiryRecipients"],
+      customerExperienceTimes: Object.fromEntries(
+        showLocationOptions.map((location) => [
+          location.value,
+          {
+            ...defaultVenueSettings.operationalSettings.customerExperienceTimes[
+              location.value
+            ],
+            ...(incoming.operationalSettings?.customerExperienceTimes?.[
+              location.value
+            ] ?? {}),
+          },
+        ]),
+      ) as DemoVenueSettings["operationalSettings"]["customerExperienceTimes"],
       friendsAndFamily: Object.fromEntries(
         showLocationOptions.map((location) => [
           location.value,

@@ -357,6 +357,7 @@ import {
   toJohannesburgDateTimeInput,
 } from "../../lib/publicBookingSales";
 import { getCorporatePaymentHoldStatus } from "../../lib/bookingDeadlines";
+import { isValidExperienceTimes } from "../../lib/experienceTimes";
 import {
   bookingBelongsToOperationalShow,
   getArrivedGuestCount,
@@ -5244,16 +5245,19 @@ const settingsLessons: AcademyArticle[] = [
     commonMistakes: [
       "Changing venue details without checking guest-facing displays.",
       "Leaving outdated operational information in place.",
+      "Treating the operational show time as a customer-facing experience time.",
     ],
     difficulty: "intermediate",
     howTo: [
       "Open Settings, then Venue.",
       "Review venue name, branding, operational settings, and venue configuration fields.",
+      "Under Customer Experience Times, set Grounds Open, Guest Seating, and Show Starts independently for each venue.",
+      "Confirm the times remain in chronological order before saving.",
       "Update only the details that need to change.",
       "Save and check that the platform still displays the venue correctly.",
     ],
     id: "venue-configuration",
-    keywords: ["venue configuration", "venue settings", "branding", "operations"],
+    keywords: ["venue configuration", "venue settings", "branding", "operations", "grounds open", "guest seating", "show starts", "experience times"],
     moduleId: "settings",
     purpose: "Keep venue details and operational configuration accurate across the platform.",
     relatedActions: ["staff"],
@@ -5261,6 +5265,7 @@ const settingsLessons: AcademyArticle[] = [
     tips: [
       "Venue configuration affects more than one workflow.",
       "Review guest-facing areas after changing branding or venue details.",
+      "Experience Times update customer touchpoints without changing operational show.time. Cape Town can remain operationally anchored at 18:00 while Grounds Open is 17:30.",
     ],
     title: "Venue Configuration",
     whenToUse: "Use this when venue details, branding, or operational configuration need updating.",
@@ -7264,6 +7269,17 @@ type FriendsAndFamilyDraft = Record<
   EntryLocationKey,
   { enabled: boolean; ratePerPerson: string }
 >;
+
+type ExperienceTimesDraft = Record<
+  EntryLocationKey,
+  { groundsOpen: string; guestSeating: string; showStarts: string }
+>;
+
+function createExperienceTimesDraft(
+  settings: DemoVenueSettings,
+): ExperienceTimesDraft {
+  return structuredClone(settings.operationalSettings.customerExperienceTimes);
+}
 
 function createFriendsAndFamilyDraft(
   settings: DemoVenueSettings,
@@ -9962,6 +9978,10 @@ export default function AdminDashboardPage() {
   const [friendsAndFamilyDraft, setFriendsAndFamilyDraft] =
     useState<FriendsAndFamilyDraft>(() =>
       createFriendsAndFamilyDraft(defaultVenueSettings),
+    );
+  const [experienceTimesDraft, setExperienceTimesDraft] =
+    useState<ExperienceTimesDraft>(() =>
+      createExperienceTimesDraft(defaultVenueSettings),
     );
   const [venueConfigurationSaveState, setVenueConfigurationSaveState] =
     useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
@@ -13779,6 +13799,7 @@ export default function AdminDashboardPage() {
     setVenueConfigurationDraft(createVenueConfigurationDraft(venueSettings));
     setPublicBookingSalesDraft(createPublicBookingSalesDraft(venueSettings));
     setFriendsAndFamilyDraft(createFriendsAndFamilyDraft(venueSettings));
+    setExperienceTimesDraft(createExperienceTimesDraft(venueSettings));
   }, [venueSettings]);
   const visibleStaffNotifications = staffNotifications.filter(
     (notification) =>
@@ -16041,6 +16062,20 @@ export default function AdminDashboardPage() {
     setVenueConfigurationError("");
   }
 
+  function updateExperienceTimesDraft(
+    location: EntryLocationKey,
+    updates: Partial<ExperienceTimesDraft[EntryLocationKey]>,
+  ) {
+    if (!isSuperAdmin) return;
+
+    setExperienceTimesDraft((current) => ({
+      ...current,
+      [location]: { ...current[location], ...updates },
+    }));
+    setVenueConfigurationSaveState("dirty");
+    setVenueConfigurationError("");
+  }
+
   async function saveAuthoritativeVenueConfiguration() {
     if (!isSuperAdmin || venueConfigurationSaveState === "saving") return;
 
@@ -16053,6 +16088,9 @@ export default function AdminDashboardPage() {
     };
     const nextFriendsAndFamily = {
       ...venueSettings.operationalSettings.friendsAndFamily,
+    };
+    const nextExperienceTimes = {
+      ...venueSettings.operationalSettings.customerExperienceTimes,
     };
 
     for (const location of showLocationOptions) {
@@ -16111,6 +16149,16 @@ export default function AdminDashboardPage() {
         enabled: friendsAndFamily.enabled,
         ratePerPerson: friendsAndFamily.enabled ? friendsAndFamilyRate : 0,
       };
+
+      const experienceTimes = experienceTimesDraft[location.value];
+      if (!isValidExperienceTimes(experienceTimes)) {
+        setVenueConfigurationSaveState("error");
+        setVenueConfigurationError(
+          `${location.city} Experience Times must be valid and ordered Grounds Open, Guest Seating, then Show Starts.`,
+        );
+        return;
+      }
+      nextExperienceTimes[location.value] = experienceTimes;
     }
 
     for (const zone of configurableVenueZones) {
@@ -16152,6 +16200,7 @@ export default function AdminDashboardPage() {
       operationalSettings: {
         ...venueSettings.operationalSettings,
         corporatePaymentHolds: nextCorporatePaymentHolds,
+        customerExperienceTimes: nextExperienceTimes,
         friendsAndFamily: nextFriendsAndFamily,
         publicBookings: nextPublicBookings,
       },
@@ -33543,6 +33592,50 @@ export default function AdminDashboardPage() {
                             </div>
                           </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
+                  <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
+                    Customer Experience Times
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-zinc-400">
+                    Shown to guests across bookings, tickets, emails and Wallet passes. These values do not alter the underlying operational show record.
+                  </p>
+                  <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {showLocationOptions.map((location) => {
+                      const draft = experienceTimesDraft[location.value];
+                      return (
+                        <fieldset
+                          key={`experience-times-${location.value}`}
+                          className="rounded-lg border border-white/10 bg-black/40 p-4"
+                        >
+                          <legend className="px-1 font-semibold text-white">
+                            {location.city}
+                          </legend>
+                          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            {([
+                              ["groundsOpen", "Grounds Open"],
+                              ["guestSeating", "Guest Seating"],
+                              ["showStarts", "Show Starts"],
+                            ] as const).map(([field, label]) => (
+                              <label key={field} className="text-sm text-zinc-400">
+                                {label}
+                                <input
+                                  type="time"
+                                  value={draft[field]}
+                                  onChange={(event) =>
+                                    updateExperienceTimesDraft(location.value, {
+                                      [field]: event.target.value,
+                                    })
+                                  }
+                                  className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
                       );
                     })}
                   </div>

@@ -6,11 +6,17 @@ import {
   defaultCommunicationTemplates,
   getCommunicationTemplate,
   getTicketUrl,
+  normalizeShowLocation,
   renderCommunicationTemplate,
   createCommunicationRecord,
 } from "@/lib/zingaraDemo";
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import { createZingaraTicketEmail } from "@/lib/email/ticketEmail";
+import {
+  formatCustomerExperienceSchedule,
+  getCustomerExperienceTimes,
+} from "@/lib/experienceTimes";
+import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 import {
   recordPlatformEventBestEffort,
   recordPlatformFailureEventBestEffort,
@@ -46,6 +52,7 @@ type ShowRow = {
   id: string;
   name: string;
   time: string;
+  venue: string | null;
 };
 
 type TemplateRow = {
@@ -91,6 +98,7 @@ function toShow(row: ShowRow | null) {
     date: row.date,
     id: row.id,
     label: row.name,
+    location: normalizeShowLocation(row.venue) ?? undefined,
     time: row.time.slice(0, 5),
   };
 }
@@ -153,7 +161,7 @@ async function loadBooking(
 async function loadShow(supabase: SupabaseClient, showId: string) {
   const { data, error } = await supabase
     .from("shows")
-    .select("id,name,date,time")
+    .select("id,name,date,time,venue")
     .eq("id", showId)
     .maybeSingle();
 
@@ -301,12 +309,20 @@ async function ensureCommunication(
           show,
         })
       : null;
+  const experienceTimes = show
+    ? getCustomerExperienceTimes(
+        await loadServerVenueSettings(supabase),
+        normalizeShowLocation(show.location),
+      )
+    : null;
+  const message = ticketEmail?.message ?? [
+    renderCommunicationTemplate(template.body, booking, show),
+    experienceTimes ? formatCustomerExperienceSchedule(experienceTimes) : "",
+  ].filter(Boolean).join("\n\n");
   const record: CommunicationRecord = createCommunicationRecord({
     booking,
     channel: template.channel,
-    message:
-      ticketEmail?.message ??
-      renderCommunicationTemplate(template.body, booking, show),
+    message,
     subject:
       ticketEmail?.subject ??
       renderCommunicationTemplate(template.subject, booking, show),

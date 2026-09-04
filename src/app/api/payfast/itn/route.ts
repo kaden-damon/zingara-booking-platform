@@ -4,6 +4,7 @@ import {
   defaultCommunicationTemplates,
   getCommunicationTemplate,
   getTicketUrl,
+  normalizeShowLocation,
   renderCommunicationTemplate,
   type CommunicationChannel,
   type CommunicationRecord,
@@ -14,6 +15,11 @@ import {
 } from "@/lib/zingaraDemo";
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import { createZingaraTicketEmail } from "@/lib/email/ticketEmail";
+import {
+  formatCustomerExperienceSchedule,
+  getCustomerExperienceTimes,
+} from "@/lib/experienceTimes";
+import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 import { getPayFastConfig } from "@/lib/payfast/config";
 import {
   createPayFastItnParamString,
@@ -574,9 +580,16 @@ async function ensureCommunication(
           show,
         })
       : null;
-  const renderedMessage =
-    ticketEmail?.message ??
-    renderCommunicationTemplate(template.body, booking, show);
+  const experienceTimes = show
+    ? getCustomerExperienceTimes(
+        await loadServerVenueSettings(supabase),
+        normalizeShowLocation(show.location ?? show.venueName ?? show.address),
+      )
+    : null;
+  const renderedMessage = ticketEmail?.message ?? [
+    renderCommunicationTemplate(template.body, booking, show),
+    experienceTimes ? formatCustomerExperienceSchedule(experienceTimes) : "",
+  ].filter(Boolean).join("\n\n");
   const paymentTransactionSummary =
     trigger === "payment-confirmation" &&
     typeof booking.lastProviderGrossAmount === "number" &&

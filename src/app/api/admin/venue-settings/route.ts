@@ -4,6 +4,7 @@ import {
   normalizeVenueSettings,
   showLocationOptions,
 } from "@/lib/zingaraDemo";
+import { isValidExperienceTimes } from "@/lib/experienceTimes";
 import {
   getServiceClient,
   isSuperAdminProfile,
@@ -90,6 +91,12 @@ function validateConfiguration(
       settings.operationalSettings.corporateEnquiryRecipients[location.value];
     const friendsAndFamily =
       settings.operationalSettings.friendsAndFamily[location.value];
+    const experienceTimes =
+      settings.operationalSettings.customerExperienceTimes[location.value];
+
+    if (!experienceTimes || !isValidExperienceTimes(experienceTimes)) {
+      return `Enter valid, sequential Customer Experience Times for ${location.city}.`;
+    }
 
     if (
       !corporateRecipient ||

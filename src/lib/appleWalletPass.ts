@@ -9,7 +9,10 @@ import {
   getAppleWalletWebServiceUrl,
 } from "@/lib/appleWalletSync";
 import { getShowLocationOption, normalizeShowLocation } from "@/lib/zingaraDemo";
+import type { DemoVenueSettings } from "@/lib/zingaraDemo";
+import { getCustomerExperienceTimes } from "@/lib/experienceTimes";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
 const passAssetNames = [
@@ -79,6 +82,7 @@ type AppleWalletPassSource = {
   ticket: TicketRow;
   ticketIndex: number;
   ticketTotal: number;
+  venueSettings: DemoVenueSettings;
   zoneTitle: string;
 };
 
@@ -330,6 +334,7 @@ async function loadAppleWalletPassSource(
     ticketRows.findIndex((item) => item.id === ticket?.id),
     0,
   );
+  const venueSettings = await loadServerVenueSettings(supabase);
 
   return {
     booking,
@@ -340,6 +345,7 @@ async function loadAppleWalletPassSource(
     ticket,
     ticketIndex: metadataTicket?.index ?? ticketRowIndex + 1,
     ticketTotal: metadataTicket?.total ?? Math.max(ticketRows.length, 1),
+    venueSettings,
     zoneTitle: metadata?.zoneTitle?.trim() || booking.section?.trim() || "Not recorded",
   } satisfies AppleWalletPassSource;
 }
@@ -384,6 +390,19 @@ async function buildAppleWalletPass(
     ? `${locationOption.city} - ${locationOption.courtName}`
     : source.show.venue;
   const performance = formatPerformanceDate(source.show.date, source.show.time);
+  const experienceTimes = getCustomerExperienceTimes(source.venueSettings, location);
+
+  if (!experienceTimes) {
+    throw new AppleWalletTicketDataError(
+      "Authoritative customer experience times are incomplete.",
+    );
+  }
+  const performanceDate = new Intl.DateTimeFormat("en-ZA", {
+    day: "2-digit",
+    month: "short",
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+  }).format(performance.value);
   const isVoided = ["cancelled", "refunded", "void"].includes(
     source.ticket.ticket_status,
   );
@@ -424,8 +443,8 @@ async function buildAppleWalletPass(
   pass.secondaryFields.push(
     {
       key: "date-time",
-      label: "DATE & TIME",
-      value: performance.display,
+      label: "DATE",
+      value: performanceDate,
     },
     {
       key: "location",
@@ -435,14 +454,32 @@ async function buildAppleWalletPass(
   );
   pass.auxiliaryFields.push(
     {
-      key: "guest",
-      label: "GUEST",
-      value: source.guestName,
+      key: "grounds-open",
+      label: "GROUNDS OPEN",
+      value: experienceTimes.groundsOpen,
+    },
+    {
+      key: "guest-seating",
+      label: "GUEST SEATING",
+      value: experienceTimes.guestSeating,
+    },
+    {
+      key: "show-starts",
+      label: "SHOW STARTS",
+      value: experienceTimes.showStarts,
     },
     {
       key: "seating-zone",
       label: "SEATING",
       value: source.zoneTitle,
+    },
+  );
+
+  pass.backFields.push(
+    {
+      key: "guest",
+      label: "GUEST",
+      value: source.guestName,
     },
     {
       key: "table",
@@ -454,9 +491,6 @@ async function buildAppleWalletPass(
       label: "TICKET",
       value: `${source.ticketIndex} of ${source.ticketTotal}`,
     },
-  );
-
-  pass.backFields.push(
     {
       key: "booking-reference",
       label: "BOOKING REFERENCE",

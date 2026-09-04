@@ -1,14 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
 
 import { corporatePartySizeThreshold } from "../../lib/bookingClassification";
 import { getTemplates } from "../../lib/supabase/communicationTemplates";
 import { createCorporateRequest } from "../../lib/supabase/corporateRequests";
+import { getPublicVenueSettings } from "../../lib/supabase/venueSettings";
+import YourEvening from "../components/YourEvening";
 import {
   type CorporateRequest,
   type DemoBooking,
   createCommunicationRecord,
+  defaultVenueSettings,
   getCommunicationTemplate,
   renderCommunicationTemplate,
   seatingZones,
@@ -94,7 +98,7 @@ const initialFormState: CorporateFormState = {
   contactNumber: "",
   dietaryRequirements: [],
   email: "",
-  guestCount: 6,
+  guestCount: corporatePartySizeThreshold,
   locationAcknowledgement: "",
   notes: "",
   occasion: "Year-End Function",
@@ -151,6 +155,7 @@ export default function CorporateBookingPage() {
   const [form, setForm] = useState<CorporateFormState>(initialFormState);
   const [submissionStatus, setSubmissionStatus] = useState("");
   const [validationError, setValidationError] = useState("");
+  const [venueSettings, setVenueSettings] = useState(defaultVenueSettings);
   const [submissionAction, setSubmissionAction] = useState<
     CorporateRequest["requestType"] | null
   >(null);
@@ -161,6 +166,7 @@ export default function CorporateBookingPage() {
   const calendarDays = getCalendarDays(calendarMonth);
 
   useEffect(() => {
+    void getPublicVenueSettings().then(setVenueSettings).catch(() => undefined);
     const requestedGuestCount = Number(
       new URLSearchParams(window.location.search).get("guests"),
     );
@@ -324,8 +330,11 @@ export default function CorporateBookingPage() {
       return `${missingField[1]} is required.`;
     }
 
-    if (!Number.isFinite(form.guestCount) || form.guestCount < 1) {
-      return "Number of Guests is required.";
+    if (
+      !Number.isFinite(form.guestCount) ||
+      form.guestCount < corporatePartySizeThreshold
+    ) {
+      return `Corporate enquiries are for ${corporatePartySizeThreshold} or more guests. For 1–${corporatePartySizeThreshold - 1} guests, use Standard Booking.`;
     }
 
     if (form.occasion === "Other" && !form.otherOccasion.trim()) {
@@ -558,7 +567,7 @@ export default function CorporateBookingPage() {
                 <input
                   required
                   type="number"
-                  min={1}
+                  min={corporatePartySizeThreshold}
                   value={form.guestCount}
                   onChange={(event) =>
                     updateCorporateForm({
@@ -567,6 +576,13 @@ export default function CorporateBookingPage() {
                   }
                   className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
                 />
+                <span className="mt-2 block text-xs leading-5 text-zinc-400">
+                  For 1–{corporatePartySizeThreshold - 1} guests, use{" "}
+                  <Link href="/book" className="font-semibold text-[#F2D66C] underline underline-offset-4">
+                    Standard Booking
+                  </Link>
+                  .
+                </span>
               </label>
 
               <label className="block">
@@ -772,6 +788,17 @@ export default function CorporateBookingPage() {
                 </label>
               ))}
             </div>
+            {form.locationAcknowledgement && (
+              <YourEvening
+                settings={venueSettings}
+                location={
+                  form.locationAcknowledgement === "Johannesburg"
+                    ? "johannesburg"
+                    : "cape-town"
+                }
+                className="mt-4"
+              />
+            )}
           </section>
 
           <section className="rounded-[1.5rem] border border-[#D8C36A]/30 bg-[#1A1208]/55 p-5">

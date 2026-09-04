@@ -8,7 +8,14 @@ import {
   type DemoBooking,
   type DemoShow,
   type GuestTicket,
+  type DemoVenueSettings,
 } from "@/lib/zingaraDemo";
+import {
+  formatCustomerExperienceSchedule,
+  getCustomerExperienceTimes,
+} from "@/lib/experienceTimes";
+import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 import {
   createBrandedCustomerEmail,
   type EmailAttachment,
@@ -22,6 +29,7 @@ export type TicketEmailSource = {
   qrPayload: string;
   show?: DemoShow | null;
   ticket?: GuestTicket | null;
+  venueSettings?: DemoVenueSettings;
 };
 
 export type TicketEmail = {
@@ -56,10 +64,6 @@ function formatShowDate(value: string | undefined, fallback: string) {
   }).format(parsed);
 }
 
-function formatShowTime(value: string | undefined) {
-  return value?.slice(0, 5) || "Please see your live ticket";
-}
-
 export function getAbsoluteTicketUrl(ticketReference: string) {
   return new URL(getTicketUrl(ticketReference), productionOrigin).toString();
 }
@@ -69,6 +73,7 @@ export async function createZingaraTicketEmail({
   qrPayload,
   show,
   ticket,
+  venueSettings: suppliedVenueSettings,
 }: TicketEmailSource): Promise<TicketEmail> {
   const authoritativeQrPayload = qrPayload.trim();
 
@@ -102,12 +107,22 @@ export async function createZingaraTicketEmail({
     show?.location ?? show?.venueName ?? show?.address,
   );
   const locationOption = location ? getShowLocationOption(location) : null;
+  const serviceClient = suppliedVenueSettings ? null : getServiceClient();
+  const venueSettings =
+    suppliedVenueSettings ??
+    (serviceClient
+      ? await loadServerVenueSettings(serviceClient)
+      : defaultVenueSettings);
+  const experienceTimes = getCustomerExperienceTimes(venueSettings, location);
+
+  if (!experienceTimes) {
+    throw new Error("Authoritative customer experience times are missing.");
+  }
   const venue = locationOption
     ? `${locationOption.courtName} · ${locationOption.city}`
     : show?.venueName ?? show?.address ?? "The Royal Countess";
   const guestName = ticket?.fullName?.trim() || booking.customer.name.trim();
   const showDate = formatShowDate(show?.date, booking.bookingDate);
-  const showTime = formatShowTime(show?.time);
   const zone = getDisplayZoneTitle(booking.zoneId, booking.zoneTitle);
   const table = "TBC";
   const liveTicketUrl = getAbsoluteTicketUrl(ticketReference);
@@ -119,8 +134,10 @@ export async function createZingaraTicketEmail({
     ["Guest", guestName],
     ["Booking reference", booking.reference],
     ["Venue", venue],
-    ["Show date", showDate],
-    ["Show time", showTime],
+    ["Date", showDate],
+    ["Grounds Open", experienceTimes.groundsOpen],
+    ["Guest Seating", experienceTimes.guestSeating],
+    ["Show Starts", experienceTimes.showStarts],
     ["Seating section", zone],
     ...(table ? [["Table", table]] : []),
     ["Guest information", ticketPosition],
@@ -141,8 +158,9 @@ export async function createZingaraTicketEmail({
     `Guest: ${guestName}`,
     `Booking reference: ${booking.reference}`,
     `Venue: ${venue}`,
-    `Show date: ${showDate}`,
-    `Show time: ${showTime}`,
+    `Date: ${showDate}`,
+    "",
+    formatCustomerExperienceSchedule(experienceTimes),
     `Seating section: ${zone}`,
     table ? `Table: ${table}` : "",
     `Guest information: ${ticketPosition}`,

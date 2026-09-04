@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { calculatePayFastTransactionAmounts } from "@/lib/payfast/transactionFee";
+import YourEvening from "../components/YourEvening";
+import { getPublicVenueSettings } from "@/lib/supabase/venueSettings";
+import { defaultVenueSettings } from "@/lib/zingaraDemo";
 
 type PayFastCheckoutResponse = {
   actionUrl?: string;
@@ -155,6 +158,7 @@ export default function FindBookingPage() {
   const [actionStatus, setActionStatus] = useState<Record<string, string>>({});
   const [selectedEntryLocation, setSelectedEntryLocation] =
     useState<EntryLocationKey | null>(null);
+  const [venueSettings, setVenueSettings] = useState(defaultVenueSettings);
 
   const hasPendingPayment =
     result?.booking.bookingStatus === "pending-payment" ||
@@ -171,6 +175,7 @@ export default function FindBookingPage() {
   }
 
   useEffect(() => {
+    void getPublicVenueSettings().then(setVenueSettings).catch(() => undefined);
     const searchParams = new URLSearchParams(window.location.search);
     const locationFromQuery = normalizeEntryLocation(
       searchParams.get("location"),
@@ -477,7 +482,6 @@ export default function FindBookingPage() {
                     ["Show", result.booking.show],
                     ["Venue", result.booking.venue],
                     ["Date", formatDate(result.booking.date)],
-                    ["Time", result.booking.time || "To be confirmed"],
                     ["Seating Zone", result.booking.seatingZone],
                     ["Table", result.booking.table],
                     ["Party Size", `${result.booking.partySize} guests`],
@@ -494,6 +498,12 @@ export default function FindBookingPage() {
                     </div>
                   ))}
                 </div>
+
+                <YourEvening
+                  settings={venueSettings}
+                  location={normalizeEntryLocation(result.booking.venue)}
+                  className="mt-4"
+                />
 
                 {hasPendingPayment && (
                   <div className="mt-5 rounded-2xl border border-[#D8C36A]/35 bg-[#D8C36A]/10 p-5">
