@@ -14,7 +14,6 @@ import type { PromoDiscountType } from "@/lib/zingaraDemo";
 export const dynamic = "force-dynamic";
 
 type PromoCodePayload = {
-  active?: boolean;
   code?: string;
   discountType?: PromoDiscountType;
   discountValue?: number;
@@ -92,7 +91,6 @@ function getPromoPayload(payload: PromoCodePayload, staffProfileId?: string) {
   }
 
   return {
-    active: payload.active ?? true,
     code,
     discount_type: discountType,
     discount_value: discountValue,
@@ -152,7 +150,9 @@ export async function POST(request: Request) {
     const body = (await request.json()) as PromoCodePayload;
     const payload = {
       ...getPromoPayload(body, auth.staffProfile.id),
+      active: false,
       created_by: auth.staffProfile.id,
+      creation_source: "admin",
     };
     const { data, error } = await auth.serviceClient
       .from("promo_codes")
@@ -240,7 +240,6 @@ export async function PUT(request: Request) {
     const existing = existingData as PromoCodeRow;
     const payload = getPromoPayload(
       {
-        active: body.active ?? existing.active,
         code: body.code ?? existing.code,
         discountType: body.discountType ?? existing.discount_type,
         discountValue: body.discountValue ?? Number(existing.discount_value),
@@ -273,15 +272,8 @@ export async function PUT(request: Request) {
     }
 
     const promo = data as PromoCodeRow;
-    const action =
-      existing.active !== promo.active
-        ? promo.active
-          ? "promo.enabled"
-          : "promo.disabled"
-        : "promo.updated";
-
     await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
-      action,
+      action: "promo.updated",
       afterValues: payload,
       beforeValues: {
         active: existing.active,
@@ -315,6 +307,117 @@ export async function PUT(request: Request) {
           error instanceof Error
             ? error.message
             : "Promo code could not be updated.",
+      },
+      { status: 400 },
+    );
+  }
+}
+
+export async function PATCH(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (
+    auth.error ||
+    !auth.serviceClient ||
+    !auth.staffProfile ||
+    !auth.user
+  ) {
+    return auth.error;
+  }
+
+  if (!isSuperAdminProfile(auth.staffProfile)) {
+    return Response.json(
+      { error: "Promo code management is restricted to Super Admins." },
+      { status: 403 },
+    );
+  }
+
+  try {
+    const body = (await request.json()) as {
+      action?: "activate" | "disable";
+      id?: string;
+    };
+
+    if (!body.id) {
+      return Response.json({ error: "Promo code ID is required." }, { status: 400 });
+    }
+
+    if (body.action !== "activate" && body.action !== "disable") {
+      return Response.json(
+        { error: "A valid promo status action is required." },
+        { status: 400 },
+      );
+    }
+
+    const { data: existingData, error: loadError } = await auth.serviceClient
+      .from("promo_codes")
+      .select(promoSelect)
+      .eq("id", body.id)
+      .maybeSingle();
+
+    if (loadError) {
+      throw loadError;
+    }
+
+    if (!existingData) {
+      return Response.json({ error: "Promo code not found." }, { status: 404 });
+    }
+
+    const existing = existingData as PromoCodeRow;
+
+    if (body.action === "activate") {
+      const { error } = await auth.serviceClient.rpc("activate_promo_code", {
+        p_actor_auth_user_id: auth.user.id,
+        p_actor_staff_profile_id: auth.staffProfile.id,
+        p_promo_id: body.id,
+        p_request_id:
+          request.headers.get("x-vercel-id") ??
+          request.headers.get("x-request-id"),
+        p_user_agent: request.headers.get("user-agent"),
+      });
+
+      if (error) {
+        throw error;
+      }
+    } else if (existing.active) {
+      const { error } = await auth.serviceClient
+        .from("promo_codes")
+        .update({
+          active: false,
+          updated_by: auth.staffProfile.id,
+        })
+        .eq("id", body.id);
+
+      if (error) {
+        throw error;
+      }
+
+      await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+        action: "promo.disabled",
+        afterValues: { active: false, code: existing.code },
+        beforeValues: { active: true, code: existing.code },
+        changedFields: ["active"],
+        entityId: existing.id,
+        entityReference: existing.code,
+        entityType: "promo-code",
+        outcome: "success",
+        request,
+        sourceArea: "settings",
+      });
+    }
+
+    const promos = await loadPromoCodesWithUsage(auth.serviceClient);
+
+    return Response.json({ promoCodes: promos.map(toApiPromo) });
+  } catch (error) {
+    console.error("[Zingara Promo] Failed to change promo status", error);
+
+    return Response.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Promo code status could not be updated.",
       },
       { status: 400 },
     );

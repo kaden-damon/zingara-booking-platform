@@ -43,7 +43,7 @@ test("promo management remains authenticated and Super Admin restricted", () => 
   assert.match(adminPromoRoute, /requireActiveStaff\(request\)/);
   assert.match(adminPromoRoute, /isSuperAdminProfile\(auth\.staffProfile\)/);
   assert.match(adminPromoRoute, /action: "promo\.created"/);
-  assert.match(adminPromoRoute, /"promo\.enabled"/);
+  assert.match(adminPromoRoute, /\.rpc\("activate_promo_code"/);
   assert.match(adminPromoRoute, /"promo\.disabled"/);
   assert.match(adminPromoRoute, /"promo\.updated"/);
 });

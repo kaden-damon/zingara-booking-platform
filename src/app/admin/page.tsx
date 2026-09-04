@@ -821,7 +821,6 @@ type PromoAdminRecord = {
   validUntil: string | null;
 };
 type PromoAdminForm = {
-  active: boolean;
   code: string;
   discountType: PromoDiscountType;
   discountValue: string;
@@ -10238,7 +10237,6 @@ export default function AdminDashboardPage() {
   const [editingPromoCodeId, setEditingPromoCodeId] =
     useState<string | null>(null);
   const [promoCodeForm, setPromoCodeForm] = useState<PromoAdminForm>({
-    active: true,
     code: "",
     discountType: "percentage",
     discountValue: "",
@@ -14531,7 +14529,6 @@ export default function AdminDashboardPage() {
   function resetPromoCodeForm() {
     setEditingPromoCodeId(null);
     setPromoCodeForm({
-      active: true,
       code: "",
       discountType: "percentage",
       discountValue: "",
@@ -14571,7 +14568,6 @@ export default function AdminDashboardPage() {
     setPromoCodeStatus("");
     setPromoCodeError("");
     setPromoCodeForm({
-      active: promo.active,
       code: promo.code,
       discountType: promo.discountType,
       discountValue: String(promo.discountValue),
@@ -14584,9 +14580,8 @@ export default function AdminDashboardPage() {
     });
   }
 
-  function buildPromoCodePayload(active = promoCodeForm.active) {
+  function buildPromoCodePayload() {
     return {
-      active,
       code: promoCodeForm.code,
       discountType: promoCodeForm.discountType,
       discountValue: Number(promoCodeForm.discountValue),
@@ -14643,19 +14638,6 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    setEditingPromoCodeId(promo.id);
-    setPromoCodeForm({
-      active,
-      code: promo.code,
-      discountType: promo.discountType,
-      discountValue: String(promo.discountValue),
-      location: promo.location ?? "",
-      name: promo.name,
-      showId: promo.showId ?? "",
-      usageLimit: promo.usageLimit ? String(promo.usageLimit) : "",
-      validFrom: promo.validFrom ? promo.validFrom.slice(0, 16) : "",
-      validUntil: promo.validUntil ? promo.validUntil.slice(0, 16) : "",
-    });
     setIsPromoCodeSaving(true);
     setPromoCodeError("");
     setPromoCodeStatus(active ? "Reactivating promo code..." : "Disabling promo code...");
@@ -14665,19 +14647,10 @@ export default function AdminDashboardPage() {
         promoCodes: PromoAdminRecord[];
       }>("/api/admin/promo-codes", {
         body: {
-          active,
-          code: promo.code,
-          discountType: promo.discountType,
-          discountValue: promo.discountValue,
+          action: active ? "activate" : "disable",
           id: promo.id,
-          location: promo.location,
-          name: promo.name,
-          showId: promo.showId,
-          usageLimit: promo.usageLimit,
-          validFrom: promo.validFrom,
-          validUntil: promo.validUntil,
         },
-        method: "PUT",
+        method: "PATCH",
       });
 
       setPromoCodes(payload.promoCodes);
@@ -31700,19 +31673,12 @@ export default function AdminDashboardPage() {
                       </select>
                     </label>
                   </div>
-                  <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-zinc-200">
-                    <input
-                      type="checkbox"
-                      checked={promoCodeForm.active}
-                      onChange={(event) =>
-                        setPromoCodeForm((form) => ({
-                          ...form,
-                          active: event.target.checked,
-                        }))
-                      }
-                    />
-                    Active
-                  </label>
+                  {!editingPromoCodeId && (
+                    <p className="rounded-xl border border-[#D8C36A]/20 bg-[#D8C36A]/5 px-3 py-2 text-xs leading-5 text-zinc-300">
+                      New promo codes are saved disabled. Activate the code from
+                      the Promo Library after review.
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-2 pt-2">
                     <button
                       type="button"
