@@ -10389,6 +10389,7 @@ export default function AdminDashboardPage() {
   const [corporateConversionActionState, setCorporateConversionActionState] =
     useState<AdminActionState>("idle");
   const corporateConversionInFlightRef = useRef(new Set<string>());
+  const guestCountReconciliationInFlightRef = useRef(false);
   const [conciergeViewMode, setConciergeViewMode] =
     useState<BookingViewMode>("list");
   const [hideCancelledBookings, setHideCancelledBookings] =
@@ -22430,7 +22431,9 @@ export default function AdminDashboardPage() {
     guestCount: number;
     reason: string;
   }) {
-    if (!guestCountReconciliation) return;
+    if (!guestCountReconciliation || guestCountReconciliationInFlightRef.current) return;
+
+    guestCountReconciliationInFlightRef.current = true;
 
     setGuestCountReconciliation((current) =>
       current ? { ...current, error: "", isSaving: true } : current,
@@ -22469,6 +22472,8 @@ export default function AdminDashboardPage() {
             }
           : current,
       );
+    } finally {
+      guestCountReconciliationInFlightRef.current = false;
     }
   }
 

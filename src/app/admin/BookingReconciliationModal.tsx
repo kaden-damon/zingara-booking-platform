@@ -41,8 +41,8 @@ export type GuestCountReconciliationResult = {
   added_guests: number;
   balance_outstanding: number;
   booking_reference: string;
-  payment_basis: "deposit" | "full";
-  unit_amount: number;
+  payment_basis: "deposit" | "full" | null;
+  unit_amount: number | null;
 };
 
 type BaseProps = {
@@ -263,21 +263,21 @@ export function GuestCountReconciliationModal(
       </label>
       {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
       {!props.result && <button type="button" disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || (financials.addedGuests > 0 && financials.additionalAmount === null)} onClick={() => props.onSave(draft)} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
-        {props.isSaving ? "Saving..." : "Confirm Guest Count"}
+        {props.isSaving ? "UPDATING..." : "CONFIRM GUEST COUNT"}
       </button>}
-      {props.result?.added_guests ? (
+      {props.result ? (
         <div className="mt-5 rounded-xl border border-emerald-400/25 bg-emerald-950/20 p-4">
-          <p className="text-sm font-semibold text-emerald-200">GUEST COUNT UPDATED ✓</p>
-          <p className="mt-1 text-xs text-zinc-300">R{props.result.additional_amount.toFixed(2)} added · R{props.result.balance_outstanding.toFixed(2)} outstanding</p>
-          {!link ? (
+          <p className="text-sm font-semibold text-emerald-200">UPDATED ✓</p>
+          {props.result.added_guests > 0 ? <p className="mt-1 text-xs text-zinc-300">R{props.result.additional_amount.toFixed(2)} added · R{props.result.balance_outstanding.toFixed(2)} outstanding</p> : <p className="mt-1 text-xs text-zinc-300">Guest count updated. The agreed financial obligation is unchanged.</p>}
+          {props.result.added_guests > 0 && (!link ? (
             <button type="button" onClick={() => void createPaymentLink()} className="mt-3 min-h-11 w-full rounded-full bg-[#D8C36A] px-4 text-xs font-semibold uppercase text-black">Create Payment Link</button>
           ) : (
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button type="button" disabled={!link.canSend} onClick={() => void sendPaymentLink()} className="min-h-11 rounded-full border border-white/20 px-3 text-xs font-semibold uppercase text-white disabled:opacity-40">Send To Guest</button>
               <button type="button" onClick={() => { void navigator.clipboard.writeText(link.paymentUrl); setLinkStatus("PAYMENT LINK COPIED ✓"); }} className="min-h-11 rounded-full bg-[#D8C36A] px-3 text-xs font-semibold uppercase text-black">Copy Link</button>
             </div>
-          )}
-          {link && !link.canSend && <p className="mt-2 text-xs text-amber-200">No customer email is available. Copy Link remains available.</p>}
+          ))}
+          {props.result.added_guests > 0 && link && !link.canSend && <p className="mt-2 text-xs text-amber-200">No customer email is available. Copy Link remains available.</p>}
           {linkStatus && <p aria-live="polite" className="mt-2 text-xs text-zinc-300">{linkStatus}</p>}
         </div>
       ) : null}

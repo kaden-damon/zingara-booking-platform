@@ -275,11 +275,23 @@ export async function POST(request: Request) {
       if (message.includes("BOOKING_REVISION_CHANGED")) {
         return Response.json({ error: "This booking changed. Reload and review the latest values." }, { status: 409 });
       }
+      if (message.includes("BOOKING_NOT_FOUND")) {
+        return Response.json({ error: "The booking could not be found." }, { status: 404 });
+      }
+      if (message.includes("GUEST_COUNT_UNCHANGED")) {
+        return Response.json({ error: "Enter a different guest count before confirming." }, { status: 400 });
+      }
       if (message.includes("ZONE_CAPACITY_EXCEEDED")) {
         return Response.json({ error: "The show does not have enough capacity in this seating zone." }, { status: 409 });
       }
       if (message.includes("BOOKING_TABLE_STATE_INVALID")) {
         return Response.json({ error: "The current table assignment must be repaired before changing guest count." }, { status: 409 });
+      }
+      if (message.includes("SHOW_NOT_FOUND")) {
+        return Response.json({ error: "The booking's performance could not be found." }, { status: 409 });
+      }
+      if (message.includes("SHOW_NOT_ACTIVE")) {
+        return Response.json({ error: "Guests can only be added while the performance is active. Guest-count decreases remain available." }, { status: 409 });
       }
       if (message.includes("ADDED_GUEST_FINANCIAL_BASIS_REQUIRED")) {
         return Response.json({ error: "The original payment basis is not authoritative for this legacy booking. Reconcile its financials separately before adding guests." }, { status: 409 });
