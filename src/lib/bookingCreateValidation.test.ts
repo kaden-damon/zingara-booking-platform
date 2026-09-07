@@ -114,7 +114,7 @@ test("keeps trusted historical edits compatible", () => {
   );
 });
 
-test("keeps Corporate creation on its existing validation path", () => {
+test("requires complete contact details for trusted internal Corporate creation", () => {
   assert.deepEqual(
     validateBookingCreate({
       bookingSource: "corporate-direct",
@@ -122,6 +122,24 @@ test("keeps Corporate creation on its existing validation path", () => {
       isCreate: true,
       isTrustedStaff: true,
       partySize: 0,
+    }),
+    {
+      email: "Email address is required.",
+      name: "Full name is required.",
+      partySize: "Enter a valid number of guests.",
+      phone: "Mobile number is required.",
+    },
+  );
+});
+
+test("accepts normalized complete contact details for trusted Corporate creation", () => {
+  assert.deepEqual(
+    validateBookingCreate({
+      bookingSource: "corporate-direct",
+      customer: completeCustomer,
+      isCreate: true,
+      isTrustedStaff: true,
+      partySize: 60,
     }),
     {},
   );

@@ -3,7 +3,14 @@ import {
   sendCorporateEnquiryEmails,
 } from "@/lib/email/corporateEnquiryEmail";
 import { resolveCorporateEnquiryLocation } from "@/lib/corporateEnquiryRouting";
-import { corporatePartySizeThreshold } from "@/lib/bookingClassification";
+import {
+  corporatePartySizeThreshold,
+  getConfiguredVenueGuestCapacity,
+} from "@/lib/bookingClassification";
+import {
+  normalizeBookingCustomer,
+  validateBookingCreate,
+} from "@/lib/bookingCreateValidation";
 import { persistCorporateRequests } from "@/lib/supabase/corporateRequestsServer";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rateLimit";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
@@ -84,6 +91,15 @@ export async function POST(request: Request) {
       status: "corporate-tentative",
       updatedAt: now,
     };
+    const normalizedContact = normalizeBookingCustomer({
+      email: corporateRequest.email,
+      name: corporateRequest.contactName,
+      phone: corporateRequest.contactNumber,
+    });
+    corporateRequest.companyName = corporateRequest.companyName.trim();
+    corporateRequest.contactName = normalizedContact.name;
+    corporateRequest.contactNumber = normalizedContact.phone;
+    corporateRequest.email = normalizedContact.email;
 
     const ipLimit = await checkRateLimit(
       request,
@@ -118,27 +134,34 @@ export async function POST(request: Request) {
       );
     }
 
+    const settings = await loadVenueSettings(serviceClient);
+    const maximumGuestCount = getConfiguredVenueGuestCapacity(settings);
+
     if (
       typeof corporateRequest.guestCount !== "number" ||
       !Number.isInteger(corporateRequest.guestCount) ||
       corporateRequest.guestCount < corporatePartySizeThreshold ||
-      corporateRequest.guestCount > 2000
+      corporateRequest.guestCount > maximumGuestCount
     ) {
       return Response.json(
         {
-          error: `Corporate enquiries require at least ${corporatePartySizeThreshold} guests. Use Standard Booking for smaller parties.`,
+          error: `Enter a whole-number guest count from ${corporatePartySizeThreshold} to ${maximumGuestCount}.`,
         },
         { status: 400 },
       );
     }
 
+    const contactErrors = validateBookingCreate({
+      bookingSource: "corporate-direct",
+      customer: normalizedContact,
+      isCreate: true,
+      isTrustedStaff: false,
+      partySize: corporateRequest.guestCount,
+    });
+
     if (
-      corporateRequest.contactName.trim().length < 2 ||
-      corporateRequest.companyName.trim().length < 2 ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-        corporateRequest.email.trim().toLowerCase(),
-      ) ||
-      corporateRequest.contactNumber.replace(/\D/g, "").length < 7
+      Object.keys(contactErrors).length > 0 ||
+      corporateRequest.companyName.length < 2
     ) {
       return Response.json(
         { error: "Complete all required Corporate enquiry contact details." },
@@ -156,7 +179,6 @@ export async function POST(request: Request) {
 
     if (createdRequest) {
       try {
-        const settings = await loadVenueSettings(serviceClient);
         await Promise.all([
           sendCorporateEnquiryEmails(serviceClient, createdRequest, settings),
           sendStaffPushNotification({

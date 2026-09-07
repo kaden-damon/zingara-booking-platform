@@ -72,6 +72,7 @@ type ShowRow = {
   id: string;
   name: string;
   time: string;
+  venue: string | null;
 };
 
 type PayFastCoreResult = {
@@ -327,6 +328,7 @@ function toShow(row: ShowRow | null): DemoShow | undefined {
     date: row.date,
     id: row.id,
     label: row.name,
+    location: normalizeShowLocation(row.venue) ?? undefined,
     time: row.time.slice(0, 5),
   };
 }
@@ -369,7 +371,7 @@ async function loadBooking(
 async function loadShow(supabase: SupabaseClient, showId: string) {
   const { data, error } = await supabase
     .from("shows")
-    .select("id,name,date,time")
+    .select("id,name,date,time,venue")
     .eq("id", showId)
     .maybeSingle();
 
@@ -572,14 +574,51 @@ async function ensureCommunication(
     return null;
   }
 
-  const ticketEmail =
-    trigger === "reservation-confirmed" && ticket
-      ? await createZingaraTicketEmail({
-          booking,
-          qrPayload: ticket.qrPayload,
-          show,
-        })
-      : null;
+  let ticketEmail: Awaited<ReturnType<typeof createZingaraTicketEmail>> | null = null;
+
+  try {
+    ticketEmail =
+      trigger === "reservation-confirmed" && ticket
+        ? await createZingaraTicketEmail({
+            booking,
+            qrPayload: ticket.qrPayload,
+            show,
+          })
+        : null;
+  } catch (error) {
+    const { data: claimData, error: claimError } = await supabase.rpc(
+      "claim_email_communication_once",
+      {
+        p_booking_id: bookingId,
+        p_customer_id: customerId,
+        p_message:
+          "Automatic booking confirmation could not be prepared. Use the audited manual resend control after reviewing the booking.",
+        p_show_id: showId,
+        p_subject: renderCommunicationTemplate(template.subject, booking, show),
+        p_type: type,
+      },
+    );
+
+    if (claimError) throw claimError;
+
+    const claim = claimData as CommunicationClaimResult;
+
+    if (claim.status === "claimed" && claim.communication_id) {
+      const { error: updateError } = await supabase
+        .from("communications")
+        .update({ sent_at: null, status: "failed" })
+        .eq("id", claim.communication_id);
+
+      if (updateError) throw updateError;
+    }
+
+    console.error("[Zingara PayFast] Confirmation render failed", {
+      bookingReference: booking.reference,
+      error: error instanceof Error ? error.message : "Unknown render failure",
+    });
+
+    return claim.communication_id ?? null;
+  }
   const experienceTimes = show
     ? getCustomerExperienceTimes(
         await loadServerVenueSettings(supabase),

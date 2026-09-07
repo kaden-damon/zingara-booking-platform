@@ -25,6 +25,7 @@ import {
 import { getAuthoritativePublicPricePerPerson } from "../../lib/authoritativePublicPrice";
 import {
   corporatePartySizeThreshold,
+  getConfiguredVenueGuestCapacity,
   isCorporatePartySize,
 } from "../../lib/bookingClassification";
 import {
@@ -98,7 +99,10 @@ import {
   type CorporateInvoicePaymentBasis,
   validateCorporateInvoiceFinancials,
 } from "../../lib/corporateInvoicePayments";
-import { getBookingSeatingEligibility } from "../../lib/bookingSeatingAvailability";
+import {
+  getBookingSeatingEligibility,
+  getStandardBookingZoneGuestLimits,
+} from "../../lib/bookingSeatingAvailability";
 import { getCustomerExperienceTimes } from "../../lib/experienceTimes";
 
 type SeatingOption = SeatingZone;
@@ -353,10 +357,14 @@ function isAvailableForBooking(
   settings: DemoVenueSettings = defaultVenueSettings,
   isInternalCorporate = false,
 ) {
+  const guestLimits = isInternalCorporate
+    ? option
+    : getStandardBookingZoneGuestLimits(option.id, option);
+
   return getBookingSeatingEligibility({
     isInternalCorporate,
-    maxGuests: option.maxGuests,
-    minGuests: option.minGuests,
+    maxGuests: guestLimits.maxGuests,
+    minGuests: guestLimits.minGuests,
     partySize: guests,
     remainingSeats: getRemainingSeats(option, occupiedSeats, settings),
   }).isAvailable;
@@ -371,11 +379,14 @@ function getAvailabilityState(
   hasExplicitTableAssignment = false,
 ) {
   const remainingSeats = getRemainingSeats(option, occupiedSeats, settings);
+  const guestLimits = isInternalCorporate
+    ? option
+    : getStandardBookingZoneGuestLimits(option.id, option);
   const baseEligibility = getBookingSeatingEligibility({
     hasExplicitTableAssignment,
     isInternalCorporate,
-    maxGuests: option.maxGuests,
-    minGuests: option.minGuests,
+    maxGuests: guestLimits.maxGuests,
+    minGuests: guestLimits.minGuests,
     partySize: guests,
     remainingSeats,
   });
@@ -385,8 +396,8 @@ function getAvailabilityState(
     hasExplicitTableAssignment,
     isInternalCorporate,
     isLimited,
-    maxGuests: option.maxGuests,
-    minGuests: option.minGuests,
+    maxGuests: guestLimits.maxGuests,
+    minGuests: guestLimits.minGuests,
     partySize: guests,
     remainingSeats,
   });
@@ -750,6 +761,7 @@ export default function BookingPage() {
   const showLoadRequestRef = useRef(0);
   const hasScrolledToConfirmedRef = useRef(false);
   const venueConfig = venueSettings;
+  const maximumCorporateGuestCount = getConfiguredVenueGuestCapacity(venueConfig);
   const isLockedCalendarCheckout = Boolean(calendarBookingContext);
   const isCorporateCalendarCheckout =
     isLockedCalendarCheckout && calendarBookingType === "corporate";
@@ -3710,16 +3722,39 @@ export default function BookingPage() {
                 >
                   −
                 </button>
-                <span className="min-w-0 whitespace-nowrap px-3 text-center text-sm font-bold text-[#F2D66C] sm:min-w-24 sm:px-4 sm:text-base lg:text-lg">
-                  {partySize} {partySize === 1 ? "Guest" : "Guests"}
-                </span>
+                {isCorporateCalendarCheckout ? (
+                  <label className="min-w-0 px-2 text-center">
+                    <span className="sr-only">Number of guests</span>
+                    <input
+                      aria-label="Number of guests"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={maximumCorporateGuestCount}
+                      step={1}
+                      value={partySize}
+                      onChange={(event) => {
+                        const nextPartySize = Number(event.target.value);
+
+                        if (Number.isInteger(nextPartySize)) {
+                          selectPartySize(nextPartySize);
+                        }
+                      }}
+                      className="w-24 rounded-lg border border-[#8D7A2F]/45 bg-black px-2 py-1.5 text-center text-sm font-bold text-[#F2D66C] outline-none focus:border-[#F2D66C] sm:text-base"
+                    />
+                  </label>
+                ) : (
+                  <span className="min-w-0 whitespace-nowrap px-3 text-center text-sm font-bold text-[#F2D66C] sm:min-w-24 sm:px-4 sm:text-base lg:text-lg">
+                    {partySize} {partySize === 1 ? "Guest" : "Guests"}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() =>
                     selectPartySize(
                       Math.min(
                         isCorporateCalendarCheckout
-                          ? 250
+                          ? maximumCorporateGuestCount
                           : corporatePartySizeThreshold,
                         partySize + 1,
                       ),
@@ -3891,6 +3926,11 @@ export default function BookingPage() {
                         )}{" "}
                         pp · {availability.remainingSeats} Seats Available
                       </p>
+                      {!isCorporateCalendarCheckout && selectedZone.id === "royal-booths" && (
+                        <p className="mt-1.5 text-xs font-semibold uppercase text-zinc-300">
+                          4–8 Guests
+                        </p>
+                      )}
                       {availability.requiresFloorAssignment && (
                         <p className="mt-2 text-sm text-sky-100">
                           Zone capacity is available. Physical table allocation
@@ -4147,10 +4187,10 @@ export default function BookingPage() {
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
                     Email Address{" "}
-                    {!isTrustedManualCheckout && <span aria-hidden="true">*</span>}
+                    {(!isTrustedManualCheckout || isCorporateCalendarCheckout) && <span aria-hidden="true">*</span>}
                   </span>
                   <input
-                    required={!isTrustedManualCheckout}
+                    required={!isTrustedManualCheckout || isCorporateCalendarCheckout}
                     aria-invalid={Boolean(customerValidationErrors.email)}
                     aria-describedby={
                       customerValidationErrors.email
@@ -4180,10 +4220,10 @@ export default function BookingPage() {
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
                     Mobile Number{" "}
-                    {!isTrustedManualCheckout && <span aria-hidden="true">*</span>}
+                    {(!isTrustedManualCheckout || isCorporateCalendarCheckout) && <span aria-hidden="true">*</span>}
                   </span>
                   <input
-                    required={!isTrustedManualCheckout}
+                    required={!isTrustedManualCheckout || isCorporateCalendarCheckout}
                     aria-invalid={Boolean(customerValidationErrors.phone)}
                     aria-describedby={
                       customerValidationErrors.phone
@@ -5028,10 +5068,10 @@ export default function BookingPage() {
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
                     Email Address{" "}
-                    {!isTrustedManualCheckout && <span aria-hidden="true">*</span>}
+                    {(!isTrustedManualCheckout || isCorporateCalendarCheckout) && <span aria-hidden="true">*</span>}
                   </span>
                   <input
-                    required={!isTrustedManualCheckout}
+                    required={!isTrustedManualCheckout || isCorporateCalendarCheckout}
                     aria-invalid={Boolean(customerValidationErrors.email)}
                     aria-describedby={
                       customerValidationErrors.email
@@ -5061,10 +5101,10 @@ export default function BookingPage() {
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
                     Mobile Number{" "}
-                    {!isTrustedManualCheckout && <span aria-hidden="true">*</span>}
+                    {(!isTrustedManualCheckout || isCorporateCalendarCheckout) && <span aria-hidden="true">*</span>}
                   </span>
                   <input
-                    required={!isTrustedManualCheckout}
+                    required={!isTrustedManualCheckout || isCorporateCalendarCheckout}
                     aria-invalid={Boolean(customerValidationErrors.phone)}
                     aria-describedby={
                       customerValidationErrors.phone

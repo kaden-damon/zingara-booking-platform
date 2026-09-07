@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { getBookingSeatingEligibility } from "./bookingSeatingAvailability";
+import {
+  getBookingSeatingEligibility,
+  getStandardBookingZoneGuestLimits,
+  isStandardBookingZoneGuestCountAllowed,
+} from "./bookingSeatingAvailability.ts";
 
 const middleRing = {
   maxGuests: 20,
@@ -67,4 +71,56 @@ test("Corporate booking creation keeps authoritative server capacity enforcement
   assert.match(route, /validateBookingCapacityIncrease/);
   assert.match(route, /reservePublicBookingAtomically/);
   assert.match(route, /reserve_public_booking_entitlement/);
+});
+
+test("Standard Private Booths accept exactly 4 through 8 guests", () => {
+  for (const partySize of [4, 6, 7, 8]) {
+    assert.equal(
+      isStandardBookingZoneGuestCountAllowed("royal-booths", partySize),
+      true,
+    );
+  }
+
+  for (const partySize of [3, 9]) {
+    assert.equal(
+      isStandardBookingZoneGuestCountAllowed("royal-booths", partySize),
+      false,
+    );
+  }
+
+  assert.deepEqual(
+    getStandardBookingZoneGuestLimits("royal-booths", {
+      maxGuests: 20,
+      minGuests: 2,
+    }),
+    { maxGuests: 8, minGuests: 4 },
+  );
+});
+
+test("Private Booth eligibility still enforces live capacity", () => {
+  const limits = getStandardBookingZoneGuestLimits("royal-booths", {
+    maxGuests: 20,
+    minGuests: 2,
+  });
+  const result = getBookingSeatingEligibility({
+    ...limits,
+    partySize: 8,
+    remainingSeats: 7,
+  });
+
+  assert.equal(result.isAvailable, false);
+  assert.equal(result.availabilityMessage, "Not Enough Seats Available");
+});
+
+test("Corporate zone entitlement is unaffected by the Standard Booth rule", () => {
+  const result = getBookingSeatingEligibility({
+    isInternalCorporate: true,
+    maxGuests: 8,
+    minGuests: 4,
+    partySize: 60,
+    remainingSeats: 100,
+  });
+
+  assert.equal(result.isAvailable, true);
+  assert.equal(result.requiresFloorAssignment, true);
 });

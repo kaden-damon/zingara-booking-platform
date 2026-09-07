@@ -1,4 +1,5 @@
 import type { BookingSource, CustomerInfo } from "@/lib/zingaraDemo";
+import { normalizePayFastCellNumber } from "@/lib/payfast/phone";
 
 export type BookingCreateField = "email" | "name" | "partySize" | "phone";
 
@@ -34,12 +35,10 @@ export function validateBookingCreate(
     return {};
   }
 
-  if (input.isTrustedStaff && input.bookingSource === "corporate-direct") {
-    return {};
-  }
-
   const customer = normalizeBookingCustomer(input.customer);
   const errors: BookingCreateFieldErrors = {};
+  const requiresCompleteContact =
+    !input.isTrustedStaff || input.bookingSource === "corporate-direct";
 
   if (!customer.name) {
     errors.name = "Full name is required.";
@@ -49,23 +48,19 @@ export function validateBookingCreate(
     errors.partySize = "Enter a valid number of guests.";
   }
 
-  if (!input.isTrustedStaff) {
+  if (requiresCompleteContact) {
     if (!customer.email) {
       errors.email = "Email address is required.";
     } else if (!emailPattern.test(customer.email)) {
       errors.email = "Enter a valid email address.";
     }
 
-    const phoneDigits = customer.phone.replace(/\D/g, "");
-
     if (!customer.phone) {
       errors.phone = "Mobile number is required.";
-    } else if (
-      !phonePattern.test(customer.phone) ||
-      phoneDigits.length < 7 ||
-      phoneDigits.length > 15
-    ) {
+    } else if (!phonePattern.test(customer.phone)) {
       errors.phone = "Enter a valid mobile number.";
+    } else if (!normalizePayFastCellNumber(customer.phone).valid) {
+      errors.phone = "Enter a valid South African mobile number.";
     }
   }
 

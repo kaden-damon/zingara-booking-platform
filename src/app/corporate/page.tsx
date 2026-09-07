@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
 
-import { corporatePartySizeThreshold } from "../../lib/bookingClassification";
+import {
+  corporatePartySizeThreshold,
+  getConfiguredVenueGuestCapacity,
+} from "../../lib/bookingClassification";
+import { validateBookingCreate } from "../../lib/bookingCreateValidation";
 import { getTemplates } from "../../lib/supabase/communicationTemplates";
 import { createCorporateRequest } from "../../lib/supabase/corporateRequests";
 import { getPublicVenueSettings } from "../../lib/supabase/venueSettings";
@@ -330,11 +334,30 @@ export default function CorporateBookingPage() {
       return `${missingField[1]} is required.`;
     }
 
+    const contactErrors = validateBookingCreate({
+      bookingSource: "corporate-direct",
+      customer: {
+        email: form.email,
+        name: form.contactName,
+        phone: form.contactNumber,
+      },
+      isCreate: true,
+      isTrustedStaff: false,
+      partySize: form.guestCount,
+    });
+
+    if (contactErrors.name || contactErrors.email || contactErrors.phone) {
+      return contactErrors.name ?? contactErrors.email ?? contactErrors.phone ?? "";
+    }
+
+    const maximumGuestCount = getConfiguredVenueGuestCapacity(venueSettings);
+
     if (
-      !Number.isFinite(form.guestCount) ||
-      form.guestCount < corporatePartySizeThreshold
+      !Number.isInteger(form.guestCount) ||
+      form.guestCount < corporatePartySizeThreshold ||
+      form.guestCount > maximumGuestCount
     ) {
-      return `Corporate enquiries are for ${corporatePartySizeThreshold} or more guests. For 1–${corporatePartySizeThreshold - 1} guests, use Standard Booking.`;
+      return `Enter a whole-number guest count from ${corporatePartySizeThreshold} to ${maximumGuestCount}.`;
     }
 
     if (form.occasion === "Other" && !form.otherOccasion.trim()) {
@@ -568,6 +591,9 @@ export default function CorporateBookingPage() {
                   required
                   type="number"
                   min={corporatePartySizeThreshold}
+                  max={getConfiguredVenueGuestCapacity(venueSettings)}
+                  step={1}
+                  inputMode="numeric"
                   value={form.guestCount}
                   onChange={(event) =>
                     updateCorporateForm({

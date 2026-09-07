@@ -1,6 +1,20 @@
-import type { BookingSource } from "@/lib/zingaraDemo";
+import {
+  getConfiguredZoneMaxSeats,
+  seatingZones,
+  type BookingSource,
+  type DemoVenueSettings,
+} from "@/lib/zingaraDemo";
 
 export const corporatePartySizeThreshold = 20;
+
+export function getConfiguredVenueGuestCapacity(
+  settings: DemoVenueSettings,
+) {
+  return seatingZones.reduce(
+    (total, zone) => total + getConfiguredZoneMaxSeats(settings, zone),
+    0,
+  );
+}
 
 export function isCorporatePartySize(partySize: number) {
   return Number.isFinite(partySize) && partySize >= corporatePartySizeThreshold;

@@ -36,6 +36,7 @@ import {
   normalizeBookingCustomer,
   validateBookingCreate,
 } from "@/lib/bookingCreateValidation";
+import { isStandardBookingZoneGuestCountAllowed } from "@/lib/bookingSeatingAvailability";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -1520,6 +1521,22 @@ export async function POST(request: Request) {
             "Parties of 20 or more are handled through Corporate Bookings.",
         },
         { status: 409 },
+      );
+    }
+
+    if (
+      isCreate &&
+      booking.source !== "corporate-direct" &&
+      !isStandardBookingZoneGuestCountAllowed(booking.zoneId, booking.partySize)
+    ) {
+      return Response.json(
+        {
+          error:
+            booking.zoneId === "royal-booths"
+              ? "Private Booths are available for Standard bookings of 4 to 8 guests."
+              : "This seating option is not available for the selected group size.",
+        },
+        { status: 400 },
       );
     }
 
