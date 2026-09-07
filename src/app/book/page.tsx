@@ -1029,7 +1029,11 @@ export default function BookingPage() {
   }
   const isTrustedManualCheckout = manualCheckoutRole !== "none";
   const currentCustomerValidationErrors = validateBookingCreate({
-    bookingSource: isTrustedManualCheckout ? "admin" : "online",
+    bookingSource: isCorporateCalendarCheckout
+      ? "corporate-direct"
+      : isTrustedManualCheckout
+        ? "admin"
+        : "online",
     customer: customerInfo,
     isCreate: true,
     isTrustedStaff: isTrustedManualCheckout,
@@ -1089,7 +1093,11 @@ export default function BookingPage() {
     customer: CustomerInfo,
   ) {
     return validateBookingCreate({
-      bookingSource: isTrustedManualCheckout ? "admin" : "online",
+      bookingSource: isCorporateCalendarCheckout
+        ? "corporate-direct"
+        : isTrustedManualCheckout
+          ? "admin"
+          : "online",
       customer,
       isCreate: true,
       isTrustedStaff: isTrustedManualCheckout,
@@ -1140,7 +1148,11 @@ export default function BookingPage() {
 
   function validateCheckoutCustomerDetails() {
     const errors = validateBookingCreate({
-      bookingSource: isTrustedManualCheckout ? "admin" : "online",
+      bookingSource: isCorporateCalendarCheckout
+        ? "corporate-direct"
+        : isTrustedManualCheckout
+          ? "admin"
+          : "online",
       customer: customerInfo,
       isCreate: true,
       isTrustedStaff: isTrustedManualCheckout,

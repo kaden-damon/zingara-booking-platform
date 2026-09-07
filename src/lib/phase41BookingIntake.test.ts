@@ -43,6 +43,7 @@ test("internal Corporate booking supports direct numeric entry and mandatory con
   assert.match(page, /aria-label="Number of guests"/);
   assert.match(page, /maximumCorporateGuestCount/);
   assert.match(page, /isCorporateCalendarCheckout\) && <span aria-hidden="true">\*<\/span>/);
+  assert.match(page, /isCorporateCalendarCheckout\s*\? "corporate-direct"/);
 });
 
 test("PayFast completion resolves the show venue and records render failure", async () => {
