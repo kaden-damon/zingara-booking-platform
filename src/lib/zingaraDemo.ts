@@ -727,6 +727,9 @@ export type DemoBooking = {
   communicationHistory: CommunicationRecord[];
   createdAt: string;
   updatedAt?: string;
+  agePolicyAcknowledgement?: import(
+    "./ageRestrictionPolicy"
+  ).AgePolicyAcknowledgement;
 };
 export type GuestTicket = {
   checkedInAt?: string;
@@ -794,6 +797,9 @@ export type CorporateRequest = {
   linkedBookingReference?: string;
   createdAt: string;
   updatedAt: string;
+  agePolicyAcknowledgement?: import(
+    "./ageRestrictionPolicy"
+  ).AgePolicyAcknowledgement;
 };
 
 const bookingStatusValues: BookingStatus[] = [
@@ -2020,6 +2026,7 @@ function normalizeCorporateRequest(
         : "corporate-booking",
     source:
       request.source === "Data Import" ? "Data Import" : "Corporate Direct",
+    agePolicyAcknowledgement: request.agePolicyAcknowledgement,
     archivedAt: request.archivedAt
       ? getSafeString(request.archivedAt)
       : undefined,

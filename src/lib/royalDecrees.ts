@@ -194,6 +194,13 @@ export const royalDecrees: RoyalDecree[] = [
         ],
       },
       {
+        heading: "Age Restriction",
+        body: [
+          "No children under 13 will be admitted, including when accompanied by an adult. Guests aged 13–18 require parental guidance.",
+          "The Royal Countess is an adult-oriented dinner show and may include strong language, sexual innuendo and mature themes.",
+        ],
+      },
+      {
         heading: "Late Arrivals",
         body: [
           "Late arrivals may affect seating, service timing and access to parts of the performance. Guests should arrive at the time communicated with their booking or ticket.",

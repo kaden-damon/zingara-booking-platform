@@ -11,6 +11,7 @@ import {
 import { getShowLocationOption, normalizeShowLocation } from "@/lib/zingaraDemo";
 import type { DemoVenueSettings } from "@/lib/zingaraDemo";
 import { getCustomerExperienceTimes } from "@/lib/experienceTimes";
+import { ageRestrictionPolicy } from "@/lib/ageRestrictionPolicy";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 
@@ -476,6 +477,11 @@ async function buildAppleWalletPass(
   );
 
   pass.backFields.push(
+    {
+      key: "age-restriction",
+      label: "AGE RESTRICTION",
+      value: ageRestrictionPolicy.policy,
+    },
     {
       key: "guest",
       label: "GUEST",

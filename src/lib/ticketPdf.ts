@@ -7,6 +7,7 @@ import type {
 } from "./zingaraDemo";
 import { resolveGuestVisibleTable } from "./guestTicketDisplay";
 import { getCustomerExperienceTimes } from "./experienceTimes";
+import { ageRestrictionPolicy } from "./ageRestrictionPolicy";
 import {
   getDisplayZoneTitle,
   normalizeShowLocation,
@@ -497,7 +498,7 @@ export async function createDownloadableTicketPdf(
   context.fillRect(0, 0, ticketCanvas.width, ticketCanvas.height);
 
   const body = {
-    height: 1986,
+    height: 2110,
     radius: 92,
     width: 906,
     x: 87,
@@ -661,6 +662,21 @@ export async function createDownloadableTicketPdf(
       weight: "700",
     },
   );
+
+  context.fillStyle = "#D8C36A";
+  fitText(context, ageRestrictionPolicy.label.toUpperCase(), centre, 2195, 820, {
+    family: sansFont,
+    maxSize: 18,
+    minSize: 14,
+    weight: "700",
+  });
+  context.fillStyle = "#FFFFFF";
+  fitText(context, ageRestrictionPolicy.policy, centre, 2234, 850, {
+    family: sansFont,
+    maxSize: 17,
+    minSize: 11,
+    weight: "400",
+  });
 
   const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.96);
 

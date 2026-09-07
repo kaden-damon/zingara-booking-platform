@@ -11,6 +11,7 @@ import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
 import type { BookingAddon } from "../../lib/zingaraDemo";
 import { calculateBookingAddonFinancialUpdate } from "../../lib/bookingAddons";
 import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEditor";
+import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
 
 type SaveState = "idle" | "saved" | "saving";
 
@@ -127,6 +128,7 @@ export function BookingMetadataDraftEditor({
 
   return (
     <section className="rounded-2xl border border-white/10 bg-black/30 p-4 lg:col-span-3">
+      <AgeRestrictionNotice className="mb-4" compact />
       <label>
         <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
           Booking Notes / Dietary Requirements

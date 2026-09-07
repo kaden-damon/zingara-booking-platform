@@ -83,6 +83,10 @@ import {
 } from "@/lib/supabase/bookingCapacity";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rolePermissions } from "@/lib/zingaraAccess";
+import {
+  createAgePolicyAcknowledgement,
+  hasValidAgePolicyAcknowledgement,
+} from "@/lib/ageRestrictionPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -1399,6 +1403,23 @@ export async function POST(request: Request) {
         { error: "Invalid internal booking creation context." },
         { status: 401 },
       );
+    }
+
+    if (
+      !isTrustedInternalHandoff &&
+      !hasValidAgePolicyAcknowledgement(booking.agePolicyAcknowledgement)
+    ) {
+      return Response.json(
+        { error: "Age restriction acknowledgement is required." },
+        { status: 400 },
+      );
+    }
+
+    if (!isTrustedInternalHandoff) {
+      booking = {
+        ...booking,
+        agePolicyAcknowledgement: createAgePolicyAcknowledgement(),
+      };
     }
 
     let staffProfileId: string | null = null;

@@ -1961,6 +1961,7 @@ const bookingLessons: AcademyArticle[] = [
       "Choose the guest count. Standard bookings are available for 1-19 guests; larger or business-led requests belong in Corporate.",
       "Select seating from the venue map and confirm the best-fit table.",
       "Enter guest details, review any matched customer carefully, then review the Payment Summary.",
+      "Explain that no children under 13 are admitted, including with adult supervision, and that guests aged 13–18 require parental guidance.",
       "Use PAY NOW for immediate PayFast checkout or, where your role allows it, SEND PAYMENT LINK for the existing pending booking.",
     ],
     id: "creating-a-booking",
@@ -1972,6 +1973,7 @@ const bookingLessons: AcademyArticle[] = [
     tips: [
       "Confirm the spelling of the guest name and email before saving.",
       "For 20 or more guests, guide the guest to Corporate Booking.",
+      "The same age restriction applies to Standard and Corporate parties.",
       "Use the booking summary to check totals before confirmation.",
     ],
     title: "Creating a Booking",
@@ -2627,6 +2629,7 @@ const corporateBookingLessons: AcademyArticle[] = [
     howTo: [
       "Use Corporate Booking for business, group, and event enquiries.",
       "Capture every required group and event detail before submitting.",
+      "Confirm the organiser understands that no children under 13 are admitted and ages 13–18 require parental guidance.",
       "Include dietary requirements, pre-authorised bar tab, add-ons, location acknowledgement, and notes.",
       "Review the request in Admin under Corporate Bookings.",
       "Update the status as the enquiry moves through quote, acceptance, payment, and confirmation.",

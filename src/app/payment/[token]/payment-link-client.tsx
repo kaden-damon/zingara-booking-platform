@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import YourEvening from "../../components/YourEvening";
+import AgeRestrictionNotice from "../../components/AgeRestrictionNotice";
 import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
 
 type PaymentLinkLookupResponse = {
@@ -253,6 +254,7 @@ export default function PaymentLinkClient({ token }: { token: string }) {
                   className="sm:col-span-2"
                 />
               )}
+              <AgeRestrictionNotice className="sm:col-span-2" compact />
               <p>
                 <span className="text-zinc-500">Section</span>
                 <br />

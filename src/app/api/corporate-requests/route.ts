@@ -20,6 +20,10 @@ import {
   type CorporateRequest,
   type DemoVenueSettings,
 } from "@/lib/zingaraDemo";
+import {
+  createAgePolicyAcknowledgement,
+  hasValidAgePolicyAcknowledgement,
+} from "@/lib/ageRestrictionPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -74,9 +78,21 @@ export async function POST(request: Request) {
       );
     }
 
+    if (
+      !hasValidAgePolicyAcknowledgement(
+        submittedRequest.agePolicyAcknowledgement,
+      )
+    ) {
+      return Response.json(
+        { error: "Age restriction acknowledgement is required." },
+        { status: 400 },
+      );
+    }
+
     const now = new Date().toISOString();
     const corporateRequest: CorporateRequest = {
       ...submittedRequest,
+      agePolicyAcknowledgement: createAgePolicyAcknowledgement(now),
       archivedAt: undefined,
       assignedConsultant: undefined,
       cancelledAt: undefined,

@@ -12,6 +12,11 @@ import { getTemplates } from "../../lib/supabase/communicationTemplates";
 import { createCorporateRequest } from "../../lib/supabase/corporateRequests";
 import { getPublicVenueSettings } from "../../lib/supabase/venueSettings";
 import YourEvening from "../components/YourEvening";
+import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
+import {
+  ageRestrictionPolicy,
+  createAgePolicyAcknowledgement,
+} from "../../lib/ageRestrictionPolicy";
 import {
   type CorporateRequest,
   type DemoBooking,
@@ -159,6 +164,8 @@ export default function CorporateBookingPage() {
   const [form, setForm] = useState<CorporateFormState>(initialFormState);
   const [submissionStatus, setSubmissionStatus] = useState("");
   const [validationError, setValidationError] = useState("");
+  const [hasAcknowledgedAgePolicy, setHasAcknowledgedAgePolicy] =
+    useState(false);
   const [venueSettings, setVenueSettings] = useState(defaultVenueSettings);
   const [submissionAction, setSubmissionAction] = useState<
     CorporateRequest["requestType"] | null
@@ -193,6 +200,9 @@ export default function CorporateBookingPage() {
 
     return {
       ...form,
+      agePolicyAcknowledgement: hasAcknowledgedAgePolicy
+        ? createAgePolicyAcknowledgement(now)
+        : undefined,
       id: createCorporateRequestId(),
       status: "corporate-tentative" as const,
       requestType,
@@ -366,6 +376,10 @@ export default function CorporateBookingPage() {
 
     if (!form.locationAcknowledgement) {
       return "Please confirm whether this booking request is for Cape Town or Johannesburg.";
+    }
+
+    if (!hasAcknowledgedAgePolicy) {
+      return "Please acknowledge the age restriction before submitting.";
     }
 
     return "";
@@ -884,6 +898,22 @@ export default function CorporateBookingPage() {
               className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
               placeholder="Event timing, hosting notes, access needs, or special requests."
             />
+          </label>
+
+          <AgeRestrictionNotice />
+
+          <label className="flex gap-3 rounded-2xl border border-[#D8C36A]/35 bg-[#1A1208]/55 p-4 text-sm leading-6 text-zinc-200">
+            <input
+              required
+              type="checkbox"
+              checked={hasAcknowledgedAgePolicy}
+              onChange={(event) => {
+                setHasAcknowledgedAgePolicy(event.target.checked);
+                if (event.target.checked) setValidationError("");
+              }}
+              className="mt-1 h-4 w-4 shrink-0 accent-[#D8C36A]"
+            />
+            <span>{ageRestrictionPolicy.acknowledgement}</span>
           </label>
 
           <div className="flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">

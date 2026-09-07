@@ -12,10 +12,15 @@ import PaymentBrandMarks from "../components/PaymentBrandMarks";
 import ScannableQrCode from "../components/ScannableQrCode";
 import YourEvening from "../components/YourEvening";
 import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEditor";
+import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
 import PublicMaintenanceBoundary from "./PublicMaintenanceBoundary";
 import {
   registerZingaraPushSubscription,
 } from "../../lib/browserNotifications";
+import {
+  ageRestrictionPolicy,
+  createAgePolicyAcknowledgement,
+} from "../../lib/ageRestrictionPolicy";
 import {
   getRemainingVenueSeatsForZone,
   normalizePromoCode,
@@ -747,6 +752,8 @@ export default function BookingPage() {
     useState("");
   const [hasAcceptedBookingTerms, setHasAcceptedBookingTerms] =
     useState(false);
+  const [hasAcknowledgedAgePolicy, setHasAcknowledgedAgePolicy] =
+    useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [promoValidationPreview, setPromoValidationPreview] =
     useState<PromoValidationPreview | null>(null);
@@ -1041,6 +1048,7 @@ export default function BookingPage() {
       })[0];
   }
   const isTrustedManualCheckout = manualCheckoutRole !== "none";
+  const requiresPublicAgeAcknowledgement = !isTrustedManualCheckout;
   const currentCustomerValidationErrors = validateBookingCreate({
     bookingSource: isCorporateCalendarCheckout
       ? "corporate-direct"
@@ -2138,6 +2146,7 @@ export default function BookingPage() {
     setBookingReference(null);
     setAllocatedTableNumber(null);
     setHasAcceptedBookingTerms(false);
+    setHasAcknowledgedAgePolicy(false);
     setIsConfirmationOpen(true);
   }
 
@@ -2275,6 +2284,9 @@ export default function BookingPage() {
       cancellationReason: "",
       refundNotes: "",
       communicationHistory: [],
+      agePolicyAcknowledgement: requiresPublicAgeAcknowledgement
+        ? createAgePolicyAcknowledgement(createdAt)
+        : undefined,
       createdAt,
     };
   }
@@ -2324,6 +2336,13 @@ export default function BookingPage() {
     if (!hasAcceptedBookingTerms) {
       setPaymentRedirectStatus(
         "Please agree to the Royal Decrees before continuing.",
+      );
+      return;
+    }
+
+    if (requiresPublicAgeAcknowledgement && !hasAcknowledgedAgePolicy) {
+      setPaymentRedirectStatus(
+        "Please acknowledge the age restriction before continuing.",
       );
       return;
     }
@@ -3126,6 +3145,7 @@ export default function BookingPage() {
                     className="mt-4"
                   />
                 )}
+                <AgeRestrictionNotice className="mt-4" compact />
                 <p className="mt-4 break-all rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 font-mono text-[0.65rem] text-zinc-400 sm:text-sm">
                   {ticketCode}
                 </p>
@@ -5286,6 +5306,24 @@ export default function BookingPage() {
               </div>
               )}
 
+              <AgeRestrictionNotice />
+
+              {requiresPublicAgeAcknowledgement && (
+                <label className="flex gap-3 rounded-xl border border-[#D8C36A]/35 bg-[#1A1208]/55 p-3 text-sm leading-6 text-zinc-200 sm:rounded-2xl sm:p-4">
+                  <input
+                    required
+                    type="checkbox"
+                    checked={hasAcknowledgedAgePolicy}
+                    onChange={(event) => {
+                      setHasAcknowledgedAgePolicy(event.target.checked);
+                      if (event.target.checked) setPaymentRedirectStatus("");
+                    }}
+                    className="mt-1 h-4 w-4 shrink-0 accent-[#D8C36A]"
+                  />
+                  <span>{ageRestrictionPolicy.acknowledgement}</span>
+                </label>
+              )}
+
               <label className="flex gap-3 rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3 text-sm leading-6 text-zinc-300 sm:rounded-2xl sm:p-4">
                 <input
                   required
@@ -5430,6 +5468,7 @@ export default function BookingPage() {
                             compact
                             className="mt-3"
                           />
+                          <AgeRestrictionNotice className="mt-3" compact />
                           <p>
                             <span className="text-zinc-500">
                               Zone:
@@ -5648,7 +5687,9 @@ export default function BookingPage() {
                         isPayFastRedirecting ||
                         isManualPaymentLinkCreating ||
                         Boolean(addonValidationError) ||
-                        !hasAcceptedBookingTerms}
+                        !hasAcceptedBookingTerms ||
+                        (requiresPublicAgeAcknowledgement &&
+                          !hasAcknowledgedAgePolicy)}
                     className="inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"
                   >
                     {isPayFastRedirecting && (
@@ -5706,7 +5747,9 @@ export default function BookingPage() {
                             calendarLockStatus !== "SHOW READY ✓") ||
                           isPayFastRedirecting ||
                           isManualPaymentLinkCreating ||
-                          !hasAcceptedBookingTerms
+                          !hasAcceptedBookingTerms ||
+                          (requiresPublicAgeAcknowledgement &&
+                            !hasAcknowledgedAgePolicy)
                         }
                         onClick={() => void handleCreateManualPaymentLink()}
                         className="inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-full border border-[#D8C36A]/60 bg-[#D8C36A]/10 px-6 py-3 text-base font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"

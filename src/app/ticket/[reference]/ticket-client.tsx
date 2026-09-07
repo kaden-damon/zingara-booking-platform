@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import ScannableQrCode from "../../components/ScannableQrCode";
 import YourEvening from "../../components/YourEvening";
+import AgeRestrictionNotice from "../../components/AgeRestrictionNotice";
 import { registerZingaraPushSubscription } from "../../../lib/browserNotifications";
 import {
   createDownloadableTicketPdf,
@@ -566,6 +567,7 @@ export default function LiveTicketClient({
                     className="sm:col-span-2"
                   />
                 )}
+                <AgeRestrictionNotice className="sm:col-span-2" compact />
                 {ticketLocationOption && (
                   <>
                     <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
