@@ -458,6 +458,7 @@ export type BookingOrigin =
   | "other"
   | "legacy_unknown";
 export type BookingAddon = {
+  catalogueUnitPrice?: number;
   description?: string;
   id: string;
   kind?: "catalogue" | "custom";

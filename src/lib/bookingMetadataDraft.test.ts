@@ -121,7 +121,7 @@ test("metadata save remains narrow and creates one immutable audit action", asyn
   assert.match(updatePayload, /updated_at: nextUpdatedAt/);
   assert.doesNotMatch(updatePayload, /amount_paid|booking_status|customer_id|guest_count|table_id/);
   assert.match(updatePayload, /addons_total|payment_status|total_amount/);
-  assert.match(handler, /action: financialChanged \? "booking\.addons-updated" : "booking\.metadata-edit"/);
+  assert.match(handler, /action: addonsChanged \? "booking\.addons-updated" : "booking\.metadata-edit"/);
   assert.equal(handler.match(/await recordAuditEvent\(/g)?.length, 1);
   assert.doesNotMatch(
     handler,

@@ -2319,6 +2319,7 @@ async function persistBookingMetadataUpdate(
     (beforeBooking as { addons_total?: number }).addons_total ?? 0,
   );
   const nextAddonsTotal = getBookingAddonTotal(addons);
+  const addonsChanged = JSON.stringify(previousAddons) !== JSON.stringify(addons);
   const financials = calculateBookingAddonFinancialUpdate({
     amountPaid: Number((beforeBooking as { amount_paid?: number }).amount_paid ?? 0),
     discountAmount: Number((beforeBooking as { discount_amount?: number }).discount_amount ?? 0),
@@ -2465,7 +2466,7 @@ async function persistBookingMetadataUpdate(
 
   try {
     await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
-      action: financialChanged ? "booking.addons-updated" : "booking.metadata-edit",
+      action: addonsChanged ? "booking.addons-updated" : "booking.metadata-edit",
       afterValues: {
         addons: toAuditJsonValue(addons),
         addonsTotal: nextAddonsTotal,
@@ -2482,7 +2483,7 @@ async function persistBookingMetadataUpdate(
       },
       changedFields: [
         ...(previousOperationalNotes === operationalNotes ? [] : ["operationalNotes"]),
-        ...(JSON.stringify(previousAddons) === JSON.stringify(addons) ? [] : ["addons"]),
+        ...(addonsChanged ? ["addons"] : []),
         ...(financialChanged ? ["addonsTotal", "total", "outstanding"] : []),
       ],
       entityId: (beforeBooking as { id: string }).id,

@@ -73,13 +73,39 @@ export function normalizeInternalBookingAddons(
     if (catalogueItem) {
       if (seenIds.has(catalogueItem.id)) throw new Error("The same catalogue add-on cannot be selected twice.");
       seenIds.add(catalogueItem.id);
-      const unitPrice = catalogueItem.unitPrice ?? catalogueItem.price;
+      const catalogueUnitPrice = catalogueItem.unitPrice ?? catalogueItem.price;
+      const requestedUnitPrice = normalizeUnitPrice(
+        item.unitPrice ?? catalogueUnitPrice,
+      );
+      const existingItem = options.existingAddons?.find(
+        (candidate) => candidate.id === catalogueItem.id,
+      );
+      const existingUnitPrice = existingItem
+        ? normalizeUnitPrice(
+            existingItem.unitPrice ??
+              Number(existingItem.price || 0) /
+                (existingItem.quantity ?? 1),
+          )
+        : null;
+      const preservesExistingOverride =
+        existingUnitPrice !== null && requestedUnitPrice === existingUnitPrice;
+
+      if (
+        requestedUnitPrice !== catalogueUnitPrice &&
+        !options.allowCustomPricing &&
+        !preservesExistingOverride
+      ) {
+        throw new Error(
+          "Booking-specific catalogue price changes require booking financial reconciliation access.",
+        );
+      }
 
       return {
         ...catalogueItem,
-        price: currency(unitPrice * quantity),
+        catalogueUnitPrice,
+        price: currency(requestedUnitPrice * quantity),
         quantity,
-        unitPrice,
+        unitPrice: requestedUnitPrice,
       };
     }
 

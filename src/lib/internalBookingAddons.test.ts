@@ -33,13 +33,61 @@ test("shared Corporate catalogue preserves priced and operational items", () => 
 
 test("catalogue quantity and total are calculated from authoritative prices", () => {
   const [item] = normalizeInternalBookingAddons(
-    [{ id: "tarot-reading", name: "Tampered", price: 1, quantity: 2, unitPrice: 1 }],
+    [{ id: "tarot-reading", name: "Tampered", price: 1, quantity: 2 }],
     { allowCustomPricing: false },
   );
   assert.equal(item.name, "Tarot Reading");
   assert.equal(item.unitPrice, 450);
   assert.equal(item.price, 900);
   assert.equal(getBookingAddonTotal([item]), 900);
+});
+
+test("authorised catalogue overrides preserve both base and agreed booking price", () => {
+  const [item] = normalizeInternalBookingAddons(
+    [{ id: "face-painting-mask", quantity: 2, unitPrice: 175 }],
+    { allowCustomPricing: true },
+  );
+  assert.equal(item.catalogueUnitPrice, 200);
+  assert.equal(item.unitPrice, 175);
+  assert.equal(item.price, 350);
+  assert.equal(
+    bookingAddonCatalogue.find((candidate) => candidate.id === item.id)?.unitPrice,
+    200,
+  );
+});
+
+test("catalogue overrides fail closed without financial permission", () => {
+  assert.throws(
+    () => normalizeInternalBookingAddons(
+      [{ id: "face-painting-mask", quantity: 1, unitPrice: 175 }],
+      { allowCustomPricing: false },
+    ),
+    /financial reconciliation access/,
+  );
+});
+
+test("ordinary staff may preserve an existing agreed override and change quantity", () => {
+  const existing = normalizeInternalBookingAddons(
+    [{ id: "face-painting-mask", quantity: 1, unitPrice: 175 }],
+    { allowCustomPricing: true },
+  );
+  const [item] = normalizeInternalBookingAddons(
+    [{ id: "face-painting-mask", quantity: 3, unitPrice: 175 }],
+    { allowCustomPricing: false, existingAddons: existing },
+  );
+  assert.equal(item.catalogueUnitPrice, 200);
+  assert.equal(item.unitPrice, 175);
+  assert.equal(item.price, 525);
+});
+
+test("operational catalogue items remain unpriced", () => {
+  const [item] = normalizeInternalBookingAddons(
+    [{ id: "arrival-drinks", quantity: 8 }],
+    { allowCustomPricing: false },
+  );
+  assert.equal(item.pricingType, "operational");
+  assert.equal(item.unitPrice, 0);
+  assert.equal(item.price, 0);
 });
 
 test("custom line totals are server-calculated and crafted totals ignored", () => {
@@ -109,10 +157,45 @@ test("public Standard cannot retrieve or submit internal add-ons", async () => {
 });
 
 test("internal Standard and Corporate use one controlled editor", async () => {
-  const page = await source("../app/book/page.tsx");
+  const [page, editor] = await Promise.all([
+    source("../app/book/page.tsx"),
+    source("../app/components/InternalBookingAddonsEditor.tsx"),
+  ]);
   assert.match(page, /isCorporateCalendarCheckout \? "Corporate Add-Ons" : "Add-Ons"/);
   assert.match(page, /canCustomPrice=\{canCustomPriceAddons\}/);
   assert.match(page, /addons: selectedAddons/);
+  assert.match(editor, /useState\(false\)/);
+  assert.match(editor, /aria-expanded=\{expanded\}/);
+  assert.match(editor, /expanded \? "−" : "\+"/);
+  assert.match(editor, /No add-ons selected/);
+  assert.match(editor, /value\.length === 1 \? "item" : "items"/);
+});
+
+test("custom item remains a local draft until Add Item commits it", async () => {
+  const editor = await source("../app/components/InternalBookingAddonsEditor.tsx");
+  const totalExpression = editor.match(/const total = ([^;]+);/)?.[1] ?? "";
+  const openHandler = editor.match(/function openNewCustomItem\(\) \{([\s\S]*?)\n  \}/)?.[1] ?? "";
+  const commitHandler = editor.match(/function commitCustomItem\(\) \{([\s\S]*?)\n  \}/)?.[1] ?? "";
+
+  assert.match(totalExpression, /value\.reduce/);
+  assert.doesNotMatch(totalExpression, /customDraft/);
+  assert.match(openHandler, /setCustomDraft\(blankCustomItem\(\)\)/);
+  assert.doesNotMatch(openHandler, /onChange/);
+  assert.match(commitHandler, /onChange/);
+  assert.match(editor, /editingCustomId \? "Save Item" : "Add Item"/);
+  assert.match(editor, />Cancel</);
+  assert.match(editor, />Edit</);
+  assert.match(editor, />Remove</);
+});
+
+test("catalogue controls auto-populate base price and expose overrides only when authorised", async () => {
+  const editor = await source("../app/components/InternalBookingAddonsEditor.tsx");
+  assert.match(editor, /catalogueItem\.unitPrice/);
+  assert.match(editor, /price: catalogueUnitPrice/);
+  assert.match(editor, /unitPrice: catalogueUnitPrice/);
+  assert.match(editor, /catalogueUnitPrice > 0 && canCustomPrice/);
+  assert.match(editor, /Booking price/);
+  assert.match(editor, /Catalogue/);
 });
 
 test("complimentary priced add-ons fail closed while invoice paths retain add-ons", async () => {
@@ -130,7 +213,8 @@ test("Booking Details uses local draft, one save, financial preview and unsaved 
     source("../app/admin/BookingMetadataDraftEditor.tsx"),
     source("../app/admin/page.tsx"),
   ]);
-  assert.match(editor, /Edit Add-Ons/);
+  assert.match(editor, /<InternalBookingAddonsEditor/);
+  assert.match(editor, /addonsDirty/);
   assert.match(editor, /setDraft\(\(current\)/);
   assert.equal(editor.match(/await saveBookingMetadata\(/g)?.length, 1);
   assert.match(editor, /No payment, refund, link or communication is created automatically/);

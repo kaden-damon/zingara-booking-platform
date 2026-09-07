@@ -62,9 +62,9 @@ export function BookingMetadataDraftEditor({
   const [error, setError] = useState("");
   const [catalogue, setCatalogue] = useState<BookingAddon[]>([]);
   const [canCustomPrice, setCanCustomPrice] = useState(false);
-  const [isEditingAddons, setIsEditingAddons] = useState(false);
   const inFlightRef = useRef(false);
   const dirty = isBookingMetadataDraftDirty(draft, baseline);
+  const addonsDirty = JSON.stringify(draft.addons) !== JSON.stringify(baseline.addons);
   const preview = calculateBookingAddonFinancialUpdate({
     amountPaid: initialAmountPaid,
     discountAmount: initialDiscountAmount,
@@ -145,40 +145,20 @@ export function BookingMetadataDraftEditor({
         />
       </label>
       <div className="mt-4 border-t border-white/10 pt-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Add-Ons</p>
-            {!isEditingAddons && (
-              <div className="mt-2 space-y-1 text-sm text-zinc-300">
-                {draft.addons.length === 0 ? <p>No add-ons recorded.</p> : draft.addons.map((addon) => (
-                  <p key={addon.id}>
-                    <span className="font-medium text-white">{addon.name}</span>{" "}
-                    {(addon.quantity ?? 1)} x {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(addon.unitPrice ?? addon.price)}
-                    {addon.price > 0 ? ` = ${new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(addon.price)}` : " · Operational / no price"}
-                  </p>
-                ))}
-                <p className="pt-1 font-semibold text-[#F2D66C]">Add-Ons Total {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(draft.addons.reduce((total, addon) => total + addon.price, 0))}</p>
-              </div>
-            )}
-          </div>
-          <button type="button" disabled={disabled || catalogue.length === 0} onClick={() => setIsEditingAddons((current) => !current)} className="min-h-10 rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase text-zinc-200 disabled:opacity-40">
-            {isEditingAddons ? "Close Add-On Editor" : "Edit Add-Ons"}
-          </button>
-        </div>
-        {isEditingAddons && (
+        <InternalBookingAddonsEditor
+          canCustomPrice={canCustomPrice}
+          catalogue={catalogue}
+          disabled={disabled || saveState === "saving" || catalogue.length === 0}
+          heading="Add-Ons"
+          onChange={(addons) => {
+            setDraft((current) => ({ ...current, addons }));
+            setSaveState("idle");
+            setError("");
+          }}
+          value={draft.addons}
+        />
+        {addonsDirty && (
           <div className="mt-4">
-            <InternalBookingAddonsEditor
-              canCustomPrice={canCustomPrice}
-              catalogue={catalogue.map((item) => !canCustomPrice && item.price > 0 ? { ...item } : item)}
-              disabled={disabled || saveState === "saving"}
-              heading="Add-Ons"
-              onChange={(addons) => {
-                setDraft((current) => ({ ...current, addons }));
-                setSaveState("idle");
-                setError("");
-              }}
-              value={draft.addons}
-            />
             <div className={`mt-3 rounded-xl border p-3 text-sm ${preview.createsCredit ? "border-red-300/30 bg-red-950/20 text-red-100" : "border-amber-300/25 bg-amber-950/15 text-amber-100"}`}>
               <p>Booking obligation: {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(initialTotalPrice)} to {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(preview.totalAmount)}</p>
               <p className="mt-1">Paid remains {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(initialAmountPaid)}. No payment, refund, link or communication is created automatically.</p>
