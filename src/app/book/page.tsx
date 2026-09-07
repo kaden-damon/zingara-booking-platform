@@ -11,12 +11,12 @@ import {
 import PaymentBrandMarks from "../components/PaymentBrandMarks";
 import ScannableQrCode from "../components/ScannableQrCode";
 import YourEvening from "../components/YourEvening";
+import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEditor";
 import PublicMaintenanceBoundary from "./PublicMaintenanceBoundary";
 import {
   registerZingaraPushSubscription,
 } from "../../lib/browserNotifications";
 import {
-  bookingAddons,
   getRemainingVenueSeatsForZone,
   normalizePromoCode,
   serviceFeeGuestThreshold,
@@ -752,7 +752,9 @@ export default function BookingPage() {
     useState<PromoValidationPreview | null>(null);
   const [isPromoValidationLoading, setIsPromoValidationLoading] =
     useState(false);
-  const [selectedAddonIds] = useState<string[]>([]);
+  const [addonCatalogue, setAddonCatalogue] = useState<BookingAddon[]>([]);
+  const [selectedAddons, setSelectedAddons] = useState<BookingAddon[]>([]);
+  const [canCustomPriceAddons, setCanCustomPriceAddons] = useState(false);
   const [occupiedSeatsByZone, setOccupiedSeatsByZone] = useState<
     Partial<Record<SeatingZone["id"], number>>
   >({});
@@ -814,12 +816,23 @@ export default function BookingPage() {
             : null,
       })
     : 0;
-  const selectedAddons = bookingAddons.filter((addon) =>
-    selectedAddonIds.includes(addon.id),
-  );
   const addonsTotal = isComplimentary
     ? 0
     : selectedAddons.reduce((sum, addon) => sum + addon.price, 0);
+  const complimentaryAddonError =
+    isComplimentary && selectedAddons.some((addon) => addon.price > 0)
+      ? "Priced add-ons cannot be included in a complimentary booking. Remove them or choose another pricing mode."
+      : "";
+  const addonValidationError = selectedAddons.some(
+    (addon) =>
+      !addon.name.trim() ||
+      !Number.isInteger(addon.quantity ?? 1) ||
+      (addon.quantity ?? 1) < 1 ||
+      !Number.isFinite(addon.unitPrice ?? addon.price) ||
+      (addon.unitPrice ?? addon.price) < 0,
+  )
+    ? "Complete every add-on item name, quantity and unit price before continuing."
+    : "";
   const seatingSubtotal =
     selectedZone ? pricePerPerson * partySize : 0;
   const subtotal = seatingSubtotal + addonsTotal;
@@ -1082,7 +1095,8 @@ export default function BookingPage() {
   const corporateInvoiceSubmissionAllowed =
     isCorporateInvoice &&
     complimentarySubmissionEligibility.allowed &&
-    !corporateInvoiceFinancialError;
+    !corporateInvoiceFinancialError &&
+    !addonValidationError;
 
   const publicBookingGuidance = getPublicBookingGuidance(
     currentCustomerValidationErrors,
@@ -1639,6 +1653,32 @@ export default function BookingPage() {
 
     return () => window.clearTimeout(timer);
   }, [customerInfo.email, customerInfo.phone, manualCheckoutRole]);
+
+  useEffect(() => {
+    if (manualCheckoutRole === "none") {
+      return;
+    }
+
+    let active = true;
+    fetchSupabaseApi<{
+      canCustomPrice: boolean;
+      catalogue: BookingAddon[];
+    }>("/api/admin/booking-addons")
+      .then((payload) => {
+        if (!active) return;
+        setAddonCatalogue(payload.catalogue ?? []);
+        setCanCustomPriceAddons(Boolean(payload.canCustomPrice));
+      })
+      .catch(() => {
+        if (!active) return;
+        setAddonCatalogue([]);
+        setCanCustomPriceAddons(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [manualCheckoutRole]);
 
   useEffect(() => {
     if (
@@ -4418,6 +4458,29 @@ export default function BookingPage() {
                 </div>
               )}
 
+              {manualCheckoutRole !== "none" && addonCatalogue.length > 0 && (
+                <div className="mb-4 sm:mb-5">
+                  <InternalBookingAddonsEditor
+                    canCustomPrice={canCustomPriceAddons}
+                    catalogue={addonCatalogue}
+                    disabled={isPayFastRedirecting}
+                    heading={isCorporateCalendarCheckout ? "Corporate Add-Ons" : "Add-Ons"}
+                    onChange={setSelectedAddons}
+                    value={selectedAddons}
+                  />
+                  {complimentaryAddonError && (
+                    <p role="alert" className="mt-2 text-sm text-amber-200">
+                      {complimentaryAddonError}
+                    </p>
+                  )}
+                  {addonValidationError && (
+                    <p role="alert" className="mt-2 text-sm text-red-200">
+                      {addonValidationError}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {manualCheckoutRole !== "none" &&
                 !isFriendsAndFamily &&
                 !isComplimentary &&
@@ -5578,12 +5641,13 @@ export default function BookingPage() {
                     disabled={isComplimentary || isCorporateInvoice
                       ? isCorporateInvoice
                         ? !corporateInvoiceSubmissionAllowed
-                        : !complimentarySubmissionEligibility.allowed
+                        : !complimentarySubmissionEligibility.allowed || Boolean(complimentaryAddonError) || Boolean(addonValidationError)
                       : !selectedShow ||
                         (isLockedCalendarCheckout &&
                           calendarLockStatus !== "SHOW READY ✓") ||
                         isPayFastRedirecting ||
                         isManualPaymentLinkCreating ||
+                        Boolean(addonValidationError) ||
                         !hasAcceptedBookingTerms}
                     className="inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-base font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:py-4 sm:text-xl"
                   >
@@ -5624,8 +5688,9 @@ export default function BookingPage() {
                       >
                         {isCorporateInvoice
                           ? corporateInvoiceFinancialError ||
+                            addonValidationError ||
                             complimentarySubmissionEligibility.reason
-                          : complimentarySubmissionEligibility.reason}
+                          : complimentaryAddonError || addonValidationError || complimentarySubmissionEligibility.reason}
                       </p>
                     )}
                   {!isComplimentary &&

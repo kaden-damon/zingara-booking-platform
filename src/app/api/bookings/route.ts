@@ -22,6 +22,11 @@ import {
 } from "@/lib/zingaraDemo";
 import { calculatePublicBookingPricing } from "@/lib/pricing";
 import {
+  getBookingAddonTotal,
+  hasPricedBookingAddons,
+  normalizeInternalBookingAddons,
+} from "@/lib/bookingAddons";
+import {
   enforceCorporateBookingSource,
   isCorporatePartySize,
 } from "@/lib/bookingClassification";
@@ -77,6 +82,7 @@ import {
   validateBookingCapacityIncrease,
 } from "@/lib/supabase/bookingCapacity";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { rolePermissions } from "@/lib/zingaraAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -1437,6 +1443,43 @@ export async function POST(request: Request) {
     const isTrustedStaff = Boolean(staffProfileId);
 
     if (
+      !isTrustedStaff &&
+      ((booking.addons?.length ?? 0) > 0 || Number(booking.addonsTotal) > 0)
+    ) {
+      return Response.json(
+        { error: "Booking add-ons are available only through authorised staff booking creation." },
+        { status: 403 },
+      );
+    }
+
+    if (isTrustedStaff) {
+      try {
+        const addons = normalizeInternalBookingAddons(booking.addons, {
+          allowCustomPricing: Boolean(
+            staffRole && rolePermissions[staffRole].includes("bookings:reconcile"),
+          ),
+        });
+        booking = {
+          ...booking,
+          addons,
+          addonsTotal: getBookingAddonTotal(addons),
+        };
+      } catch (error) {
+        return Response.json(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Booking add-ons are invalid.",
+          },
+          { status: 400 },
+        );
+      }
+    } else {
+      booking = { ...booking, addons: [], addonsTotal: 0 };
+    }
+
+    if (
       isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis) &&
       (!isTrustedStaff || booking.source !== "corporate-direct")
     ) {
@@ -1453,6 +1496,16 @@ export async function POST(request: Request) {
       return Response.json(
         { error: "Complimentary pricing requires authorised staff booking access." },
         { status: 403 },
+      );
+    }
+
+    if (
+      isComplimentaryBooking(booking) &&
+      hasPricedBookingAddons(booking.addons ?? [])
+    ) {
+      return Response.json(
+        { error: "Priced add-ons cannot be included in a complimentary booking." },
+        { status: 409 },
       );
     }
 
@@ -1776,6 +1829,7 @@ export async function POST(request: Request) {
 
     if (
       (booking.source === "online" ||
+        (isTrustedStaff && (booking.addons?.length ?? 0) > 0) ||
         customPricedTemporaryTable ||
         staffPricingRate ||
         (isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis) &&

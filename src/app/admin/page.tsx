@@ -42869,7 +42869,14 @@ export default function AdminDashboardPage() {
                               isBookingReadOnly(booking.reference) ||
                               isArchivedBooking(booking)
                             }
+                            initialAddons={booking.addons ?? []}
+                            initialAddonsTotal={financials.addonsTotal}
+                            initialAmountPaid={financials.amountPaid}
+                            initialDiscountAmount={financials.discountAmount}
                             initialNotes={booking.operationalNotes}
+                            initialPartySize={booking.partySize}
+                            initialSubtotalPrice={financials.subtotalPrice}
+                            initialTotalPrice={financials.totalPrice}
                             initialUpdatedAt={booking.updatedAt}
                             onDirtyChange={(dirty) =>
                               setDirtyBookingMetadataReference(
@@ -42884,6 +42891,12 @@ export default function AdminDashboardPage() {
                                         ...currentBooking,
                                         operationalNotes:
                                           result.operationalNotes,
+                                        addons: result.addons,
+                                        addonsTotal: result.addonsTotal,
+                                        balanceDue: result.balanceDue,
+                                        serviceFeeAmount: result.serviceFeeAmount,
+                                        subtotalPrice: result.subtotalPrice,
+                                        totalPrice: result.totalPrice,
                                         updatedAt: result.updatedAt,
                                       }
                                     : currentBooking,

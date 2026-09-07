@@ -458,9 +458,14 @@ export type BookingOrigin =
   | "other"
   | "legacy_unknown";
 export type BookingAddon = {
+  description?: string;
   id: string;
+  kind?: "catalogue" | "custom";
   name: string;
+  pricingType?: "operational" | "priced";
+  quantity?: number;
   price: number;
+  unitPrice?: number;
 };
 export type DemoTable = {
   availabilityScope?: TableAvailabilityScope;

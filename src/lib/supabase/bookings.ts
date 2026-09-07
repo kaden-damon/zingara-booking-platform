@@ -1,4 +1,5 @@
 import {
+  type BookingAddon,
   type BookingStatus,
   type BookingLifecycleEvent,
   type CommunicationChannel,
@@ -1100,12 +1101,19 @@ export async function saveBookings(
 }
 
 export async function saveBookingMetadata(input: {
+  addons: BookingAddon[];
   bookingReference: string;
   expectedUpdatedAt?: string;
   operationalNotes: string;
 }) {
   return fetchSupabaseApi<{
+    addons: BookingAddon[];
+    addonsTotal: number;
+    balanceDue: number;
     operationalNotes: string;
+    serviceFeeAmount: number;
+    subtotalPrice: number;
+    totalPrice: number;
     updatedAt: string;
   }>("/api/admin/bookings", {
     body: {

@@ -109,7 +109,7 @@ test("metadata route enforces auth, permission, venue scope, lock and stale revi
   assert.match(route, /Your draft is preserved/);
 });
 
-test("metadata save writes only notes projections and one immutable audit event", async () => {
+test("metadata save remains narrow and creates one immutable audit action", async () => {
   const route = await readFile(routePath, "utf8");
   const handler = route.match(
     /async function persistBookingMetadataUpdate([\s\S]*?)\nasync function setBookingArchiveState/,
@@ -119,7 +119,12 @@ test("metadata save writes only notes projections and one immutable audit event"
   assert.match(updatePayload, /dietary_requirements/);
   assert.match(updatePayload, /notes: nextNotes/);
   assert.match(updatePayload, /updated_at: nextUpdatedAt/);
-  assert.doesNotMatch(updatePayload, /amount_paid|booking_status|customer_id|guest_count|payment_status|table_id|total_amount/);
-  assert.equal(handler.match(/action: "booking\.metadata-edit"/g)?.length, 1);
-  assert.doesNotMatch(handler, /communication|notifyAppleWallet|payment/);
+  assert.doesNotMatch(updatePayload, /amount_paid|booking_status|customer_id|guest_count|table_id/);
+  assert.match(updatePayload, /addons_total|payment_status|total_amount/);
+  assert.match(handler, /action: financialChanged \? "booking\.addons-updated" : "booking\.metadata-edit"/);
+  assert.equal(handler.match(/await recordAuditEvent\(/g)?.length, 1);
+  assert.doesNotMatch(
+    handler,
+    /sendOperationalCustomerEmail|notifyAppleWallet|syncCommunications|upsertPayment/,
+  );
 });

@@ -13,6 +13,13 @@ import {
   seatingZones,
 } from "@/lib/zingaraDemo";
 import { getAuthoritativePublicPricePerPerson } from "@/lib/authoritativePublicPrice";
+import { bookingAddonCatalogue, getBookingAddonTotal } from "@/lib/bookingAddons";
+import {
+  serviceFeeGuestThreshold,
+  serviceFeeRate,
+} from "@/lib/bookingAddons";
+
+export { serviceFeeGuestThreshold, serviceFeeRate } from "@/lib/bookingAddons";
 
 export type PromoCodeSummary = {
   code: string;
@@ -66,31 +73,7 @@ export type PublicPricingResult = {
   total: number;
 };
 
-export const bookingAddons: BookingAddon[] = [
-  {
-    id: "vip-champagne",
-    name: "VIP Champagne Package",
-    price: 1250,
-  },
-  {
-    id: "premium-wine",
-    name: "Premium Wine Pairing",
-    price: 890,
-  },
-  {
-    id: "birthday-celebration",
-    name: "Birthday Celebration Package",
-    price: 750,
-  },
-  {
-    id: "backstage-experience",
-    name: "Backstage Experience",
-    price: 1500,
-  },
-];
-
-export const serviceFeeGuestThreshold = 6;
-export const serviceFeeRate = 0.125;
+export const bookingAddons: BookingAddon[] = bookingAddonCatalogue;
 
 export function normalizePromoCode(code: string | null | undefined) {
   return (code ?? "").trim().toUpperCase();
@@ -143,14 +126,8 @@ export function calculatePublicBookingPricing(
     throw new Error("Unknown seating zone.");
   }
 
-  const selectedAddonIds = new Set((input.addons ?? []).map((addon) => addon.id));
-  const selectedAddons = bookingAddons.filter((addon) =>
-    selectedAddonIds.has(addon.id),
-  );
-  const addonsTotal = selectedAddons.reduce(
-    (total, addon) => total + addon.price,
-    0,
-  );
+  const selectedAddons = input.addons ?? [];
+  const addonsTotal = getBookingAddonTotal(selectedAddons);
   const configuredZonePrice = getConfiguredZonePrice(settings, zone);
   const pricePerPerson =
     input.authoritativePricePerPerson ??
