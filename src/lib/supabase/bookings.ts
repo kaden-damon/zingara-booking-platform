@@ -1102,6 +1102,7 @@ export async function saveBookings(
 
 export async function saveBookingMetadata(input: {
   addons: BookingAddon[];
+  bookingId?: string;
   bookingReference: string;
   expectedUpdatedAt?: string;
   operationalNotes: string;
@@ -1110,7 +1111,9 @@ export async function saveBookingMetadata(input: {
     addons: BookingAddon[];
     addonsTotal: number;
     balanceDue: number;
+    financialChanged: boolean;
     operationalNotes: string;
+    paymentLinksInvalidated: number;
     serviceFeeAmount: number;
     subtotalPrice: number;
     totalPrice: number;

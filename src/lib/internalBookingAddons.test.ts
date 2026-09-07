@@ -118,7 +118,8 @@ test("custom pricing, negative prices and invalid quantities fail closed", () =>
 test("financial update includes add-ons, preserves paid and recalculates outstanding", () => {
   const result = calculateBookingAddonFinancialUpdate({
     amountPaid: 4_000,
-    discountAmount: 0,
+    currentServiceFee: 1_080,
+    currentTotalAmount: 9_720,
     newAddonsTotal: 900,
     oldAddonsTotal: 0,
     partySize: 6,
@@ -134,7 +135,8 @@ test("financial update includes add-ons, preserves paid and recalculates outstan
 test("financial removal identifies a credit instead of manufacturing a refund", () => {
   const result = calculateBookingAddonFinancialUpdate({
     amountPaid: 10_000,
-    discountAmount: 0,
+    currentServiceFee: 0,
+    currentTotalAmount: 10_000,
     newAddonsTotal: 0,
     oldAddonsTotal: 2_000,
     partySize: 4,

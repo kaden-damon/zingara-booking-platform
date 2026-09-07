@@ -1,4 +1,4 @@
-import type { BookingAddon } from "./zingaraDemo";
+import type { BookingAddon, EntryLocationKey } from "./zingaraDemo";
 
 export const bookingAddonCatalogue: BookingAddon[] = [
   { id: "arrival-drinks", kind: "catalogue", name: "Arrival Drinks", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
@@ -10,6 +10,23 @@ export const bookingAddonCatalogue: BookingAddon[] = [
   { id: "tarot-reading", kind: "catalogue", name: "Tarot Reading", price: 450, pricingType: "priced", quantity: 1, unitPrice: 450 },
   { id: "vip-bar", kind: "catalogue", name: "VIP Bar", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
 ];
+
+const johannesburgDietaryAddons: BookingAddon[] = [
+  { id: "dietary-strictly-halaal", kind: "catalogue", name: "Strictly Halaal", price: 250, pricingType: "priced", quantity: 1, unitPrice: 250 },
+  { id: "dietary-kosher", kind: "catalogue", name: "Kosher", price: 500, pricingType: "priced", quantity: 1, unitPrice: 500 },
+];
+
+const venueRestrictedAddonIds = new Set(
+  johannesburgDietaryAddons.map((addon) => addon.id),
+);
+
+export function getBookingAddonCatalogue(
+  location?: EntryLocationKey | null,
+) {
+  return location === "johannesburg"
+    ? [...bookingAddonCatalogue, ...johannesburgDietaryAddons]
+    : bookingAddonCatalogue;
+}
 
 export const serviceFeeGuestThreshold = 6;
 export const serviceFeeRate = 0.125;
@@ -55,7 +72,11 @@ export function getBookingAddonTotal(addons: BookingAddon[] | null | undefined) 
 
 export function normalizeInternalBookingAddons(
   value: unknown,
-  options: { allowCustomPricing: boolean; existingAddons?: BookingAddon[] },
+  options: {
+    allowCustomPricing: boolean;
+    existingAddons?: BookingAddon[];
+    location?: EntryLocationKey | null;
+  },
 ): BookingAddon[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw new Error("Booking add-ons must be supplied as a list.");
@@ -67,7 +88,9 @@ export function normalizeInternalBookingAddons(
     if (!raw || typeof raw !== "object") throw new Error("An add-on item is invalid.");
     const item = raw as Record<string, unknown>;
     const requestedId = String(item.id ?? "").trim();
-    const catalogueItem = bookingAddonCatalogue.find((candidate) => candidate.id === requestedId);
+    const catalogueItem = getBookingAddonCatalogue(options.location).find(
+      (candidate) => candidate.id === requestedId,
+    );
     const quantity = normalizeQuantity(item.quantity ?? 1);
 
     if (catalogueItem) {
@@ -107,6 +130,12 @@ export function normalizeInternalBookingAddons(
         quantity,
         unitPrice: requestedUnitPrice,
       };
+    }
+
+    if (venueRestrictedAddonIds.has(requestedId)) {
+      throw new Error(
+        "This priced dietary add-on is not configured for the booking venue.",
+      );
     }
 
     const existingItem = options.existingAddons?.find(
@@ -164,26 +193,32 @@ export function hasPricedBookingAddons(addons: BookingAddon[]) {
 
 export function calculateBookingAddonFinancialUpdate(input: {
   amountPaid: number;
-  discountAmount: number;
+  currentServiceFee: number;
+  currentTotalAmount: number;
   newAddonsTotal: number;
   oldAddonsTotal: number;
   partySize: number;
   subtotalAmount: number;
 }) {
   const subtotalAmount = Math.max(Number(input.subtotalAmount) || 0, 0);
+  const addonDelta = currency(
+    Math.max(input.newAddonsTotal, 0) - Math.max(input.oldAddonsTotal, 0),
+  );
   const nextSubtotal = currency(
-    Math.max(subtotalAmount - Math.max(input.oldAddonsTotal, 0), 0) +
-      Math.max(input.newAddonsTotal, 0),
+    Math.max(subtotalAmount + addonDelta, 0),
   );
-  const discountedSubtotal = Math.max(
-    nextSubtotal - Math.max(Number(input.discountAmount) || 0, 0),
-    0,
-  );
-  const serviceFee =
+  const serviceFeeDelta =
     input.partySize >= serviceFeeGuestThreshold
-      ? currency(discountedSubtotal * serviceFeeRate)
+      ? currency(addonDelta * serviceFeeRate)
       : 0;
-  const totalAmount = currency(discountedSubtotal + serviceFee);
+  const serviceFee = currency(
+    Math.max(Number(input.currentServiceFee) || 0, 0) + serviceFeeDelta,
+  );
+  const totalAmount = currency(
+    Math.max(Number(input.currentTotalAmount) || 0, 0) +
+      addonDelta +
+      serviceFeeDelta,
+  );
   const amountPaid = Math.max(Number(input.amountPaid) || 0, 0);
 
   return {

@@ -1671,10 +1671,21 @@ export default function BookingPage() {
     fetchSupabaseApi<{
       canCustomPrice: boolean;
       catalogue: BookingAddon[];
-    }>("/api/admin/booking-addons")
+    }>(
+      `/api/admin/booking-addons${selectedEntryLocation ? `?location=${encodeURIComponent(selectedEntryLocation)}` : ""}`,
+    )
       .then((payload) => {
         if (!active) return;
         setAddonCatalogue(payload.catalogue ?? []);
+        setSelectedAddons((current) =>
+          current.filter(
+            (addon) =>
+              addon.kind === "custom" ||
+              (payload.catalogue ?? []).some(
+                (catalogueAddon) => catalogueAddon.id === addon.id,
+              ),
+          ),
+        );
         setCanCustomPriceAddons(Boolean(payload.canCustomPrice));
       })
       .catch(() => {
@@ -1686,7 +1697,7 @@ export default function BookingPage() {
     return () => {
       active = false;
     };
-  }, [manualCheckoutRole]);
+  }, [manualCheckoutRole, selectedEntryLocation]);
 
   useEffect(() => {
     if (

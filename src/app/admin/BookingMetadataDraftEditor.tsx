@@ -16,28 +16,30 @@ import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
 type SaveState = "idle" | "saved" | "saving";
 
 export function BookingMetadataDraftEditor({
+  bookingId,
   bookingReference,
   disabled,
   initialAddons,
   initialAddonsTotal,
   initialAmountPaid,
-  initialDiscountAmount,
   initialNotes,
   initialPartySize,
+  initialServiceFeeAmount,
   initialSubtotalPrice,
   initialTotalPrice,
   initialUpdatedAt,
   onDirtyChange,
   onSaved,
 }: {
+  bookingId?: string;
   bookingReference: string;
   disabled: boolean;
   initialAddons: BookingAddon[];
   initialAddonsTotal: number;
   initialAmountPaid: number;
-  initialDiscountAmount: number;
   initialNotes?: string;
   initialPartySize: number;
+  initialServiceFeeAmount: number;
   initialSubtotalPrice: number;
   initialTotalPrice: number;
   initialUpdatedAt?: string;
@@ -46,7 +48,9 @@ export function BookingMetadataDraftEditor({
     addons: BookingAddon[];
     addonsTotal: number;
     balanceDue: number;
+    financialChanged: boolean;
     operationalNotes: string;
+    paymentLinksInvalidated: number;
     serviceFeeAmount: number;
     subtotalPrice: number;
     totalPrice: number;
@@ -68,7 +72,8 @@ export function BookingMetadataDraftEditor({
   const addonsDirty = JSON.stringify(draft.addons) !== JSON.stringify(baseline.addons);
   const preview = calculateBookingAddonFinancialUpdate({
     amountPaid: initialAmountPaid,
-    discountAmount: initialDiscountAmount,
+    currentServiceFee: initialServiceFeeAmount,
+    currentTotalAmount: initialTotalPrice,
     newAddonsTotal: draft.addons.reduce((total, addon) => total + addon.price, 0),
     oldAddonsTotal: initialAddonsTotal,
     partySize: initialPartySize,
@@ -78,7 +83,7 @@ export function BookingMetadataDraftEditor({
   useEffect(() => {
     let active = true;
     fetchSupabaseApi<{ canCustomPrice: boolean; catalogue: BookingAddon[] }>(
-      "/api/admin/booking-addons",
+      `/api/admin/booking-addons?bookingReference=${encodeURIComponent(bookingReference)}`,
     )
       .then((payload) => {
         if (!active) return;
@@ -87,7 +92,7 @@ export function BookingMetadataDraftEditor({
       })
       .catch(() => undefined);
     return () => { active = false; };
-  }, []);
+  }, [bookingReference]);
 
   useEffect(() => {
     onDirtyChange(dirty);
@@ -103,6 +108,7 @@ export function BookingMetadataDraftEditor({
     try {
       const result = await saveBookingMetadata({
         addons: draft.addons,
+        bookingId,
         bookingReference,
         expectedUpdatedAt: initialUpdatedAt,
         operationalNotes: draft.operationalNotes,
@@ -151,7 +157,7 @@ export function BookingMetadataDraftEditor({
           canCustomPrice={canCustomPrice}
           catalogue={catalogue}
           disabled={disabled || saveState === "saving" || catalogue.length === 0}
-          heading="Add-Ons"
+          heading="Edit Add-Ons"
           onChange={(addons) => {
             setDraft((current) => ({ ...current, addons }));
             setSaveState("idle");
@@ -162,8 +168,11 @@ export function BookingMetadataDraftEditor({
         {addonsDirty && (
           <div className="mt-4">
             <div className={`mt-3 rounded-xl border p-3 text-sm ${preview.createsCredit ? "border-red-300/30 bg-red-950/20 text-red-100" : "border-amber-300/25 bg-amber-950/15 text-amber-100"}`}>
-              <p>Booking obligation: {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(initialTotalPrice)} to {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(preview.totalAmount)}</p>
-              <p className="mt-1">Paid remains {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(initialAmountPaid)}. No payment, refund, link or communication is created automatically.</p>
+              <p>Add-ons total: {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(draft.addons.reduce((total, addon) => total + addon.price, 0))}</p>
+              <p className="mt-1">Booking obligation: {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(initialTotalPrice)} to {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(preview.totalAmount)}</p>
+              <p className="mt-1">Paid: {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(initialAmountPaid)}</p>
+              <p className="mt-1">Outstanding: {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(preview.balanceOutstanding)}</p>
+              <p className="mt-1">No payment, refund, link or communication is created automatically.</p>
               {preview.createsCredit && <p className="mt-1 font-semibold">This change creates a credit condition and must be handled through financial reconciliation.</p>}
             </div>
           </div>

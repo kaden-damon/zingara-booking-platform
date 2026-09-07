@@ -1,16 +1,17 @@
-import { bookingAddonCatalogue } from "@/lib/bookingAddons";
+import { getBookingAddonCatalogue } from "@/lib/bookingAddons";
 import {
   getAdminRoleFromName,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 import { rolePermissions } from "@/lib/zingaraAccess";
+import { normalizeShowLocation } from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
 
-  if (auth.error || !auth.staffProfile) {
+  if (auth.error || !auth.staffProfile || !auth.serviceClient) {
     return auth.error;
   }
 
@@ -27,10 +28,36 @@ export async function GET(request: Request) {
     );
   }
 
+  const searchParams = new URL(request.url).searchParams;
+  const bookingReference = searchParams.get("bookingReference")?.trim();
+  let location = normalizeShowLocation(searchParams.get("location"));
+
+  if (bookingReference) {
+    const { data: booking, error: bookingError } = await auth.serviceClient
+      .from("bookings")
+      .select("show_id")
+      .eq("booking_reference", bookingReference)
+      .maybeSingle();
+
+    if (bookingError) throw bookingError;
+
+    if (booking?.show_id) {
+      const { data: show, error: showError } = await auth.serviceClient
+        .from("shows")
+        .select("venue")
+        .eq("id", booking.show_id)
+        .maybeSingle();
+
+      if (showError) throw showError;
+      location = normalizeShowLocation(show?.venue);
+    }
+  }
+
   return Response.json(
     {
       canCustomPrice: permissions.includes("bookings:reconcile"),
-      catalogue: bookingAddonCatalogue,
+      catalogue: getBookingAddonCatalogue(location),
+      location,
     },
     { headers: { "Cache-Control": "private, no-store" } },
   );

@@ -22572,6 +22572,73 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function createOutstandingPaymentLink(booking: DemoBooking) {
+    if (
+      !canReconcileBookings ||
+      paymentLinkSendState[booking.reference]?.isSending
+    ) {
+      return;
+    }
+
+    const financials = getBookingFinancials(booking);
+    const outstanding = calculateOutstandingAmount(
+      financials.totalPrice,
+      financials.amountPaid,
+    );
+
+    if (outstanding <= 0) {
+      setPaymentLinkSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message: "This booking does not have an outstanding balance.",
+          tone: "error",
+        },
+      }));
+      return;
+    }
+
+    setPaymentLinkSendState((currentState) => ({
+      ...currentState,
+      [booking.reference]: {
+        isSending: true,
+        message: "Creating secure payment link...",
+        tone: "success",
+      },
+    }));
+
+    try {
+      await fetchSupabaseApi("/api/admin/bookings/payment-link", {
+        body: {
+          action: "create-outstanding",
+          bookingReference: booking.reference,
+        },
+        method: "POST",
+      });
+      await loadManagedPaymentLink(booking.reference);
+      setPaymentLinkSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message: "LINK READY ✓",
+          tone: "success",
+        },
+      }));
+    } catch (error) {
+      setPaymentLinkSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message:
+            error instanceof Error
+              ? error.message
+              : "Payment link could not be created.",
+          tone: "error",
+        },
+      }));
+    }
+  }
+
   async function sendCustomerPaymentLink(
     booking: DemoBooking,
     managedLink = paymentLinkDetailsState[booking.reference]?.link ?? null,
@@ -42445,23 +42512,45 @@ export default function AdminDashboardPage() {
                                       </button>
                                     </>
                                   ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => void sendCustomerPaymentLink(booking)}
-                                      disabled={
-                                        paymentLinkSendState[booking.reference]
-                                          ?.isSending ||
-                                        !canSendCustomerPaymentLink(booking)
-                                      }
-                                      className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                      {paymentLinkSendState[booking.reference]
-                                        ?.isSending
-                                        ? "Sending Link..."
-                                        : paymentLinkDetails?.status === "active"
-                                          ? "Create Replacement Link"
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void createOutstandingPaymentLink(booking)
+                                        }
+                                        disabled={
+                                          paymentLinkSendState[booking.reference]
+                                            ?.isSending ||
+                                          calculateOutstandingAmount(
+                                            financials.totalPrice,
+                                            financials.amountPaid,
+                                          ) <= 0
+                                        }
+                                        className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                        {paymentLinkSendState[booking.reference]
+                                          ?.isSending
+                                          ? "Creating..."
+                                          : "Create Payment Link"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void sendCustomerPaymentLink(booking)
+                                        }
+                                        disabled={
+                                          paymentLinkSendState[booking.reference]
+                                            ?.isSending ||
+                                          !canSendCustomerPaymentLink(booking)
+                                        }
+                                        className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                        {paymentLinkSendState[booking.reference]
+                                          ?.isSending
+                                          ? "Sending Link..."
                                           : "Send Payment Link"}
-                                    </button>
+                                      </button>
+                                    </>
                                   )}
                                 </>
                               )}
@@ -42866,6 +42955,7 @@ export default function AdminDashboardPage() {
                         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
                           <BookingMetadataDraftEditor
                             key={booking.reference}
+                            bookingId={booking.supabaseBookingId}
                             bookingReference={booking.reference}
                             disabled={
                               !canManageBookings ||
@@ -42875,9 +42965,9 @@ export default function AdminDashboardPage() {
                             initialAddons={booking.addons ?? []}
                             initialAddonsTotal={financials.addonsTotal}
                             initialAmountPaid={financials.amountPaid}
-                            initialDiscountAmount={financials.discountAmount}
                             initialNotes={booking.operationalNotes}
                             initialPartySize={booking.partySize}
+                            initialServiceFeeAmount={financials.serviceFeeAmount}
                             initialSubtotalPrice={financials.subtotalPrice}
                             initialTotalPrice={financials.totalPrice}
                             initialUpdatedAt={booking.updatedAt}
@@ -42906,6 +42996,9 @@ export default function AdminDashboardPage() {
                                 ),
                               );
                               setDirtyBookingMetadataReference("");
+                              if (result.financialChanged) {
+                                void loadManagedPaymentLink(booking.reference);
+                              }
                               showWorkflowToast(
                                 "✓ Saved · Booking notes updated",
                               );

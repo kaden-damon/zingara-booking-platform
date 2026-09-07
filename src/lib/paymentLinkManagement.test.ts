@@ -88,7 +88,7 @@ test("view and copy are local read-only actions", async () => {
   const page = await source("../app/admin/page.tsx");
   const viewCopyBranch = page.slice(
     page.indexOf("function viewManagedPaymentLink"),
-    page.indexOf("async function sendCustomerPaymentLink"),
+    page.indexOf("async function createOutstandingPaymentLink"),
   );
 
   assert.match(viewCopyBranch, /window\.open\(link\.paymentUrl/);

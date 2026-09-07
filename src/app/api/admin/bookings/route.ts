@@ -308,6 +308,75 @@ function parseSerializedBookingNotes(notes: unknown) {
   }
 }
 
+function createLegacyBookingMetadataSnapshot(
+  booking: Record<string, unknown>,
+  bookingReference: string,
+): DemoBooking {
+  const normalizedSection = String(booking.section ?? "")
+    .trim()
+    .toLowerCase();
+  const zoneId: DemoBooking["zoneId"] =
+    normalizedSection.includes("golden")
+      ? "golden-circle"
+      : normalizedSection.includes("middle")
+        ? "middle-ring"
+        : normalizedSection.includes("booth")
+          ? "royal-booths"
+          : "royal-balcony";
+  const statusValue = String(booking.booking_status ?? "confirmed");
+  const paymentStatusValue = String(
+    booking.payment_status ?? "pending_payment",
+  );
+
+  return {
+    addons: [],
+    addonsTotal: Number(booking.addons_total ?? 0),
+    amountPaid: Number(booking.amount_paid ?? 0),
+    balanceDue: Number(booking.balance_outstanding ?? 0),
+    bookingDate: "",
+    bookingOrigin:
+      (booking.booking_origin as DemoBooking["bookingOrigin"]) ??
+      "legacy_unknown",
+    communicationHistory: [],
+    createdAt: String(booking.created_at ?? ""),
+    customer: { email: "", name: "Imported Guest", phone: "" },
+    discountAmount: Number(booking.discount_amount ?? 0),
+    lifecycleHistory: [],
+    operationalNotes: String(booking.notes ?? ""),
+    partySize: Number(booking.guest_count ?? 0),
+    paymentStatus:
+      paymentStatusValue === "fully_paid"
+        ? "fully-paid"
+        : paymentStatusValue === "deposit_paid"
+          ? "deposit-paid"
+          : paymentStatusValue === "comp_vip"
+            ? "comp-vip"
+            : paymentStatusValue === "refunded"
+              ? "refunded"
+              : "pending-payment",
+    pricePerPerson: 0,
+    reference: bookingReference,
+    serviceFeeAmount: Number(booking.service_fee ?? 0),
+    showId: String(booking.show_id ?? ""),
+    source: booking.booking_source as DemoBooking["source"],
+    status:
+      statusValue === "pending_payment"
+        ? "pending-payment"
+        : statusValue === "checked_in"
+          ? "checked-in"
+          : statusValue === "no_show"
+            ? "no-show"
+            : (statusValue as DemoBooking["status"]),
+    subtotalPrice: Number(booking.subtotal_amount ?? 0),
+    tableId: String(booking.table_id ?? "requires-floor-assignment"),
+    tableNumber: booking.table_id ? "Assigned table" : "Requires floor assignment",
+    totalPrice: Number(booking.total_amount ?? 0),
+    updatedAt: String(booking.updated_at ?? ""),
+    zoneId,
+    zoneTitle: String(booking.section ?? ""),
+  };
+}
+
 function splitCustomerName(name: string) {
   const [firstName = "Guest", ...surnameParts] = name.trim().split(/\s+/);
 
@@ -2194,6 +2263,7 @@ async function persistBookingMetadataUpdate(
   request: Request,
   body: {
     addons?: DemoBooking["addons"];
+    bookingId?: string;
     bookingReference?: string;
     expectedUpdatedAt?: string;
     operationalNotes?: string;
@@ -2217,25 +2287,28 @@ async function persistBookingMetadataUpdate(
     );
   }
 
-  const bookingReference = body.bookingReference?.trim();
+  const bookingId = body.bookingId?.trim();
+  const requestedBookingReference = body.bookingReference?.trim();
   const operationalNotes = body.operationalNotes;
 
   if (
-    !bookingReference ||
-    typeof operationalNotes !== "string" ||
-    !Array.isArray(body.addons)
+    (!bookingId && !requestedBookingReference) ||
+    typeof operationalNotes !== "string"
   ) {
     return Response.json(
-      { error: "Booking notes and a booking reference are required." },
+      { error: "Booking notes and an authoritative booking identity are required." },
       { status: 400 },
     );
   }
 
-  const { data: beforeBooking, error: beforeError } = await auth.serviceClient
+  let beforeQuery = auth.serviceClient
     .from("bookings")
-    .select(bookingSelect)
-    .eq("booking_reference", bookingReference)
-    .maybeSingle();
+    .select(bookingSelect);
+  beforeQuery = bookingId
+    ? beforeQuery.eq("id", bookingId)
+    : beforeQuery.eq("booking_reference", requestedBookingReference as string);
+  const { data: beforeBooking, error: beforeError } =
+    await beforeQuery.maybeSingle();
 
   if (beforeError) throw beforeError;
 
@@ -2243,6 +2316,27 @@ async function persistBookingMetadataUpdate(
     return Response.json(
       { error: "Booking could not be resolved." },
       { status: 404 },
+    );
+  }
+
+  const bookingReference = String(
+    (beforeBooking as { booking_reference?: unknown }).booking_reference ?? "",
+  ).trim();
+
+  if (!bookingReference) {
+    return Response.json(
+      { error: "The authoritative booking reference is missing." },
+      { status: 409 },
+    );
+  }
+
+  if (
+    requestedBookingReference &&
+    requestedBookingReference !== bookingReference
+  ) {
+    return Response.json(
+      { error: "The booking identity changed. Reload Booking Details before saving." },
+      { status: 409 },
     );
   }
 
@@ -2290,22 +2384,22 @@ async function persistBookingMetadataUpdate(
     ? previousMetadata.operationalNotes ?? ""
     : String((beforeBooking as { notes?: unknown }).notes ?? "");
 
-  if (!previousMetadata && body.addons.length > 0) {
+  const requestedAddons = body.addons ?? previousMetadata?.addons ?? [];
+
+  if (!Array.isArray(requestedAddons)) {
     return Response.json(
-      {
-        error:
-          "This historical booking does not have structured pricing metadata. Reconcile its financial basis before adding priced items.",
-      },
-      { status: 409 },
+      { error: "Booking add-ons must be supplied as a list." },
+      { status: 400 },
     );
   }
 
   let addons: NonNullable<DemoBooking["addons"]>;
 
   try {
-    addons = normalizeInternalBookingAddons(body.addons, {
+    addons = normalizeInternalBookingAddons(requestedAddons, {
       allowCustomPricing: rolePermissions[role].includes("bookings:reconcile"),
       existingAddons: previousMetadata?.addons ?? [],
+      location,
     });
   } catch (error) {
     return Response.json(
@@ -2322,7 +2416,8 @@ async function persistBookingMetadataUpdate(
   const addonsChanged = JSON.stringify(previousAddons) !== JSON.stringify(addons);
   const financials = calculateBookingAddonFinancialUpdate({
     amountPaid: Number((beforeBooking as { amount_paid?: number }).amount_paid ?? 0),
-    discountAmount: Number((beforeBooking as { discount_amount?: number }).discount_amount ?? 0),
+    currentServiceFee: Number((beforeBooking as { service_fee?: number }).service_fee ?? 0),
+    currentTotalAmount: Number((beforeBooking as { total_amount?: number }).total_amount ?? 0),
     newAddonsTotal: nextAddonsTotal,
     oldAddonsTotal: previousAddonsTotal,
     partySize: Number((beforeBooking as { guest_count?: number }).guest_count ?? 0),
@@ -2358,7 +2453,9 @@ async function persistBookingMetadataUpdate(
       addons,
       addonsTotal: previousAddonsTotal,
       balanceDue: Number((beforeBooking as { balance_outstanding?: number }).balance_outstanding ?? 0),
+      financialChanged: false,
       operationalNotes,
+      paymentLinksInvalidated: 0,
       serviceFeeAmount: Number((beforeBooking as { service_fee?: number }).service_fee ?? 0),
       subtotalPrice: Number((beforeBooking as { subtotal_amount?: number }).subtotal_amount ?? 0),
       totalPrice: Number((beforeBooking as { total_amount?: number }).total_amount ?? 0),
@@ -2374,28 +2471,33 @@ async function persistBookingMetadataUpdate(
         ? "deposit_paid"
         : "pending_payment"
     : (beforeBooking as { payment_status?: string }).payment_status;
-  const nextNotes = previousMetadata
-    ? serializeBookingNotes({
-        ...previousMetadata,
-        addons,
-        addonsTotal: nextAddonsTotal,
-        amountPaid: financials.amountPaid,
-        balanceDue: financials.balanceOutstanding,
-        operationalNotes,
-        paymentStatus:
-          nextPaymentStatus === "fully_paid"
-            ? "fully-paid"
-            : nextPaymentStatus === "deposit_paid"
-              ? "deposit-paid"
-              : nextPaymentStatus === "pending_payment"
-                ? "pending-payment"
-                : previousMetadata.paymentStatus,
-        serviceFeeAmount: financials.serviceFee,
-        subtotalPrice: financials.subtotalAmount,
-        totalPrice: financials.totalAmount,
-        updatedAt: nextUpdatedAt,
-      })
-    : operationalNotes;
+  const metadataBase =
+    previousMetadata ??
+    createLegacyBookingMetadataSnapshot(
+      beforeBooking as Record<string, unknown>,
+      bookingReference,
+    );
+  const nextNotes = serializeBookingNotes({
+    ...metadataBase,
+    addons,
+    addonsTotal: nextAddonsTotal,
+    amountPaid: financials.amountPaid,
+    balanceDue: financials.balanceOutstanding,
+    operationalNotes,
+    paymentStatus:
+      nextPaymentStatus === "fully_paid"
+        ? "fully-paid"
+        : nextPaymentStatus === "deposit_paid"
+          ? "deposit-paid"
+          : nextPaymentStatus === "pending_payment"
+            ? "pending-payment"
+            : metadataBase.paymentStatus,
+    reference: bookingReference,
+    serviceFeeAmount: financials.serviceFee,
+    subtotalPrice: financials.subtotalAmount,
+    totalPrice: financials.totalAmount,
+    updatedAt: nextUpdatedAt,
+  });
   let revokedPaymentLinkIds: string[] = [];
 
   if (financialChanged) {
@@ -2472,6 +2574,10 @@ async function persistBookingMetadataUpdate(
         addonsTotal: nextAddonsTotal,
         operationalNotes,
         outstanding: financials.balanceOutstanding,
+        paid: financials.amountPaid,
+        paymentLinksInvalidated: revokedPaymentLinkIds.length,
+        paymentStatus: nextPaymentStatus ?? null,
+        serviceFee: financials.serviceFee,
         total: financials.totalAmount,
       },
       beforeValues: {
@@ -2479,12 +2585,26 @@ async function persistBookingMetadataUpdate(
         addonsTotal: previousAddonsTotal,
         operationalNotes: previousOperationalNotes,
         outstanding: Number((beforeBooking as { balance_outstanding?: number }).balance_outstanding ?? 0),
+        paid: Number((beforeBooking as { amount_paid?: number }).amount_paid ?? 0),
+        paymentLinksInvalidated: 0,
+        paymentStatus:
+          (beforeBooking as { payment_status?: string }).payment_status ?? null,
+        serviceFee: Number((beforeBooking as { service_fee?: number }).service_fee ?? 0),
         total: Number((beforeBooking as { total_amount?: number }).total_amount ?? 0),
       },
       changedFields: [
         ...(previousOperationalNotes === operationalNotes ? [] : ["operationalNotes"]),
         ...(addonsChanged ? ["addons"] : []),
-        ...(financialChanged ? ["addonsTotal", "total", "outstanding"] : []),
+        ...(financialChanged
+          ? [
+              "addonsTotal",
+              "serviceFee",
+              "total",
+              "outstanding",
+              "paymentStatus",
+              "paymentLinksInvalidated",
+            ]
+          : []),
       ],
       entityId: (beforeBooking as { id: string }).id,
       entityLocation: location,
@@ -2534,7 +2654,9 @@ async function persistBookingMetadataUpdate(
     addons,
     addonsTotal: nextAddonsTotal,
     balanceDue: financials.balanceOutstanding,
+    financialChanged,
     operationalNotes,
+    paymentLinksInvalidated: revokedPaymentLinkIds.length,
     serviceFeeAmount: financials.serviceFee,
     subtotalPrice: financials.subtotalAmount,
     totalPrice: financials.totalAmount,
@@ -2722,6 +2844,7 @@ export async function PATCH(request: Request) {
     action?: string;
     addons?: DemoBooking["addons"];
     booking?: DemoBooking;
+    bookingId?: string;
     bookingReference?: string;
     destinationShowId?: string;
     expectedShowId?: string;

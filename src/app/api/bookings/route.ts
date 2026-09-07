@@ -1462,6 +1462,7 @@ export async function POST(request: Request) {
     };
 
     const isTrustedStaff = Boolean(staffProfileId);
+    let show: SupabaseShowRow | undefined;
 
     if (
       !isTrustedStaff &&
@@ -1474,11 +1475,21 @@ export async function POST(request: Request) {
     }
 
     if (isTrustedStaff) {
+      show = await getSupabaseShowRow(supabase, booking);
+
+      if (!show) {
+        return Response.json(
+          { error: "Booking show could not be resolved." },
+          { status: 400 },
+        );
+      }
+
       try {
         const addons = normalizeInternalBookingAddons(booking.addons, {
           allowCustomPricing: Boolean(
             staffRole && rolePermissions[staffRole].includes("bookings:reconcile"),
           ),
+          location: normalizeShowLocation(show.venue),
         });
         booking = {
           ...booking,
@@ -1614,7 +1625,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const show = await getSupabaseShowRow(supabase, booking);
+    show ??= await getSupabaseShowRow(supabase, booking);
 
     if (!show) {
       return Response.json(
