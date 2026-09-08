@@ -96,6 +96,27 @@ function hasValidReviewedFinancials(booking: DemoBooking) {
   );
 }
 
+function importedPaidEnquiryNeedsFinancialReconciliation(
+  request: { notes: string; source: string },
+) {
+  if (
+    request.source !== "Data Import" ||
+    !request.notes.startsWith("__zingara_corporate_enquiry_import__:")
+  ) {
+    return false;
+  }
+
+  try {
+    const metadata = JSON.parse(
+      request.notes.slice("__zingara_corporate_enquiry_import__:".length),
+    ) as { paymentState?: unknown };
+
+    return /\bpaid\b/i.test(String(metadata.paymentState ?? ""));
+  } catch {
+    return true;
+  }
+}
+
 export async function POST(request: Request) {
   const startedAt = performance.now();
   const auth = await requireActiveStaff(request);
@@ -149,6 +170,16 @@ export async function POST(request: Request) {
   if (conversionGate.outcome === "blocked") {
     return Response.json(
       { error: conversionGate.reason },
+      { status: 409 },
+    );
+  }
+
+  if (importedPaidEnquiryNeedsFinancialReconciliation(record.request)) {
+    return Response.json(
+      {
+        error:
+          "FINANCIAL RECONCILIATION REQUIRED: This imported enquiry records a payment but does not contain an authoritative paid amount. Confirm and persist the historical financial evidence before conversion.",
+      },
       { status: 409 },
     );
   }

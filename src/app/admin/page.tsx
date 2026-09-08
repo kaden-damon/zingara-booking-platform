@@ -16028,11 +16028,16 @@ export default function AdminDashboardPage() {
       setCorporateRequests((currentRequests) =>
         replaceAffectedRecord(currentRequests, authoritativeRequest),
       );
-      setCorporateConversionReviewRequestId("");
       setConvertedCorporateBookingReference(result.bookingReference);
       setCorporateConversionActionState("success");
-      setCorporateConversionStatus("Booking created successfully.");
+      setCorporateConversionStatus("BOOKING CREATED ✓");
       showWorkflowToast(`✓ Booking created · ${result.bookingReference}`);
+
+      window.setTimeout(() => {
+        setCorporateConversionReviewRequestId((currentRequestId) =>
+          currentRequestId === request.id ? "" : currentRequestId,
+        );
+      }, 900);
 
       void getBooking(result.bookingReference).then((authoritativeBooking) => {
         if (!authoritativeBooking) {
@@ -43917,6 +43922,11 @@ export default function AdminDashboardPage() {
           initialZoneId={getCorporateRequestZoneId(
             corporateConversionReviewRequest,
           )}
+          isSuccess={
+            corporateConversionActionState === "success" &&
+            corporateConversionStatusRequestId ===
+              corporateConversionReviewRequest.id
+          }
           isSubmitting={
             corporateConversionActionState === "pending" &&
             corporateConversionStatusRequestId ===

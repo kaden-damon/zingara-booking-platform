@@ -96,10 +96,41 @@ test("generic status editing cannot manufacture a Converted enquiry", async () =
 test("imported enquiry persistence matches its physical row before inserting", async () => {
   const persistence = await source("./supabase/corporateRequestsServer.ts");
 
-  assert.match(persistence, /row\.id === request\.id/);
+  assert.match(persistence, /rows\.find\(\(candidate\) => candidate\.id === requestId\) \?\?/);
+  assert.match(persistence, /id: row\.id/);
+  assert.match(persistence, /existingRows\.find\(\(row\) => row\.id === request\.id\) \?\?/);
   assert.match(
     persistence,
     /Boolean\(request\.linkedBookingReference\)[\s\S]*row\.linked_booking_reference/,
+  );
+});
+
+test("conversion feedback is immediate, exclusive, and explicit", async () => {
+  const [page, modal] = await Promise.all([
+    source("../app/admin/page.tsx"),
+    source("../app/admin/CorporateConversionModal.tsx"),
+  ]);
+
+  assert.match(modal, /submitStartedRef\.current/);
+  assert.match(modal, /Converting Booking\.\.\./);
+  assert.match(modal, /Booking Created ✓/);
+  assert.match(modal, /role="alert"/);
+  assert.match(page, /setCorporateConversionActionState\("pending"\)/);
+  assert.match(page, /setCorporateConversionActionState\("success"\)/);
+  assert.match(page, /setCorporateConversionActionState\(uncertain \? "uncertain" : "error"\)/);
+});
+
+test("paid imported enquiries without persisted amounts fail closed", async () => {
+  const route = await source(
+    "../app/api/admin/corporate-requests/convert/route.ts",
+  );
+
+  assert.match(route, /importedPaidEnquiryNeedsFinancialReconciliation/);
+  assert.match(route, /FINANCIAL RECONCILIATION REQUIRED/);
+  assert.match(route, /does not contain an authoritative paid amount/);
+  assert.doesNotMatch(
+    route,
+    /\.from\("payments"\)|\.from\("communications"\)|\/api\/payfast/i,
   );
 });
 

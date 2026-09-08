@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   parseCorporateConversionReview,
@@ -21,6 +21,7 @@ import {
 type Props = {
   error: string;
   initialZoneId: string;
+  isSuccess: boolean;
   isSubmitting: boolean;
   onClose: () => void;
   onConfirm: (review: CorporateConversionReview) => void;
@@ -35,6 +36,7 @@ function initialVenue(request: CorporateRequest) {
 export default function CorporateConversionModal({
   error,
   initialZoneId,
+  isSuccess,
   isSubmitting,
   onClose,
   onConfirm,
@@ -61,6 +63,7 @@ export default function CorporateConversionModal({
   const [errors, setErrors] = useState<
     Partial<Record<keyof CorporateConversionReviewDraft, string>>
   >({});
+  const submitStartedRef = useRef(false);
   const eligibleShows = useMemo(
     () =>
       shows.filter(
@@ -82,12 +85,22 @@ export default function CorporateConversionModal({
       ? Math.max(ticketTotal - amountPaid, 0)
       : null;
 
+  useEffect(() => {
+    if (!isSubmitting && !isSuccess) {
+      submitStartedRef.current = false;
+    }
+  }, [isSubmitting, isSuccess]);
+
   function updateDraft(updates: Partial<CorporateConversionReviewDraft>) {
     setDraft((current) => ({ ...current, ...updates }));
     setErrors({});
   }
 
   function submit() {
+    if (isSubmitting || isSuccess || submitStartedRef.current) {
+      return;
+    }
+
     const nextErrors = validateCorporateConversionReview(draft);
     const review = parseCorporateConversionReview(draft);
 
@@ -96,6 +109,7 @@ export default function CorporateConversionModal({
       return;
     }
 
+    submitStartedRef.current = true;
     onConfirm(review);
   }
 
@@ -330,7 +344,7 @@ export default function CorporateConversionModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isSuccess}
             className="rounded-full border border-white/15 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:opacity-50"
           >
             Cancel
@@ -338,10 +352,14 @@ export default function CorporateConversionModal({
           <button
             type="button"
             onClick={submit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isSuccess}
             className="rounded-full bg-[#D8C36A] px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting ? "Converting..." : "Confirm Conversion"}
+            {isSubmitting
+              ? "Converting Booking..."
+              : isSuccess
+                ? "Booking Created ✓"
+                : "Confirm Conversion"}
           </button>
         </div>
       </section>

@@ -159,11 +159,11 @@ export async function loadCorporateRequestRecord(
   requestId: string,
 ) {
   const rows = await getCorporateRequestRows(serviceClient);
-  const row = rows.find(
-    (candidate) =>
-      candidate.id === requestId ||
-      parseCorporateRequestNotes(candidate.notes)?.id === requestId,
-  );
+  const row =
+    rows.find((candidate) => candidate.id === requestId) ??
+    rows.find(
+      (candidate) => parseCorporateRequestNotes(candidate.notes)?.id === requestId,
+    );
 
   return row
     ? {
@@ -181,6 +181,7 @@ function toCorporateRequest(row: SupabaseCorporateRequestRow): CorporateRequest 
       ...metadataRequest,
       archivedAt: row.archived_at ?? metadataRequest.archivedAt,
       guestCount: row.guest_count ?? metadataRequest.guestCount ?? null,
+      id: row.id,
       linkedBookingReference:
         row.linked_booking_reference ??
         metadataRequest.linkedBookingReference,
@@ -248,13 +249,14 @@ export async function persistCorporateRequests(
   await Promise.all(
     requests.map(async (request) => {
       const payload = toSupabaseCorporateRequest(request);
-      const existingRow = existingRows.find(
-        (row) =>
-          row.id === request.id ||
-          parseCorporateRequestNotes(row.notes)?.id === request.id ||
-          (Boolean(request.linkedBookingReference) &&
-            row.linked_booking_reference === request.linkedBookingReference),
-      );
+      const existingRow =
+        existingRows.find((row) => row.id === request.id) ??
+        existingRows.find(
+          (row) =>
+            parseCorporateRequestNotes(row.notes)?.id === request.id ||
+            (Boolean(request.linkedBookingReference) &&
+              row.linked_booking_reference === request.linkedBookingReference),
+        );
 
       if (existingRow) {
         const { error } = await serviceClient
