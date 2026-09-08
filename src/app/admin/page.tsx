@@ -10600,6 +10600,8 @@ export default function AdminDashboardPage() {
       tableCodes: string[];
       tableIds: string[];
     } | null>(null);
+  const [corporateTableAssignmentError, setCorporateTableAssignmentError] =
+    useState("");
   const [corporateZoneMoveDrafts, setCorporateZoneMoveDrafts] = useState<
     Record<string, CorporateFloorZone>
   >({});
@@ -22433,6 +22435,8 @@ export default function AdminDashboardPage() {
     const suggestedTables = tables.filter((table) =>
       plan.existingTableIds.includes(table.authoritativeId ?? table.id),
     );
+    setCorporateTableAssignmentError("");
+    setFloorAssignmentAction(null);
     setCorporateTableAssignmentReview({
       bookingReference: booking.reference,
       combinedCapacity: suggestedTables.reduce(
@@ -22449,17 +22453,23 @@ export default function AdminDashboardPage() {
     const booking = bookings.find(
       (candidate) => candidate.reference === review?.bookingReference,
     );
+    if (!review) {
+      return;
+    }
     if (
-      !review ||
       !booking?.updatedAt ||
       !booking.showId ||
       !floorCapacityPlan ||
       floorAssignmentInFlightRef.current.has(booking.reference)
     ) {
+      setCorporateTableAssignmentError(
+        "BOOKING STATE CHANGED - REVIEW THE CURRENT FLOOR PLAN AGAIN",
+      );
       return;
     }
 
     floorAssignmentInFlightRef.current.add(booking.reference);
+    setCorporateTableAssignmentError("");
     setFloorAssignmentAction({ reference: booking.reference, status: "assigning" });
     try {
       await assignCorporateFloorPlan({
@@ -22469,19 +22479,34 @@ export default function AdminDashboardPage() {
         snapshotToken: floorCapacityPlan.snapshotToken,
         tableIds: review.tableIds,
       });
-      await refreshAssignedShowState(booking.showId);
       setFloorAssignmentAction({ reference: booking.reference, status: "assigned" });
-      setCorporateTableAssignmentReview(null);
-      const response = await planShowFloorCapacity(selectedShowId || booking.showId);
-      setFloorCapacityPlan(response.plan);
-      setFloorCapacityPlanStatus(
-        `${booking.reference} was assigned to ${review.tableCodes.join(" + ")}.`,
-      );
+      try {
+        await refreshAssignedShowState(booking.showId);
+        const response = await planShowFloorCapacity(
+          selectedShowId || booking.showId,
+        );
+        setFloorCapacityPlan(response.plan);
+        setFloorCapacityPlanStatus(
+          `${booking.reference} was assigned to ${review.tableCodes.join(" + ")}.`,
+        );
+        window.setTimeout(() => {
+          setCorporateTableAssignmentReview((current) =>
+            current?.bookingReference === booking.reference ? null : current,
+          );
+        }, 700);
+      } catch {
+        setCorporateTableAssignmentError(
+          "ASSIGNED, BUT THE FLOOR VIEW COULD NOT REFRESH - RELOAD THE CURRENT SHOW",
+        );
+      }
     } catch (error) {
       setFloorAssignmentAction(null);
-      setFloorCapacityPlanStatus(
-        error instanceof Error ? error.message : "The table assignment failed.",
-      );
+      const message =
+        error instanceof Error
+          ? error.message
+          : "ASSIGNMENT COULD NOT BE COMPLETED";
+      setCorporateTableAssignmentError(message);
+      setFloorCapacityPlanStatus(message);
     } finally {
       floorAssignmentInFlightRef.current.delete(booking.reference);
     }
@@ -40152,21 +40177,39 @@ export default function AdminDashboardPage() {
                   <div className="mt-5 flex flex-wrap justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => setCorporateTableAssignmentReview(null)}
+                      onClick={() => {
+                        setCorporateTableAssignmentReview(null);
+                        setCorporateTableAssignmentError("");
+                      }}
                       disabled={floorAssignmentAction?.status === "assigning"}
                       className="rounded-xl border border-white/20 px-4 py-2 text-sm text-zinc-200 disabled:opacity-40"
                     >
-                      Cancel
+                      {floorAssignmentAction?.status === "assigned" ? "Close" : "Cancel"}
                     </button>
                     <button
                       type="button"
                       onClick={() => void confirmCorporateTableAssignment()}
-                      disabled={floorAssignmentAction?.status === "assigning"}
+                      disabled={Boolean(
+                        floorAssignmentAction?.reference ===
+                          corporateTableAssignmentReview.bookingReference,
+                      )}
                       className="rounded-xl bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black disabled:cursor-wait disabled:opacity-50"
                     >
-                      {floorAssignmentAction?.status === "assigning" ? "ASSIGNING..." : "CONFIRM ASSIGNMENT"}
+                      {floorAssignmentAction?.status === "assigning"
+                        ? "ASSIGNING TABLES..."
+                        : floorAssignmentAction?.status === "assigned"
+                          ? "ASSIGNED ✓"
+                          : "CONFIRM ASSIGNMENT"}
                     </button>
                   </div>
+                  {corporateTableAssignmentError && (
+                    <p
+                      className="mt-3 rounded-xl border border-red-300/25 bg-red-950/25 px-3 py-2 text-sm text-red-100"
+                      role="alert"
+                    >
+                      {corporateTableAssignmentError}
+                    </p>
+                  )}
                 </div>
               </div>
             )}

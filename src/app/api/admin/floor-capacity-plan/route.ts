@@ -618,7 +618,49 @@ export async function POST(request: Request) {
           p_table_ids: requestedTableIds,
         },
       );
-      if (assignmentError) throw assignmentError;
+      if (assignmentError) {
+        const message = assignmentError.message;
+        if (
+          /FLOOR_PLAN_STALE|COMBINED_TABLE_CAPACITY_INSUFFICIENT|CROSS_SHOW|CROSS_ZONE|MERGED_|TABLE_CAPACITY_REQUIRED|ZONE_CAPACITY_INSUFFICIENT/i.test(
+            message,
+          )
+        ) {
+          return Response.json(
+            { error: "FLOOR PLAN CHANGED - REVIEW AGAIN" },
+            { status: 409 },
+          );
+        }
+        if (/TABLE_ALREADY_CLAIMED|TABLE_NOT_AVAILABLE/i.test(message)) {
+          return Response.json(
+            { error: "TABLE NO LONGER AVAILABLE" },
+            { status: 409 },
+          );
+        }
+        if (
+          /CORPORATE_BOOKING_NOT_FOUND|CORPORATE_BOOKING_REQUIRED|ACTIVE_CORPORATE_BOOKING_REQUIRED/i.test(
+            message,
+          )
+        ) {
+          return Response.json(
+            { error: "BOOKING STATE CHANGED" },
+            { status: 409 },
+          );
+        }
+        if (/FLOOR_MANAGEMENT_PERMISSION_REQUIRED|SHOW_OUTSIDE_STAFF_SCOPE/i.test(message)) {
+          return Response.json(
+            { error: "Booking and table management access is required." },
+            { status: 403 },
+          );
+        }
+        console.error(
+          "[Zingara Floor Capacity] Corporate assignment failed",
+          assignmentError,
+        );
+        return Response.json(
+          { error: "ASSIGNMENT COULD NOT BE COMPLETED" },
+          { status: 500 },
+        );
+      }
       return Response.json({ ok: true, result: data });
     }
 

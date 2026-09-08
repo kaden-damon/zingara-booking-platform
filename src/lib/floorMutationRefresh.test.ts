@@ -15,7 +15,7 @@ test("Floor mutations refresh only the selected show booking cohort", async () =
   assert.doesNotMatch(
     admin.slice(
       admin.indexOf("async function refreshAssignedShowState"),
-      admin.indexOf("async function planSelectedInitialFloor"),
+      admin.indexOf("async function planSelectedFloorCapacity"),
     ),
     /getBookings\(\)/,
   );

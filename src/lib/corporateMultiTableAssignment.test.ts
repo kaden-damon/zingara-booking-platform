@@ -23,6 +23,62 @@ const adminPage = readFileSync(
   new URL("../app/admin/page.tsx", import.meta.url),
   "utf8",
 );
+const importedCorporateMigration = readFileSync(
+  new URL(
+    "../../supabase/migrations/20260908230000_phase_41_1h_d_imported_corporate_floor_assignment.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+
+test("Melrose Arch's imported Corporate exact-fit plan uses four physical tables", () => {
+  const plan = buildZoneFloorCapacityPlan({
+    activeEntitlementPax: 24,
+    allowedTemporaryCapacities: [6],
+    availableTables: ["1", "2", "3", "4"].map((tableCode) => ({
+      capacity: 6,
+      id: `physical-table-${tableCode}`,
+      kind: "physical" as const,
+      tableCode,
+    })),
+    capacityRequiredPhysicalTables: 0,
+    claimedReservedCapacity: 0,
+    queuedBookings: [
+      {
+        id: "2a9e2368-cb0d-4ebd-b071-471300a4ad50",
+        isCorporate: true,
+        pax: 24,
+        reference: "DP-YJH3PC",
+      },
+    ],
+    zoneCapacity: 138,
+    zoneId: "royal-booths",
+  });
+
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["1", "2", "3", "4"]);
+  assert.equal(plan.bookingPlans[0]?.newCapacities.length, 0);
+  assert.equal(
+    plan.bookingPlans[0]?.existingTableIds.length,
+    4,
+  );
+  assert.equal(plan.bookingPlans[0]?.unresolvedReason, null);
+});
+
+test("imported corporate-direct bookings share the protected assignment and release architecture", () => {
+  assert.match(importedCorporateMigration, /booking_source <> 'corporate-direct'/);
+  assert.match(
+    importedCorporateMigration,
+    /booking_origin not in \('corporate', 'data_import'\)/,
+  );
+  assert.match(importedCorporateMigration, /assign_corporate_booking_tables_atomic/);
+  assert.match(importedCorporateMigration, /release_corporate_booking_tables_atomic/);
+  assert.match(importedCorporateMigration, /release_corporate_booking_table_atomic/);
+  assert.match(importedCorporateMigration, /to service_role/);
+  assert.doesNotMatch(
+    importedCorporateMigration,
+    /update public\.(bookings|show_tables|payments|tickets|customers|communications)/i,
+  );
+});
 
 test("Megan's current ten-table suggestion is an exact 65-seat assignment", () => {
   const capacities = [6, 6, 6, 6, 6, 7, 7, 7, 7, 7];
@@ -102,4 +158,10 @@ test("reviewed suggestion, stale state, and duplicate submission are guarded", (
   assert.match(adminPage, /floorAssignmentInFlightRef\.current\.has/);
   assert.match(adminPage, /ASSIGN SUGGESTED TABLES/);
   assert.match(adminPage, /CONFIRM ASSIGNMENT/);
+  assert.match(adminPage, /ASSIGNING TABLES\.\.\./);
+  assert.match(adminPage, /ASSIGNED ✓/);
+  assert.match(adminPage, /corporateTableAssignmentError/);
+  assert.match(route, /TABLE NO LONGER AVAILABLE/);
+  assert.match(route, /BOOKING STATE CHANGED/);
+  assert.match(route, /ASSIGNMENT COULD NOT BE COMPLETED/);
 });
