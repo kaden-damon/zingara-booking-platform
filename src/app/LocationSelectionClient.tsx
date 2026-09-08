@@ -15,7 +15,7 @@ const locations = [
     imageUrl:
       "https://static.wixstatic.com/media/e3c98c_c172ded85e4844a09eae769cda2d00c8~mv2.png/v1/fill/w_1536,h_1023,al_c,q_90,enc_avif,quality_auto/Night%20Court_Postcard.png",
     label: "Cape Town",
-    seasonLabel: "CAPE TOWN | MELANINA | SEASON TWO",
+    seasonLabel: "MELANINA | SEASON TWO",
     value: "cape-town",
   },
   {
@@ -23,7 +23,7 @@ const locations = [
     imageUrl:
       "https://static.wixstatic.com/media/e3c98c_41b1137d458441d1ac0c4df8de9f4dec~mv2.png/v1/fill/w_1536,h_1023,al_c,q_90,enc_avif,quality_auto/Spring%20Court_Postcard.png",
     label: "Johannesburg",
-    seasonLabel: "JOBURG | LA DOLCE ROYAL | SEASON ONE",
+    seasonLabel: "LA DOLCE ROYAL | SEASON ONE",
     value: "johannesburg",
   },
 ] as const;
@@ -164,7 +164,7 @@ export default function LocationSelectionClient({
               }`}
             >
               <p
-                className="mb-3 px-2 text-center text-[0.67rem] font-medium uppercase leading-relaxed tracking-[0.13em] text-[#d8c36a] sm:mb-4 sm:text-[0.72rem]"
+                className="mb-3 px-2 text-center text-[calc(0.67rem+2px)] font-medium uppercase leading-relaxed tracking-[0.13em] text-[#d8c36a] sm:mb-4 sm:text-[calc(0.72rem+2px)]"
                 style={{
                   fontFamily:
                     "var(--font-zingara-subheading), Georgia, serif",

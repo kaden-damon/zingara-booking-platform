@@ -136,8 +136,10 @@ test("homepage countdown is server-seeded and keeps Find My Booking available", 
   assert.match(source, /PublicBookingCountdown/);
   assert.match(source, /isPublicBookingOpen/);
   assert.match(source, /Find My Booking/);
-  assert.match(source, /CAPE TOWN \| MELANINA \| SEASON TWO/);
-  assert.match(source, /JOBURG \| LA DOLCE ROYAL \| SEASON ONE/);
+  assert.match(source, /seasonLabel: "MELANINA \| SEASON TWO"/);
+  assert.match(source, /seasonLabel: "LA DOLCE ROYAL \| SEASON ONE"/);
+  assert.match(source, /text-\[calc\(0\.67rem\+2px\)\]/);
+  assert.match(source, /sm:text-\[calc\(0\.72rem\+2px\)\]/);
   assert.match(page, /loadServerVenueSettings/);
   assert.match(page, /initialPublicBookings/);
   assert.match(countdown, /Bookings Open In/);
