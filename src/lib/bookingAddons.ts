@@ -1,15 +1,52 @@
 import type { BookingAddon, EntryLocationKey } from "./zingaraDemo";
 
-export const bookingAddonCatalogue: BookingAddon[] = [
+const unavailableBookingAddonCatalogue: BookingAddon[] = [
   { id: "arrival-drinks", kind: "catalogue", name: "Arrival Drinks", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
   { id: "branded-menu-cards", kind: "catalogue", name: "Branded Menu Cards", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
   { id: "personalised-table-signage", kind: "catalogue", name: "Personalised Table Signage", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
+];
+
+export const bookingAddonCatalogue: BookingAddon[] = [
   { id: "face-painting-eye", kind: "catalogue", name: "Face Painting · Eye", price: 100, pricingType: "priced", quantity: 1, unitPrice: 100 },
   { id: "face-painting-half-face", kind: "catalogue", name: "Face Painting · Half Face", price: 200, pricingType: "priced", quantity: 1, unitPrice: 200 },
   { id: "face-painting-mask", kind: "catalogue", name: "Face Painting · Mask", price: 200, pricingType: "priced", quantity: 1, unitPrice: 200 },
   { id: "tarot-reading", kind: "catalogue", name: "Tarot Reading", price: 450, pricingType: "priced", quantity: 1, unitPrice: 450 },
   { id: "vip-bar", kind: "catalogue", name: "VIP Bar", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
 ];
+
+const allBookingAddonCatalogue = [
+  ...unavailableBookingAddonCatalogue,
+  ...bookingAddonCatalogue,
+];
+
+const unavailableAddonNames = new Set([
+  "arrival drinks",
+  "branded menu cards",
+  "branded menus",
+  "personalised table signage",
+  "personalized table signage",
+]);
+
+function normalizedAddonName(value: unknown) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-ZA");
+}
+
+export function isUnavailableBookingAddonName(value: unknown) {
+  const normalizedName = normalizedAddonName(value);
+  return [...unavailableAddonNames].some(
+    (name) => normalizedName === name || normalizedName.startsWith(`${name} ·`),
+  );
+}
+
+export function validateNewCorporateAddonSelections(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error("Corporate add-ons must be supplied as a list.");
+  }
+
+  if (value.some(isUnavailableBookingAddonName)) {
+    throw new Error("One or more selected add-ons are unavailable for new bookings.");
+  }
+}
 
 const johannesburgDietaryAddons: BookingAddon[] = [
   { id: "dietary-strictly-halaal", kind: "catalogue", name: "Strictly Halaal", price: 250, pricingType: "priced", quantity: 1, unitPrice: 250 },
@@ -88,20 +125,31 @@ export function normalizeInternalBookingAddons(
     if (!raw || typeof raw !== "object") throw new Error("An add-on item is invalid.");
     const item = raw as Record<string, unknown>;
     const requestedId = String(item.id ?? "").trim();
-    const catalogueItem = getBookingAddonCatalogue(options.location).find(
+    const catalogueItem = [
+      ...allBookingAddonCatalogue,
+      ...(options.location === "johannesburg" ? johannesburgDietaryAddons : []),
+    ].find(
       (candidate) => candidate.id === requestedId,
     );
     const quantity = normalizeQuantity(item.quantity ?? 1);
 
     if (catalogueItem) {
+      const existingItem = options.existingAddons?.find(
+        (candidate) => candidate.id === catalogueItem.id,
+      );
+      if (
+        unavailableBookingAddonCatalogue.some(
+          (candidate) => candidate.id === catalogueItem.id,
+        ) &&
+        !existingItem
+      ) {
+        throw new Error(`${catalogueItem.name} is unavailable for new bookings.`);
+      }
       if (seenIds.has(catalogueItem.id)) throw new Error("The same catalogue add-on cannot be selected twice.");
       seenIds.add(catalogueItem.id);
       const catalogueUnitPrice = catalogueItem.unitPrice ?? catalogueItem.price;
       const requestedUnitPrice = normalizeUnitPrice(
         item.unitPrice ?? catalogueUnitPrice,
-      );
-      const existingItem = options.existingAddons?.find(
-        (candidate) => candidate.id === catalogueItem.id,
       );
       const existingUnitPrice = existingItem
         ? normalizeUnitPrice(
@@ -156,6 +204,10 @@ export function normalizeInternalBookingAddons(
         quantity,
         unitPrice: currency(existingUnitPrice),
       };
+    }
+
+    if (isUnavailableBookingAddonName(item.name)) {
+      throw new Error("This add-on is unavailable for new bookings.");
     }
 
     if (!options.allowCustomPricing) {

@@ -54,9 +54,6 @@ const barTabOptions = [
   "Open Tab pp",
 ];
 const corporateAddons = [
-  "Arrival Drinks",
-  "Branded Menu Cards",
-  "Personalised Table Signage",
   "Face Painting · Eye · R100",
   "Face Painting · Half Face · R200",
   "Face Painting · Mask · R200",

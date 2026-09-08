@@ -6,7 +6,9 @@ import {
   bookingAddonCatalogue,
   calculateBookingAddonFinancialUpdate,
   getBookingAddonTotal,
+  getBookingAddonCatalogue,
   normalizeInternalBookingAddons,
+  validateNewCorporateAddonSelections,
 } from "./bookingAddons.ts";
 
 async function source(path: string) {
@@ -17,9 +19,6 @@ test("shared Corporate catalogue preserves priced and operational items", () => 
   assert.deepEqual(
     bookingAddonCatalogue.map((item) => item.name),
     [
-      "Arrival Drinks",
-      "Branded Menu Cards",
-      "Personalised Table Signage",
       "Face Painting · Eye",
       "Face Painting · Half Face",
       "Face Painting · Mask",
@@ -27,8 +26,66 @@ test("shared Corporate catalogue preserves priced and operational items", () => 
       "VIP Bar",
     ],
   );
-  assert.equal(bookingAddonCatalogue.find((item) => item.id === "arrival-drinks")?.price, 0);
   assert.equal(bookingAddonCatalogue.find((item) => item.id === "tarot-reading")?.unitPrice, 450);
+});
+
+test("unavailable catalogue items are excluded from every new selector", () => {
+  for (const location of ["johannesburg", "cape-town"] as const) {
+    const ids = getBookingAddonCatalogue(location).map((item) => item.id);
+    assert.equal(ids.includes("arrival-drinks"), false);
+    assert.equal(ids.includes("branded-menu-cards"), false);
+    assert.equal(ids.includes("personalised-table-signage"), false);
+    assert.equal(ids.includes("tarot-reading"), true);
+  }
+});
+
+test("crafted unavailable catalogue and Corporate add-ons fail closed", () => {
+  for (const id of [
+    "arrival-drinks",
+    "branded-menu-cards",
+    "personalised-table-signage",
+  ]) {
+    assert.throws(
+      () => normalizeInternalBookingAddons(
+        [{ id, quantity: 1 }],
+        { allowCustomPricing: true },
+      ),
+      /unavailable for new bookings/,
+    );
+  }
+
+  for (const name of [
+    "Arrival Drinks",
+    "Branded Menus",
+    "Personalised Table Signage",
+    "Personalized Table Signage",
+  ]) {
+    assert.throws(
+      () => validateNewCorporateAddonSelections([name]),
+      /unavailable for new bookings/,
+    );
+  }
+});
+
+test("historical unavailable add-ons remain preservable without repricing", () => {
+  const historical = {
+    id: "arrival-drinks",
+    kind: "catalogue" as const,
+    name: "Arrival Drinks",
+    price: 0,
+    pricingType: "operational" as const,
+    quantity: 1,
+    unitPrice: 0,
+  };
+  const [preserved] = normalizeInternalBookingAddons(
+    [historical],
+    { allowCustomPricing: false, existingAddons: [historical] },
+  );
+  assert.deepEqual(preserved, {
+    ...historical,
+    catalogueUnitPrice: 0,
+  });
+  assert.equal(getBookingAddonTotal([preserved]), 0);
 });
 
 test("catalogue quantity and total are calculated from authoritative prices", () => {
@@ -80,9 +137,9 @@ test("ordinary staff may preserve an existing agreed override and change quantit
   assert.equal(item.price, 525);
 });
 
-test("operational catalogue items remain unpriced", () => {
+test("available operational catalogue items remain unpriced", () => {
   const [item] = normalizeInternalBookingAddons(
-    [{ id: "arrival-drinks", quantity: 8 }],
+    [{ id: "vip-bar", quantity: 8 }],
     { allowCustomPricing: false },
   );
   assert.equal(item.pricingType, "operational");

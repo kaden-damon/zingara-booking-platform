@@ -24,6 +24,7 @@ import {
   createAgePolicyAcknowledgement,
   hasValidAgePolicyAcknowledgement,
 } from "@/lib/ageRestrictionPolicy";
+import { validateNewCorporateAddonSelections } from "@/lib/bookingAddons";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,20 @@ export async function POST(request: Request) {
     ) {
       return Response.json(
         { error: "Age restriction acknowledgement is required." },
+        { status: 400 },
+      );
+    }
+
+    try {
+      validateNewCorporateAddonSelections(submittedRequest.addons);
+    } catch (error) {
+      return Response.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Corporate add-ons are invalid.",
+        },
         { status: 400 },
       );
     }

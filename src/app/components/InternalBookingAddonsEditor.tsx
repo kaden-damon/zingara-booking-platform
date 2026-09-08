@@ -53,6 +53,11 @@ export default function InternalBookingAddonsEditor({
   const [editingCustomId, setEditingCustomId] = useState<string | null>(null);
   const [customError, setCustomError] = useState("");
   const total = value.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const unavailableHistoricalItems = value.filter(
+    (item) =>
+      item.kind === "catalogue" &&
+      !catalogue.some((catalogueItem) => catalogueItem.id === item.id),
+  );
 
   function updateCatalogueQuantity(id: string, rawQuantity: string) {
     const quantity = Math.max(1, Math.trunc(Number(rawQuantity) || 1));
@@ -245,6 +250,15 @@ export default function InternalBookingAddonsEditor({
               );
             })}
           </div>
+
+          {unavailableHistoricalItems.map((item) => (
+            <div key={item.id} className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
+              <p className="text-sm font-medium text-zinc-100">{item.name}</p>
+              <p className="mt-1 text-xs font-semibold uppercase text-zinc-500">
+                Unavailable for new bookings
+              </p>
+            </div>
+          ))}
 
           {value.filter((item) => item.kind === "custom").map((item) => (
             editingCustomId === item.id && customDraft ? null : (
