@@ -2362,7 +2362,7 @@ export default function BookingPage() {
     setPaymentRedirectStatus(
       getCurrencyCents(amountDueNow) === 0
         ? "Completing your booking..."
-        : "Preparing secure PayFast checkout...",
+        : "PREPARING PAYMENT...",
     );
 
     const journeyId = getBookingJourneyId();
@@ -2601,7 +2601,7 @@ export default function BookingPage() {
     }
 
     setIsManualPaymentLinkCreating(true);
-    setManualPaymentLinkStatus("Creating secure payment link...");
+    setManualPaymentLinkStatus("CREATING PAYMENT LINK...");
 
     try {
       const reference =
@@ -5716,7 +5716,7 @@ export default function BookingPage() {
                           ? "Creating Invoice Booking..."
                         : getCurrencyCents(amountDueNow) === 0
                         ? "Completing Booking..."
-                        : "Processing Secure Payment..."
+                        : "PREPARING PAYMENT..."
                       : isComplimentary
                         ? "Create Complimentary Booking"
                         : isCorporateInvoiceOutstanding
@@ -5772,7 +5772,7 @@ export default function BookingPage() {
                           />
                         )}
                         {isManualPaymentLinkCreating
-                          ? "CREATING LINK..."
+                          ? "CREATING PAYMENT LINK..."
                           : "SEND PAYMENT LINK"}
                       </button>
                     )}

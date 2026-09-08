@@ -498,21 +498,33 @@ async function upsertCustomer(
   const mobile = customer.phone?.replace(/\D/g, "");
 
   async function loadMatchingCustomer() {
-    const filters = [
-      payload.email ? `email.eq.${payload.email}` : "",
-      mobile ? `mobile.eq.${customer.phone.trim()}` : "",
-    ]
-      .filter(Boolean)
-      .join(",");
+    // Email owns a unique database constraint, so resolve it independently and
+    // first. A combined email/mobile OR lookup can select the wrong identity or
+    // miss the row that will reject a subsequent insert.
+    if (payload.email) {
+      const { data: emailMatch, error: emailLoadError } = await supabase
+        .from("customers")
+        .select("id,email,mobile,first_name,surname,preferences")
+        .eq("email", payload.email)
+        .maybeSingle();
 
-    if (!filters) {
+      if (emailLoadError) {
+        throw emailLoadError;
+      }
+
+      if (emailMatch) {
+        return emailMatch as SupabaseCustomerRow;
+      }
+    }
+
+    if (!mobile) {
       return undefined;
     }
 
     const { data: rows, error: loadError } = await supabase
       .from("customers")
       .select("id,email,mobile,first_name,surname,preferences")
-      .or(filters);
+      .eq("mobile", customer.phone.trim());
 
     if (loadError) {
       throw loadError;
@@ -521,7 +533,6 @@ async function upsertCustomer(
     return ((rows ?? []) as SupabaseCustomerRow[]).find(
       (row) =>
         row.preferences?.customerKey === customerKey ||
-        (payload.email && row.email === payload.email) ||
         (mobile && row.mobile?.replace(/\D/g, "") === mobile),
     );
   }
@@ -2064,6 +2075,25 @@ export async function POST(request: Request) {
         {
           error:
             "That promo code is no longer available for this booking. Please refresh your payment summary and try again.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "23505" &&
+      "details" in error &&
+      typeof error.details === "string" &&
+      error.details.includes("(email)")
+    ) {
+      return Response.json(
+        {
+          code: "CUSTOMER_EMAIL_CONFLICT",
+          error:
+            "This email already belongs to an existing customer. Select the existing customer and try again.",
         },
         { status: 409 },
       );

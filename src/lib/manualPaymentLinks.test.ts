@@ -86,7 +86,10 @@ test("missing contact blocks sending but leaves Copy Link available", async () =
   const page = await source("../app/book/page.tsx");
 
   assert.match(page, /isTrustedStaff: isTrustedManualCheckout/);
-  assert.match(page, /required={!isTrustedManualCheckout}/);
+  assert.match(
+    page,
+    /required={!isTrustedManualCheckout \|\| isCorporateCalendarCheckout}/,
+  );
   assert.match(page, /!manualPaymentLinkResult\.canSend/);
   assert.match(page, /Copy Link remains available/);
   assert.match(page, /navigator\.clipboard\.writeText/);
