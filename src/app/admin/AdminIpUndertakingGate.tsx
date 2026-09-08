@@ -5,13 +5,11 @@ import { adminIpUndertaking } from "@/lib/adminIpUndertaking";
 
 type Props = {
   error?: string;
-  isLoading?: boolean;
   onAccept: () => Promise<void>;
 };
 
 export function AdminIpUndertakingGate({
   error = "",
-  isLoading = false,
   onAccept,
 }: Props) {
   const [accepted, setAccepted] = useState(false);
@@ -74,7 +72,7 @@ export function AdminIpUndertakingGate({
           <input
             type="checkbox"
             checked={accepted}
-            disabled={isLoading || isSubmitting}
+            disabled={isSubmitting}
             onChange={(event) => setAccepted(event.target.checked)}
             className="mt-1 h-5 w-5 shrink-0 accent-[#D8C36A]"
           />
@@ -89,11 +87,11 @@ export function AdminIpUndertakingGate({
 
         <button
           type="button"
-          disabled={!accepted || isLoading || isSubmitting}
+          disabled={!accepted || isSubmitting}
           onClick={() => void submit()}
           className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold uppercase text-black transition hover:bg-[#F2D66C] focus:outline-none focus:ring-2 focus:ring-[#F2D66C] focus:ring-offset-2 focus:ring-offset-black disabled:cursor-not-allowed disabled:opacity-45"
         >
-          {isLoading || isSubmitting ? "Accepting..." : "Accept & Continue"}
+          {isSubmitting ? "Accepting..." : "Accept & Continue"}
         </button>
       </section>
     </main>

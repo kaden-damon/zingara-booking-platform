@@ -36,6 +36,8 @@ import { getReportGenerationLockMessage } from "../../lib/reportGenerationLock";
 import {
   adminIpUndertaking,
   adminIpUndertakingRequiredEvent,
+  isCurrentAdminIpUndertakingCheck,
+  type AdminIpUndertakingGateState,
   type AdminIpUndertakingStatus,
 } from "../../lib/adminIpUndertaking";
 import { platformVersion } from "../../lib/platformIdentity";
@@ -10448,9 +10450,8 @@ export default function AdminDashboardPage() {
   });
   const [loginError, setLoginError] = useState("");
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
-  const [adminUndertakingState, setAdminUndertakingState] = useState<
-    "accepted" | "error" | "idle" | "loading" | "required"
-  >("idle");
+  const [adminUndertakingState, setAdminUndertakingState] =
+    useState<AdminIpUndertakingGateState>("checking");
   const [adminUndertakingError, setAdminUndertakingError] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [isPasswordResetOpen, setIsPasswordResetOpen] = useState(false);
@@ -10711,6 +10712,8 @@ export default function AdminDashboardPage() {
   const bookingLoadRequestRef = useRef(0);
   const bookingHistoryLoadRequestRef = useRef(0);
   const sessionRestoreRequestRef = useRef(0);
+  const adminUndertakingCheckRequestRef = useRef(0);
+  const acceptedUndertakingStaffIdRef = useRef("");
   const showLoadRequestRef = useRef(0);
   const selectedShowTableLoadRequestRef = useRef(0);
   const floorAssignmentInFlightRef = useRef(new Set<string>());
@@ -10892,6 +10895,8 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     const requireCurrentUndertaking = () => {
+      adminUndertakingCheckRequestRef.current += 1;
+      acceptedUndertakingStaffIdRef.current = "";
       setAdminUndertakingError("");
       setAdminUndertakingState("required");
     };
@@ -11182,26 +11187,68 @@ export default function AdminDashboardPage() {
         return;
       }
 
-      setAdminUndertakingState("loading");
-      setAdminUndertakingError("");
-      try {
-        const undertaking = await fetchSupabaseApi<AdminIpUndertakingStatus>(
-          "/api/admin/ip-undertaking",
-        );
+      const undertakingSessionId = activeAdminSession.id;
+      if (acceptedUndertakingStaffIdRef.current !== undertakingSessionId) {
+        const undertakingCheckRequestId =
+          adminUndertakingCheckRequestRef.current + 1;
+        adminUndertakingCheckRequestRef.current = undertakingCheckRequestId;
+        setAdminUndertakingState("checking");
+        setAdminUndertakingError("");
+        try {
+          const undertaking = await fetchSupabaseApi<AdminIpUndertakingStatus>(
+            "/api/admin/ip-undertaking",
+            { cache: "no-store" },
+          );
 
-        if (!undertaking.accepted) {
-          setAdminUndertakingState("required");
+          if (
+            !isMounted ||
+            !isCurrentAdminIpUndertakingCheck({
+              checkRequestId: undertakingCheckRequestId,
+              currentCheckRequestId:
+                adminUndertakingCheckRequestRef.current,
+              currentStaffId: activeAdminSession?.id,
+              staffId: undertakingSessionId,
+            })
+          ) {
+            return;
+          }
+
+          if (undertaking.version !== adminIpUndertaking.version) {
+            throw new Error(
+              "The current Platform Use & Access Terms status could not be verified.",
+            );
+          }
+
+          if (!undertaking.accepted) {
+            acceptedUndertakingStaffIdRef.current = "";
+            setAdminUndertakingState("required");
+            return;
+          }
+          acceptedUndertakingStaffIdRef.current = undertakingSessionId;
+          setAdminUndertakingState("accepted");
+        } catch (undertakingError) {
+          if (
+            !isMounted ||
+            !isCurrentAdminIpUndertakingCheck({
+              checkRequestId: undertakingCheckRequestId,
+              currentCheckRequestId:
+                adminUndertakingCheckRequestRef.current,
+              currentStaffId: activeAdminSession?.id,
+              staffId: undertakingSessionId,
+            })
+          ) {
+            return;
+          }
+
+          acceptedUndertakingStaffIdRef.current = "";
+          setAdminUndertakingState("checking");
+          setAdminUndertakingError(
+            undertakingError instanceof Error
+              ? undertakingError.message
+              : "The current Platform Use & Access Terms status could not be verified.",
+          );
           return;
         }
-        setAdminUndertakingState("accepted");
-      } catch (undertakingError) {
-        setAdminUndertakingState("error");
-        setAdminUndertakingError(
-          undertakingError instanceof Error
-            ? undertakingError.message
-            : "The required undertaking status could not be verified.",
-        );
-        return;
       }
 
       setIsShowsLoading(true);
@@ -11335,6 +11382,10 @@ export default function AdminDashboardPage() {
     async function restoreAdminSession() {
       const requestId = sessionRestoreRequestRef.current + 1;
       sessionRestoreRequestRef.current = requestId;
+      adminUndertakingCheckRequestRef.current += 1;
+      acceptedUndertakingStaffIdRef.current = "";
+      setAdminUndertakingState("checking");
+      setAdminUndertakingError("");
       setIsSessionRestoring(true);
 
       try {
@@ -11358,7 +11409,6 @@ export default function AdminDashboardPage() {
         if (nextAdminSession) {
           void loadAdminData({ sessionValidated: true });
         } else {
-          setAdminUndertakingState("idle");
           liveCustomerLoadRequestRef.current += 1;
           setLiveCustomerRecords([]);
           setCustomerDataLoadStatus("idle");
@@ -11397,6 +11447,8 @@ export default function AdminDashboardPage() {
 
       if (validatedSession) {
         sessionRestoreRequestRef.current += 1;
+        adminUndertakingCheckRequestRef.current += 1;
+        acceptedUndertakingStaffIdRef.current = "";
         activeAdminSession = validatedSession;
 
         if (redirectToRequestedAdminPath()) {
@@ -11404,6 +11456,8 @@ export default function AdminDashboardPage() {
         }
 
         setCurrentStaff(validatedSession);
+        setAdminUndertakingState("checking");
+        setAdminUndertakingError("");
         setHasHydrated(true);
         setIsSessionRestoring(false);
         void loadAdminData({ sessionValidated: true });
@@ -14174,25 +14228,42 @@ export default function AdminDashboardPage() {
     await signOutAdmin();
     window.dispatchEvent(new Event(adminAuthChangedEvent));
     setCurrentStaff(null);
-    setAdminUndertakingState("idle");
+    adminUndertakingCheckRequestRef.current += 1;
+    acceptedUndertakingStaffIdRef.current = "";
+    setAdminUndertakingState("checking");
+    setAdminUndertakingError("");
   }
 
   async function acceptAdminIpUndertaking() {
+    adminUndertakingCheckRequestRef.current += 1;
     setAdminUndertakingError("");
     try {
-      await fetchSupabaseApi<AdminIpUndertakingStatus>(
+      const acceptance = await fetchSupabaseApi<AdminIpUndertakingStatus>(
         "/api/admin/ip-undertaking",
         {
           body: {
             accepted: true,
             version: adminIpUndertaking.version,
           },
+          cache: "no-store",
           method: "POST",
         },
       );
+
+      if (
+        !acceptance.accepted ||
+        acceptance.version !== adminIpUndertaking.version
+      ) {
+        throw new Error(
+          "The Platform Use & Access Terms acceptance could not be verified.",
+        );
+      }
+
+      acceptedUndertakingStaffIdRef.current = currentStaff?.id ?? "";
       setAdminUndertakingState("accepted");
       window.dispatchEvent(new Event(adminAuthChangedEvent));
     } catch (error) {
+      acceptedUndertakingStaffIdRef.current = "";
       setAdminUndertakingState("required");
       setAdminUndertakingError(
         error instanceof Error
@@ -26815,11 +26886,53 @@ export default function AdminDashboardPage() {
     );
   }
 
-  if (adminUndertakingState !== "accepted") {
+  if (adminUndertakingState === "checking") {
+    return (
+      <main className="relative isolate z-10 flex min-h-screen items-center justify-center bg-black px-4 py-10 text-white sm:px-6 sm:py-16">
+        <section
+          aria-live="polite"
+          aria-labelledby="platform-access-check-heading"
+          className="relative z-10 w-full max-w-2xl rounded-[1.5rem] border border-[#8D7A2F]/40 bg-zinc-950 p-5 text-center shadow-2xl shadow-[#8D7A2F]/10 sm:p-8"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+            Staff Access
+          </p>
+          <h1
+            id="platform-access-check-heading"
+            className="mt-3 text-2xl font-bold uppercase text-white sm:text-3xl"
+          >
+            Verifying Platform Access
+          </h1>
+          {adminUndertakingError ? (
+            <>
+              <p role="alert" className="mt-4 text-sm leading-6 text-red-100">
+                {adminUndertakingError}
+              </p>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="mt-6 min-h-11 rounded-full border border-[#D8C36A]/55 px-6 py-3 text-sm font-semibold uppercase text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black focus:outline-none focus:ring-2 focus:ring-[#F2D66C]"
+              >
+                Retry Verification
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="mx-auto mt-6 h-9 w-9 animate-spin rounded-full border-2 border-[#D8C36A]/30 border-t-[#D8C36A]" />
+              <p className="mt-4 text-sm text-zinc-400">
+                Checking the current access terms for this staff account...
+              </p>
+            </>
+          )}
+        </section>
+      </main>
+    );
+  }
+
+  if (adminUndertakingState === "required") {
     return (
       <AdminIpUndertakingGate
         error={adminUndertakingError}
-        isLoading={adminUndertakingState === "loading"}
         onAccept={acceptAdminIpUndertaking}
       />
     );

@@ -3,11 +3,29 @@ import { requireActiveStaff } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
 
+const privateNoStoreHeaders = {
+  "Cache-Control": "private, no-store, max-age=0",
+  Vary: "Authorization",
+};
+
+function privateNoStore(response: Response) {
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", privateNoStoreHeaders["Cache-Control"]);
+  headers.set("Vary", privateNoStoreHeaders.Vary);
+  return new Response(response.body, {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  });
+}
+
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request, { requireIpUndertaking: false });
 
   if (auth.error || !auth.serviceClient || !auth.staffProfile) {
-    return auth.error ?? Response.json({ error: "Unauthorized." }, { status: 401 });
+    return privateNoStore(
+      auth.error ?? Response.json({ error: "Unauthorized." }, { status: 401 }),
+    );
   }
 
   const { data, error } = await auth.serviceClient
@@ -20,9 +38,11 @@ export async function GET(request: Request) {
 
   if (error) {
     console.error("[Zingara Admin Undertaking] Status lookup failed", error);
-    return Response.json(
-      { error: "The current Platform Use & Access Terms status could not be verified." },
-      { status: 503 },
+    return privateNoStore(
+      Response.json(
+        { error: "The current Platform Use & Access Terms status could not be verified." },
+        { status: 503 },
+      ),
     );
   }
 
@@ -31,14 +51,16 @@ export async function GET(request: Request) {
     acceptedAt: data?.accepted_at ?? null,
     title: adminIpUndertaking.title,
     version: adminIpUndertaking.version,
-  });
+  }, { headers: privateNoStoreHeaders });
 }
 
 export async function POST(request: Request) {
   const auth = await requireActiveStaff(request, { requireIpUndertaking: false });
 
   if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
-    return auth.error ?? Response.json({ error: "Unauthorized." }, { status: 401 });
+    return privateNoStore(
+      auth.error ?? Response.json({ error: "Unauthorized." }, { status: 401 }),
+    );
   }
 
   const body = (await request.json().catch(() => null)) as
@@ -46,9 +68,11 @@ export async function POST(request: Request) {
     | null;
 
   if (body?.accepted !== true || body.version !== adminIpUndertaking.version) {
-    return Response.json(
-      { error: "The current Platform Use & Access Terms must be explicitly accepted." },
-      { status: 400 },
+    return privateNoStore(
+      Response.json(
+        { error: "The current Platform Use & Access Terms must be explicitly accepted." },
+        { status: 400 },
+      ),
     );
   }
 
@@ -70,9 +94,11 @@ export async function POST(request: Request) {
 
   if (error && error.code !== "23505") {
     console.error("[Zingara Admin Undertaking] Acceptance failed", error);
-    return Response.json(
-      { error: "The undertaking acceptance could not be recorded." },
-      { status: 500 },
+    return privateNoStore(
+      Response.json(
+        { error: "The undertaking acceptance could not be recorded." },
+        { status: 500 },
+      ),
     );
   }
 
@@ -92,9 +118,11 @@ export async function POST(request: Request) {
         "[Zingara Admin Undertaking] Existing acceptance lookup failed",
         existingError,
       );
-      return Response.json(
-        { error: "The Platform Use & Access Terms acceptance could not be verified." },
-        { status: 500 },
+      return privateNoStore(
+        Response.json(
+          { error: "The Platform Use & Access Terms acceptance could not be verified." },
+          { status: 500 },
+        ),
       );
     }
 
@@ -106,5 +134,5 @@ export async function POST(request: Request) {
     acceptedAt: recordedAcceptedAt,
     title: adminIpUndertaking.title,
     version: adminIpUndertaking.version,
-  });
+  }, { headers: privateNoStoreHeaders });
 }

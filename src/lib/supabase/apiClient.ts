@@ -3,6 +3,7 @@ import { adminIpUndertakingRequiredEvent } from "../adminIpUndertaking";
 
 type ApiOptions = {
   body?: unknown;
+  cache?: RequestCache;
   method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
 };
 
@@ -25,6 +26,7 @@ export async function fetchSupabaseApi<T>(
 
   const response = await fetch(path, {
     body: options.body ? JSON.stringify(options.body) : undefined,
+    cache: options.cache,
     headers,
     method: options.method ?? "GET",
   });
