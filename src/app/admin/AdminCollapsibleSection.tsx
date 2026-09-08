@@ -11,6 +11,7 @@ type AdminCollapsibleSectionProps = {
   className?: string;
   contentClassName?: string;
   defaultOpen?: boolean;
+  indicator?: "chevron" | "plus-minus";
   onOpenChange?: (open: boolean) => void;
   open?: boolean;
   summary?: ReactNode;
@@ -22,6 +23,7 @@ export function AdminCollapsibleSection({
   className = "",
   contentClassName = "p-4 sm:p-5",
   defaultOpen = false,
+  indicator = "chevron",
   onOpenChange,
   open,
   summary,
@@ -65,11 +67,13 @@ export function AdminCollapsibleSection({
         </span>
         <span
           aria-hidden="true"
-          className={`shrink-0 text-xl leading-none text-[#F2D66C] transition-transform duration-200 ${
-            isOpen ? "rotate-180" : ""
+          className={`shrink-0 text-xl leading-none text-[#F2D66C] ${
+            indicator === "chevron"
+              ? `transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`
+              : "font-semibold"
           }`}
         >
-          ⌄
+          {indicator === "plus-minus" ? (isOpen ? "−" : "+") : "⌄"}
         </span>
       </button>
       <div

@@ -18,6 +18,7 @@ import {
   requireActiveStaff,
   staffProfileToSession,
 } from "@/lib/supabase/serverAdmin";
+import { isPlatformOwnerStaffProfile } from "@/lib/supabase/platformOwner";
 import {
   diffAuditFields,
   pickAuditFields,
@@ -277,6 +278,16 @@ export async function PATCH(request: Request) {
       throw beforeError;
     }
 
+    if (
+      beforeProfile?.id &&
+      (await isPlatformOwnerStaffProfile(auth.serviceClient, beforeProfile.id))
+    ) {
+      return Response.json(
+        { error: "Platform Owner identity cannot be managed through operational Staff Management." },
+        { status: 403 },
+      );
+    }
+
     const { error } = await auth.serviceClient
       .from("staff_profiles")
       .update(updates)
@@ -403,6 +414,13 @@ export async function DELETE(request: Request) {
 
     if (!profile?.user_id) {
       return Response.json({ error: "Staff profile was not found." }, { status: 404 });
+    }
+
+    if (await isPlatformOwnerStaffProfile(auth.serviceClient, profile.id)) {
+      return Response.json(
+        { error: "Platform Owner identity cannot be managed through operational Staff Management." },
+        { status: 403 },
+      );
     }
 
     if (profile.user_id === auth.user?.id) {

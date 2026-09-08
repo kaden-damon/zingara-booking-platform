@@ -87,12 +87,19 @@ test("Super Admin cannot fabricate acceptance for another staff account", async 
   assert.doesNotMatch(acceptanceRoute, /body\.(staff|user|profile|actor)/);
 });
 
-test("no Acceptance Register UI is exposed without distinct owner authority", async () => {
+test("Acceptance Register UI is exposed only through distinct owner authority", async () => {
   const access = await source("./zingaraAccess.ts");
   const page = await source("../app/admin/page.tsx");
+  const preferences = await source("../app/admin/SystemPreferences.tsx");
+  const route = await source(
+    "../app/api/admin/platform-governance/acceptance-register/route.ts",
+  );
 
   assert.doesNotMatch(access, /platform-owner|system-owner|technical-owner/);
-  assert.doesNotMatch(page, /Acceptance Register/);
+  assert.match(page, /SystemPreferences/);
+  assert.match(preferences, /Acceptance Register/);
+  assert.match(route, /isPlatformOwnerIdentity/);
+  assert.match(route, /status: 403/);
 });
 
 test("blocking modal requires an unchecked acknowledgement and has no dismissal bypass", async () => {

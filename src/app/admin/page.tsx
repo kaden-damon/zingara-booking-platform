@@ -27,7 +27,7 @@ import {
   CustomerIdentityEditor,
   type CustomerIdentityDraft,
 } from "./CustomerIdentityEditor";
-import CookiePrivacyPreferences from "./CookiePrivacyPreferences";
+import SystemPreferences from "./SystemPreferences";
 import ManagementAnalytics from "./ManagementAnalytics";
 import { useReportGenerationLock } from "./useReportGenerationLock";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
@@ -34086,7 +34086,7 @@ export default function AdminDashboardPage() {
         {activeAdminTab === "platform-operations" &&
           activeSystemTab === "preferences" && (
             <section className="mb-10">
-              <CookiePrivacyPreferences isSuperAdmin={isSuperAdmin} />
+              <SystemPreferences isSuperAdmin={isSuperAdmin} />
             </section>
           )}
 
