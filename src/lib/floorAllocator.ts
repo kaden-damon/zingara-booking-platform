@@ -272,6 +272,7 @@ function chooseMergeMembers(
     .filter(
       (table) =>
         table.isPhysical &&
+        table.capacityConfigured &&
         table.mergeable &&
         !table.mergedParentId &&
         table.mergedFrom.length === 0,
@@ -446,13 +447,7 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
             (table.capacityConfigured &&
               table.capacity !== null &&
               table.status === "available" &&
-              isFlatTemporary(table)) ||
-            (!table.capacityConfigured &&
-              table.capacity === null &&
-              table.status === "disabled" &&
-              table.isPhysical &&
-              table.minimumCapacity !== null &&
-              table.maximumCapacity !== null)),
+              isFlatTemporary(table))),
       )
       .map((table) => ({ ...table, plannedCapacity: null }));
     const existingMergedParents: MutableTable[] = zoneTables

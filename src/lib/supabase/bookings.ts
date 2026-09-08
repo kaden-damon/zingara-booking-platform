@@ -983,6 +983,35 @@ export async function mapBookingPhysicalTable(input: {
   );
 }
 
+export type CorporateZoneTransferResult = {
+  booking_id: string;
+  booking_reference: string;
+  idempotent: boolean;
+  released_table_claims?: number;
+  section: string;
+  show_id: string;
+  table_id: null;
+};
+
+export async function transferCorporateBookingZone(input: {
+  bookingReference: string;
+  expectedShowId: string;
+  expectedTableId: string | null;
+  expectedUpdatedAt: string;
+  expectedZone: string;
+  targetZone: string;
+}) {
+  const response = await fetchSupabaseApi<{
+    ok: true;
+    result: CorporateZoneTransferResult;
+  }>("/api/admin/bookings", {
+    body: { action: "transfer-corporate-zone", ...input },
+    method: "PATCH",
+  });
+
+  return response.result;
+}
+
 export type BookingShowTransferResult = {
   bookingId: string;
   bookingReference: string;

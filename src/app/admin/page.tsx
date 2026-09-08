@@ -88,6 +88,7 @@ import {
   persistBookingCancellation,
   restoreBookings,
   saveBookings as persistBookings,
+  transferCorporateBookingZone,
   transferBookingShow,
 } from "../../lib/supabase/bookings";
 import { planAdminBookingMutations } from "../../lib/adminBookingPersistence";
@@ -266,10 +267,15 @@ import {
   isFloorInventoryTable,
   isLegacyFloorPlaceholder,
 } from "../../lib/floorInventory";
-import type { InitialFloorPlan } from "../../lib/floorAllocator";
 import {
-  applyInitialFloorPlan,
-  planInitialFloor,
+  corporateFloorZones,
+  getCorporateZoneAvailability,
+  type CorporateFloorZone,
+} from "../../lib/corporateFloorPlanning";
+import {
+  createShowFloorCapacityPlan,
+  planShowFloorCapacity,
+  type ShowWideFloorCapacityPlan,
 } from "../../lib/supabase/floorPlans";
 import {
   type ShowEditLock,
@@ -10558,13 +10564,22 @@ export default function AdminDashboardPage() {
   const [physicalMappingSelections, setPhysicalMappingSelections] = useState<
     Record<string, string>
   >({});
-  const [initialFloorPlan, setInitialFloorPlan] =
-    useState<InitialFloorPlan | null>(null);
-  const [initialFloorPlanStatus, setInitialFloorPlanStatus] = useState("");
-  const [isInitialFloorPlanning, setIsInitialFloorPlanning] = useState(false);
-  const [isInitialFloorApplying, setIsInitialFloorApplying] = useState(false);
-  const [initialFloorPlanReviewed, setInitialFloorPlanReviewed] =
-    useState(false);
+  const [floorCapacityPlan, setFloorCapacityPlan] =
+    useState<ShowWideFloorCapacityPlan | null>(null);
+  const [floorCapacityPlanStatus, setFloorCapacityPlanStatus] = useState("");
+  const [isFloorCapacityPlanning, setIsFloorCapacityPlanning] = useState(false);
+  const [floorCapacityCreateAction, setFloorCapacityCreateAction] = useState<{
+    status: "created" | "creating";
+    zoneId: CorporateFloorZone;
+  } | null>(null);
+  const [corporateZoneMoveDrafts, setCorporateZoneMoveDrafts] = useState<
+    Record<string, CorporateFloorZone>
+  >({});
+  const [corporateZoneMoveAction, setCorporateZoneMoveAction] = useState<{
+    reference: string;
+    status: "moved" | "moving";
+  } | null>(null);
+  const corporateZoneMoveInFlightRef = useRef(new Set<string>());
   const [floorZoneFilter, setFloorZoneFilter] =
     useState<FloorZoneFilter>("all");
   const [expandedTableId, setExpandedTableId] = useState("");
@@ -13887,9 +13902,9 @@ export default function AdminDashboardPage() {
   }, [activeOperationsTab, manifestSelectedShow, selectedShowId]);
 
   useEffect(() => {
-    setInitialFloorPlan(null);
-    setInitialFloorPlanStatus("");
-    setInitialFloorPlanReviewed(false);
+    setFloorCapacityPlan(null);
+    setFloorCapacityPlanStatus("");
+    setFloorCapacityCreateAction(null);
   }, [selectedShowId]);
 
   useEffect(() => {
@@ -22156,75 +22171,144 @@ export default function AdminDashboardPage() {
     setIsShowsLoading(false);
   }
 
-  async function planSelectedInitialFloor() {
+  async function planSelectedFloorCapacity() {
     if (!selectedShowId || !canManageBookings || !canManageTables) {
       return;
     }
 
-    setIsInitialFloorPlanning(true);
-    setInitialFloorPlanStatus("");
-    setInitialFloorPlanReviewed(false);
+    setIsFloorCapacityPlanning(true);
+    setFloorCapacityPlanStatus("");
 
     try {
-      const response = await planInitialFloor(selectedShowId);
-      setInitialFloorPlan(response.plan);
-      setInitialFloorPlanStatus(
-        response.plan.summary.unresolvedBookings === 0
-          ? "This performance already has a complete operational floor."
-          : "Dry run complete. Review every proposed capacity, merge, and allocation before Apply.",
+      const response = await planShowFloorCapacity(selectedShowId);
+      setFloorCapacityPlan(response.plan);
+      setFloorCapacityPlanStatus(
+        "Show-wide capacity plan ready. Review each zone before creating any temporary tables.",
       );
     } catch (error) {
-      setInitialFloorPlan(null);
-      setInitialFloorPlanStatus(
+      setFloorCapacityPlan(null);
+      setFloorCapacityPlanStatus(
         error instanceof Error
           ? error.message
-          : "The initial floor dry run could not be generated.",
+          : "The show-wide Floor capacity plan could not be generated.",
       );
     } finally {
-      setIsInitialFloorPlanning(false);
+      setIsFloorCapacityPlanning(false);
     }
   }
 
-  async function applyReviewedInitialFloor() {
+  async function createReviewedFloorCapacityPlan(zoneId: CorporateFloorZone) {
+    const zonePlan = floorCapacityPlan?.zones.find(
+      (candidate) => candidate.zoneId === zoneId,
+    );
+    const capacities = zonePlan?.bookingPlans.flatMap(
+      (booking) => booking.newCapacities,
+    ) ?? [];
     if (
       !selectedShowId ||
-      !initialFloorPlan ||
-      !initialFloorPlanReviewed ||
-      isInitialFloorApplying ||
+      !floorCapacityPlan ||
+      !zonePlan ||
+      capacities.length === 0 ||
+      floorCapacityCreateAction?.status === "creating" ||
       !canManageBookings ||
       !canManageTables
     ) {
       return;
     }
 
+    const zoneTitle = getZoneById(zoneId)?.title ?? zoneId;
+    const tableSummary = zonePlan.suggestedTables
+      .map(({ capacity, count }) => `${count} × ${capacity}-seat`)
+      .join(", ");
     const confirmed = window.confirm(
-      `Apply ${initialFloorPlan.summary.autoAllocatable} reviewed table allocations to this performance? The server will reject the entire plan if Floor state changed.`,
+      `Create the reviewed ${zoneTitle} temporary-table plan (${tableSummary})? No booking will be assigned automatically. The server will reject this request if Floor state changed.`,
     );
 
     if (!confirmed) {
       return;
     }
 
-    setIsInitialFloorApplying(true);
-    setInitialFloorPlanStatus("Applying reviewed initial floor…");
+    setFloorCapacityCreateAction({ status: "creating", zoneId });
+    setFloorCapacityPlanStatus(`Creating reviewed ${zoneTitle} capacity…`);
 
     try {
-      await applyInitialFloorPlan({
+      await createShowFloorCapacityPlan({
+        capacities,
         showReference: selectedShowId,
-        snapshotToken: initialFloorPlan.snapshotToken,
+        snapshotToken: floorCapacityPlan.snapshotToken,
+        zoneId,
       });
       await refreshAssignedShowState(selectedShowId);
-      setInitialFloorPlan(null);
-      setInitialFloorPlanReviewed(false);
-      setInitialFloorPlanStatus("Initial floor applied from the reviewed snapshot.");
+      setFloorCapacityCreateAction({ status: "created", zoneId });
+      const response = await planShowFloorCapacity(selectedShowId);
+      setFloorCapacityPlan(response.plan);
+      setFloorCapacityPlanStatus(
+        `${zoneTitle} temporary capacity created. The current show-wide plan has been recalculated.`,
+      );
     } catch (error) {
-      setInitialFloorPlanStatus(
+      setFloorCapacityCreateAction(null);
+      setFloorCapacityPlanStatus(
         error instanceof Error
           ? error.message
-          : "The initial floor was not applied.",
+          : "The temporary Floor capacity was not created.",
+      );
+    }
+  }
+
+  async function moveCorporateBookingZone(
+    booking: DemoBooking,
+    targetZone: CorporateFloorZone,
+  ) {
+    if (
+      booking.source !== "corporate-direct" ||
+      !booking.showId ||
+      !booking.updatedAt ||
+      corporateZoneMoveInFlightRef.current.has(booking.reference) ||
+      isBookingReadOnly(booking.reference)
+    ) {
+      return;
+    }
+
+    const currentZone = getZoneById(booking.zoneId)?.title ?? booking.zoneTitle;
+    const targetTitle = getZoneById(targetZone)?.title ?? targetZone;
+    const confirmed = window.confirm(
+      `Move ${booking.reference} (${booking.partySize} pax) from ${currentZone} to ${targetTitle}? The agreed financial state will remain unchanged and the booking will return to Floor Assignment without a physical table.`,
+    );
+    if (!confirmed) return;
+
+    const currentTable = tables.find((table) => table.id === booking.tableId);
+    const expectedTableId =
+      booking.tableId && booking.tableId !== "requires-floor-assignment"
+        ? currentTable?.authoritativeId ?? booking.tableId
+        : null;
+    const currentShow = getBookingShow(booking);
+
+    corporateZoneMoveInFlightRef.current.add(booking.reference);
+    setCorporateZoneMoveAction({ reference: booking.reference, status: "moving" });
+    try {
+      await transferCorporateBookingZone({
+        bookingReference: booking.reference,
+        expectedShowId: currentShow?.supabaseId ?? booking.showId,
+        expectedTableId,
+        expectedUpdatedAt: booking.updatedAt,
+        expectedZone: booking.zoneTitle,
+        targetZone,
+      });
+      await refreshAssignedShowState(booking.showId);
+      setCorporateZoneMoveDrafts((current) => {
+        const next = { ...current };
+        delete next[booking.reference];
+        return next;
+      });
+      setCorporateZoneMoveAction({ reference: booking.reference, status: "moved" });
+      showWorkflowToast(`✓ ${booking.reference} moved to ${targetTitle}`);
+    } catch (error) {
+      setCorporateZoneMoveAction(null);
+      showWorkflowToast(
+        error instanceof Error ? error.message : "Corporate zone move failed.",
       );
     } finally {
-      setIsInitialFloorApplying(false);
+      corporateZoneMoveInFlightRef.current.delete(booking.reference);
     }
   }
 
@@ -39519,17 +39603,17 @@ export default function AdminDashboardPage() {
               <div className="flex flex-col items-stretch gap-3 sm:min-w-[260px]">
                 <button
                   type="button"
-                  onClick={() => void planSelectedInitialFloor()}
+                  onClick={() => void planSelectedFloorCapacity()}
                   disabled={
                     !selectedShowId ||
-                    isInitialFloorPlanning ||
-                    isInitialFloorApplying ||
+                    isFloorCapacityPlanning ||
+                    floorCapacityCreateAction?.status === "creating" ||
                     !canManageBookings ||
                     !canManageTables
                   }
                   className="rounded-xl border border-[#D8C36A]/55 bg-[#D8C36A]/10 px-4 py-2.5 text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A]/20 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {isInitialFloorPlanning
+                  {isFloorCapacityPlanning
                     ? "Planning unallocated tables…"
                     : "Plan Unallocated Tables"}
                 </button>
@@ -39554,162 +39638,101 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            {initialFloorPlanStatus && (
+            {floorCapacityPlanStatus && (
               <p className="mt-4 text-sm text-amber-100" role="status">
-                {initialFloorPlanStatus}
+                {floorCapacityPlanStatus}
               </p>
             )}
 
-            {initialFloorPlan && (
-              <div className="mt-5 border-t border-white/10 pt-5">
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-                  {[
-                    ["Unresolved", initialFloorPlan.summary.unresolvedBookings],
-                    ["Auto-allocatable", initialFloorPlan.summary.autoAllocatable],
-                    ["Capacity changes", initialFloorPlan.summary.capacityChanges],
-                    ["Merges", initialFloorPlan.summary.merges],
-                    ["Manual attention", initialFloorPlan.summary.unresolvedExceptions],
-                  ].map(([label, value]) => (
-                    <div
-                      key={String(label)}
-                      className="rounded-xl border border-white/10 bg-black/30 p-3"
+            {floorCapacityPlan && (
+              <div className="mt-5 grid gap-3 border-t border-white/10 pt-5 xl:grid-cols-2">
+                {floorCapacityPlan.zones.map((zonePlan) => {
+                  const zoneTitle = getZoneById(zonePlan.zoneId)?.title ?? zonePlan.zoneId;
+                  const isCreating =
+                    floorCapacityCreateAction?.zoneId === zonePlan.zoneId &&
+                    floorCapacityCreateAction.status === "creating";
+                  const hasPlan = zonePlan.suggestedTables.length > 0;
+
+                  return (
+                    <article
+                      key={`capacity-plan-${zonePlan.zoneId}`}
+                      data-floor-zone-plan={zonePlan.zoneId}
+                      className="rounded-2xl border border-white/10 bg-black/30 p-4"
                     >
-                      <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                        {label}
-                      </p>
-                      <p className="mt-1 text-xl font-bold text-white">{value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <p className="mt-3 text-xs leading-5 text-zinc-400">
-                  {initialFloorPlan.summary.preservedAllocations} valid staff allocation
-                  {initialFloorPlan.summary.preservedAllocations === 1 ? " is" : "s are"}{" "}
-                  preserved and excluded from this plan.
-                </p>
-
-                {initialFloorPlan.capacityProposals.length > 0 && (
-                  <div className="mt-5">
-                    <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-200">
-                      Capacity proposals
-                    </h4>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {initialFloorPlan.capacityProposals.map((proposal) => (
-                        <span
-                          key={`capacity-${proposal.tableId}`}
-                          className="rounded-full border border-sky-300/25 bg-sky-950/20 px-3 py-1.5 text-xs text-sky-100"
-                        >
-                          {proposal.tableCode} · {proposal.capacity} seats ·{" "}
-                          {getZoneById(proposal.zone)?.title ?? proposal.zone}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {initialFloorPlan.merges.length > 0 && (
-                  <div className="mt-5">
-                    <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-200">
-                      Merge proposals
-                    </h4>
-                    <div className="mt-2 grid gap-2 md:grid-cols-2">
-                      {initialFloorPlan.merges.map((merge) => (
-                        <p
-                          key={merge.id}
-                          className="rounded-xl border border-violet-300/20 bg-violet-950/15 px-3 py-2 text-sm text-violet-100"
-                        >
-                          {merge.memberTableCodes.join(" + ")} → {merge.capacity} seats ·{" "}
-                          {getZoneById(merge.zone)?.title ?? merge.zone}
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {initialFloorPlan.allocations.length > 0 && (
-                  <div className="mt-5">
-                    <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-200">
-                      Proposed allocations
-                    </h4>
-                    <div className="mt-2 max-h-80 space-y-2 overflow-y-auto pr-1">
-                      {initialFloorPlan.allocations.map((allocation) => (
-                        <div
-                          key={allocation.bookingId}
-                          className="grid gap-1 rounded-xl border border-emerald-300/20 bg-emerald-950/10 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
-                        >
-                          <p className="text-zinc-200">
-                            <span className="font-semibold text-white">
-                              {allocation.bookingReference}
-                            </span>{" "}
-                            · {allocation.pax} pax ·{" "}
-                            {getZoneById(allocation.zone)?.title ?? allocation.zone}
-                            <span className="block text-xs text-zinc-500">
-                              {allocation.currentAssignment}
-                            </span>
-                          </p>
-                          <p className="font-semibold text-emerald-100 sm:text-right">
-                            → {allocation.targetLabel} · {allocation.targetCapacity} seats
-                            <span className="block text-xs font-normal text-emerald-200/70">
-                              {allocation.targetType} · {allocation.unusedSeats} unused
-                            </span>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="font-semibold text-white">{zoneTitle}</h4>
+                          <p className="mt-1 text-xs text-zinc-400">
+                            {zonePlan.queuedBookings} queued · {zonePlan.queuedPax} pax
                           </p>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                        <span className={`rounded-full border px-2.5 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.1em] ${
+                          zonePlan.zoneCapacityInsufficient
+                            ? "border-red-300/35 bg-red-950/25 text-red-200"
+                            : "border-emerald-300/25 bg-emerald-950/20 text-emerald-100"
+                        }`}>
+                          {zonePlan.zoneCapacityInsufficient ? "Zone over capacity" : "Entitlement valid"}
+                        </span>
+                      </div>
 
-                {initialFloorPlan.unresolved.length > 0 && (
-                  <div className="mt-5">
-                    <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-red-200">
-                      Manual attention
-                    </h4>
-                    <div className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
-                      {initialFloorPlan.unresolved.map((exception) => (
-                        <p
-                          key={`unresolved-${exception.bookingReference}`}
-                          className="rounded-xl border border-red-300/20 bg-red-950/10 px-3 py-2 text-sm text-red-100"
-                        >
-                          <span className="font-semibold">
-                            {exception.bookingReference}
-                          </span>{" "}
-                          · {exception.pax} pax ·{" "}
-                          {exception.zone
-                            ? getZoneById(exception.zone)?.title ?? exception.zone
-                            : "Unknown zone"}{" "}
-                          · {exception.currentAssignment}
-                          <span className="block text-xs text-red-200/75">
-                            {exception.reason}
-                          </span>
+                      <dl className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                        {[
+                          ["Zone Capacity", zonePlan.zoneCapacity],
+                          ["Active Pax", zonePlan.activeEntitlementPax],
+                          ["Assignable Seats", zonePlan.currentAssignableSeats],
+                          ["Reserved Capacity", zonePlan.claimedReservedCapacity],
+                          ["Operational Shortfall", zonePlan.operationalShortfall],
+                          ["Capacity Required", zonePlan.capacityRequiredPhysicalTables],
+                        ].map(([label, value]) => (
+                          <div key={String(label)} className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                            <dt className="uppercase tracking-[0.08em] text-zinc-500">{label}</dt>
+                            <dd className="mt-1 text-lg font-bold text-white">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+
+                      {zonePlan.capacityRequiredPhysicalTables > 0 && (
+                        <p className="mt-3 text-xs leading-5 text-amber-100">
+                          {zonePlan.capacityRequiredPhysicalTables} physical table{zonePlan.capacityRequiredPhysicalTables === 1 ? " has" : "s have"} no authoritative capacity and is excluded from planning.
                         </p>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                      )}
 
-                {initialFloorPlan.summary.autoAllocatable > 0 && (
-                  <div className="mt-5 flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                    <label className="flex items-start gap-2 text-sm text-zinc-300">
-                      <input
-                        type="checkbox"
-                        checked={initialFloorPlanReviewed}
-                        onChange={(event) =>
-                          setInitialFloorPlanReviewed(event.target.checked)
-                        }
-                        className="mt-0.5 h-4 w-4 accent-[#D8C36A]"
-                      />
-                      I reviewed the capacity, merge, and allocation proposals.
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => void applyReviewedInitialFloor()}
-                      disabled={!initialFloorPlanReviewed || isInitialFloorApplying}
-                      className="rounded-xl bg-[#D8C36A] px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {isInitialFloorApplying ? "Applying…" : "Apply Reviewed Initial Floor"}
-                    </button>
-                  </div>
-                )}
+                      <div className="mt-3 space-y-2">
+                        {zonePlan.bookingPlans.map((bookingPlan) => (
+                          <p key={bookingPlan.bookingReference} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-zinc-300">
+                            <span className="font-semibold text-white">{bookingPlan.bookingReference}</span> · {bookingPlan.pax} pax
+                            <span className="block text-zinc-400">
+                              {bookingPlan.unresolvedReason ?? [
+                                bookingPlan.existingTableCodes.length > 0
+                                  ? `Existing ${bookingPlan.existingTableCodes.join(" + ")}`
+                                  : "No existing tables",
+                                bookingPlan.newCapacities.length > 0
+                                  ? `Create ${bookingPlan.newCapacities.join(" + ")}`
+                                  : "No new tables",
+                              ].join(" · ")}
+                            </span>
+                          </p>
+                        ))}
+                      </div>
+
+                      {hasPlan && !zonePlan.zoneCapacityInsufficient && (
+                        <div className="mt-4 flex flex-col gap-3 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-sm text-zinc-300">
+                            Create {zonePlan.suggestedTables.map(({ capacity, count }) => `${count} × ${capacity}-seat`).join(", ")} · {zonePlan.newCapacity} seats · {zonePlan.unusedSeats} unused
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void createReviewedFloorCapacityPlan(zonePlan.zoneId)}
+                            disabled={Boolean(floorCapacityCreateAction?.status === "creating")}
+                            className="min-h-11 shrink-0 rounded-xl bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.06em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {isCreating ? "CREATING..." : floorCapacityCreateAction?.zoneId === zonePlan.zoneId && floorCapacityCreateAction.status === "created" ? "CREATED ✓" : "REVIEW & CREATE"}
+                          </button>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
               </div>
             )}
 
@@ -39721,7 +39744,8 @@ export default function AdminDashboardPage() {
             ) : (
               <div className="mt-5 grid grid-cols-1 gap-3 xl:grid-cols-2">
                 {selectedShowFloorAssignmentBookings.map((booking) => {
-                  const allocation = booking.showId
+                  const isCorporate = booking.source === "corporate-direct";
+                  const allocation = booking.showId && !isCorporate
                     ? findBestTableAllocation(
                         tables,
                         booking.showId,
@@ -39729,6 +39753,12 @@ export default function AdminDashboardPage() {
                         booking.partySize,
                       )
                     : undefined;
+                  const bookingPlan = floorCapacityPlan?.zones
+                    .find((zone) => zone.zoneId === booking.zoneId)
+                    ?.bookingPlans.find(
+                      (candidate) =>
+                        candidate.bookingReference === booking.reference,
+                    );
                   const paymentStatus = getBookingPaymentStatus(booking);
 
                   return (
@@ -39768,6 +39798,17 @@ export default function AdminDashboardPage() {
                               ? allocation.isCombination
                                 ? `${allocation.table.tableNumber} (merge required)`
                                 : allocation.table.tableNumber
+                              : bookingPlan?.unresolvedReason
+                                ? bookingPlan.unresolvedReason
+                                : bookingPlan
+                                  ? [
+                                      bookingPlan.existingTableCodes.length > 0
+                                        ? bookingPlan.existingTableCodes.join(" + ")
+                                        : null,
+                                      bookingPlan.newCapacities.length > 0
+                                        ? `create ${bookingPlan.newCapacities.join(" + ")}`
+                                        : null,
+                                    ].filter(Boolean).join(" + ") || "No new capacity required"
                               : "No suitable table"}
                           </span>
                         </p>
@@ -39796,7 +39837,7 @@ export default function AdminDashboardPage() {
                               : "ASSIGNED ✓"
                             : "Assign Suggested Table"}
                         </button>
-                        {!allocation && (
+                        {!allocation && !bookingPlan && (
                           <button
                             type="button"
                             onClick={() => {
@@ -39820,6 +39861,19 @@ export default function AdminDashboardPage() {
                             className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:border-[#D8C36A]/45 hover:text-[#F2D66C]"
                           >
                             Add / Merge Temporary Table
+                          </button>
+                        )}
+                        {!allocation && bookingPlan && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              document
+                                .querySelector(`[data-floor-zone-plan="${booking.zoneId}"]`)
+                                ?.scrollIntoView({ behavior: "smooth", block: "center" })
+                            }
+                            className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:border-[#D8C36A]/45 hover:text-[#F2D66C]"
+                          >
+                            Review Capacity Plan
                           </button>
                         )}
                       </div>
@@ -41662,6 +41716,45 @@ export default function AdminDashboardPage() {
 	                  isEligibleManualBookingMoveTarget(table, booking, tables),
 	                );
                     const currentBookingShow = getBookingShow(booking);
+                    const corporateZoneAvailability = isCorporateBooking
+                      ? getCorporateZoneAvailability({
+                          activeBookings: activeBookingsForOperations
+                            .filter(
+                              (candidate) =>
+                                candidate.showId === booking.showId ||
+                                (currentBookingShow?.supabaseId &&
+                                  candidate.showId === currentBookingShow.supabaseId),
+                            )
+                            .map((candidate) => ({
+                              bookingId:
+                                candidate.supabaseBookingId ?? candidate.reference,
+                              pax: candidate.partySize,
+                              zoneId: candidate.zoneId,
+                            })),
+                          bookingId:
+                            booking.supabaseBookingId ?? booking.reference,
+                          bookingPax: booking.partySize,
+                          zoneCapacities: Object.fromEntries(
+                            corporateFloorZones.map((zoneId) => [
+                              zoneId,
+                              getConfiguredZoneMaxSeats(
+                                venueConfig,
+                                getZoneById(zoneId)!,
+                              ),
+                            ]),
+                          ) as Record<CorporateFloorZone, number>,
+                        })
+                      : [];
+                    const selectedCorporateZone =
+                      corporateZoneMoveDrafts[booking.reference] ??
+                      (booking.zoneId as CorporateFloorZone);
+                    const selectedCorporateZoneAvailability =
+                      corporateZoneAvailability.find(
+                        (zone) => zone.zoneId === selectedCorporateZone,
+                      );
+                    const corporateTableTargets = isCorporateBooking
+                      ? moveTables.filter((table) => table.zoneId === booking.zoneId)
+                      : moveTables;
                     const eligibleTransferShows = getEligibleBookingTransferShows(
                       shows,
                       currentBookingShow?.supabaseId ?? booking.showId,
@@ -42935,26 +43028,69 @@ export default function AdminDashboardPage() {
                             </select>
                           </label>
 
-                          <label>
-                            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                              Move To Table / Zone
-                            </span>
-                            <select
-                              value={booking.tableId || ""}
-                              onChange={(event) =>
-                                void moveBooking(
-                                  booking,
-                                  event.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
-                            >
-                              <option value="">
-                                Select a table
-                              </option>
-                              <BookingMoveTargetOptions tables={moveTables} />
-                            </select>
-                          </label>
+                          {isCorporateBooking ? (
+                            <div>
+                              <label>
+                                <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                  Seating Zone
+                                </span>
+                                <select
+                                  value={selectedCorporateZone}
+                                  disabled={bookingIsReadOnly}
+                                  onChange={(event) =>
+                                    setCorporateZoneMoveDrafts((current) => ({
+                                      ...current,
+                                      [booking.reference]: event.target.value as CorporateFloorZone,
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {corporateZoneAvailability.map((zone) => (
+                                    <option
+                                      key={zone.zoneId}
+                                      value={zone.zoneId}
+                                      disabled={!zone.eligible}
+                                    >
+                                      {getZoneById(zone.zoneId)?.title ?? zone.zoneId} · {zone.remainingPax} seats available{zone.eligible ? "" : " · insufficient"}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => void moveCorporateBookingZone(booking, selectedCorporateZone)}
+                                disabled={
+                                  bookingIsReadOnly ||
+                                  selectedCorporateZone === booking.zoneId ||
+                                  !selectedCorporateZoneAvailability?.eligible ||
+                                  corporateZoneMoveAction?.reference === booking.reference
+                                }
+                                className="mt-2 min-h-10 w-full rounded-xl border border-[#D8C36A]/45 px-3 py-2 text-xs font-semibold uppercase tracking-[0.06em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                {corporateZoneMoveAction?.reference === booking.reference
+                                  ? corporateZoneMoveAction.status === "moving"
+                                    ? "MOVING..."
+                                    : "MOVED ✓"
+                                  : "CONFIRM MOVE"}
+                              </button>
+                            </div>
+                          ) : (
+                            <label>
+                              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                Move To Table / Zone
+                              </span>
+                              <select
+                                value={booking.tableId || ""}
+                                onChange={(event) =>
+                                  void moveBooking(booking, event.target.value)
+                                }
+                                className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
+                              >
+                                <option value="">Select a table</option>
+                                <BookingMoveTargetOptions tables={moveTables} />
+                              </select>
+                            </label>
+                          )}
 
                           <div className="rounded-xl border border-white/10 bg-black/30 p-4">
                             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -42970,6 +43106,34 @@ export default function AdminDashboardPage() {
                             </p>
                           </div>
                         </div>
+                        {isCorporateBooking && (
+                          <div className="mt-4 grid gap-3 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)] lg:items-end">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                                Table / Floor Assignment
+                              </p>
+                              <p className="mt-1 text-sm leading-6 text-zinc-300">
+                                Zone entitlement is independent from table compatibility. A large Corporate booking may remain one booking in Floor Assignment while staff review multiple operational tables.
+                              </p>
+                            </div>
+                            <label>
+                              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                                Compatible Table In Current Zone
+                              </span>
+                              <select
+                                value={booking.tableId || ""}
+                                disabled={bookingIsReadOnly}
+                                onChange={(event) =>
+                                  void moveBooking(booking, event.target.value)
+                                }
+                                className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <option value="">Keep in Floor Assignment</option>
+                                <BookingMoveTargetOptions tables={corporateTableTargets} />
+                              </select>
+                            </label>
+                          </div>
+                        )}
                         <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 sm:flex-row sm:items-center sm:justify-between">
                           <div className="min-w-0">
                             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">

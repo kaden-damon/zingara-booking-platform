@@ -5,7 +5,7 @@ import {
   buildInitialFloorPlan,
   type FloorAllocatorBooking,
   type FloorAllocatorTable,
-} from "./floorAllocator";
+} from "./floorAllocator.ts";
 
 const showId = "show-1";
 const updatedAt = "2026-08-27T12:00:00.000Z";
@@ -103,7 +103,7 @@ test("preserves valid allocations and plans only unresolved bookings", () => {
   assert.equal(result.allocations[0]?.targetTableId, "table-free");
 });
 
-test("proposes approved physical capacity without crossing the zone ceiling", () => {
+test("never invents capacity for a CAPACITY REQUIRED physical table", () => {
   const result = plan(
     [booking("gc", 10, "golden-circle")],
     [
@@ -117,11 +117,9 @@ test("proposes approved physical capacity without crossing the zone ceiling", ()
     ],
   );
 
-  assert.deepEqual(
-    result.capacityProposals.map(({ capacity, tableId }) => ({ capacity, tableId })),
-    [{ capacity: 10, tableId: "400" }],
-  );
-  assert.equal(result.allocations[0]?.targetTableId, "400");
+  assert.equal(result.capacityProposals.length, 0);
+  assert.equal(result.allocations.length, 0);
+  assert.equal(result.unresolved.length, 1);
 
   const blocked = buildInitialFloorPlan({
     bookings: [booking("over", 4, "golden-circle")],

@@ -1319,6 +1319,131 @@ async function persistPhysicalTableMapping(
   });
 }
 
+async function persistCorporateZoneTransfer(
+  request: Request,
+  input: {
+    bookingReference?: string;
+    expectedShowId?: string;
+    expectedTableId?: string | null;
+    expectedUpdatedAt?: string;
+    expectedZone?: string;
+    targetZone?: string;
+  },
+) {
+  const auth = await requireActiveStaff(request);
+
+  if (
+    auth.error ||
+    !auth.serviceClient ||
+    !auth.staffProfile ||
+    !auth.user
+  ) {
+    return auth.error;
+  }
+
+  const roleRow = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const role = getAdminRoleFromName(roleRow?.name);
+
+  if (!role || !rolePermissions[role].includes("bookings:manage")) {
+    return Response.json(
+      { error: "Booking management access is required." },
+      { status: 403 },
+    );
+  }
+
+  const bookingReference = input.bookingReference?.trim() ?? "";
+  const expectedShowId = input.expectedShowId?.trim() ?? "";
+  const expectedUpdatedAt = input.expectedUpdatedAt?.trim() ?? "";
+  const expectedZone = input.expectedZone?.trim() ?? "";
+  const targetZone = input.targetZone?.trim() ?? "";
+  const targetSection = getBookingSectionForTableZone(targetZone);
+
+  if (
+    !bookingReference ||
+    !expectedShowId ||
+    !expectedUpdatedAt ||
+    !expectedZone ||
+    !targetSection
+  ) {
+    return Response.json(
+      { error: "A current Corporate booking, show, and target seating zone are required." },
+      { status: 400 },
+    );
+  }
+
+  const { data: booking, error: bookingError } = await auth.serviceClient
+    .from("bookings")
+    .select(
+      "id,booking_reference,booking_source,booking_origin,show_id,table_id,section,guest_count,updated_at,archived_at",
+    )
+    .eq("booking_reference", bookingReference)
+    .maybeSingle();
+
+  if (bookingError) throw bookingError;
+  if (!booking || booking.archived_at) {
+    return Response.json(
+      { error: "The active Corporate booking could not be resolved." },
+      { status: booking ? 409 : 404 },
+    );
+  }
+  if (
+    booking.booking_origin !== "corporate" ||
+    booking.booking_source !== "corporate-direct"
+  ) {
+    return Response.json(
+      { error: "Independent seating-zone transfer is available only for Corporate bookings." },
+      { status: 409 },
+    );
+  }
+
+  const { data: show, error: showError } = await auth.serviceClient
+    .from("shows")
+    .select("id,venue")
+    .eq("id", booking.show_id)
+    .maybeSingle();
+  if (showError) throw showError;
+
+  const location = normalizeShowLocation(show?.venue);
+  const venueScope = normalizeStaffVenueScope(auth.staffProfile.venue_scope ?? []);
+  if (!location || (!venueScope.includes("all") && !venueScope.includes(location))) {
+    return Response.json(
+      { error: "This performance is outside your assigned location." },
+      { status: 403 },
+    );
+  }
+
+  const { data, error } = await auth.serviceClient.rpc(
+    "transfer_corporate_booking_zone_atomic",
+    {
+      p_actor_auth_user_id: auth.user.id,
+      p_actor_location_scope: auth.staffProfile.venue_scope ?? [],
+      p_actor_name: auth.staffProfile.full_name ?? auth.user.email,
+      p_actor_role: roleRow?.name ?? "staff",
+      p_actor_staff_profile_id: auth.staffProfile.id,
+      p_booking_reference: bookingReference,
+      p_expected_show_id: expectedShowId,
+      p_expected_table_id: input.expectedTableId || null,
+      p_expected_updated_at: expectedUpdatedAt,
+      p_expected_zone: expectedZone,
+      p_target_zone: targetZone,
+    },
+  );
+
+  if (error) throw error;
+  try {
+    await notifyAppleWalletBooking(auth.serviceClient, booking.id);
+  } catch (walletError) {
+    console.error(
+      "[Zingara API] Corporate zone moved but Wallet refresh failed",
+      walletError,
+    );
+  }
+
+  return Response.json({ ok: true, result: data });
+}
+
 async function persistBookingShowTransfer(
   request: Request,
   input: {
@@ -2848,9 +2973,12 @@ export async function PATCH(request: Request) {
     bookingReference?: string;
     destinationShowId?: string;
     expectedShowId?: string;
+    expectedTableId?: string | null;
     expectedUpdatedAt?: string;
+    expectedZone?: string;
     operationalNotes?: string;
     targetTableId?: string;
+    targetZone?: string;
   };
   const lockError = await ensureNoConflictingBookingLock(
     request,
@@ -2909,6 +3037,40 @@ export async function PATCH(request: Request) {
 
       return Response.json(
         { error: "The operational table mapping could not be saved." },
+        { status: 500 },
+      );
+    }
+  }
+
+  if (body.action === "transfer-corporate-zone") {
+    try {
+      return await persistCorporateZoneTransfer(request, body);
+    } catch (error) {
+      const message =
+        typeof error === "object" && error && "message" in error
+          ? String((error as { message?: unknown }).message ?? "")
+          : "";
+
+      if (message.includes("ZONE_CAPACITY_EXCEEDED")) {
+        return Response.json(
+          { error: "The target seating zone no longer has sufficient capacity." },
+          { status: 409 },
+        );
+      }
+      if (
+        message.includes("CORPORATE_ZONE_TRANSFER_STALE") ||
+        message.includes("CORPORATE_BOOKING_REQUIRED") ||
+        message.includes("ACTIVE_CORPORATE_BOOKING_REQUIRED")
+      ) {
+        return Response.json(
+          { error: "The Corporate booking changed before the zone move could be saved. Refresh and retry." },
+          { status: 409 },
+        );
+      }
+
+      console.error("[Zingara API] Corporate zone transfer failed", error);
+      return Response.json(
+        { error: "The Corporate seating zone could not be changed." },
         { status: 500 },
       );
     }
