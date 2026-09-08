@@ -32,6 +32,7 @@ import ManagementAnalytics from "./ManagementAnalytics";
 import { useReportGenerationLock } from "./useReportGenerationLock";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
 import CorporateConversionModal from "./CorporateConversionModal";
+import CorporateFinancialReconciliationModal from "./CorporateFinancialReconciliationModal";
 import { getReportGenerationLockMessage } from "../../lib/reportGenerationLock";
 import {
   adminIpUndertaking,
@@ -191,8 +192,13 @@ import {
 import {
   convertCorporateRequest,
   getCorporateRequests,
+  reconcileImportedCorporateFinancials,
   saveCorporateRequests as persistCorporateRequests,
 } from "../../lib/supabase/corporateRequests";
+import {
+  importedEnquiryClaimsPayment,
+  type ImportedCorporateFinancialDraft,
+} from "../../lib/corporateFinancialReconciliation";
 import {
   isCorporateRequestConversionEligible,
   type CorporateConversionReview,
@@ -10422,6 +10428,12 @@ export default function AdminDashboardPage() {
   const [corporateConversionActionState, setCorporateConversionActionState] =
     useState<AdminActionState>("idle");
   const corporateConversionInFlightRef = useRef(new Set<string>());
+  const [corporateFinancialRequestId, setCorporateFinancialRequestId] =
+    useState("");
+  const [corporateFinancialStatus, setCorporateFinancialStatus] = useState("");
+  const [corporateFinancialActionState, setCorporateFinancialActionState] =
+    useState<AdminActionState>("idle");
+  const corporateFinancialInFlightRef = useRef(new Set<string>());
   const guestCountReconciliationInFlightRef = useRef(false);
   const [conciergeViewMode, setConciergeViewMode] =
     useState<BookingViewMode>("list");
@@ -15833,6 +15845,13 @@ export default function AdminDashboardPage() {
     return getCorporateSeatingZoneId(request.seatingPreference) ?? "";
   }
 
+  function corporateNeedsFinancialReconciliation(request: CorporateRequest) {
+    return (
+      importedEnquiryClaimsPayment(request) &&
+      !request.financialReconciliation
+    );
+  }
+
   function openConvertedCorporateBooking(reference: string) {
     setOpenCorporateRequestId("");
     setCorporateWorkspace("bookings");
@@ -15852,7 +15871,18 @@ export default function AdminDashboardPage() {
   }
 
   function openCorporateConversionReview(request: CorporateRequest) {
-    if (!canManageBookings || !isCorporateRequestConversionEligible(request)) {
+    if (
+      !canManageBookings ||
+      !isCorporateRequestConversionEligible(request) ||
+      corporateNeedsFinancialReconciliation(request)
+    ) {
+      if (corporateNeedsFinancialReconciliation(request)) {
+        setCorporateConversionStatusRequestId(request.id);
+        setCorporateConversionActionState("error");
+        setCorporateConversionStatus(
+          "FINANCIAL RECONCILIATION REQUIRED: Save authoritative historical evidence before conversion.",
+        );
+      }
       return;
     }
 
@@ -15861,6 +15891,65 @@ export default function AdminDashboardPage() {
     setConvertedCorporateBookingReference("");
     setCorporateConversionActionState("idle");
     setCorporateConversionReviewRequestId(request.id);
+  }
+
+  function openCorporateFinancialReconciliation(request: CorporateRequest) {
+    if (
+      !canReconcileBookings ||
+      request.source !== "Data Import" ||
+      !importedEnquiryClaimsPayment(request) ||
+      !isCorporateRequestConversionEligible(request)
+    ) {
+      return;
+    }
+
+    setCorporateFinancialStatus("");
+    setCorporateFinancialActionState("idle");
+    setCorporateFinancialRequestId(request.id);
+  }
+
+  async function saveCorporateFinancialReconciliation(
+    request: CorporateRequest,
+    draft: ImportedCorporateFinancialDraft,
+  ) {
+    if (
+      !canReconcileBookings ||
+      corporateFinancialInFlightRef.current.has(request.id)
+    ) {
+      return;
+    }
+
+    corporateFinancialInFlightRef.current.add(request.id);
+    setCorporateFinancialActionState("pending");
+    setCorporateFinancialStatus("Saving authoritative financial evidence...");
+
+    try {
+      const updatedRequest = await reconcileImportedCorporateFinancials(
+        request,
+        draft,
+      );
+      setCorporateRequests((currentRequests) =>
+        replaceAffectedRecord(currentRequests, updatedRequest),
+      );
+      setCorporateFinancialActionState("success");
+      setCorporateFinancialStatus("SAVED ✓");
+      showWorkflowToast("✓ Historical financial evidence saved");
+      window.setTimeout(() => {
+        setCorporateFinancialRequestId((currentId) =>
+          currentId === request.id ? "" : currentId,
+        );
+      }, 900);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Historical financial reconciliation could not be saved.";
+      setCorporateFinancialActionState("error");
+      setCorporateFinancialStatus(message);
+      showWorkflowToast(`⚠ ${message}`);
+    } finally {
+      corporateFinancialInFlightRef.current.delete(request.id);
+    }
   }
 
   async function convertCorporateRequestToBooking(
@@ -15930,7 +16019,21 @@ export default function AdminDashboardPage() {
       request.locationAcknowledgement
         ? `Confirmed location: ${request.locationAcknowledgement}`
         : "",
-      `Agreed ticket obligation: ${formatCurrency(review.ticketTotal)}`,
+      request.financialReconciliation
+        ? `Agreed ticket obligation: ${formatCurrency(request.financialReconciliation.ticketObligation)}`
+        : `Agreed ticket obligation: ${formatCurrency(review.ticketTotal)}`,
+      request.financialReconciliation?.gratuityAmount
+        ? `Historical gratuity: ${formatCurrency(request.financialReconciliation.gratuityAmount)}`
+        : "",
+      request.financialReconciliation?.additionalAmount
+        ? `Historical additional amounts: ${formatCurrency(request.financialReconciliation.additionalAmount)}`
+        : "",
+      request.financialReconciliation
+        ? `Authoritative total obligation: ${formatCurrency(request.financialReconciliation.totalObligation)}`
+        : "",
+      request.financialReconciliation
+        ? `Historical payment method: ${request.financialReconciliation.paymentMethod}`
+        : "",
       `Authoritative amount paid at conversion: ${formatCurrency(review.amountPaid)}`,
       review.paymentBasis === "invoice-outstanding"
         ? `Payment basis: Invoice / EFT · ${formatCurrency(review.outstandingAmount)} outstanding`
@@ -16015,6 +16118,7 @@ export default function AdminDashboardPage() {
       const result = await convertCorporateRequest(
         request.id,
         booking,
+        request.financialReconciliation?.reconciledAt,
       );
       const authoritativeRequest = result.request;
 
@@ -26112,6 +26216,10 @@ export default function AdminDashboardPage() {
     corporateRequests.find(
       (request) => request.id === corporateConversionReviewRequestId,
     ) ?? null;
+  const corporateFinancialRequest =
+    corporateRequests.find(
+      (request) => request.id === corporateFinancialRequestId,
+    ) ?? null;
 
   function renderCorporateRequestCard(
     request: CorporateRequest,
@@ -26202,6 +26310,21 @@ export default function AdminDashboardPage() {
             >
               Edit Request
             </button>
+            {request.source === "Data Import" &&
+              importedEnquiryClaimsPayment(request) &&
+              isCorporateRequestConversionEligible(request) &&
+              !options.isArchived && (
+                <button
+                  type="button"
+                  onClick={() => openCorporateFinancialReconciliation(request)}
+                  disabled={!canReconcileBookings}
+                  className="rounded-full border border-[#D8C36A]/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {request.financialReconciliation
+                    ? "Review Financials"
+                    : "Reconcile Financials"}
+                </button>
+              )}
             {isCorporateRequestConversionEligible(request) &&
               !options.isArchived && (
               <button
@@ -26213,6 +26336,7 @@ export default function AdminDashboardPage() {
                 }
                 disabled={
                   !canManageBookings ||
+                  corporateNeedsFinancialReconciliation(request) ||
                   (corporateConversionActionState === "pending" &&
                     corporateConversionStatusRequestId === request.id)
                 }
@@ -26221,7 +26345,9 @@ export default function AdminDashboardPage() {
                 {corporateConversionActionState === "pending" &&
                 corporateConversionStatusRequestId === request.id
                   ? "Converting..."
-                  : "Convert To Booking"}
+                  : corporateNeedsFinancialReconciliation(request)
+                    ? "Reconcile First"
+                    : "Convert To Booking"}
               </button>
             )}
             {canSendPaymentLink && (
@@ -28668,6 +28794,26 @@ export default function AdminDashboardPage() {
                           </div>
 
                           <div className="mt-5 flex flex-wrap gap-2">
+                            {openCorporateRequest.source === "Data Import" &&
+                              importedEnquiryClaimsPayment(openCorporateRequest) &&
+                              isCorporateRequestConversionEligible(
+                                openCorporateRequest,
+                              ) && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openCorporateFinancialReconciliation(
+                                      openCorporateRequest,
+                                    )
+                                  }
+                                  disabled={!canReconcileBookings}
+                                  className="rounded-full border border-[#D8C36A]/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {openCorporateRequest.financialReconciliation
+                                    ? "Review Financials"
+                                    : "Reconcile Financials"}
+                                </button>
+                              )}
                             {isCorporateRequestConversionEligible(
                               openCorporateRequest,
                             ) && (
@@ -28685,6 +28831,9 @@ export default function AdminDashboardPage() {
                                 }
                                 disabled={
                                   !canManageBookings ||
+                                  corporateNeedsFinancialReconciliation(
+                                    openCorporateRequest,
+                                  ) ||
                                   (corporateConversionActionState === "pending" &&
                                     corporateConversionStatusRequestId ===
                                       openCorporateRequest.id)
@@ -28699,7 +28848,11 @@ export default function AdminDashboardPage() {
                                       corporateConversionStatusRequestId ===
                                         openCorporateRequest.id
                                     ? "Booking Created ✓"
-                                    : "Convert To Booking"}
+                                    : corporateNeedsFinancialReconciliation(
+                                          openCorporateRequest,
+                                        )
+                                      ? "Reconcile First"
+                                      : "Convert To Booking"}
                               </button>
                             )}
                             {canSendPaymentLink && (
@@ -43941,6 +44094,27 @@ export default function AdminDashboardPage() {
           }
           request={corporateConversionReviewRequest}
           shows={shows}
+        />
+      )}
+
+      {corporateFinancialRequest && (
+        <CorporateFinancialReconciliationModal
+          key={corporateFinancialRequest.id}
+          error={
+            corporateFinancialActionState === "error"
+              ? corporateFinancialStatus
+              : ""
+          }
+          isSaving={corporateFinancialActionState === "pending"}
+          isSuccess={corporateFinancialActionState === "success"}
+          onClose={() => setCorporateFinancialRequestId("")}
+          onSave={(draft) =>
+            void saveCorporateFinancialReconciliation(
+              corporateFinancialRequest,
+              draft,
+            )
+          }
+          request={corporateFinancialRequest}
         />
       )}
 

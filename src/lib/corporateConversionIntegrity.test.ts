@@ -125,7 +125,8 @@ test("paid imported enquiries without persisted amounts fail closed", async () =
     "../app/api/admin/corporate-requests/convert/route.ts",
   );
 
-  assert.match(route, /importedPaidEnquiryNeedsFinancialReconciliation/);
+  assert.match(route, /importedEnquiryClaimsPayment/);
+  assert.match(route, /!financialReconciliation/);
   assert.match(route, /FINANCIAL RECONCILIATION REQUIRED/);
   assert.match(route, /does not contain an authoritative paid amount/);
   assert.doesNotMatch(

@@ -688,11 +688,14 @@ function getPaymentPayload(booking: DemoBooking, bookingId: string) {
   const isPaidInvoice = booking.corporatePaymentBasis === "invoice-paid";
   const isOutstandingInvoice =
     booking.corporatePaymentBasis === "invoice-outstanding";
+  const historicalMethod = booking.historicalPaymentMethod;
 
   return {
     amount: getPaymentAmount(booking),
     booking_id: bookingId,
-    method: isPaidInvoice ? "eft" : isOutstandingInvoice ? "invoice" : "platform",
+    method:
+      historicalMethod ??
+      (isPaidInvoice ? "eft" : isOutstandingInvoice ? "invoice" : "platform"),
     notes: isPaidInvoice
       ? "Corporate invoice paid in full by manual EFT"
       : isOutstandingInvoice
@@ -1520,6 +1523,23 @@ export async function POST(request: Request) {
         {
           error:
             "Invoice / EFT settlement requires authorised internal Corporate booking access.",
+        },
+        { status: 403 },
+      );
+    }
+
+    if (
+      booking.historicalPaymentMethod &&
+      (!isTrustedStaff ||
+        booking.source !== "corporate-direct" ||
+        !booking.corporateRequestId ||
+        !staffRole ||
+        !rolePermissions[staffRole].includes("bookings:reconcile"))
+    ) {
+      return Response.json(
+        {
+          error:
+            "Historical payment evidence requires Corporate financial reconciliation access.",
         },
         { status: 403 },
       );

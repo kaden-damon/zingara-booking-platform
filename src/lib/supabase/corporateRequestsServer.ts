@@ -20,7 +20,7 @@ type SupabaseCorporateRequestType =
   | "agent_contact"
   | "corporate_booking";
 
-type SupabaseCorporateRequestRow = {
+export type SupabaseCorporateRequestRow = {
   addons: string[];
   alternative_event_date: string | null;
   archived_at: string | null;
@@ -31,6 +31,7 @@ type SupabaseCorporateRequestRow = {
   created_at: string;
   dietary_requirements: string[];
   email: string | null;
+  financial_reconciliation: import("@/lib/zingaraDemo").ImportedCorporateFinancialReconciliation | null;
   guest_count: number | null;
   id: string;
   linked_booking_id: string | null;
@@ -49,7 +50,7 @@ type SupabaseCorporateRequestRow = {
 
 const metadataPrefix = "__zingara_corporate_request_meta__:";
 const corporateRequestSelect =
-  "id,request_type,status,company_name,contact_name,contact_number,email,preferred_event_date,alternative_event_date,guest_count,seating_preference,occasion,other_description,dietary_requirements,other_dietary_requirement,bar_tab,addons,notes,source,archived_at,linked_booking_id,linked_booking_reference,created_at,updated_at";
+  "id,request_type,status,company_name,contact_name,contact_number,email,preferred_event_date,alternative_event_date,guest_count,seating_preference,occasion,other_description,dietary_requirements,other_dietary_requirement,bar_tab,addons,notes,source,archived_at,linked_booking_id,linked_booking_reference,financial_reconciliation,created_at,updated_at";
 
 function toSupabaseStatus(
   status: CorporateRequestStatus,
@@ -180,6 +181,8 @@ function toCorporateRequest(row: SupabaseCorporateRequestRow): CorporateRequest 
     return {
       ...metadataRequest,
       archivedAt: row.archived_at ?? metadataRequest.archivedAt,
+      financialReconciliation:
+        row.financial_reconciliation ?? metadataRequest.financialReconciliation,
       guestCount: row.guest_count ?? metadataRequest.guestCount ?? null,
       id: row.id,
       linkedBookingReference:
@@ -203,6 +206,7 @@ function toCorporateRequest(row: SupabaseCorporateRequestRow): CorporateRequest 
     createdAt: row.created_at,
     dietaryRequirements: row.dietary_requirements ?? [],
     email: row.email ?? "",
+    financialReconciliation: row.financial_reconciliation ?? undefined,
     guestCount: row.guest_count,
     id: row.id,
     linkedBookingReference: row.linked_booking_reference ?? undefined,
@@ -236,6 +240,32 @@ export async function loadCorporateRequests(serviceClient: ServiceClient) {
   const rows = await getCorporateRequestRows(serviceClient);
 
   return rows.map(toCorporateRequest);
+}
+
+export async function loadActiveCorporateImportDuplicates(
+  serviceClient: ServiceClient,
+  fingerprint: string,
+) {
+  if (!fingerprint) return [];
+
+  const rows = await getCorporateRequestRows(serviceClient);
+
+  return rows.filter((row) => {
+    if (row.source !== "Data Import" || row.archived_at) return false;
+    const request = toCorporateRequest(row);
+    const prefix = "__zingara_corporate_enquiry_import__:";
+
+    if (!request.notes.startsWith(prefix)) return false;
+
+    try {
+      return String(
+        (JSON.parse(request.notes.slice(prefix.length)) as { fingerprint?: unknown })
+          .fingerprint ?? "",
+      ) === fingerprint;
+    } catch {
+      return false;
+    }
+  });
 }
 
 export async function persistCorporateRequests(

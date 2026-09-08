@@ -80,6 +80,7 @@ export async function saveCorporateRequests(requests: CorporateRequest[]) {
 export async function convertCorporateRequest(
   requestId: string,
   booking: import("@/lib/zingaraDemo").DemoBooking,
+  reconciliationUpdatedAt?: string,
 ) {
   return fetchSupabaseApi<{
     bookingReference: string;
@@ -87,7 +88,26 @@ export async function convertCorporateRequest(
     idempotent: boolean;
     request: CorporateRequest;
   }>("/api/admin/corporate-requests/convert", {
-    body: { booking, requestId },
+    body: { booking, reconciliationUpdatedAt, requestId },
     method: "POST",
   });
+}
+
+export async function reconcileImportedCorporateFinancials(
+  request: CorporateRequest,
+  input: import("@/lib/corporateFinancialReconciliation").ImportedCorporateFinancialDraft,
+) {
+  const payload = await fetchSupabaseApi<{ request: CorporateRequest }>(
+    "/api/admin/corporate-requests/reconcile-financials",
+    {
+      body: {
+        ...input,
+        expectedUpdatedAt: request.updatedAt,
+        requestId: request.id,
+      },
+      method: "POST",
+    },
+  );
+
+  return payload.request;
 }

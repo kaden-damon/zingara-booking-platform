@@ -1,5 +1,8 @@
 import { rolePermissions } from "@/lib/zingaraAccess";
-import { loadCorporateRequestRecord } from "@/lib/supabase/corporateRequestsServer";
+import {
+  loadActiveCorporateImportDuplicates,
+  loadCorporateRequestRecord,
+} from "@/lib/supabase/corporateRequestsServer";
 import {
   getAdminRoleFromName,
   requireActiveStaff,
@@ -14,6 +17,10 @@ import {
 } from "@/lib/zingaraDemo";
 import { getCorporateConversionGate } from "@/lib/corporateConversionGuard";
 import { getCorporateSeatingZoneId } from "@/lib/corporateZoneMapping";
+import {
+  getImportedCorporateProvenance,
+  importedEnquiryClaimsPayment,
+} from "@/lib/corporateFinancialReconciliation";
 
 export const dynamic = "force-dynamic";
 
@@ -96,27 +103,6 @@ function hasValidReviewedFinancials(booking: DemoBooking) {
   );
 }
 
-function importedPaidEnquiryNeedsFinancialReconciliation(
-  request: { notes: string; source: string },
-) {
-  if (
-    request.source !== "Data Import" ||
-    !request.notes.startsWith("__zingara_corporate_enquiry_import__:")
-  ) {
-    return false;
-  }
-
-  try {
-    const metadata = JSON.parse(
-      request.notes.slice("__zingara_corporate_enquiry_import__:".length),
-    ) as { paymentState?: unknown };
-
-    return /\bpaid\b/i.test(String(metadata.paymentState ?? ""));
-  } catch {
-    return true;
-  }
-}
-
 export async function POST(request: Request) {
   const startedAt = performance.now();
   const auth = await requireActiveStaff(request);
@@ -139,12 +125,13 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as {
     booking?: DemoBooking;
+    reconciliationUpdatedAt?: string;
     requestId?: string;
   };
-  const booking = body.booking;
+  const clientBooking = body.booking;
   const requestId = body.requestId?.trim();
 
-  if (!requestId || !booking?.reference) {
+  if (!requestId || !clientBooking?.reference) {
     return Response.json(
       { error: "A Corporate enquiry and reviewed booking are required." },
       { status: 400 },
@@ -174,7 +161,13 @@ export async function POST(request: Request) {
     );
   }
 
-  if (importedPaidEnquiryNeedsFinancialReconciliation(record.request)) {
+  const importProvenance = getImportedCorporateProvenance(record.request);
+  const financialReconciliation = record.request.financialReconciliation;
+
+  if (
+    importedEnquiryClaimsPayment(record.request) &&
+    !financialReconciliation
+  ) {
     return Response.json(
       {
         error:
@@ -183,6 +176,102 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+
+  if (importProvenance?.fingerprint) {
+    const activeDuplicates = await loadActiveCorporateImportDuplicates(
+      auth.serviceClient,
+      importProvenance.fingerprint,
+    );
+
+    if (activeDuplicates.some((duplicate) => duplicate.id !== record.row.id)) {
+      return Response.json(
+        {
+          error:
+            "DUPLICATE IMPORTED ENQUIRY: Resolve the duplicate source record before conversion.",
+        },
+        { status: 409 },
+      );
+    }
+  }
+
+  if (
+    financialReconciliation &&
+    body.reconciliationUpdatedAt !== financialReconciliation.reconciledAt
+  ) {
+    return Response.json(
+      {
+        error:
+          "The authoritative financial reconciliation changed. Reopen the conversion review before continuing.",
+      },
+      { status: 409 },
+    );
+  }
+
+  const reconciledPaymentBasis = financialReconciliation
+    ? financialReconciliation.paymentMethod === "COMP"
+      ? "complimentary"
+      : financialReconciliation.amountPaid ===
+          financialReconciliation.totalObligation
+        ? "invoice-paid"
+        : financialReconciliation.amountPaid > 0
+          ? "deposit"
+          : "invoice-outstanding"
+    : null;
+  const reconciledPaymentStatus = financialReconciliation
+    ? reconciledPaymentBasis === "complimentary"
+      ? "comp-vip"
+      : reconciledPaymentBasis === "invoice-paid"
+        ? "fully-paid"
+        : reconciledPaymentBasis === "deposit"
+          ? "deposit-paid"
+          : "pending-payment"
+    : null;
+  const booking: DemoBooking = financialReconciliation && reconciledPaymentStatus
+    ? {
+        ...clientBooking,
+        amountPaid: financialReconciliation.amountPaid,
+        balanceDue: financialReconciliation.outstandingAmount,
+        corporateInvoiceOutstandingAmount:
+          reconciledPaymentBasis === "invoice-outstanding"
+            ? financialReconciliation.outstandingAmount
+            : reconciledPaymentBasis === "invoice-paid"
+              ? 0
+              : undefined,
+        corporatePaymentBasis:
+          reconciledPaymentBasis === "invoice-outstanding" ||
+          reconciledPaymentBasis === "invoice-paid"
+            ? reconciledPaymentBasis
+            : undefined,
+        depositPercentage:
+          financialReconciliation.totalObligation > 0
+            ? (financialReconciliation.amountPaid /
+                financialReconciliation.totalObligation) *
+              100
+            : 0,
+        historicalPaymentMethod:
+          financialReconciliation.paymentMethod === "EFT"
+            ? "eft"
+            : financialReconciliation.paymentMethod === "CC"
+              ? "card"
+              : financialReconciliation.paymentMethod === "UNKNOWN"
+                ? "unknown"
+                : undefined,
+        paymentOption:
+          reconciledPaymentBasis === "deposit" ? "deposit" : "full",
+        paymentStatus: reconciledPaymentStatus,
+        pricePerPerson:
+          clientBooking.partySize > 0
+            ? financialReconciliation.totalObligation / clientBooking.partySize
+            : 0,
+        status:
+          reconciledPaymentStatus === "fully-paid" ||
+          reconciledPaymentStatus === "comp-vip"
+            ? "confirmed"
+            : "pending-payment",
+        subtotalPrice: financialReconciliation.totalObligation,
+        totalPrice: financialReconciliation.totalObligation,
+      }
+    : clientBooking;
 
   if (
     booking.source !== "corporate-direct" ||

@@ -699,6 +699,7 @@ export type DemoBooking = {
     | "invoice-outstanding"
     | "invoice-paid";
   corporateInvoiceOutstandingAmount?: number;
+  historicalPaymentMethod?: "card" | "eft" | "unknown";
   promoCode?: string;
   promoCodeId?: string;
   promoLabel?: string;
@@ -768,6 +769,19 @@ export type CorporateRequestStatus =
   | "converted"
   | "corporate-tentative"
   | "quote-sent";
+export type ImportedCorporateFinancialReconciliation = {
+  additionalAmount: number;
+  amountPaid: number;
+  gratuityAmount: number;
+  notes: string;
+  outstandingAmount: number;
+  paymentMethod: "CC" | "COMP" | "EFT" | "UNKNOWN";
+  reconciledAt: string;
+  source: "authorised-historical-review";
+  ticketObligation: number;
+  totalObligation: number;
+  version: 1;
+};
 export type CorporateRequest = {
   id: string;
   companyName: string;
@@ -777,6 +791,7 @@ export type CorporateRequest = {
   preferredDate: string;
   alternativeDate: string;
   guestCount: number | null;
+  financialReconciliation?: ImportedCorporateFinancialReconciliation;
   seatingPreference: string;
   occasion: string;
   otherOccasion: string;

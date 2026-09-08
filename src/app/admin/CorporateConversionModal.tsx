@@ -50,13 +50,24 @@ export default function CorporateConversionModal({
       show.date === request.preferredDate &&
       normalizeShowLocation(show.location ?? show.venueName) === venue,
   );
+  const financialEvidence = request.financialReconciliation;
+  const reconciledPaymentBasis: CorporateConversionPaymentBasis | null =
+    financialEvidence?.paymentMethod === "COMP"
+      ? "complimentary"
+      : financialEvidence?.amountPaid === financialEvidence?.totalObligation
+        ? "invoice-paid"
+        : financialEvidence && financialEvidence.amountPaid > 0
+          ? "deposit"
+          : financialEvidence
+            ? "invoice-outstanding"
+            : null;
   const [draft, setDraft] = useState<CorporateConversionReviewDraft>({
-    amountPaid: "",
-    outstandingAmount: "",
-    paymentBasis: "unpaid",
+    amountPaid: financialEvidence?.amountPaid.toString() ?? "",
+    outstandingAmount: financialEvidence?.outstandingAmount.toString() ?? "",
+    paymentBasis: reconciledPaymentBasis ?? "unpaid",
     pax: request.guestCount?.toString() ?? "",
     showId: initialShow?.id ?? "",
-    ticketTotal: "",
+    ticketTotal: financialEvidence?.totalObligation.toString() ?? "",
     venue,
     zoneId: initialZoneId,
   });
@@ -132,6 +143,21 @@ export default function CorporateConversionModal({
           No amount is inferred from current zone pricing.
         </p>
 
+        {financialEvidence && (
+          <div className="mt-5 rounded-xl border border-emerald-300/25 bg-emerald-950/15 px-4 py-3 text-sm text-emerald-100">
+            <p className="font-semibold uppercase tracking-[0.1em]">
+              Authoritative Historical Reconciliation
+            </p>
+            <p className="mt-2 leading-6 text-emerald-100/80">
+              Ticket {financialEvidence.ticketObligation.toFixed(2)} · Gratuity{" "}
+              {financialEvidence.gratuityAmount.toFixed(2)} · Additional{" "}
+              {financialEvidence.additionalAmount.toFixed(2)} · Method{" "}
+              {financialEvidence.paymentMethod}. Financial values are locked to
+              the saved evidence.
+            </p>
+          </div>
+        )}
+
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="grid gap-2 text-sm text-zinc-300">
             Venue
@@ -200,6 +226,7 @@ export default function CorporateConversionModal({
           <label className="grid gap-2 text-sm text-zinc-300">
             Agreed Ticket Obligation
             <input
+              disabled={Boolean(financialEvidence)}
               min="0"
               step="0.01"
               type="number"
@@ -220,7 +247,7 @@ export default function CorporateConversionModal({
                   ticketTotal,
                 });
               }}
-              className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
+              className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A] disabled:cursor-not-allowed disabled:opacity-60"
             />
             {errors.ticketTotal && <span className="text-xs text-red-300">{errors.ticketTotal}</span>}
           </label>
@@ -228,6 +255,7 @@ export default function CorporateConversionModal({
           <label className="grid gap-2 text-sm text-zinc-300">
             Payment Basis
             <select
+              disabled={Boolean(financialEvidence)}
               value={draft.paymentBasis}
               onChange={(event) =>
                 {
@@ -248,7 +276,7 @@ export default function CorporateConversionModal({
                   });
                 }
               }
-              className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
+              className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="unpaid">Unpaid / Pending Payment</option>
               <option value="deposit">Deposit / Part Paid</option>
@@ -265,6 +293,7 @@ export default function CorporateConversionModal({
             <label className="grid gap-2 text-sm text-zinc-300">
               Outstanding Amount
               <input
+                disabled={Boolean(financialEvidence)}
                 min="0.01"
                 step="0.01"
                 type="number"
@@ -274,7 +303,7 @@ export default function CorporateConversionModal({
                 onChange={(event) =>
                   updateDraft({ outstandingAmount: event.target.value })
                 }
-                className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
+                className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A] disabled:cursor-not-allowed disabled:opacity-60"
               />
               <span className="text-xs leading-5 text-zinc-400">
                 Payment will be collected manually by invoice/EFT. No payment
@@ -308,6 +337,7 @@ export default function CorporateConversionModal({
             <label className="grid gap-2 text-sm text-zinc-300">
               Amount Already Paid
               <input
+                disabled={Boolean(financialEvidence)}
                 min="0"
                 step="0.01"
                 type="number"
@@ -315,7 +345,7 @@ export default function CorporateConversionModal({
                 placeholder="R0.00"
                 value={draft.amountPaid}
                 onChange={(event) => updateDraft({ amountPaid: event.target.value })}
-                className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
+                className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A] disabled:cursor-not-allowed disabled:opacity-60"
               />
               {errors.amountPaid && <span className="text-xs text-red-300">{errors.amountPaid}</span>}
             </label>
