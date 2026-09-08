@@ -69,7 +69,10 @@ export default function SystemPreferences({ isSuperAdmin }: { isSuperAdmin: bool
   const [isRegisterLoading, setIsRegisterLoading] = useState(true);
   const [selectedAcceptanceId, setSelectedAcceptanceId] = useState<string | null>(null);
   const selectedRow = useMemo(
-    () => register?.rows.find((row) => row.acceptanceId === selectedAcceptanceId) ?? null,
+    () =>
+      selectedAcceptanceId
+        ? register?.rows.find((row) => row.acceptanceId === selectedAcceptanceId) ?? null
+        : null,
     [register, selectedAcceptanceId],
   );
   const isPlatformOwner = Boolean(register);

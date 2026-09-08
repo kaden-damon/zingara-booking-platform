@@ -96,6 +96,7 @@ test("Preferences has isolated workspaces and closed plus-minus sections", async
 test("register is visibly read-only with responsive rows and no export", async () => {
   const preferences = await source("../app/admin/SystemPreferences.tsx");
 
+  assert.match(preferences, /selectedAcceptanceId\s*\?[^:]+register\?\.rows\.find/s);
   assert.match(preferences, /Staff Member/);
   assert.match(preferences, /Role at Acceptance/);
   assert.match(preferences, /Accepted Date \/ Time/);
