@@ -40,6 +40,7 @@ export type TemporaryCapacityMix = {
 export type FloorBookingPlan = {
   bookingReference: string;
   existingTableCodes: string[];
+  existingTableIds: string[];
   isCorporate: boolean;
   newCapacities: number[];
   pax: number;
@@ -257,6 +258,7 @@ export function buildZoneFloorCapacityPlan(input: {
       bookingPlans.push({
         bookingReference: booking.reference,
         existingTableCodes: [],
+        existingTableIds: [],
         isCorporate: booking.isCorporate,
         newCapacities: [],
         pax: booking.pax,
@@ -274,6 +276,7 @@ export function buildZoneFloorCapacityPlan(input: {
         bookingPlans.push({
           bookingReference: booking.reference,
           existingTableCodes: [table.tableCode],
+          existingTableIds: [table.id],
           isCorporate: false,
           newCapacities: [],
           pax: booking.pax,
@@ -290,6 +293,7 @@ export function buildZoneFloorCapacityPlan(input: {
         bookingPlans.push({
           bookingReference: booking.reference,
           existingTableCodes: [],
+          existingTableIds: [],
           isCorporate: false,
           newCapacities: [],
           pax: booking.pax,
@@ -303,6 +307,7 @@ export function buildZoneFloorCapacityPlan(input: {
       bookingPlans.push({
         bookingReference: booking.reference,
         existingTableCodes: [],
+        existingTableIds: [],
         isCorporate: false,
         newCapacities: [capacity],
         pax: booking.pax,
@@ -318,6 +323,7 @@ export function buildZoneFloorCapacityPlan(input: {
       bookingPlans.push({
         bookingReference: booking.reference,
         existingTableCodes: existingMix.map((table) => table.tableCode),
+        existingTableIds: existingMix.map((table) => table.id),
         isCorporate: true,
         newCapacities: [],
         pax: booking.pax,
@@ -331,6 +337,7 @@ export function buildZoneFloorCapacityPlan(input: {
       0,
     );
     const existingTableCodes = availableTables.map((table) => table.tableCode);
+    const existingTableIds = availableTables.map((table) => table.id);
     availableTables = [];
     const requiredSeats = Math.max(booking.pax - existingCapacity, 0);
     rawOperationalShortfall += requiredSeats;
@@ -343,6 +350,7 @@ export function buildZoneFloorCapacityPlan(input: {
       bookingPlans.push({
         bookingReference: booking.reference,
         existingTableCodes,
+        existingTableIds,
         isCorporate: true,
         newCapacities: [],
         pax: booking.pax,
@@ -355,6 +363,7 @@ export function buildZoneFloorCapacityPlan(input: {
     bookingPlans.push({
       bookingReference: booking.reference,
       existingTableCodes,
+      existingTableIds,
       isCorporate: true,
       newCapacities: temporaryMix.capacities,
       pax: booking.pax,

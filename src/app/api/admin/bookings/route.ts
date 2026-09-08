@@ -536,6 +536,7 @@ export async function GET(request: Request) {
     { rows: lifecycleEvents, error: lifecycleError },
     { rows: customers, error: customersError },
     { rows: tables, error: tablesError },
+    { rows: tableClaims, error: tableClaimsError },
     { rows: shows, error: showsError },
     { rows: promoRedemptions, error: promoRedemptionsError },
   ] = await Promise.all([
@@ -577,6 +578,13 @@ export async function GET(request: Request) {
           tableIds,
         )
       : Promise.resolve({ rows: [], error: null }),
+    fetchAggregateRows(
+      serviceClient,
+      "show_tables",
+      "id,booking_id,table_code,section,capacity",
+      "booking_id",
+      bookingIds,
+    ),
     showIds.length > 0
       ? fetchAggregateRows(
           serviceClient,
@@ -620,6 +628,17 @@ export async function GET(request: Request) {
     console.error(
       "[Zingara API] Failed to load booking table aggregate",
       tablesError,
+    );
+  }
+
+  if (tableClaimsError) {
+    console.error(
+      "[Zingara API] Failed to load booking table claims aggregate",
+      tableClaimsError,
+    );
+    return Response.json(
+      { error: "Booking table assignments could not be loaded." },
+      { status: 500 },
     );
   }
 
@@ -705,6 +724,21 @@ export async function GET(request: Request) {
 
   const showsById = new Map<string, unknown>();
 
+  const tableClaimsByBookingId = new Map<string, unknown[]>();
+  for (const table of tableClaims ?? []) {
+    if (
+      table &&
+      typeof table === "object" &&
+      "booking_id" in table &&
+      typeof table.booking_id === "string"
+    ) {
+      tableClaimsByBookingId.set(table.booking_id, [
+        ...(tableClaimsByBookingId.get(table.booking_id) ?? []),
+        table,
+      ]);
+    }
+  }
+
   for (const show of shows ?? []) {
     if (
       show &&
@@ -743,6 +777,7 @@ export async function GET(request: Request) {
       table_row: booking.table_id
         ? tablesById.get(booking.table_id) ?? null
         : null,
+      table_claim_rows: tableClaimsByBookingId.get(booking.id) ?? [],
     })),
   });
 }

@@ -273,8 +273,10 @@ import {
   type CorporateFloorZone,
 } from "../../lib/corporateFloorPlanning";
 import {
+  assignCorporateFloorPlan,
   createShowFloorCapacityPlan,
   planShowFloorCapacity,
+  releaseCorporateFloorAssignment,
   type ShowWideFloorCapacityPlan,
 } from "../../lib/supabase/floorPlans";
 import {
@@ -10572,6 +10574,13 @@ export default function AdminDashboardPage() {
     status: "created" | "creating";
     zoneId: CorporateFloorZone;
   } | null>(null);
+  const [corporateTableAssignmentReview, setCorporateTableAssignmentReview] =
+    useState<{
+      bookingReference: string;
+      combinedCapacity: number;
+      tableCodes: string[];
+      tableIds: string[];
+    } | null>(null);
   const [corporateZoneMoveDrafts, setCorporateZoneMoveDrafts] = useState<
     Record<string, CorporateFloorZone>
   >({});
@@ -13422,7 +13431,11 @@ export default function AdminDashboardPage() {
     );
   };
   const getManifestBookingTableLabel = (booking: DemoBooking) =>
-    isUnresolvedTableValue(booking.tableNumber) ||
+    (booking.reservationTableClaims ?? []).length > 0
+      ? (booking.reservationTableClaims ?? [])
+          .map((claim) => claim.tableCode)
+          .join(" + ")
+      : isUnresolvedTableValue(booking.tableNumber) ||
     isUnresolvedTableValue(booking.tableId)
       ? "Requires floor assignment"
       : booking.tableNumber;
@@ -13435,8 +13448,12 @@ export default function AdminDashboardPage() {
         return false;
       }
 
+      const claimedTableIds = new Set(
+        (booking.reservationTableClaims ?? []).map((claim) => claim.tableId),
+      );
       const matchingTable = zoneTables.find(
         (table) =>
+          claimedTableIds.has(table.id) ||
           table.id === booking.tableId ||
           table.tableNumber === booking.tableNumber ||
           table.bookingReference === booking.reference ||
@@ -18461,6 +18478,12 @@ export default function AdminDashboardPage() {
         .map((table) => {
           const occupancy = getTableOccupancy(table, bookings);
           const booking = occupancy.booking;
+          const isPrimaryBookingTable = Boolean(
+            booking &&
+              ((booking.reservationTableClaims ?? []).find(
+                (claim) => claim.tableId === table.id,
+              )?.primary ?? booking.tableId === table.id),
+          );
           const financials = booking ? getBookingFinancials(booking) : null;
           const paymentStatus = booking ? getBookingPaymentStatus(booking) : null;
 
@@ -18479,12 +18502,15 @@ export default function AdminDashboardPage() {
             "Guest Name": booking?.customer.name || "Vacant",
             "Guest Notes":
               booking?.operationalNotes || table.guestNotes || "Not recorded",
-            Guests: booking?.partySize ?? 0,
+            Guests: booking && isPrimaryBookingTable ? booking.partySize : 0,
             "Payment Status": paymentStatus
               ? paymentStatusLabels[paymentStatus]
               : "Not recorded",
             Section: zone.title,
-            Status: tableOccupancyLabels[occupancy.state],
+            Status:
+              booking && !isPrimaryBookingTable
+                ? "Part of multi-table assignment"
+                : tableOccupancyLabels[occupancy.state],
             "Table Number": table.tableNumber,
           };
         });
@@ -22252,6 +22278,112 @@ export default function AdminDashboardPage() {
           ? error.message
           : "The temporary Floor capacity was not created.",
       );
+    }
+  }
+
+  function reviewCorporateTableAssignment(
+    booking: DemoBooking,
+    plan: ShowWideFloorCapacityPlan["zones"][number]["bookingPlans"][number],
+  ) {
+    if (
+      plan.unresolvedReason ||
+      plan.newCapacities.length > 0 ||
+      plan.existingTableIds.length === 0
+    ) {
+      return;
+    }
+    const suggestedTables = tables.filter((table) =>
+      plan.existingTableIds.includes(table.authoritativeId ?? table.id),
+    );
+    setCorporateTableAssignmentReview({
+      bookingReference: booking.reference,
+      combinedCapacity: suggestedTables.reduce(
+        (total, table) => total + table.seatCapacity,
+        0,
+      ),
+      tableCodes: plan.existingTableCodes,
+      tableIds: plan.existingTableIds,
+    });
+  }
+
+  async function confirmCorporateTableAssignment() {
+    const review = corporateTableAssignmentReview;
+    const booking = bookings.find(
+      (candidate) => candidate.reference === review?.bookingReference,
+    );
+    if (
+      !review ||
+      !booking?.updatedAt ||
+      !booking.showId ||
+      !floorCapacityPlan ||
+      floorAssignmentInFlightRef.current.has(booking.reference)
+    ) {
+      return;
+    }
+
+    floorAssignmentInFlightRef.current.add(booking.reference);
+    setFloorAssignmentAction({ reference: booking.reference, status: "assigning" });
+    try {
+      await assignCorporateFloorPlan({
+        bookingReference: booking.reference,
+        expectedUpdatedAt: booking.updatedAt,
+        showReference: selectedShowId || booking.showId,
+        snapshotToken: floorCapacityPlan.snapshotToken,
+        tableIds: review.tableIds,
+      });
+      await refreshAssignedShowState(booking.showId);
+      setFloorAssignmentAction({ reference: booking.reference, status: "assigned" });
+      setCorporateTableAssignmentReview(null);
+      const response = await planShowFloorCapacity(selectedShowId || booking.showId);
+      setFloorCapacityPlan(response.plan);
+      setFloorCapacityPlanStatus(
+        `${booking.reference} was assigned to ${review.tableCodes.join(" + ")}.`,
+      );
+    } catch (error) {
+      setFloorAssignmentAction(null);
+      setFloorCapacityPlanStatus(
+        error instanceof Error ? error.message : "The table assignment failed.",
+      );
+    } finally {
+      floorAssignmentInFlightRef.current.delete(booking.reference);
+    }
+  }
+
+  async function releaseCorporateTables(booking: DemoBooking) {
+    const tableIds = (booking.reservationTableClaims ?? [])
+      .map((claim) => claim.tableId)
+      .filter((id): id is string => Boolean(id));
+    if (
+      !booking.updatedAt ||
+      !booking.showId ||
+      tableIds.length === 0 ||
+      floorAssignmentInFlightRef.current.has(booking.reference) ||
+      !window.confirm(
+        `Release the complete ${tableIds.length}-table assignment for ${booking.reference}? The booking will return to Floor Assignment.`,
+      )
+    ) {
+      return;
+    }
+    floorAssignmentInFlightRef.current.add(booking.reference);
+    setFloorAssignmentAction({ reference: booking.reference, status: "assigning" });
+    try {
+      await releaseCorporateFloorAssignment({
+        bookingReference: booking.reference,
+        expectedTableIds: tableIds,
+        expectedUpdatedAt: booking.updatedAt,
+      });
+      await refreshAssignedShowState(booking.showId);
+      setFloorAssignmentAction({ reference: booking.reference, status: "assigned" });
+      setFloorCapacityPlanStatus(
+        `${booking.reference} was released to Floor Assignment.`,
+      );
+    } catch (error) {
+      setFloorAssignmentAction(null);
+      setFloorCapacityPlanStatus(
+        error instanceof Error ? error.message : "The table assignment was not released.",
+      );
+    } finally {
+      floorAssignmentInFlightRef.current.delete(booking.reference);
     }
   }
 
@@ -39736,6 +39868,58 @@ export default function AdminDashboardPage() {
               </div>
             )}
 
+            {corporateTableAssignmentReview && (
+              <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="corporate-table-assignment-title"
+                  className="w-full max-w-lg rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-5 shadow-2xl"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                    Corporate Floor Assignment
+                  </p>
+                  <h3 id="corporate-table-assignment-title" className="mt-2 text-xl font-bold text-white">
+                    Review Suggested Tables
+                  </h3>
+                  <p className="mt-3 text-sm leading-6 text-zinc-300">
+                    {corporateTableAssignmentReview.bookingReference} will own tables {corporateTableAssignmentReview.tableCodes.join(" + ")} as one operational assignment.
+                  </p>
+                  <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <dt className="text-xs uppercase text-zinc-500">Tables</dt>
+                      <dd className="mt-1 font-semibold text-white">{corporateTableAssignmentReview.tableIds.length}</dd>
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <dt className="text-xs uppercase text-zinc-500">Combined Capacity</dt>
+                      <dd className="mt-1 font-semibold text-white">{corporateTableAssignmentReview.combinedCapacity}</dd>
+                    </div>
+                  </dl>
+                  <p className="mt-4 text-xs leading-5 text-amber-100">
+                    Assignment is atomic. If any table changed or became unavailable, no table will be claimed.
+                  </p>
+                  <div className="mt-5 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCorporateTableAssignmentReview(null)}
+                      disabled={floorAssignmentAction?.status === "assigning"}
+                      className="rounded-xl border border-white/20 px-4 py-2 text-sm text-zinc-200 disabled:opacity-40"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void confirmCorporateTableAssignment()}
+                      disabled={floorAssignmentAction?.status === "assigning"}
+                      className="rounded-xl bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black disabled:cursor-wait disabled:opacity-50"
+                    >
+                      {floorAssignmentAction?.status === "assigning" ? "ASSIGNING..." : "CONFIRM ASSIGNMENT"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {selectedShowFloorAssignmentBookings.length === 0 ? (
               <div className="mt-5 rounded-2xl border border-emerald-300/20 bg-emerald-950/10 p-4 text-sm text-emerald-100">
                 No confirmed bookings require floor assignment for this
@@ -39823,9 +40007,18 @@ export default function AdminDashboardPage() {
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => assignFloorQueuedBooking(booking)}
+                          onClick={() =>
+                            isCorporate && bookingPlan
+                              ? reviewCorporateTableAssignment(booking, bookingPlan)
+                              : assignFloorQueuedBooking(booking)
+                          }
                           disabled={
-                            !allocation ||
+                            (isCorporate
+                              ? !bookingPlan ||
+                                Boolean(bookingPlan.unresolvedReason) ||
+                                bookingPlan.newCapacities.length > 0 ||
+                                bookingPlan.existingTableIds.length === 0
+                              : !allocation) ||
                             !canManageBookings ||
                             floorAssignmentAction?.reference === booking.reference
                           }
@@ -39835,7 +40028,9 @@ export default function AdminDashboardPage() {
                             ? floorAssignmentAction.status === "assigning"
                               ? "ASSIGNING..."
                               : "ASSIGNED ✓"
-                            : "Assign Suggested Table"}
+                            : isCorporate
+                              ? "ASSIGN SUGGESTED TABLES"
+                              : "Assign Suggested Table"}
                         </button>
                         {!allocation && !bookingPlan && (
                           <button
@@ -40293,8 +40488,11 @@ export default function AdminDashboardPage() {
                             table.status === "available" &&
                             !table.bookingReference);
                       const allocatedBooking = tableOccupancy.booking;
+                      const allocatedBookingTableCount =
+                        allocatedBooking?.reservationTableClaims?.length ?? 0;
                       const canMoveAllocatedBooking = Boolean(
                         allocatedBooking &&
+                          allocatedBookingTableCount <= 1 &&
                           !linkedParent &&
                           (table.physicalTable === true ||
                             isTemporaryOperationalTable(table) ||
@@ -40644,6 +40842,11 @@ export default function AdminDashboardPage() {
                               <span className="rounded-full border border-emerald-400/30 bg-emerald-950/30 px-3 py-1 text-emerald-300">
                                 {table.bookingReference ??
                                   tableOccupancy.booking?.reference}
+                              </span>
+                            )}
+                            {allocatedBookingTableCount > 1 && (
+                              <span className="rounded-full border border-[#D8C36A]/30 bg-[#D8C36A]/10 px-3 py-1 text-[#F2D66C]">
+                                Part of {allocatedBookingTableCount}-table assignment
                               </span>
                             )}
                             {table.mergedFrom && (
@@ -41676,6 +41879,12 @@ export default function AdminDashboardPage() {
                   getRefundUnavailableReason(booking);
                 const currentTable = tables.find(
                   (table) => table.id === booking.tableId,
+                );
+                const assignedTableClaims = booking.reservationTableClaims ?? [];
+                const hasMultiTableAssignment = assignedTableClaims.length > 1;
+                const assignedTableCapacity = assignedTableClaims.reduce(
+                  (total, claim) => total + claim.capacity,
+                  0,
                 );
                 const wastedSeats = currentTable
                   ? currentTable.seatCapacity - booking.partySize
@@ -43097,10 +43306,12 @@ export default function AdminDashboardPage() {
                               Current Table
                             </p>
                             <p className="mt-2 font-bold">
-                              {booking.tableNumber || "Unassigned"}
+                              {getManifestBookingTableLabel(booking)}
                             </p>
                             <p className="mt-1 text-sm text-zinc-400">
-                              {currentTable
+                              {hasMultiTableAssignment
+                                ? `${assignedTableClaims.length} tables · ${assignedTableCapacity} combined seats · booking pax counted once`
+                                : currentTable
                                 ? `${currentTable.seatCapacity} seats · ${Math.max(wastedSeats, 0)} open after this party`
                                 : "No matching live table record"}
                             </p>
@@ -43116,6 +43327,24 @@ export default function AdminDashboardPage() {
                                 Zone entitlement is independent from table compatibility. A large Corporate booking may remain one booking in Floor Assignment while staff review multiple operational tables.
                               </p>
                             </div>
+                            {hasMultiTableAssignment ? (
+                              <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                                  Complete Assignment
+                                </p>
+                                <p className="mt-2 text-sm text-white">
+                                  {assignedTableClaims.map((claim) => claim.tableCode).join(" + ")}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => void releaseCorporateTables(booking)}
+                                  disabled={bookingIsReadOnly || floorAssignmentAction?.reference === booking.reference}
+                                  className="mt-3 w-full rounded-xl border border-amber-300/40 px-3 py-2 text-xs font-semibold uppercase text-amber-100 disabled:opacity-40"
+                                >
+                                  {floorAssignmentAction?.reference === booking.reference ? "RELEASING..." : "RELEASE COMPLETE ASSIGNMENT"}
+                                </button>
+                              </div>
+                            ) : (
                             <label>
                               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
                                 Compatible Table In Current Zone
@@ -43132,6 +43361,7 @@ export default function AdminDashboardPage() {
                                 <BookingMoveTargetOptions tables={corporateTableTargets} />
                               </select>
                             </label>
+                            )}
                           </div>
                         )}
                         <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 sm:flex-row sm:items-center sm:justify-between">

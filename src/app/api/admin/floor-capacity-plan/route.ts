@@ -391,7 +391,7 @@ async function loadPlan(
     });
   });
 
-  return { show, snapshot, snapshotToken, zones };
+  return { bookings, show, snapshot, snapshotToken, tables, zones };
 }
 
 export async function GET(request: Request) {
@@ -456,22 +456,54 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json().catch(() => ({}))) as {
+    action?: "assign" | "create" | "release";
+    bookingReference?: string;
     capacities?: number[];
     confirmCreate?: boolean;
+    expectedTableIds?: string[];
+    expectedUpdatedAt?: string;
     showReference?: string;
     snapshotToken?: string;
+    tableIds?: string[];
     zoneId?: string;
   };
   const showReference = body.showReference?.trim() ?? "";
   const zoneId = body.zoneId?.trim() as CorporateFloorZone;
+
+  if (body.action === "release") {
+    const bookingReference = body.bookingReference?.trim() ?? "";
+    if (!bookingReference || !body.expectedUpdatedAt?.trim()) {
+      return Response.json({ error: "A current Corporate assignment is required." }, { status: 400 });
+    }
+    try {
+      const { data, error: releaseError } = await auth.serviceClient.rpc(
+        "release_corporate_booking_tables_atomic",
+        {
+          p_actor_auth_user_id: auth.user.id,
+          p_actor_staff_profile_id: auth.staffProfile.id,
+          p_booking_reference: bookingReference,
+          p_expected_table_ids: body.expectedTableIds ?? [],
+          p_expected_updated_at: body.expectedUpdatedAt,
+        },
+      );
+      if (releaseError) throw releaseError;
+      return Response.json({ ok: true, result: data });
+    } catch (releaseError) {
+      const message = releaseError instanceof Error ? releaseError.message : String(releaseError);
+      if (/FLOOR_PLAN_STALE|TABLE_ASSIGNMENT/i.test(message)) {
+        return Response.json({ error: "FLOOR PLAN CHANGED - REVIEW AGAIN" }, { status: 409 });
+      }
+      console.error("[Zingara Floor Capacity] Assignment release failed", releaseError);
+      return Response.json({ error: "The Corporate table assignment was not released." }, { status: 500 });
+    }
+  }
+
   if (
-    body.confirmCreate !== true ||
     !showReference ||
-    !body.snapshotToken?.trim() ||
-    !corporateFloorZones.includes(zoneId)
+    !body.snapshotToken?.trim()
   ) {
     return Response.json(
-      { error: "Review and confirm one current zone plan before creating tables." },
+      { error: "Review one current show-wide Floor plan before continuing." },
       { status: 400 },
     );
   }
@@ -493,10 +525,72 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+    if (body.action === "assign") {
+      const bookingReference = body.bookingReference?.trim() ?? "";
+      const requestedTableIds = Array.from(new Set(body.tableIds ?? []));
+      const bookingPlan = result.zones
+        .flatMap((zone) => zone.bookingPlans)
+        .find((booking) => booking.bookingReference === bookingReference);
+      const currentBooking = result.bookings.find(
+        (booking) => booking.booking_reference === bookingReference,
+      );
+      const currentClaimIds = result.tables
+        .filter((table) => table.booking_id === currentBooking?.id)
+        .map((table) => table.id)
+        .sort();
+      const isExactIdempotentReplay = Boolean(
+        currentBooking?.table_id &&
+          requestedTableIds.includes(currentBooking.table_id) &&
+          JSON.stringify([...requestedTableIds].sort()) ===
+            JSON.stringify(currentClaimIds),
+      );
+      if (
+        (result.snapshotToken !== body.snapshotToken.trim() &&
+          !isExactIdempotentReplay) ||
+        (!bookingPlan && !isExactIdempotentReplay) ||
+        bookingPlan?.unresolvedReason ||
+        (bookingPlan?.newCapacities.length ?? 0) > 0 ||
+        requestedTableIds.length === 0 ||
+        (bookingPlan &&
+          JSON.stringify(requestedTableIds) !==
+            JSON.stringify(bookingPlan.existingTableIds)) ||
+        !body.expectedUpdatedAt?.trim()
+      ) {
+        return Response.json({ error: "FLOOR PLAN CHANGED - REVIEW AGAIN" }, { status: 409 });
+      }
+      const selectedTableState = result.snapshot.tables.filter((table) =>
+        requestedTableIds.includes(table.id),
+      );
+      const { data, error: assignmentError } = await auth.serviceClient.rpc(
+        "assign_corporate_booking_tables_atomic",
+        {
+          p_actor_auth_user_id: auth.user.id,
+          p_actor_staff_profile_id: auth.staffProfile.id,
+          p_booking_reference: bookingReference,
+          p_expected_table_state: selectedTableState,
+          p_expected_updated_at: body.expectedUpdatedAt,
+          p_table_ids: requestedTableIds,
+        },
+      );
+      if (assignmentError) throw assignmentError;
+      return Response.json({ ok: true, result: data });
+    }
+
     if (result.snapshotToken !== body.snapshotToken.trim()) {
       return Response.json(
         { error: "FLOOR PLAN CHANGED - REVIEW AGAIN" },
         { status: 409 },
+      );
+    }
+
+    if (
+      body.action !== "create" ||
+      body.confirmCreate !== true ||
+      !corporateFloorZones.includes(zoneId)
+    ) {
+      return Response.json(
+        { error: "Review and confirm one current zone plan before creating tables." },
+        { status: 400 },
       );
     }
 
@@ -553,6 +647,13 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true, result: data });
   } catch (creationError) {
+    const message = creationError instanceof Error ? creationError.message : String(creationError);
+    if (/FLOOR_PLAN_STALE|TABLE_ALREADY_CLAIMED|TABLE_NOT_AVAILABLE|COMBINED_TABLE_CAPACITY_INSUFFICIENT|CROSS_SHOW|CROSS_ZONE|MERGED_|TABLE_CAPACITY_REQUIRED/i.test(message)) {
+      return Response.json(
+        { error: "FLOOR PLAN CHANGED - REVIEW AGAIN" },
+        { status: 409 },
+      );
+    }
     console.error("[Zingara Floor Capacity] Bulk creation failed", creationError);
     return Response.json(
       { error: "The temporary Floor plan was not created. No partial plan was retained." },

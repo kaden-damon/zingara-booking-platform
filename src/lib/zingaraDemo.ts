@@ -676,6 +676,7 @@ export type DemoBooking = {
     capacity: number;
     primary?: boolean;
     section: string;
+    tableId?: string;
     tableCode: string;
   }>;
   paymentOption?: PaymentOption;

@@ -154,7 +154,32 @@ type SupabaseBookingAggregateRow = SupabaseBookingRow & {
     section: string | null;
     table_code: string;
   } | null;
+  table_claim_rows?: Array<{
+    booking_id: string;
+    capacity: number | null;
+    id: string;
+    section: string | null;
+    table_code: string;
+  }>;
 };
+
+function getReservationTableClaims(row: SupabaseBookingAggregateRow) {
+  return (row.table_claim_rows ?? [])
+    .map((table) => ({
+      capacity: Number(table.capacity) || 0,
+      primary: table.id === row.table_id,
+      section: table.section ?? row.section ?? "",
+      tableCode: table.table_code,
+      tableId: table.id,
+    }))
+    .sort(
+      (left, right) =>
+        Number(right.primary) - Number(left.primary) ||
+        left.tableCode.localeCompare(right.tableCode, undefined, {
+          numeric: true,
+        }),
+    );
+}
 
 function getPersistedPromoRedemption(row: SupabaseBookingAggregateRow) {
   const redemption = row.promo_redemption_row;
@@ -658,6 +683,7 @@ function mergeLifecycleHistory(
 async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBooking> {
   const metadataBooking = parseBookingNotes(row.notes);
   const promoRedemption = getPersistedPromoRedemption(row);
+  const reservationTableClaims = getReservationTableClaims(row);
 
   if (metadataBooking) {
     const authoritativeCustomer = getDemoCustomerFromCustomerRow(
@@ -671,7 +697,8 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     const hasReleasedCancelledTable =
       row.booking_status === "cancelled" && !row.table_id;
     const authoritativeTableNumber = row.table_id
-      ? row.table_row?.table_code ?? metadataBooking.tableNumber
+      ? reservationTableClaims.map((table) => table.tableCode).join(" + ") ||
+        (row.table_row?.table_code ?? metadataBooking.tableNumber)
       : hasReleasedCancelledTable
         ? "Released"
         : "Requires floor assignment";
@@ -698,6 +725,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       paymentStatus: toDemoPaymentStatus(row.payment_status),
       promoCode: promoRedemption?.code,
       promoRedemption,
+      reservationTableClaims,
       serviceFeeAmount: row.service_fee,
       source: row.booking_source as DemoBooking["source"],
       status: toDemoBookingStatus(row.booking_status),
@@ -734,7 +762,8 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
   const floorAssignmentRequired = !row.table_id;
   const tableNumber = floorAssignmentRequired
     ? "Requires floor assignment"
-    : row.table_row?.table_code ?? "Assigned table";
+    : reservationTableClaims.map((table) => table.tableCode).join(" + ") ||
+      (row.table_row?.table_code ?? "Assigned table");
   const booking: DemoBooking = {
     addons: [],
     addonsTotal: row.addons_total,
@@ -767,6 +796,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     paymentStatus: toDemoPaymentStatus(row.payment_status),
     promoCode: promoRedemption?.code,
     promoRedemption,
+    reservationTableClaims,
     pricePerPerson:
       row.guest_count > 0 ? Math.round(row.total_amount / row.guest_count) : 0,
     reference: row.booking_reference,

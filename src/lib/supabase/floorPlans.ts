@@ -66,8 +66,32 @@ export function createShowFloorCapacityPlan(input: {
   return fetchSupabaseApi<{ ok: true; result: unknown }>(
     "/api/admin/floor-capacity-plan",
     {
-      body: { confirmCreate: true, ...input },
+      body: { action: "create", confirmCreate: true, ...input },
       method: "POST",
     },
+  );
+}
+
+export function assignCorporateFloorPlan(input: {
+  bookingReference: string;
+  expectedUpdatedAt: string;
+  showReference: string;
+  snapshotToken: string;
+  tableIds: string[];
+}) {
+  return fetchSupabaseApi<{ ok: true; result: unknown }>(
+    "/api/admin/floor-capacity-plan",
+    { body: { action: "assign", ...input }, method: "POST" },
+  );
+}
+
+export function releaseCorporateFloorAssignment(input: {
+  bookingReference: string;
+  expectedTableIds: string[];
+  expectedUpdatedAt: string;
+}) {
+  return fetchSupabaseApi<{ ok: true; result: unknown }>(
+    "/api/admin/floor-capacity-plan",
+    { body: { action: "release", ...input }, method: "POST" },
   );
 }
