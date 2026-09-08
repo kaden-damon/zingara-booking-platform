@@ -29,6 +29,7 @@ import {
 } from "./CustomerIdentityEditor";
 import SystemPreferences from "./SystemPreferences";
 import ManagementAnalytics from "./ManagementAnalytics";
+import BoxOfficeFinancialReportPanel from "./BoxOfficeFinancialReport";
 import { useReportGenerationLock } from "./useReportGenerationLock";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
 import CorporateConversionModal from "./CorporateConversionModal";
@@ -30603,6 +30604,14 @@ export default function AdminDashboardPage() {
             )}
           </section>
         )}
+
+        {activeAdminTab === "operations" &&
+          activeOperationsTab === "financial-reports" &&
+          canViewOperationsFinancials && (
+            <BoxOfficeFinancialReportPanel
+              permittedLocations={financialPermittedLocations}
+            />
+          )}
 
         {activeAdminTab === "operations" &&
           activeOperationsTab === "financial-reports" &&
