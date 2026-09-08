@@ -57,6 +57,44 @@ test("acceptance storage is versioned, append-only and atomically audited", asyn
   assert.match(migration, /grant select, insert on public\.admin_policy_acceptances to service_role/);
 });
 
+test("application roles cannot alter, remove or truncate acceptance evidence", async () => {
+  const hardening = await source(
+    "../../supabase/migrations/20260908130000_phase_41_1e_b_acceptance_register_hardening.sql",
+  );
+  const acceptanceRoute = await source(
+    "../app/api/admin/ip-undertaking/route.ts",
+  );
+
+  assert.match(
+    hardening,
+    /revoke update, delete, truncate[\s\S]*admin_policy_acceptances[\s\S]*service_role, authenticated, anon/,
+  );
+  assert.match(
+    hardening,
+    /revoke update, delete, truncate[\s\S]*audit_events[\s\S]*service_role, authenticated, anon/,
+  );
+  assert.doesNotMatch(acceptanceRoute, /export async function (DELETE|PATCH|PUT)/);
+  assert.doesNotMatch(acceptanceRoute, /\.update\(|\.delete\(|\.upsert\(/);
+});
+
+test("Super Admin cannot fabricate acceptance for another staff account", async () => {
+  const acceptanceRoute = await source(
+    "../app/api/admin/ip-undertaking/route.ts",
+  );
+
+  assert.match(acceptanceRoute, /staff_profile_id: auth\.staffProfile\.id/);
+  assert.match(acceptanceRoute, /actor_auth_user_id: auth\.user\.id/);
+  assert.doesNotMatch(acceptanceRoute, /body\.(staff|user|profile|actor)/);
+});
+
+test("no Acceptance Register UI is exposed without distinct owner authority", async () => {
+  const access = await source("./zingaraAccess.ts");
+  const page = await source("../app/admin/page.tsx");
+
+  assert.doesNotMatch(access, /platform-owner|system-owner|technical-owner/);
+  assert.doesNotMatch(page, /Acceptance Register/);
+});
+
 test("blocking modal requires an unchecked acknowledgement and has no dismissal bypass", async () => {
   const gate = await source("../app/admin/AdminIpUndertakingGate.tsx");
 
