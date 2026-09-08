@@ -8,6 +8,7 @@ import {
   calculateOutstandingAmount,
   isPaymentLinkEligible,
 } from "@/lib/paymentControls";
+import { isPaymentLinkBalanceSnapshotCurrent } from "./paymentLinkBalance";
 
 export const bookingMetadataPrefix = "__zingara_booking_meta__:";
 
@@ -61,7 +62,8 @@ export type ManagedPaymentLinkStatus =
   | "active"
   | "expired"
   | "paid"
-  | "revoked";
+  | "revoked"
+  | "stale";
 
 export type PaymentLinkCheckoutResult =
   | {
@@ -150,6 +152,20 @@ export function getPaymentLinkCheckoutAmount(
   }
 
   return Math.min(configuredAmount, outstandingAmount);
+}
+
+export function isPaymentLinkAmountCurrent(
+  link: Pick<PaymentLinkRecordRow, "metadata">,
+  booking: PaymentLinkBookingRow,
+) {
+  const outstandingAmount = getOutstandingAmount(booking);
+
+  return isPaymentLinkBalanceSnapshotCurrent({
+    amountPaid: Math.max(Number(booking.amount_paid) || 0, 0),
+    metadata: link.metadata,
+    outstandingAmount,
+    totalAmount: Math.max(Number(booking.total_amount) || 0, 0),
+  });
 }
 
 export function isBookingPaymentLinkEligible(row: PaymentLinkBookingRow) {
@@ -281,7 +297,7 @@ export async function loadLatestPaymentLinkForBooking(
 }
 
 export function getManagedPaymentLinkStatus(
-  link: Pick<PaymentLinkRecordRow, "expires_at" | "status">,
+  link: Pick<PaymentLinkRecordRow, "expires_at" | "metadata" | "status">,
   booking: PaymentLinkBookingRow,
   now = new Date(),
 ): ManagedPaymentLinkStatus {
@@ -298,6 +314,10 @@ export function getManagedPaymentLinkStatus(
     new Date(link.expires_at).getTime() <= now.getTime()
   ) {
     return "expired";
+  }
+
+  if (!isPaymentLinkAmountCurrent(link, booking)) {
+    return "stale";
   }
 
   return "active";

@@ -1,6 +1,7 @@
 import {
   createPayFastCheckoutForBookingLink,
   expirePaymentLink,
+  getManagedPaymentLinkStatus,
   getPaymentLinkCheckoutAmount,
   isBookingPaymentLinkEligible,
   loadActivePaymentLink,
@@ -91,6 +92,14 @@ export async function POST(_request: Request, context: PaymentLinkCheckoutContex
       return Response.json(
         { error: "This payment link is no longer valid." },
         { status: 404 },
+      );
+    }
+
+
+    if (getManagedPaymentLinkStatus(link, booking) === "stale") {
+      return Response.json(
+        { error: "This payment link no longer matches the current outstanding balance. Please request a new link." },
+        { status: 409 },
       );
     }
 

@@ -36,6 +36,7 @@ type PaymentLinkRequest = {
   action?:
     | "create"
     | "create-outstanding"
+    | "create-and-send"
     | "send-existing"
     | "send-existing-outstanding";
   bookingReference?: string;
@@ -324,6 +325,13 @@ export async function POST(request: Request) {
         );
       }
 
+      if (getManagedPaymentLinkStatus(link, authoritativeBooking) !== "active") {
+        return Response.json(
+          { error: "This payment link no longer matches the current outstanding balance. Create a current balance link." },
+          { status: 409 },
+        );
+      }
+
       return sendLink({
         amount: getPaymentLinkCheckoutAmount(link, authoritativeBooking),
         linkId: link.id,
@@ -381,10 +389,72 @@ export async function POST(request: Request) {
     const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 7);
     const token = createPaymentLinkToken();
     const paymentUrl = getPaymentLinkUrl(request, token);
-    const amount =
-      action === "create"
-        ? getSelectedBookingPaymentAmount(authoritativeBooking)
-        : getOutstandingAmount(authoritativeBooking);
+    const amount = action === "create"
+      ? getSelectedBookingPaymentAmount(authoritativeBooking)
+      : getOutstandingAmount(authoritativeBooking);
+
+    if (action !== "create") {
+      const { data: result, error: createError } = await supabase.rpc(
+        "create_booking_balance_payment_link_atomic",
+        {
+          p_booking_reference: bookingReference,
+          p_created_by: user?.id ?? null,
+          p_expires_at: expiresAt.toISOString(),
+          p_metadata: {
+            createdByStaffName: staffProfile?.full_name ?? null,
+            recipient,
+            tokenEnvelope: sealPaymentLinkToken(token),
+          },
+          p_token_hash: hashPaymentLinkToken(token),
+        },
+      );
+
+      if (createError) {
+        if (createError.message?.includes("ACTIVE_BALANCE_LINK_EXISTS")) {
+          return Response.json(
+            { error: "A current balance payment link already exists. View, copy or resend that link." },
+            { status: 409 },
+          );
+        }
+        if (createError.message?.includes("NO_OUTSTANDING_BALANCE")) {
+          return Response.json(
+            { error: "This booking does not have an outstanding balance." },
+            { status: 409 },
+          );
+        }
+        if (createError.message?.includes("PAYMENT_LINK_NOT_ALLOWED")) {
+          return Response.json(
+            { error: "This booking is not awaiting customer payment." },
+            { status: 409 },
+          );
+        }
+        throw createError;
+      }
+
+      const created = result as { amount?: number; link_id?: string } | null;
+      const authoritativeAmount = Number(created?.amount);
+      const linkId = created?.link_id ?? null;
+
+      if (!Number.isFinite(authoritativeAmount) || authoritativeAmount <= 0 || !linkId) {
+        throw new Error("Balance payment link creation returned an invalid result.");
+      }
+
+      if (action === "create-outstanding") {
+        return Response.json({
+          canSend: Boolean(recipient),
+          linkId,
+          paymentUrl,
+          token,
+        });
+      }
+
+      return sendLink({
+        amount: authoritativeAmount,
+        linkId,
+        paymentUrl,
+        revokeOnFailure: true,
+      });
+    }
 
     await supabase
       .from("booking_payment_links")
@@ -405,11 +475,13 @@ export async function POST(request: Request) {
         expires_at: expiresAt.toISOString(),
         metadata: {
           checkoutAmount: amount,
+          amountPaidSnapshot: Math.max(Number(authoritativeBooking.amount_paid) || 0, 0),
           createdByStaffName: staffProfile?.full_name ?? null,
           manualCheckout: action === "create",
-          outstandingReconciliation: action === "create-outstanding",
+          outstandingReconciliation: false,
           recipient,
           tokenEnvelope: sealPaymentLinkToken(token),
+          totalAmountSnapshot: Math.max(Number(authoritativeBooking.total_amount) || 0, 0),
         },
         token_hash: hashPaymentLinkToken(token),
       })
@@ -429,21 +501,7 @@ export async function POST(request: Request) {
       });
     }
 
-    if (action === "create-outstanding") {
-      return Response.json({
-        canSend: Boolean(recipient),
-        linkId: linkRow?.id ?? null,
-        paymentUrl,
-        token,
-      });
-    }
-
-    return sendLink({
-      amount,
-      linkId: linkRow?.id ?? null,
-      paymentUrl,
-      revokeOnFailure: true,
-    });
+    throw new Error("Unsupported payment-link action.");
   } catch (sendError) {
     console.error("[Zingara Payment Link] Failed to send link", sendError);
 

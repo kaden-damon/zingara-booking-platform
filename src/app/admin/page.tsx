@@ -487,7 +487,7 @@ type PaymentLinkDetails = {
   id: string;
   paymentUrl: string | null;
   sentAt: string | null;
-  status: "active" | "expired" | "paid" | "revoked";
+  status: "active" | "expired" | "paid" | "revoked" | "stale";
 };
 type PaymentLinkDetailsState = Record<
   string,
@@ -43090,6 +43090,11 @@ export default function AdminDashboardPage() {
                                         This older link cannot be reopened. Create a replacement before sending.
                                       </p>
                                     )}
+                                  {paymentLinkDetails.status === "stale" && (
+                                    <p className="mt-1 text-amber-200">
+                                      This link does not match the current outstanding balance and is no longer usable. Create a current balance link.
+                                    </p>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -43178,7 +43183,9 @@ export default function AdminDashboardPage() {
                                         {paymentLinkSendState[booking.reference]
                                           ?.isSending
                                           ? "Creating..."
-                                          : "Create Payment Link"}
+                                          : paymentLinkDetails?.status === "stale"
+                                            ? "Create Current Balance Link"
+                                            : "Create Balance Payment Link"}
                                       </button>
                                       <button
                                         type="button"
@@ -43195,7 +43202,7 @@ export default function AdminDashboardPage() {
                                         {paymentLinkSendState[booking.reference]
                                           ?.isSending
                                           ? "Sending Link..."
-                                          : "Send Payment Link"}
+                                          : "Send Balance Payment Link"}
                                       </button>
                                     </>
                                   )}

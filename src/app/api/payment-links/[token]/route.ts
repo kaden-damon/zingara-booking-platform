@@ -1,6 +1,7 @@
 import {
   expirePaymentLink,
   getCustomerName,
+  getManagedPaymentLinkStatus,
   getPaymentLinkCheckoutAmount,
   isBookingPaymentLinkEligible,
   loadActivePaymentLink,
@@ -100,6 +101,14 @@ export async function GET(_request: Request, context: PaymentLinkContext) {
       return Response.json(
         { error: "This payment link is no longer valid." },
         { status: 404 },
+      );
+    }
+
+
+    if (getManagedPaymentLinkStatus(link, booking) === "stale") {
+      return Response.json(
+        { error: "This payment link no longer matches the current outstanding balance. Please request a new link." },
+        { status: 409 },
       );
     }
 

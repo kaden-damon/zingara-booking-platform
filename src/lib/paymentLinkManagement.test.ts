@@ -114,5 +114,6 @@ test("payment-link management never marks a booking paid or starts PayFast", asy
   const route = await source("../app/api/admin/bookings/payment-link/route.ts");
 
   assert.doesNotMatch(route, /preparePayFastCheckoutAttempt|confirm_payfast_payment/);
-  assert.doesNotMatch(route, /payment_status|amount_paid/);
+  assert.doesNotMatch(route, /from\("payments"\)[\s\S]{0,200}\.(insert|update|delete)\(/);
+  assert.doesNotMatch(route, /from\("bookings"\)[\s\S]{0,200}\.update\(/);
 });

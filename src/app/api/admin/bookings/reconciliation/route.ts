@@ -332,6 +332,18 @@ export async function POST(request: Request) {
       if (message.includes("BOOKING_RECONCILIATION_NOT_ALLOWED")) {
         return Response.json({ error: "This booking is not eligible for reconciliation." }, { status: 409 });
       }
+      if (message.includes("AMOUNT_PAID_BELOW_IMMUTABLE_EVIDENCE")) {
+        return Response.json(
+          { error: "Amount paid cannot be reduced below verified provider or legacy payment evidence." },
+          { status: 409 },
+        );
+      }
+      if (message.includes("FINANCIAL_RECONCILIATION_UNCHANGED")) {
+        return Response.json(
+          { error: "Enter a financial change before confirming." },
+          { status: 400 },
+        );
+      }
       if (message.includes("RECONCILIATION_PERMISSION_REQUIRED")) {
         return Response.json({ error: "Booking reconciliation access is required." }, { status: 403 });
       }
