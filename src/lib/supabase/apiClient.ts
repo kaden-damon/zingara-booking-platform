@@ -1,4 +1,5 @@
 import { getSupabaseClient } from "./client";
+import { adminIpUndertakingRequiredEvent } from "../adminIpUndertaking";
 
 type ApiOptions = {
   body?: unknown;
@@ -30,8 +31,19 @@ export async function fetchSupabaseApi<T>(
 
   if (!response.ok) {
     const errorPayload = (await response.json().catch(() => ({}))) as {
+      code?: string;
       error?: string;
     };
+
+    if (
+      response.status === 428 &&
+      errorPayload.code === "ADMIN_IP_UNDERTAKING_REQUIRED" &&
+      typeof window !== "undefined"
+    ) {
+      window.dispatchEvent(
+        new Event(adminIpUndertakingRequiredEvent),
+      );
+    }
 
     throw new Error(errorPayload.error ?? "Supabase API request failed.");
   }

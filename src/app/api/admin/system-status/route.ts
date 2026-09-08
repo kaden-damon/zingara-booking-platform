@@ -1,4 +1,5 @@
 import { getPayFastConfig } from "@/lib/payfast/config";
+import { platformOwner, platformVersion } from "@/lib/platformIdentity";
 import { requireActiveStaff } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
@@ -12,14 +13,12 @@ type HealthCheck = {
   status: HealthStatus;
 };
 
-const dataPortabilityProbeId = "00000000-0000-0000-0000-000000000000";
 let lastSuccessfulCriticalHealthCheck: string | null = null;
 const criticalHealthChecks = new Set([
   "Audit Trail",
   "Booking Locks",
   "Bookings",
   "Customers",
-  "Data Portability",
   "Database",
   "QR Validation",
   "Ticket Engine",
@@ -250,43 +249,6 @@ export async function GET(request: Request) {
 
       return "Audit event store is reachable.";
     }),
-    runCheck("Data Portability", async () => {
-      const tableChecks = await Promise.all([
-        serviceClient
-          .from("data_portability_import_runs")
-          .select("id", { count: "exact", head: true }),
-        serviceClient
-          .from("data_portability_restore_points")
-          .select("id", { count: "exact", head: true }),
-        serviceClient
-          .from("data_portability_audit_events")
-          .select("id", { count: "exact", head: true }),
-      ]);
-      const tableError = tableChecks.find((result) => result.error)?.error;
-
-      if (tableError) {
-        throw tableError;
-      }
-
-      const { error: restoreProbeError } = await serviceClient.rpc(
-        "restore_data_portability_import",
-        {
-          p_import_id: dataPortabilityProbeId,
-          p_staff_profile_id: staffProfile.id,
-        },
-      );
-
-      if (
-        restoreProbeError &&
-        /function .*restore_data_portability_import|could not find the function/i.test(
-          restoreProbeError.message,
-        )
-      ) {
-        throw restoreProbeError;
-      }
-
-      return "Import and restore tables reachable; restore RPC callable.";
-    }),
     Promise.resolve(getPayFastHealth()),
     Promise.resolve(getEmailHealth()),
     Promise.resolve(getPushHealth()),
@@ -348,7 +310,8 @@ export async function GET(request: Request) {
       autoRefresh: "Every 60 seconds",
       environment,
       lastSuccessfulHealthCheck: lastSuccessfulCriticalHealthCheck,
-      platformVersion: "1.0 RC",
+      platformOwner,
+      platformVersion,
       staffLoggedIn: "Current session verified",
     },
   });

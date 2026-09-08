@@ -9,6 +9,7 @@ import {
   loadPlatformMaintenance,
   maintenanceUnavailableResponse,
 } from "@/lib/platformMaintenance";
+import { adminIpUndertaking } from "@/lib/adminIpUndertaking";
 
 export type RoleRow = {
   description?: string | null;
@@ -276,7 +277,10 @@ export async function ensureDefaultRoles(
   return getRolesWithPermissions(serviceClient);
 }
 
-export async function requireActiveStaff(request: Request) {
+export async function requireActiveStaff(
+  request: Request,
+  options: { requireIpUndertaking?: boolean } = {},
+) {
   const serviceClient = getServiceClient();
 
   if (!serviceClient) {
@@ -350,6 +354,51 @@ export async function requireActiveStaff(request: Request) {
       staffProfile,
       user,
     };
+  }
+
+  if (options.requireIpUndertaking !== false) {
+    const { data: acceptance, error: acceptanceError } = await serviceClient
+      .from("admin_policy_acceptances")
+      .select("id")
+      .eq("staff_profile_id", staffProfile.id)
+      .eq("policy_key", "admin-ip-undertaking")
+      .eq("policy_version", adminIpUndertaking.version)
+      .maybeSingle();
+
+    if (acceptanceError) {
+      console.error(
+        "[Zingara Admin Undertaking] Server verification failed closed",
+        acceptanceError,
+      );
+      return {
+        error: Response.json(
+          {
+            code: "ADMIN_IP_UNDERTAKING_UNAVAILABLE",
+            error: "The current Platform Use & Access Terms status could not be verified.",
+          },
+          { status: 503 },
+        ),
+        serviceClient,
+        staffProfile,
+        user,
+      };
+    }
+
+    if (!acceptance) {
+      return {
+        error: Response.json(
+          {
+            code: "ADMIN_IP_UNDERTAKING_REQUIRED",
+            error: "The current Platform Use & Access Terms must be accepted.",
+            version: adminIpUndertaking.version,
+          },
+          { status: 428 },
+        ),
+        serviceClient,
+        staffProfile,
+        user,
+      };
+    }
   }
 
   const isMutation = !["GET", "HEAD", "OPTIONS"].includes(

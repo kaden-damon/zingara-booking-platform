@@ -96,13 +96,13 @@ test("lock API enforces authentication and analytics permission", () => {
   assert.match(lockRoute, /releaseReportGenerationLock/);
 });
 
-test("heavy server exports acquire and always release the shared lock", () => {
-  for (const route of [managementExport, tablePlanExport]) {
-    assert.match(route, /acquireReportGenerationLock/);
-    assert.match(route, /finally/);
-    assert.match(route, /releaseReportGenerationLock/);
-    assert.match(route, /status: 423/);
-  }
+test("approved table-plan export acquires and always releases the shared lock", () => {
+  assert.match(tablePlanExport, /acquireReportGenerationLock/);
+  assert.match(tablePlanExport, /finally/);
+  assert.match(tablePlanExport, /releaseReportGenerationLock/);
+  assert.match(tablePlanExport, /status: 423/);
+  assert.match(managementExport, /Management data export is disabled/);
+  assert.doesNotMatch(managementExport, /acquireReportGenerationLock/);
 });
 
 test("client-generated operational reports share the same lock", () => {
@@ -113,8 +113,9 @@ test("client-generated operational reports share the same lock", () => {
 });
 
 test("report generation remains separate from Analytics viewing", () => {
-  assert.match(analytics, /useReportGenerationLock\(\)/);
-  assert.match(analytics, /disabled=\{exporting \|\| Boolean\(reportLock\)\}/);
+  assert.match(analytics, /calculateManagementAnalytics/);
+  assert.doesNotMatch(analytics, /Export Report/);
+  assert.doesNotMatch(analytics, /useReportGenerationLock\(\)/);
 });
 
 test("report lifecycle and stale recovery are audited", () => {

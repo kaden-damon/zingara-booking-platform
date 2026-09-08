@@ -5,15 +5,11 @@ import {
   analyticsTimezone,
   calculateManagementAnalytics,
   defaultManagementAnalyticsFilters,
-  filtersToSearchParams,
   type ManagementAnalyticsDataset,
   type ManagementAnalyticsFilters,
   weekdayNames,
 } from "@/lib/managementAnalytics";
-import { getAdminAuthSession } from "@/lib/supabase/auth";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
-import { getReportGenerationLockMessage } from "@/lib/reportGenerationLock";
-import { useReportGenerationLock } from "./useReportGenerationLock";
 
 const money = new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" });
 const integer = new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 0 });
@@ -129,14 +125,11 @@ export default function ManagementAnalytics() {
   const [filtersLoaded, setFiltersLoaded] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
-  const [exportStatus, setExportStatus] = useState("");
   const [sort, setSort] = useState<"date" | "guests" | "occupancy" | "bookingValue">("date");
   const [openSections, setOpenSections] = useState<AnalyticsSectionId[]>([
     "booking-activity",
     "performance-demand",
   ]);
-  const { lock: reportLock, refresh: refreshReportLock } = useReportGenerationLock();
 
   useEffect(() => {
     setFilters(
@@ -190,22 +183,6 @@ export default function ManagementAnalytics() {
     const to = range === "yesterday" ? from : today;
     setFilters((current) => ({ ...current, bookingCreatedFrom: from, bookingCreatedTo: to }));
   };
-  const exportReport = async () => {
-    if (exporting || reportLock) return;
-    setExporting(true); setExportStatus("Generating report...");
-    try {
-      const auth = await getAdminAuthSession();
-      if (!auth) throw new Error("Your Admin session has expired. Sign in again.");
-      const response = await fetch(`/api/admin/analytics/management/export?${filtersToSearchParams(filters)}`, { headers: { Authorization: `Bearer ${auth.session.access_token}` } });
-      if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "Management analytics export could not be generated."); }
-      const disposition = response.headers.get("content-disposition") ?? "";
-      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? "Zingara_Management_Analytics.xlsx";
-      const url = URL.createObjectURL(await response.blob());
-      const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
-      setExportStatus("Report downloaded successfully.");
-    } catch (exportError) { setExportStatus(exportError instanceof Error ? exportError.message : "Management analytics export could not be generated."); }
-    finally { setExporting(false); await refreshReportLock(); }
-  };
   const toggleSection = (sectionId: AnalyticsSectionId) => setOpenSections((current) =>
     current.includes(sectionId)
       ? current.filter((id) => id !== sectionId)
@@ -224,11 +201,8 @@ export default function ManagementAnalytics() {
       <header className="border-b border-[#D8C36A]/30 pb-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">Management Analytics</p><h2 className="zingara-heading mt-2 text-3xl font-bold">Sales & Performance Demand</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Booking activity measures genuine acquisition. Performance demand measures every legitimate active guest occupying a show, including imported legacy bookings.</p></div>
-          <button type="button" onClick={() => void exportReport()} disabled={exporting || Boolean(reportLock)} className="inline-flex h-11 items-center justify-center rounded-full border border-[#D8C36A]/60 px-5 text-sm font-bold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-60">{exporting ? "Generating Report..." : reportLock ? "Report Currently Being Generated" : "Export Report"}</button>
         </div>
         <p className="mt-3 text-xs text-zinc-500">Authoritative cutoff {new Date(dataset.asOf).toLocaleString("en-ZA", { timeZone: analyticsTimezone })} SAST</p>
-        {reportLock ? <p className="mt-3 rounded-lg border border-amber-300/25 bg-amber-950/20 px-4 py-3 text-sm text-amber-100" role="status">{getReportGenerationLockMessage(reportLock)}</p> : null}
-        {exportStatus ? <p className="mt-3 text-sm text-zinc-300" role="status">{exportStatus}</p> : null}
       </header>
 
       <section aria-labelledby="analytics-filters">

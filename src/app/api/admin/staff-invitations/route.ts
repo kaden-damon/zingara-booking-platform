@@ -9,6 +9,7 @@ import {
   recordAuditEvent,
   tryRecordAuditEvent,
 } from "@/lib/supabase/serverAudit";
+import { requireActiveStaff } from "@/lib/supabase/serverAdmin";
 
 type StaffInvitationRequest = {
   action?: "create-profile" | "create-user";
@@ -362,6 +363,9 @@ async function createLinkedStaffProfile(
 }
 
 export async function POST(request: Request) {
+  const undertakingAuth = await requireActiveStaff(request);
+  if (undertakingAuth.error) return undertakingAuth.error;
+
   console.log(
     "[Staff Invitations] Service role configured:",
     Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),

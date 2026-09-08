@@ -110,9 +110,13 @@ export const royalDecrees: RoyalDecree[] = [
         ],
       },
       {
-        heading: "Intellectual Property",
+        heading: "Intellectual Property, Confidentiality & Authorised Use",
         body: [
-          "All branding, artwork, design, copy, images, venue concepts, ticket design and platform content remain the property of The Royal Countess by Zingara or its licensors.",
+          "The Zingara booking and operations platform software, source code, system architecture, workflows, interfaces, database structures, reporting logic and related technical materials are proprietary intellectual property owned by Kaden Damon (Pty) Ltd. Zingara and The Royal Countess branding, artwork, venue concepts and hospitality content remain the property of their respective lawful owners.",
+          "Zingara business records and customer data remain distinct from the platform software intellectual property and must be handled according to applicable privacy, confidentiality and business requirements.",
+          "Authorised staff access is limited to approved Zingara business purposes. Staff and other authorised users must keep platform, customer, operational and commercial information confidential and must not disclose, copy, extract, retain, distribute, reverse engineer, reproduce, replicate or use it to create or assist another system except where expressly authorised in writing.",
+          "Access credentials are personal and may not be shared. Platform access may be disabled or revoked when a staff profile is deactivated, authority ends, or security requires it. These confidentiality and authorised-use obligations continue after access ends.",
+          "Nothing in these terms prevents lawful use of a person's general skills, experience or information that is genuinely public, provided no confidential information, proprietary material, customer data or protected non-public platform elements are used or disclosed.",
           "Guests may not copy, reproduce, adapt or commercially use platform content without written permission.",
         ],
       },

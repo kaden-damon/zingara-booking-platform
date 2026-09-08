@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
+import { AdminIpUndertakingGate } from "./AdminIpUndertakingGate";
 import { AdminSearchInput } from "./AdminSearchInput";
 import { BookingMetadataDraftEditor } from "./BookingMetadataDraftEditor";
 import { CompactBookingList } from "./CompactBookingList";
@@ -32,6 +33,12 @@ import { useReportGenerationLock } from "./useReportGenerationLock";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
 import CorporateConversionModal from "./CorporateConversionModal";
 import { getReportGenerationLockMessage } from "../../lib/reportGenerationLock";
+import {
+  adminIpUndertaking,
+  adminIpUndertakingRequiredEvent,
+  type AdminIpUndertakingStatus,
+} from "../../lib/adminIpUndertaking";
+import { platformVersion } from "../../lib/platformIdentity";
 
 import {
   type AdminRole,
@@ -1187,6 +1194,7 @@ type SystemStatusPayload = {
     currentStaff: string;
     environment: string;
     lastSuccessfulHealthCheck: string | null;
+    platformOwner: string;
     platformVersion: string;
     staffLoggedIn: string;
   };
@@ -1779,7 +1787,7 @@ const gettingStartedLessons: AcademyArticle[] = [
     id: "welcome-to-zingara",
     keywords: ["welcome", "onboarding", "platform", "academy", "location"],
     moduleId: "getting-started",
-    purpose: "Zingara Version 1.0 RC is the booking and operations platform for The Royal Countess experience. It helps the team manage reservations, guest details, seating, tickets, communications, check-in, waitlists, corporate enquiries, reporting, imports, audit history, and staff access from one place.",
+    purpose: `Zingara Version ${platformVersion} is the booking and operations platform for The Royal Countess experience. It helps the team manage reservations, guest details, seating, tickets, communications, check-in, waitlists, corporate enquiries, reporting, audit history, and staff access from one place.`,
     relatedActions: ["bookings", "crm", "waitlist", "communications"],
     related: ["Logging In", "Navigating the Platform", "Finding an Existing Booking"],
     tips: [
@@ -6820,8 +6828,17 @@ const academyArticles: AcademyArticle[] = [
   ...venueOperationsLessons,
   ...staffPermissionLessons,
   ...settingsLessons,
-  ...analyticsReportingLessons,
-  ...platformAdministrationLessons,
+  ...analyticsReportingLessons.filter(
+    (article) => article.id !== "export-centre",
+  ),
+  ...platformAdministrationLessons.filter(
+    (article) =>
+      ![
+        "data-portability-overview",
+        "transactional-import",
+        "restore-points-and-import-history",
+      ].includes(article.id),
+  ),
   ...faqLessons,
 ];
 
@@ -6919,7 +6936,6 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "promo-codes", label: "Promo Codes" },
   { id: "workflows", label: "Automated Workflows" },
   { id: "audit", label: "Audit Trail" },
-  { id: "portability", label: "Portability" },
 ];
 const systemTabs: Array<{ id: SystemTab; label: string }> = [
   { id: "operations", label: "Operations" },
@@ -10432,6 +10448,10 @@ export default function AdminDashboardPage() {
   });
   const [loginError, setLoginError] = useState("");
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
+  const [adminUndertakingState, setAdminUndertakingState] = useState<
+    "accepted" | "error" | "idle" | "loading" | "required"
+  >("idle");
+  const [adminUndertakingError, setAdminUndertakingError] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [isPasswordResetOpen, setIsPasswordResetOpen] = useState(false);
   const [passwordResetEmail, setPasswordResetEmail] = useState("");
@@ -10871,6 +10891,23 @@ export default function AdminDashboardPage() {
   }
 
   useEffect(() => {
+    const requireCurrentUndertaking = () => {
+      setAdminUndertakingError("");
+      setAdminUndertakingState("required");
+    };
+
+    window.addEventListener(
+      adminIpUndertakingRequiredEvent,
+      requireCurrentUndertaking,
+    );
+    return () =>
+      window.removeEventListener(
+        adminIpUndertakingRequiredEvent,
+        requireCurrentUndertaking,
+      );
+  }, []);
+
+  useEffect(() => {
     const storedStandardPageSize = parsePageSize(
       window.localStorage.getItem(standardBookingPageSizeStorageKey),
     );
@@ -11145,6 +11182,28 @@ export default function AdminDashboardPage() {
         return;
       }
 
+      setAdminUndertakingState("loading");
+      setAdminUndertakingError("");
+      try {
+        const undertaking = await fetchSupabaseApi<AdminIpUndertakingStatus>(
+          "/api/admin/ip-undertaking",
+        );
+
+        if (!undertaking.accepted) {
+          setAdminUndertakingState("required");
+          return;
+        }
+        setAdminUndertakingState("accepted");
+      } catch (undertakingError) {
+        setAdminUndertakingState("error");
+        setAdminUndertakingError(
+          undertakingError instanceof Error
+            ? undertakingError.message
+            : "The required undertaking status could not be verified.",
+        );
+        return;
+      }
+
       setIsShowsLoading(true);
       setShowLoadError("");
       const showLoadRequestId = showLoadRequestRef.current + 1;
@@ -11299,6 +11358,7 @@ export default function AdminDashboardPage() {
         if (nextAdminSession) {
           void loadAdminData({ sessionValidated: true });
         } else {
+          setAdminUndertakingState("idle");
           liveCustomerLoadRequestRef.current += 1;
           setLiveCustomerRecords([]);
           setCustomerDataLoadStatus("idle");
@@ -11749,8 +11809,7 @@ export default function AdminDashboardPage() {
     canManageBookings || canCheckInGuests;
   const canViewStaffOperations = canCheckInGuests;
   const isSuperAdmin = currentStaff?.role === "super-admin";
-  const canExecuteDataPortability =
-    currentStaff?.email?.trim().toLowerCase() === "kaden@kaden.co.za";
+  const canExecuteDataPortability = false;
   const isVenueManager = currentStaff?.role === "venue-manager";
   const canManageIssueRegister = canManageStaffIssues(currentStaff?.role);
   const canViewAuditTrail = isSuperAdmin || isVenueManager;
@@ -11990,7 +12049,7 @@ export default function AdminDashboardPage() {
 
     void refreshAuditTrail(1);
   }, [activeAdminTab, activeSettingsTab, auditFilters, canViewAuditTrail]);
-  const canViewDataPortability = isSuperAdmin;
+  const canViewDataPortability = false;
   const activeBookingEditCount = bookingEditLocks.length;
 
   useEffect(() => {
@@ -12935,11 +12994,6 @@ export default function AdminDashboardPage() {
       description: "Revenue and balance reporting",
       id: "financial-reports",
       label: "Financial Reports",
-    },
-    {
-      description: "Operational exports",
-      id: "export-centre",
-      label: "Exports",
     },
   ] satisfies Array<{
     description: string;
@@ -14120,6 +14174,33 @@ export default function AdminDashboardPage() {
     await signOutAdmin();
     window.dispatchEvent(new Event(adminAuthChangedEvent));
     setCurrentStaff(null);
+    setAdminUndertakingState("idle");
+  }
+
+  async function acceptAdminIpUndertaking() {
+    setAdminUndertakingError("");
+    try {
+      await fetchSupabaseApi<AdminIpUndertakingStatus>(
+        "/api/admin/ip-undertaking",
+        {
+          body: {
+            accepted: true,
+            version: adminIpUndertaking.version,
+          },
+          method: "POST",
+        },
+      );
+      setAdminUndertakingState("accepted");
+      window.dispatchEvent(new Event(adminAuthChangedEvent));
+    } catch (error) {
+      setAdminUndertakingState("required");
+      setAdminUndertakingError(
+        error instanceof Error
+          ? error.message
+          : "The undertaking acceptance could not be recorded.",
+      );
+      throw error;
+    }
   }
 
   function selectFloorEditingShow(showId: string) {
@@ -26464,6 +26545,7 @@ export default function AdminDashboardPage() {
           <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             {[
               ["Version", systemStatus.platform.platformVersion],
+              ["Platform Owner", systemStatus.platform.platformOwner],
               ["Build", systemStatus.platform.build],
               ["Environment", systemStatus.platform.environment],
               ["Current Staff", systemStatus.platform.currentStaff],
@@ -26730,6 +26812,16 @@ export default function AdminDashboardPage() {
 
         </section>
       </main>
+    );
+  }
+
+  if (adminUndertakingState !== "accepted") {
+    return (
+      <AdminIpUndertakingGate
+        error={adminUndertakingError}
+        isLoading={adminUndertakingState === "loading"}
+        onAccept={acceptAdminIpUndertaking}
+      />
     );
   }
 
@@ -29167,7 +29259,6 @@ export default function AdminDashboardPage() {
                     "Financial Reports",
                     canViewOperationsFinancials,
                   ],
-                  ["export-centre", "Exports", canViewOperationsWorkspace],
                 ] as Array<[OperationsTab, string, boolean]>
               )
                 .filter(([, , isEnabled]) => isEnabled)
