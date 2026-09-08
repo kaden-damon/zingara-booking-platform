@@ -95,3 +95,22 @@ export function releaseCorporateFloorAssignment(input: {
     { body: { action: "release", ...input }, method: "POST" },
   );
 }
+
+export function releaseCorporateFloorTable(input: {
+  bookingReference: string;
+  expectedTableIds: string[];
+  expectedUpdatedAt: string;
+  tableId: string;
+}) {
+  return fetchSupabaseApi<{
+    ok: true;
+    result: {
+      floorAssignmentRequired: boolean;
+      releaseMode: "complete-fallback" | "single";
+      released: number;
+    };
+  }>("/api/admin/floor-capacity-plan", {
+    body: { action: "release-table", ...input },
+    method: "POST",
+  });
+}

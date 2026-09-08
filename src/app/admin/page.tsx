@@ -41,6 +41,7 @@ import {
   type AdminIpUndertakingStatus,
 } from "../../lib/adminIpUndertaking";
 import { platformVersion } from "../../lib/platformIdentity";
+import { bookingClaimsTable } from "../../lib/bookingTableClaims";
 
 import {
   type AdminRole,
@@ -270,6 +271,7 @@ import {
 import {
   corporateFloorZones,
   getCorporateZoneAvailability,
+  getCorporateTableReleasePreview,
   type CorporateFloorZone,
 } from "../../lib/corporateFloorPlanning";
 import {
@@ -277,6 +279,7 @@ import {
   createShowFloorCapacityPlan,
   planShowFloorCapacity,
   releaseCorporateFloorAssignment,
+  releaseCorporateFloorTable,
   type ShowWideFloorCapacityPlan,
 } from "../../lib/supabase/floorPlans";
 import {
@@ -7400,8 +7403,8 @@ function getTableOccupancy(
   }
 
   const booking = bookings.find(
-      (currentBooking) =>
-        (currentBooking.tableId === table.id ||
+    (currentBooking) =>
+      (bookingClaimsTable(currentBooking, table.id) ||
           currentBooking.reference === table.bookingReference) &&
       isOperationallyActiveBooking(currentBooking),
   );
@@ -10559,6 +10562,10 @@ export default function AdminDashboardPage() {
   const [floorAssignmentAction, setFloorAssignmentAction] = useState<{
     reference: string;
     status: "assigned" | "assigning";
+  } | null>(null);
+  const [floorTableReleaseAction, setFloorTableReleaseAction] = useState<{
+    status: "released" | "releasing";
+    tableId: string;
   } | null>(null);
   const [physicalCapacityDrafts, setPhysicalCapacityDrafts] = useState<
     Record<string, string>
@@ -22381,6 +22388,70 @@ export default function AdminDashboardPage() {
       setFloorAssignmentAction(null);
       setFloorCapacityPlanStatus(
         error instanceof Error ? error.message : "The table assignment was not released.",
+      );
+    } finally {
+      floorAssignmentInFlightRef.current.delete(booking.reference);
+    }
+  }
+
+  async function releaseCorporateTable(
+    booking: DemoBooking,
+    table: DemoTable,
+  ) {
+    const tableId = table.authoritativeId ?? table.id;
+    const tableIds = (booking.reservationTableClaims ?? [])
+      .map((claim) => claim.tableId)
+      .filter((id): id is string => Boolean(id));
+    const preview = getCorporateTableReleasePreview({
+      bookingPax: booking.partySize,
+      releaseTableId: tableId,
+      tableClaims: booking.reservationTableClaims ?? [],
+    });
+    if (
+      !preview ||
+      !booking.updatedAt ||
+      !booking.showId ||
+      tableIds.length === 0 ||
+      floorAssignmentInFlightRef.current.has(booking.reference) ||
+      floorTableReleaseAction?.status === "releasing"
+    ) {
+      return;
+    }
+
+    const assignmentOutcome =
+      preview.releaseMode === "single"
+        ? `The remaining ${preview.remainingTableCount} tables provide ${preview.remainingCapacity} seats, so the booking will remain fully assigned.`
+        : `The remaining tables would provide only ${preview.remainingCapacity} seats for ${booking.partySize} guests. The complete assignment will be released and the booking will return to Floor Assignment.`;
+    if (
+      !window.confirm(
+        `Release Table ${preview.releasedTableCode}?\n\nBooking: ${booking.customer.name || booking.reference}\n\nThis table is part of a ${tableIds.length}-table Corporate assignment. ${assignmentOutcome}`,
+      )
+    ) {
+      return;
+    }
+
+    floorAssignmentInFlightRef.current.add(booking.reference);
+    setFloorTableReleaseAction({ status: "releasing", tableId });
+    try {
+      const response = await releaseCorporateFloorTable({
+        bookingReference: booking.reference,
+        expectedTableIds: tableIds,
+        expectedUpdatedAt: booking.updatedAt,
+        tableId,
+      });
+      await refreshAssignedShowState(booking.showId);
+      setFloorTableReleaseAction({ status: "released", tableId });
+      setFloorCapacityPlanStatus(
+        response.result.releaseMode === "single"
+          ? `Table ${preview.releasedTableCode} was released. ${booking.reference} remains fully assigned.`
+          : `The complete assignment was released because the remaining tables could not seat ${booking.partySize} guests. ${booking.reference} returned to Floor Assignment.`,
+      );
+    } catch (error) {
+      setFloorTableReleaseAction(null);
+      setFloorCapacityPlanStatus(
+        error instanceof Error
+          ? error.message
+          : "The Corporate table was not released.",
       );
     } finally {
       floorAssignmentInFlightRef.current.delete(booking.reference);
@@ -40490,6 +40561,18 @@ export default function AdminDashboardPage() {
                       const allocatedBooking = tableOccupancy.booking;
                       const allocatedBookingTableCount =
                         allocatedBooking?.reservationTableClaims?.length ?? 0;
+                      const allocatedBookingCombinedCapacity =
+                        allocatedBooking?.reservationTableClaims?.reduce(
+                          (total, claim) => total + claim.capacity,
+                          0,
+                        ) ?? 0;
+                      const authoritativeTableId =
+                        table.authoritativeId ?? table.id;
+                      const isAllocatedTableClaim = Boolean(
+                        allocatedBooking?.reservationTableClaims?.some(
+                          (claim) => claim.tableId === authoritativeTableId,
+                        ),
+                      );
                       const canMoveAllocatedBooking = Boolean(
                         allocatedBooking &&
                           allocatedBookingTableCount <= 1 &&
@@ -40860,6 +40943,64 @@ export default function AdminDashboardPage() {
                               </span>
                             )}
                           </div>
+
+                          {allocatedBooking && (
+                            <div className="rounded-2xl border border-amber-300/20 bg-amber-950/10 p-4 text-sm text-zinc-300">
+                              <p className="font-semibold text-white">
+                                {allocatedBooking.customer.name || "Guest"}
+                              </p>
+                              <p className="mt-1">
+                                {allocatedBooking.reference} ·{" "}
+                                {allocatedBooking.source === "corporate-direct"
+                                  ? "Corporate booking"
+                                  : "Standard booking"}{" "}
+                                · {allocatedBooking.partySize} pax
+                              </p>
+                              <p className="mt-1 text-xs text-zinc-400">
+                                This table: {table.seatCapacity} seats
+                                {allocatedBookingTableCount > 1
+                                  ? ` · Complete assignment: ${allocatedBookingTableCount} tables, ${allocatedBookingCombinedCapacity} combined seats`
+                                  : ""}
+                              </p>
+                              {allocatedBooking.source === "corporate-direct" &&
+                                isAllocatedTableClaim && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void releaseCorporateTable(
+                                        allocatedBooking,
+                                        table,
+                                      )
+                                    }
+                                    disabled={
+                                      !canManageBookings ||
+                                      !canManageTables ||
+                                      isBookingReadOnly(
+                                        allocatedBooking.reference,
+                                      ) ||
+                                      floorAssignmentInFlightRef.current.has(
+                                        allocatedBooking.reference,
+                                      ) ||
+                                      floorTableReleaseAction?.status ===
+                                        "releasing"
+                                    }
+                                    className="mt-3 w-full rounded-xl border border-amber-300/40 px-3 py-2 text-xs font-semibold uppercase text-amber-100 transition hover:bg-amber-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    {floorTableReleaseAction?.tableId ===
+                                      authoritativeTableId &&
+                                    floorTableReleaseAction.status ===
+                                      "releasing"
+                                      ? "RELEASING..."
+                                      : floorTableReleaseAction?.tableId ===
+                                            authoritativeTableId &&
+                                          floorTableReleaseAction.status ===
+                                            "released"
+                                        ? "RELEASED ✓"
+                                        : "RELEASE TABLE"}
+                                  </button>
+                                )}
+                            </div>
+                          )}
 
                           {table.mergedFrom?.length && (
                             <div className="rounded-2xl border border-sky-300/20 bg-sky-950/10 p-4 text-sm text-sky-100">

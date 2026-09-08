@@ -456,7 +456,7 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json().catch(() => ({}))) as {
-    action?: "assign" | "create" | "release";
+    action?: "assign" | "create" | "release" | "release-table";
     bookingReference?: string;
     capacities?: number[];
     confirmCreate?: boolean;
@@ -465,10 +465,56 @@ export async function POST(request: Request) {
     showReference?: string;
     snapshotToken?: string;
     tableIds?: string[];
+    tableId?: string;
     zoneId?: string;
   };
   const showReference = body.showReference?.trim() ?? "";
   const zoneId = body.zoneId?.trim() as CorporateFloorZone;
+
+  if (body.action === "release-table") {
+    const bookingReference = body.bookingReference?.trim() ?? "";
+    const tableId = body.tableId?.trim() ?? "";
+    if (!bookingReference || !tableId || !body.expectedUpdatedAt?.trim()) {
+      return Response.json(
+        { error: "A current Corporate table claim is required." },
+        { status: 400 },
+      );
+    }
+    try {
+      const { data, error: releaseError } = await auth.serviceClient.rpc(
+        "release_corporate_booking_table_atomic",
+        {
+          p_actor_auth_user_id: auth.user.id,
+          p_actor_staff_profile_id: auth.staffProfile.id,
+          p_booking_reference: bookingReference,
+          p_expected_table_ids: body.expectedTableIds ?? [],
+          p_expected_updated_at: body.expectedUpdatedAt,
+          p_table_id: tableId,
+        },
+      );
+      if (releaseError) throw releaseError;
+      return Response.json({ ok: true, result: data });
+    } catch (releaseError) {
+      const message =
+        releaseError instanceof Error
+          ? releaseError.message
+          : String(releaseError);
+      if (/FLOOR_PLAN_STALE|TABLE_CLAIM/i.test(message)) {
+        return Response.json(
+          { error: "FLOOR PLAN CHANGED - REVIEW AGAIN" },
+          { status: 409 },
+        );
+      }
+      console.error(
+        "[Zingara Floor Capacity] Table release failed",
+        releaseError,
+      );
+      return Response.json(
+        { error: "The Corporate table was not released." },
+        { status: 500 },
+      );
+    }
+  }
 
   if (body.action === "release") {
     const bookingReference = body.bookingReference?.trim() ?? "";

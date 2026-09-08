@@ -1,5 +1,6 @@
 import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
 import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
+import { bookingClaimsTable } from "./bookingTableClaims";
 
 export const demoBookingsStorageKey = "zingara-demo-bookings";
 export const demoShowsStorageKey = "zingara-demo-shows";
@@ -2849,7 +2850,7 @@ export function applyBookingOccupancyToTables(
 
     const occupyingBooking = occupyingBookings.find(
       (booking) =>
-        booking.tableId === availableTable.id &&
+        bookingClaimsTable(booking, availableTable.id) &&
         booking.showId === availableTable.showId,
     );
 

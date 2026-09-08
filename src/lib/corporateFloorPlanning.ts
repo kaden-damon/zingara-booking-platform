@@ -398,3 +398,36 @@ export function buildZoneFloorCapacityPlan(input: {
     zoneId: input.zoneId,
   };
 }
+
+export function getCorporateTableReleasePreview(input: {
+  bookingPax: number;
+  releaseTableId: string;
+  tableClaims: Array<{
+    capacity: number;
+    tableCode: string;
+    tableId?: string;
+  }>;
+}) {
+  const releasedClaim = input.tableClaims.find(
+    (claim) => claim.tableId === input.releaseTableId,
+  );
+  if (!releasedClaim) return null;
+
+  const remainingClaims = input.tableClaims.filter(
+    (claim) => claim.tableId !== input.releaseTableId,
+  );
+  const remainingCapacity = remainingClaims.reduce(
+    (total, claim) => total + Math.max(Number(claim.capacity) || 0, 0),
+    0,
+  );
+
+  return {
+    releaseMode:
+      remainingClaims.length > 0 && remainingCapacity >= input.bookingPax
+        ? ("single" as const)
+        : ("complete-fallback" as const),
+    releasedTableCode: releasedClaim.tableCode,
+    remainingCapacity,
+    remainingTableCount: remainingClaims.length,
+  };
+}
