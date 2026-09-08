@@ -8,6 +8,7 @@ import {
   seatingZones,
 } from "@/lib/zingaraDemo";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,12 @@ export async function GET(request: Request) {
       { error: "Show availability is temporarily unavailable." },
       { status: 503 },
     );
+  }
+
+  try {
+    await runPublicPaymentHoldCleanup(serviceClient);
+  } catch (error) {
+    console.error("[Zingara API] Public payment hold cleanup failed", error);
   }
 
   const [bookingResult, settingsResult] = await Promise.all([

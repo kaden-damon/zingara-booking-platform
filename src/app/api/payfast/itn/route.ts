@@ -37,6 +37,7 @@ import {
 } from "@/lib/supabase/staffPush";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculatePayFastBookingReconciliation } from "@/lib/payfast/transactionFee";
+import { releaseValidatedFailedPublicPaymentHold } from "@/lib/workflows/publicPaymentHolds";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -934,6 +935,11 @@ export async function POST(request: Request) {
         supabase,
         bookingRow.id,
         `PayFast payment_status ${data.payment_status ?? "UNKNOWN"}`,
+      );
+      await releaseValidatedFailedPublicPaymentHold(
+        supabase,
+        bookingReference,
+        data.payment_status,
       );
       return Response.json({ ok: false, validation }, { status: 200 });
     }

@@ -5,6 +5,7 @@ import {
   type AutomatedWorkflowKey,
 } from "@/lib/workflows/automatedWorkflows";
 import { runCorporatePaymentHolds } from "@/lib/workflows/corporatePaymentHolds";
+import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -70,6 +71,7 @@ export async function GET(request: Request) {
       workflowKey,
     });
     const corporatePaymentHolds = await runCorporatePaymentHolds(serviceClient);
+    const publicPaymentHolds = await runPublicPaymentHoldCleanup(serviceClient);
     let telemetryCleanup: Awaited<ReturnType<typeof cleanupPlatformTelemetry>> =
       null;
 
@@ -89,6 +91,7 @@ export async function GET(request: Request) {
     return Response.json({
       ...result,
       corporatePaymentHolds,
+      publicPaymentHolds,
       telemetryCleanup,
     });
   } catch (error) {

@@ -2,6 +2,7 @@ import {
   createExistingBookingPayFastCheckout,
   preparePayFastCheckoutAttempt,
 } from "@/lib/payfast/checkout";
+import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
 import {
   recordPlatformEventBestEffort,
   recordPlatformFailureEventBestEffort,
@@ -115,6 +116,12 @@ export async function POST(request: Request) {
         },
         serviceClient,
       );
+    }
+
+    try {
+      await runPublicPaymentHoldCleanup(serviceClient);
+    } catch (error) {
+      console.error("[Zingara PayFast] Public payment hold cleanup failed", error);
     }
 
     let attemptResult: Awaited<ReturnType<typeof preparePayFastCheckoutAttempt>>;

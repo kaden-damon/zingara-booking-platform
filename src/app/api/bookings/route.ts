@@ -87,6 +87,7 @@ import {
   createAgePolicyAcknowledgement,
   hasValidAgePolicyAcknowledgement,
 } from "@/lib/ageRestrictionPolicy";
+import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
 
 export const dynamic = "force-dynamic";
 
@@ -1717,6 +1718,12 @@ export async function POST(request: Request) {
             { status: 409 },
           );
         }
+      }
+
+      try {
+        await runPublicPaymentHoldCleanup(supabase);
+      } catch (error) {
+        console.error("[Zingara API] Public payment hold cleanup failed", error);
       }
     }
 
