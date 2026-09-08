@@ -13,6 +13,7 @@ import { createCorporateRequest } from "../../lib/supabase/corporateRequests";
 import { getPublicVenueSettings } from "../../lib/supabase/venueSettings";
 import YourEvening from "../components/YourEvening";
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
+import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
   ageRestrictionPolicy,
   createAgePolicyAcknowledgement,
@@ -562,7 +563,6 @@ export default function CorporateBookingPage() {
               {[
                 ["Company Name", "companyName", "text"],
                 ["Contact Person Full Name", "contactName", "text"],
-                ["Contact Number", "contactNumber", "tel"],
                 ["Email Address", "email", "email"],
               ].map(([label, key, type]) => (
                 <label key={key} className="block">
@@ -582,6 +582,20 @@ export default function CorporateBookingPage() {
                   />
                 </label>
               ))}
+
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                  Mobile Number
+                </span>
+                <InternationalPhoneInput
+                  required
+                  className="mt-2"
+                  value={form.contactNumber}
+                  onChange={(contactNumber) =>
+                    updateCorporateForm({ contactNumber })
+                  }
+                />
+              </label>
 
               {renderDatePicker(
                 "Preferred Event Date",

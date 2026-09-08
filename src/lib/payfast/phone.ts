@@ -3,7 +3,7 @@ export type PayFastCellNumberResult =
   | { error: string; valid: false };
 
 const invalidCellNumberError =
-  "The customer phone number cannot be used for PayFast checkout. Enter a valid 10-digit South African number and try again.";
+  "The customer phone number is invalid. Check the country calling code and mobile number.";
 
 export function normalizePayFastCellNumber(
   phone: string | null | undefined,
@@ -14,20 +14,19 @@ export function normalizePayFastCellNumber(
     return { cellNumber: undefined, valid: true };
   }
 
-  if (!/^[+\d\s().-]+$/.test(trimmed)) {
+  const parsed = parseInternationalPhone(trimmed);
+
+  if (!parsed.valid) {
     return { error: invalidCellNumberError, valid: false };
   }
 
-  const digits = trimmed.replace(/\D/g, "");
-  const nationalNumber = digits.startsWith("27")
-    ? `0${digits.slice(2)}`
-    : digits.length === 9
-      ? `0${digits}`
-      : digits;
-
-  if (!/^0\d{9}$/.test(nationalNumber)) {
-    return { error: invalidCellNumberError, valid: false };
-  }
-
-  return { cellNumber: nationalNumber, valid: true };
+  // PayFast's cell_number is optional and its existing integration expects a
+  // South African national number. International customers must not be blocked
+  // by an optional provider field or be assigned a fabricated local number.
+  return {
+    cellNumber:
+      parsed.country === "ZA" ? `0${parsed.nationalNumber}` : undefined,
+    valid: true,
+  };
 }
+import { parseInternationalPhone } from "@/lib/phone";

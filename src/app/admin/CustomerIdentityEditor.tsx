@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import InternationalPhoneInput from "../components/InternationalPhoneInput";
 
 export type CustomerIdentityDraft = {
   email: string;
@@ -54,7 +55,6 @@ export function CustomerIdentityEditor({
             ["firstName", "First Name", "text", ""],
             ["lastName", "Last Name", "text", ""],
             ["email", "Email", "email", "email"],
-            ["mobile", "Mobile", "tel", "tel"],
           ] as const
         ).map(([field, label, type, autoComplete]) => (
           <label key={field}>
@@ -71,6 +71,16 @@ export function CustomerIdentityEditor({
             />
           </label>
         ))}
+        <label>
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+            Mobile
+          </span>
+          <InternationalPhoneInput
+            disabled={isSaving}
+            value={draft.mobile}
+            onChange={(mobile) => updateDraft("mobile", mobile)}
+          />
+        </label>
       </div>
       {error && (
         <p className="mt-3 text-sm font-semibold text-red-200" role="alert">

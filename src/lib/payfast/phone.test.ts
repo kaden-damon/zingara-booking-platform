@@ -22,8 +22,21 @@ for (const [input, expected] of expectedNumbers) {
   });
 }
 
-test("rejects a non-South-African or malformed phone before checkout", () => {
-  assert.equal(normalizePayFastCellNumber("+1 202 555 0100").valid, false);
+test("omits the optional provider cell field for valid international phones", () => {
+  for (const phone of [
+    "+44 7911 123456",
+    "+1 202 555 0100",
+    "+61 412 345 678",
+    "+33 6 12 34 56 78",
+  ]) {
+    assert.deepEqual(normalizePayFastCellNumber(phone), {
+      cellNumber: undefined,
+      valid: true,
+    });
+  }
+});
+
+test("rejects a malformed phone before checkout", () => {
   assert.equal(normalizePayFastCellNumber("not-a-phone").valid, false);
 });
 

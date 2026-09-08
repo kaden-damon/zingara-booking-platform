@@ -41,6 +41,10 @@ import {
   normalizeBookingCustomer,
   validateBookingCreate,
 } from "@/lib/bookingCreateValidation";
+import {
+  getPhoneLookupVariants,
+  normalizePhoneForComparison,
+} from "@/lib/phone";
 import { isStandardBookingZoneGuestCountAllowed } from "@/lib/bookingSeatingAvailability";
 import {
   findDuplicateSentCommunication,
@@ -376,7 +380,7 @@ function isAwaitingExternalPayment(booking: DemoBooking) {
 
 function getCustomerKey(customer: CustomerInfo) {
   const email = customer.email?.trim().toLowerCase();
-  const phone = customer.phone?.replace(/\D/g, "");
+  const phone = normalizePhoneForComparison(customer.phone);
   const name = customer.name?.trim().toLowerCase();
 
   return email || phone || name || "unknown-customer";
@@ -495,7 +499,7 @@ async function upsertCustomer(
 ) {
   const payload = getCustomerPayload(customer);
   const customerKey = payload.preferences.customerKey;
-  const mobile = customer.phone?.replace(/\D/g, "");
+  const mobile = normalizePhoneForComparison(customer.phone);
 
   async function loadMatchingCustomer() {
     // Email owns a unique database constraint, so resolve it independently and
@@ -521,10 +525,11 @@ async function upsertCustomer(
       return undefined;
     }
 
+    const mobileVariants = getPhoneLookupVariants(customer.phone);
     const { data: rows, error: loadError } = await supabase
       .from("customers")
       .select("id,email,mobile,first_name,surname,preferences")
-      .eq("mobile", customer.phone.trim());
+      .in("mobile", mobileVariants);
 
     if (loadError) {
       throw loadError;
@@ -533,7 +538,7 @@ async function upsertCustomer(
     return ((rows ?? []) as SupabaseCustomerRow[]).find(
       (row) =>
         row.preferences?.customerKey === customerKey ||
-        (mobile && row.mobile?.replace(/\D/g, "") === mobile),
+        (mobile && normalizePhoneForComparison(row.mobile) === mobile),
     );
   }
 

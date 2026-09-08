@@ -1,5 +1,8 @@
 import type { BookingSource, CustomerInfo } from "@/lib/zingaraDemo";
-import { normalizePayFastCellNumber } from "@/lib/payfast/phone";
+import {
+  normalizePhoneForStorage,
+  parseInternationalPhone,
+} from "@/lib/phone";
 
 export type BookingCreateField = "email" | "name" | "partySize" | "phone";
 
@@ -16,7 +19,6 @@ type BookingCreateValidationInput = {
 };
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const phonePattern = /^[0-9+()\s.-]+$/;
 
 export function normalizeBookingCustomer(
   customer: Partial<CustomerInfo> | null | undefined,
@@ -24,7 +26,7 @@ export function normalizeBookingCustomer(
   return {
     email: customer?.email?.trim().toLowerCase() ?? "",
     name: customer?.name?.trim() ?? "",
-    phone: customer?.phone?.trim() ?? "",
+    phone: normalizePhoneForStorage(customer?.phone),
   };
 }
 
@@ -57,11 +59,11 @@ export function validateBookingCreate(
 
     if (!customer.phone) {
       errors.phone = "Mobile number is required.";
-    } else if (!phonePattern.test(customer.phone)) {
+    } else if (!parseInternationalPhone(customer.phone).valid) {
       errors.phone = "Enter a valid mobile number.";
-    } else if (!normalizePayFastCellNumber(customer.phone).valid) {
-      errors.phone = "Enter a valid South African mobile number.";
     }
+  } else if (customer.phone && !parseInternationalPhone(customer.phone).valid) {
+    errors.phone = "Enter a valid mobile number.";
   }
 
   return errors;

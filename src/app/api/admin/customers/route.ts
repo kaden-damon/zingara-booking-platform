@@ -11,6 +11,12 @@ import {
   tryRecordAuditEvent,
 } from "@/lib/supabase/serverAudit";
 import { notifyAppleWalletCustomer } from "@/lib/appleWalletSync";
+import {
+  getPhoneLookupVariants,
+  normalizePhoneForComparison,
+  normalizePhoneForStorage,
+  parseInternationalPhone,
+} from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +91,13 @@ function normalizeOptionalText(value: string | null | undefined) {
   return trimmed || null;
 }
 
+function getOptionalMobileError(value: string | null | undefined) {
+  const mobile = value?.trim();
+  return mobile && !parseInternationalPhone(mobile).valid
+    ? "Enter a valid mobile number."
+    : null;
+}
+
 function canManageCustomerIdentity(
   profile: Awaited<ReturnType<typeof requireActiveStaff>>["staffProfile"],
 ) {
@@ -103,7 +116,9 @@ function toCustomerIdentityPayload(input: CustomerIdentityInput) {
   const firstName = input.firstName?.trim();
   const surname = normalizeOptionalText(input.lastName);
   const email = normalizeOptionalEmail(input.email);
-  const mobile = normalizeOptionalText(input.mobile);
+  const rawMobile = normalizeOptionalText(input.mobile);
+  const parsedMobile = rawMobile ? parseInternationalPhone(rawMobile) : null;
+  const mobile = parsedMobile?.valid ? parsedMobile.e164 : rawMobile;
 
   if (!firstName) {
     return {
@@ -115,6 +130,13 @@ function toCustomerIdentityPayload(input: CustomerIdentityInput) {
   if (email && !emailPattern.test(email)) {
     return {
       error: "Enter a valid email address.",
+      payload: null,
+    };
+  }
+
+  if (rawMobile && !parsedMobile?.valid) {
+    return {
+      error: "Enter a valid mobile number.",
       payload: null,
     };
   }
@@ -137,7 +159,7 @@ function getCustomerIdentityKey(payload: {
   surname: string | null;
 }) {
   const email = payload.email?.trim().toLowerCase();
-  const phone = payload.mobile?.replace(/\D/g, "");
+  const phone = normalizePhoneForComparison(payload.mobile);
   const name = [payload.first_name, payload.surname]
     .filter(Boolean)
     .join(" ")
@@ -169,7 +191,7 @@ function getCustomerKey(customer: {
   phone?: string;
 }) {
   const email = customer.email?.trim().toLowerCase();
-  const phone = customer.phone?.replace(/\D/g, "");
+  const phone = normalizePhoneForComparison(customer.phone);
   const name = customer.name?.trim().toLowerCase();
 
   return email || phone || name || "unknown-customer";
@@ -203,7 +225,7 @@ function toCustomerPayload(
     dietary_requirements: input.dietaryRequirements ?? null,
     email: input.email?.trim().toLowerCase() || null,
     first_name: nameParts.firstName,
-    mobile: input.mobile?.trim() || null,
+    mobile: normalizePhoneForStorage(input.mobile) || null,
     preferences: {
       ...(existingPreferences ?? {}),
       customerKey,
@@ -228,10 +250,12 @@ async function findCustomer(
       phone: input.mobile,
     });
   const email = input.email?.trim().toLowerCase();
-  const mobile = input.mobile?.replace(/\D/g, "");
+  const mobile = normalizePhoneForComparison(input.mobile);
   const filters = [
     email ? `email.eq.${email}` : "",
-    input.mobile?.trim() ? `mobile.eq.${input.mobile.trim()}` : "",
+    ...getPhoneLookupVariants(input.mobile).map(
+      (variant) => `mobile.eq.${variant}`,
+    ),
   ].filter(Boolean);
   let query = serviceClient.from("customers").select(customerSelect);
 
@@ -246,7 +270,7 @@ async function findCustomer(
   }
 
   return ((data ?? []) as SupabaseCustomerRow[]).find((row) => {
-    const rowMobile = row.mobile?.replace(/\D/g, "");
+    const rowMobile = normalizePhoneForComparison(row.mobile);
 
     return (
       row.preferences?.customerKey === customerKey ||
@@ -441,6 +465,12 @@ export async function POST(request: Request) {
         { error: "Customer input is required." },
         { status: 400 },
       );
+    }
+
+    const mobileError = getOptionalMobileError(body.input.mobile);
+
+    if (mobileError) {
+      return Response.json({ error: mobileError }, { status: 400 });
     }
 
     const existingCustomer = await findCustomer(serviceClient, body.input);
@@ -687,7 +717,7 @@ export async function PATCH(request: Request) {
       }
 
       if (payload.mobile) {
-        const normalizedMobile = payload.mobile.replace(/\D/g, "");
+        const normalizedMobile = normalizePhoneForComparison(payload.mobile);
         const { rows: mobileRows, error: mobileConflictError } =
           await fetchOtherCustomerMobiles(serviceClient, body.id);
 
@@ -696,7 +726,8 @@ export async function PATCH(request: Request) {
         }
 
         const mobileConflict = (mobileRows ?? []).find(
-          (row) => row.mobile?.replace(/\D/g, "") === normalizedMobile,
+          (row) =>
+            normalizePhoneForComparison(row.mobile) === normalizedMobile,
         );
 
         if (mobileConflict) {
@@ -892,6 +923,12 @@ export async function PATCH(request: Request) {
         { error: "Customer input is required." },
         { status: 400 },
       );
+    }
+
+    const mobileError = getOptionalMobileError(body.input.mobile);
+
+    if (mobileError) {
+      return Response.json({ error: mobileError }, { status: 400 });
     }
 
     if (!body.id) {

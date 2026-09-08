@@ -16,6 +16,7 @@ import { AdminIpUndertakingGate } from "./AdminIpUndertakingGate";
 import { AdminSearchInput } from "./AdminSearchInput";
 import { BookingMetadataDraftEditor } from "./BookingMetadataDraftEditor";
 import { CompactBookingList } from "./CompactBookingList";
+import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
   FinancialReconciliationModal,
   GuestCountReconciliationModal,
@@ -44,6 +45,7 @@ import {
 } from "../../lib/adminIpUndertaking";
 import { platformVersion } from "../../lib/platformIdentity";
 import { bookingClaimsTable } from "../../lib/bookingTableClaims";
+import { normalizePhoneForComparison } from "../../lib/phone";
 
 import {
   type AdminRole,
@@ -9585,7 +9587,7 @@ function getCustomerKey(customer: {
   phone?: string;
 }) {
   const email = customer.email?.trim().toLowerCase();
-  const phone = customer.phone?.replace(/\D/g, "");
+  const phone = normalizePhoneForComparison(customer.phone);
   const name = customer.name?.trim().toLowerCase();
 
   return email || phone || name || "unknown-customer";
@@ -9596,7 +9598,7 @@ function normalizeCustomerValue(value?: string | null) {
 }
 
 function normalizeCustomerPhone(value?: string | null) {
-  return (value ?? "").replace(/\D/g, "");
+  return normalizePhoneForComparison(value);
 }
 
 function getLiveCustomerName(customer: LiveCustomerRecord) {
@@ -43574,17 +43576,16 @@ export default function AdminDashboardPage() {
                             <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                               Phone
                             </span>
-                            <input
+                            <InternationalPhoneInput
                               value={booking.customer.phone}
                               disabled={bookingIsReadOnly}
-                              onChange={(event) =>
+                              onChange={(value) =>
                                 updateBookingCustomer(
                                   booking.reference,
                                   "phone",
-                                  event.target.value,
+                                  value,
                                 )
                               }
-                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
                             />
                           </label>
                             </div>

@@ -3,6 +3,10 @@ import {
   type DemoCustomerCrmRecord,
 } from "@/lib/zingaraDemo";
 import { fetchSupabaseApi } from "./apiClient";
+import {
+  normalizePhoneForComparison,
+  normalizePhoneForStorage,
+} from "@/lib/phone";
 
 type CustomerPreferences = {
   archivedAt?: string;
@@ -69,7 +73,7 @@ function getCustomerKey(customer: {
   phone?: string;
 }) {
   const email = customer.email?.trim().toLowerCase();
-  const phone = customer.phone?.replace(/\D/g, "");
+  const phone = normalizePhoneForComparison(customer.phone);
   const name = customer.name?.trim().toLowerCase();
 
   return email || phone || name || "unknown-customer";
@@ -95,7 +99,7 @@ function toCrmRecord(row: CustomerCrmSourceRow): DemoCustomerCrmRecord {
   const customerKey =
     preferencesCustomerKey ||
     row.email ||
-    row.mobile?.replace(/\D/g, "") ||
+    normalizePhoneForComparison(row.mobile) ||
     `${row.first_name} ${row.surname ?? ""}`.trim().toLowerCase();
 
   return {
@@ -130,7 +134,7 @@ function toCustomerPayload(
     dietary_requirements: input.dietaryRequirements ?? null,
     email: input.email?.trim().toLowerCase() || null,
     first_name: nameParts.firstName,
-    mobile: input.mobile?.trim() || null,
+    mobile: normalizePhoneForStorage(input.mobile) || null,
     preferences: {
       ...(existingPreferences ?? {}),
       customerKey,
@@ -166,10 +170,10 @@ async function findSupabaseCustomer(input: CustomerWriteInput) {
       phone: input.mobile,
     });
   const email = input.email?.trim().toLowerCase();
-  const mobile = input.mobile?.replace(/\D/g, "");
+  const mobile = normalizePhoneForComparison(input.mobile);
 
   return rows?.find((row) => {
-    const rowMobile = row.mobile?.replace(/\D/g, "");
+    const rowMobile = normalizePhoneForComparison(row.mobile);
 
     return (
       row.preferences?.customerKey === customerKey ||

@@ -32,7 +32,7 @@ test("requires public name, email, mobile, and pax", () => {
   );
 });
 
-test("accepts practical international public contact details", () => {
+test("accepts complete South African public contact details", () => {
   assert.deepEqual(
     validateBookingCreate({
       customer: completeCustomer,
@@ -155,8 +155,62 @@ test("normalizes public customer values without restrictive name rules", () => {
     {
       email: "guest+qa@example.com",
       name: "Cher",
-      phone: "+44 20 7946 0958",
+      phone: "+442079460958",
     },
+  );
+});
+
+test("accepts and canonicalizes international Standard and Corporate contacts", () => {
+  for (const phone of [
+    "+44 7911 123456",
+    "+1 202 555 0100",
+    "+61 412 345 678",
+    "+33 6 12 34 56 78",
+  ]) {
+    assert.deepEqual(
+      validateBookingCreate({
+        bookingSource: "online",
+        customer: { ...completeCustomer, phone },
+        isCreate: true,
+        isTrustedStaff: false,
+        partySize: 2,
+      }),
+      {},
+    );
+    assert.deepEqual(
+      validateBookingCreate({
+        bookingSource: "corporate-direct",
+        customer: { ...completeCustomer, phone },
+        isCreate: true,
+        isTrustedStaff: true,
+        partySize: 20,
+      }),
+      {},
+    );
+    assert.match(normalizeBookingCustomer({ ...completeCustomer, phone }).phone, /^\+\d+$/);
+  }
+});
+
+test("validates an optional mobile supplied by internal staff", () => {
+  assert.deepEqual(
+    validateBookingCreate({
+      bookingSource: "admin",
+      customer: { email: "", name: "Staff Guest", phone: "+44 7911 123456" },
+      isCreate: true,
+      isTrustedStaff: true,
+      partySize: 2,
+    }),
+    {},
+  );
+  assert.deepEqual(
+    validateBookingCreate({
+      bookingSource: "admin",
+      customer: { email: "", name: "Staff Guest", phone: "123" },
+      isCreate: true,
+      isTrustedStaff: true,
+      partySize: 2,
+    }),
+    { phone: "Enter a valid mobile number." },
   );
 });
 

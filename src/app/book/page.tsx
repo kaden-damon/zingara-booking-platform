@@ -13,6 +13,7 @@ import ScannableQrCode from "../components/ScannableQrCode";
 import YourEvening from "../components/YourEvening";
 import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEditor";
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
+import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import PublicMaintenanceBoundary from "./PublicMaintenanceBoundary";
 import {
   registerZingaraPushSubscription,
@@ -4305,7 +4306,7 @@ export default function BookingPage() {
                     Mobile Number{" "}
                     {(!isTrustedManualCheckout || isCorporateCalendarCheckout) && <span aria-hidden="true">*</span>}
                   </span>
-                  <input
+                  <InternationalPhoneInput
                     required={!isTrustedManualCheckout || isCorporateCalendarCheckout}
                     aria-invalid={Boolean(customerValidationErrors.phone)}
                     aria-describedby={
@@ -4313,16 +4314,10 @@ export default function BookingPage() {
                         ? "booking-phone-error"
                         : undefined
                     }
-                    autoComplete="tel"
                     data-booking-field="phone"
-                    inputMode="tel"
-                    type="tel"
                     value={customerInfo.phone}
                     onBlur={() => validateCustomerField("phone")}
-                    onChange={(event) =>
-                      updateCustomerField("phone", event.target.value)
-                    }
-                    className={`w-full rounded-xl border bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base ${customerValidationErrors.phone ? "border-red-400" : "border-zinc-700"}`}
+                    onChange={(value) => updateCustomerField("phone", value)}
                   />
                   {customerValidationErrors.phone && (
                     <span
@@ -5209,7 +5204,7 @@ export default function BookingPage() {
                     Mobile Number{" "}
                     {(!isTrustedManualCheckout || isCorporateCalendarCheckout) && <span aria-hidden="true">*</span>}
                   </span>
-                  <input
+                  <InternationalPhoneInput
                     required={!isTrustedManualCheckout || isCorporateCalendarCheckout}
                     aria-invalid={Boolean(customerValidationErrors.phone)}
                     aria-describedby={
@@ -5217,16 +5212,10 @@ export default function BookingPage() {
                         ? "checkout-booking-phone-error"
                         : undefined
                     }
-                    autoComplete="tel"
                     data-booking-field="phone"
-                    inputMode="tel"
-                    type="tel"
                     value={customerInfo.phone}
                     onBlur={() => validateCustomerField("phone")}
-                    onChange={(event) =>
-                      updateCustomerField("phone", event.target.value)
-                    }
-                    className={`w-full rounded-xl border bg-zinc-950 px-3 py-2.5 text-sm sm:rounded-2xl sm:p-3 sm:text-base ${customerValidationErrors.phone ? "border-red-400" : "border-zinc-700"}`}
+                    onChange={(value) => updateCustomerField("phone", value)}
                   />
                   {customerValidationErrors.phone && (
                     <span

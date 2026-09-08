@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { calculatePayFastTransactionAmounts } from "@/lib/payfast/transactionFee";
 import YourEvening from "../components/YourEvening";
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
+import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import { getPublicVenueSettings } from "@/lib/supabase/venueSettings";
 import { defaultVenueSettings } from "@/lib/zingaraDemo";
 
@@ -405,13 +406,11 @@ export default function FindBookingPage() {
             ) : (
               <label className="mt-5 block text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
                 Mobile Number
-                <input
+                <InternationalPhoneInput
                   required
-                  inputMode="tel"
                   value={mobileNumber}
-                  onChange={(event) => setMobileNumber(event.target.value)}
-                  placeholder="083 123 4567"
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-base text-white outline-none transition placeholder:text-zinc-600 focus:border-[#D8C36A]"
+                  onChange={setMobileNumber}
+                  className="mt-2"
                 />
               </label>
             )}

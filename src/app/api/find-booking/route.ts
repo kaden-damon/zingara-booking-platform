@@ -14,6 +14,7 @@ import {
   recoverPlatformIncidentBestEffort,
 } from "@/lib/platformTelemetry";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { normalizePhoneForComparison } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 
@@ -70,22 +71,8 @@ function normalizeEmail(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
 }
 
-function normalizePhone(value: string | null | undefined) {
-  return value?.replace(/\D/g, "") ?? "";
-}
-
 function normalizePhoneForLookup(value: string | null | undefined) {
-  const digits = normalizePhone(value);
-
-  if (/^0[6-8]\d{8}$/.test(digits)) {
-    return `27${digits.slice(1)}`;
-  }
-
-  if (/^27[6-8]\d{8}$/.test(digits)) {
-    return digits;
-  }
-
-  return digits;
+  return normalizePhoneForComparison(value);
 }
 
 function parseBookingNotes(notes: string | null) {

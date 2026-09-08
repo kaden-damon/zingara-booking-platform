@@ -49,12 +49,13 @@ test("booking creation resolves unique email before mobile fallback", async () =
   const customerUpsert = route.slice(start, end);
 
   const emailLookup = customerUpsert.indexOf('.eq("email", payload.email)');
-  const mobileLookup = customerUpsert.indexOf('.eq("mobile", customer.phone.trim())');
+  const mobileLookup = customerUpsert.indexOf('.in("mobile", mobileVariants)');
   const insert = customerUpsert.indexOf(".insert(payload)");
 
   assert.ok(emailLookup > 0);
   assert.ok(mobileLookup > emailLookup);
   assert.ok(insert > mobileLookup);
+  assert.match(customerUpsert, /getPhoneLookupVariants\(customer\.phone\)/);
   assert.doesNotMatch(customerUpsert, /\.or\(filters\)/);
 });
 
