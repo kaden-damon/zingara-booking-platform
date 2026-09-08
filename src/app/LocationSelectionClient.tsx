@@ -3,14 +3,11 @@
 import { useEffect, useState } from "react";
 
 import {
-  defaultVenueSettings,
-  type DemoVenueSettings,
-} from "@/lib/zingaraDemo";
-import {
-  formatPublicBookingOpeningDate,
-  getPublicBookingSalesStatus,
+  getPublicBookingSalesStatusFromConfiguration,
+  type PublicBookingConfiguration,
 } from "@/lib/publicBookingSales";
 import { getPublicVenueSettings } from "@/lib/supabase/venueSettings";
+import PublicBookingCountdown from "./PublicBookingCountdown";
 
 const locations = [
   {
@@ -37,25 +34,40 @@ function rememberLocation(location: string) {
   }
 }
 
-export default function LocationSelectionClient() {
+type LocationSelectionClientProps = {
+  initialNow: number;
+  initialPublicBookings: PublicBookingConfiguration | null;
+};
+
+export default function LocationSelectionClient({
+  initialNow,
+  initialPublicBookings,
+}: LocationSelectionClientProps) {
   const [selectedLocation, setSelectedLocation] = useState<
     (typeof locations)[number]["value"] | null
   >(null);
-  const [venueSettings, setVenueSettings] =
-    useState<DemoVenueSettings>(defaultVenueSettings);
+  const [publicBookings, setPublicBookings] =
+    useState<PublicBookingConfiguration | null>(initialPublicBookings);
+  const [now, setNow] = useState(initialNow);
 
   useEffect(() => {
     let isMounted = true;
 
     void getPublicVenueSettings().then((settings) => {
       if (isMounted) {
-        setVenueSettings(settings);
+        setPublicBookings(settings.operationalSettings.publicBookings);
       }
     });
 
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   return (
@@ -65,17 +77,12 @@ export default function LocationSelectionClient() {
         const isDimmed = Boolean(selectedLocation) && !isSelected;
         const bookHref = `/book?location=${location.value}`;
         const findHref = `/find-booking?location=${location.value}`;
-        const publicBookingStatus = getPublicBookingSalesStatus(
-          venueSettings,
+        const publicBookingStatus = getPublicBookingSalesStatusFromConfiguration(
+          publicBookings,
           location.value,
+          new Date(now),
         );
         const isPublicBookingOpen = publicBookingStatus.state === "open";
-        const bookingLabel =
-          publicBookingStatus.state === "scheduled"
-            ? `Bookings Open ${formatPublicBookingOpeningDate(publicBookingStatus.opensAt)}`
-            : publicBookingStatus.state === "disabled"
-              ? "Bookings Closed"
-              : "Book Your Experience";
 
         return (
           <article
@@ -116,14 +123,19 @@ export default function LocationSelectionClient() {
                       onClick={() => rememberLocation(location.value)}
                       className="rounded-full bg-[#d8c36a] px-4 py-3 text-center text-[0.72rem] font-bold uppercase tracking-[0.14em] text-black transition hover:bg-[#f2d66c]"
                     >
-                      {bookingLabel}
+                      Book Your Experience
                     </a>
+                  ) : publicBookingStatus.state === "scheduled" ? (
+                    <PublicBookingCountdown
+                      now={now}
+                      opensAt={publicBookingStatus.opensAt}
+                    />
                   ) : (
                     <span
                       aria-disabled="true"
                       className="flex min-h-11 items-center justify-center rounded-full border border-[#d8c36a]/35 bg-[#d8c36a]/10 px-4 py-3 text-center text-[0.7rem] font-bold uppercase tracking-[0.12em] text-[#f2d66c]"
                     >
-                      {bookingLabel}
+                      Bookings Closed
                     </span>
                   )}
                   <a

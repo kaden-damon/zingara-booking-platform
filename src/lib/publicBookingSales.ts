@@ -5,6 +5,16 @@ import type {
 
 export const publicBookingTimezone = "Africa/Johannesburg";
 
+export type PublicBookingConfiguration =
+  DemoVenueSettings["operationalSettings"]["publicBookings"];
+
+export type PublicBookingCountdown = {
+  hours: number;
+  minutes: number;
+  seconds: number;
+  totalSeconds: number;
+};
+
 export type PublicBookingSalesStatus =
   | { state: "disabled" }
   | { opensAt: string; state: "scheduled" }
@@ -15,7 +25,19 @@ export function getPublicBookingSalesStatus(
   location: EntryLocationKey,
   now = new Date(),
 ): PublicBookingSalesStatus {
-  const configuration = settings.operationalSettings.publicBookings[location];
+  return getPublicBookingSalesStatusFromConfiguration(
+    settings.operationalSettings.publicBookings,
+    location,
+    now,
+  );
+}
+
+export function getPublicBookingSalesStatusFromConfiguration(
+  publicBookings: PublicBookingConfiguration | null,
+  location: EntryLocationKey,
+  now = new Date(),
+): PublicBookingSalesStatus {
+  const configuration = publicBookings?.[location];
 
   if (!configuration?.enabled) {
     return { state: "disabled" };
@@ -34,6 +56,32 @@ export function getPublicBookingSalesStatus(
   return now.getTime() >= opensAt
     ? { state: "open" }
     : { opensAt: configuration.opensAt, state: "scheduled" };
+}
+
+export function getPublicBookingCountdown(
+  opensAt: string,
+  now = new Date(),
+): PublicBookingCountdown | null {
+  const openingTime = Date.parse(opensAt);
+
+  if (!Number.isFinite(openingTime)) {
+    return null;
+  }
+
+  const remainingMilliseconds = openingTime - now.getTime();
+
+  if (remainingMilliseconds <= 0) {
+    return null;
+  }
+
+  const totalSeconds = Math.ceil(remainingMilliseconds / 1000);
+
+  return {
+    hours: Math.floor(totalSeconds / 3600),
+    minutes: Math.floor((totalSeconds % 3600) / 60),
+    seconds: totalSeconds % 60,
+    totalSeconds,
+  };
 }
 
 export function isPublicBookingOpen(

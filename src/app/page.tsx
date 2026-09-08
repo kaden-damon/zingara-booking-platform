@@ -5,13 +5,38 @@ import AuthRedirectHandler from "./AuthRedirectHandler";
 import LocationSelectionClient from "./LocationSelectionClient";
 import PaymentBrandMarks from "./components/PaymentBrandMarks";
 import { royalDecrees } from "../lib/royalDecrees";
+import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Zingara | The Royal Countess",
   description: "Choose your Zingara venue and begin your booking experience.",
 };
 
-export default function Home() {
+async function loadInitialPublicBookings() {
+  const client = getServiceClient();
+
+  if (!client) {
+    return null;
+  }
+
+  try {
+    const settings = await loadServerVenueSettings(client);
+    return settings.operationalSettings.publicBookings;
+  } catch (error) {
+    console.error("[Zingara] Failed to seed public booking configuration", error);
+    return null;
+  }
+}
+
+export default async function Home() {
+  const initialPublicBookings = await loadInitialPublicBookings();
+  // Seed server and hydration from one request-time instant; client ticks take over.
+  // eslint-disable-next-line react-hooks/purity
+  const initialNow = Date.now();
+
   return (
     <main className="min-h-screen overflow-hidden bg-black text-white">
       <AuthRedirectHandler />
@@ -39,7 +64,10 @@ export default function Home() {
           </p>
         </div>
 
-        <LocationSelectionClient />
+        <LocationSelectionClient
+          initialNow={initialNow}
+          initialPublicBookings={initialPublicBookings}
+        />
 
         <footer
           className="mt-auto pt-10 text-center text-[0.74rem] leading-relaxed text-white/80 sm:pt-12"

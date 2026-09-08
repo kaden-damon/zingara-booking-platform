@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  getPublicBookingCountdown,
   getPublicBookingSalesStatus,
+  getPublicBookingSalesStatusFromConfiguration,
   isPublicBookingOpen,
   parseJohannesburgDateTimeInput,
   toJohannesburgDateTimeInput,
@@ -60,6 +62,59 @@ test("Johannesburg remains open", () => {
   assert.equal(isPublicBookingOpen(settings(), "johannesburg"), true);
 });
 
+test("future configured opening produces an absolute countdown", () => {
+  assert.deepEqual(
+    getPublicBookingCountdown(
+      "2026-09-08T13:00:00.000Z",
+      new Date("2026-09-08T10:45:23.000Z"),
+    ),
+    { hours: 2, minutes: 14, seconds: 37, totalSeconds: 8077 },
+  );
+});
+
+test("SAST opening timestamp represents the same instant outside Johannesburg", () => {
+  assert.deepEqual(
+    getPublicBookingCountdown(
+      "2026-09-08T13:00:00.000Z",
+      new Date("2026-09-08T14:59:59+02:00"),
+    ),
+    { hours: 0, minutes: 0, seconds: 1, totalSeconds: 1 },
+  );
+});
+
+test("countdown ends and configured venue becomes open at zero", () => {
+  const publicBookings = settings().operationalSettings.publicBookings;
+  publicBookings["cape-town"].opensAt = "2026-09-08T13:00:00.000Z";
+  const opening = new Date("2026-09-08T13:00:00.000Z");
+
+  assert.equal(
+    getPublicBookingCountdown(publicBookings["cape-town"].opensAt, opening),
+    null,
+  );
+  assert.equal(
+    getPublicBookingSalesStatusFromConfiguration(
+      publicBookings,
+      "cape-town",
+      opening,
+    ).state,
+    "open",
+  );
+});
+
+test("countdown is generic for any future venue configuration", () => {
+  const publicBookings = settings().operationalSettings.publicBookings;
+  publicBookings.johannesburg.opensAt = "2026-10-01T15:00:00.000Z";
+
+  assert.equal(
+    getPublicBookingSalesStatusFromConfiguration(
+      publicBookings,
+      "johannesburg",
+      new Date("2026-10-01T14:00:00.000Z"),
+    ).state,
+    "scheduled",
+  );
+});
+
 test("Admin datetime input is converted using Africa/Johannesburg", () => {
   assert.equal(
     parseJohannesburgDateTimeInput("2026-09-09T00:00"),
@@ -71,15 +126,23 @@ test("Admin datetime input is converted using Africa/Johannesburg", () => {
   );
 });
 
-test("homepage keeps Cape Town visible but removes its booking link", async () => {
-  const source = await readFile(
-    new URL("../app/LocationSelectionClient.tsx", import.meta.url),
-    "utf8",
-  );
+test("homepage countdown is server-seeded and keeps Find My Booking available", async () => {
+  const [source, page, countdown] = await Promise.all([
+    readFile(new URL("../app/LocationSelectionClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/PublicBookingCountdown.tsx", import.meta.url), "utf8"),
+  ]);
 
-  assert.match(source, /Bookings Open/);
-  assert.match(source, /isPublicBookingOpen \?/);
+  assert.match(source, /PublicBookingCountdown/);
+  assert.match(source, /isPublicBookingOpen/);
   assert.match(source, /Find My Booking/);
+  assert.match(page, /loadServerVenueSettings/);
+  assert.match(page, /initialPublicBookings/);
+  assert.match(countdown, /Bookings Open In/);
+  assert.match(countdown, /Hrs/);
+  assert.match(countdown, /Mins/);
+  assert.match(countdown, /Secs/);
+  assert.doesNotMatch(countdown, /00\s*:\s*00\s*:\s*00/);
 });
 
 test("direct Cape Town booking route renders a blocked state", async () => {
