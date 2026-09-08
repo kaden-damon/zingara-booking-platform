@@ -84,21 +84,26 @@ export function buildCrossZoneMoveConfirmation(input: {
   bookingName: string;
   currentTable: string;
   currentZone: string;
+  guestCount: number;
+  showLabel: string;
   targetTable: string;
   targetZone: string;
 }) {
   return [
-    "CHANGE SEATING ZONE",
+    `MOVE ${input.bookingName || "THIS BOOKING"}?`.toUpperCase(),
     "",
-    `${input.bookingName || "This booking"} will move:`,
+    `${input.guestCount} guests`,
     "",
-    input.currentZone,
-    `\u2192 ${input.targetZone}`,
+    "Current:",
+    `${input.currentZone} \u00b7 ${input.currentTable}`,
     "",
-    "Table:",
-    input.currentTable,
-    `\u2192 ${input.targetTable}`,
+    "New:",
+    `${input.targetZone} \u00b7 Table ${input.targetTable}`,
     "",
-    "This changes the guest's seating section.",
+    "Show:",
+    input.showLabel,
+    "",
+    "Financials:",
+    "No change",
   ].join("\n");
 }

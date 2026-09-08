@@ -74,6 +74,17 @@ test("manual moves expose compatible temporary tables across zones", () => {
   );
 });
 
+test("an unresolved imported source table does not block a valid target", () => {
+  const source = booking("middle-ring");
+  source.bookingOrigin = "data_import";
+  source.partySize = 8;
+  source.tableId = "unresolved-legacy-201";
+  source.tableNumber = "201";
+  const target = table("400", "golden-circle", { seatCapacity: 10 });
+
+  assert.equal(isEligibleManualBookingMoveTarget(target, source, [target]), true);
+});
+
 test("manual moves preserve capacity, claim, show, and merged-child safeguards", () => {
   const source = booking();
   const insufficient = table("small", "golden-circle", { seatCapacity: 2 });
@@ -126,13 +137,32 @@ test("cross-zone confirmation names both zones and tables", () => {
     bookingName: "Danelle Bouwer",
     currentTable: "B2 / Legacy Assignment",
     currentZone: "Private Booths",
+    guestCount: 4,
+    showLabel: "Johannesburg \u00b7 9 September 2026 \u00b7 17:00",
     targetTable: "GC-QA",
     targetZone: "Golden Circle",
   });
 
-  assert.match(message, /CHANGE SEATING ZONE/);
-  assert.match(message, /Private Booths\n\u2192 Golden Circle/);
-  assert.match(message, /B2 \/ Legacy Assignment\n\u2192 GC-QA/);
+  assert.match(message, /MOVE DANELLE BOUWER\?/);
+  assert.match(message, /4 guests/);
+  assert.match(message, /Private Booths \u00b7 B2 \/ Legacy Assignment/);
+  assert.match(message, /Golden Circle \u00b7 Table GC-QA/);
+  assert.match(message, /Johannesburg \u00b7 9 September 2026 \u00b7 17:00/);
+  assert.match(message, /Financials:\nNo change/);
+});
+
+test("Booking Details hydrates the selected show inventory and displays pax", () => {
+  const adminPage = readFileSync(
+    new URL("../app/admin/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    adminPage,
+    /getShowsWithTables\(\{\s*tableShow: detailedBooking\.showId,\s*\}\)/,
+  );
+  assert.match(adminPage, /Guests \u00b7 \{booking\.partySize\}/);
+  assert.match(adminPage, /Seating Zone \/ Target Table/);
 });
 
 test("atomic migration changes zone and table together without financial fields", () => {

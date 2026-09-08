@@ -10861,11 +10861,33 @@ export default function AdminDashboardPage() {
         throw new Error("Booking details were not returned.");
       }
 
+      const bookingShowPayload = await getShowsWithTables({
+        tableShow: detailedBooking.showId,
+      });
+
       setBookings((currentBookings) =>
         currentBookings.map((booking) =>
           booking.reference === reference ? detailedBooking : booking,
         ),
       );
+      if (bookingShowPayload.tablesLoaded) {
+        setTables((currentTables) => {
+          const hydratedTables = bookingShowPayload.tables;
+          const hydratedShowIds = Array.from(
+            new Set(
+              hydratedTables
+                .map((table) => table.showId)
+                .filter((showId): showId is string => Boolean(showId)),
+            ),
+          );
+
+          return mergeTablesForShows(
+            currentTables,
+            hydratedTables,
+            hydratedShowIds,
+          );
+        });
+      }
       setExpandedBookingReference(reference);
     } catch (error) {
       console.error("[Zingara admin] Failed to load booking details", error);
@@ -16930,28 +16952,28 @@ export default function AdminDashboardPage() {
       return false;
     }
 
-    if (targetTable.zoneId !== booking.zoneId) {
-      const sourceTable = tables.find((table) => table.id === booking.tableId);
-      const sourceIsLegacy = Boolean(
-        sourceTable &&
-          sourceTable.physicalTable !== true &&
-          sourceTable.availabilityScope !== "operational",
-      );
-      const confirmed = window.confirm(
-        buildCrossZoneMoveConfirmation({
-          bookingName: booking.customer.name,
-          currentTable: `${booking.tableNumber || "Unassigned"}${
-            sourceIsLegacy ? " / Legacy Assignment" : ""
-          }`,
-          currentZone: booking.zoneTitle,
-          targetTable: targetTable.tableNumber,
-          targetZone: targetZone.title,
-        }),
-      );
+    const sourceTable = tables.find((table) => table.id === booking.tableId);
+    const sourceIsLegacyOrUnresolved = Boolean(
+      !sourceTable ||
+        (sourceTable.physicalTable !== true &&
+          sourceTable.availabilityScope !== "operational"),
+    );
+    const confirmed = window.confirm(
+      buildCrossZoneMoveConfirmation({
+        bookingName: booking.customer.name,
+        currentTable: `${booking.tableNumber || "Unassigned"}${
+          sourceIsLegacyOrUnresolved ? " / Legacy Assignment" : ""
+        }`,
+        currentZone: booking.zoneTitle,
+        guestCount: booking.partySize,
+        showLabel: getBookingPerformanceLabel(booking),
+        targetTable: targetTable.tableNumber,
+        targetZone: targetZone.title,
+      }),
+    );
 
-      if (!confirmed) {
-        return false;
-      }
+    if (!confirmed) {
+      return false;
     }
 
     if (floorAssignmentInFlightRef.current.has(booking.reference)) {
@@ -42389,6 +42411,9 @@ export default function AdminDashboardPage() {
 	                              <p className="mt-1 break-words text-xs font-semibold text-zinc-300 sm:text-sm">
 	                                {bookingPerformanceLabel}
 	                              </p>
+	                              <span className="mt-2 inline-flex min-h-7 items-center rounded-full border border-[#D8C36A]/35 bg-[#D8C36A]/10 px-3 py-1 text-xs font-semibold uppercase text-[#F2D66C]">
+	                                Guests · {booking.partySize}
+	                              </span>
                               <p className="mt-2 break-words text-xs text-zinc-400 sm:text-sm">
                                 Source: {bookingOriginLabels[booking.bookingOrigin ?? "legacy_unknown"]}
                                 {" · "}Created by: {getBookingCreatorLabel(booking)}
@@ -43434,7 +43459,7 @@ export default function AdminDashboardPage() {
                           ) : (
                             <label>
                               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                Move To Table / Zone
+                                Seating Zone / Target Table
                               </span>
                               <select
                                 value={booking.tableId || ""}
@@ -43443,7 +43468,7 @@ export default function AdminDashboardPage() {
                                 }
                                 className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
                               >
-                                <option value="">Select a table</option>
+                                <option value="">Select a seating zone and table</option>
                                 <BookingMoveTargetOptions tables={moveTables} />
                               </select>
                             </label>
