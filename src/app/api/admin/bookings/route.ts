@@ -1138,7 +1138,7 @@ async function persistPhysicalTableMapping(
 
   const { data: booking, error: bookingError } = await auth.serviceClient
     .from("bookings")
-    .select("id,booking_reference,show_id,table_id,section,guest_count,booking_status,archived_at")
+    .select("id,booking_reference,show_id,table_id,section,zone_entitlements,guest_count,booking_status,archived_at")
     .eq("booking_reference", bookingReference.trim())
     .maybeSingle();
 
@@ -1153,12 +1153,23 @@ async function persistPhysicalTableMapping(
     );
   }
 
-  if (!booking.table_id) {
+  if (
+    Array.isArray(booking.zone_entitlements) &&
+    booking.zone_entitlements.length > 1
+  ) {
     return Response.json(
-      { error: "The booking does not currently have a table to reallocate." },
+      { error: "Use the Corporate multi-zone Floor workflow for this booking." },
       { status: 409 },
     );
   }
+
+  const sourceTableQuery = booking.table_id
+    ? auth.serviceClient
+        .from("show_tables")
+        .select("id,show_id,table_code,section,status,booking_id,is_physical,is_override,availability_scope,merged_from,merged_parent_id")
+        .eq("id", booking.table_id)
+        .maybeSingle()
+    : Promise.resolve({ data: null, error: null });
 
   const [
     { data: show, error: showError },
@@ -1170,11 +1181,7 @@ async function persistPhysicalTableMapping(
         .select("id,venue")
         .eq("id", booking.show_id)
         .maybeSingle(),
-      auth.serviceClient
-        .from("show_tables")
-        .select("id,show_id,table_code,section,status,booking_id,is_physical,is_override,availability_scope,merged_from,merged_parent_id")
-        .eq("id", booking.table_id)
-        .maybeSingle(),
+      sourceTableQuery,
       auth.serviceClient
         .from("show_tables")
         .select("id,show_id,table_code,section,capacity,capacity_configured,status,booking_id,is_physical,is_override,availability_scope,merged_from,merged_parent_id")
@@ -1358,7 +1365,7 @@ async function persistPhysicalTableMapping(
     },
   );
 
-  if (booking.table_id !== typedTargetTable.id) {
+  if (booking.table_id && booking.table_id !== typedTargetTable.id) {
     await notifyAppleWalletBooking(auth.serviceClient, booking.id);
   }
 
