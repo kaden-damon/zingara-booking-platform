@@ -89,6 +89,8 @@ test("Compact exposes authoritative notes without per-row requests", async () =>
   assert.match(component, /current === row\.reference \? null : row\.reference/);
   assert.match(component, /event\.key === "Escape"/);
   assert.match(component, /overflow-visible/);
+  assert.match(component, /z-\[200\]/);
+  assert.match(component, /bg-\[#090909\]/);
   assert.doesNotMatch(component, /fetch\(|supabase/i);
 });
 
@@ -100,21 +102,30 @@ test("Booking toolbar offers deterministic independent ordering", async () => {
   assert.match(page, /direction: "desc", key: "createdAt"/);
   assert.match(page, /aria-label="Arrange bookings by"/);
   for (const label of [
-    "Newest booking",
-    "Oldest booking",
-    "Customer name A-Z",
-    "Customer name Z-A",
-    "Show date soonest",
-    "Show date latest",
-    "Highest guest count",
-    "Lowest guest count",
-    "Highest balance",
-    "Lowest balance",
-    "Highest amount paid",
-    "Lowest amount paid",
+    "Newest Booking",
+    "Oldest Booking",
+    "Customer Name A–Z",
+    "Customer Name Z–A",
+    "Show Date Soonest",
+    "Show Date Latest",
+    "Highest Guest Count",
+    "Lowest Guest Count",
+    "Highest Balance",
+    "Lowest Balance",
+    "Highest Amount Paid",
+    "Lowest Amount Paid",
   ]) {
     assert.match(page, new RegExp(label));
   }
+  const arrangeSelectLabelIndex = page.indexOf(
+    'aria-label="Arrange bookings by"',
+  );
+  const arrangeSelectStart = page.lastIndexOf("<select", arrangeSelectLabelIndex);
+  const arrangeSelectEnd = page.indexOf("</select>", arrangeSelectLabelIndex);
+  const arrangeSelect = page.slice(arrangeSelectStart, arrangeSelectEnd);
+
+  assert.ok(arrangeSelectLabelIndex >= 0);
+  assert.doesNotMatch(arrangeSelect, /uppercase/);
 });
 
 test("sorting composes after filters and is shared by all booking views", async () => {

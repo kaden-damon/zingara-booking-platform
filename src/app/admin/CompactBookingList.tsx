@@ -173,7 +173,7 @@ export function CompactBookingList({
                         <span
                           id={noteId}
                           role="tooltip"
-                          className="absolute left-0 top-full z-[70] mt-2 block max-h-56 w-[min(20rem,calc(100vw-3rem))] overflow-y-auto whitespace-pre-wrap rounded-lg border border-[#D8C36A]/35 bg-zinc-950 p-3 text-left text-xs font-normal leading-5 text-zinc-100 shadow-2xl shadow-black/70"
+                          className="absolute left-0 top-full z-[200] mt-2 block max-h-56 w-[min(20rem,calc(100vw-3rem))] overflow-y-auto whitespace-pre-wrap rounded-lg border border-[#D8C36A]/35 bg-[#090909] p-3 text-left text-xs font-normal leading-5 text-zinc-100 shadow-2xl shadow-black/70"
                         >
                           {row.bookingNotes}
                         </span>

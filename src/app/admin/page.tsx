@@ -42275,20 +42275,20 @@ export default function AdminDashboardPage() {
                         ];
                         setActiveCompactBookingSort(key, direction);
                       }}
-                      className="h-11 w-full appearance-none rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-9 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                      className="h-11 w-full appearance-none rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-9 text-xs font-semibold tracking-[0.08em] text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
                     >
-                      <option value="createdAt:desc">Newest booking</option>
-                      <option value="createdAt:asc">Oldest booking</option>
-                      <option value="name:asc">Customer name A-Z</option>
-                      <option value="name:desc">Customer name Z-A</option>
-                      <option value="showDate:asc">Show date soonest</option>
-                      <option value="showDate:desc">Show date latest</option>
-                      <option value="pax:desc">Highest guest count</option>
-                      <option value="pax:asc">Lowest guest count</option>
-                      <option value="balance:desc">Highest balance</option>
-                      <option value="balance:asc">Lowest balance</option>
-                      <option value="amountPaid:desc">Highest amount paid</option>
-                      <option value="amountPaid:asc">Lowest amount paid</option>
+                      <option value="createdAt:desc">Newest Booking</option>
+                      <option value="createdAt:asc">Oldest Booking</option>
+                      <option value="name:asc">Customer Name A–Z</option>
+                      <option value="name:desc">Customer Name Z–A</option>
+                      <option value="showDate:asc">Show Date Soonest</option>
+                      <option value="showDate:desc">Show Date Latest</option>
+                      <option value="pax:desc">Highest Guest Count</option>
+                      <option value="pax:asc">Lowest Guest Count</option>
+                      <option value="balance:desc">Highest Balance</option>
+                      <option value="balance:asc">Lowest Balance</option>
+                      <option value="amountPaid:desc">Highest Amount Paid</option>
+                      <option value="amountPaid:asc">Lowest Amount Paid</option>
                     </select>
                     <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
                       ▾
