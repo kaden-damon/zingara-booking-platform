@@ -287,6 +287,7 @@ import {
   getCorporateTableReleasePreview,
   type CorporateFloorZone,
 } from "../../lib/corporateFloorPlanning";
+import { getBookingZoneEntitlements } from "../../lib/corporateZoneEntitlements";
 import {
   assignCorporateFloorPlan,
   createShowFloorCapacityPlan,
@@ -7267,10 +7268,14 @@ function getZoneStats(
     .filter(
       (booking) =>
         booking.showId === showId &&
-        booking.zoneId === zone.id &&
+        getBookingZoneEntitlements(booking).some((entitlement) => entitlement.zoneId === zone.id) &&
         isOperationallyActiveBooking(booking),
     )
-    .reduce((total, booking) => total + booking.partySize, 0);
+    .reduce(
+      (total, booking) =>
+        total + (getBookingZoneEntitlements(booking).find((entitlement) => entitlement.zoneId === zone.id)?.pax ?? 0),
+      0,
+    );
   const totalCapacity = capacityOverride ?? getVenueZoneSeatCapacity(zone.id);
 
   return {
@@ -10608,6 +10613,7 @@ export default function AdminDashboardPage() {
       combinedCapacity: number;
       tableCodes: string[];
       tableIds: string[];
+      zoneId: CorporateFloorZone;
     } | null>(null);
   const [corporateTableAssignmentError, setCorporateTableAssignmentError] =
     useState("");
@@ -15979,7 +15985,7 @@ export default function AdminDashboardPage() {
       (show) =>
         show.id === review.showId &&
         !show.archivedAt &&
-        (show.operationalStatus ?? "active") === "active" &&
+        ["active", "sold-out"].includes(show.operationalStatus ?? "active") &&
         normalizeShowLocation(show.location ?? show.venueName) === review.venue,
     );
     const zone = getZoneById(review.zoneId);
@@ -16060,6 +16066,7 @@ export default function AdminDashboardPage() {
       showId: selectedConversionShow.id,
       zoneId: review.zoneId,
       zoneTitle: zone.title,
+      zoneEntitlements: review.zoneEntitlements,
       tableId: "",
       tableNumber: "",
       partySize: review.pax,
@@ -19563,13 +19570,13 @@ export default function AdminDashboardPage() {
       const existingPax = bookings.reduce((total, booking) => {
         if (
           !showIds.has(booking.showId ?? "") ||
-          booking.zoneId !== zone.id ||
+          !getBookingZoneEntitlements(booking).some((entitlement) => entitlement.zoneId === zone.id) ||
           !isOperationallyActiveBooking(booking)
         ) {
           return total;
         }
 
-        return total + booking.partySize;
+        return total + (getBookingZoneEntitlements(booking).find((entitlement) => entitlement.zoneId === zone.id)?.pax ?? 0);
       }, 0);
 
       existingActivePax.set(key, existingPax);
@@ -22433,6 +22440,7 @@ export default function AdminDashboardPage() {
   function reviewCorporateTableAssignment(
     booking: DemoBooking,
     plan: ShowWideFloorCapacityPlan["zones"][number]["bookingPlans"][number],
+    zoneId: CorporateFloorZone,
   ) {
     if (
       plan.unresolvedReason ||
@@ -22454,6 +22462,7 @@ export default function AdminDashboardPage() {
       ),
       tableCodes: plan.existingTableCodes,
       tableIds: plan.existingTableIds,
+      zoneId,
     });
   }
 
@@ -22487,6 +22496,7 @@ export default function AdminDashboardPage() {
         showReference: selectedShowId || booking.showId,
         snapshotToken: floorCapacityPlan.snapshotToken,
         tableIds: review.tableIds,
+        zoneId: review.zoneId,
       });
       setFloorAssignmentAction({ reference: booking.reference, status: "assigned" });
       try {
@@ -24867,8 +24877,11 @@ export default function AdminDashboardPage() {
     .filter(
       (booking) =>
         booking.showId === selectedShowId &&
-        getManifestBookingTableLabel(booking) ===
-          "Requires floor assignment",
+        getBookingZoneEntitlements(booking).some((entitlement) =>
+          !(booking.reservationTableClaims ?? []).some(
+            (claim) => getCorporateSeatingZoneId(claim.section) === entitlement.zoneId,
+          ),
+        ),
     )
     .sort(
       (left, right) =>
@@ -25365,10 +25378,13 @@ export default function AdminDashboardPage() {
         .filter(
           (booking) =>
             booking.showId === show.id &&
-            booking.zoneId === zone.id &&
+            getBookingZoneEntitlements(booking).some((entitlement) => entitlement.zoneId === zone.id) &&
             isOperationallyActiveBooking(booking),
         )
-        .reduce((total, booking) => total + booking.partySize, 0);
+        .reduce(
+          (total, booking) => total + (getBookingZoneEntitlements(booking).find((entitlement) => entitlement.zoneId === zone.id)?.pax ?? 0),
+          0,
+        );
       const capacity = getConfiguredZoneMaxSeats(venueConfig, zone);
 
       return {
@@ -40193,7 +40209,7 @@ export default function AdminDashboardPage() {
                     Review Suggested Tables
                   </h3>
                   <p className="mt-3 text-sm leading-6 text-zinc-300">
-                    {corporateTableAssignmentReview.bookingReference} will own tables {corporateTableAssignmentReview.tableCodes.join(" + ")} as one operational assignment.
+                    {corporateTableAssignmentReview.bookingReference} will own {getZoneById(corporateTableAssignmentReview.zoneId)?.title} tables {corporateTableAssignmentReview.tableCodes.join(" + ")} as one zone-bound operational assignment.
                   </p>
                   <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div className="rounded-xl border border-white/10 p-3">
@@ -40265,12 +40281,12 @@ export default function AdminDashboardPage() {
                         booking.partySize,
                       )
                     : undefined;
-                  const bookingPlan = floorCapacityPlan?.zones
-                    .find((zone) => zone.zoneId === booking.zoneId)
-                    ?.bookingPlans.find(
-                      (candidate) =>
-                        candidate.bookingReference === booking.reference,
-                    );
+                  const bookingPlans = (floorCapacityPlan?.zones ?? []).flatMap((zone) =>
+                    zone.bookingPlans
+                      .filter((candidate) => candidate.bookingReference === booking.reference)
+                      .map((plan) => ({ plan, zoneId: zone.zoneId })),
+                  );
+                  const bookingPlan = bookingPlans[0]?.plan;
                   const paymentStatus = getBookingPaymentStatus(booking);
 
                   return (
@@ -40287,7 +40303,9 @@ export default function AdminDashboardPage() {
                             {booking.customer.name || "Imported Guest"}
                           </h4>
                           <p className="mt-1 text-sm text-zinc-300">
-                            {booking.partySize} guests · {booking.zoneTitle}
+                            {booking.partySize} guests · {getBookingZoneEntitlements(booking)
+                              .map((entitlement) => `${getZoneById(entitlement.zoneId)?.title ?? entitlement.zoneId} ${entitlement.pax}`)
+                              .join(" · ")}
                           </p>
                         </div>
                         <span className="self-start rounded-full border border-amber-300/35 bg-amber-950/25 px-3 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-amber-100">
@@ -40333,33 +40351,30 @@ export default function AdminDashboardPage() {
                       </div>
 
                       <div className="mt-4 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            isCorporate && bookingPlan
-                              ? reviewCorporateTableAssignment(booking, bookingPlan)
-                              : assignFloorQueuedBooking(booking)
-                          }
-                          disabled={
-                            (isCorporate
-                              ? !bookingPlan ||
-                                Boolean(bookingPlan.unresolvedReason) ||
-                                bookingPlan.newCapacities.length > 0 ||
-                                bookingPlan.existingTableIds.length === 0
-                              : !allocation) ||
-                            !canManageBookings ||
-                            floorAssignmentAction?.reference === booking.reference
-                          }
-                          className="rounded-full bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          {floorAssignmentAction?.reference === booking.reference
-                            ? floorAssignmentAction.status === "assigning"
-                              ? "ASSIGNING..."
-                              : "ASSIGNED ✓"
-                            : isCorporate
-                              ? "ASSIGN SUGGESTED TABLES"
-                              : "Assign Suggested Table"}
-                        </button>
+                        {(isCorporate ? bookingPlans : [{ plan: bookingPlan, zoneId: booking.zoneId as CorporateFloorZone }]).map(({ plan, zoneId }) => (
+                          <button
+                            key={`${booking.reference}-${zoneId}`}
+                            title={isCorporate ? "ASSIGN SUGGESTED TABLES" : undefined}
+                            type="button"
+                            onClick={() =>
+                              isCorporate && plan
+                                ? reviewCorporateTableAssignment(booking, plan, zoneId)
+                                : assignFloorQueuedBooking(booking)
+                            }
+                            disabled={
+                              (isCorporate
+                                ? !plan || Boolean(plan.unresolvedReason) || plan.newCapacities.length > 0 || plan.existingTableIds.length === 0
+                                : !allocation) || !canManageBookings || floorAssignmentAction?.reference === booking.reference
+                            }
+                            className="rounded-full bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {floorAssignmentAction?.reference === booking.reference
+                              ? floorAssignmentAction.status === "assigning" ? "ASSIGNING..." : "ASSIGNED ✓"
+                              : isCorporate
+                                ? `ASSIGN ${getZoneById(zoneId)?.title?.toUpperCase() ?? zoneId} TABLES`
+                                : "Assign Suggested Table"}
+                          </button>
+                        ))}
                         {!allocation && !bookingPlan && (
                           <button
                             type="button"
@@ -42364,12 +42379,13 @@ export default function AdminDashboardPage() {
                                 (currentBookingShow?.supabaseId &&
                                   candidate.showId === currentBookingShow.supabaseId),
                             )
-                            .map((candidate) => ({
-                              bookingId:
-                                candidate.supabaseBookingId ?? candidate.reference,
-                              pax: candidate.partySize,
-                              zoneId: candidate.zoneId,
-                            })),
+                            .flatMap((candidate) =>
+                              getBookingZoneEntitlements(candidate).map((entitlement) => ({
+                                bookingId: candidate.supabaseBookingId ?? candidate.reference,
+                                pax: entitlement.pax,
+                                zoneId: entitlement.zoneId,
+                              })),
+                            ),
                           bookingId:
                             booking.supabaseBookingId ?? booking.reference,
                           bookingPax: booking.partySize,
@@ -43676,7 +43692,23 @@ export default function AdminDashboardPage() {
                             </select>
                           </label>
 
-                          {isCorporateBooking ? (
+                          {isCorporateBooking && (booking.zoneEntitlements?.length ?? 0) > 1 ? (
+                            <div className="rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3">
+                              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Seating</p>
+                              <div className="mt-2 space-y-1 text-sm text-zinc-200">
+                                {getBookingZoneEntitlements(booking).map((entitlement) => (
+                                  <p key={entitlement.zoneId}>
+                                    {getZoneById(entitlement.zoneId)?.title ?? entitlement.zoneId} · {entitlement.pax} guests
+                                    {assignedTableClaims.some((claim) => getCorporateSeatingZoneId(claim.section) === entitlement.zoneId)
+                                      ? ` · Tables ${assignedTableClaims.filter((claim) => getCorporateSeatingZoneId(claim.section) === entitlement.zoneId).map((claim) => claim.tableCode).join(" + ")}`
+                                      : " · Floor Assignment"}
+                                  </p>
+                                ))}
+                                <p className="border-t border-white/10 pt-1 font-semibold">{booking.partySize} guests total</p>
+                              </div>
+                              <p className="mt-2 text-xs text-zinc-500">Post-booking split editing is not available in this release.</p>
+                            </div>
+                          ) : isCorporateBooking ? (
                             <div>
                               <label>
                                 <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">

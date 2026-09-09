@@ -680,6 +680,10 @@ export type DemoBooking = {
     tableId?: string;
     tableCode: string;
   }>;
+  zoneEntitlements?: Array<{
+    pax: number;
+    zoneId: SeatingZoneId;
+  }>;
   paymentOption?: PaymentOption;
   paymentStatus?: PaymentStatus;
   depositPercentage?: number;

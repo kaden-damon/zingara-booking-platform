@@ -192,6 +192,7 @@ test("review requires authoritative financials and reconciles paid and outstandi
     ticketTotal: "",
     venue: "cape-town" as const,
     zoneId: "middle-ring",
+    zoneEntitlements: [{ pax: "73", zoneId: "middle-ring" }],
   };
 
   assert.deepEqual(validateCorporateConversionReview(base), {
@@ -218,6 +219,7 @@ test("review requires authoritative financials and reconciles paid and outstandi
       ticketTotal: 100000,
       venue: "cape-town",
       zoneId: "middle-ring",
+      zoneEntitlements: [{ pax: 73, zoneId: "middle-ring" }],
     },
   );
 });

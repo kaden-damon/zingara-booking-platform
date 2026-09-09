@@ -164,5 +164,6 @@ export function getReconciledConversionFinancials(
     ticketTotal: evidence.totalObligation,
     venue: context.venue,
     zoneId: context.zoneId,
+    zoneEntitlements: [{ pax: context.pax, zoneId: context.zoneId }],
   };
 }

@@ -9,6 +9,7 @@ import {
   type CorporateConversionReviewDraft,
   validateCorporateConversionReview,
 } from "../../lib/corporateConversionReview";
+import { validateCorporateZoneEntitlements } from "../../lib/corporateZoneEntitlements";
 import {
   type CorporateRequest,
   type DemoShow,
@@ -46,7 +47,7 @@ export default function CorporateConversionModal({
   const venue = initialVenue(request);
   const initialShow = shows.find(
     (show) =>
-      (show.operationalStatus ?? "active") === "active" &&
+      ["active", "sold-out"].includes(show.operationalStatus ?? "active") &&
       show.date === request.preferredDate &&
       normalizeShowLocation(show.location ?? show.venueName) === venue,
   );
@@ -70,6 +71,7 @@ export default function CorporateConversionModal({
     ticketTotal: financialEvidence?.totalObligation.toString() ?? "",
     venue,
     zoneId: initialZoneId,
+    zoneEntitlements: [{ pax: request.guestCount?.toString() ?? "", zoneId: initialZoneId }],
   });
   const [errors, setErrors] = useState<
     Partial<Record<keyof CorporateConversionReviewDraft, string>>
@@ -80,7 +82,7 @@ export default function CorporateConversionModal({
       shows.filter(
         (show) =>
           !show.archivedAt &&
-          (show.operationalStatus ?? "active") === "active" &&
+          ["active", "sold-out"].includes(show.operationalStatus ?? "active") &&
           normalizeShowLocation(show.location ?? show.venueName) === draft.venue,
       ),
     [draft.venue, shows],
@@ -95,6 +97,11 @@ export default function CorporateConversionModal({
       : draft.ticketTotal.trim() && draft.amountPaid.trim()
       ? Math.max(ticketTotal - amountPaid, 0)
       : null;
+  const allocatedPax = draft.zoneEntitlements.reduce(
+    (total, entitlement) => total + (Number(entitlement.pax) || 0),
+    0,
+  );
+  const totalPax = Number(draft.pax) || 0;
 
   useEffect(() => {
     if (!isSubmitting && !isSuccess) {
@@ -202,26 +209,104 @@ export default function CorporateConversionModal({
               step="1"
               type="number"
               value={draft.pax}
-              onChange={(event) => updateDraft({ pax: event.target.value })}
+              onChange={(event) => {
+                const pax = event.target.value;
+                updateDraft({
+                  pax,
+                  zoneEntitlements:
+                    draft.zoneEntitlements.length === 1
+                      ? [{ ...draft.zoneEntitlements[0], pax }]
+                      : draft.zoneEntitlements,
+                });
+              }}
               className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
             />
             {errors.pax && <span className="text-xs text-red-300">{errors.pax}</span>}
           </label>
 
-          <label className="grid gap-2 text-sm text-zinc-300">
-            Seating Zone
-            <select
-              value={draft.zoneId}
-              onChange={(event) => updateDraft({ zoneId: event.target.value })}
-              className="rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
-            >
-              <option value="">Select seating zone</option>
-              {seatingZones.map((zone) => (
-                <option key={zone.id} value={zone.id}>{zone.title}</option>
-              ))}
-            </select>
-            {errors.zoneId && <span className="text-xs text-red-300">{errors.zoneId}</span>}
-          </label>
+          <div className="grid gap-3 text-sm text-zinc-300 sm:col-span-2">
+            <div className="flex items-center justify-between gap-3">
+              <span>Seating Zones</span>
+              <button
+                type="button"
+                onClick={() =>
+                  updateDraft({
+                    zoneEntitlements: [
+                      ...draft.zoneEntitlements,
+                      { pax: "", zoneId: "" },
+                    ],
+                  })
+                }
+                className="text-xs font-semibold uppercase text-[#D8C36A]"
+              >
+                Add Seating Zone
+              </button>
+            </div>
+            {draft.zoneEntitlements.map((entitlement, index) => (
+              <div key={index} className="grid grid-cols-[minmax(0,1fr)_7rem_auto] gap-2">
+                <select
+                  aria-label={`Seating zone ${index + 1}`}
+                  value={entitlement.zoneId}
+                  onChange={(event) => {
+                    const zoneEntitlements = draft.zoneEntitlements.map((row, rowIndex) =>
+                      rowIndex === index ? { ...row, zoneId: event.target.value } : row,
+                    );
+                    updateDraft({
+                      zoneEntitlements,
+                      zoneId: index === 0 ? event.target.value : draft.zoneId,
+                    });
+                  }}
+                  className="min-w-0 rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]"
+                >
+                  <option value="">Select zone</option>
+                  {seatingZones.filter((zone) => zone.id !== "elevated-stage").map((zone) => (
+                    <option key={zone.id} value={zone.id}>{zone.title}</option>
+                  ))}
+                </select>
+                <input
+                  aria-label={`Zone guests ${index + 1}`}
+                  min="1"
+                  step="1"
+                  type="number"
+                  value={entitlement.pax}
+                  onChange={(event) =>
+                    updateDraft({
+                      zoneEntitlements: draft.zoneEntitlements.map((row, rowIndex) =>
+                        rowIndex === index ? { ...row, pax: event.target.value } : row,
+                      ),
+                    })
+                  }
+                  className="min-w-0 rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]"
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove seating zone ${index + 1}`}
+                  disabled={draft.zoneEntitlements.length === 1}
+                  onClick={() => {
+                    const zoneEntitlements = draft.zoneEntitlements.filter((_, rowIndex) => rowIndex !== index);
+                    updateDraft({
+                      zoneEntitlements,
+                      zoneId: zoneEntitlements[0]?.zoneId ?? "",
+                    });
+                  }}
+                  className="px-2 text-zinc-400 disabled:opacity-30"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <div className="flex flex-wrap justify-between gap-2 text-xs uppercase tracking-[0.1em]">
+              <span>Allocated {allocatedPax} / {totalPax}</span>
+              <span className={allocatedPax === totalPax ? "text-emerald-300" : "text-amber-300"}>
+                Remaining {totalPax - allocatedPax}
+              </span>
+            </div>
+            {(errors.zoneEntitlements || validateCorporateZoneEntitlements(draft.zoneEntitlements, totalPax)) && (
+              <span className="text-xs text-red-300">
+                {errors.zoneEntitlements ?? validateCorporateZoneEntitlements(draft.zoneEntitlements, totalPax)}
+              </span>
+            )}
+          </div>
 
           <label className="grid gap-2 text-sm text-zinc-300">
             Agreed Ticket Obligation

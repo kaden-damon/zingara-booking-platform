@@ -42,6 +42,7 @@ type BookingRow = {
   section: string | null;
   table_id: string | null;
   updated_at: string;
+  zone_entitlements: Array<{ pax: number; zoneId: string }> | null;
 };
 
 type TableRow = {
@@ -246,7 +247,7 @@ async function loadPlan(
     serviceClient
       .from("bookings")
       .select(
-        "id,booking_reference,booking_source,booking_origin,booking_status,guest_count,section,table_id,updated_at",
+        "id,booking_reference,booking_source,booking_origin,booking_status,guest_count,section,zone_entitlements,table_id,updated_at",
       )
       .eq("show_id", show.id)
       .is("archived_at", null),
@@ -280,6 +281,7 @@ async function loadPlan(
         guest_count: booking.guest_count,
         id: booking.id,
         section: booking.section,
+        zone_entitlements: booking.zone_entitlements,
         table_id: booking.table_id,
         updated_at: booking.updated_at,
       }))
@@ -301,11 +303,18 @@ async function loadPlan(
     .digest("hex");
 
   const zones = corporateFloorZones.map((zoneId) => {
-    const activeZoneBookings = bookings.filter(
-      (booking) =>
-        activeEntitlementStatuses.has(booking.booking_status) &&
-        normalizeZone(booking.section) === zoneId,
-    );
+    const activeZoneBookings = bookings.flatMap((booking) => {
+      if (!activeEntitlementStatuses.has(booking.booking_status)) return [];
+      const split = booking.zone_entitlements;
+      if (Array.isArray(split) && split.length > 0) {
+        return split
+          .filter((entitlement) => normalizeZone(entitlement.zoneId) === zoneId)
+          .map((entitlement) => ({ booking, pax: Number(entitlement.pax) || 0 }));
+      }
+      return normalizeZone(booking.section) === zoneId
+        ? [{ booking, pax: booking.guest_count }]
+        : [];
+    });
     const zoneTables = tables.filter(
       (table) => normalizeZone(table.section) === zoneId,
     );
@@ -363,7 +372,7 @@ async function loadPlan(
 
     return buildZoneFloorCapacityPlan({
       activeEntitlementPax: activeZoneBookings.reduce(
-        (total, booking) => total + booking.guest_count,
+        (total, entitlement) => total + entitlement.pax,
         0,
       ),
       allowedTemporaryCapacities,
@@ -374,16 +383,15 @@ async function loadPlan(
       claimedReservedCapacity,
       queuedBookings: activeZoneBookings
         .filter(
-          (booking) =>
-            activeEntitlementStatuses.has(booking.booking_status) &&
-            !booking.table_id,
+          ({ booking }) =>
+            !zoneTables.some((table) => table.booking_id === booking.id),
         )
-        .map((booking) => ({
-          id: booking.id,
+        .map(({ booking, pax }) => ({
+          id: `${booking.id}:${zoneId}`,
           isCorporate:
             booking.booking_origin === "corporate" ||
             booking.booking_source === "corporate-direct",
-          pax: booking.guest_count,
+          pax,
           reference: booking.booking_reference,
         })),
       zoneCapacity: getConfiguredZoneMaxSeats(settings, getZoneById(zoneId)!),
@@ -565,18 +573,21 @@ export async function POST(request: Request) {
         { status: 403 },
       );
     }
-    if (result.show.status !== "active") {
+    if (result.show.status !== "active" && body.action !== "assign") {
       return Response.json(
         { error: "Temporary Floor capacity can be created only for an active performance." },
         { status: 409 },
       );
     }
     if (body.action === "assign") {
+      if (!corporateFloorZones.includes(zoneId)) {
+        return Response.json({ error: "Select a valid Corporate seating zone." }, { status: 400 });
+      }
       const bookingReference = body.bookingReference?.trim() ?? "";
       const requestedTableIds = Array.from(new Set(body.tableIds ?? []));
       const bookingPlan = result.zones
-        .flatMap((zone) => zone.bookingPlans)
-        .find((booking) => booking.bookingReference === bookingReference);
+        .find((zone) => zone.zoneId === zoneId)
+        ?.bookingPlans.find((booking) => booking.bookingReference === bookingReference);
       const currentBooking = result.bookings.find(
         (booking) => booking.booking_reference === bookingReference,
       );
@@ -608,11 +619,12 @@ export async function POST(request: Request) {
         requestedTableIds.includes(table.id),
       );
       const { data, error: assignmentError } = await auth.serviceClient.rpc(
-        "assign_corporate_booking_tables_atomic",
+        "assign_corporate_booking_zone_tables_atomic",
         {
           p_actor_auth_user_id: auth.user.id,
           p_actor_staff_profile_id: auth.staffProfile.id,
           p_booking_reference: bookingReference,
+          p_zone: zoneId,
           p_expected_table_state: selectedTableState,
           p_expected_updated_at: body.expectedUpdatedAt,
           p_table_ids: requestedTableIds,

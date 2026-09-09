@@ -92,6 +92,10 @@ import {
   hasValidAgePolicyAcknowledgement,
 } from "@/lib/ageRestrictionPolicy";
 import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
+import {
+  getBookingZoneEntitlements,
+  validateCorporateZoneEntitlements,
+} from "@/lib/corporateZoneEntitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -964,10 +968,19 @@ async function reservePublicBookingAtomically(
     "00000000-0000-0000-0000-000000000000",
   );
   const { data, error } = await supabase.rpc(
-    claims.length > 0
+    booking.zoneEntitlements && booking.zoneEntitlements.length > 1
+      ? "reserve_corporate_multi_zone_entitlement"
+      : claims.length > 0
       ? "reserve_public_booking_table"
       : "reserve_public_booking_entitlement",
-    claims.length > 0
+    booking.zoneEntitlements && booking.zoneEntitlements.length > 1
+      ? {
+          p_booking_payload: bookingPayload,
+          p_payment_payload: paymentPayload,
+          p_show_id: showId,
+          p_zone_entitlements: booking.zoneEntitlements,
+        }
+      : claims.length > 0
       ? {
           p_booking_payload: bookingPayload,
           p_payment_payload: paymentPayload,
@@ -1583,6 +1596,7 @@ export async function POST(request: Request) {
         ...booking,
         corporateRequestId: undefined,
         reservationTableClaims: [],
+        zoneEntitlements: undefined,
         tableId: "",
         tableNumber: "",
       };
@@ -1931,16 +1945,37 @@ export async function POST(request: Request) {
       }
     }
 
-    const capacityResult = await validateBookingCapacityIncrease(supabase, {
-      bookingReference: booking.reference,
-      bookingStatus: toSupabaseBookingStatus(booking.status),
-      guestCount: booking.partySize,
-      section: getDisplayZoneTitle(booking.zoneId, booking.zoneTitle),
-      showId: show.id,
-    });
+    const zoneEntitlements = getBookingZoneEntitlements(booking);
+    if (booking.zoneEntitlements?.length) {
+      if (!isTrustedStaff || booking.source !== "corporate-direct") {
+        return Response.json(
+          { error: "Multi-zone seating requires authorised Corporate booking access." },
+          { status: 403 },
+        );
+      }
+      const entitlementError = validateCorporateZoneEntitlements(
+        booking.zoneEntitlements.map((entitlement) => ({
+          pax: String(entitlement.pax),
+          zoneId: entitlement.zoneId,
+        })),
+        booking.partySize,
+      );
+      if (entitlementError) {
+        return Response.json({ error: entitlementError }, { status: 400 });
+      }
+    }
 
-    if (!capacityResult.allowed) {
-      return getBookingCapacityConflictResponse(capacityResult);
+    for (const entitlement of zoneEntitlements) {
+      const capacityResult = await validateBookingCapacityIncrease(supabase, {
+        bookingReference: booking.reference,
+        bookingStatus: toSupabaseBookingStatus(booking.status),
+        guestCount: entitlement.pax,
+        section: getDisplayZoneTitle(entitlement.zoneId),
+        showId: show.id,
+      });
+      if (!capacityResult.allowed) {
+        return getBookingCapacityConflictResponse(capacityResult);
+      }
     }
 
     if (usesAtomicTableReservation(booking)) {

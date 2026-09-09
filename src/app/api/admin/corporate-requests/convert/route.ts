@@ -21,6 +21,9 @@ import {
   getImportedCorporateProvenance,
   importedEnquiryClaimsPayment,
 } from "@/lib/corporateFinancialReconciliation";
+import {
+  validateCorporateZoneEntitlements,
+} from "@/lib/corporateZoneEntitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -311,10 +314,33 @@ export async function POST(request: Request) {
     );
   }
 
+  const entitlementDrafts = (booking.zoneEntitlements ?? []).map((entitlement) => ({
+    pax: String(entitlement.pax),
+    zoneId: entitlement.zoneId,
+  }));
+  const entitlementError = validateCorporateZoneEntitlements(
+    entitlementDrafts.length > 0
+      ? entitlementDrafts
+      : [{ pax: String(booking.partySize), zoneId: booking.zoneId }],
+    booking.partySize,
+  );
+  if (entitlementError) {
+    return Response.json({ error: entitlementError }, { status: 400 });
+  }
+  if (
+    booking.zoneEntitlements?.length &&
+    booking.zoneEntitlements[0]?.zoneId !== booking.zoneId
+  ) {
+    return Response.json(
+      { error: "The primary Corporate zone must match the first seating allocation." },
+      { status: 400 },
+    );
+  }
+
   const { data: showRows, error: showsError } = await auth.serviceClient
     .from("shows")
     .select("id,notes,status")
-    .in("status", ["active", "special_event"]);
+    .in("status", ["active", "special_event", "sold_out"]);
   const show = (showRows ?? []).find(
     (row) =>
       row.id === booking.showId || getLegacyShowId(row.notes) === booking.showId,
@@ -327,20 +353,20 @@ export async function POST(request: Request) {
     );
   }
 
-  const capacityResult = await validateBookingCapacityIncrease(
-    auth.serviceClient,
-    {
+  for (const entitlement of booking.zoneEntitlements?.length
+    ? booking.zoneEntitlements
+    : [{ pax: booking.partySize, zoneId: booking.zoneId }]) {
+    const capacityResult = await validateBookingCapacityIncrease(auth.serviceClient, {
       bookingReference: booking.reference,
       bookingStatus:
         booking.status === "pending-payment" ? "pending_payment" : booking.status,
-      guestCount: booking.partySize,
-      section: getDisplayZoneTitle(booking.zoneId, booking.zoneTitle),
+      guestCount: entitlement.pax,
+      section: getDisplayZoneTitle(entitlement.zoneId),
       showId: show.id,
-    },
-  );
-
-  if (!capacityResult.allowed) {
-    return getBookingCapacityConflictResponse(capacityResult);
+    });
+    if (!capacityResult.allowed) {
+      return getBookingCapacityConflictResponse(capacityResult);
+    }
   }
 
   let table: {

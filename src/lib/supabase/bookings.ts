@@ -74,6 +74,7 @@ type SupabaseBookingRow = {
   table_id: string | null;
   total_amount: number;
   updated_at?: string;
+  zone_entitlements?: Array<{ pax: number; zoneId: SeatingZoneId }> | null;
 };
 
 type SupabaseShowRow = {
@@ -739,6 +740,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       updatedAt: row.updated_at,
       showId: authoritativeShowId,
       zoneId: authoritativeZoneId,
+      zoneEntitlements: row.zone_entitlements ?? undefined,
       zoneTitle: getDisplayZoneTitle(
         authoritativeZoneId,
         row.table_id ? row.section ?? metadataBooking.zoneTitle : metadataBooking.zoneTitle,
@@ -812,6 +814,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     totalPrice: row.total_amount,
     updatedAt: row.updated_at,
     zoneId,
+    zoneEntitlements: row.zone_entitlements ?? undefined,
     zoneTitle,
   };
 

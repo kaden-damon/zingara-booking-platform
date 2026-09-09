@@ -78,6 +78,7 @@ export function assignCorporateFloorPlan(input: {
   showReference: string;
   snapshotToken: string;
   tableIds: string[];
+  zoneId: string;
 }) {
   return fetchSupabaseApi<{ ok: true; result: unknown }>(
     "/api/admin/floor-capacity-plan",

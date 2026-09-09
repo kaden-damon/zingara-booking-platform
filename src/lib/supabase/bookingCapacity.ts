@@ -24,6 +24,7 @@ type ExistingBookingRow = {
   id: string;
   section: string | null;
   show_id: string;
+  zone_entitlements?: Array<{ pax: number; zoneId: SeatingZoneId }> | null;
 };
 
 export type BookingCapacityInput = {
@@ -77,7 +78,7 @@ export async function validateBookingCapacityIncrease(
 
   const { data: existingData, error: existingError } = await supabase
     .from("bookings")
-    .select("id,show_id,section,guest_count,booking_status,archived_at")
+    .select("id,show_id,section,guest_count,booking_status,archived_at,zone_entitlements")
     .eq("booking_reference", input.bookingReference)
     .maybeSingle();
 
@@ -111,9 +112,8 @@ export async function validateBookingCapacityIncrease(
 
   let query = supabase
     .from("bookings")
-    .select("id,guest_count")
+    .select("id,guest_count,section,zone_entitlements")
     .eq("show_id", input.showId)
-    .in("section", getZoneSectionLookupTitles(zoneId))
     .is("archived_at", null)
     .in("booking_status", [...occupyingBookingStatuses]);
 
@@ -128,7 +128,19 @@ export async function validateBookingCapacityIncrease(
   }
 
   const existingEntitlement = (data ?? []).reduce(
-    (total, row) => total + Math.max(Number(row.guest_count) || 0, 0),
+    (total, row) => {
+      const split = row.zone_entitlements as
+        | Array<{ pax?: number; zoneId?: string }>
+        | null;
+      if (Array.isArray(split) && split.length > 0) {
+        return total + split
+          .filter((entry) => entry.zoneId === zoneId)
+          .reduce((sum, entry) => sum + Math.max(Number(entry.pax) || 0, 0), 0);
+      }
+      return normalizeBookingZone(String(row.section ?? "")) === zoneId
+        ? total + Math.max(Number(row.guest_count) || 0, 0)
+        : total;
+    },
     0,
   );
   const { data: settingsData, error: settingsError } = await supabase

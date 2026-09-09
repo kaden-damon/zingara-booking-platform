@@ -3,6 +3,12 @@ import type {
   PaymentStatus,
   SeatingZoneId,
 } from "./zingaraDemo";
+import {
+  parseCorporateZoneEntitlements,
+  validateCorporateZoneEntitlements,
+  type CorporateZoneEntitlement,
+  type CorporateZoneEntitlementDraft,
+} from "./corporateZoneEntitlements.ts";
 
 const conversionZoneIds = [
   "elevated-stage",
@@ -34,6 +40,7 @@ export type CorporateConversionReview = {
   ticketTotal: number;
   venue: "cape-town" | "johannesburg";
   zoneId: SeatingZoneId;
+  zoneEntitlements: CorporateZoneEntitlement[];
 };
 
 export type CorporateConversionReviewDraft = {
@@ -45,6 +52,7 @@ export type CorporateConversionReviewDraft = {
   ticketTotal: string;
   venue: "" | CorporateConversionReview["venue"];
   zoneId: string;
+  zoneEntitlements: CorporateZoneEntitlementDraft[];
 };
 
 export function isCorporateRequestConversionEligible(
@@ -74,6 +82,11 @@ export function validateCorporateConversionReview(
   if (!isConversionZoneId(draft.zoneId)) {
     errors.zoneId = "Select the agreed seating zone.";
   }
+  const zoneEntitlementError = validateCorporateZoneEntitlements(
+    draft.zoneEntitlements,
+    pax,
+  );
+  if (zoneEntitlementError) errors.zoneEntitlements = zoneEntitlementError;
   if (!Number.isInteger(pax) || pax <= 0) {
     errors.pax = "Enter a valid guest count.";
   }
@@ -155,6 +168,12 @@ export function parseCorporateConversionReview(
           ? "deposit-paid"
           : "pending-payment";
 
+  const zoneEntitlements = parseCorporateZoneEntitlements(
+    draft.zoneEntitlements,
+    Number(draft.pax),
+  );
+  if (!zoneEntitlements) return null;
+
   return {
     amountPaid,
     outstandingAmount:
@@ -168,5 +187,6 @@ export function parseCorporateConversionReview(
     ticketTotal,
     venue: draft.venue,
     zoneId: draft.zoneId as SeatingZoneId,
+    zoneEntitlements,
   };
 }
