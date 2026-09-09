@@ -51,6 +51,40 @@ export function isEligibleManualBookingMoveTarget(
   );
 }
 
+export function getManualBookingMoveZoneCapacity(input: {
+  bookingPax: number;
+  currentBookingPaxInTargetZone: number;
+  currentShowPaxInTargetZone: number;
+  targetZoneCapacity: number;
+  targetZoneIsCurrentZone: boolean;
+}) {
+  const currentBookingPaxInTargetZone = Math.max(
+    Math.trunc(input.currentBookingPaxInTargetZone),
+    0,
+  );
+  const currentShowPaxInTargetZone = Math.max(
+    Math.trunc(input.currentShowPaxInTargetZone),
+    0,
+  );
+  const nextBookingPaxInTargetZone = input.targetZoneIsCurrentZone
+    ? currentBookingPaxInTargetZone
+    : Math.max(Math.trunc(input.bookingPax), 0);
+  const bookedPaxExcludingBooking = Math.max(
+    currentShowPaxInTargetZone - currentBookingPaxInTargetZone,
+    0,
+  );
+  const resultingPax = bookedPaxExcludingBooking + nextBookingPaxInTargetZone;
+
+  return {
+    availablePax: Math.max(
+      Math.trunc(input.targetZoneCapacity) - bookedPaxExcludingBooking,
+      0,
+    ),
+    eligible: resultingPax <= input.targetZoneCapacity,
+    resultingPax,
+  };
+}
+
 export function groupManualBookingMoveTargets(tables: DemoTable[]) {
   return manualMoveZoneOrder
     .map((zoneId) => ({

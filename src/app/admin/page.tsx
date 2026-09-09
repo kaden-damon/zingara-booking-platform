@@ -160,6 +160,7 @@ import {
 import { isCorporateBookingSource } from "../../lib/bookingClassification";
 import {
   buildCrossZoneMoveConfirmation,
+  getManualBookingMoveZoneCapacity,
   getManualBookingMoveTargetKind,
   groupManualBookingMoveTargets,
   isEligibleManualBookingMoveTarget,
@@ -13173,6 +13174,48 @@ export default function AdminDashboardPage() {
   }
   const getOperationsBookingShow = (booking: DemoBooking) =>
     getShowByIdentity(booking.showId);
+  const operationalZonePaxByShow = new Map<string, number>();
+  operationalBookings.forEach((booking) => {
+    const show = getOperationsBookingShow(booking);
+    const showId = show?.supabaseId ?? show?.id ?? booking.showId;
+
+    getBookingZoneEntitlements(booking).forEach((entitlement) => {
+      const key = `${showId}|${entitlement.zoneId}`;
+      operationalZonePaxByShow.set(
+        key,
+        (operationalZonePaxByShow.get(key) ?? 0) + entitlement.pax,
+      );
+    });
+  });
+  function getManualMoveZoneCapacity(table: DemoTable, booking: DemoBooking) {
+    const show = getOperationsBookingShow(booking);
+    const showId = show?.supabaseId ?? show?.id ?? booking.showId;
+    const currentBookingPaxInTargetZone =
+      getBookingZoneEntitlements(booking).find(
+        (entitlement) => entitlement.zoneId === table.zoneId,
+      )?.pax ?? 0;
+    const zone = getZoneById(table.zoneId);
+
+    return getManualBookingMoveZoneCapacity({
+      bookingPax: booking.partySize,
+      currentBookingPaxInTargetZone,
+      currentShowPaxInTargetZone:
+        operationalZonePaxByShow.get(`${showId}|${table.zoneId}`) ?? 0,
+      targetZoneCapacity: zone
+        ? getConfiguredZoneMaxSeats(venueConfig, zone)
+        : 0,
+      targetZoneIsCurrentZone: table.zoneId === booking.zoneId,
+    });
+  }
+  function isEligibleBookingMoveTarget(
+    table: DemoTable,
+    booking: DemoBooking,
+  ) {
+    return (
+      isEligibleManualBookingMoveTarget(table, booking, tables) &&
+      getManualMoveZoneCapacity(table, booking).eligible
+    );
+  }
   const getBookingLocation = (booking: DemoBooking) => {
     const show = getOperationsBookingShow(booking);
 
@@ -22294,6 +22337,15 @@ export default function AdminDashboardPage() {
     ) {
       setCompatibilityWarning(
         "Select an available configured physical, temporary, or merged table that fits this booking.",
+      );
+      return false;
+    }
+
+    const targetZoneCapacity = getManualMoveZoneCapacity(nextTable, booking);
+
+    if (!targetZoneCapacity.eligible) {
+      setCompatibilityWarning(
+        `${nextZone.title} has ${targetZoneCapacity.availablePax} sellable seat${targetZoneCapacity.availablePax === 1 ? "" : "s"} available. This ${booking.partySize}-guest booking cannot be moved there without exceeding the authoritative zone capacity.`,
       );
       return false;
     }
@@ -40444,7 +40496,7 @@ export default function AdminDashboardPage() {
               <div className="mt-5 grid grid-cols-1 gap-3 xl:grid-cols-2">
                 {selectedShowLegacyAssignments.map(({ booking, table }) => {
                   const physicalMappingCandidates = tables.filter((candidate) =>
-                    isEligibleManualBookingMoveTarget(candidate, booking, tables),
+                    isEligibleBookingMoveTarget(candidate, booking),
                   );
 
                   return (
@@ -40855,11 +40907,7 @@ export default function AdminDashboardPage() {
                       );
                       const floorMoveTargets = allocatedBooking
                         ? tables.filter((candidate) =>
-                            isEligibleManualBookingMoveTarget(
-                              candidate,
-                              allocatedBooking,
-                              tables,
-                            ),
+                            isEligibleBookingMoveTarget(candidate, allocatedBooking),
                           )
                         : [];
                       const selectedFloorMoveTargetId = allocatedBooking
@@ -42366,8 +42414,14 @@ export default function AdminDashboardPage() {
 	                  getBookingPerformanceLabel(booking);
                     const linkedBookingCustomer =
                       getLiveCustomerForBooking(booking);
-	                const moveTables = tables.filter((table) =>
+	                const tableFitMoveTargets = tables.filter((table) =>
 	                  isEligibleManualBookingMoveTarget(table, booking, tables),
+	                );
+	                const moveTables = tableFitMoveTargets.filter((table) =>
+	                  getManualMoveZoneCapacity(table, booking).eligible,
+	                );
+	                const capacityBlockedMoveTargets = tableFitMoveTargets.filter(
+	                  (table) => !getManualMoveZoneCapacity(table, booking).eligible,
 	                );
                     const currentBookingShow = getBookingShow(booking);
                     const corporateZoneAvailability = isCorporateBooking
@@ -44014,11 +44068,9 @@ export default function AdminDashboardPage() {
                         )}
                         {moveTables.length === 0 && (
                           <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4 text-sm text-amber-100">
-                            No compatible table is currently available
-                            for this {booking.partySize}-guest booking.
-                            Keep the current assignment, open
-                            capacity, or place the guest on waitlist
-                            review before moving.
+                            {capacityBlockedMoveTargets.length > 0
+                              ? `A table physically fits this ${booking.partySize}-guest booking, but its seating zone does not have enough sellable capacity. Keep the current assignment or open authoritative zone capacity before moving.`
+                              : `No compatible table is currently available for this ${booking.partySize}-guest booking. Keep the current assignment, open capacity, or place the guest on waitlist review before moving.`}
                           </div>
                         )}
                         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">

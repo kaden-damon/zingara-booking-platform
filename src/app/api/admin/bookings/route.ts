@@ -35,6 +35,10 @@ import {
   hasPricedBookingAddons,
   normalizeInternalBookingAddons,
 } from "@/lib/bookingAddons";
+import {
+  getBookingCapacityConflictResponse,
+  validateBookingCapacityIncrease,
+} from "@/lib/supabase/bookingCapacity";
 
 export const dynamic = "force-dynamic";
 
@@ -1134,7 +1138,7 @@ async function persistPhysicalTableMapping(
 
   const { data: booking, error: bookingError } = await auth.serviceClient
     .from("bookings")
-    .select("id,booking_reference,show_id,table_id,section,guest_count,archived_at")
+    .select("id,booking_reference,show_id,table_id,section,guest_count,booking_status,archived_at")
     .eq("booking_reference", bookingReference.trim())
     .maybeSingle();
 
@@ -1284,6 +1288,21 @@ async function persistPhysicalTableMapping(
       { error: "The selected operational table is not available for this booking." },
       { status: 409 },
     );
+  }
+
+  const capacityResult = await validateBookingCapacityIncrease(
+    auth.serviceClient,
+    {
+      bookingReference: booking.booking_reference,
+      bookingStatus: booking.booking_status,
+      guestCount: booking.guest_count,
+      section: targetBookingSection,
+      showId: booking.show_id,
+    },
+  );
+
+  if (!capacityResult.allowed) {
+    return getBookingCapacityConflictResponse(capacityResult);
   }
 
   const { data: mappingResult, error: mappingError } = await auth.serviceClient.rpc(
@@ -3049,6 +3068,16 @@ export async function PATCH(request: Request) {
         typeof error === "object" && error && "message" in error
           ? String((error as { message?: unknown }).message ?? "")
           : "";
+
+      if (message.includes("ZONE_CAPACITY_EXCEEDED")) {
+        return Response.json(
+          {
+            error:
+              "The target seating zone no longer has sufficient capacity. Refresh and choose another table.",
+          },
+          { status: 409 },
+        );
+      }
 
       if (
         message.includes("BOOKING_TABLE_ASSIGNMENT_CHANGED") ||

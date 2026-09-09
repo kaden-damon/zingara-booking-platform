@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   buildCrossZoneMoveConfirmation,
+  getManualBookingMoveZoneCapacity,
   isEligibleManualBookingMoveTarget,
   isValidMergedOperationalParent,
 } from "./bookingTableMoves.ts";
@@ -72,6 +73,60 @@ test("manual moves expose compatible temporary tables across zones", () => {
     isEligibleManualBookingMoveTarget(mrTemporary, source, [mrTemporary]),
     true,
   );
+});
+
+test("cross-zone move discovery enforces the authoritative zone entitlement", () => {
+  assert.deepEqual(
+    getManualBookingMoveZoneCapacity({
+      bookingPax: 5,
+      currentBookingPaxInTargetZone: 0,
+      currentShowPaxInTargetZone: 145,
+      targetZoneCapacity: 146,
+      targetZoneIsCurrentZone: false,
+    }),
+    { availablePax: 1, eligible: false, resultingPax: 150 },
+  );
+});
+
+test("same-zone table changes do not double-count the booking entitlement", () => {
+  assert.deepEqual(
+    getManualBookingMoveZoneCapacity({
+      bookingPax: 5,
+      currentBookingPaxInTargetZone: 5,
+      currentShowPaxInTargetZone: 146,
+      targetZoneCapacity: 146,
+      targetZoneIsCurrentZone: true,
+    }),
+    { availablePax: 5, eligible: true, resultingPax: 146 },
+  );
+});
+
+test("cross-zone move discovery allows an exact-fit entitlement", () => {
+  assert.deepEqual(
+    getManualBookingMoveZoneCapacity({
+      bookingPax: 5,
+      currentBookingPaxInTargetZone: 0,
+      currentShowPaxInTargetZone: 141,
+      targetZoneCapacity: 146,
+      targetZoneIsCurrentZone: false,
+    }),
+    { availablePax: 5, eligible: true, resultingPax: 146 },
+  );
+});
+
+test("Admin mapping preflights zone capacity and preserves the trigger race guard", () => {
+  const route = readFileSync(
+    new URL("../app/api/admin/bookings/route.ts", import.meta.url),
+    "utf8",
+  );
+
+  const mappingStart = route.indexOf("async function persistPhysicalTableMapping");
+  const mappingEnd = route.indexOf("async function persistCorporateZoneTransfer");
+  const mappingRoute = route.slice(mappingStart, mappingEnd);
+
+  assert.match(mappingRoute, /validateBookingCapacityIncrease/);
+  assert.match(mappingRoute, /getBookingCapacityConflictResponse/);
+  assert.match(route, /message\.includes\("ZONE_CAPACITY_EXCEEDED"\)/);
 });
 
 test("an unresolved imported source table does not block a valid target", () => {
