@@ -193,6 +193,10 @@ import {
   type BookingPromoFilter,
 } from "../../lib/bookingPromoUsage";
 import {
+  bookingMatchesLocation,
+  type BookingLocationFilter,
+} from "../../lib/bookingLocationFilter";
+import {
   convertCorporateRequest,
   getCorporateRequests,
   reconcileImportedCorporateFinancials,
@@ -10459,6 +10463,8 @@ export default function AdminDashboardPage() {
   const [isBookingArchiveSubmitting, setIsBookingArchiveSubmitting] =
     useState(false);
   const [bookingShowFilter, setBookingShowFilter] = useState("all");
+  const [bookingLocationFilter, setBookingLocationFilter] =
+    useState<BookingLocationFilter>("all");
   const [bookingDateFilter, setBookingDateFilter] = useState("all");
   const [bookingSourceFilter, setBookingSourceFilter] =
     useState<BookingSource | "all">("all");
@@ -24450,6 +24456,17 @@ export default function AdminDashboardPage() {
       return false;
     }
 
+    const bookingShow = getBookingShow(booking);
+
+    if (
+      !bookingMatchesLocation(
+        bookingShow?.location ?? bookingShow?.venueName,
+        bookingLocationFilter,
+      )
+    ) {
+      return false;
+    }
+
     if (bookingDateFilter !== "all") {
       const bookingShow = getBookingShow(booking);
 
@@ -24515,6 +24532,10 @@ export default function AdminDashboardPage() {
       bookingSourceFilter === "all"
         ? "All sources"
         : bookingSourceLabels[bookingSourceFilter];
+    const selectedLocation =
+      bookingLocationFilter === "all"
+        ? "All locations"
+        : getShowLocationOption(bookingLocationFilter).city;
     const selectedPromo =
       bookingPromoFilter === "all"
         ? "All promo codes"
@@ -24531,6 +24552,7 @@ export default function AdminDashboardPage() {
     return [
       selectedArchiveView,
       selectedShow,
+      selectedLocation,
       bookingDateFilter === "all" ? "All dates" : bookingDateFilter,
       selectedStatus,
       selectedSource,
@@ -24698,6 +24720,7 @@ export default function AdminDashboardPage() {
       activeAdminTab,
       bookingArchiveFilter,
       bookingDateFilter,
+      bookingLocationFilter,
       bookingPromoFilter,
       bookingSearch,
       bookingShowFilter,
@@ -41766,7 +41789,7 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="mt-5 grid gap-4">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(13rem,1.1fr)_minmax(11rem,0.9fr)_minmax(11rem,0.9fr)_minmax(11rem,0.9fr)_minmax(10rem,0.8fr)_minmax(14rem,1.2fr)]">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 <div className="relative block min-w-0">
                     <span className="sr-only">Filter bookings by show</span>
                     <PerformanceCalendarSelector
@@ -41786,6 +41809,30 @@ export default function AdminDashboardPage() {
                     ▾
                   </span>
                 </div>
+
+                <label className="relative block min-w-0">
+                  <span className="sr-only">Filter bookings by location</span>
+                  <select
+                    value={bookingLocationFilter}
+                    onChange={(event) => {
+                      setBookingLocationFilter(
+                        event.target.value as BookingLocationFilter,
+                      );
+                      setBookingPage(1);
+                    }}
+                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                  >
+                    <option value="all">All Locations</option>
+                    {showLocationOptions.map((location) => (
+                      <option key={location.value} value={location.value}>
+                        {location.city}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    ▾
+                  </span>
+                </label>
 
                 <label className="relative block min-w-0">
                     <span className="sr-only">Filter bookings by source</span>
@@ -42163,26 +42210,34 @@ export default function AdminDashboardPage() {
                 </span>{" "}
                 archived
               </p>
-              {(bookingSearch ||
-                  bookingPromoFilter !== "all" ||
-                  bookingSourceFilter !== "all" ||
-                  bookingStatusFilter !== "all" ||
-                  bookingArchiveFilter !== "active") && (
-                <button
-                  type="button"
-	                  onClick={() => {
-	                    setBookingSearch("");
-	                    setBookingPromoFilter("all");
-	                    setBookingSourceFilter("all");
-                      setBookingStatusFilter("all");
-                      setBookingArchiveFilter("active");
-	                    setBookingPage(1);
-	                  }}
-                  className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
-                >
-	                  Clear Filters
-	                </button>
-	              )}
+              <button
+                type="button"
+                disabled={
+                  !bookingSearch &&
+                  bookingShowFilter === "all" &&
+                  bookingLocationFilter === "all" &&
+                  bookingSourceFilter === "all" &&
+                  bookingStatusFilter === "all" &&
+                  bookingPromoFilter === "all" &&
+                  bookingDateFilter === "all" &&
+                  hideCancelledBookings
+                }
+                onClick={() => {
+                  setBookingSearch("");
+                  setBookingShowFilter("all");
+                  setBookingLocationFilter("all");
+                  setBookingPromoFilter("all");
+                  setBookingSourceFilter("all");
+                  setBookingStatusFilter("all");
+                  setBookingDateFilter("all");
+                  setHideCancelledBookings(true);
+                  setIsBookingCalendarOpen(false);
+                  setBookingPage(1);
+                }}
+                className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                Clear Filters
+              </button>
             </div>
           </div>
 
