@@ -108,6 +108,7 @@ import {
 import {
   getBookingSeatingEligibility,
   getStandardBookingZoneGuestLimits,
+  supportsMultiTableBookingFulfilment,
 } from "../../lib/bookingSeatingAvailability";
 import { getCustomerExperienceTimes } from "../../lib/experienceTimes";
 
@@ -373,6 +374,7 @@ function isAvailableForBooking(
     minGuests: guestLimits.minGuests,
     partySize: guests,
     remainingSeats: getRemainingSeats(option, occupiedSeats, settings),
+    supportsMultiTableFulfilment: supportsMultiTableBookingFulfilment(option.id),
   }).isAvailable;
 }
 
@@ -395,6 +397,7 @@ function getAvailabilityState(
     minGuests: guestLimits.minGuests,
     partySize: guests,
     remainingSeats,
+    supportsMultiTableFulfilment: supportsMultiTableBookingFulfilment(option.id),
   });
   const isLimited =
     baseEligibility.isAvailable && remainingSeats <= Math.max(guests * 2, 6);
@@ -406,6 +409,7 @@ function getAvailabilityState(
     minGuests: guestLimits.minGuests,
     partySize: guests,
     remainingSeats,
+    supportsMultiTableFulfilment: supportsMultiTableBookingFulfilment(option.id),
   });
 
   return {
@@ -4012,7 +4016,7 @@ export default function BookingPage() {
                       </p>
                       {!isCorporateCalendarCheckout && selectedZone.id === "royal-booths" && (
                         <p className="mt-1.5 text-xs font-semibold uppercase text-zinc-300">
-                          4–8 Guests
+                          From 4 Guests · Larger Groups Use Multiple Booths
                         </p>
                       )}
                       {availability.requiresFloorAssignment && (

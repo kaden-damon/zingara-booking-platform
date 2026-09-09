@@ -6,7 +6,19 @@ export type BookingSeatingEligibilityInput = {
   minGuests: number;
   partySize: number;
   remainingSeats: number;
+  supportsMultiTableFulfilment?: boolean;
 };
+
+export const multiTableBookingZoneIds = [
+  "golden-circle",
+  "middle-ring",
+  "royal-booths",
+  "royal-balcony",
+] as const;
+
+export function supportsMultiTableBookingFulfilment(zoneId: string) {
+  return (multiTableBookingZoneIds as readonly string[]).includes(zoneId);
+}
 
 export const standardPrivateBoothGuestLimits = {
   maxGuests: 8,
@@ -30,11 +42,9 @@ export function isStandardBookingZoneGuestCountAllowed(
     return false;
   }
 
-  if (zoneId !== "royal-booths") return true;
-
   return (
-    partySize >= standardPrivateBoothGuestLimits.minGuests &&
-    partySize <= standardPrivateBoothGuestLimits.maxGuests
+    zoneId !== "royal-booths" ||
+    partySize >= standardPrivateBoothGuestLimits.minGuests
   );
 }
 
@@ -46,10 +56,11 @@ export function getBookingSeatingEligibility({
   minGuests,
   partySize,
   remainingSeats,
+  supportsMultiTableFulfilment = false,
 }: BookingSeatingEligibilityInput) {
   const isGroupSizeAvailable =
     partySize >= minGuests &&
-    (isInternalCorporate || partySize <= maxGuests);
+    (isInternalCorporate || supportsMultiTableFulfilment || partySize <= maxGuests);
   const hasEnoughVenueCapacity = remainingSeats >= partySize;
   const isAvailable = isGroupSizeAvailable && hasEnoughVenueCapacity;
   const requiresFloorAssignment =

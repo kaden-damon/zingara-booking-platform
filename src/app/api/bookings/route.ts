@@ -1669,7 +1669,7 @@ export async function POST(request: Request) {
         {
           error:
             booking.zoneId === "royal-booths"
-              ? "Private Booths are available for Standard bookings of 4 to 8 guests."
+              ? "Private Booths are available for Standard bookings from 4 guests."
               : "This seating option is not available for the selected group size.",
         },
         { status: 400 },

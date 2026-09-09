@@ -1,4 +1,5 @@
 import type { SeatingZoneId } from "./zingaraDemo";
+import { supportsMultiTableBookingFulfilment } from "./bookingSeatingAvailability.ts";
 
 export const corporateFloorZones = [
   "golden-circle",
@@ -267,7 +268,10 @@ export function buildZoneFloorCapacityPlan(input: {
       continue;
     }
 
-    if (!booking.isCorporate) {
+    if (
+      !booking.isCorporate &&
+      !supportsMultiTableBookingFulfilment(input.zoneId)
+    ) {
       const existingIndex = availableTables.findIndex(
         (table) => table.capacity >= booking.pax,
       );
@@ -324,7 +328,7 @@ export function buildZoneFloorCapacityPlan(input: {
         bookingReference: booking.reference,
         existingTableCodes: existingMix.map((table) => table.tableCode),
         existingTableIds: existingMix.map((table) => table.id),
-        isCorporate: true,
+        isCorporate: booking.isCorporate,
         newCapacities: [],
         pax: booking.pax,
         unresolvedReason: null,
@@ -351,7 +355,7 @@ export function buildZoneFloorCapacityPlan(input: {
         bookingReference: booking.reference,
         existingTableCodes,
         existingTableIds,
-        isCorporate: true,
+        isCorporate: booking.isCorporate,
         newCapacities: [],
         pax: booking.pax,
         unresolvedReason: "No approved temporary-table capacity mix can satisfy the shortfall.",
@@ -364,7 +368,7 @@ export function buildZoneFloorCapacityPlan(input: {
       bookingReference: booking.reference,
       existingTableCodes,
       existingTableIds,
-      isCorporate: true,
+      isCorporate: booking.isCorporate,
       newCapacities: temporaryMix.capacities,
       pax: booking.pax,
       unresolvedReason: null,

@@ -6,6 +6,7 @@ import {
   getBookingSeatingEligibility,
   getStandardBookingZoneGuestLimits,
   isStandardBookingZoneGuestCountAllowed,
+  supportsMultiTableBookingFulfilment,
 } from "./bookingSeatingAvailability.ts";
 
 const middleRing = {
@@ -40,7 +41,7 @@ test("internal Corporate booking remains blocked by zone capacity", () => {
   assert.equal(result.availabilityMessage, "Not Enough Seats Available");
 });
 
-test("public and Standard bookings retain the public party-size safeguard", () => {
+test("single-unit products retain their configured group-size safeguard", () => {
   const result = getBookingSeatingEligibility({
     ...middleRing,
     remainingSeats: 72,
@@ -73,15 +74,15 @@ test("Corporate booking creation keeps authoritative server capacity enforcement
   assert.match(route, /reserve_public_booking_entitlement/);
 });
 
-test("Standard Private Booths accept exactly 4 through 8 guests", () => {
-  for (const partySize of [4, 6, 7, 8]) {
+test("Standard Private Booth bookings can exceed one booth while Corporate routing remains intact", () => {
+  for (const partySize of [4, 6, 8, 12, 18]) {
     assert.equal(
       isStandardBookingZoneGuestCountAllowed("royal-booths", partySize),
       true,
     );
   }
 
-  for (const partySize of [3, 9]) {
+  for (const partySize of [3, 20, 24]) {
     assert.equal(
       isStandardBookingZoneGuestCountAllowed("royal-booths", partySize),
       false,
@@ -97,19 +98,45 @@ test("Standard Private Booths accept exactly 4 through 8 guests", () => {
   );
 });
 
-test("Private Booth eligibility still enforces live capacity", () => {
+test("Private Booth booking eligibility uses zone capacity instead of one-table capacity", () => {
   const limits = getStandardBookingZoneGuestLimits("royal-booths", {
     maxGuests: 20,
     minGuests: 2,
   });
-  const result = getBookingSeatingEligibility({
-    ...limits,
-    partySize: 8,
-    remainingSeats: 7,
-  });
+  for (const partySize of [4, 6, 12, 18, 24]) {
+    const result = getBookingSeatingEligibility({
+      ...limits,
+      partySize,
+      remainingSeats: partySize,
+      supportsMultiTableFulfilment:
+        supportsMultiTableBookingFulfilment("royal-booths"),
+    });
+    assert.equal(result.isAvailable, true);
+  }
 
-  assert.equal(result.isAvailable, false);
-  assert.equal(result.availabilityMessage, "Not Enough Seats Available");
+  const insufficient = getBookingSeatingEligibility({
+    ...limits,
+    partySize: 18,
+    remainingSeats: 17,
+    supportsMultiTableFulfilment: true,
+  });
+  assert.equal(insufficient.isAvailable, false);
+  assert.equal(
+    insufficient.availabilityMessage,
+    "Not Enough Seats Available",
+  );
+});
+
+test("only operational multi-table zones bypass a single-unit maximum", () => {
+  for (const zoneId of [
+    "golden-circle",
+    "middle-ring",
+    "royal-booths",
+    "royal-balcony",
+  ]) {
+    assert.equal(supportsMultiTableBookingFulfilment(zoneId), true);
+  }
+  assert.equal(supportsMultiTableBookingFulfilment("elevated-stage"), false);
 });
 
 test("Corporate zone entitlement is unaffected by the Standard Booth rule", () => {

@@ -74,7 +74,7 @@ test("temporary planning prefers exact fit, then minimum tables", () => {
   });
 });
 
-test("Corporate planning can combine tables while Standard remains single-table", () => {
+test("multi-table zones plan combined tables for Standard and Corporate bookings", () => {
   const plan = buildZoneFloorCapacityPlan({
     activeEntitlementPax: 73,
     allowedTemporaryCapacities: [6, 7],
@@ -85,7 +85,7 @@ test("Corporate planning can combine tables while Standard remains single-table"
     capacityRequiredPhysicalTables: 2,
     claimedReservedCapacity: 0,
     queuedBookings: [
-      { id: "standard", isCorporate: false, pax: 8, reference: "STD-8" },
+      { id: "standard", isCorporate: false, pax: 12, reference: "STD-12" },
       { id: "corporate", isCorporate: true, pax: 65, reference: "CORP-65" },
     ],
     zoneCapacity: 138,
@@ -93,12 +93,14 @@ test("Corporate planning can combine tables while Standard remains single-table"
   });
 
   const standard = plan.bookingPlans.find(
-    (booking) => booking.bookingReference === "STD-8",
+    (booking) => booking.bookingReference === "STD-12",
   );
   const corporate = plan.bookingPlans.find(
     (booking) => booking.bookingReference === "CORP-65",
   );
-  assert.match(standard?.unresolvedReason ?? "", /single temporary-table/);
+  assert.equal(standard?.unresolvedReason, null);
+  assert.deepEqual(standard?.existingTableCodes, ["A", "B"]);
+  assert.equal(standard?.isCorporate, false);
   assert.equal(corporate?.unresolvedReason, null);
   assert.equal(
     (corporate?.existingTableCodes.length ?? 0) +
@@ -107,6 +109,31 @@ test("Corporate planning can combine tables while Standard remains single-table"
     true,
   );
   assert.equal(plan.capacityRequiredPhysicalTables, 2);
+});
+
+test("18-pax Standard Private Booth booking is fulfilled by three 6-seat booths", () => {
+  const plan = buildZoneFloorCapacityPlan({
+    activeEntitlementPax: 18,
+    allowedTemporaryCapacities: [6],
+    availableTables: ["1", "2", "3"].map((tableCode) => ({
+      capacity: 6,
+      id: `booth-${tableCode}`,
+      kind: "physical" as const,
+      tableCode,
+    })),
+    capacityRequiredPhysicalTables: 0,
+    claimedReservedCapacity: 0,
+    queuedBookings: [
+      { id: "standard-18", isCorporate: false, pax: 18, reference: "STD-18" },
+    ],
+    zoneCapacity: 138,
+    zoneId: "royal-booths",
+  });
+
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["1", "2", "3"]);
+  assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
+  assert.equal(plan.bookingPlans[0]?.unresolvedReason, null);
+  assert.equal(plan.queuedPax, 18);
 });
 
 test("unapproved outlier temporary capacities are excluded", () => {

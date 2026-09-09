@@ -543,7 +543,7 @@ export async function POST(request: Request) {
   if (body.action === "release") {
     const bookingReference = body.bookingReference?.trim() ?? "";
     if (!bookingReference || !body.expectedUpdatedAt?.trim()) {
-      return Response.json({ error: "A current Corporate assignment is required." }, { status: 400 });
+      return Response.json({ error: "A current table assignment is required." }, { status: 400 });
     }
     try {
       const { data, error: releaseError } = await auth.serviceClient.rpc(
@@ -564,7 +564,7 @@ export async function POST(request: Request) {
         return Response.json({ error: "FLOOR PLAN CHANGED - REVIEW AGAIN" }, { status: 409 });
       }
       console.error("[Zingara Floor Capacity] Assignment release failed", releaseError);
-      return Response.json({ error: "The Corporate table assignment was not released." }, { status: 500 });
+      return Response.json({ error: "The table assignment was not released." }, { status: 500 });
     }
   }
 
@@ -597,7 +597,7 @@ export async function POST(request: Request) {
     }
     if (body.action === "assign") {
       if (!corporateFloorZones.includes(zoneId)) {
-        return Response.json({ error: "Select a valid Corporate seating zone." }, { status: 400 });
+        return Response.json({ error: "Select a valid seating zone." }, { status: 400 });
       }
       const bookingReference = body.bookingReference?.trim() ?? "";
       const requestedTableIds = Array.from(new Set(body.tableIds ?? []));
@@ -665,7 +665,7 @@ export async function POST(request: Request) {
           );
         }
         if (
-          /CORPORATE_BOOKING_NOT_FOUND|CORPORATE_BOOKING_REQUIRED|ACTIVE_CORPORATE_BOOKING_REQUIRED/i.test(
+          /BOOKING_NOT_FOUND|CORPORATE_BOOKING_NOT_FOUND|CORPORATE_BOOKING_REQUIRED|ACTIVE_BOOKING_REQUIRED|ACTIVE_CORPORATE_BOOKING_REQUIRED/i.test(
             message,
           )
         ) {
@@ -681,7 +681,7 @@ export async function POST(request: Request) {
           );
         }
         console.error(
-          "[Zingara Floor Capacity] Corporate assignment failed",
+          "[Zingara Floor Capacity] Multi-table assignment failed",
           assignmentError,
         );
         return Response.json(

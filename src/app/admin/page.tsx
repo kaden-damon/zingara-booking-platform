@@ -40400,7 +40400,7 @@ export default function AdminDashboardPage() {
                   className="w-full max-w-lg rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-5 shadow-2xl"
                 >
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                    Corporate Floor Assignment
+                    Floor Assignment
                   </p>
                   <h3 id="corporate-table-assignment-title" className="mt-2 text-xl font-bold text-white">
                     Review Suggested Tables
@@ -40484,6 +40484,9 @@ export default function AdminDashboardPage() {
                       .map((plan) => ({ plan, zoneId: zone.zoneId })),
                   );
                   const bookingPlan = bookingPlans[0]?.plan;
+                  const usesReviewedMultiTableAssignment = Boolean(
+                    bookingPlan && bookingPlan.existingTableIds.length > 1,
+                  );
                   const paymentStatus = getBookingPaymentStatus(booking);
 
                   return (
@@ -40551,15 +40554,15 @@ export default function AdminDashboardPage() {
                         {(isCorporate ? bookingPlans : [{ plan: bookingPlan, zoneId: booking.zoneId as CorporateFloorZone }]).map(({ plan, zoneId }) => (
                           <button
                             key={`${booking.reference}-${zoneId}`}
-                            title={isCorporate ? "ASSIGN SUGGESTED TABLES" : undefined}
+                            title={isCorporate || usesReviewedMultiTableAssignment ? "ASSIGN SUGGESTED TABLES" : undefined}
                             type="button"
                             onClick={() =>
-                              isCorporate && plan
+                              (isCorporate || usesReviewedMultiTableAssignment) && plan
                                 ? reviewCorporateTableAssignment(booking, plan, zoneId)
                                 : assignFloorQueuedBooking(booking)
                             }
                             disabled={
-                              (isCorporate
+                              (isCorporate || usesReviewedMultiTableAssignment
                                 ? !plan || Boolean(plan.unresolvedReason) || plan.newCapacities.length > 0 || plan.existingTableIds.length === 0
                                 : !allocation) || !canManageBookings || floorAssignmentAction?.reference === booking.reference
                             }
@@ -40567,7 +40570,7 @@ export default function AdminDashboardPage() {
                           >
                             {floorAssignmentAction?.reference === booking.reference
                               ? floorAssignmentAction.status === "assigning" ? "ASSIGNING..." : "ASSIGNED ✓"
-                              : isCorporate
+                              : isCorporate || usesReviewedMultiTableAssignment
                                 ? `ASSIGN ${getZoneById(zoneId)?.title?.toUpperCase() ?? zoneId} TABLES`
                                 : "Assign Suggested Table"}
                           </button>
