@@ -6,6 +6,7 @@ import {
   type CorporateFloorZone,
   type FloorPlanningTable,
 } from "@/lib/corporateFloorPlanning";
+import { getEffectiveOperationalZoneCapacity } from "@/lib/operationalZoneCapacity";
 import { physicalTableDefinitions } from "@/lib/physicalTables";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
@@ -394,7 +395,22 @@ async function loadPlan(
           pax,
           reference: booking.booking_reference,
         })),
-      zoneCapacity: getConfiguredZoneMaxSeats(settings, getZoneById(zoneId)!),
+      zoneCapacity: getEffectiveOperationalZoneCapacity({
+        baseCapacity: getConfiguredZoneMaxSeats(settings, getZoneById(zoneId)!),
+        showId: show.id,
+        tables: zoneTables.map((table) => ({
+          availabilityScope: table.availability_scope,
+          capacityConfigured: table.capacity_configured,
+          mergedFrom: table.merged_from,
+          mergedInto: table.merged_parent_id,
+          physicalTable: table.is_physical,
+          seatCapacity: table.capacity,
+          showId: show.id,
+          status: table.status,
+          zoneId,
+        })),
+        zoneId,
+      }).effectiveCapacity,
       zoneId,
     });
   });

@@ -1969,6 +1969,7 @@ export async function POST(request: Request) {
       const capacityResult = await validateBookingCapacityIncrease(supabase, {
         bookingReference: booking.reference,
         bookingStatus: toSupabaseBookingStatus(booking.status),
+        capacityScope: isTrustedStaff ? "operational" : "base",
         guestCount: entitlement.pax,
         section: getDisplayZoneTitle(entitlement.zoneId),
         showId: show.id,

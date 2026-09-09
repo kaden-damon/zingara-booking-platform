@@ -168,6 +168,10 @@ import {
   isValidMergedOperationalParent,
 } from "../../lib/bookingTableMoves";
 import {
+  getEffectiveOperationalZoneCapacity,
+  getTemporaryOperationalCapacity,
+} from "../../lib/operationalZoneCapacity";
+import {
   getEligibleBookingTransferShows,
   isBookingEligibleForShowTransfer,
 } from "../../lib/bookingShowTransfers";
@@ -4676,10 +4680,10 @@ const venueOperationsLessons: AcademyArticle[] = [
     difficulty: "intermediate",
     howTo: [
       "Open Operations, then Floor, and select JHB or CPT and the correct performance.",
-      "Remember that venue capacity is fixed at GC 148, MR 132, PB 138, and RB 40; operational tables are configured separately.",
+      "Start with the configured base zone capacity. Valid active temporary tables add show-specific operational capacity; physical and merged table representations do not add it again.",
       "Set Capacity on physical tables that show Capacity Required.",
       "Use the Floor Assignment Queue and Assign Suggested Table when a configured table fits the booking.",
-      "Use Add Temporary Table or Merge only for a genuine operational override. Temporary tables retain a visible Temporary label.",
+      "Use Add Temporary Table only for authorised extra seating on the selected show and zone. Temporary tables retain a visible Temporary label and increase effective operational capacity while active.",
       "For a temporary table, leave Custom Price Per Person blank for STANDARD ZONE PRICE or enter an authorised show-specific CUSTOM PRICE.",
       "For a booking on an old placeholder table, use Map Physical Table to move it deliberately without contacting the guest.",
     ],
@@ -4692,7 +4696,7 @@ const venueOperationsLessons: AcademyArticle[] = [
     tips: [
       "Physical table numbers are 1-24 excluding 13 for booths, 200/300-series for Middle Ring, 400/500/600-series for Golden Circle, and 800/801/900/901 for Royal Balcony.",
       "A legacy table assignment remains valid until staff maps it to a configured physical table in the same zone.",
-      "Configured table capacity controls table fit; it does not replace the fixed sellable zone capacity.",
+      "Configured physical table capacity controls table fit. Active temporary-table capacity expands internal operational capacity for that show and zone without changing public sellable capacity.",
       "A temporary-table custom price applies only when that table is deliberately selected during new staff booking creation; it never changes the zone price.",
     ],
     title: "Table Management",
@@ -4708,7 +4712,7 @@ const venueOperationsLessons: AcademyArticle[] = [
     howTo: [
       "Choose the show and guest count.",
       "Select a seating section.",
-      "Review fixed venue seats remaining and the configured table inventory.",
+      "Review base capacity, temporary capacity, effective remaining seats, and the configured table inventory.",
       "Ignore physical tables marked Capacity Required until a manager sets their show-specific capacity.",
       "If no suitable table is available, choose another section or review availability.",
     ],
@@ -7277,14 +7281,23 @@ function getZoneStats(
         total + (getBookingZoneEntitlements(booking).find((entitlement) => entitlement.zoneId === zone.id)?.pax ?? 0),
       0,
     );
-  const totalCapacity = capacityOverride ?? getVenueZoneSeatCapacity(zone.id);
+  const baseCapacity = capacityOverride ?? getVenueZoneSeatCapacity(zone.id);
+  const { effectiveCapacity, temporaryCapacity } =
+    getEffectiveOperationalZoneCapacity({
+      baseCapacity,
+      showId,
+      tables: zoneTables,
+      zoneId: zone.id,
+    });
 
   return {
+    baseCapacity,
     bookedSeats,
     ...inventoryStats,
-    overCapacitySeats: Math.max(bookedSeats - totalCapacity, 0),
-    remainingSeats: Math.max(totalCapacity - bookedSeats, 0),
-    totalCapacity,
+    overCapacitySeats: Math.max(bookedSeats - effectiveCapacity, 0),
+    remainingSeats: Math.max(effectiveCapacity - bookedSeats, 0),
+    temporaryCapacity,
+    totalCapacity: effectiveCapacity,
   };
 }
 
@@ -13187,9 +13200,38 @@ export default function AdminDashboardPage() {
       );
     });
   });
+  const operationalTemporaryCapacityByShow = new Map<string, number>();
+  tables.forEach((table) => {
+    if (!table.showId) return;
+    const capacity = getTemporaryOperationalCapacity(
+      [table],
+      table.showId,
+      table.zoneId,
+    );
+    if (!capacity) return;
+    const key = `${table.showId}|${table.zoneId}`;
+    operationalTemporaryCapacityByShow.set(
+      key,
+      (operationalTemporaryCapacityByShow.get(key) ?? 0) + capacity,
+    );
+  });
+  function getOperationalZoneCapacity(
+    showId: string,
+    zoneId: SeatingZoneId,
+  ) {
+    const zone = getZoneById(zoneId);
+    const baseCapacity = zone
+      ? getConfiguredZoneMaxSeats(venueConfig, zone)
+      : 0;
+
+    return (
+      baseCapacity +
+      (operationalTemporaryCapacityByShow.get(`${showId}|${zoneId}`) ?? 0)
+    );
+  }
   function getManualMoveZoneCapacity(table: DemoTable, booking: DemoBooking) {
     const show = getOperationsBookingShow(booking);
-    const showId = show?.supabaseId ?? show?.id ?? booking.showId;
+    const showId = show?.supabaseId ?? show?.id ?? booking.showId ?? "";
     const currentBookingPaxInTargetZone =
       getBookingZoneEntitlements(booking).find(
         (entitlement) => entitlement.zoneId === table.zoneId,
@@ -13201,9 +13243,7 @@ export default function AdminDashboardPage() {
       currentBookingPaxInTargetZone,
       currentShowPaxInTargetZone:
         operationalZonePaxByShow.get(`${showId}|${table.zoneId}`) ?? 0,
-      targetZoneCapacity: zone
-        ? getConfiguredZoneMaxSeats(venueConfig, zone)
-        : 0,
+      targetZoneCapacity: getOperationalZoneCapacity(showId, table.zoneId),
       targetZoneIsCurrentZone: table.zoneId === booking.zoneId,
     });
   }
@@ -40665,10 +40705,13 @@ export default function AdminDashboardPage() {
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:min-w-[680px] lg:grid-cols-4">
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                        Venue Capacity
+                        Effective Capacity
                       </p>
                       <p className="mt-2 text-3xl font-bold">
                         {stats.totalCapacity}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-300">
+                        Base {stats.baseCapacity} · Temporary +{stats.temporaryCapacity}
                       </p>
                     </div>
 
@@ -42446,9 +42489,9 @@ export default function AdminDashboardPage() {
                           zoneCapacities: Object.fromEntries(
                             corporateFloorZones.map((zoneId) => [
                               zoneId,
-                              getConfiguredZoneMaxSeats(
-                                venueConfig,
-                                getZoneById(zoneId)!,
+                              getOperationalZoneCapacity(
+                                currentBookingShow?.supabaseId ?? booking.showId ?? "",
+                                zoneId,
                               ),
                             ]),
                           ) as Record<CorporateFloorZone, number>,

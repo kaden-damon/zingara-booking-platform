@@ -8,6 +8,7 @@ import {
   getZoneSectionLookupTitles,
   seatingZones,
 } from "@/lib/zingaraDemo";
+import { getEffectiveOperationalZoneCapacity } from "@/lib/operationalZoneCapacity";
 
 const capacityErrorPrefix = "ZONE_CAPACITY_EXCEEDED";
 const occupyingBookingStatuses = [
@@ -30,6 +31,7 @@ type ExistingBookingRow = {
 export type BookingCapacityInput = {
   bookingReference: string;
   bookingStatus: string;
+  capacityScope?: "base" | "operational";
   guestCount: number;
   section: string;
   showId: string;
@@ -157,9 +159,44 @@ export async function validateBookingCapacityIncrease(
     (settingsData as { settings?: Parameters<typeof normalizeVenueSettings>[0] } | null)?.settings,
   );
   const zone = seatingZones.find((candidate) => candidate.id === zoneId);
-  const capacity = zone
+  const baseCapacity = zone
     ? getConfiguredZoneMaxSeats(settings, zone)
     : getVenueZoneSeatCapacity(zoneId);
+  let temporaryCapacity = 0;
+
+  if (input.capacityScope !== "base") {
+    const { data: temporaryTables, error: temporaryTablesError } = await supabase
+      .from("show_tables")
+      .select("show_id,section,capacity,capacity_configured,status,is_physical,is_override,availability_scope,merged_from,merged_parent_id")
+      .eq("show_id", input.showId)
+      .eq("is_physical", false)
+      .eq("is_override", true)
+      .eq("availability_scope", "operational")
+      .is("merged_parent_id", null);
+
+    if (temporaryTablesError) {
+      throw temporaryTablesError;
+    }
+
+    temporaryCapacity = getEffectiveOperationalZoneCapacity({
+      baseCapacity,
+      showId: input.showId,
+      tables: (temporaryTables ?? []).map((table) => ({
+        availabilityScope: table.availability_scope,
+        capacityConfigured: table.capacity_configured,
+        mergedFrom: table.merged_from,
+        mergedInto: table.merged_parent_id,
+        physicalTable: table.is_physical,
+        seatCapacity: table.capacity,
+        showId: table.show_id,
+        status: table.status,
+        zoneId: normalizeBookingZone(String(table.section ?? "")) ?? "elevated-stage",
+      })),
+      zoneId,
+    }).temporaryCapacity;
+  }
+
+  const capacity = baseCapacity + temporaryCapacity;
   const resultingEntitlement = existingEntitlement + nextGuestCount;
 
   if (resultingEntitlement <= capacity) {
@@ -168,10 +205,12 @@ export async function validateBookingCapacityIncrease(
 
   return {
     allowed: false as const,
+    baseCapacity,
     capacity,
     existingEntitlement,
     overBy: resultingEntitlement - capacity,
     resultingEntitlement,
+    temporaryCapacity,
     zoneId,
   };
 }
@@ -187,9 +226,11 @@ export function getBookingCapacityConflictResponse(
   return Response.json(
     {
       capacity: result.capacity,
+      baseCapacity: result.baseCapacity,
       error: `${zone?.title ?? "This seating zone"} cannot accept additional guests because the venue capacity would be exceeded.`,
       existingEntitlement: result.existingEntitlement,
       resultingEntitlement: result.resultingEntitlement,
+      temporaryCapacity: result.temporaryCapacity,
     },
     { status: 409 },
   );
