@@ -94,7 +94,9 @@ export function CompactBookingList({
             <div
               key={row.reference}
               role="listitem"
-              className="group relative border-b border-white/[0.07] last:border-b-0"
+              className={`group relative border-b border-white/[0.07] last:border-b-0 ${
+                noteIsVisible ? "z-[100]" : ""
+              }`}
             >
               <button
                 type="button"

@@ -89,6 +89,7 @@ test("Compact exposes authoritative notes without per-row requests", async () =>
   assert.match(component, /current === row\.reference \? null : row\.reference/);
   assert.match(component, /event\.key === "Escape"/);
   assert.match(component, /overflow-visible/);
+  assert.match(component, /noteIsVisible \? "z-\[100\]"/);
   assert.match(component, /z-\[200\]/);
   assert.match(component, /bg-\[#090909\]/);
   assert.doesNotMatch(component, /fetch\(|supabase/i);
