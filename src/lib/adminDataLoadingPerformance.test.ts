@@ -23,6 +23,37 @@ test("Admin boot requests lean booking and show data without eager histories or 
   assert.doesNotMatch(loadAdminData, /refreshLiveCustomerRecords/);
 });
 
+test("Admin boot paints configured show metadata before booking and payment summaries", async () => {
+  const page = await pageSource();
+  const loadAdminData = page.slice(
+    page.indexOf("async function loadAdminData"),
+    page.indexOf("async function restoreAdminSession"),
+  );
+
+  assert.match(
+    loadAdminData,
+    /const showShellRequest = Promise\.all\(\[[\s\S]*getShowsWithTables\(\{ metadataOnly: true \}\)[\s\S]*getVenueSettings\(\)/,
+  );
+  assert.ok(
+    loadAdminData.indexOf("await showShellRequest") <
+      loadAdminData.indexOf("await Promise.all([dashboardDataRequest, bookingsRequest])"),
+  );
+  assert.ok(
+    loadAdminData.indexOf("setIsShowsLoading(false)") <
+      loadAdminData.lastIndexOf("setIsCalendarSummariesLoading(false)"),
+  );
+  assert.match(loadAdminData, /setVenueSettings\(nextVenueSettings\)/);
+});
+
+test("calendar never presents partial occupancy or financial summaries as authoritative", async () => {
+  const page = await pageSource();
+
+  assert.match(page, /disabled=\{isCalendarSummariesLoading\}/);
+  assert.match(page, /Financial summary loading/);
+  assert.match(page, /occupancy loading/);
+  assert.match(page, /isCalendarSummariesLoading[\s\S]{0,180}`… \/ \$\{chip\.capacity\}`/);
+});
+
 test("calendar navigation reuses hydrated metadata and never reloads all bookings", async () => {
   const page = await pageSource();
   const selectedShowEffect = page.slice(

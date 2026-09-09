@@ -10545,6 +10545,8 @@ export default function AdminDashboardPage() {
     useState("");
   const [shows, setShows] = useState<DemoShow[]>(defaultShows);
   const [isShowsLoading, setIsShowsLoading] = useState(false);
+  const [isCalendarSummariesLoading, setIsCalendarSummariesLoading] =
+    useState(true);
   const [showLoadError, setShowLoadError] = useState("");
   const [showCalendarMonth, setShowCalendarMonth] = useState(
     getCurrentShowCalendarMonth,
@@ -11427,6 +11429,7 @@ export default function AdminDashboardPage() {
       }
 
       setIsShowsLoading(true);
+      setIsCalendarSummariesLoading(true);
       setShowLoadError("");
       const showLoadRequestId = showLoadRequestRef.current + 1;
       showLoadRequestRef.current = showLoadRequestId;
@@ -11448,37 +11451,28 @@ export default function AdminDashboardPage() {
 
         if (!nextAdminSession) {
           setIsShowsLoading(false);
+          setIsCalendarSummariesLoading(false);
           return;
         }
       }
 
       const bookingsRequest = loadBookingList();
+      const showShellRequest = Promise.all([
+        getShowsWithTables({ metadataOnly: true }),
+        getVenueSettings(),
+      ]);
+      const dashboardDataRequest = Promise.all([
+        getCorporateRequests(),
+        getTemplates(),
+        getWaitlistEntries(),
+        getStaffProfiles(),
+        getAvailableRoles(),
+        getPayments(),
+      ]);
 
       try {
-        const [
-          nextShowPayload,
-          nextCorporateRequests,
-          nextCommunicationTemplates,
-          nextVenueSettings,
-          nextWaitlist,
-          nextStaffProfiles,
-          nextStaffRoles,
-          nextPaymentRows,
-        ] = await Promise.all([
-          getShowsWithTables({ metadataOnly: true }),
-          getCorporateRequests(),
-          getTemplates(),
-          getVenueSettings(),
-          getWaitlistEntries(),
-          getStaffProfiles(),
-          getAvailableRoles(),
-          getPayments(),
-        ]);
-        const nextBookings = (await bookingsRequest) ?? [];
+        const [nextShowPayload, nextVenueSettings] = await showShellRequest;
         const nextShows = nextShowPayload.shows;
-        const nextTables = nextShowPayload.tablesLoaded
-          ? applyBookingOccupancyToTables(nextShowPayload.tables, nextBookings)
-          : null;
 
         console.log("[Zingara show management] show reloaded", {
           showCount: nextShows.length,
@@ -11510,6 +11504,7 @@ export default function AdminDashboardPage() {
         if (isLatestShowLoad && nextShowPayload.showsLoaded) {
           const nextRelevantShow = getNextRelevantOperationalShow(nextShows);
 
+          setVenueSettings(nextVenueSettings);
           setShows(nextShows);
           setSelectedShowId((currentShowId) =>
             nextShows.some((show) => show.id === currentShowId)
@@ -11521,22 +11516,12 @@ export default function AdminDashboardPage() {
               ? currentShowId
               : nextRelevantShow?.id ?? nextShows[0]?.id ?? "",
           );
-          if (nextTables) {
-            setTables(nextTables);
-          }
           setShowLoadError("");
         } else if (isLatestShowLoad) {
           setShowLoadError("Shows could not be loaded. Try again.");
         }
-        setCorporateRequests(nextCorporateRequests);
-        setCommunicationTemplates(nextCommunicationTemplates);
-        setVenueSettings(nextVenueSettings);
-        setWaitlist(nextWaitlist);
-        setStaffProfiles(nextStaffProfiles);
-        setStaffRoles(nextStaffRoles);
-        setPaymentRows(nextPaymentRows);
       } catch (error) {
-        console.error("[Zingara admin] Failed to load dashboard data", error);
+        console.error("[Zingara admin] Failed to load show metadata", error);
         if (showLoadRequestId === showLoadRequestRef.current) {
           setShowLoadError("Shows could not be loaded. Try again.");
         }
@@ -11546,6 +11531,44 @@ export default function AdminDashboardPage() {
           showLoadRequestId === showLoadRequestRef.current
         ) {
           setIsShowsLoading(false);
+        }
+      }
+
+      try {
+        const [
+          [
+            nextCorporateRequests,
+            nextCommunicationTemplates,
+            nextWaitlist,
+            nextStaffProfiles,
+            nextStaffRoles,
+            nextPaymentRows,
+          ],
+          nextBookingsResult,
+        ] = await Promise.all([dashboardDataRequest, bookingsRequest]);
+
+        if (!isMounted || showLoadRequestId !== showLoadRequestRef.current) {
+          return;
+        }
+
+        const nextBookings = nextBookingsResult ?? [];
+        setCorporateRequests(nextCorporateRequests);
+        setCommunicationTemplates(nextCommunicationTemplates);
+        setWaitlist(nextWaitlist);
+        setStaffProfiles(nextStaffProfiles);
+        setStaffRoles(nextStaffRoles);
+        setPaymentRows(nextPaymentRows);
+        setTables((currentTables) =>
+          applyBookingOccupancyToTables(currentTables, nextBookings),
+        );
+      } catch (error) {
+        console.error("[Zingara admin] Failed to load dashboard data", error);
+      } finally {
+        if (
+          isMounted &&
+          showLoadRequestId === showLoadRequestRef.current
+        ) {
+          setIsCalendarSummariesLoading(false);
         }
       }
     }
@@ -36359,8 +36382,17 @@ export default function AdminDashboardPage() {
                                   >
                                     <button
                                       type="button"
-                                      aria-label={`Show financial summary for ${show.label}`}
-                                      title="Show financial summary"
+                                      aria-label={
+                                        isCalendarSummariesLoading
+                                          ? `Financial summary loading for ${show.label}`
+                                          : `Show financial summary for ${show.label}`
+                                      }
+                                      title={
+                                        isCalendarSummariesLoading
+                                          ? "Financial summary loading"
+                                          : "Show financial summary"
+                                      }
+                                      disabled={isCalendarSummariesLoading}
                                       aria-expanded={openShowFinancialPopupId === show.id}
                                       onClick={(event) => {
                                         event.stopPropagation();
@@ -36375,7 +36407,7 @@ export default function AdminDashboardPage() {
                                           currentId === show.id ? "" : currentId,
                                         )
                                       }
-                                      className="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8C36A]/35 bg-black/85 text-sm font-bold text-[#F2D66C] shadow-lg shadow-black/40 transition hover:border-[#F2D66C] hover:bg-[#D8C36A] hover:text-black focus:outline-none focus:ring-2 focus:ring-[#F2D66C]"
+                                      className="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8C36A]/35 bg-black/85 text-sm font-bold text-[#F2D66C] shadow-lg shadow-black/40 transition hover:border-[#F2D66C] hover:bg-[#D8C36A] hover:text-black focus:outline-none focus:ring-2 focus:ring-[#F2D66C] disabled:cursor-wait disabled:opacity-45"
                                     >
                                       R
                                     </button>
@@ -36425,11 +36457,14 @@ export default function AdminDashboardPage() {
                                   <div className="mt-3 flex flex-wrap gap-1.5 pr-11">
                                     {getShowOccupancyChips(show).map((chip) => {
                                       const ratio =
+                                        !isCalendarSummariesLoading &&
                                         chip.capacity > 0
                                           ? chip.occupiedSeats / chip.capacity
                                           : 0;
                                       const chipTone =
-                                        ratio > 1
+                                        isCalendarSummariesLoading
+                                          ? "border-white/10 bg-black/35 text-zinc-500"
+                                          : ratio > 1
                                           ? "border-red-300/40 bg-red-950/30 text-red-200"
                                           : ratio === 1
                                             ? "border-amber-300/35 bg-amber-950/25 text-amber-100"
@@ -36445,12 +36480,20 @@ export default function AdminDashboardPage() {
                                         <span
                                           key={`${show.id}-${chip.zoneId}`}
                                           className={`rounded-full border px-2 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.08em] ${chipTone}`}
-                                          title={`${chip.label} ${chip.occupiedSeats}/${chip.capacity}${overCapacity > 0 ? ` · Over capacity by ${overCapacity}` : ""}`}
+                                          title={
+                                            isCalendarSummariesLoading
+                                              ? `${chip.label} occupancy loading`
+                                              : `${chip.label} ${chip.occupiedSeats}/${chip.capacity}${overCapacity > 0 ? ` · Over capacity by ${overCapacity}` : ""}`
+                                          }
                                         >
                                           {showCalendarZoneAbbreviations[chip.zoneId] ??
                                             chip.label.split(" ").map((part) => part[0]).join("")}{" "}
-                                          {chip.occupiedSeats}/{chip.capacity}
-                                          {overCapacity > 0 && ` · +${overCapacity}`}
+                                          {isCalendarSummariesLoading
+                                            ? `… / ${chip.capacity}`
+                                            : `${chip.occupiedSeats}/${chip.capacity}`}
+                                          {!isCalendarSummariesLoading &&
+                                            overCapacity > 0 &&
+                                            ` · +${overCapacity}`}
                                         </span>
                                       );
                                     })}
