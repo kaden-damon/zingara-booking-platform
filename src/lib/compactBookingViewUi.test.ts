@@ -85,6 +85,8 @@ test("Compact exposes authoritative notes without per-row requests", async () =>
   assert.match(component, /role="tooltip"/);
   assert.match(component, /onMouseEnter/);
   assert.match(component, /onFocus/);
+  assert.match(component, /matches\(":focus-visible"\)/);
+  assert.match(component, /current === row\.reference \? null : row\.reference/);
   assert.match(component, /event\.key === "Escape"/);
   assert.match(component, /overflow-visible/);
   assert.doesNotMatch(component, /fetch\(|supabase/i);

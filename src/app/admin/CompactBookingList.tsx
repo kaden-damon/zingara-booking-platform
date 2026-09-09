@@ -143,7 +143,11 @@ export function CompactBookingList({
                             current === row.reference ? null : row.reference,
                           )
                         }
-                        onFocus={() => setVisibleNoteReference(row.reference)}
+                        onFocus={(event) => {
+                          if (event.currentTarget.matches(":focus-visible")) {
+                            setVisibleNoteReference(row.reference);
+                          }
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === "Escape") {
                             event.preventDefault();
