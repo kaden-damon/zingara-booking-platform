@@ -95,8 +95,8 @@ test("Admin hydrates promo evidence once and applies one cohort to every booking
   assert.match(page, /getPersistedBookingPromoCode\(booking\)/);
   assert.match(page, /bookingMatchesPromoFilter\(booking, bookingPromoFilter\)/);
   assert.match(page, /const filteredBookings = useMemo/);
-  assert.match(page, /filteredBookings\.map\(getCompactBookingRow\)/);
-  assert.match(page, /paginatedBookings\.map\(getCompactBookingRow\)/);
+  assert.match(page, /sortCompactBookingRows\([\s\S]{0,180}filteredBookings\.map/);
+  assert.match(page, /paginatedBookings\.map\(\(booking\) =>/);
   assert.match(page, /All Promo Codes/);
   assert.match(page, /No Promo Code/);
 });

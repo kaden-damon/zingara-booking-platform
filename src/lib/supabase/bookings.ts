@@ -714,6 +714,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       archiveReason: row.archive_reason ?? metadataBooking.archiveReason,
       balanceDue: row.balance_outstanding,
       bookingOrigin: row.booking_origin ?? "legacy_unknown",
+      createdAt: row.created_at,
       createdByStaffId: row.created_by_staff_id ?? undefined,
       createdByStaffName: resolveStaffDisplayName(row.created_by_staff),
       corporatePaymentDeadline: row.corporate_payment_deadline ?? undefined,

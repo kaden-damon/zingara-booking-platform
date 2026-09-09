@@ -9854,7 +9854,10 @@ function getCompactBookingStatusTone(
   return "amber";
 }
 
-function getCompactBookingRow(booking: DemoBooking): CompactBookingRow {
+function getCompactBookingRow(
+  booking: DemoBooking,
+  showDate = booking.bookingDate,
+): CompactBookingRow {
   const financials = getBookingFinancials(booking);
   const status = booking.status ?? "confirmed";
   const tableNumber = booking.tableNumber?.trim();
@@ -9871,11 +9874,15 @@ function getCompactBookingRow(booking: DemoBooking): CompactBookingRow {
   const promoCode = getPersistedBookingPromoCode(booking);
 
   return {
+    amountPaid: financials.amountPaid,
+    amountPaidLabel: formatCurrency(financials.amountPaid),
     balanceDue: financials.balanceDue,
     balanceLabel:
       financials.balanceDue > 0
         ? `${formatCurrency(financials.balanceDue)} due`
         : "R0 due",
+    bookingNotes: booking.operationalNotes?.trim() || undefined,
+    createdAt: booking.createdAt,
     customerName: booking.customer.name || "Unnamed Guest",
     pax: booking.partySize,
     paymentLabel: paymentStatusLabels[financials.paymentStatus],
@@ -9883,6 +9890,7 @@ function getCompactBookingRow(booking: DemoBooking): CompactBookingRow {
     promoCode: promoCode || undefined,
     reference: booking.reference,
     section: booking.zoneTitle || "Zone not recorded",
+    showDate,
     sourceLabel: promoCode ? `${baseSourceLabel} · ${promoCode}` : baseSourceLabel,
     statusLabel: bookingStatusLabels[status],
     statusTone: getCompactBookingStatusTone(status),
@@ -10419,10 +10427,14 @@ export default function AdminDashboardPage() {
     useState<BookingViewMode>("list");
   const [bookingViewModeSessionLoaded, setBookingViewModeSessionLoaded] =
     useState(false);
-  const [compactBookingSortKey, setCompactBookingSortKey] =
-    useState<CompactBookingSortKey>("name");
-  const [compactBookingSortDirection, setCompactBookingSortDirection] =
-    useState<CompactBookingSortDirection>("asc");
+  const [standardCompactBookingSort, setStandardCompactBookingSort] = useState<{
+    direction: CompactBookingSortDirection;
+    key: CompactBookingSortKey;
+  }>({ direction: "desc", key: "createdAt" });
+  const [corporateCompactBookingSort, setCorporateCompactBookingSort] = useState<{
+    direction: CompactBookingSortDirection;
+    key: CompactBookingSortKey;
+  }>({ direction: "desc", key: "createdAt" });
   const [corporateViewMode, setCorporateViewMode] =
     useState<BookingViewMode>("list");
   const [corporateWorkspace, setCorporateWorkspace] =
@@ -24844,24 +24856,42 @@ export default function AdminDashboardPage() {
     activeAdminTab === "corporate"
       ? corporateBookingPageSize
       : standardBookingPageSize;
-  const compactSortedBookings = useMemo(() => {
-    if (bookingViewMode !== "compact") {
-      return filteredBookings;
-    }
+  const activeCompactBookingSort =
+    activeAdminTab === "corporate"
+      ? corporateCompactBookingSort
+      : standardCompactBookingSort;
+  const compactBookingSortKey = activeCompactBookingSort.key;
+  const compactBookingSortDirection = activeCompactBookingSort.direction;
+  function setActiveCompactBookingSort(
+    key: CompactBookingSortKey,
+    direction: CompactBookingSortDirection,
+  ) {
+    const setter =
+      activeAdminTab === "corporate"
+        ? setCorporateCompactBookingSort
+        : setStandardCompactBookingSort;
 
+    setter({ direction, key });
+    setBookingPage(1);
+  }
+  const compactSortedBookings = useMemo(() => {
     const bookingByReference = new Map(
       filteredBookings.map((booking) => [booking.reference, booking]),
     );
 
     return sortCompactBookingRows(
-      filteredBookings.map(getCompactBookingRow),
+      filteredBookings.map((booking) =>
+        getCompactBookingRow(
+          booking,
+          getBookingShow(booking)?.date ?? booking.bookingDate,
+        ),
+      ),
       compactBookingSortKey,
       compactBookingSortDirection,
     )
       .map((row) => bookingByReference.get(row.reference))
       .filter((booking): booking is DemoBooking => Boolean(booking));
   }, [
-    bookingViewMode,
     compactBookingSortDirection,
     compactBookingSortKey,
     filteredBookings,
@@ -24918,7 +24948,12 @@ export default function AdminDashboardPage() {
   const compactPaginatedRows = useMemo(
     () =>
       bookingViewMode === "compact"
-        ? paginatedBookings.map(getCompactBookingRow)
+        ? paginatedBookings.map((booking) =>
+            getCompactBookingRow(
+              booking,
+              getBookingShow(booking)?.date ?? booking.bookingDate,
+            ),
+          )
         : [],
     [bookingViewMode, paginatedBookings],
   );
@@ -42227,11 +42262,44 @@ export default function AdminDashboardPage() {
                 )}
                 </div>
 
-                <div
-                  role="group"
-                  aria-label="Bookings view mode"
-                  className="grid grid-cols-3 gap-1 rounded-full border border-white/15 bg-black/35 p-1"
-                >
+                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
+                  <label className="relative block min-w-[210px]">
+                    <span className="sr-only">Arrange bookings by</span>
+                    <select
+                      aria-label="Arrange bookings by"
+                      value={`${compactBookingSortKey}:${compactBookingSortDirection}`}
+                      onChange={(event) => {
+                        const [key, direction] = event.target.value.split(":") as [
+                          CompactBookingSortKey,
+                          CompactBookingSortDirection,
+                        ];
+                        setActiveCompactBookingSort(key, direction);
+                      }}
+                      className="h-11 w-full appearance-none rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-9 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                    >
+                      <option value="createdAt:desc">Newest booking</option>
+                      <option value="createdAt:asc">Oldest booking</option>
+                      <option value="name:asc">Customer name A-Z</option>
+                      <option value="name:desc">Customer name Z-A</option>
+                      <option value="showDate:asc">Show date soonest</option>
+                      <option value="showDate:desc">Show date latest</option>
+                      <option value="pax:desc">Highest guest count</option>
+                      <option value="pax:asc">Lowest guest count</option>
+                      <option value="balance:desc">Highest balance</option>
+                      <option value="balance:asc">Lowest balance</option>
+                      <option value="amountPaid:desc">Highest amount paid</option>
+                      <option value="amountPaid:asc">Lowest amount paid</option>
+                    </select>
+                    <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                      ▾
+                    </span>
+                  </label>
+
+                  <div
+                    role="group"
+                    aria-label="Bookings view mode"
+                    className="grid grid-cols-3 gap-1 rounded-full border border-white/15 bg-black/35 p-1"
+                  >
                   {(
                     [
                       ["list", "List"],
@@ -42255,6 +42323,7 @@ export default function AdminDashboardPage() {
                       <span className="whitespace-nowrap">{label}</span>
                     </button>
                   ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -42377,14 +42446,13 @@ export default function AdminDashboardPage() {
                 }}
                 onSortChange={(key) => {
                   if (key === compactBookingSortKey) {
-                    setCompactBookingSortDirection((current) =>
-                      current === "asc" ? "desc" : "asc",
+                    setActiveCompactBookingSort(
+                      key,
+                      compactBookingSortDirection === "asc" ? "desc" : "asc",
                     );
                   } else {
-                    setCompactBookingSortKey(key);
-                    setCompactBookingSortDirection("asc");
+                    setActiveCompactBookingSort(key, "asc");
                   }
-                  setBookingPage(1);
                 }}
                 rows={compactPaginatedRows}
                 sortKey={compactBookingSortKey}

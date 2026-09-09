@@ -50,6 +50,7 @@ test("Compact rows retain required scanning fields and sorting controls", async 
     "Section",
     "Table / Floor",
     "Payment",
+    "Amount Paid",
     "Balance",
     "Source / Type",
     "Reference",
@@ -65,12 +66,67 @@ test("Compact rows retain required scanning fields and sorting controls", async 
 test("Compact is dense on desktop and a contained two-line row on mobile", async () => {
   const component = await source("../app/admin/CompactBookingList.tsx");
 
-  assert.match(component, /lg:min-h-11/);
+  assert.match(component, /xl:min-h-11/);
   assert.match(component, /min-h-14/);
-  assert.match(component, /lg:grid-cols-\[/);
-  assert.match(component, /lg:hidden/);
+  assert.match(component, /xl:grid-cols-\[/);
+  assert.match(component, /xl:hidden/);
   assert.match(component, /min-w-0/);
   assert.doesNotMatch(component, /overflow-x-auto/);
+});
+
+test("Compact exposes authoritative notes without per-row requests", async () => {
+  const [page, component] = await Promise.all([
+    source("../app/admin/page.tsx"),
+    source("../app/admin/CompactBookingList.tsx"),
+  ]);
+
+  assert.match(page, /bookingNotes: booking\.operationalNotes\?\.trim\(\)/);
+  assert.match(component, /Show booking notes for/);
+  assert.match(component, /role="tooltip"/);
+  assert.match(component, /onMouseEnter/);
+  assert.match(component, /onFocus/);
+  assert.match(component, /event\.key === "Escape"/);
+  assert.match(component, /overflow-visible/);
+  assert.doesNotMatch(component, /fetch\(|supabase/i);
+});
+
+test("Booking toolbar offers deterministic independent ordering", async () => {
+  const page = await source("../app/admin/page.tsx");
+
+  assert.match(page, /standardCompactBookingSort/);
+  assert.match(page, /corporateCompactBookingSort/);
+  assert.match(page, /direction: "desc", key: "createdAt"/);
+  assert.match(page, /aria-label="Arrange bookings by"/);
+  for (const label of [
+    "Newest booking",
+    "Oldest booking",
+    "Customer name A-Z",
+    "Customer name Z-A",
+    "Show date soonest",
+    "Show date latest",
+    "Highest guest count",
+    "Lowest guest count",
+    "Highest balance",
+    "Lowest balance",
+    "Highest amount paid",
+    "Lowest amount paid",
+  ]) {
+    assert.match(page, new RegExp(label));
+  }
+});
+
+test("sorting composes after filters and is shared by all booking views", async () => {
+  const page = await source("../app/admin/page.tsx");
+  const filterIndex = page.indexOf("const filteredBookings = useMemo");
+  const sortIndex = page.indexOf("const compactSortedBookings = useMemo");
+  const paginationIndex = page.indexOf("const bookingPagination = paginateItems");
+
+  assert.ok(filterIndex >= 0 && filterIndex < sortIndex);
+  assert.ok(sortIndex < paginationIndex);
+  assert.doesNotMatch(
+    page.slice(sortIndex, paginationIndex),
+    /bookingViewMode !== "compact"/,
+  );
 });
 
 test("Compact rendering is presentation-only and opens the established details flow", async () => {

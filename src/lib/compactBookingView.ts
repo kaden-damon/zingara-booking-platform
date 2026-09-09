@@ -1,17 +1,24 @@
 export type CompactBookingSortDirection = "asc" | "desc";
 
 export type CompactBookingSortKey =
+  | "amountPaid"
   | "balance"
+  | "createdAt"
   | "name"
   | "pax"
   | "payment"
   | "section"
+  | "showDate"
   | "source"
   | "table";
 
 export type CompactBookingRow = {
+  amountPaid: number;
+  amountPaidLabel: string;
   balanceDue: number;
   balanceLabel: string;
+  bookingNotes?: string;
+  createdAt: string;
   customerName: string;
   pax: number;
   paymentLabel: string;
@@ -19,6 +26,7 @@ export type CompactBookingRow = {
   promoCode?: string;
   reference: string;
   section: string;
+  showDate: string;
   sourceLabel: string;
   statusLabel: string;
   statusTone: "amber" | "green" | "purple" | "red" | "sky" | "zinc";
@@ -27,6 +35,11 @@ export type CompactBookingRow = {
 
 function normalizeSortText(value: string) {
   return value.trim().toLocaleLowerCase("en-ZA");
+}
+
+function getSortTimestamp(value: string) {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 export function sortCompactBookingRows(
@@ -38,33 +51,45 @@ export function sortCompactBookingRows(
 
   return [...rows].sort((left, right) => {
     const leftValue =
-      key === "balance"
-        ? left.balanceDue
-        : key === "pax"
-          ? left.pax
-          : key === "name"
-            ? normalizeSortText(left.customerName)
-            : key === "payment"
-              ? normalizeSortText(left.paymentSortValue)
-              : key === "section"
-                ? normalizeSortText(left.section)
-                : key === "source"
-                  ? normalizeSortText(left.sourceLabel)
-                  : normalizeSortText(left.tableLabel);
+      key === "amountPaid"
+        ? left.amountPaid
+        : key === "balance"
+          ? left.balanceDue
+          : key === "createdAt"
+            ? getSortTimestamp(left.createdAt)
+            : key === "pax"
+              ? left.pax
+              : key === "showDate"
+                ? getSortTimestamp(left.showDate)
+                : key === "name"
+                  ? normalizeSortText(left.customerName)
+                  : key === "payment"
+                    ? normalizeSortText(left.paymentSortValue)
+                    : key === "section"
+                      ? normalizeSortText(left.section)
+                      : key === "source"
+                        ? normalizeSortText(left.sourceLabel)
+                        : normalizeSortText(left.tableLabel);
     const rightValue =
-      key === "balance"
-        ? right.balanceDue
-        : key === "pax"
-          ? right.pax
-          : key === "name"
-            ? normalizeSortText(right.customerName)
-            : key === "payment"
-              ? normalizeSortText(right.paymentSortValue)
-              : key === "section"
-                ? normalizeSortText(right.section)
-                : key === "source"
-                  ? normalizeSortText(right.sourceLabel)
-                  : normalizeSortText(right.tableLabel);
+      key === "amountPaid"
+        ? right.amountPaid
+        : key === "balance"
+          ? right.balanceDue
+          : key === "createdAt"
+            ? getSortTimestamp(right.createdAt)
+            : key === "pax"
+              ? right.pax
+              : key === "showDate"
+                ? getSortTimestamp(right.showDate)
+                : key === "name"
+                  ? normalizeSortText(right.customerName)
+                  : key === "payment"
+                    ? normalizeSortText(right.paymentSortValue)
+                    : key === "section"
+                      ? normalizeSortText(right.section)
+                      : key === "source"
+                        ? normalizeSortText(right.sourceLabel)
+                        : normalizeSortText(right.tableLabel);
 
     const comparison =
       typeof leftValue === "number" && typeof rightValue === "number"
@@ -78,6 +103,13 @@ export function sortCompactBookingRows(
       return comparison * multiplier;
     }
 
-    return left.reference.localeCompare(right.reference, "en-ZA") * multiplier;
+    const createdAtComparison =
+      getSortTimestamp(right.createdAt) - getSortTimestamp(left.createdAt);
+
+    if (key !== "createdAt" && createdAtComparison !== 0) {
+      return createdAtComparison;
+    }
+
+    return left.reference.localeCompare(right.reference, "en-ZA");
   });
 }
