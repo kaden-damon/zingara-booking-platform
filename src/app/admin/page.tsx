@@ -10796,22 +10796,30 @@ export default function AdminDashboardPage() {
   const staffIssueSubmissionIdRef = useRef("");
   const liveCustomerLoadRequestRef = useRef(0);
   const bookingLoadRequestRef = useRef(0);
+  const bookingsRef = useRef(bookings);
   const bookingHistoryLoadRequestRef = useRef(0);
+  const bookingHistoryLoadInFlightRef = useRef(false);
+  const bookingHistoriesLoadedRef = useRef(false);
+  const bookingDetailTableLoadRequestRef = useRef(0);
   const sessionRestoreRequestRef = useRef(0);
   const adminUndertakingCheckRequestRef = useRef(0);
   const acceptedUndertakingStaffIdRef = useRef("");
   const showLoadRequestRef = useRef(0);
   const selectedShowTableLoadRequestRef = useRef(0);
   const floorAssignmentInFlightRef = useRef(new Set<string>());
-  const showCalendarMonthRef = useRef(showCalendarMonth);
-  const showCalendarLocationFilterRef = useRef(showCalendarLocationFilter);
-
-  showCalendarMonthRef.current = showCalendarMonth;
-  showCalendarLocationFilterRef.current = showCalendarLocationFilter;
+  bookingsRef.current = bookings;
 
   async function hydrateBookingHistories() {
+    if (
+      bookingHistoriesLoadedRef.current ||
+      bookingHistoryLoadInFlightRef.current
+    ) {
+      return;
+    }
+
     const requestId = bookingHistoryLoadRequestRef.current + 1;
     bookingHistoryLoadRequestRef.current = requestId;
+    bookingHistoryLoadInFlightRef.current = true;
 
     try {
       const historiesByReference = await getBookingHistories();
@@ -10820,6 +10828,7 @@ export default function AdminDashboardPage() {
         return;
       }
 
+      bookingHistoriesLoadedRef.current = true;
       setBookings((currentBookings) =>
         currentBookings.map((booking) => {
           const histories = historiesByReference.get(booking.reference);
@@ -10864,12 +10873,19 @@ export default function AdminDashboardPage() {
         "[Zingara admin] Failed to hydrate booking histories",
         error,
       );
+    } finally {
+      if (requestId === bookingHistoryLoadRequestRef.current) {
+        bookingHistoryLoadInFlightRef.current = false;
+      }
     }
   }
 
   async function loadBookingList() {
     const requestId = bookingLoadRequestRef.current + 1;
     bookingLoadRequestRef.current = requestId;
+    bookingHistoryLoadRequestRef.current += 1;
+    bookingHistoryLoadInFlightRef.current = false;
+    bookingHistoriesLoadedRef.current = false;
     setIsBookingsLoading(true);
     setBookingLoadError("");
 
@@ -10884,7 +10900,6 @@ export default function AdminDashboardPage() {
       }
 
       setBookings(nextBookings);
-      void hydrateBookingHistories();
       return nextBookings;
     } catch (error) {
       console.error("[Zingara admin] Failed to load bookings", error);
@@ -10916,34 +10931,48 @@ export default function AdminDashboardPage() {
         throw new Error("Booking details were not returned.");
       }
 
-      const bookingShowPayload = await getShowsWithTables({
-        tableShow: detailedBooking.showId,
-      });
-
       setBookings((currentBookings) =>
         currentBookings.map((booking) =>
           booking.reference === reference ? detailedBooking : booking,
         ),
       );
-      if (bookingShowPayload.tablesLoaded) {
-        setTables((currentTables) => {
-          const hydratedTables = bookingShowPayload.tables;
-          const hydratedShowIds = Array.from(
-            new Set(
-              hydratedTables
-                .map((table) => table.showId)
-                .filter((showId): showId is string => Boolean(showId)),
-            ),
-          );
+      setExpandedBookingReference(reference);
 
-          return mergeTablesForShows(
-            currentTables,
-            hydratedTables,
-            hydratedShowIds,
+      const tableLoadRequestId =
+        bookingDetailTableLoadRequestRef.current + 1;
+      bookingDetailTableLoadRequestRef.current = tableLoadRequestId;
+      void getShowsWithTables({ tableShow: detailedBooking.showId })
+        .then((bookingShowPayload) => {
+          if (
+            tableLoadRequestId !== bookingDetailTableLoadRequestRef.current ||
+            !bookingShowPayload.tablesLoaded
+          ) {
+            return;
+          }
+
+          setTables((currentTables) => {
+            const hydratedTables = bookingShowPayload.tables;
+            const hydratedShowIds = Array.from(
+              new Set(
+                hydratedTables
+                  .map((table) => table.showId)
+                  .filter((showId): showId is string => Boolean(showId)),
+              ),
+            );
+
+            return mergeTablesForShows(
+              currentTables,
+              hydratedTables,
+              hydratedShowIds,
+            );
+          });
+        })
+        .catch((error) => {
+          console.error(
+            "[Zingara admin] Failed to load Booking Details table inventory",
+            error,
           );
         });
-      }
-      setExpandedBookingReference(reference);
     } catch (error) {
       console.error("[Zingara admin] Failed to load booking details", error);
       setBookingDetailError({
@@ -11019,6 +11048,44 @@ export default function AdminDashboardPage() {
         requireCurrentUndertaking,
       );
   }, []);
+
+  useEffect(() => {
+    if (
+      !hasHydrated ||
+      !currentStaff ||
+      activeAdminTab !== "customers" ||
+      customerDataLoadStatus !== "idle"
+    ) {
+      return;
+    }
+
+    void refreshLiveCustomerRecords();
+  }, [activeAdminTab, currentStaff, customerDataLoadStatus, hasHydrated]);
+
+  useEffect(() => {
+    const requiresBookingHistories =
+      activeAdminTab === "customers" ||
+      (activeAdminTab === "settings" && activeSettingsTab === "workflows");
+
+    if (
+      !hasHydrated ||
+      !currentStaff ||
+      !requiresBookingHistories ||
+      isBookingsLoading ||
+      bookings.length === 0
+    ) {
+      return;
+    }
+
+    void hydrateBookingHistories();
+  }, [
+    activeAdminTab,
+    activeSettingsTab,
+    bookings.length,
+    currentStaff,
+    hasHydrated,
+    isBookingsLoading,
+  ]);
 
   useEffect(() => {
     const storedStandardPageSize = parsePageSize(
@@ -11385,7 +11452,6 @@ export default function AdminDashboardPage() {
         }
       }
 
-      const customerRecordsRequest = refreshLiveCustomerRecords();
       const bookingsRequest = loadBookingList();
 
       try {
@@ -11399,10 +11465,7 @@ export default function AdminDashboardPage() {
           nextStaffRoles,
           nextPaymentRows,
         ] = await Promise.all([
-          getShowsWithTables({
-            tableLocation: showCalendarLocationFilterRef.current,
-            tableMonth: showCalendarMonthRef.current,
-          }),
+          getShowsWithTables({ metadataOnly: true }),
           getCorporateRequests(),
           getTemplates(),
           getVenueSettings(),
@@ -11411,13 +11474,11 @@ export default function AdminDashboardPage() {
           getAvailableRoles(),
           getPayments(),
         ]);
-        await customerRecordsRequest;
         const nextBookings = (await bookingsRequest) ?? [];
         const nextShows = nextShowPayload.shows;
-        const nextTables =
-          nextShowPayload.tablesLoaded
-            ? applyBookingOccupancyToTables(nextShowPayload.tables, nextBookings)
-            : getStoredDemoTables(nextShows);
+        const nextTables = nextShowPayload.tablesLoaded
+          ? applyBookingOccupancyToTables(nextShowPayload.tables, nextBookings)
+          : null;
 
         console.log("[Zingara show management] show reloaded", {
           showCount: nextShows.length,
@@ -11460,7 +11521,9 @@ export default function AdminDashboardPage() {
               ? currentShowId
               : nextRelevantShow?.id ?? nextShows[0]?.id ?? "",
           );
-          setTables(nextTables);
+          if (nextTables) {
+            setTables(nextTables);
+          }
           setShowLoadError("");
         } else if (isLatestShowLoad) {
           setShowLoadError("Shows could not be loaded. Try again.");
@@ -12980,83 +13043,6 @@ export default function AdminDashboardPage() {
   }, [canViewDataPortability, hasHydrated]);
 
   useEffect(() => {
-    if (!hasHydrated || !currentStaff) {
-      return;
-    }
-
-    let isCancelled = false;
-    const showLoadRequestId = showLoadRequestRef.current + 1;
-    showLoadRequestRef.current = showLoadRequestId;
-    setIsShowsLoading(true);
-    setShowLoadError("");
-
-    async function refreshCalendarTables() {
-      try {
-        const [nextShowPayload, nextBookings] = await Promise.all([
-          getShowsWithTables({
-            tableLocation: showCalendarLocationFilter,
-            tableMonth: showCalendarMonth,
-          }),
-          getBookings(),
-        ]);
-
-        if (
-          isCancelled ||
-          showLoadRequestId !== showLoadRequestRef.current
-        ) {
-          return;
-        }
-
-        if (!nextShowPayload.showsLoaded) {
-          setShowLoadError("Shows could not be loaded. Try again.");
-          return;
-        }
-
-        setShows(nextShowPayload.shows);
-        setSelectedShowId((currentShowId) =>
-          nextShowPayload.shows.some((show) => show.id === currentShowId)
-            ? currentShowId
-            : getNextRelevantOperationalShow(nextShowPayload.shows)?.id ??
-              nextShowPayload.shows[0]?.id ??
-              "",
-        );
-        setBookings(nextBookings);
-        setTables(
-          nextShowPayload.tablesLoaded
-            ? applyBookingOccupancyToTables(nextShowPayload.tables, nextBookings)
-            : getStoredDemoTables(nextShowPayload.shows),
-        );
-      } catch (error) {
-        console.error("[Zingara admin] Failed to refresh calendar tables", error);
-        if (
-          !isCancelled &&
-          showLoadRequestId === showLoadRequestRef.current
-        ) {
-          setShowLoadError("Shows could not be loaded. Try again.");
-        }
-      } finally {
-        if (
-          !isCancelled &&
-          showLoadRequestId === showLoadRequestRef.current
-        ) {
-          setIsShowsLoading(false);
-        }
-      }
-    }
-
-    void refreshCalendarTables();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [
-    currentStaff,
-    hasHydrated,
-    showCalendarLocationFilter,
-    showCalendarMonth,
-  ]);
-
-  useEffect(() => {
     if (
       !hasHydrated ||
       !currentStaff ||
@@ -13078,12 +13064,9 @@ export default function AdminDashboardPage() {
 
     async function refreshSelectedShowTables() {
       try {
-        const [nextShowPayload, nextBookings] = await Promise.all([
-          getShowsWithTables({
-            tableShow: selectedShowId,
-          }),
-          getBookings(),
-        ]);
+        const nextShowPayload = await getShowsWithTables({
+          tableShow: selectedShowId,
+        });
 
         if (
           isCancelled ||
@@ -13098,10 +13081,9 @@ export default function AdminDashboardPage() {
 
         const selectedShowTables = applyBookingOccupancyToTables(
           nextShowPayload.tables,
-          nextBookings,
+          bookingsRef.current,
         );
 
-        setBookings(nextBookings);
         setTables((currentTables) =>
           mergeTablesForShows(currentTables, selectedShowTables, [
             selectedShowId,
@@ -13171,11 +13153,13 @@ export default function AdminDashboardPage() {
   }).format(new Date());
   const isArchivedBooking = (booking: DemoBooking) =>
     Boolean(booking.archivedAt);
-  const activeBookingsForOperations = bookings.filter(
-    (booking) => !isArchivedBooking(booking),
+  const activeBookingsForOperations = useMemo(
+    () => bookings.filter((booking) => !isArchivedBooking(booking)),
+    [bookings],
   );
-  const operationalBookings = bookings.filter(
-    isOperationallyActiveBooking,
+  const operationalBookings = useMemo(
+    () => bookings.filter(isOperationallyActiveBooking),
+    [bookings],
   );
   const getBookingPaidAmount = (booking: DemoBooking) =>
     Math.max(booking.amountPaid ?? 0, 0);
@@ -25506,19 +25490,105 @@ export default function AdminDashboardPage() {
     visibleShowCalendarShows.filter(
       (show) => show.date === `${showCalendarMonthPrefix}${String(day).padStart(2, "0")}`,
     );
+  const showCalendarOccupancyByShowZone = useMemo(() => {
+    const occupancy = new Map<string, number>();
+
+    activeBookingsForOperations.forEach((booking) => {
+      if (!isOperationallyActiveBooking(booking)) {
+        return;
+      }
+
+      getBookingZoneEntitlements(booking).forEach((entitlement) => {
+        const key = `${booking.showId}|${entitlement.zoneId}`;
+        occupancy.set(key, (occupancy.get(key) ?? 0) + entitlement.pax);
+      });
+    });
+
+    return occupancy;
+  }, [activeBookingsForOperations]);
+  const showCalendarFinancialsByShow = useMemo(() => {
+    const summaries = new Map<
+      string,
+      {
+        credit: number | null;
+        depositCount: number;
+        depositTotal: number;
+        paid: number;
+        refunded: number;
+        unpaid: number;
+      }
+    >();
+    const showIdByBookingId = new Map<string, string>();
+    const showIdByBookingReference = new Map<string, string>();
+
+    activeBookingsForOperations.forEach((booking) => {
+      if (
+        !booking.showId ||
+        ["cancelled", "refunded", "waitlisted"].includes(
+          booking.status ?? "confirmed",
+        )
+      ) {
+        return;
+      }
+
+      const summary = summaries.get(booking.showId) ?? {
+        credit: null,
+        depositCount: 0,
+        depositTotal: 0,
+        paid: 0,
+        refunded: 0,
+        unpaid: 0,
+      };
+      summary.unpaid += getBookingFinancials(booking).balanceDue;
+      summaries.set(booking.showId, summary);
+      showIdByBookingReference.set(booking.reference, booking.showId);
+      if (booking.supabaseBookingId) {
+        showIdByBookingId.set(booking.supabaseBookingId, booking.showId);
+      }
+    });
+
+    paymentRows.forEach((payment) => {
+      const showId =
+        showIdByBookingReference.get(payment.reference ?? "") ??
+        showIdByBookingId.get(payment.booking_id ?? "");
+
+      if (!showId) {
+        return;
+      }
+
+      const summary = summaries.get(showId);
+      if (!summary) {
+        return;
+      }
+
+      const amount = Math.max(payment.amount ?? 0, 0);
+      if (
+        ["deposit_paid", "fully_paid"].includes(payment.payment_status) &&
+        !["comp", "refund"].includes(payment.payment_type)
+      ) {
+        summary.paid += amount;
+      }
+      if (
+        payment.payment_status === "refunded" ||
+        payment.payment_type === "refund"
+      ) {
+        summary.refunded += amount;
+      }
+      if (
+        payment.payment_type === "deposit" &&
+        payment.payment_status === "deposit_paid"
+      ) {
+        summary.depositCount += 1;
+        summary.depositTotal += amount;
+      }
+    });
+
+    return summaries;
+  }, [activeBookingsForOperations, paymentRows]);
   const getShowOccupancyChips = (show: DemoShow) =>
     floorManagementZones.map((zone) => {
-      const occupiedSeats = activeBookingsForOperations
-        .filter(
-          (booking) =>
-            booking.showId === show.id &&
-            getBookingZoneEntitlements(booking).some((entitlement) => entitlement.zoneId === zone.id) &&
-            isOperationallyActiveBooking(booking),
-        )
-        .reduce(
-          (total, booking) => total + (getBookingZoneEntitlements(booking).find((entitlement) => entitlement.zoneId === zone.id)?.pax ?? 0),
-          0,
-        );
+      const occupiedSeats =
+        showCalendarOccupancyByShowZone.get(`${show.id}|${zone.id}`) ?? 0;
       const capacity = getConfiguredZoneMaxSeats(venueConfig, zone);
 
       return {
@@ -25528,65 +25598,15 @@ export default function AdminDashboardPage() {
         zoneId: zone.id,
       };
     });
-  const getShowFinancialSummary = (show: DemoShow) => {
-    const showBookings = activeBookingsForOperations.filter(
-      (booking) => booking.showId === show.id,
-    );
-    const activeShowBookings = showBookings.filter(
-      (booking) =>
-        !["cancelled", "refunded", "waitlisted"].includes(
-          booking.status ?? "confirmed",
-        ),
-    );
-    const showBookingReferences = new Set(
-      activeShowBookings.map((booking) => booking.reference),
-    );
-    const showBookingIds = new Set(
-      activeShowBookings
-        .map((booking) => booking.supabaseBookingId)
-        .filter(Boolean),
-    );
-    const relevantPayments = paymentRows.filter(
-      (payment) =>
-        showBookingReferences.has(payment.reference ?? "") ||
-        showBookingIds.has(payment.booking_id ?? ""),
-    );
-    const paid = relevantPayments
-      .filter(
-        (payment) =>
-          ["deposit_paid", "fully_paid"].includes(payment.payment_status) &&
-          !["comp", "refund"].includes(payment.payment_type),
-      )
-      .reduce((total, payment) => total + Math.max(payment.amount ?? 0, 0), 0);
-    const refunded = relevantPayments
-      .filter(
-        (payment) =>
-          payment.payment_status === "refunded" ||
-          payment.payment_type === "refund",
-      )
-      .reduce((total, payment) => total + Math.max(payment.amount ?? 0, 0), 0);
-    const unpaid = activeShowBookings.reduce(
-      (total, booking) => total + getBookingFinancials(booking).balanceDue,
-      0,
-    );
-    const depositPayments = relevantPayments.filter(
-      (payment) =>
-        payment.payment_type === "deposit" &&
-        payment.payment_status === "deposit_paid",
-    );
-
-    return {
+  const getShowFinancialSummary = (show: DemoShow) =>
+    showCalendarFinancialsByShow.get(show.id) ?? {
       credit: null as number | null,
-      depositCount: depositPayments.length,
-      depositTotal: depositPayments.reduce(
-        (total, payment) => total + Math.max(payment.amount ?? 0, 0),
-        0,
-      ),
-      paid,
-      refunded,
-      unpaid,
+      depositCount: 0,
+      depositTotal: 0,
+      paid: 0,
+      refunded: 0,
+      unpaid: 0,
     };
-  };
   const showSearchTerm = showSearch.trim().toLowerCase();
   const showSearchResults = showSearchTerm
     ? shows
