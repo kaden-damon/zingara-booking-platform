@@ -22673,7 +22673,7 @@ export default function AdminDashboardPage() {
     }
   }
 
-  async function releaseCorporateTable(
+  async function releaseOperationalTable(
     booking: DemoBooking,
     table: DemoTable,
   ) {
@@ -22697,13 +22697,20 @@ export default function AdminDashboardPage() {
       return;
     }
 
+    const isTemporaryTable = isTemporaryOperationalTable(table);
     const assignmentOutcome =
-      preview.releaseMode === "single"
-        ? `The remaining ${preview.remainingTableCount} tables provide ${preview.remainingCapacity} seats, so the booking will remain fully assigned.`
-        : `The remaining tables would provide only ${preview.remainingCapacity} seats for ${booking.partySize} guests. The complete assignment will be released and the booking will return to Floor Assignment.`;
+      tableIds.length === 1
+        ? `The booking will remain active and return to the Floor Assignment queue. Table ${preview.releasedTableCode} will remain ${isTemporaryTable ? "active and " : ""}available.`
+        : preview.releaseMode === "single"
+          ? `The remaining ${preview.remainingTableCount} tables provide ${preview.remainingCapacity} seats, so the booking will remain fully assigned.`
+          : `The remaining tables would provide only ${preview.remainingCapacity} seats for ${booking.partySize} guests. The complete assignment will be released and the booking will return to Floor Assignment.`;
     if (
       !window.confirm(
-        `Release Table ${preview.releasedTableCode}?\n\nBooking: ${booking.customer.name || booking.reference}\n\nThis table is part of a ${tableIds.length}-table Corporate assignment. ${assignmentOutcome}`,
+        `Release ${booking.customer.name || booking.reference} from table ${preview.releasedTableCode}?\n\n${
+          tableIds.length > 1
+            ? `This table is part of a ${tableIds.length}-table assignment. `
+            : ""
+        }${assignmentOutcome}`,
       )
     ) {
       return;
@@ -22730,7 +22737,7 @@ export default function AdminDashboardPage() {
       setFloorCapacityPlanStatus(
         error instanceof Error
           ? error.message
-          : "The Corporate table was not released.",
+          : "The table assignment was not released.",
       );
     } finally {
       floorAssignmentInFlightRef.current.delete(booking.reference);
@@ -41360,12 +41367,11 @@ export default function AdminDashboardPage() {
                                   ? ` · Complete assignment: ${allocatedBookingTableCount} tables, ${allocatedBookingCombinedCapacity} combined seats`
                                   : ""}
                               </p>
-                              {allocatedBooking.source === "corporate-direct" &&
-                                isAllocatedTableClaim && (
+                              {isAllocatedTableClaim && (
                                   <button
                                     type="button"
                                     onClick={() =>
-                                      void releaseCorporateTable(
+                                      void releaseOperationalTable(
                                         allocatedBooking,
                                         table,
                                       )

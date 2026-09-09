@@ -500,7 +500,7 @@ export async function POST(request: Request) {
     const tableId = body.tableId?.trim() ?? "";
     if (!bookingReference || !tableId || !body.expectedUpdatedAt?.trim()) {
       return Response.json(
-        { error: "A current Corporate table claim is required." },
+        { error: "A current table claim is required." },
         { status: 400 },
       );
     }
@@ -534,7 +534,7 @@ export async function POST(request: Request) {
         releaseError,
       );
       return Response.json(
-        { error: "The Corporate table was not released." },
+        { error: "The table assignment was not released." },
         { status: 500 },
       );
     }
