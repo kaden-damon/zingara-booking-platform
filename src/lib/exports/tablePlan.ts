@@ -6,6 +6,7 @@ import {
   getCustomerDisplayName,
 } from "@/lib/customerNameStatus";
 import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
+import { sanitizeOperationalReportNotes } from "@/lib/operationalReporting";
 import {
   calculateTablePlanFinancialBreakdown,
   getDineplanZoneReceiptFormula,
@@ -249,23 +250,9 @@ function getCustomerName(customer: TablePlanCustomer | undefined) {
   return customer.email?.trim() || currentName || "Guest not recorded";
 }
 
-function stripLegacyMetadata(value: string | null | undefined) {
-  return (value ?? "")
-    .split("|")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter(
-      (part) =>
-        !/^(legacy dineplan ref|legacy source table|legacy total balance|guest match|legacy import)/i.test(
-          part,
-        ),
-    )
-    .join(" | ");
-}
-
 function getBookingNotes(booking: TablePlanBooking) {
   if (!booking.notes?.startsWith(bookingMetadataPrefix)) {
-    return stripLegacyMetadata(booking.notes);
+    return sanitizeOperationalReportNotes(booking.notes);
   }
 
   try {
@@ -277,7 +264,7 @@ function getBookingNotes(booking: TablePlanBooking) {
     };
 
     return [metadata.guestNotes, metadata.operationalNotes]
-      .map(stripLegacyMetadata)
+      .map(sanitizeOperationalReportNotes)
       .filter(Boolean)
       .join(" | ");
   } catch {
@@ -309,7 +296,7 @@ function getOperationalNotes(
     booking.dietary_requirements,
     customer?.dietary_requirements,
     getBookingNotes(booking),
-    stripLegacyMetadata(customer?.relationship_notes),
+    sanitizeOperationalReportNotes(customer?.relationship_notes),
   ]
     .map((value) => value?.trim() ?? "")
     .filter(Boolean)

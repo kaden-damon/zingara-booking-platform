@@ -45,6 +45,11 @@ import {
 } from "../../lib/adminIpUndertaking";
 import { platformVersion } from "../../lib/platformIdentity";
 import { bookingClaimsTable } from "../../lib/bookingTableClaims";
+import {
+  buildBookingGrainReportRows,
+  buildCustomerGrainReportRows,
+  buildOperationalTableReportRows,
+} from "../../lib/operationalReporting";
 import { normalizePhoneForComparison } from "../../lib/phone";
 
 import {
@@ -18359,6 +18364,7 @@ export default function AdminDashboardPage() {
 
   function getReportRows(reportType: OperationalReportType) {
     const reportBookings = getReportBookings();
+    const bookingRows = buildBookingGrainReportRows(reportBookings, tables);
 
     if (reportType === "waitlist") {
       return waitlist
@@ -18378,42 +18384,34 @@ export default function AdminDashboardPage() {
     }
 
     if (reportType === "crm") {
-      return customerProfiles.map((profile) => ({
-        customer: profile.customer.name,
-        email: profile.customer.email,
-        phone: profile.customer.phone,
-        bookings: profile.totalBookings,
-        totalSpend: profile.totalSpend,
-        favouriteZone: profile.favouriteZone,
-        vipTags: profile.vipTags.join("; "),
-        notes: profile.notes,
-      }));
+      return buildCustomerGrainReportRows(
+        bookingRows,
+        (booking) => getBookingFinancials(booking).totalPrice,
+      );
     }
 
     if (reportType === "table-allocations") {
-      return tables
-        .filter((table) =>
-          table.showId
-            ? getShowIdentityValues(analyticsSelectedShow).includes(table.showId)
-            : false,
-        )
-        .map((table) => {
-          const occupancy = getTableOccupancy(table, bookings);
+      const selectedShowIds = getShowIdentityValues(analyticsSelectedShow);
+      const reportTables = tables.filter(
+        (table) => table.showId && selectedShowIds.includes(table.showId),
+      );
 
-          return {
-            zone: getZoneById(table.zoneId)?.title ?? table.zoneId,
-            table: table.tableNumber,
-            seats: table.seatCapacity,
-            status: tableOccupancyLabels[occupancy.state],
-            booking: occupancy.booking?.reference,
-            guest: occupancy.booking?.customer.name,
-            notes: table.guestNotes,
-          };
-        });
+      return buildOperationalTableReportRows(reportBookings, reportTables).map(
+        (row) => ({
+          zone: row.zoneTitle,
+          table: row.tableNumber,
+          seats: row.capacityConfigured ? row.capacity : "Capacity required",
+          allocatedPax: row.allocatedPax,
+          status: tableOccupancyLabels[row.state],
+          booking: row.booking?.reference,
+          guest: row.booking?.customer.name,
+          notes: row.notes,
+        }),
+      );
     }
 
     if (reportType === "revenue") {
-      return reportBookings.map((booking) => {
+      return bookingRows.map(({ booking }) => {
         const financials = getBookingFinancials(booking);
 
         return {
@@ -18432,13 +18430,13 @@ export default function AdminDashboardPage() {
     }
 
     if (reportType === "check-ins") {
-      return reportBookings.map((booking) => ({
+      return bookingRows.map(({ booking, tableSummary, zoneSummary }) => ({
         reference: booking.reference,
         customer: booking.customer.name,
         phone: booking.customer.phone,
         guests: booking.partySize,
-        zone: booking.zoneTitle,
-        table: booking.tableNumber,
+        zone: zoneSummary,
+        table: tableSummary,
         status: bookingStatusLabels[booking.status ?? "confirmed"],
         arrival: booking.arrivalTime
           ? formatSouthAfricanTimestamp(booking.arrivalTime)
@@ -18448,18 +18446,18 @@ export default function AdminDashboardPage() {
     }
 
     if (reportType === "guest-list") {
-      return reportBookings.map((booking) => ({
+      return bookingRows.map(({ booking, notes, tableSummary, zoneSummary }) => ({
         customer: booking.customer.name,
         email: booking.customer.email,
         phone: booking.customer.phone,
         guests: booking.partySize,
-        zone: booking.zoneTitle,
-        table: booking.tableNumber,
-        notes: booking.operationalNotes,
+        zone: zoneSummary,
+        table: tableSummary,
+        notes,
       }));
     }
 
-    return reportBookings.map((booking) => {
+    return bookingRows.map(({ booking, notes, tableSummary, zoneSummary }) => {
       const financials = getBookingFinancials(booking);
 
       return {
@@ -18469,14 +18467,14 @@ export default function AdminDashboardPage() {
         email: booking.customer.email,
         phone: booking.customer.phone,
         guests: booking.partySize,
-        zone: booking.zoneTitle,
-        table: booking.tableNumber,
+        zone: zoneSummary,
+        table: tableSummary,
         status: bookingStatusLabels[booking.status ?? "confirmed"],
         paymentStatus: paymentStatusLabels[financials.paymentStatus],
         total: financials.totalPrice,
         paid: financials.amountPaid,
         outstanding: financials.balanceDue,
-        notes: booking.operationalNotes,
+        notes,
       };
     });
   }
