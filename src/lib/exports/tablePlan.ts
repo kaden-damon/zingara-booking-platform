@@ -6,7 +6,18 @@ import {
   getCustomerDisplayName,
 } from "@/lib/customerNameStatus";
 import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
-import { sanitizeOperationalReportNotes } from "@/lib/operationalReporting";
+import {
+  buildOperationalTableReportRows,
+  sanitizeOperationalReportNotes,
+  type OperationalTableReportRow,
+} from "@/lib/operationalReporting";
+import type {
+  BookingStatus,
+  DemoBooking,
+  DemoTable,
+  SeatingZoneId,
+  TableStatus,
+} from "@/lib/zingaraDemo";
 import {
   calculateTablePlanFinancialBreakdown,
   getDineplanZoneReceiptFormula,
@@ -68,6 +79,7 @@ export type TablePlanBooking = {
   section: string;
   table_id: string | null;
   total_amount: number;
+  zone_entitlements?: Array<{ pax: number; zoneId: SeatingZoneId }> | null;
 };
 
 export type TablePlanCustomer = {
@@ -108,6 +120,21 @@ type ZoneLayout = {
 type LegacyTablePlanAssignment = {
   booking: TablePlanBooking;
   table: TablePlanTable;
+};
+
+type TablePlanOperationalRow = {
+  allocatedPax: number;
+  booking?: TablePlanBooking;
+  capacity: number;
+  capacityConfigured: boolean;
+  state: OperationalTableReportRow["state"];
+  table: TablePlanTable;
+};
+
+type UnassignedTablePlanRow = {
+  allocatedPax: number;
+  booking: TablePlanBooking;
+  zone: TablePlanZoneId;
 };
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
@@ -186,6 +213,39 @@ function normalizeZone(section: string): TablePlanZoneId | null {
   return null;
 }
 
+function toReportingZone(section: string): SeatingZoneId | null {
+  const zone = normalizeZone(section);
+
+  return zone === "private-booths" ? "royal-booths" : zone;
+}
+
+function toReportingBookingStatus(status: string): BookingStatus {
+  const normalized = status.trim().toLowerCase().replaceAll("_", "-");
+
+  return [
+    "new",
+    "confirmed",
+    "pending",
+    "pending-payment",
+    "cancelled",
+    "checked-in",
+    "completed",
+    "refunded",
+    "no-show",
+    "waitlisted",
+  ].includes(normalized)
+    ? (normalized as BookingStatus)
+    : "pending";
+}
+
+function toReportingTableStatus(status: string): TableStatus {
+  return status === "disabled"
+    ? "disabled"
+    : status === "booked"
+      ? "booked"
+      : "available";
+}
+
 function compareTableCodes(left: TablePlanTable, right: TablePlanTable) {
   const parse = (value: string) => {
     const match = value.trim().match(/^([^\d]*)(\d+)(.*)$/);
@@ -207,6 +267,146 @@ function compareTableCodes(left: TablePlanTable, right: TablePlanTable) {
     leftParts.suffix.localeCompare(rightParts.suffix) ||
     left.id.localeCompare(right.id)
   );
+}
+
+function buildExportOperationalRows(
+  activeBookings: TablePlanBooking[],
+  tables: TablePlanTable[],
+) {
+  const operationalTables = tables.filter(
+    (table) => !isLegacyPlaceholderTable(table),
+  );
+  const sourceTablesById = new Map(
+    operationalTables.map((table) => [table.id, table]),
+  );
+  const sourceBookingsById = new Map(
+    activeBookings.map((booking) => [booking.id, booking]),
+  );
+  const claimsByBookingId = new Map<string, TablePlanTable[]>();
+
+  for (const table of operationalTables) {
+    if (!table.booking_id) continue;
+    claimsByBookingId.set(table.booking_id, [
+      ...(claimsByBookingId.get(table.booking_id) ?? []),
+      table,
+    ]);
+  }
+
+  const reportingTables: DemoTable[] = operationalTables.map((table) => ({
+    availabilityScope:
+      table.availability_scope === "public" ? "public" : "operational",
+    capacityConfigured: table.capacity_configured,
+    guestNotes: table.override_notes ?? "",
+    id: table.id,
+    mergedFrom: table.merged_from ?? undefined,
+    mergedInto: table.merged_parent_id ?? undefined,
+    physicalTable: table.is_physical,
+    seatCapacity: Math.max(Number(table.capacity) || 0, 0),
+    status: toReportingTableStatus(table.status),
+    tableNumber: table.table_code,
+    zoneId: toReportingZone(table.section) ?? "middle-ring",
+  }));
+  const reportingBookings: DemoBooking[] = activeBookings.map((booking) => {
+    const zoneId = toReportingZone(booking.section) ?? "middle-ring";
+    const claims = (claimsByBookingId.get(booking.id) ?? []).sort(
+      compareTableCodes,
+    );
+
+    return {
+      archivedAt: booking.archived_at ?? undefined,
+      bookingDate: "",
+      communicationHistory: [],
+      createdAt: "",
+      customer: { email: "", name: "", phone: "" },
+      partySize: Math.max(Number(booking.guest_count) || 0, 0),
+      pricePerPerson: 0,
+      reference: booking.booking_reference,
+      reservationTableClaims: claims.map((table, index) => ({
+        capacity: Math.max(Number(table.capacity) || 0, 0),
+        primary: table.id === booking.table_id || (index === 0 && !booking.table_id),
+        section: toReportingZone(table.section) ?? zoneId,
+        tableCode: table.table_code,
+        tableId: table.id,
+      })),
+      status: toReportingBookingStatus(booking.booking_status),
+      supabaseBookingId: booking.id,
+      tableId: claims.length ? claims[0].id : "requires-floor-assignment",
+      tableNumber: claims.map((table) => table.table_code).join(" + "),
+      ticketCode: booking.booking_reference,
+      totalPrice: Math.max(Number(booking.total_amount) || 0, 0),
+      zoneEntitlements: booking.zone_entitlements?.map((entitlement) => ({
+        pax: Math.max(Number(entitlement.pax) || 0, 0),
+        zoneId: entitlement.zoneId,
+      })),
+      zoneId,
+      zoneTitle: normalizeZone(booking.section) ?? booking.section,
+    };
+  });
+
+  return buildOperationalTableReportRows(reportingBookings, reportingTables)
+    .map((row): TablePlanOperationalRow | null => {
+      const table = sourceTablesById.get(row.table.id);
+      if (!table) return null;
+
+      return {
+        allocatedPax: row.allocatedPax,
+        booking: row.booking?.supabaseBookingId
+          ? sourceBookingsById.get(row.booking.supabaseBookingId)
+          : undefined,
+        capacity: row.capacity,
+        capacityConfigured: row.capacityConfigured,
+        state: row.state,
+        table,
+      };
+    })
+    .filter((row): row is TablePlanOperationalRow => Boolean(row));
+}
+
+function buildUnassignedRows(
+  activeBookings: TablePlanBooking[],
+  operationalRows: TablePlanOperationalRow[],
+  legacyBookingIds: Set<string>,
+) {
+  const assignedPaxByBookingAndZone = new Map<string, number>();
+
+  for (const row of operationalRows) {
+    if (!row.booking) continue;
+    const zone = normalizeZone(row.table.section);
+    if (!zone) continue;
+    const key = `${row.booking.id}:${zone}`;
+    assignedPaxByBookingAndZone.set(
+      key,
+      (assignedPaxByBookingAndZone.get(key) ?? 0) + row.allocatedPax,
+    );
+  }
+
+  return activeBookings.flatMap((booking): UnassignedTablePlanRow[] => {
+    if (legacyBookingIds.has(booking.id)) return [];
+    const entitlements = booking.zone_entitlements?.length
+      ? booking.zone_entitlements
+          .map((entitlement) => ({
+            pax: Math.max(Number(entitlement.pax) || 0, 0),
+            zone: normalizeZone(entitlement.zoneId),
+          }))
+          .filter(
+            (entitlement): entitlement is { pax: number; zone: TablePlanZoneId } =>
+              Boolean(entitlement.zone),
+          )
+      : [{
+          pax: Math.max(Number(booking.guest_count) || 0, 0),
+          zone: normalizeZone(booking.section),
+        }].filter(
+          (entitlement): entitlement is { pax: number; zone: TablePlanZoneId } =>
+            Boolean(entitlement.zone),
+        );
+
+    return entitlements.flatMap(({ pax, zone }) => {
+      const assigned = assignedPaxByBookingAndZone.get(`${booking.id}:${zone}`) ?? 0;
+      const remaining = Math.max(pax - assigned, 0);
+
+      return remaining ? [{ allocatedPax: remaining, booking, zone }] : [];
+    });
+  });
 }
 
 function isHumanReadableName(value: string) {
@@ -354,6 +554,8 @@ function populateBookingDataRow(
   legacyPaymentEvidence: TablePlanLegacyPaymentEvidence | undefined,
   referenceAndContact: string,
   configuredUnitPrice: number,
+  allocatedPax: number,
+  includeBookingDetails: boolean,
 ) {
   const totalAmount = Math.max(Number(booking.total_amount) || 0, 0);
   const confirmedPaidAmount = Math.max(Number(booking.amount_paid) || 0, 0);
@@ -371,14 +573,17 @@ function populateBookingDataRow(
     legacyPaymentEvidence,
   );
 
-  row.getCell(4).value = Math.max(Number(booking.guest_count) || 0, 0);
+  row.getCell(4).value = Math.max(Number(allocatedPax) || 0, 0);
   row.getCell(5).value = neutralizeSpreadsheetFormula(getCustomerName(customer));
-  row.getCell(6).value = customer?.mobile?.trim()
+  row.getCell(6).value = includeBookingDetails && customer?.mobile?.trim()
     ? neutralizeSpreadsheetFormula(customer.mobile.trim())
     : null;
-  row.getCell(7).value = neutralizeSpreadsheetFormula(
-    referenceAndContact || booking.booking_reference,
-  );
+  row.getCell(7).value = includeBookingDetails
+    ? neutralizeSpreadsheetFormula(
+        referenceAndContact || booking.booking_reference,
+      )
+    : null;
+  if (!includeBookingDetails) return;
   setMoneyValue(row.getCell(8), financials.fullCard);
   setMoneyValue(row.getCell(9), financials.prePaidCard);
   setMoneyValue(row.getCell(10), financials.prePaidEft);
@@ -921,39 +1126,56 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
     );
   }
 
-  const tablesByZone = Object.fromEntries(
-    supportedZoneOrder.map((zone) => [zone, [] as TablePlanTable[]]),
-  ) as Record<TablePlanZoneId, TablePlanTable[]>;
+  const operationalRows = buildExportOperationalRows(activeBookings, input.tables);
+  const operationalRowsByZone = Object.fromEntries(
+    supportedZoneOrder.map((zone) => [zone, [] as TablePlanOperationalRow[]]),
+  ) as Record<TablePlanZoneId, TablePlanOperationalRow[]>;
 
-  for (const table of input.tables) {
-    if (table.merged_parent_id || isLegacyPlaceholderTable(table)) {
-      continue;
-    }
-
-    const zone = normalizeZone(table.section);
+  for (const operationalRow of operationalRows) {
+    const zone = normalizeZone(operationalRow.table.section);
 
     if (!zone) {
-      if (table.status !== "disabled") {
+      if (operationalRow.state !== "blocked") {
         throw new Error(
-          `Table ${table.table_code} uses unsupported section ${table.section}.`,
+          `Table ${operationalRow.table.table_code} uses unsupported section ${operationalRow.table.section}.`,
         );
       }
       continue;
     }
 
-    tablesByZone[zone].push(table);
+    operationalRowsByZone[zone].push(operationalRow);
   }
 
   for (const zone of supportedZoneOrder) {
-    tablesByZone[zone].sort(compareTableCodes);
+    operationalRowsByZone[zone].sort((left, right) =>
+      compareTableCodes(left.table, right.table),
+    );
   }
+
+  const legacyBookingIds = new Set(
+    Object.values(legacyAssignmentsByZone)
+      .flat()
+      .map(({ booking }) => booking.id),
+  );
+  const unassignedRows = buildUnassignedRows(
+    activeBookings,
+    operationalRows,
+    legacyBookingIds,
+  );
+  const unassignedRowsByZone = Object.fromEntries(
+    supportedZoneOrder.map((zone) => [
+      zone,
+      unassignedRows.filter((row) => row.zone === zone),
+    ]),
+  ) as Record<TablePlanZoneId, UnassignedTablePlanRow[]>;
 
   const extraRows = Object.fromEntries(
     supportedZoneOrder.map((zone) => [
       zone,
       Math.max(
-        tablesByZone[zone].length +
-          legacyAssignmentsByZone[zone].length -
+        operationalRowsByZone[zone].length +
+          legacyAssignmentsByZone[zone].length +
+          unassignedRowsByZone[zone].length -
           baseZoneSlots[zone],
         0,
       ),
@@ -989,50 +1211,62 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
     ]);
   }
 
-  const bookingsByTableId = new Map<string, TablePlanBooking[]>();
-
-  for (const booking of activeBookings) {
-    if (!booking.table_id) {
-      continue;
-    }
-
-    bookingsByTableId.set(booking.table_id, [
-      ...(bookingsByTableId.get(booking.table_id) ?? []),
-      booking,
-    ]);
-  }
-
   const notesEntries = Object.fromEntries(
     supportedZoneOrder.map((zone) => [
       zone,
       [] as Array<[string, string, string]>,
     ]),
   ) as Record<TablePlanZoneId, Array<[string, string, string]>>;
+  const populatedFinancialBookingIds = new Set<string>();
+  const populatedNoteBookingIds = new Set<string>();
 
   for (const zone of supportedZoneOrder) {
     const layout = layouts[zone];
 
     layout.dataRows.forEach((rowNumber, index) => {
       const row = tablePlan.getRow(rowNumber);
-      const table = tablesByZone[zone][index];
+      const operationalRow = operationalRowsByZone[zone][index];
       const legacyAssignment =
-        legacyAssignmentsByZone[zone][index - tablesByZone[zone].length];
+        legacyAssignmentsByZone[zone][
+          index - operationalRowsByZone[zone].length
+        ];
+      const unassignedRow =
+        unassignedRowsByZone[zone][
+          index -
+            operationalRowsByZone[zone].length -
+            legacyAssignmentsByZone[zone].length
+        ];
 
       clearTableDataRow(row);
 
-      if (!table) {
-        if (!legacyAssignment) {
-          return;
-        }
+      if (!operationalRow) {
+        const assignment = legacyAssignment
+          ? {
+              allocatedPax: Math.max(
+                Number(legacyAssignment.booking.guest_count) || 0,
+                0,
+              ),
+              booking: legacyAssignment.booking,
+              label: `UNALLOCATED (${legacyAssignment.table.table_code})`,
+            }
+          : unassignedRow
+            ? {
+                allocatedPax: unassignedRow.allocatedPax,
+                booking: unassignedRow.booking,
+                label: "UNASSIGNED",
+              }
+            : null;
 
-        const { booking, table: legacyTable } = legacyAssignment;
+        if (!assignment) return;
+
+        const { booking } = assignment;
         const customer = booking.customer_id
           ? customersById.get(booking.customer_id)
           : undefined;
         const customerName = getCustomerName(customer);
         const operationalNotes = getOperationalNotes(booking, customer);
+        const includeBookingDetails = !populatedFinancialBookingIds.has(booking.id);
         const referenceAndContact = [
-          `Legacy table ${legacyTable.table_code} · physical mapping required`,
           booking.booking_reference,
           customer?.email?.trim(),
           operationalNotes,
@@ -1040,7 +1274,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
           .filter(Boolean)
           .join(" · ");
 
-        row.getCell(2).value = "UNALLOCATED";
+        row.getCell(2).value = assignment.label;
         populateBookingDataRow(
           row,
           booking,
@@ -1049,30 +1283,34 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
           legacyEvidenceByBookingId.get(booking.id),
           referenceAndContact,
           input.configuredZonePrices[zone],
+          assignment.allocatedPax,
+          includeBookingDetails,
         );
+        populatedFinancialBookingIds.add(booking.id);
 
-        if (operationalNotes) {
+        if (operationalNotes && !populatedNoteBookingIds.has(booking.id)) {
           notesEntries[zone].push([
-            `UNALLOCATED (${legacyTable.table_code})`,
+            assignment.label,
             customerName,
             operationalNotes,
           ]);
+          populatedNoteBookingIds.add(booking.id);
         }
 
         return;
       }
 
+      const { booking, table } = operationalRow;
       row.getCell(2).value = neutralizeSpreadsheetFormula(table.table_code);
-      row.getCell(3).value = table.capacity_configured
-        ? Math.max(Number(table.capacity) || 0, 0)
+      row.getCell(3).value = operationalRow.capacityConfigured
+        ? operationalRow.capacity
         : null;
 
-      if (!table.capacity_configured) {
+      if (!operationalRow.capacityConfigured) {
         row.getCell(7).value = "CAPACITY NOT CONFIGURED";
-        return;
       }
 
-      if (table.status === "disabled") {
+      if (operationalRow.state === "blocked") {
         row.getCell(7).value = neutralizeSpreadsheetFormula(
           ["DISABLED", table.override_notes?.trim()]
             .filter(Boolean)
@@ -1081,24 +1319,8 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
         return;
       }
 
-      const candidates = bookingsByTableId.get(table.id) ?? [];
-
-      if (candidates.length > 1) {
-        throw new Error(
-          `Table ${table.table_code} has multiple active booking assignments.`,
-        );
-      }
-
-      const booking = candidates[0];
-
       if (!booking) {
         return;
-      }
-
-      if (table.booking_id && table.booking_id !== booking.id) {
-        throw new Error(
-          `Table ${table.table_code} has conflicting booking assignment data.`,
-        );
       }
 
       const customer = booking.customer_id
@@ -1106,6 +1328,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
         : undefined;
       const customerName = getCustomerName(customer);
       const operationalNotes = getOperationalNotes(booking, customer);
+      const includeBookingDetails = !populatedFinancialBookingIds.has(booking.id);
       const referenceAndContact = [
         booking.booking_reference,
         customer?.email?.trim(),
@@ -1122,14 +1345,18 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
         legacyEvidenceByBookingId.get(booking.id),
         referenceAndContact,
         input.configuredZonePrices[zone],
+        operationalRow.allocatedPax,
+        includeBookingDetails,
       );
+      populatedFinancialBookingIds.add(booking.id);
 
-      if (operationalNotes) {
+      if (operationalNotes && !populatedNoteBookingIds.has(booking.id)) {
         notesEntries[zone].push([
           table.table_code,
           customerName,
           operationalNotes,
         ]);
+        populatedNoteBookingIds.add(booking.id);
       }
     });
   }
@@ -1137,8 +1364,8 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   const totalCapacity = supportedZoneOrder.reduce(
     (total, zone) =>
       total +
-      tablesByZone[zone].reduce(
-        (zoneTotal, table) => zoneTotal + Math.max(Number(table.capacity) || 0, 0),
+      operationalRowsByZone[zone].reduce(
+        (zoneTotal, row) => zoneTotal + row.capacity,
         0,
       ),
     0,
