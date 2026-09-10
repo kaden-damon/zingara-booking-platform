@@ -117,6 +117,21 @@ type ZoneLayout = {
   subtotalRows: Array<{ end: number; row: number; start: number }>;
 };
 
+type TablePlanGroupId =
+  | "private-1-11"
+  | "private-12-plus"
+  | "middle-200"
+  | "middle-300"
+  | "golden-400"
+  | "golden-500"
+  | "golden-600"
+  | "balcony";
+
+type TablePlanGroupLayout = {
+  dataRows: number[];
+  subtotalRow: { end: number; row: number; start: number };
+};
+
 type LegacyTablePlanAssignment = {
   booking: TablePlanBooking;
   table: TablePlanTable;
@@ -150,18 +165,21 @@ const supportedZoneOrder: TablePlanZoneId[] = [
   "golden-circle",
   "royal-balcony",
 ];
-const baseZoneSlots: Record<TablePlanZoneId, number> = {
-  "private-booths": 23,
-  "middle-ring": 28,
-  "golden-circle": 23,
-  "royal-balcony": 4,
-};
-const baseInsertRows: Record<TablePlanZoneId, number> = {
-  "private-booths": 28,
-  "middle-ring": 58,
-  "golden-circle": 84,
-  "royal-balcony": 89,
-};
+const tablePlanGroups: Array<{
+  baseSlots: number;
+  baseSubtotalRow: number;
+  id: TablePlanGroupId;
+  zone: TablePlanZoneId;
+}> = [
+  { baseSlots: 11, baseSubtotalRow: 15, id: "private-1-11", zone: "private-booths" },
+  { baseSlots: 12, baseSubtotalRow: 28, id: "private-12-plus", zone: "private-booths" },
+  { baseSlots: 14, baseSubtotalRow: 43, id: "middle-200", zone: "middle-ring" },
+  { baseSlots: 14, baseSubtotalRow: 58, id: "middle-300", zone: "middle-ring" },
+  { baseSlots: 6, baseSubtotalRow: 65, id: "golden-400", zone: "golden-circle" },
+  { baseSlots: 6, baseSubtotalRow: 72, id: "golden-500", zone: "golden-circle" },
+  { baseSlots: 11, baseSubtotalRow: 84, id: "golden-600", zone: "golden-circle" },
+  { baseSlots: 4, baseSubtotalRow: 89, id: "balcony", zone: "royal-balcony" },
+];
 const dynamicMergeAddresses = [
   "A4:A14",
   "A16:A27",
@@ -267,6 +285,33 @@ function compareTableCodes(left: TablePlanTable, right: TablePlanTable) {
     leftParts.suffix.localeCompare(rightParts.suffix) ||
     left.id.localeCompare(right.id)
   );
+}
+
+function getTablePlanGroupId(
+  zone: TablePlanZoneId,
+  tableCode: string,
+): TablePlanGroupId {
+  const numericTable = Number(tableCode.trim().match(/\d+/)?.[0]);
+
+  if (zone === "private-booths") {
+    return Number.isFinite(numericTable) && numericTable <= 11
+      ? "private-1-11"
+      : "private-12-plus";
+  }
+
+  if (zone === "middle-ring") {
+    return Number.isFinite(numericTable) && numericTable < 300
+      ? "middle-200"
+      : "middle-300";
+  }
+
+  if (zone === "golden-circle") {
+    if (Number.isFinite(numericTable) && numericTable < 500) return "golden-400";
+    if (Number.isFinite(numericTable) && numericTable < 600) return "golden-500";
+    return "golden-600";
+  }
+
+  return "balcony";
 }
 
 function buildExportOperationalRows(
@@ -608,11 +653,11 @@ function copyTableRowStyle(worksheet: Worksheet, sourceRow: Row, targetRow: Row)
 
 function insertTableRows(
   worksheet: Worksheet,
-  extraRows: Record<TablePlanZoneId, number>,
+  extraRows: Record<TablePlanGroupId, number>,
 ) {
-  for (const zone of [...supportedZoneOrder].reverse()) {
-    const count = extraRows[zone];
-    const insertAt = baseInsertRows[zone];
+  for (const group of [...tablePlanGroups].reverse()) {
+    const count = extraRows[group.id];
+    const insertAt = group.baseSubtotalRow;
 
     for (let index = 0; index < count; index += 1) {
       const sourceRow = worksheet.getRow(insertAt - 1);
@@ -623,97 +668,41 @@ function insertTableRows(
   }
 }
 
-function createZoneLayouts(extraRows: Record<TablePlanZoneId, number>) {
-  const privateExtra = extraRows["private-booths"];
-  const middleExtra = extraRows["middle-ring"];
-  const goldenExtra = extraRows["golden-circle"];
-  const privateOffset = privateExtra;
-  const middleOffset = privateExtra + middleExtra;
-  const goldenOffset = privateExtra + middleExtra + goldenExtra;
+function createTablePlanLayouts(extraRows: Record<TablePlanGroupId, number>) {
+  const groups = {} as Record<TablePlanGroupId, TablePlanGroupLayout>;
+  let nextRow = 4;
 
-  return {
-    "private-booths": {
-      dataRows: [
-        ...range(4, 14),
-        ...range(16, 27 + privateExtra),
-      ],
-      finalDataRow: 27 + privateExtra,
-      firstDataRow: 4,
-      subtotalRows: [
-        { end: 14, row: 15, start: 4 },
+  for (const group of tablePlanGroups) {
+    const start = nextRow;
+    const end = start + group.baseSlots + extraRows[group.id] - 1;
+    const row = end + 1;
+    groups[group.id] = {
+      dataRows: range(start, end),
+      subtotalRow: { end, row, start },
+    };
+    nextRow = row + 1;
+  }
+
+  const zones = Object.fromEntries(
+    supportedZoneOrder.map((zone) => {
+      const zoneGroups = tablePlanGroups
+        .filter((group) => group.zone === zone)
+        .map((group) => groups[group.id]);
+      const dataRows = zoneGroups.flatMap((group) => group.dataRows);
+
+      return [
+        zone,
         {
-          end: 27 + privateExtra,
-          row: 28 + privateExtra,
-          start: 16,
+          dataRows,
+          finalDataRow: dataRows.at(-1)!,
+          firstDataRow: dataRows[0],
+          subtotalRows: zoneGroups.map((group) => group.subtotalRow),
         },
-      ],
-    },
-    "middle-ring": {
-      dataRows: [
-        ...range(29 + privateOffset, 42 + privateOffset),
-        ...range(
-          44 + privateOffset,
-          57 + privateOffset + middleExtra,
-        ),
-      ],
-      finalDataRow: 57 + privateOffset + middleExtra,
-      firstDataRow: 29 + privateOffset,
-      subtotalRows: [
-        {
-          end: 42 + privateOffset,
-          row: 43 + privateOffset,
-          start: 29 + privateOffset,
-        },
-        {
-          end: 57 + privateOffset + middleExtra,
-          row: 58 + privateOffset + middleExtra,
-          start: 44 + privateOffset,
-        },
-      ],
-    },
-    "golden-circle": {
-      dataRows: [
-        ...range(59 + middleOffset, 64 + middleOffset),
-        ...range(66 + middleOffset, 71 + middleOffset),
-        ...range(73 + middleOffset, 83 + middleOffset + goldenExtra),
-      ],
-      finalDataRow: 83 + middleOffset + goldenExtra,
-      firstDataRow: 59 + middleOffset,
-      subtotalRows: [
-        {
-          end: 64 + middleOffset,
-          row: 65 + middleOffset,
-          start: 59 + middleOffset,
-        },
-        {
-          end: 71 + middleOffset,
-          row: 72 + middleOffset,
-          start: 66 + middleOffset,
-        },
-        {
-          end: 83 + middleOffset + goldenExtra,
-          row: 84 + middleOffset + goldenExtra,
-          start: 73 + middleOffset,
-        },
-      ],
-    },
-    "royal-balcony": {
-      dataRows: range(
-        85 + goldenOffset,
-        88 + goldenOffset + extraRows["royal-balcony"],
-      ),
-      finalDataRow:
-        88 + goldenOffset + extraRows["royal-balcony"],
-      firstDataRow: 85 + goldenOffset,
-      subtotalRows: [
-        {
-          end: 88 + goldenOffset + extraRows["royal-balcony"],
-          row: 89 + goldenOffset + extraRows["royal-balcony"],
-          start: 85 + goldenOffset,
-        },
-      ],
-    },
-  } satisfies Record<TablePlanZoneId, ZoneLayout>;
+      ];
+    }),
+  ) as Record<TablePlanZoneId, ZoneLayout>;
+
+  return { groups, zones };
 }
 
 function range(start: number, end: number) {
@@ -724,28 +713,13 @@ function range(start: number, end: number) {
 
 function restoreDynamicMerges(
   worksheet: Worksheet,
-  layouts: Record<TablePlanZoneId, ZoneLayout>,
+  groupLayouts: Record<TablePlanGroupId, TablePlanGroupLayout>,
   rowOffset: number,
 ) {
-  worksheet.mergeCells("A4:A14");
-  worksheet.mergeCells(
-    `A16:A${layouts["private-booths"].finalDataRow}`,
-  );
-  worksheet.mergeCells(
-    `A${layouts["middle-ring"].firstDataRow}:A${layouts["middle-ring"].subtotalRows[0].end}`,
-  );
-  worksheet.mergeCells(
-    `A${layouts["middle-ring"].subtotalRows[1].start}:A${layouts["middle-ring"].finalDataRow}`,
-  );
-  worksheet.mergeCells(
-    `A${layouts["golden-circle"].firstDataRow}:A${layouts["golden-circle"].subtotalRows[0].end}`,
-  );
-  worksheet.mergeCells(
-    `A${layouts["golden-circle"].subtotalRows[1].start}:A${layouts["golden-circle"].subtotalRows[1].end}`,
-  );
-  worksheet.mergeCells(
-    `A${layouts["golden-circle"].subtotalRows[2].start}:A${layouts["golden-circle"].finalDataRow}`,
-  );
+  for (const group of tablePlanGroups.filter((group) => group.id !== "balcony")) {
+    const layout = groupLayouts[group.id];
+    worksheet.mergeCells(`A${layout.subtotalRow.start}:A${layout.subtotalRow.end}`);
+  }
   worksheet.mergeCells(`E${100 + rowOffset}:G${100 + rowOffset}`);
 }
 
@@ -1122,6 +1096,9 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   const operationalRowsByZone = Object.fromEntries(
     supportedZoneOrder.map((zone) => [zone, [] as TablePlanOperationalRow[]]),
   ) as Record<TablePlanZoneId, TablePlanOperationalRow[]>;
+  const operationalRowsByGroup = Object.fromEntries(
+    tablePlanGroups.map((group) => [group.id, [] as TablePlanOperationalRow[]]),
+  ) as Record<TablePlanGroupId, TablePlanOperationalRow[]>;
 
   for (const operationalRow of operationalRows) {
     const zone = normalizeZone(operationalRow.table.section);
@@ -1136,10 +1113,18 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
     }
 
     operationalRowsByZone[zone].push(operationalRow);
+    operationalRowsByGroup[
+      getTablePlanGroupId(zone, operationalRow.table.table_code)
+    ].push(operationalRow);
   }
 
   for (const zone of supportedZoneOrder) {
     operationalRowsByZone[zone].sort((left, right) =>
+      compareTableCodes(left.table, right.table),
+    );
+  }
+  for (const group of tablePlanGroups) {
+    operationalRowsByGroup[group.id].sort((left, right) =>
       compareTableCodes(left.table, right.table),
     );
   }
@@ -1161,18 +1146,31 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
     ]),
   ) as Record<TablePlanZoneId, UnassignedTablePlanRow[]>;
 
-  const extraRows = Object.fromEntries(
+  const lastGroupByZone = Object.fromEntries(
     supportedZoneOrder.map((zone) => [
       zone,
-      Math.max(
-        operationalRowsByZone[zone].length +
-          legacyAssignmentsByZone[zone].length +
-          unassignedRowsByZone[zone].length -
-          baseZoneSlots[zone],
-        0,
-      ),
+      tablePlanGroups.filter((group) => group.zone === zone).at(-1)!.id,
     ]),
-  ) as Record<TablePlanZoneId, number>;
+  ) as Record<TablePlanZoneId, TablePlanGroupId>;
+  const extraRows = Object.fromEntries(
+    tablePlanGroups.map((group) => {
+      const trailingRows =
+        lastGroupByZone[group.zone] === group.id
+          ? legacyAssignmentsByZone[group.zone].length +
+            unassignedRowsByZone[group.zone].length
+          : 0;
+
+      return [
+        group.id,
+        Math.max(
+          operationalRowsByGroup[group.id].length +
+            trailingRows -
+            group.baseSlots,
+          0,
+        ),
+      ];
+    }),
+  ) as Record<TablePlanGroupId, number>;
   const rowOffset = Object.values(extraRows).reduce(
     (total, count) => total + count,
     0,
@@ -1183,8 +1181,9 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   }
 
   insertTableRows(tablePlan, extraRows);
-  const layouts = createZoneLayouts(extraRows);
-  restoreDynamicMerges(tablePlan, layouts, rowOffset);
+  const { groups: groupLayouts, zones: layouts } =
+    createTablePlanLayouts(extraRows);
+  restoreDynamicMerges(tablePlan, groupLayouts, rowOffset);
   restorePaymentColumnHeaders(tablePlan);
 
   const customersById = new Map(input.customers.map((customer) => [customer.id, customer]));
@@ -1211,23 +1210,52 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   ) as Record<TablePlanZoneId, Array<[string, string, string]>>;
   const populatedFinancialBookingIds = new Set<string>();
   const populatedNoteBookingIds = new Set<string>();
+  const renderRowsByZone = Object.fromEntries(
+    supportedZoneOrder.map((zone) => {
+      const zoneGroups = tablePlanGroups.filter((group) => group.zone === zone);
+      const rows = zoneGroups.flatMap((group) => {
+        const items: Array<{
+          legacyAssignment?: LegacyTablePlanAssignment;
+          operationalRow?: TablePlanOperationalRow;
+          unassignedRow?: UnassignedTablePlanRow;
+        }> = operationalRowsByGroup[group.id].map((operationalRow) => ({
+          operationalRow,
+        }));
+
+        if (lastGroupByZone[zone] === group.id) {
+          items.push(
+            ...legacyAssignmentsByZone[zone].map((legacyAssignment) => ({
+              legacyAssignment,
+            })),
+            ...unassignedRowsByZone[zone].map((unassignedRow) => ({
+              unassignedRow,
+            })),
+          );
+        }
+
+        return groupLayouts[group.id].dataRows.map(
+          (_, index) => items[index] ?? {},
+        );
+      });
+
+      return [zone, rows];
+    }),
+  ) as Record<
+    TablePlanZoneId,
+    Array<{
+      legacyAssignment?: LegacyTablePlanAssignment;
+      operationalRow?: TablePlanOperationalRow;
+      unassignedRow?: UnassignedTablePlanRow;
+    }>
+  >;
 
   for (const zone of supportedZoneOrder) {
     const layout = layouts[zone];
 
     layout.dataRows.forEach((rowNumber, index) => {
       const row = tablePlan.getRow(rowNumber);
-      const operationalRow = operationalRowsByZone[zone][index];
-      const legacyAssignment =
-        legacyAssignmentsByZone[zone][
-          index - operationalRowsByZone[zone].length
-        ];
-      const unassignedRow =
-        unassignedRowsByZone[zone][
-          index -
-            operationalRowsByZone[zone].length -
-            legacyAssignmentsByZone[zone].length
-        ];
+      const { operationalRow, legacyAssignment, unassignedRow } =
+        renderRowsByZone[zone][index];
 
       clearTableDataRow(row);
 

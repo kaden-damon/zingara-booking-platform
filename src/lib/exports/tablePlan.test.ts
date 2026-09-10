@@ -114,6 +114,11 @@ test("Table Plan exports physical claims with singular booking totals", async ()
         status: "disabled",
       }),
     ),
+    ...[406, 500, 505, 506, 600].map((code) =>
+      table(`table-${code}`, String(code), null, {
+        section: "golden-circle",
+      }),
+    ),
   ];
   const customers = [
     customer("one", "Single Guest"),
@@ -170,6 +175,36 @@ test("Table Plan exports physical claims with singular booking totals", async ()
     tableCodes.filter((value) => ["20", "21", "22", "23", "24"].includes(value)),
     ["20", "21", "22", "23", "24"],
   );
+  const rowForTable = (tableCode: string) =>
+    rows.find((row) => String(row.getCell(2).value ?? "") === tableCode)!
+      .number;
+  const capacitySubtotals = rows.filter((row) => {
+    const value = row.getCell(3).value;
+    return (
+      value &&
+      typeof value === "object" &&
+      "formula" in value &&
+      /^SUM\(C\d+:C\d+\)$/.test(String(value.formula))
+    );
+  });
+  const subtotalAfter = (rowNumber: number) =>
+    capacitySubtotals.find((row) => row.number > rowNumber)!;
+  const subtotal400 = subtotalAfter(rowForTable("406"));
+  const subtotal500 = subtotalAfter(rowForTable("500"));
+  const subtotal600 = subtotalAfter(rowForTable("600"));
+
+  assert.ok(rowForTable("406") < subtotal400.number);
+  assert.ok(subtotal400.number < rowForTable("500"));
+  assert.ok(rowForTable("500") < rowForTable("505"));
+  assert.ok(rowForTable("505") < rowForTable("506"));
+  assert.ok(rowForTable("506") < subtotal500.number);
+  assert.ok(subtotal500.number < rowForTable("600"));
+  assert.ok(rowForTable("600") < subtotal600.number);
+  assert.notEqual(subtotal400.number, subtotal500.number);
+  assert.notEqual(subtotal500.number, subtotal600.number);
+  assert.equal(cellNumber(subtotal400.getCell(3).value), 6);
+  assert.equal(cellNumber(subtotal500.getCell(3).value), 18);
+  assert.equal(cellNumber(subtotal600.getCell(3).value), 6);
   assert.equal(tableCodes.some((value) => value.includes("+")), false);
   assert.equal(
     bookingRows.filter((row) => row.getCell(5).value === "Single Guest").length,
