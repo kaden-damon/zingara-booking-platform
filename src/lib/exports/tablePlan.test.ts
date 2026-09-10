@@ -91,6 +91,10 @@ test("Table Plan exports physical claims with singular booking totals", async ()
     booking("temp", "TEMP", 2, "temp-1"),
     booking("queue", "QUEUE", 3, null),
     booking("released", "RELEASED", 2, "released-table"),
+    booking("balcony", "BALCONY", 2, "table-800", {
+      notes: "Balcony note",
+      section: "royal-balcony",
+    }),
   ];
   const tables = [
     table("table-1", "1", "one"),
@@ -98,6 +102,7 @@ test("Table Plan exports physical claims with singular booking totals", async ()
     table("table-10", "10", "two"),
     table("released-table", "11", null),
     table("temp-1", "TEMP-1", "temp", { is_physical: false }),
+    table("table-800", "800", "balcony", { section: "royal-balcony" }),
     table("merged-five", "20+21+22+23+24", "five", {
       capacity: 30,
       is_physical: false,
@@ -117,6 +122,7 @@ test("Table Plan exports physical claims with singular booking totals", async ()
     customer("temp", "Temporary Guest"),
     customer("queue", "Queue Guest"),
     customer("released", "Released Guest"),
+    customer("balcony", "Balcony Guest"),
   ];
   const buffer = await buildTablePlanWorkbook({
     bookings,
@@ -127,7 +133,16 @@ test("Table Plan exports physical claims with singular booking totals", async ()
       "royal-balcony": 100,
     },
     customers,
-    payments: [],
+    payments: [
+      {
+        amount: 500,
+        booking_id: "two",
+        method: "card",
+        notes: null,
+        payment_status: "deposit_paid",
+        payment_type: "deposit",
+      },
+    ],
     show: {
       date: "2026-09-10",
       id: "show-1",
@@ -157,6 +172,10 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   );
   assert.equal(tableCodes.some((value) => value.includes("+")), false);
   assert.equal(
+    bookingRows.filter((row) => row.getCell(5).value === "Single Guest").length,
+    1,
+  );
+  assert.equal(
     bookingRows.filter((row) => row.getCell(5).value === "Two Table Guest").length,
     2,
   );
@@ -172,13 +191,49 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   );
   assert.equal(
     bookingRows.reduce((total, row) => total + cellNumber(row.getCell(4).value), 0),
-    51,
+    53,
   );
   assert.equal(
     bookingRows
       .filter((row) => row.getCell(5).value === "Two Table Guest")
-      .reduce((total, row) => total + cellNumber(row.getCell(20).value), 0),
+      .reduce((total, row) => total + cellNumber(row.getCell(9).value), 0),
     500,
+  );
+  const twoTableRows = bookingRows.filter(
+    (row) => row.getCell(5).value === "Two Table Guest",
+  );
+  assert.deepEqual(
+    Array.from({ length: 13 }, (_, index) => twoTableRows[1].getCell(8 + index).value),
+    Array(13).fill(null),
+  );
+  const unknownMethodRow = bookingRows.find(
+    (row) => row.getCell(5).value === "Single Guest",
+  );
+  assert.ok(unknownMethodRow);
+  assert.deepEqual(
+    [8, 9, 10, 11].map((column) => cellNumber(unknownMethodRow.getCell(column).value)),
+    [0, 0, 0, 0],
+  );
+  assert.equal(cellNumber(unknownMethodRow.getCell(12).value), 200);
+  assert.deepEqual(
+    Array.from({ length: 13 }, (_, index) =>
+      String(sheet.getRow(3).getCell(8 + index).value ?? "").trim(),
+    ),
+    [
+      "FULL-PYT-CC",
+      "PRE-PYT /CC",
+      "PRE-PYT /EFT",
+      "FULL-PYT/EFT",
+      "TO PAY",
+      "MEDIA",
+      "COMP",
+      "HALAAL MEALS",
+      "KOSHER MEALS",
+      "T/GRT-PAID",
+      "B/TAB PAID",
+      "B/GRAT PAID",
+      "TIPS",
+    ],
   );
   assert.equal(
     rows.some(
@@ -203,7 +258,9 @@ test("Table Plan exports physical claims with singular booking totals", async ()
     "TEMP-1",
   );
   const noteText = notes.getSheetValues().flat(Infinity).join(" | ");
+  assert.equal(notes.getCell("A1").value, "Table notes: 10 September 2026");
   assert.match(noteText, /Birthday dinner/);
+  assert.match(noteText, /Balcony Guest.*Balcony note/);
   assert.doesNotMatch(noteText, /Dineplan|fingerprint/i);
 });
 

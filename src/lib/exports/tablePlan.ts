@@ -517,19 +517,7 @@ function isLegacyPlaceholderTable(table: TablePlanTable) {
   );
 }
 
-function preparePaymentColumns(worksheet: Worksheet) {
-  worksheet.getColumn(21).width = 14;
-
-  worksheet.eachRow((row) => {
-    row.getCell(21).style = cloneStyle(row.getCell(8));
-
-    if (String(row.getCell(8).value ?? "").trim() === "FULL-PYT-CC") {
-      row.getCell(21).value = "TOTAL PAID";
-    }
-  });
-
-  worksheet.spliceColumns(13, 1);
-
+function restorePaymentColumnHeaders(worksheet: Worksheet) {
   worksheet.eachRow((row) => {
     if (String(row.getCell(8).value ?? "").trim() !== "FULL-PYT-CC") {
       return;
@@ -589,13 +577,19 @@ function populateBookingDataRow(
   setMoneyValue(row.getCell(10), financials.prePaidEft);
   setMoneyValue(row.getCell(11), financials.fullEft);
   setMoneyValue(row.getCell(12), financials.toPay);
-  setMoneyValue(row.getCell(13), financials.complimentaryAmount);
-  setMoneyValue(row.getCell(14), financials.halaalMealsAmount);
-  setMoneyValue(row.getCell(15), financials.kosherMealsAmount);
-  setMoneyValue(row.getCell(16), financials.ticketGratuityAmount);
-  setMoneyValue(row.getCell(17), financials.barTabPaidAmount);
-  setMoneyValue(row.getCell(18), financials.barGratuityAmount);
-  setMoneyValue(row.getCell(20), financials.totalPaid);
+  setMoneyValue(row.getCell(13), 0);
+  setMoneyValue(row.getCell(14), financials.complimentaryAmount);
+  setMoneyValue(row.getCell(15), financials.halaalMealsAmount);
+  setMoneyValue(row.getCell(16), financials.kosherMealsAmount);
+  setMoneyValue(row.getCell(17), financials.ticketGratuityAmount);
+  setMoneyValue(row.getCell(18), financials.barTabPaidAmount);
+  setMoneyValue(row.getCell(19), financials.barGratuityAmount);
+}
+
+function clearSecondaryBookingFinancials(row: Row) {
+  for (let column = 8; column <= 20; column += 1) {
+    row.getCell(column).value = null;
+  }
 }
 
 function copyTableRowStyle(worksheet: Worksheet, sourceRow: Row, targetRow: Row) {
@@ -756,19 +750,19 @@ function restoreDynamicMerges(
 }
 
 function clearTableDataRow(row: Row) {
-  for (let column = 2; column <= 18; column += 1) {
+  for (let column = 2; column <= 19; column += 1) {
     row.getCell(column).value = null;
   }
 
-  row.getCell(19).value = {
-    formula: `SUM(P${row.number}+R${row.number})`,
+  row.getCell(20).value = {
+    formula: `SUM(Q${row.number}+S${row.number})`,
     result: 0,
   };
 
   for (const column of monetaryColumns) {
     row.getCell(column).numFmt = southAfricanCurrencyNumberFormat;
 
-    if (column !== 19) {
+    if (column !== 20) {
       row.getCell(column).value = 0;
     }
   }
@@ -864,14 +858,10 @@ function updateTablePlanFormulas(
   const prePaidEft = sumRows(worksheet, dataRows, 10);
   const fullEft = sumRows(worksheet, dataRows, 11);
   const toPay = sumRows(worksheet, dataRows, 12);
-  const comps = sumRows(worksheet, dataRows, 13);
-  const totalPaid = sumRows(worksheet, dataRows, 20);
+  const media = sumRows(worksheet, dataRows, 13);
+  const comps = sumRows(worksheet, dataRows, 14);
   const totalFullyPaid = fullCard + fullEft;
   const totalPrePaid = prePaidCard + prePaidEft;
-  const methodUnknownPaid = Math.max(
-    totalPaid - fullCard - prePaidCard - prePaidEft - fullEft,
-    0,
-  );
 
   setFormula(
     worksheet.getCell(`D${summaryCapacityRow}`),
@@ -951,16 +941,15 @@ function updateTablePlanFormulas(
     `SUM(G${118 + checklistOffset}:G${119 + checklistOffset})`,
     toPay,
   );
-  worksheet.getCell(`E${122 + checklistOffset}`).value =
-    "METHOD UNKNOWN PAID";
+  worksheet.getCell(`E${122 + checklistOffset}`).value = "MEDIA ";
   setMoneyFormula(
     worksheet.getCell(`G${122 + checklistOffset}`),
-    `MAX(T${tableTotalsRow}-SUM(H${tableTotalsRow}:K${tableTotalsRow}),0)`,
-    methodUnknownPaid,
+    `SUM(M${tableTotalsRow})`,
+    media,
   );
   setMoneyFormula(
     worksheet.getCell(`G${123 + checklistOffset}`),
-    `SUM(M${tableTotalsRow})`,
+    `SUM(N${tableTotalsRow})`,
     comps,
   );
   setMoneyFormula(
@@ -970,28 +959,28 @@ function updateTablePlanFormulas(
   );
   setMoneyFormula(
     worksheet.getCell(`G${125 + checklistOffset}`),
-    `SUM(Q${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 17),
-  );
-  setMoneyFormula(
-    worksheet.getCell(`G${127 + checklistOffset}`),
     `SUM(R${tableTotalsRow})`,
     sumRows(worksheet, dataRows, 18),
   );
   setMoneyFormula(
+    worksheet.getCell(`G${127 + checklistOffset}`),
+    `SUM(S${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 19),
+  );
+  setMoneyFormula(
     worksheet.getCell(`G${128 + checklistOffset}`),
-    `SUM(P${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 16),
+    `SUM(Q${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 17),
   );
   setMoneyFormula(
     worksheet.getCell(`G${130 + checklistOffset}`),
-    `SUM(N${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 14),
+    `SUM(O${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 15),
   );
   setMoneyFormula(
     worksheet.getCell(`G${131 + checklistOffset}`),
-    `SUM(O${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 15),
+    `SUM(P${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 16),
   );
   const discountedRateCell = worksheet.getCell(`G${126 + checklistOffset}`);
 
@@ -1004,64 +993,60 @@ function updateTablePlanFormulas(
 function populateNotesSheet(
   worksheet: Worksheet,
   entries: Record<TablePlanZoneId, Array<[string, string, string]>>,
+  showDate: string,
 ) {
-  const noteGroups = [
-    { baseEnd: 19, baseStart: 16, zone: "golden-circle" as const },
-    { baseEnd: 14, baseStart: 9, zone: "middle-ring" as const },
-    { baseEnd: 7, baseStart: 3, zone: "private-booths" as const },
+  const groupDefinitions = [
+    { label: "Raised booths", minimumRows: 5, zone: "private-booths" as const },
+    { label: "Middle Ring", minimumRows: 6, zone: "middle-ring" as const },
+    { label: "Golden Circle", minimumRows: 4, zone: "golden-circle" as const },
+    { label: "Balcony", minimumRows: 3, zone: "royal-balcony" as const },
   ];
-  const extraByZone = Object.fromEntries(
-    noteGroups.map(({ baseEnd, baseStart, zone }) => [
-      zone,
-      Math.max(entries[zone].length - (baseEnd - baseStart + 1), 0),
-    ]),
-  ) as Record<Exclude<TablePlanZoneId, "royal-balcony">, number>;
+  const headerStyle = Array.from({ length: 4 }, (_, index) =>
+    cloneStyle(worksheet.getCell(2, index + 1)),
+  );
+  const dataStyle = Array.from({ length: 4 }, (_, index) =>
+    cloneStyle(worksheet.getCell(3, index + 1)),
+  );
 
-  for (const address of ["A2:A7", "A8:A14", "A15:A19"]) {
-    worksheet.unMergeCells(address);
+  for (const mergedAddress of ["A1:D1", "A2:A7", "A8:A14", "A15:A19"]) {
+    worksheet.unMergeCells(mergedAddress);
   }
 
-  for (const group of noteGroups) {
-    const extra = extraByZone[group.zone];
-    const insertAt = group.baseEnd + 1;
+  worksheet.mergeCells("A1:D1");
+  const date = new Date(`${showDate}T00:00:00Z`);
+  worksheet.getCell("A1").value = `Table notes: ${new Intl.DateTimeFormat("en-ZA", {
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(date)}`;
+  worksheet.getCell("A1").font = { bold: true, size: 14 };
+  worksheet.getCell("A1").alignment = { horizontal: "center", vertical: "middle" };
 
-    for (let index = 0; index < extra; index += 1) {
-      const sourceRow = worksheet.getRow(insertAt - 1);
-      const insertedRow = worksheet.insertRow(insertAt, [], "n");
+  let rowNumber = 2;
 
-      insertedRow.height = sourceRow.height;
-      for (let column = 1; column <= 4; column += 1) {
-        insertedRow.getCell(column).style = cloneStyle(sourceRow.getCell(column));
-      }
+  for (const group of groupDefinitions) {
+    const dataRowCount = Math.max(group.minimumRows, entries[group.zone].length);
+    const headerRow = worksheet.getRow(rowNumber);
+
+    for (let column = 1; column <= 4; column += 1) {
+      headerRow.getCell(column).style = structuredClone(headerStyle[column - 1]);
     }
-  }
+    headerRow.getCell(1).value = group.label;
+    headerRow.getCell(2).value = "TABLE";
+    headerRow.getCell(3).value = "NAME";
+    headerRow.getCell(4).value = "NOTES";
+    const groupStart = rowNumber;
+    rowNumber += 1;
 
-  const privateExtra = extraByZone["private-booths"];
-  const middleExtra = extraByZone["middle-ring"];
-  const privateStart = 3;
-  const privateEnd = 7 + privateExtra;
-  const middleHeader = 8 + privateExtra;
-  const middleStart = 9 + privateExtra;
-  const middleEnd = 14 + privateExtra + middleExtra;
-  const goldenHeader = 15 + privateExtra + middleExtra;
-  const goldenStart = 16 + privateExtra + middleExtra;
-  const goldenEnd = 19 + privateExtra + middleExtra + extraByZone["golden-circle"];
-
-  worksheet.mergeCells(`A2:A${privateEnd}`);
-  worksheet.mergeCells(`A${middleHeader}:A${middleEnd}`);
-  worksheet.mergeCells(`A${goldenHeader}:A${goldenEnd}`);
-
-  const rowsByZone: Record<Exclude<TablePlanZoneId, "royal-balcony">, number[]> = {
-    "private-booths": range(privateStart, privateEnd),
-    "middle-ring": range(middleStart, middleEnd),
-    "golden-circle": range(goldenStart, goldenEnd),
-  };
-
-  for (const zone of ["private-booths", "middle-ring", "golden-circle"] as const) {
-    rowsByZone[zone].forEach((rowNumber, index) => {
+    for (let index = 0; index < dataRowCount; index += 1) {
       const row = worksheet.getRow(rowNumber);
-      const entry = entries[zone][index];
+      const entry = entries[group.zone][index];
 
+      for (let column = 1; column <= 4; column += 1) {
+        row.getCell(column).style = structuredClone(dataStyle[column - 1]);
+      }
+      row.getCell(1).value = null;
       row.getCell(2).value = entry
         ? neutralizeSpreadsheetFormula(entry[0])
         : null;
@@ -1071,7 +1056,14 @@ function populateNotesSheet(
       row.getCell(4).value = entry
         ? neutralizeSpreadsheetFormula(entry[2])
         : null;
-    });
+      rowNumber += 1;
+    }
+
+    worksheet.mergeCells(`A${groupStart}:A${rowNumber - 1}`);
+  }
+
+  if (worksheet.rowCount >= rowNumber) {
+    worksheet.spliceRows(rowNumber, worksheet.rowCount - rowNumber + 1);
   }
 }
 
@@ -1193,7 +1185,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   insertTableRows(tablePlan, extraRows);
   const layouts = createZoneLayouts(extraRows);
   restoreDynamicMerges(tablePlan, layouts, rowOffset);
-  preparePaymentColumns(tablePlan);
+  restorePaymentColumnHeaders(tablePlan);
 
   const customersById = new Map(input.customers.map((customer) => [customer.id, customer]));
   const paymentsByBookingId = new Map<string, TablePlanPayment[]>();
@@ -1286,6 +1278,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
           assignment.allocatedPax,
           includeBookingDetails,
         );
+        if (!includeBookingDetails) clearSecondaryBookingFinancials(row);
         populatedFinancialBookingIds.add(booking.id);
 
         if (operationalNotes && !populatedNoteBookingIds.has(booking.id)) {
@@ -1348,6 +1341,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
         operationalRow.allocatedPax,
         includeBookingDetails,
       );
+      if (!includeBookingDetails) clearSecondaryBookingFinancials(row);
       populatedFinancialBookingIds.add(booking.id);
 
       if (operationalNotes && !populatedNoteBookingIds.has(booking.id)) {
@@ -1372,10 +1366,16 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   );
 
   updateTablePlanFormulas(tablePlan, layouts, rowOffset, totalCapacity);
-  populateNotesSheet(notes, notesEntries);
+  populateNotesSheet(notes, notesEntries, input.show.date);
 
   const location = input.show.venue === "johannesburg" ? "JHB" : "CPT";
   tablePlan.getCell("E2").value = `${location} · ${input.show.date} · ${input.show.time.slice(0, 5)}`;
+  tablePlan.getColumn(5).width = 60;
+  tablePlan.getColumn(7).width = 53.55;
+  notes.getColumn(1).width = 6.78;
+  notes.getColumn(2).width = 6;
+  notes.getColumn(3).width = 30.22;
+  notes.getColumn(4).width = 39.33;
 
   workbook.calcProperties.fullCalcOnLoad = true;
 

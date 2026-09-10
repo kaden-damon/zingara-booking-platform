@@ -22,13 +22,14 @@ test("uses numeric Rand formatting including explicit zero values", () => {
   );
 });
 
-test("removes payment status and preserves the operational column order", () => {
+test("preserves Ash's operational payment column order", () => {
   assert.deepEqual(tablePlanFinancialColumnHeaders, [
     "FULL-PYT-CC",
     "PRE-PYT /CC",
     "PRE-PYT /EFT",
     "FULL-PYT/EFT",
     "TO PAY",
+    "MEDIA",
     "COMP",
     "HALAAL MEALS",
     "KOSHER MEALS",
@@ -36,10 +37,13 @@ test("removes payment status and preserves the operational column order", () => 
     "B/TAB PAID",
     "B/GRAT PAID",
     "TIPS",
-    "TOTAL PAID",
   ]);
   assert.equal(
     Array.from(tablePlanFinancialColumnHeaders).includes("PAYMENT STATUS"),
+    false,
+  );
+  assert.equal(
+    Array.from(tablePlanFinancialColumnHeaders).includes("TOTAL PAID"),
     false,
   );
   assert.equal(getTablePlanToPayTotalFormula(90), "SUM(L90)");

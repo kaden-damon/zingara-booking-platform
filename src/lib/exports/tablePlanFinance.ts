@@ -49,6 +49,7 @@ export const tablePlanFinancialColumnHeaders = [
   "PRE-PYT /EFT",
   "FULL-PYT/EFT",
   "TO PAY",
+  "MEDIA",
   "COMP",
   "HALAAL MEALS",
   "KOSHER MEALS",
@@ -56,7 +57,6 @@ export const tablePlanFinancialColumnHeaders = [
   "B/TAB PAID",
   "B/GRAT PAID",
   "TIPS",
-  "TOTAL PAID",
 ] as const;
 
 export function getDineplanZoneReceiptFormula(
