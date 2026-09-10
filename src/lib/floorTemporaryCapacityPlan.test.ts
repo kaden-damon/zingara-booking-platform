@@ -53,7 +53,7 @@ test("public capacity and physical-table safeguards remain separate", () => {
   );
   const physicalGuard = readFileSync(
     new URL(
-      "../../supabase/migrations/20260909151000_phase_41_1h_e_preserve_physical_table_workflow.sql",
+      "../../supabase/migrations/20260910101000_phase_41_1x_physical_capacity_accounting.sql",
       import.meta.url,
     ),
     "utf8",
@@ -62,4 +62,8 @@ test("public capacity and physical-table safeguards remain separate", () => {
   assert.doesNotMatch(availabilityRoute, /getEffectiveOperationalZoneCapacity/);
   assert.match(physicalGuard, /TABLE_ZONE_CAPACITY_EXCEEDED/);
   assert.match(physicalGuard, /new\.is_physical/);
+  assert.match(
+    physicalGuard,
+    /st\.is_physical[\s\S]*st\.is_override[\s\S]*availability_scope::text = 'operational'/,
+  );
 });
