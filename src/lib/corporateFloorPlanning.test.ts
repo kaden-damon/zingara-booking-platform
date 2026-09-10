@@ -111,6 +111,34 @@ test("multi-table zones plan combined tables for Standard and Corporate bookings
   assert.equal(plan.capacityRequiredPhysicalTables, 2);
 });
 
+test("reviewed planning resolves 146/150 capacity without double-counting queued pax", () => {
+  const plan = buildZoneFloorCapacityPlan({
+    activeEntitlementPax: 150,
+    allowedTemporaryCapacities: [2],
+    availableTables: [],
+    capacityRequiredPhysicalTables: 0,
+    claimedReservedCapacity: 144,
+    queuedBookings: ["A", "B", "C"].map((reference) => ({
+      id: reference,
+      isCorporate: false,
+      pax: 2,
+      reference,
+    })),
+    zoneCapacity: 146,
+    zoneId: "middle-ring",
+  });
+
+  assert.equal(plan.activeEntitlementPax, 150);
+  assert.equal(plan.queuedPax, 6);
+  assert.equal(plan.newCapacity, 6);
+  assert.deepEqual(
+    plan.bookingPlans.flatMap((booking) => booking.newCapacities),
+    [2, 2, 2],
+  );
+  assert.equal(plan.zoneCapacityInsufficient, false);
+  assert.equal(plan.bookingPlans.every((booking) => !booking.unresolvedReason), true);
+});
+
 test("18-pax Standard Private Booth booking is fulfilled by three 6-seat booths", () => {
   const plan = buildZoneFloorCapacityPlan({
     activeEntitlementPax: 18,

@@ -10,7 +10,7 @@ const route = readFileSync(
 );
 const migration = readFileSync(
   new URL(
-    "../../supabase/migrations/20260910100000_phase_41_1x_sold_out_floor_capacity_plans.sql",
+    "../../supabase/migrations/20260910143000_phase_41_1x_a_incremental_temporary_capacity_recovery.sql",
     import.meta.url,
   ),
   "utf8",
@@ -44,6 +44,16 @@ test("temporary planning remains atomic, idempotent, and assignment-free", () =>
     migration,
     /update public\.(bookings|payments|tickets|customers|communications)/i,
   );
+});
+
+test("reviewed plans may repair an inherited deficit without counting queued pax twice", () => {
+  assert.match(migration, /booking_capacity_zone_effective_limit/);
+  assert.match(migration, /booking_zone_entitlement_pax/);
+  assert.match(
+    migration,
+    /v_zone_limit \+ coalesce\(\([\s\S]*select sum\(capacity\)::integer[\s\S]*from unnest\(p_capacities\)/,
+  );
+  assert.doesNotMatch(migration, /v_zone_pax > v_zone_limit then/);
 });
 
 test("public capacity and physical-table safeguards remain separate", () => {

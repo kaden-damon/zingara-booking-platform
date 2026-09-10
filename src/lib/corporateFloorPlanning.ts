@@ -242,7 +242,6 @@ export function buildZoneFloorCapacityPlan(input: {
     (total, table) => total + table.capacity,
     0,
   );
-  const zoneCapacityInsufficient = input.activeEntitlementPax > input.zoneCapacity;
   const bookingPlans: FloorBookingPlan[] = [];
   const plannedCapacities: number[] = [];
   let rawOperationalShortfall = 0;
@@ -255,19 +254,6 @@ export function buildZoneFloorCapacityPlan(input: {
   );
 
   for (const booking of orderedBookings) {
-    if (zoneCapacityInsufficient) {
-      bookingPlans.push({
-        bookingReference: booking.reference,
-        existingTableCodes: [],
-        existingTableIds: [],
-        isCorporate: booking.isCorporate,
-        newCapacities: [],
-        pax: booking.pax,
-        unresolvedReason: "Zone capacity is insufficient for its active booking entitlement.",
-      });
-      continue;
-    }
-
     if (
       !booking.isCorporate &&
       !supportsMultiTableBookingFulfilment(input.zoneId)
@@ -379,6 +365,8 @@ export function buildZoneFloorCapacityPlan(input: {
     (total, capacity) => total + capacity,
     0,
   );
+  const zoneCapacityInsufficient =
+    input.activeEntitlementPax > input.zoneCapacity + newCapacity;
 
   return {
     activeEntitlementPax: input.activeEntitlementPax,

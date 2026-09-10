@@ -742,14 +742,21 @@ export async function POST(request: Request) {
         ? String((error as { message?: unknown }).message ?? "")
         : "";
 
-    if (
-      message.includes("TEMPORARY_CAPACITY_BELOW_ACTIVE_ENTITLEMENT") ||
-      message.includes("TEMPORARY_TABLE_BELOW_ASSIGNED_BOOKING")
-    ) {
+    if (message.includes("TEMPORARY_CAPACITY_BELOW_ACTIVE_ENTITLEMENT")) {
       return Response.json(
         {
           error:
             "Temporary capacity cannot be reduced or disabled while active bookings still depend on those seats.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (message.includes("TEMPORARY_TABLE_BELOW_ASSIGNED_BOOKING")) {
+      return Response.json(
+        {
+          error:
+            "Temporary table capacity cannot be lower than its assigned booking's guest count.",
         },
         { status: 409 },
       );

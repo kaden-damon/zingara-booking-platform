@@ -64,3 +64,27 @@ export function getEffectiveOperationalZoneCapacity(input: {
     temporaryCapacity,
   };
 }
+
+export function canApplyTemporaryCapacityMutation(input: {
+  activeEntitlementPax: number;
+  currentEffectiveCapacity: number;
+  resultingEffectiveCapacity: number;
+}) {
+  const activeEntitlementPax = Math.max(
+    Math.trunc(input.activeEntitlementPax),
+    0,
+  );
+  const currentEffectiveCapacity = Math.max(
+    Math.trunc(input.currentEffectiveCapacity),
+    0,
+  );
+  const resultingEffectiveCapacity = Math.max(
+    Math.trunc(input.resultingEffectiveCapacity),
+    0,
+  );
+
+  return (
+    resultingEffectiveCapacity >= activeEntitlementPax ||
+    resultingEffectiveCapacity > currentEffectiveCapacity
+  );
+}

@@ -5,6 +5,7 @@ import test from "node:test";
 import { getManualBookingMoveZoneCapacity } from "./bookingTableMoves.ts";
 import { getCorporateTableReleasePreview } from "./corporateFloorPlanning.ts";
 import {
+  canApplyTemporaryCapacityMutation,
   getEffectiveOperationalZoneCapacity,
   getTemporaryOperationalCapacity,
   type OperationalCapacityTable,
@@ -60,6 +61,44 @@ test("multiple valid temporary tables aggregate within one show and zone", () =>
       "middle-ring",
     ),
     8,
+  );
+});
+
+test("temporary capacity can improve an inherited over-capacity state incrementally", () => {
+  assert.equal(
+    canApplyTemporaryCapacityMutation({
+      activeEntitlementPax: 150,
+      currentEffectiveCapacity: 146,
+      resultingEffectiveCapacity: 148,
+    }),
+    true,
+  );
+  assert.equal(
+    canApplyTemporaryCapacityMutation({
+      activeEntitlementPax: 150,
+      currentEffectiveCapacity: 148,
+      resultingEffectiveCapacity: 150,
+    }),
+    true,
+  );
+});
+
+test("temporary capacity reductions remain blocked when they strand entitlement", () => {
+  assert.equal(
+    canApplyTemporaryCapacityMutation({
+      activeEntitlementPax: 150,
+      currentEffectiveCapacity: 150,
+      resultingEffectiveCapacity: 148,
+    }),
+    false,
+  );
+  assert.equal(
+    canApplyTemporaryCapacityMutation({
+      activeEntitlementPax: 150,
+      currentEffectiveCapacity: 148,
+      resultingEffectiveCapacity: 146,
+    }),
+    false,
   );
 });
 
@@ -219,6 +258,30 @@ test("temporary-table reduction errors remain staff-safe", () => {
 
   assert.match(route, /TEMPORARY_CAPACITY_BELOW_ACTIVE_ENTITLEMENT/);
   assert.match(route, /active bookings still depend on those seats/);
+  assert.match(route, /cannot be lower than its assigned booking's guest count/);
+});
+
+test("database guard distinguishes directional increases from reductions", () => {
+  const migration = readFileSync(
+    new URL(
+      "../../supabase/migrations/20260910143000_phase_41_1x_a_incremental_temporary_capacity_recovery.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(migration, /v_previous_effective_capacity :=/);
+  assert.match(migration, /v_resulting_effective_capacity :=/);
+  assert.match(
+    migration,
+    /v_resulting_effective_capacity <= v_previous_effective_capacity/,
+  );
+  assert.match(migration, /TEMPORARY_CAPACITY_BELOW_ACTIVE_ENTITLEMENT/);
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.doesNotMatch(
+    migration,
+    /update public\.(bookings|payments|tickets|customers|communications)/i,
+  );
 });
 
 test("releasing a temporary-table occupant preserves its operational capacity", () => {
