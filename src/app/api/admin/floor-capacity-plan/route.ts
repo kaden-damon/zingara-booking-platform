@@ -6,6 +6,7 @@ import {
   type CorporateFloorZone,
   type FloorPlanningTable,
 } from "@/lib/corporateFloorPlanning";
+import { isOperationalFloorShowStatus } from "@/lib/floorShowStatus";
 import { getEffectiveOperationalZoneCapacity } from "@/lib/operationalZoneCapacity";
 import { physicalTableDefinitions } from "@/lib/physicalTables";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
@@ -589,9 +590,15 @@ export async function POST(request: Request) {
         { status: 403 },
       );
     }
-    if (result.show.status !== "active" && body.action !== "assign") {
+    if (
+      !isOperationalFloorShowStatus(result.show.status) &&
+      body.action !== "assign"
+    ) {
       return Response.json(
-        { error: "Temporary Floor capacity can be created only for an active performance." },
+        {
+          error:
+            "Temporary Floor capacity can be created only for an active or sold-out operational performance.",
+        },
         { status: 409 },
       );
     }
@@ -755,6 +762,19 @@ export async function POST(request: Request) {
       ) {
         return Response.json(
           { error: "FLOOR PLAN CHANGED - REVIEW AGAIN" },
+          { status: 409 },
+        );
+      }
+      if (
+        /OPERATIONAL_SHOW_REQUIRED|ACTIVE_SHOW_REQUIRED/i.test(
+          creationError.message,
+        )
+      ) {
+        return Response.json(
+          {
+            error:
+              "This performance is no longer available for Floor capacity planning.",
+          },
           { status: 409 },
         );
       }
