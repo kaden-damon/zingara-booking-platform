@@ -19,8 +19,16 @@ const bookingMetadataPrefix = "__zingara_booking_meta__:";
 const passAssetNames = [
   "icon.png",
   "icon@2x.png",
+  "icon@3x.png",
   "logo.png",
   "logo@2x.png",
+  "logo@3x.png",
+  "primaryLogo.png",
+  "primaryLogo@2x.png",
+  "primaryLogo@3x.png",
+  "strip.png",
+  "strip@2x.png",
+  "strip@3x.png",
 ] as const;
 
 type BookingRow = {
@@ -426,7 +434,6 @@ async function buildAppleWalletPass(
     formatVersion: 1,
     groupingIdentifier: source.booking.id,
     labelColor: "rgb(242, 214, 108)",
-    logoText: "Zingara",
     organizationName: "Zingara",
     passTypeIdentifier: signing.passTypeIdentifier,
     serialNumber: source.ticket.id,
