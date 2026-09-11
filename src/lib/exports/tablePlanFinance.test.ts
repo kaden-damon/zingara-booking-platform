@@ -3,16 +3,18 @@ import test from "node:test";
 
 import {
   calculateTablePlanFinancialBreakdown,
+  formatTablePlanPaymentSummary,
   getDineplanZoneReceiptFormula,
   getTablePlanToPayTotalFormula,
+  resolveTablePlanPaymentSummary,
   tablePlanCurrencyNumberFormat,
   tablePlanFinancialColumnHeaders,
   // @ts-expect-error Node's built-in TypeScript test runner requires the extension.
 } from "./tablePlanFinance.ts";
 
 test("builds dynamic zone formulas across all four payment columns", () => {
-  assert.equal(getDineplanZoneReceiptFormula(29, 57), "SUM(H29:K57)");
-  assert.equal(getDineplanZoneReceiptFormula(31, 63), "SUM(H31:K63)");
+  assert.equal(getDineplanZoneReceiptFormula(29, 57), "SUM(I29:L57)");
+  assert.equal(getDineplanZoneReceiptFormula(31, 63), "SUM(I31:L63)");
 });
 
 test("uses numeric Rand formatting including explicit zero values", () => {
@@ -46,7 +48,47 @@ test("preserves Ash's operational payment column order", () => {
     Array.from(tablePlanFinancialColumnHeaders).includes("TOTAL PAID"),
     false,
   );
-  assert.equal(getTablePlanToPayTotalFormula(90), "SUM(L90)");
+  assert.equal(getTablePlanToPayTotalFormula(90), "SUM(M90)");
+});
+
+test("formats Booking Details financial values as one complete payment summary", () => {
+  assert.equal(
+    formatTablePlanPaymentSummary(
+      resolveTablePlanPaymentSummary({
+        amountPaid: 0,
+        balanceOutstanding: 6_160,
+        depositPercentage: (2_200 / 6_160) * 100,
+        totalAmount: 6_160,
+      }),
+    ),
+    "Deposit R2,200 · Paid R0 · Outstanding R6,160",
+  );
+  assert.equal(
+    formatTablePlanPaymentSummary(
+      resolveTablePlanPaymentSummary({
+        amountPaid: 3_080,
+        balanceOutstanding: 0,
+        depositPercentage: 0,
+        totalAmount: 3_080,
+      }),
+    ),
+    "Deposit R0 · Paid R3,080 · Outstanding R0",
+  );
+});
+
+test("uses persisted paid and outstanding values without inferring either", () => {
+  const summary = resolveTablePlanPaymentSummary({
+    amountPaid: 550,
+    balanceOutstanding: 4_950,
+    depositPercentage: 10,
+    totalAmount: 5_500,
+  });
+
+  assert.deepEqual(summary, {
+    amountPaid: 550,
+    depositRequirement: 550,
+    outstanding: 4_950,
+  });
 });
 
 test("uses configured pricing only for a proven legacy deposit placeholder", () => {

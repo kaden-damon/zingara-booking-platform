@@ -20,8 +20,10 @@ import type {
 } from "@/lib/zingaraDemo";
 import {
   calculateTablePlanFinancialBreakdown,
+  formatTablePlanPaymentSummary,
   getDineplanZoneReceiptFormula,
   getTablePlanToPayTotalFormula,
+  resolveTablePlanPaymentSummary,
   tablePlanCurrencyNumberFormat,
   tablePlanFinancialColumnHeaders,
   type TablePlanLegacyPaymentEvidence,
@@ -153,6 +155,9 @@ type UnassignedTablePlanRow = {
 };
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
+const paymentSummaryColumn = 8;
+const firstFinancialColumn = 9;
+const lastFinancialColumn = 21;
 const activeBookingStatuses = new Set([
   "checked_in",
   "confirmed",
@@ -190,7 +195,7 @@ const dynamicMergeAddresses = [
   "A73:A83",
   "E100:G100",
 ];
-const monetaryColumns = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+const monetaryColumns = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
 const southAfricanCurrencyNumberFormat = tablePlanCurrencyNumberFormat;
 
 export function neutralizeSpreadsheetFormula(value: string) {
@@ -517,19 +522,24 @@ function getBookingNotes(booking: TablePlanBooking) {
   }
 }
 
-function getBookingPaymentOption(booking: TablePlanBooking) {
+function getBookingPaymentMetadata(booking: TablePlanBooking) {
   if (!booking.notes?.startsWith(bookingMetadataPrefix)) {
-    return null;
+    return { depositPercentage: null, paymentOption: null };
   }
 
   try {
     const metadata = JSON.parse(
       booking.notes.slice(bookingMetadataPrefix.length),
-    ) as { paymentOption?: string };
+    ) as { depositPercentage?: number; paymentOption?: string };
 
-    return metadata.paymentOption?.trim().toLowerCase() || null;
+    return {
+      depositPercentage: Number.isFinite(Number(metadata.depositPercentage))
+        ? Number(metadata.depositPercentage)
+        : null,
+      paymentOption: metadata.paymentOption?.trim().toLowerCase() || null,
+    };
   } catch {
-    return null;
+    return { depositPercentage: null, paymentOption: null };
   }
 }
 
@@ -564,14 +574,30 @@ function isLegacyPlaceholderTable(table: TablePlanTable) {
 
 function restorePaymentColumnHeaders(worksheet: Worksheet) {
   worksheet.eachRow((row) => {
-    if (String(row.getCell(8).value ?? "").trim() !== "FULL-PYT-CC") {
+    if (
+      String(row.getCell(firstFinancialColumn).value ?? "").trim() !==
+      "FULL-PYT-CC"
+    ) {
       return;
     }
 
     tablePlanFinancialColumnHeaders.forEach((header, index) => {
-      row.getCell(8 + index).value = header;
+      row.getCell(firstFinancialColumn + index).value = header;
     });
   });
+}
+
+function insertPaymentSummaryColumn(worksheet: Worksheet) {
+  worksheet.spliceColumns(paymentSummaryColumn, 0, []);
+
+  worksheet.eachRow({ includeEmpty: true }, (row) => {
+    row.getCell(paymentSummaryColumn).style = cloneStyle(
+      row.getCell(firstFinancialColumn),
+    );
+    row.getCell(paymentSummaryColumn).value = null;
+  });
+
+  worksheet.getColumn(paymentSummaryColumn).width = 48;
 }
 
 function setMoneyValue(cell: Cell, value: number) {
@@ -592,13 +618,14 @@ function populateBookingDataRow(
 ) {
   const totalAmount = Math.max(Number(booking.total_amount) || 0, 0);
   const confirmedPaidAmount = Math.max(Number(booking.amount_paid) || 0, 0);
+  const paymentMetadata = getBookingPaymentMetadata(booking);
   const financials = calculateTablePlanFinancialBreakdown(
     {
       bookingOrigin: booking.booking_origin,
       confirmedPaidAmount,
       configuredUnitPrice,
       guestCount: booking.guest_count,
-      paymentOption: getBookingPaymentOption(booking),
+      paymentOption: paymentMetadata.paymentOption,
       paymentStatus: booking.payment_status,
       totalAmount,
     },
@@ -617,22 +644,36 @@ function populateBookingDataRow(
       )
     : null;
   if (!includeBookingDetails) return;
-  setMoneyValue(row.getCell(8), financials.fullCard);
-  setMoneyValue(row.getCell(9), financials.prePaidCard);
-  setMoneyValue(row.getCell(10), financials.prePaidEft);
-  setMoneyValue(row.getCell(11), financials.fullEft);
-  setMoneyValue(row.getCell(12), financials.toPay);
-  setMoneyValue(row.getCell(13), 0);
-  setMoneyValue(row.getCell(14), financials.complimentaryAmount);
-  setMoneyValue(row.getCell(15), financials.halaalMealsAmount);
-  setMoneyValue(row.getCell(16), financials.kosherMealsAmount);
-  setMoneyValue(row.getCell(17), financials.ticketGratuityAmount);
-  setMoneyValue(row.getCell(18), financials.barTabPaidAmount);
-  setMoneyValue(row.getCell(19), financials.barGratuityAmount);
+  row.getCell(paymentSummaryColumn).value = neutralizeSpreadsheetFormula(
+    formatTablePlanPaymentSummary(
+      resolveTablePlanPaymentSummary({
+        amountPaid: booking.amount_paid,
+        balanceOutstanding: booking.balance_outstanding,
+        depositPercentage: paymentMetadata.depositPercentage,
+        totalAmount: booking.total_amount,
+      }),
+    ),
+  );
+  setMoneyValue(row.getCell(9), financials.fullCard);
+  setMoneyValue(row.getCell(10), financials.prePaidCard);
+  setMoneyValue(row.getCell(11), financials.prePaidEft);
+  setMoneyValue(row.getCell(12), financials.fullEft);
+  setMoneyValue(row.getCell(13), financials.toPay);
+  setMoneyValue(row.getCell(14), 0);
+  setMoneyValue(row.getCell(15), financials.complimentaryAmount);
+  setMoneyValue(row.getCell(16), financials.halaalMealsAmount);
+  setMoneyValue(row.getCell(17), financials.kosherMealsAmount);
+  setMoneyValue(row.getCell(18), financials.ticketGratuityAmount);
+  setMoneyValue(row.getCell(19), financials.barTabPaidAmount);
+  setMoneyValue(row.getCell(20), financials.barGratuityAmount);
 }
 
 function clearSecondaryBookingFinancials(row: Row) {
-  for (let column = 8; column <= 20; column += 1) {
+  for (
+    let column = paymentSummaryColumn;
+    column <= lastFinancialColumn;
+    column += 1
+  ) {
     row.getCell(column).value = null;
   }
 }
@@ -641,12 +682,12 @@ function copyTableRowStyle(worksheet: Worksheet, sourceRow: Row, targetRow: Row)
   targetRow.height = sourceRow.height;
   targetRow.hidden = sourceRow.hidden;
 
-  for (let column = 1; column <= 20; column += 1) {
+  for (let column = 1; column <= lastFinancialColumn; column += 1) {
     targetRow.getCell(column).style = cloneStyle(sourceRow.getCell(column));
   }
 
-  targetRow.getCell(20).value = {
-    formula: `SUM(Q${targetRow.number}+S${targetRow.number})`,
+  targetRow.getCell(lastFinancialColumn).value = {
+    formula: `SUM(R${targetRow.number}+T${targetRow.number})`,
     result: 0,
   };
 }
@@ -724,19 +765,19 @@ function restoreDynamicMerges(
 }
 
 function clearTableDataRow(row: Row) {
-  for (let column = 2; column <= 19; column += 1) {
+  for (let column = 2; column < lastFinancialColumn; column += 1) {
     row.getCell(column).value = null;
   }
 
-  row.getCell(20).value = {
-    formula: `SUM(Q${row.number}+S${row.number})`,
+  row.getCell(lastFinancialColumn).value = {
+    formula: `SUM(R${row.number}+T${row.number})`,
     result: 0,
   };
 
   for (const column of monetaryColumns) {
     row.getCell(column).numFmt = southAfricanCurrencyNumberFormat;
 
-    if (column !== 20) {
+    if (column !== lastFinancialColumn) {
       row.getCell(column).value = 0;
     }
   }
@@ -802,7 +843,6 @@ function updateTablePlanFormulas(
   const checklistOffset = rowOffset;
 
   const columnNumbers = {
-    H: 8,
     I: 9,
     J: 10,
     K: 11,
@@ -815,6 +855,7 @@ function updateTablePlanFormulas(
     R: 18,
     S: 19,
     T: 20,
+    U: 21,
   } as const;
 
   for (const [column, columnNumber] of Object.entries(columnNumbers)) {
@@ -827,13 +868,13 @@ function updateTablePlanFormulas(
 
   worksheet.getCell(`C${summaryCapacityRow}`).value = totalCapacity;
   const paxCount = sumRows(worksheet, dataRows, 4);
-  const fullCard = sumRows(worksheet, dataRows, 8);
-  const prePaidCard = sumRows(worksheet, dataRows, 9);
-  const prePaidEft = sumRows(worksheet, dataRows, 10);
-  const fullEft = sumRows(worksheet, dataRows, 11);
-  const toPay = sumRows(worksheet, dataRows, 12);
-  const media = sumRows(worksheet, dataRows, 13);
-  const comps = sumRows(worksheet, dataRows, 14);
+  const fullCard = sumRows(worksheet, dataRows, 9);
+  const prePaidCard = sumRows(worksheet, dataRows, 10);
+  const prePaidEft = sumRows(worksheet, dataRows, 11);
+  const fullEft = sumRows(worksheet, dataRows, 12);
+  const toPay = sumRows(worksheet, dataRows, 13);
+  const media = sumRows(worksheet, dataRows, 14);
+  const comps = sumRows(worksheet, dataRows, 15);
   const totalFullyPaid = fullCard + fullEft;
   const totalPrePaid = prePaidCard + prePaidEft;
 
@@ -849,12 +890,12 @@ function updateTablePlanFormulas(
   );
   setMoneyFormula(
     worksheet.getCell(`G${103 + checklistOffset}`),
-    `SUM(H${tableTotalsRow})`,
+    `SUM(I${tableTotalsRow})`,
     fullCard,
   );
   setMoneyFormula(
     worksheet.getCell(`G${104 + checklistOffset}`),
-    `SUM(K${tableTotalsRow})`,
+    `SUM(L${tableTotalsRow})`,
     fullEft,
   );
   setMoneyFormula(
@@ -864,12 +905,12 @@ function updateTablePlanFormulas(
   );
   setMoneyFormula(
     worksheet.getCell(`G${107 + checklistOffset}`),
-    `SUM(I${tableTotalsRow})`,
+    `SUM(J${tableTotalsRow})`,
     prePaidCard,
   );
   setMoneyFormula(
     worksheet.getCell(`G${108 + checklistOffset}`),
-    `SUM(J${tableTotalsRow})`,
+    `SUM(K${tableTotalsRow})`,
     prePaidEft,
   );
   setMoneyFormula(
@@ -893,7 +934,7 @@ function updateTablePlanFormulas(
         layout.firstDataRow,
         layout.finalDataRow,
       ),
-      [8, 9, 10, 11].reduce(
+      [9, 10, 11, 12].reduce(
         (total, column) => total + sumRows(worksheet, layout.dataRows, column),
         0,
       ),
@@ -918,12 +959,12 @@ function updateTablePlanFormulas(
   worksheet.getCell(`E${122 + checklistOffset}`).value = "MEDIA ";
   setMoneyFormula(
     worksheet.getCell(`G${122 + checklistOffset}`),
-    `SUM(M${tableTotalsRow})`,
+    `SUM(N${tableTotalsRow})`,
     media,
   );
   setMoneyFormula(
     worksheet.getCell(`G${123 + checklistOffset}`),
-    `SUM(N${tableTotalsRow})`,
+    `SUM(O${tableTotalsRow})`,
     comps,
   );
   setMoneyFormula(
@@ -933,28 +974,28 @@ function updateTablePlanFormulas(
   );
   setMoneyFormula(
     worksheet.getCell(`G${125 + checklistOffset}`),
-    `SUM(R${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 18),
-  );
-  setMoneyFormula(
-    worksheet.getCell(`G${127 + checklistOffset}`),
     `SUM(S${tableTotalsRow})`,
     sumRows(worksheet, dataRows, 19),
   );
   setMoneyFormula(
+    worksheet.getCell(`G${127 + checklistOffset}`),
+    `SUM(T${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 20),
+  );
+  setMoneyFormula(
     worksheet.getCell(`G${128 + checklistOffset}`),
-    `SUM(Q${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 17),
+    `SUM(R${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 18),
   );
   setMoneyFormula(
     worksheet.getCell(`G${130 + checklistOffset}`),
-    `SUM(O${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 15),
+    `SUM(P${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 16),
   );
   setMoneyFormula(
     worksheet.getCell(`G${131 + checklistOffset}`),
-    `SUM(P${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 16),
+    `SUM(Q${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 17),
   );
   const discountedRateCell = worksheet.getCell(`G${126 + checklistOffset}`);
 
@@ -1058,6 +1099,8 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   if (!tablePlan || !notes) {
     throw new Error("The Table Plan master workbook is missing required sheets.");
   }
+
+  insertPaymentSummaryColumn(tablePlan);
 
   const activeBookings = input.bookings.filter(
     (booking) =>

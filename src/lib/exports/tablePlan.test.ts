@@ -83,7 +83,9 @@ function cellNumber(value: ExcelJS.CellValue) {
 
 test("Table Plan exports physical claims with singular booking totals", async () => {
   const bookings = [
-    booking("one", "ONE", 4, "table-1"),
+    booking("one", "ONE", 4, "table-1", {
+      notes: '__zingara_booking_meta__:{"depositPercentage":50,"paymentOption":"deposit"}',
+    }),
     booking("two", "TWO", 10, "table-2"),
     booking("five", "FIVE", 30, "merged-five", {
       notes: "Birthday dinner | Final Dineplan source: workbook row 1 | Source fingerprint: abc",
@@ -231,28 +233,36 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.equal(
     bookingRows
       .filter((row) => row.getCell(5).value === "Two Table Guest")
-      .reduce((total, row) => total + cellNumber(row.getCell(9).value), 0),
+      .reduce((total, row) => total + cellNumber(row.getCell(10).value), 0),
     500,
   );
   const twoTableRows = bookingRows.filter(
     (row) => row.getCell(5).value === "Two Table Guest",
   );
   assert.deepEqual(
-    Array.from({ length: 13 }, (_, index) => twoTableRows[1].getCell(8 + index).value),
-    Array(13).fill(null),
+    Array.from({ length: 14 }, (_, index) => twoTableRows[1].getCell(8 + index).value),
+    Array(14).fill(null),
   );
+  assert.equal(
+    bookingRows.find((row) => row.getCell(5).value === "Single Guest")
+      ?.getCell(8).value,
+    "Deposit R200 · Paid R200 · Outstanding R200",
+  );
+  assert.equal(twoTableRows[0].getCell(8).value, "Deposit R1,000 · Paid R500 · Outstanding R500");
+  assert.equal(twoTableRows[1].getCell(8).value, null);
   const unknownMethodRow = bookingRows.find(
     (row) => row.getCell(5).value === "Single Guest",
   );
   assert.ok(unknownMethodRow);
   assert.deepEqual(
-    [8, 9, 10, 11].map((column) => cellNumber(unknownMethodRow.getCell(column).value)),
+    [9, 10, 11, 12].map((column) => cellNumber(unknownMethodRow.getCell(column).value)),
     [0, 0, 0, 0],
   );
-  assert.equal(cellNumber(unknownMethodRow.getCell(12).value), 200);
+  assert.equal(cellNumber(unknownMethodRow.getCell(13).value), 200);
+  assert.equal(sheet.getRow(3).getCell(8).value, null);
   assert.deepEqual(
     Array.from({ length: 13 }, (_, index) =>
-      String(sheet.getRow(3).getCell(8 + index).value ?? "").trim(),
+      String(sheet.getRow(3).getCell(9 + index).value ?? "").trim(),
     ),
     [
       "FULL-PYT-CC",
@@ -270,6 +280,9 @@ test("Table Plan exports physical claims with singular booking totals", async ()
       "TIPS",
     ],
   );
+  assert.equal(sheet.getRow(3).getCell(14).value, "MEDIA");
+  assert.equal(sheet.columnCount, 21);
+  assert.equal(sheet.getColumn(8).width, 48);
   assert.equal(
     rows.some(
       (row) =>
@@ -297,6 +310,68 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.match(noteText, /Birthday dinner/);
   assert.match(noteText, /Balcony Guest.*Balcony note/);
   assert.doesNotMatch(noteText, /Dineplan|fingerprint/i);
+});
+
+test("Table Plan emits one payment summary for a multi-zone Corporate booking", async () => {
+  const corporateBooking = booking("corporate", "CORPORATE", 8, "table-200", {
+    amount_paid: 2_000,
+    balance_outstanding: 6_000,
+    booking_origin: "admin_manual",
+    notes: '__zingara_booking_meta__:{"depositPercentage":25,"paymentOption":"deposit"}',
+    total_amount: 8_000,
+    zone_entitlements: [
+      { pax: 4, zoneId: "middle-ring" },
+      { pax: 4, zoneId: "golden-circle" },
+    ],
+  });
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [corporateBooking],
+    configuredZonePrices: {
+      "golden-circle": 1_000,
+      "middle-ring": 1_000,
+      "private-booths": 1_000,
+      "royal-balcony": 1_000,
+    },
+    customers: [customer("corporate", "Corporate Guest")],
+    payments: [],
+    show: {
+      date: "2026-09-10",
+      id: "show-corporate",
+      name: "Corporate Test Show",
+      time: "17:00:00",
+      venue: "johannesburg",
+    },
+    tables: [
+      table("table-200", "200", "corporate"),
+      table("table-400", "400", "corporate", {
+        section: "golden-circle",
+      }),
+    ],
+  });
+  const workbook = new ExcelJS.Workbook();
+
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+
+  assert.ok(sheet);
+  const rows = Array.from({ length: sheet.rowCount }, (_, index) =>
+    sheet.getRow(index + 1),
+  ).filter((row) => row.getCell(5).value === "Corporate Guest");
+
+  assert.equal(rows.length, 2);
+  assert.equal(
+    rows.filter(
+      (row) =>
+        row.getCell(8).value ===
+        "Deposit R2,000 · Paid R2,000 · Outstanding R6,000",
+    ).length,
+    1,
+  );
+  assert.equal(rows.filter((row) => row.getCell(8).value == null).length, 1);
+  assert.equal(
+    rows.reduce((total, row) => total + cellNumber(row.getCell(4).value), 0),
+    8,
+  );
 });
 
 test("Table Plan route remains batched and includes report-critical booking state", () => {

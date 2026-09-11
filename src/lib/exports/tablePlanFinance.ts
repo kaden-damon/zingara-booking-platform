@@ -41,6 +41,12 @@ export type TablePlanFinancialBreakdown = {
   toPay: number;
 };
 
+export type TablePlanPaymentSummary = {
+  amountPaid: number;
+  depositRequirement: number;
+  outstanding: number;
+};
+
 export const tablePlanCurrencyNumberFormat =
   '"R" #,##0.00;[Red]"-R" #,##0.00;"R" 0.00';
 export const tablePlanFinancialColumnHeaders = [
@@ -63,11 +69,11 @@ export function getDineplanZoneReceiptFormula(
   firstDataRow: number,
   finalDataRow: number,
 ) {
-  return `SUM(H${firstDataRow}:K${finalDataRow})`;
+  return `SUM(I${firstDataRow}:L${finalDataRow})`;
 }
 
 export function getTablePlanToPayTotalFormula(tableTotalsRow: number) {
-  return `SUM(L${tableTotalsRow})`;
+  return `SUM(M${tableTotalsRow})`;
 }
 
 type TablePlanFinancialInput = {
@@ -82,6 +88,46 @@ type TablePlanFinancialInput = {
 
 function toMoney(value: number | null | undefined) {
   return Math.max(Math.round((Number(value) || 0) * 100), 0) / 100;
+}
+
+export function resolveTablePlanPaymentSummary(input: {
+  amountPaid: number;
+  balanceOutstanding: number;
+  depositPercentage?: number | null;
+  totalAmount: number;
+}): TablePlanPaymentSummary {
+  const percentage = Number(input.depositPercentage);
+  const depositPercentage =
+    input.depositPercentage != null && Number.isFinite(percentage)
+      ? percentage
+      : 100;
+
+  return {
+    amountPaid: toMoney(input.amountPaid),
+    depositRequirement: toMoney(
+      Math.ceil(toMoney(input.totalAmount) * (depositPercentage / 100)),
+    ),
+    outstanding: toMoney(input.balanceOutstanding),
+  };
+}
+
+function formatTablePlanCurrencyText(value: number) {
+  const money = toMoney(value);
+
+  return `R${money.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: Number.isInteger(money) ? 0 : 2,
+  })}`;
+}
+
+export function formatTablePlanPaymentSummary(
+  summary: TablePlanPaymentSummary,
+) {
+  return [
+    `Deposit ${formatTablePlanCurrencyText(summary.depositRequirement)}`,
+    `Paid ${formatTablePlanCurrencyText(summary.amountPaid)}`,
+    `Outstanding ${formatTablePlanCurrencyText(summary.outstanding)}`,
+  ].join(" · ");
 }
 
 function getPaymentBucket(payment: TablePlanFinancialPayment) {
