@@ -40,8 +40,12 @@ const customPaymentFieldOrder = [
   "subscription_notify_buyer",
 ];
 
-function encodePayFastValue(value: string) {
-  return encodeURIComponent(value.trim()).replace(/%20/g, "+");
+export function encodePayFastValue(value: string) {
+  return encodeURIComponent(value.trim())
+    .replace(/[!'()*~]/g, (character) =>
+      `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+    )
+    .replace(/%20/g, "+");
 }
 
 function shouldIncludeValue(value: PayFastFieldValue) {
@@ -70,12 +74,22 @@ export function orderPayFastPaymentEntries(data: PayFastData | PayFastEntry[]) {
   });
 }
 
+export function getPayFastSubmissionEntries(
+  data: PayFastData | PayFastEntry[],
+) {
+  return orderPayFastPaymentEntries(data)
+    .map(([key, value]) => [
+      key,
+      typeof value === "string" ? value.trim() : value,
+    ] as PayFastEntry)
+    .filter(([, value]) => shouldIncludeValue(value));
+}
+
 export function createPayFastParamString(
   data: PayFastData | PayFastEntry[],
   passphrase?: string | null,
 ) {
-  const params = orderPayFastPaymentEntries(data)
-    .filter(([, value]) => shouldIncludeValue(value))
+  const params = getPayFastSubmissionEntries(data)
     .map(([key, value]) => `${key}=${encodePayFastValue(String(value))}`);
 
   if (passphrase !== null && passphrase !== undefined && passphrase !== "") {
@@ -99,7 +113,7 @@ export function appendPayFastSignature<TData extends PayFastData>(
   passphrase?: string | null,
 ) {
   const orderedData = Object.fromEntries(
-    orderPayFastPaymentEntries(data),
+    getPayFastSubmissionEntries(data),
   ) as TData;
 
   return {

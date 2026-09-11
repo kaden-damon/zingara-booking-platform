@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import { createHash } from "node:crypto";
 
 import type { PayFastConfig } from "./types";
+import { encodePayFastValue } from "./signature";
 
 export type PayFastItnData = Record<string, string>;
 
@@ -17,10 +18,7 @@ export function createPayFastItnParamString(
 ) {
   return entries
     .filter(([key]) => key !== "signature")
-    .map(
-      ([key, value]) =>
-        `${key}=${encodeURIComponent(value.trim()).replace(/%20/g, "+")}`,
-    )
+    .map(([key, value]) => `${key}=${encodePayFastValue(value)}`)
     .join("&");
 }
 
@@ -30,7 +28,7 @@ export function verifyPayFastItnSignature(
   passphrase?: string,
 ) {
   const signedParamString = passphrase
-    ? `${paramString}&passphrase=${encodeURIComponent(passphrase.trim()).replace(/%20/g, "+")}`
+    ? `${paramString}&passphrase=${encodePayFastValue(passphrase)}`
     : paramString;
   const expectedSignature = createHash("md5")
     .update(signedParamString)
