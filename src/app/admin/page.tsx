@@ -19,6 +19,7 @@ import { CorporateZoneEntitlementEditor } from "./CorporateZoneEntitlementEditor
 import { CompactBookingList } from "./CompactBookingList";
 import SecretPasswordSettings from "./SecretPasswordSettings";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
+import ZingaraDatePicker from "./ZingaraDatePicker";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
   FinancialReconciliationModal,
@@ -10546,8 +10547,6 @@ export default function AdminDashboardPage() {
   const [bookingCreatedTo, setBookingCreatedTo] = useState("");
   const [bookingPromoFilter, setBookingPromoFilter] =
     useState<BookingPromoFilter>("all");
-  const [isBookingCalendarOpen, setIsBookingCalendarOpen] =
-    useState(false);
   const [hideCancelledConcierge, setHideCancelledConcierge] =
     useState(true);
   const [conciergeStatusFilter, setConciergeStatusFilter] =
@@ -25072,30 +25071,6 @@ export default function AdminDashboardPage() {
     () => new Set(bookingFilterDates),
     [bookingFilterDates],
   );
-  const bookingCalendarAnchorDate =
-    bookingDateFilter !== "all" && bookingFilterDateSet.has(bookingDateFilter)
-      ? new Date(`${bookingDateFilter}T00:00:00`)
-      : bookingFilterDates[0]
-        ? new Date(`${bookingFilterDates[0]}T00:00:00`)
-        : new Date();
-  const bookingCalendarMonthStart = new Date(
-    bookingCalendarAnchorDate.getFullYear(),
-    bookingCalendarAnchorDate.getMonth(),
-    1,
-  );
-  const bookingCalendarDaysInMonth = new Date(
-    bookingCalendarMonthStart.getFullYear(),
-    bookingCalendarMonthStart.getMonth() + 1,
-    0,
-  ).getDate();
-  const bookingCalendarStartOffset = bookingCalendarMonthStart.getDay();
-  const bookingCalendarCells = [
-    ...Array.from({ length: bookingCalendarStartOffset }, () => null),
-    ...Array.from(
-      { length: bookingCalendarDaysInMonth },
-      (_, index) => index + 1,
-    ),
-  ];
   const selectedShowBookings = selectedShow
     ? activeBookingsForOperations.filter((booking) =>
         bookingBelongsToShow(booking, selectedShow),
@@ -42284,95 +42259,16 @@ export default function AdminDashboardPage() {
                   </span>
                 </label>
 
-                <div className="relative min-w-0">
-                  <button
-                    type="button"
-                    aria-label="Show Date"
-                    onClick={() =>
-                      setIsBookingCalendarOpen((isOpen) => !isOpen)
-                    }
-                    className="h-11 w-full rounded-full border border-white/15 bg-black/35 px-4 py-2 text-left text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white focus:border-[#D8C36A]/70 focus:outline-none"
-                  >
-                    Show Date · {bookingDateFilter === "all"
-                      ? "All Dates"
-                      : bookingDateFilter}
-                  </button>
-
-                  {isBookingCalendarOpen && (
-                    <div className="absolute left-0 top-12 z-30 w-72 rounded-[1.5rem] border border-[#D8C36A]/25 bg-zinc-950 p-4 shadow-2xl shadow-black/50">
-                      <div className="mb-3 flex items-center justify-between">
-                        <p className="text-sm font-semibold text-white">
-                          {
-                            bookingCalendarMonths[
-                              bookingCalendarMonthStart.getMonth()
-                            ]
-                          }{" "}
-                          {bookingCalendarMonthStart.getFullYear()}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBookingDateFilter("all");
-                            setBookingPage(1);
-                            setIsBookingCalendarOpen(false);
-                          }}
-                          className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-7 gap-1 text-center text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                        {bookingCalendarWeekdays.map((weekday, index) => (
-                          <span key={`${weekday}-${index}`}>
-                            {weekday}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="mt-2 grid grid-cols-7 gap-1">
-                        {bookingCalendarCells.map((day, index) => {
-                          if (!day) {
-                            return (
-                              <span
-                                key={`empty-${index}`}
-                                className="aspect-square"
-                              />
-                            );
-                          }
-
-                          const dateValue = `${bookingCalendarMonthStart.getFullYear()}-${String(
-                            bookingCalendarMonthStart.getMonth() + 1,
-                          ).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                          const isAvailable =
-                            bookingFilterDateSet.has(dateValue);
-                          const isSelected =
-                            bookingDateFilter === dateValue;
-
-                          return (
-                            <button
-                              key={dateValue}
-                              type="button"
-                              disabled={!isAvailable}
-                              onClick={() => {
-                                setBookingDateFilter(dateValue);
-                                setBookingPage(1);
-                                setIsBookingCalendarOpen(false);
-                              }}
-                              className={`aspect-square rounded-xl text-sm font-semibold transition ${
-                                isSelected
-                                  ? "bg-[#D8C36A] text-black"
-                                  : isAvailable
-                                    ? "border border-[#D8C36A]/25 bg-[#D8C36A]/10 text-[#F2D66C] hover:bg-[#D8C36A]/20"
-                                    : "bg-white/[0.03] text-zinc-700"
-                              }`}
-                            >
-                              {day}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <ZingaraDatePicker
+                  availableDates={bookingFilterDateSet}
+                  label="Show Date"
+                  onChange={(date) => {
+                    setBookingDateFilter(date || "all");
+                    setBookingPage(1);
+                  }}
+                  placeholder="Show Date · All Dates"
+                  value={bookingDateFilter === "all" ? "" : bookingDateFilter}
+                />
 
                 <label className="relative block min-w-0">
                   <span className="sr-only">Search bookings</span>
@@ -42414,45 +42310,61 @@ export default function AdminDashboardPage() {
 
               {(bookingCreatedDateFilter === "specific" ||
                 bookingCreatedDateFilter === "range") && (
-                <div className="rounded-2xl border border-[#D8C36A]/20 bg-black/25 p-3">
-                  <div className="grid gap-3 sm:grid-cols-2">
+                <div
+                  className={`w-full rounded-2xl border border-[#D8C36A]/20 bg-black/25 p-3 ${
+                    bookingCreatedDateFilter === "specific"
+                      ? "sm:max-w-xs"
+                      : "sm:max-w-2xl"
+                  }`}
+                >
+                  <div
+                    className={`grid gap-3 ${
+                      bookingCreatedDateFilter === "range"
+                        ? "sm:grid-cols-2"
+                        : "grid-cols-1"
+                    }`}
+                  >
                     {bookingCreatedDateFilter === "specific" ? (
                       <label className="grid gap-1 text-xs font-semibold text-zinc-300">
                         Booking Created Date
-                        <input
-                          type="date"
+                        <ZingaraDatePicker
+                          label="Booking Created Date"
+                          placeholder="Select date"
+                          showToday
                           value={bookingCreatedSpecificDate}
-                          onChange={(event) => {
-                            setBookingCreatedSpecificDate(event.target.value);
+                          onChange={(date) => {
+                            setBookingCreatedSpecificDate(date);
                             setBookingPage(1);
                           }}
-                          className="h-11 min-w-0 rounded-full border border-white/15 bg-black/35 px-4 text-sm text-white outline-none transition focus:border-[#D8C36A]/70"
                         />
                       </label>
                     ) : (
                       <>
                         <label className="grid gap-1 text-xs font-semibold text-zinc-300">
                           From
-                          <input
-                            type="date"
+                          <ZingaraDatePicker
+                            label="Booking Created From"
+                            placeholder="From date"
+                            showToday
                             value={bookingCreatedFrom}
-                            onChange={(event) => {
-                              setBookingCreatedFrom(event.target.value);
+                            onChange={(date) => {
+                              setBookingCreatedFrom(date);
                               setBookingPage(1);
                             }}
-                            className="h-11 min-w-0 rounded-full border border-white/15 bg-black/35 px-4 text-sm text-white outline-none transition focus:border-[#D8C36A]/70"
                           />
                         </label>
                         <label className="grid gap-1 text-xs font-semibold text-zinc-300">
                           To
-                          <input
-                            type="date"
+                          <ZingaraDatePicker
+                            align="right"
+                            label="Booking Created To"
+                            placeholder="To date"
+                            showToday
                             value={bookingCreatedTo}
-                            onChange={(event) => {
-                              setBookingCreatedTo(event.target.value);
+                            onChange={(date) => {
+                              setBookingCreatedTo(date);
                               setBookingPage(1);
                             }}
-                            className="h-11 min-w-0 rounded-full border border-white/15 bg-black/35 px-4 text-sm text-white outline-none transition focus:border-[#D8C36A]/70"
                           />
                         </label>
                       </>
@@ -42704,7 +42616,6 @@ export default function AdminDashboardPage() {
                   setBookingStatusFilter("all");
                   setBookingDateFilter("all");
                   setHideCancelledBookings(true);
-                  setIsBookingCalendarOpen(false);
                   setBookingPage(1);
                 }}
                 className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
