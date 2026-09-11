@@ -17,6 +17,7 @@ import {
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
+import { getSecretPasswordLifecycleStatus } from "@/lib/secretPasswordLifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ type ScheduleBody = {
   endDate?: string;
   endTime?: string | null;
   id?: string;
+  lifecycleAction?: "disable" | "enable";
   phrase?: string;
   scopeType?: SecretPasswordScope;
   showId?: string | null;
@@ -154,8 +156,66 @@ async function saveSchedule(request: Request, method: "POST" | "PATCH") {
 
   try {
     const body = (await request.json()) as ScheduleBody;
+    if (method === "PATCH" && body.lifecycleAction) {
+      if (!body.id) return Response.json({ error: "Schedule ID is required." }, { status: 400 });
+      const { data: before, error: loadError } = await auth.serviceClient
+        .from("venue_secret_password_schedules")
+        .select(scheduleSelect)
+        .eq("id", body.id)
+        .maybeSingle();
+      if (loadError) throw loadError;
+      if (!before) return Response.json({ error: "Schedule not found." }, { status: 404 });
+
+      const existing = toSecretPasswordSchedule(before as Parameters<typeof toSecretPasswordSchedule>[0]);
+      if (!canAccessVenue(auth.staffProfile.venue_scope ?? [], existing.venueLocation)) {
+        return Response.json({ error: "You do not have access to this venue." }, { status: 403 });
+      }
+      const previousState = getSecretPasswordLifecycleStatus(existing);
+      if (previousState === "expired") {
+        return Response.json({ error: "Expired Secret Password schedules are historical and cannot be reactivated. Create a new future schedule instead." }, { status: 409 });
+      }
+      const enabled = body.lifecycleAction === "enable";
+      if (existing.enabled === enabled) return Response.json({ schedule: existing });
+
+      const { data, error } = await auth.serviceClient
+        .from("venue_secret_password_schedules")
+        .update({ enabled })
+        .eq("id", body.id)
+        .eq("enabled", existing.enabled)
+        .select(scheduleSelect)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return Response.json({ error: "This schedule changed while you were editing it. Refresh and try again." }, { status: 409 });
+
+      const updated = toSecretPasswordSchedule(data as Parameters<typeof toSecretPasswordSchedule>[0]);
+      const newState = getSecretPasswordLifecycleStatus(updated);
+      await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+        action: enabled ? "Secret Password schedule enabled" : "Secret Password schedule disabled",
+        afterValues: { enabled, lifecycleState: newState },
+        beforeValues: { enabled: existing.enabled, lifecycleState: previousState },
+        entityId: existing.id,
+        entityLocation: existing.venueLocation,
+        entityReference: existing.id,
+        entityType: "show",
+        outcome: "success",
+        request,
+        sourceArea: "venue-secret-passwords",
+      });
+      await notifySecretPasswordWalletUpdates({
+        client: auth.serviceClient,
+        endDate: existing.endDate,
+        showId: existing.showId,
+        startDate: existing.startDate,
+        venueLocation: existing.venueLocation,
+      });
+      return Response.json({ schedule: updated });
+    }
+
     const validation = validateBody(body);
     if (validation) return Response.json({ error: validation }, { status: 400 });
+    if (!canAccessVenue(auth.staffProfile.venue_scope ?? [], body.venueLocation!)) {
+      return Response.json({ error: "You do not have access to this venue." }, { status: 403 });
+    }
     if (body.endDate! < todayInJohannesburg()) {
       return Response.json({ error: "Historical Secret Password schedules cannot be changed." }, { status: 409 });
     }
@@ -165,7 +225,7 @@ async function saveSchedule(request: Request, method: "POST" | "PATCH") {
     }
 
     const payload = {
-      enabled: body.enabled ?? true,
+      enabled: true,
       end_date: body.endDate,
       end_time: body.endTime || null,
       phrase: body.phrase!.trim(),
@@ -182,6 +242,11 @@ async function saveSchedule(request: Request, method: "POST" | "PATCH") {
       if (result.error) throw result.error;
       before = result.data;
       if (!before) return Response.json({ error: "Schedule not found." }, { status: 404 });
+      const existing = toSecretPasswordSchedule(before as Parameters<typeof toSecretPasswordSchedule>[0]);
+      if (!canAccessVenue(auth.staffProfile.venue_scope ?? [], existing.venueLocation)) {
+        return Response.json({ error: "You do not have access to this venue." }, { status: 403 });
+      }
+      payload.enabled = existing.enabled;
     }
     const query = method === "POST"
       ? auth.serviceClient.from("venue_secret_password_schedules").insert({ ...payload, created_by_staff_id: auth.staffProfile.id })
@@ -209,7 +274,11 @@ async function saveSchedule(request: Request, method: "POST" | "PATCH") {
     });
     return Response.json({ schedule: toSecretPasswordSchedule(data as Parameters<typeof toSecretPasswordSchedule>[0]) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "";
+    const message = error instanceof Error
+      ? error.message
+      : error && typeof error === "object" && "message" in error
+        ? String(error.message)
+        : "";
     if (message.includes("SECRET_PASSWORD_SCHEDULE_OVERLAP") || message.includes("venue_secret_password_one_show_override")) {
       return Response.json({ error: "This venue already has an overlapping active password schedule. Edit or disable it first." }, { status: 409 });
     }
@@ -220,42 +289,3 @@ async function saveSchedule(request: Request, method: "POST" | "PATCH") {
 
 export function POST(request: Request) { return saveSchedule(request, "POST"); }
 export function PATCH(request: Request) { return saveSchedule(request, "PATCH"); }
-
-export async function DELETE(request: Request) {
-  const auth = await requireActiveStaff(request);
-  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) return auth.error;
-  if (!isSuperAdminProfile(auth.staffProfile)) return Response.json({ error: "Super Admin access is required." }, { status: 403 });
-  try {
-    const id = new URL(request.url).searchParams.get("id");
-    if (!id) return Response.json({ error: "Schedule ID is required." }, { status: 400 });
-    const { data: before, error: loadError } = await auth.serviceClient.from("venue_secret_password_schedules").select(scheduleSelect).eq("id", id).maybeSingle();
-    if (loadError) throw loadError;
-    if (!before) return Response.json({ error: "Schedule not found." }, { status: 404 });
-    const today = todayInJohannesburg();
-    if (String(before.start_date) <= today) return Response.json({ error: "Current or historical schedules must be disabled, not deleted." }, { status: 409 });
-    const { error } = await auth.serviceClient.from("venue_secret_password_schedules").delete().eq("id", id);
-    if (error) throw error;
-    await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
-      action: "Future Secret Password schedule deleted",
-      beforeValues: { phrase: String(before.phrase), scope: String(before.scope_type), startDate: String(before.start_date), endDate: String(before.end_date), enabled: Boolean(before.enabled) },
-      entityId: id,
-      entityLocation: String(before.venue_location),
-      entityReference: id,
-      entityType: "show",
-      outcome: "success",
-      request,
-      sourceArea: "venue-secret-passwords",
-    });
-    await notifySecretPasswordWalletUpdates({
-      client: auth.serviceClient,
-      endDate: String(before.end_date),
-      showId: before.show_id ? String(before.show_id) : null,
-      startDate: String(before.start_date),
-      venueLocation: String(before.venue_location) as EntryLocationKey,
-    });
-    return Response.json({ deleted: true });
-  } catch (error) {
-    console.error("[Zingara Secret Password] Delete failed", error);
-    return Response.json({ error: "Secret Password schedule could not be deleted." }, { status: 500 });
-  }
-}

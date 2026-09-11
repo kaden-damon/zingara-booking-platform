@@ -6,6 +6,7 @@ import {
   resolveScheduledSecretPassword,
   type SecretPasswordSchedule,
 } from "./secretPasswordResolution.ts";
+import { getSecretPasswordLifecycleStatus } from "./secretPasswordLifecycle.ts";
 
 const show = { date: "2026-09-11", id: "show-cpt", time: "18:00" };
 
@@ -61,6 +62,50 @@ test("venue isolation, no match, disabled entry and time window fail closed", ()
 
 test("future schedule edits resolve their latest authoritative phrase", () => {
   assert.equal(resolveScheduledSecretPassword({ configuration, show, schedules: [schedule({ phrase: "Midnight Rose", updatedAt: "2026-09-11T08:00:00Z" })], venueLocation: "cape-town" })?.phrase, "Midnight Rose");
+});
+
+test("schedule lifecycle distinguishes scheduled, active, disabled and expired in SAST", () => {
+  const now = new Date("2026-09-11T10:00:00Z"); // 12:00 SAST
+  assert.equal(getSecretPasswordLifecycleStatus(schedule({ startDate: "2026-09-12", endDate: "2026-09-12" }), now), "scheduled");
+  assert.equal(getSecretPasswordLifecycleStatus(schedule(), now), "active");
+  assert.equal(getSecretPasswordLifecycleStatus(schedule({ enabled: false }), now), "disabled");
+  assert.equal(getSecretPasswordLifecycleStatus(schedule({ endTime: "11:59", startTime: "08:00" }), now), "expired");
+  assert.equal(getSecretPasswordLifecycleStatus(schedule({ endDate: "2026-09-10", startDate: "2026-09-10" }), now), "expired");
+});
+
+test("schedule lifecycle UI uses explicit same-record enable and disable actions", () => {
+  const admin = readFileSync("src/app/admin/SecretPasswordSettings.tsx", "utf8");
+  const client = readFileSync("src/lib/supabase/secretPasswords.ts", "utf8");
+  assert.match(admin, /getSecretPasswordLifecycleStatus/);
+  assert.match(admin, /setSecretPasswordScheduleEnabled\(schedule\.id, false\)/);
+  assert.match(admin, /setSecretPasswordScheduleEnabled\(schedule\.id, true\)/);
+  assert.match(admin, /lifecycle === "disabled"[\s\S]*>Enable</);
+  assert.match(admin, /lifecycle !== "expired"/);
+  assert.doesNotMatch(admin, /Delete future/);
+  assert.match(client, /lifecycleAction: enabled \? "enable" : "disable"/);
+  assert.doesNotMatch(client, /method: "DELETE"/);
+});
+
+test("schedule API reactivates in place, preserves disabled state on edit and audits transitions", () => {
+  const route = readFileSync("src/app/api/admin/secret-passwords/route.ts", "utf8");
+  assert.match(route, /body\.lifecycleAction/);
+  assert.match(route, /\.update\(\{ enabled \}\)[\s\S]*\.eq\("id", body\.id\)/);
+  assert.match(route, /payload\.enabled = existing\.enabled/);
+  assert.match(route, /Expired Secret Password schedules are historical and cannot be reactivated/);
+  assert.match(route, /Secret Password schedule enabled/);
+  assert.match(route, /Secret Password schedule disabled/);
+  assert.match(route, /lifecycleState: previousState/);
+  assert.match(route, /lifecycleState: newState/);
+  assert.match(route, /SECRET_PASSWORD_SCHEDULE_OVERLAP/);
+  assert.doesNotMatch(route, /\.delete\(\)\.eq\("id"/);
+});
+
+test("venue enablement and schedule enablement remain independent", () => {
+  const admin = readFileSync("src/app/admin/SecretPasswordSettings.tsx", "utf8");
+  const route = readFileSync("src/app/api/admin/secret-passwords/route.ts", "utf8");
+  assert.match(admin, /onConfigurationChange\(location\.value, \{ enabled: event\.target\.checked \}\)/);
+  assert.match(route, /\.from\("venue_secret_password_schedules"\)[\s\S]*\.update\(\{ enabled \}\)/);
+  assert.doesNotMatch(route, /\.from\("venue_settings"\)\.update/);
 });
 
 test("server and UI integrations preserve validation, permissions and bounded lookup", () => {

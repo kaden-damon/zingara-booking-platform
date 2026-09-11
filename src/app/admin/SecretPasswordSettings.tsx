@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { SecretPasswordSchedule, SecretPasswordScope } from "@/lib/secretPassword";
+import { getSecretPasswordLifecycleStatus } from "@/lib/secretPasswordLifecycle";
 import {
-  deleteSecretPasswordSchedule,
   getSecretPasswordSchedules,
   saveSecretPasswordSchedule,
+  setSecretPasswordScheduleEnabled,
 } from "@/lib/supabase/secretPasswords";
 import {
   normalizeShowLocation,
@@ -128,7 +129,8 @@ export default function SecretPasswordSettings({ configuration, onConfigurationC
 
   async function disable(schedule: SecretPasswordSchedule) {
     try {
-      await saveSecretPasswordSchedule({ ...schedule, enabled: false });
+      await setSecretPasswordScheduleEnabled(schedule.id, false);
+      setMessage("Schedule disabled.");
       await reload();
     } catch (error) {
       setStatus("error");
@@ -136,13 +138,14 @@ export default function SecretPasswordSettings({ configuration, onConfigurationC
     }
   }
 
-  async function remove(schedule: SecretPasswordSchedule) {
+  async function enable(schedule: SecretPasswordSchedule) {
     try {
-      await deleteSecretPasswordSchedule(schedule.id);
+      await setSecretPasswordScheduleEnabled(schedule.id, true);
+      setMessage("Schedule enabled.");
       await reload();
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Schedule could not be deleted.");
+      setMessage(error instanceof Error ? error.message : "Schedule could not be enabled.");
     }
   }
 
@@ -198,12 +201,16 @@ export default function SecretPasswordSettings({ configuration, onConfigurationC
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {schedules.map((schedule) => (
-          <div key={schedule.id} className="rounded-lg border border-white/10 bg-black/40 p-4">
-            <div className="flex items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-[0.12em] text-zinc-500">{schedule.venueLocation === "cape-town" ? "Cape Town" : "Johannesburg"} · {scopeLabel(schedule.scopeType)}</p><p className="mt-1 font-semibold text-[#F2D66C]">{schedule.phrase}</p><p className="mt-1 text-sm text-zinc-400">{schedule.startDate}{schedule.endDate !== schedule.startDate ? ` – ${schedule.endDate}` : ""}{schedule.startTime ? ` · ${schedule.startTime}–${schedule.endTime}` : ""}</p></div><span className={`text-xs font-semibold uppercase ${schedule.enabled ? "text-emerald-300" : "text-zinc-500"}`}>{schedule.enabled ? "Scheduled" : "Disabled"}</span></div>
-            <div className="mt-3 flex gap-2"><button type="button" onClick={() => edit(schedule)} className="text-sm text-[#F2D66C]">Edit</button>{schedule.enabled && <button type="button" onClick={() => void disable(schedule)} className="text-sm text-zinc-300">Disable</button>}<button type="button" onClick={() => void remove(schedule)} className="text-sm text-red-300">Delete future</button></div>
-          </div>
-        ))}
+        {schedules.map((schedule) => {
+          const lifecycle = getSecretPasswordLifecycleStatus(schedule);
+          const lifecycleLabel = lifecycle === "active" ? "Active" : lifecycle === "scheduled" ? "Scheduled" : lifecycle === "expired" ? "Expired" : "Disabled";
+          return (
+            <div key={schedule.id} className="rounded-lg border border-white/10 bg-black/40 p-4">
+              <div className="flex items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-[0.12em] text-zinc-500">{schedule.venueLocation === "cape-town" ? "Cape Town" : "Johannesburg"} · {scopeLabel(schedule.scopeType)}</p><p className="mt-1 font-semibold text-[#F2D66C]">{schedule.phrase}</p><p className="mt-1 text-sm text-zinc-400">{schedule.startDate}{schedule.endDate !== schedule.startDate ? ` – ${schedule.endDate}` : ""}{schedule.startTime ? ` · ${schedule.startTime}–${schedule.endTime}` : ""}</p></div><span className={`text-xs font-semibold uppercase ${lifecycle === "active" || lifecycle === "scheduled" ? "text-emerald-300" : "text-zinc-500"}`}>{lifecycleLabel}</span></div>
+              {lifecycle !== "expired" && <div className="mt-3 flex gap-2"><button type="button" onClick={() => edit(schedule)} className="text-sm text-[#F2D66C]">Edit</button>{lifecycle === "disabled" ? <button type="button" onClick={() => void enable(schedule)} className="text-sm text-emerald-300">Enable</button> : <button type="button" onClick={() => void disable(schedule)} className="text-sm text-zinc-300">Disable</button>}</div>}
+            </div>
+          );
+        })}
         {status !== "loading" && schedules.length === 0 && <p className="text-sm text-zinc-500">No Secret Password schedules configured.</p>}
       </div>
     </div>

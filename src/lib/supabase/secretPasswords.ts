@@ -13,6 +13,9 @@ export function saveSecretPasswordSchedule(schedule: Omit<SecretPasswordSchedule
   return fetchSupabaseApi<{ schedule: SecretPasswordSchedule }>("/api/admin/secret-passwords", { body: schedule, method: schedule.id ? "PATCH" : "POST" });
 }
 
-export function deleteSecretPasswordSchedule(id: string) {
-  return fetchSupabaseApi<{ deleted: true }>(`/api/admin/secret-passwords?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+export function setSecretPasswordScheduleEnabled(id: string, enabled: boolean) {
+  return fetchSupabaseApi<{ schedule: SecretPasswordSchedule }>("/api/admin/secret-passwords", {
+    body: { id, lifecycleAction: enabled ? "enable" : "disable" },
+    method: "PATCH",
+  });
 }
