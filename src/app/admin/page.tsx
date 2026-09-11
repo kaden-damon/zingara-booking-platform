@@ -177,9 +177,12 @@ import {
   isValidMergedOperationalParent,
 } from "../../lib/bookingTableMoves";
 import {
-  getEffectiveOperationalZoneCapacity,
   getTemporaryOperationalCapacity,
 } from "../../lib/operationalZoneCapacity";
+import {
+  previewPhysicalRepresentationMutation,
+  resolveZoneCapacityState,
+} from "../../lib/capacityModel";
 import {
   getEligibleBookingTransferShows,
   isBookingEligibleForShowTransfer,
@@ -7293,35 +7296,44 @@ function getZoneStats(
 ) {
   const zoneTables = getZoneTables(tables, showId, zone.id);
   const inventoryStats = getFloorInventoryStats(zoneTables);
-  const bookedSeats = bookings
-    .filter(
-      (booking) =>
-        booking.showId === showId &&
-        getBookingZoneEntitlements(booking).some((entitlement) => entitlement.zoneId === zone.id) &&
-        isOperationallyActiveBooking(booking),
-    )
-    .reduce(
-      (total, booking) =>
-        total + (getBookingZoneEntitlements(booking).find((entitlement) => entitlement.zoneId === zone.id)?.pax ?? 0),
-      0,
-    );
   const baseCapacity = capacityOverride ?? getVenueZoneSeatCapacity(zone.id);
-  const { effectiveCapacity, temporaryCapacity } =
-    getEffectiveOperationalZoneCapacity({
-      baseCapacity,
-      showId,
-      tables: zoneTables,
-      zoneId: zone.id,
-    });
+  const state = resolveZoneCapacityState({
+    baseCapacity,
+    bookings: bookings
+      .filter((booking) => booking.showId === showId)
+      .map((booking) => ({
+        archivedAt: booking.archivedAt,
+        partySize: booking.partySize,
+        status: booking.status,
+        tableClaims: (booking.reservationTableClaims ?? []).flatMap((claim) => {
+          const table = claim.tableId
+            ? zoneTables.find((candidate) => candidate.id === claim.tableId)
+            : undefined;
+          return table ? [{ zoneId: table.zoneId }] : [];
+        }),
+        zoneEntitlements: getBookingZoneEntitlements(booking),
+        zoneId: booking.zoneId,
+      })),
+    showId,
+    tables: zoneTables.map((table) => ({
+      ...table,
+      bookingReference: table.bookingReference,
+      isOverride: table.physicalTable !== true,
+    })),
+    zoneId: zone.id,
+  });
 
   return {
-    baseCapacity,
-    bookedSeats,
+    baseCapacity: state.baseCapacity,
+    bookedSeats: state.activeEntitlementPax,
     ...inventoryStats,
-    overCapacitySeats: Math.max(bookedSeats - effectiveCapacity, 0),
-    remainingSeats: Math.max(effectiveCapacity - bookedSeats, 0),
-    temporaryCapacity,
-    totalCapacity: effectiveCapacity,
+    effectiveOperationalCapacity: state.effectiveOperationalCapacity,
+    overCapacitySeats: state.overOperationalCapacity,
+    remainingSeats: state.operationalRemaining,
+    representedPhysicalCapacity: state.representedPhysicalCapacity,
+    representationHeadroom: state.representationHeadroom,
+    temporaryCapacity: state.temporaryCapacity,
+    totalCapacity: state.effectiveOperationalCapacity,
   };
 }
 
@@ -17131,6 +17143,29 @@ export default function AdminDashboardPage() {
       operationalTableAction
     ) {
       return;
+    }
+
+    const zone = floorManagementZones.find((candidate) => candidate.id === table.zoneId);
+    if (zone) {
+      const stats = getZoneStats(
+        tables,
+        activeBookingsForOperations,
+        selectedShowId,
+        zone,
+        getConfiguredZoneMaxSeats(venueConfig, zone),
+      );
+      const preview = previewPhysicalRepresentationMutation({
+        currentTableCapacity:
+          table.capacityConfigured === false ? 0 : table.seatCapacity,
+        nextTableCapacity: capacity,
+        state: stats,
+      });
+      if (!preview.allowed) {
+        showWorkflowToast(
+          `${zone.title} represents ${preview.representedPhysicalCapacity} of ${preview.effectiveOperationalCapacity} operational seats. Setting table ${table.tableNumber} to ${capacity} would raise the physical/merged representation to ${preview.projectedPhysicalRepresentation}. Add temporary operational capacity or reduce another physical table first.`,
+        );
+        return;
+      }
     }
 
     setOperationalTableAction(`capacity-${table.id}`);
@@ -40299,7 +40334,7 @@ export default function AdminDashboardPage() {
                         {stats.remainingSeats}
                       </p>
                       <p className="text-xs text-zinc-500">
-                        venue seats remaining
+                        operational seats remaining
                       </p>
                       {stats.overCapacitySeats > 0 && (
                         <p className="mt-2 text-xs font-semibold text-red-300">
@@ -40310,6 +40345,9 @@ export default function AdminDashboardPage() {
                         {physicalZoneTables.length} physical · max {getConfiguredZoneMaxTables(venueConfig, zone)} planned ·{" "}
                         {stats.configuredPhysicalTableCount} configured ·{" "}
                         {zoneOccupancyCounts.capacityRequired} capacity required
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-zinc-400">
+                        Base {stats.baseCapacity} · temporary +{stats.temporaryCapacity} · physical/merged represented {stats.representedPhysicalCapacity}/{stats.effectiveOperationalCapacity}
                       </p>
                       <p className="mt-1 text-xs leading-5 text-zinc-400">
                         {zoneOccupancyCounts.available} available ·{" "}
@@ -40940,8 +40978,11 @@ export default function AdminDashboardPage() {
                         {stats.mergedOperationalTableCount} merged
                       </p>
                       <p className="mt-1 text-xs text-zinc-300">
-                        {stats.operationalTableCapacity} seats represented ·{" "}
+                        {stats.representedPhysicalCapacity}/{stats.effectiveOperationalCapacity} physical/merged represented ·{" "}
                         {stats.assignableTableCapacity} currently assignable
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-400">
+                        {stats.representationHeadroom} representation seats available
                       </p>
                       {stats.unconfiguredPhysicalTableCount > 0 && (
                         <p className="mt-1 text-xs text-amber-100">

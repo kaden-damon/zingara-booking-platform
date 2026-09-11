@@ -7,7 +7,10 @@ import {
   type FloorPlanningTable,
 } from "@/lib/corporateFloorPlanning";
 import { isOperationalFloorShowStatus } from "@/lib/floorShowStatus";
-import { getEffectiveOperationalZoneCapacity } from "@/lib/operationalZoneCapacity";
+import {
+  classifyCapacityTable,
+  resolveZoneCapacityState,
+} from "@/lib/capacityModel";
 import { physicalTableDefinitions } from "@/lib/physicalTables";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
@@ -116,41 +119,6 @@ function canAccessShow(profile: { venue_scope: string[] }, show: ShowRow) {
   const scope = normalizeStaffVenueScope(profile.venue_scope ?? []);
   const location = normalizeShowLocation(show.venue);
   return Boolean(location && (scope.includes("all") || scope.includes(location)));
-}
-
-function isValidMergedParent(table: TableRow, tablesById: Map<string, TableRow>) {
-  const memberIds = Array.from(new Set(table.merged_from ?? []));
-  if (
-    table.is_physical ||
-    !table.is_override ||
-    table.availability_scope !== "operational" ||
-    table.merged_parent_id ||
-    memberIds.length < 2 ||
-    memberIds.length !== (table.merged_from ?? []).length ||
-    !table.capacity_configured ||
-    table.capacity === null
-  ) {
-    return false;
-  }
-
-  const members = memberIds
-    .map((id) => tablesById.get(id))
-    .filter((member): member is TableRow => Boolean(member));
-  return (
-    members.length === memberIds.length &&
-    members.every(
-      (member) =>
-        member.is_physical &&
-        member.capacity_configured &&
-        member.capacity !== null &&
-        member.status === "disabled" &&
-        !member.booking_id &&
-        member.merged_parent_id === table.id &&
-        normalizeZone(member.section) === normalizeZone(table.section),
-    ) &&
-    members.reduce((total, member) => total + Number(member.capacity), 0) ===
-      Number(table.capacity)
-  );
 }
 
 function getAllowedTemporaryCapacities(
@@ -271,7 +239,6 @@ async function loadPlan(
 
   const bookings = (bookingResult.data ?? []) as BookingRow[];
   const tables = (tableResult.data ?? []) as TableRow[];
-  const tablesById = new Map(tables.map((table) => [table.id, table]));
   const settings = normalizeVenueSettings(
     (settingsResult.data as { settings?: Parameters<typeof normalizeVenueSettings>[0] } | null)
       ?.settings,
@@ -320,6 +287,34 @@ async function loadPlan(
     const zoneTables = tables.filter(
       (table) => normalizeZone(table.section) === zoneId,
     );
+    const capacityTables = zoneTables.map((table) => ({
+      availabilityScope: table.availability_scope,
+      bookingReference: table.booking_id,
+      capacityConfigured: table.capacity_configured,
+      id: table.id,
+      isOverride: table.is_override,
+      mergedFrom: table.merged_from,
+      mergedInto: table.merged_parent_id,
+      physicalTable: table.is_physical,
+      seatCapacity: table.capacity,
+      showId: show.id,
+      status: table.status,
+      zoneId,
+    }));
+    const capacityTablesById = new Map(
+      capacityTables.map((table) => [table.id, table]),
+    );
+    const capacityState = resolveZoneCapacityState({
+      baseCapacity: getConfiguredZoneMaxSeats(settings, getZoneById(zoneId)!),
+      bookings: activeZoneBookings.map(({ pax }) => ({
+        partySize: pax,
+        status: "confirmed",
+        zoneId,
+      })),
+      showId: show.id,
+      tables: capacityTables,
+      zoneId,
+    });
     const allowedTemporaryCapacities = getAllowedTemporaryCapacities(
       zoneId,
       tables,
@@ -335,19 +330,16 @@ async function loadPlan(
         return [];
       }
 
-      let kind: FloorPlanningTable["kind"] | null = null;
-      if (table.is_physical && (table.merged_from ?? []).length === 0) {
-        kind = "physical";
-      } else if (
-        !table.is_physical &&
-        table.is_override &&
-        table.availability_scope === "operational" &&
-        (table.merged_from ?? []).length === 0
-      ) {
-        kind = "temporary";
-      } else if (isValidMergedParent(table, tablesById)) {
-        kind = "merged";
-      }
+      const representation = classifyCapacityTable(
+        capacityTablesById.get(table.id)!,
+        capacityTablesById,
+      );
+      const kind: FloorPlanningTable["kind"] | null =
+        representation === "physical" ||
+        representation === "temporary" ||
+        representation === "merged"
+          ? representation
+          : null;
 
       return kind
         ? [
@@ -360,29 +352,12 @@ async function loadPlan(
           ]
         : [];
     });
-    const claimedReservedCapacity = zoneTables.reduce((total, table) => {
-      if (
-        !table.booking_id ||
-        !table.capacity_configured ||
-        table.capacity === null ||
-        table.merged_parent_id
-      ) {
-        return total;
-      }
-      return total + Number(table.capacity);
-    }, 0);
-
     return buildZoneFloorCapacityPlan({
-      activeEntitlementPax: activeZoneBookings.reduce(
-        (total, entitlement) => total + entitlement.pax,
-        0,
-      ),
+      activeEntitlementPax: capacityState.activeEntitlementPax,
       allowedTemporaryCapacities,
       availableTables,
-      capacityRequiredPhysicalTables: zoneTables.filter(
-        (table) => table.is_physical && !table.capacity_configured,
-      ).length,
-      claimedReservedCapacity,
+      capacityRequiredPhysicalTables: capacityState.capacityRequiredCount,
+      claimedReservedCapacity: capacityState.reservedTableCapacity,
       queuedBookings: activeZoneBookings
         .filter(
           ({ booking }) =>
@@ -396,22 +371,7 @@ async function loadPlan(
           pax,
           reference: booking.booking_reference,
         })),
-      zoneCapacity: getEffectiveOperationalZoneCapacity({
-        baseCapacity: getConfiguredZoneMaxSeats(settings, getZoneById(zoneId)!),
-        showId: show.id,
-        tables: zoneTables.map((table) => ({
-          availabilityScope: table.availability_scope,
-          capacityConfigured: table.capacity_configured,
-          mergedFrom: table.merged_from,
-          mergedInto: table.merged_parent_id,
-          physicalTable: table.is_physical,
-          seatCapacity: table.capacity,
-          showId: show.id,
-          status: table.status,
-          zoneId,
-        })),
-        zoneId,
-      }).effectiveCapacity,
+      zoneCapacity: capacityState.effectiveOperationalCapacity,
       zoneId,
     });
   });

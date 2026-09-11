@@ -9,6 +9,7 @@ import {
   seatingZones,
 } from "@/lib/zingaraDemo";
 import { getEffectiveOperationalZoneCapacity } from "@/lib/operationalZoneCapacity";
+import { getBookingZonePax } from "@/lib/capacityModel";
 
 const capacityErrorPrefix = "ZONE_CAPACITY_EXCEEDED";
 const occupyingBookingStatuses = [
@@ -129,22 +130,19 @@ export async function validateBookingCapacityIncrease(
     throw error;
   }
 
-  const existingEntitlement = (data ?? []).reduce(
-    (total, row) => {
-      const split = row.zone_entitlements as
-        | Array<{ pax?: number; zoneId?: string }>
-        | null;
-      if (Array.isArray(split) && split.length > 0) {
-        return total + split
-          .filter((entry) => entry.zoneId === zoneId)
-          .reduce((sum, entry) => sum + Math.max(Number(entry.pax) || 0, 0), 0);
-      }
-      return normalizeBookingZone(String(row.section ?? "")) === zoneId
-        ? total + Math.max(Number(row.guest_count) || 0, 0)
-        : total;
-    },
-    0,
-  );
+  const existingEntitlement = (data ?? []).reduce((total, row) => {
+    const rowZoneId = normalizeBookingZone(String(row.section ?? ""));
+    if (!rowZoneId) return total;
+
+    return total + getBookingZonePax({
+      partySize: Math.max(Number(row.guest_count) || 0, 0),
+      status: "confirmed",
+      zoneEntitlements: Array.isArray(row.zone_entitlements)
+        ? row.zone_entitlements as Array<{ pax: number; zoneId: SeatingZoneId }>
+        : null,
+      zoneId: rowZoneId,
+    }, zoneId);
+  }, 0);
   const { data: settingsData, error: settingsError } = await supabase
     .from("venue_settings")
     .select("settings")

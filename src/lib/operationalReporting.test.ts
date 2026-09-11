@@ -84,10 +84,10 @@ test("expands two-table and five-table merged claims without duplicating pax", (
     zoneTitle: "Private Booths",
   });
   const tables = [
-    table("merged-two", 12, { mergedFrom: ["18", "19"], physicalTable: false, tableNumber: "18+19" }),
+    table("merged-two", 12, { availabilityScope: "operational", mergedFrom: ["18", "19"], physicalTable: false, tableNumber: "18+19" }),
     table("18", 6, { mergedInto: "merged-two", status: "disabled" }),
     table("19", 6, { mergedInto: "merged-two", status: "disabled" }),
-    table("merged-five", 30, { mergedFrom: ["20", "21", "22", "23", "24"], physicalTable: false, tableNumber: "20+21+22+23+24", zoneId: "royal-booths" }),
+    table("merged-five", 30, { availabilityScope: "operational", mergedFrom: ["20", "21", "22", "23", "24"], physicalTable: false, tableNumber: "20+21+22+23+24", zoneId: "royal-booths" }),
     ...["20", "21", "22", "23", "24"].map((id) =>
       table(id, 6, { mergedInto: "merged-five", status: "disabled", zoneId: "royal-booths" }),
     ),
@@ -177,14 +177,15 @@ test("excludes released and inactive booking claims from current occupancy", () 
   assert.equal(rows[0].allocatedPax, 0);
 });
 
-test("represents active temporary tables without inventing capacity", () => {
+test("represents active temporary and capacity-required physical tables without inventing capacity", () => {
   const temporary = table("TEMP-1", 8, {
+    availabilityScope: "operational",
     physicalTable: false,
     status: "available",
   });
   const capacityRequired = table("TEMP-2", 0, {
     capacityConfigured: false,
-    physicalTable: false,
+    physicalTable: true,
     status: "available",
   });
   const rows = buildOperationalTableReportRows([], [temporary, capacityRequired]);

@@ -1,3 +1,9 @@
+import {
+  classifyCapacityTable,
+  resolveZoneCapacityState,
+  type CapacityTable,
+} from "./capacityModel.ts";
+
 export const floorAllocatorZones = [
   "golden-circle",
   "middle-ring",
@@ -144,73 +150,58 @@ function isLegacyPlaceholder(
   return /^RB\d+$/i.test(tableCode);
 }
 
-function isFlatTemporary(table: FloorAllocatorTable) {
-  return (
-    !table.isPhysical &&
-    table.isOverride &&
-    table.availabilityScope === "operational" &&
-    !table.mergedParentId &&
-    table.mergedFrom.length === 0
+function toCapacityTable(table: FloorAllocatorTable): CapacityTable {
+  return {
+    availabilityScope: table.availabilityScope,
+    bookingReference: table.bookingId,
+    capacityConfigured: table.capacityConfigured,
+    id: table.id,
+    isOverride: table.isOverride,
+    mergedFrom: table.mergedFrom,
+    mergedInto: table.mergedParentId,
+    physicalTable: table.isPhysical,
+    seatCapacity: table.capacity,
+    showId: table.showId,
+    status: table.status,
+    zoneId: table.zone,
+  };
+}
+
+function getCapacityTablesById(
+  tables: Iterable<FloorAllocatorTable>,
+) {
+  return new Map(
+    Array.from(tables, (table) => {
+      const capacityTable = toCapacityTable(table);
+      return [capacityTable.id, capacityTable] as const;
+    }),
   );
 }
 
-function isValidMergedParent(
+function hasRepresentation(
   table: FloorAllocatorTable,
-  tablesById: Map<string, FloorAllocatorTable>,
+  tablesById: Map<string, CapacityTable>,
+  representation: "merged" | "physical" | "temporary",
 ) {
-  if (
-    table.isPhysical ||
-    !table.isOverride ||
-    table.availabilityScope !== "operational" ||
-    table.mergedParentId ||
-    table.mergedFrom.length < 2 ||
-    new Set(table.mergedFrom).size !== table.mergedFrom.length ||
-    !table.capacityConfigured ||
-    table.capacity === null
-  ) {
-    return false;
-  }
-
-  const members = table.mergedFrom
-    .map((memberId) => tablesById.get(memberId))
-    .filter((member): member is FloorAllocatorTable => Boolean(member));
-
-  return (
-    members.length === table.mergedFrom.length &&
-    members.every(
-      (member) =>
-        member.showId === table.showId &&
-        member.zone === table.zone &&
-        member.isPhysical &&
-        member.capacityConfigured &&
-        member.capacity !== null &&
-        member.status === "disabled" &&
-        !member.bookingId &&
-        member.mergedParentId === table.id &&
-        member.mergedFrom.length === 0,
-    ) &&
-    members.reduce((total, member) => total + Number(member.capacity), 0) ===
-      table.capacity
-  );
+  const capacityTable = tablesById.get(table.id) ?? toCapacityTable(table);
+  return classifyCapacityTable(capacityTable, tablesById) === representation;
 }
 
 function isValidOperationalUnit(
   table: FloorAllocatorTable,
-  tablesById: Map<string, FloorAllocatorTable>,
+  tablesById: Map<string, CapacityTable>,
 ) {
-  return (
-    (table.isPhysical &&
-      !table.mergedParentId &&
-      table.mergedFrom.length === 0) ||
-    isFlatTemporary(table) ||
-    isValidMergedParent(table, tablesById)
+  const representation = classifyCapacityTable(
+    tablesById.get(table.id) ?? toCapacityTable(table),
+    tablesById,
   );
+  return ["physical", "temporary", "merged"].includes(representation);
 }
 
 function isValidAllocation(
   booking: FloorAllocatorBooking,
   table: FloorAllocatorTable | undefined,
-  tablesById: Map<string, FloorAllocatorTable>,
+  tablesById: Map<string, CapacityTable>,
 ) {
   return Boolean(
     table &&
@@ -359,12 +350,13 @@ function chooseMergeMembers(
 
 export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
   const tablesById = new Map(input.tables.map((table) => [table.id, table]));
+  const capacityTablesById = getCapacityTablesById(input.tables);
   const preservedBookingIds = input.bookings
     .filter((booking) =>
       isValidAllocation(
         booking,
         booking.tableId ? tablesById.get(booking.tableId) : undefined,
-        tablesById,
+        capacityTablesById,
       ),
     )
     .map((booking) => booking.id)
@@ -391,7 +383,7 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
       .filter((booking) => booking.zone === zone)
       .reduce((total, booking) => total + booking.pax, 0);
     const zoneTables = input.tables.filter((table) => table.zone === zone);
-    const zoneTableMap = new Map(zoneTables.map((table) => [table.id, table]));
+    const zoneCapacityTablesById = getCapacityTablesById(zoneTables);
     const requiredPhysicalIds = new Set(
       zoneTables.flatMap((table) => {
         if (table.isPhysical && referencedTableIds.has(table.id)) return [table.id];
@@ -415,23 +407,14 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
       if (allowedPhysicalIds.size >= physicalPlanningLimit) break;
       allowedPhysicalIds.add(table.id);
     }
-    const activeCapacity = zoneTables.reduce((total, table) => {
-      if (
-        table.status === "disabled" ||
-        !table.capacityConfigured ||
-        table.capacity === null ||
-        table.mergedParentId ||
-        !isValidOperationalUnit(table, zoneTableMap)
-      ) {
-        return total;
-      }
-
-      return total + table.capacity;
-    }, 0);
-    let remainingCapacityBudget = Math.max(
-      input.zoneCeilings[zone] - activeCapacity,
-      0,
-    );
+    const capacityState = resolveZoneCapacityState({
+      baseCapacity: input.zoneCeilings[zone],
+      bookings: [],
+      showId: input.showId,
+      tables: [...zoneCapacityTablesById.values()],
+      zoneId: zone,
+    });
+    let remainingCapacityBudget = capacityState.representationHeadroom;
     let availableTables: MutableTable[] = zoneTables
       .filter(
         (table) =>
@@ -447,7 +430,7 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
             (table.capacityConfigured &&
               table.capacity !== null &&
               table.status === "available" &&
-              isFlatTemporary(table))),
+              hasRepresentation(table, zoneCapacityTablesById, "temporary"))),
       )
       .map((table) => ({ ...table, plannedCapacity: null }));
     const existingMergedParents: MutableTable[] = zoneTables
@@ -456,7 +439,7 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
           table.status === "available" &&
           !table.bookingId &&
           !referencedTableIds.has(table.id) &&
-          isValidMergedParent(table, zoneTableMap),
+          hasRepresentation(table, zoneCapacityTablesById, "merged"),
       )
       .map((table) => ({ ...table, plannedCapacity: table.capacity }));
     availableTables = [...availableTables, ...existingMergedParents];

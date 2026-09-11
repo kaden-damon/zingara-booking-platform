@@ -179,34 +179,26 @@ test("true overflow remains rejected after temporary expansion", () => {
 test("database guards use effective capacity and protect public base inventory", () => {
   const migration = readFileSync(
     new URL(
-      "../../supabase/migrations/20260909150000_phase_41_1h_e_temporary_capacity_expansion.sql",
+      "../../supabase/migrations/20260911170000_phase_41_2i_authoritative_capacity_model.sql",
       import.meta.url,
     ),
     "utf8",
   );
 
-  assert.match(migration, /booking_capacity_zone_effective_limit/);
-  assert.match(migration, /booking_capacity_zone_temporary_capacity/);
-  assert.match(migration, /booking_origin = 'customer_public'/);
-  assert.match(migration, /booking_source = 'online'/);
-  assert.match(migration, /TEMPORARY_CAPACITY_BELOW_ACTIVE_ENTITLEMENT/);
-  assert.match(migration, /before insert or delete or update of/);
+  assert.match(migration, /booking_capacity_zone_state/);
+  assert.match(migration, /base_sellable_remaining/);
+  assert.match(migration, /represented_physical_capacity/);
+  assert.match(migration, /effective_operational_capacity/);
+  assert.match(migration, /TEMPORARY_CAPACITY_BELOW_OPERATIONAL_REQUIREMENT/);
+  assert.match(migration, /before insert or update of/);
   assert.match(migration, /pg_advisory_xact_lock/);
   assert.doesNotMatch(migration, /total_amount|amount_paid|payment_status|tickets/);
-
-  const physicalWorkflowMigration = readFileSync(
-    new URL(
-      "../../supabase/migrations/20260909151000_phase_41_1h_e_preserve_physical_table_workflow.sql",
-      import.meta.url,
-    ),
-    "utf8",
-  );
   assert.match(
-    physicalWorkflowMigration,
-    /booking_capacity_zone_effective_limit\(new\.show_id, v_new_zone\)/,
+    migration,
+    /v_projected_representation > v_current_effective_capacity/,
   );
   assert.doesNotMatch(
-    physicalWorkflowMigration,
+    migration,
     /update public\.(bookings|payments|tickets|customers|communications)/i,
   );
 });
@@ -235,7 +227,7 @@ test("server consumers distinguish public base and staff operational capacity", 
   );
   assert.doesNotMatch(availabilityRoute, /getEffectiveOperationalZoneCapacity/);
   assert.match(adminBookingRoute, /validateBookingCapacityIncrease/);
-  assert.match(floorPlanRoute, /getEffectiveOperationalZoneCapacity/);
+  assert.match(floorPlanRoute, /resolveZoneCapacityState/);
 });
 
 test("Admin exposes base, temporary, and effective capacity", () => {
@@ -261,22 +253,22 @@ test("temporary-table reduction errors remain staff-safe", () => {
   assert.match(route, /cannot be lower than its assigned booking's guest count/);
 });
 
-test("database guard distinguishes directional increases from reductions", () => {
+test("database guard preserves incremental recovery while protecting entitlement and representation", () => {
   const migration = readFileSync(
     new URL(
-      "../../supabase/migrations/20260910143000_phase_41_1x_a_incremental_temporary_capacity_recovery.sql",
+      "../../supabase/migrations/20260911170000_phase_41_2i_authoritative_capacity_model.sql",
       import.meta.url,
     ),
     "utf8",
   );
 
-  assert.match(migration, /v_previous_effective_capacity :=/);
   assert.match(migration, /v_resulting_effective_capacity :=/);
   assert.match(
     migration,
-    /v_resulting_effective_capacity <= v_previous_effective_capacity/,
+    /v_resulting_effective_capacity <= v_current_effective_capacity/,
   );
-  assert.match(migration, /TEMPORARY_CAPACITY_BELOW_ACTIVE_ENTITLEMENT/);
+  assert.match(migration, /greatest\(\s*v_active_entitlement,\s*v_represented_physical/);
+  assert.match(migration, /TEMPORARY_CAPACITY_BELOW_OPERATIONAL_REQUIREMENT/);
   assert.match(migration, /pg_advisory_xact_lock/);
   assert.doesNotMatch(
     migration,

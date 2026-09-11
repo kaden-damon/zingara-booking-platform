@@ -9,6 +9,7 @@ import {
 } from "@/lib/zingaraDemo";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
+import { resolveZoneCapacityState } from "@/lib/capacityModel";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +61,7 @@ export async function GET(request: Request) {
   const [bookingResult, settingsResult] = await Promise.all([
     serviceClient
       .from("bookings")
-      .select("guest_count,section")
+      .select("guest_count,section,zone_entitlements")
       .eq("show_id", showId)
       .is("archived_at", null)
       .in("booking_status", [...occupyingBookingStatuses]),
@@ -90,20 +91,32 @@ export async function GET(request: Request) {
     (settingsResult.data as { settings?: Parameters<typeof normalizeVenueSettings>[0] } | null)?.settings,
   );
 
-  const occupiedSeatsByZone = Object.fromEntries(
-    seatingZones.map((zone) => [zone.id, 0]),
-  ) as Record<SeatingZoneId, number>;
-
-  for (const row of data ?? []) {
+  const capacityBookings = (data ?? []).flatMap((row) => {
     const zoneId = getZoneIdForSection(row.section);
+    if (!zoneId) return [];
 
-    if (zoneId) {
-      occupiedSeatsByZone[zoneId] += Math.max(
-        Math.trunc(Number(row.guest_count) || 0),
-        0,
-      );
-    }
-  }
+    return [{
+      partySize: Math.max(Math.trunc(Number(row.guest_count) || 0), 0),
+      status: "confirmed",
+      zoneEntitlements: Array.isArray(row.zone_entitlements)
+        ? row.zone_entitlements as Array<{ pax: number; zoneId: SeatingZoneId }>
+        : null,
+      zoneId,
+    }];
+  });
+
+  const occupiedSeatsByZone = Object.fromEntries(
+    seatingZones.map((zone) => [
+      zone.id,
+      resolveZoneCapacityState({
+        baseCapacity: getConfiguredZoneMaxSeats(settings, zone),
+        bookings: capacityBookings,
+        showId,
+        tables: [],
+        zoneId: zone.id,
+      }).activeEntitlementPax,
+    ]),
+  ) as Record<SeatingZoneId, number>;
 
   const remainingSeatsByZone = Object.fromEntries(
     seatingZones.map((zone) => [

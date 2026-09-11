@@ -1,8 +1,11 @@
 import {
   type DemoTable,
-  isValidMergedOperationalTable,
 } from "./zingaraDemo";
 import { isLegacyPlaceholderTableCode } from "./physicalTables";
+import {
+  classifyCapacityTable,
+  type CapacityTable,
+} from "./capacityModel.ts";
 
 export function isLegacyFloorPlaceholder(table: DemoTable) {
   return (
@@ -18,35 +21,27 @@ export function isFloorInventoryTable(table: DemoTable) {
 
 export function getFloorInventoryStats(tables: DemoTable[]) {
   const inventoryTables = tables.filter(isFloorInventoryTable);
-  const physicalTables = inventoryTables.filter(
-    (table) => table.physicalTable === true,
-  );
-  const temporaryTables = inventoryTables.filter(
-    (table) =>
-      table.physicalTable !== true &&
-      table.availabilityScope === "operational" &&
-      !table.mergedFrom?.length,
-  );
-  const mergedTables = inventoryTables.filter((table) =>
-    isValidMergedOperationalTable(table, inventoryTables),
-  );
-  const operationalUnits = [
-    ...physicalTables.filter(
-      (table) =>
-        table.capacityConfigured !== false &&
-        table.status !== "disabled" &&
-        !table.mergedInto,
-    ),
-    ...temporaryTables.filter(
-      (table) =>
-        table.capacityConfigured !== false &&
-        table.status !== "disabled" &&
-        !table.mergedInto,
-    ),
-    ...mergedTables.filter(
-      (table) => table.status !== "disabled" && !table.mergedInto,
-    ),
-  ];
+  const capacityTables = inventoryTables.map((table) => ({
+    ...table,
+    bookingReference: table.bookingReference,
+    id: table.id,
+    isOverride: table.physicalTable !== true,
+  })) satisfies CapacityTable[];
+  const tablesById = new Map(capacityTables.map((table) => [table.id, table]));
+  const represented = capacityTables.map((table) => ({
+    representation: classifyCapacityTable(table, tablesById),
+    table,
+  }));
+  const physicalTables = inventoryTables.filter((table) => table.physicalTable === true);
+  const temporaryTables = represented
+    .filter((row) => row.representation === "temporary")
+    .map((row) => row.table);
+  const mergedTables = represented
+    .filter((row) => row.representation === "merged")
+    .map((row) => row.table);
+  const operationalUnits = represented
+    .filter((row) => ["physical", "temporary", "merged"].includes(row.representation))
+    .map((row) => row.table);
   const assignableUnits = operationalUnits.filter(
     (table) => table.status === "available" && !table.bookingReference,
   );

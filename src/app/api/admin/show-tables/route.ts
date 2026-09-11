@@ -742,11 +742,28 @@ export async function POST(request: Request) {
         ? String((error as { message?: unknown }).message ?? "")
         : "";
 
-    if (message.includes("TEMPORARY_CAPACITY_BELOW_ACTIVE_ENTITLEMENT")) {
+    if (
+      message.includes("TEMPORARY_CAPACITY_BELOW_ACTIVE_ENTITLEMENT") ||
+      message.includes("TEMPORARY_CAPACITY_BELOW_OPERATIONAL_REQUIREMENT")
+    ) {
+      const [, zoneId, required, resulting] =
+        message.match(
+          /TEMPORARY_CAPACITY_BELOW_OPERATIONAL_REQUIREMENT\|([^|]+)\|(\d+)\|(\d+)/,
+        ) ?? [];
+      const zoneTitle = zoneId
+        ? zoneId
+            .split("-")
+            .map((part) => part[0]?.toUpperCase() + part.slice(1))
+            .join(" ")
+        : "This zone";
+      const explanation =
+        required && resulting
+          ? `${zoneTitle} requires ${required} operational seats, but this change would leave ${resulting}. Add replacement operational capacity before reducing this table.`
+          : "Add replacement operational capacity before reducing this table.";
       return Response.json(
         {
-          error:
-            "Temporary capacity cannot be reduced or disabled while active bookings still depend on those seats.",
+          error: `Temporary capacity cannot be reduced or disabled while active bookings or physical Floor representation still depend on those seats. ${explanation}`,
+          explanation,
         },
         { status: 409 },
       );
@@ -763,8 +780,25 @@ export async function POST(request: Request) {
     }
 
     if (message.includes("TABLE_ZONE_CAPACITY_EXCEEDED")) {
+      const [, zoneId, base, effective, represented, projected] =
+        message.match(
+          /TABLE_ZONE_CAPACITY_EXCEEDED\|([^|]+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)/,
+        ) ?? [];
+      const zoneTitle = zoneId
+        ? zoneId
+            .split("-")
+            .map((part) => part[0]?.toUpperCase() + part.slice(1))
+            .join(" ")
+        : "This zone";
+      const explanation =
+        effective && represented && projected
+          ? `${zoneTitle} represents ${represented} of ${effective} operational seats (base ${base}). This change would raise the physical/merged representation to ${projected}. Reduce another physical table or add temporary operational capacity first.`
+          : "Reduce another physical table or add temporary operational capacity first.";
       return Response.json(
-        { error: "This table change would exceed the zone's venue capacity." },
+        {
+          error: `This table change would exceed the zone's effective operational capacity. ${explanation}`,
+          explanation,
+        },
         { status: 409 },
       );
     }

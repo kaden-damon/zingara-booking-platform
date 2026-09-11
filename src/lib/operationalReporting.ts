@@ -3,6 +3,7 @@ import type {
   DemoTable,
   SeatingZoneId,
 } from "./zingaraDemo.ts";
+import { classifyCapacityTable } from "./capacityModel.ts";
 
 const hiddenOperationalMetadata = [
   /^booking import from dineplan\b/i,
@@ -161,6 +162,14 @@ export function buildOperationalTableReportRows(
 ) {
   const activeBookings = bookings.filter(isActiveBooking);
   const tablesById = new Map(tables.map((table) => [table.id, table]));
+  const capacityTables = tables.map((table) => ({
+    ...table,
+    bookingReference: table.bookingReference,
+    isOverride: table.physicalTable !== true,
+  }));
+  const capacityTablesById = new Map(
+    capacityTables.map((table) => [table.id, table]),
+  );
   const bookingByClaimId = new Map<string, DemoBooking>();
   const allocatedPaxByBookingAndTable = new Map<string, number>();
 
@@ -191,7 +200,15 @@ export function buildOperationalTableReportRows(
   const emittedTableIds = new Set<string>();
 
   for (const table of tables
-    .filter((candidate) => !candidate.mergedInto)
+    .filter((candidate) => {
+      const representation = classifyCapacityTable(
+        capacityTablesById.get(candidate.id)!,
+        capacityTablesById,
+      );
+      return !["excluded-legacy", "excluded-linked-child"].includes(
+        representation,
+      );
+    })
     .sort((left, right) => compareTableNumbers(left.tableNumber, right.tableNumber))) {
     const booking = bookingByClaimId.get(table.id);
     const operationalTables =
