@@ -17,6 +17,8 @@ import { AdminSearchInput } from "./AdminSearchInput";
 import { BookingMetadataDraftEditor } from "./BookingMetadataDraftEditor";
 import { CorporateZoneEntitlementEditor } from "./CorporateZoneEntitlementEditor";
 import { CompactBookingList } from "./CompactBookingList";
+import SecretPasswordSettings from "./SecretPasswordSettings";
+import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
   FinancialReconciliationModal,
@@ -5314,11 +5316,13 @@ const settingsLessons: AcademyArticle[] = [
       "Review venue name, branding, operational settings, and venue configuration fields.",
       "Under Customer Experience Times, set Grounds Open, Guest Seating, and Show Starts independently for each venue.",
       "Confirm the times remain in chronological order before saving.",
+      "Under Secret Password Experience, enable only the intended venue and add a performance, date, or date-range schedule.",
+      "Confirm the operational password for the selected performance; it is theatrical and never replaces QR validation or Check-In.",
       "Update only the details that need to change.",
       "Save and check that the platform still displays the venue correctly.",
     ],
     id: "venue-configuration",
-    keywords: ["venue configuration", "venue settings", "branding", "operations", "grounds open", "guest seating", "show starts", "experience times"],
+    keywords: ["venue configuration", "venue settings", "branding", "operations", "grounds open", "guest seating", "show starts", "experience times", "secret password", "speakeasy"],
     moduleId: "settings",
     purpose: "Keep venue details and operational configuration accurate across the platform.",
     relatedActions: ["staff"],
@@ -5327,6 +5331,7 @@ const settingsLessons: AcademyArticle[] = [
       "Venue configuration affects more than one workflow.",
       "Review guest-facing areas after changing branding or venue details.",
       "Experience Times update customer touchpoints without changing operational show.time. Cape Town can remain operationally anchored at 18:00 while Grounds Open is 17:30.",
+      "A Secret Password is venue-scoped guest-experience content. Changing it does not alter bookings, payments, capacity, tickets, or entry validation.",
     ],
     title: "Venue Configuration",
     whenToUse: "Use this when venue details, branding, or operational configuration need updating.",
@@ -7357,10 +7362,21 @@ type ExperienceTimesDraft = Record<
   { groundsOpen: string; guestSeating: string; showStarts: string }
 >;
 
+type SecretPasswordExperienceDraft =
+  DemoVenueSettings["operationalSettings"]["secretPasswordExperience"];
+
 function createExperienceTimesDraft(
   settings: DemoVenueSettings,
 ): ExperienceTimesDraft {
   return structuredClone(settings.operationalSettings.customerExperienceTimes);
+}
+
+function createSecretPasswordExperienceDraft(
+  settings: DemoVenueSettings,
+): SecretPasswordExperienceDraft {
+  return structuredClone(
+    settings.operationalSettings.secretPasswordExperience,
+  );
 }
 
 function createFriendsAndFamilyDraft(
@@ -10072,6 +10088,10 @@ export default function AdminDashboardPage() {
   const [experienceTimesDraft, setExperienceTimesDraft] =
     useState<ExperienceTimesDraft>(() =>
       createExperienceTimesDraft(defaultVenueSettings),
+    );
+  const [secretPasswordExperienceDraft, setSecretPasswordExperienceDraft] =
+    useState<SecretPasswordExperienceDraft>(() =>
+      createSecretPasswordExperienceDraft(defaultVenueSettings),
     );
   const [venueConfigurationSaveState, setVenueConfigurationSaveState] =
     useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
@@ -14122,6 +14142,9 @@ export default function AdminDashboardPage() {
     setPublicBookingSalesDraft(createPublicBookingSalesDraft(venueSettings));
     setFriendsAndFamilyDraft(createFriendsAndFamilyDraft(venueSettings));
     setExperienceTimesDraft(createExperienceTimesDraft(venueSettings));
+    setSecretPasswordExperienceDraft(
+      createSecretPasswordExperienceDraft(venueSettings),
+    );
   }, [venueSettings]);
   const visibleStaffNotifications = staffNotifications.filter(
     (notification) =>
@@ -16540,6 +16563,19 @@ export default function AdminDashboardPage() {
     setVenueConfigurationError("");
   }
 
+  function updateSecretPasswordExperienceDraft(
+    location: EntryLocationKey,
+    updates: Partial<SecretPasswordExperienceDraft[EntryLocationKey]>,
+  ) {
+    if (!isSuperAdmin) return;
+    setSecretPasswordExperienceDraft((current) => ({
+      ...current,
+      [location]: { ...current[location], ...updates },
+    }));
+    setVenueConfigurationSaveState("dirty");
+    setVenueConfigurationError("");
+  }
+
   async function saveAuthoritativeVenueConfiguration() {
     if (!isSuperAdmin || venueConfigurationSaveState === "saving") return;
 
@@ -16556,6 +16592,9 @@ export default function AdminDashboardPage() {
     const nextExperienceTimes = {
       ...venueSettings.operationalSettings.customerExperienceTimes,
     };
+    const nextSecretPasswordExperience = structuredClone(
+      secretPasswordExperienceDraft,
+    );
 
     for (const location of showLocationOptions) {
       const draft = publicBookingSalesDraft[location.value];
@@ -16623,6 +16662,20 @@ export default function AdminDashboardPage() {
         return;
       }
       nextExperienceTimes[location.value] = experienceTimes;
+
+      const secretExperience = nextSecretPasswordExperience[location.value];
+      if (
+        !secretExperience.heading.trim() ||
+        !secretExperience.instruction.trim()
+      ) {
+        setVenueConfigurationSaveState("error");
+        setVenueConfigurationError(
+          `Enter the Secret Password guest heading and instruction for ${location.city}.`,
+        );
+        return;
+      }
+      secretExperience.heading = secretExperience.heading.trim();
+      secretExperience.instruction = secretExperience.instruction.trim();
     }
 
     for (const zone of configurableVenueZones) {
@@ -16667,6 +16720,7 @@ export default function AdminDashboardPage() {
         customerExperienceTimes: nextExperienceTimes,
         friendsAndFamily: nextFriendsAndFamily,
         publicBookings: nextPublicBookings,
+        secretPasswordExperience: nextSecretPasswordExperience,
       },
       zonePricing: nextZonePricing,
     };
@@ -30157,6 +30211,11 @@ export default function AdminDashboardPage() {
                   ? ` · ${formatOperationalShowDate(manifestSelectedShow.date)} · ${getSouthAfricaShowTime(manifestSelectedShow)}`
                   : ""}
               </p>
+              {manifestSelectedShow && (
+                <SecretPasswordOperationalBanner
+                  showId={manifestSelectedShow.supabaseId ?? manifestSelectedShow.id}
+                />
+              )}
               <p className="hidden text-xs text-zinc-600 print:block">
                 Generated {formatSouthAfricanTimestamp(manifestLastRefreshedAt)}
               </p>
@@ -34633,6 +34692,11 @@ export default function AdminDashboardPage() {
                     })}
                   </div>
                 </div>
+                <SecretPasswordSettings
+                  configuration={secretPasswordExperienceDraft}
+                  onConfigurationChange={updateSecretPasswordExperienceDraft}
+                  shows={shows}
+                />
                 <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
                   <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
                     Customer Experience Times
@@ -35609,6 +35673,13 @@ export default function AdminDashboardPage() {
                         {selectedShowDateLabel} ·{" "}
                         {selectedShow?.venueName ?? venueConfig.venueName}
                       </p>
+                      {selectedShow && (
+                        <div className="mt-4">
+                          <SecretPasswordOperationalBanner
+                            showId={selectedShow.supabaseId ?? selectedShow.id}
+                          />
+                        </div>
+                      )}
                       <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
                         {[
                           ["Occupancy", `${occupancyPercent}%`],
@@ -39816,6 +39887,13 @@ export default function AdminDashboardPage() {
                   })}
                 </div>
               )}
+              {effectiveCheckInShow && (
+                <div className="mt-4">
+                  <SecretPasswordOperationalBanner
+                    showId={effectiveCheckInShow.supabaseId ?? effectiveCheckInShow.id}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="flex w-full flex-col gap-3 lg:max-w-2xl">
@@ -40030,6 +40108,13 @@ export default function AdminDashboardPage() {
                   <p className="mt-2 text-sm text-zinc-400">
                     {selectedShowDateLabel} · {venueConfig.venueName}
                   </p>
+                  {selectedShow && (
+                    <div className="mt-4">
+                      <SecretPasswordOperationalBanner
+                        showId={selectedShow.supabaseId ?? selectedShow.id}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap gap-2">

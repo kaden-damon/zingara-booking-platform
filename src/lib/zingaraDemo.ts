@@ -74,6 +74,15 @@ export type DemoVenueSettings = {
     >;
     corporateEnquiryRecipients: Record<EntryLocationKey, string>;
     customerExperienceTimes: Record<EntryLocationKey, CustomerExperienceTimes>;
+    secretPasswordExperience: Record<
+      EntryLocationKey,
+      {
+        enabled: boolean;
+        heading: string;
+        includeInCommunications: boolean;
+        instruction: string;
+      }
+    >;
     friendsAndFamily: Record<
       EntryLocationKey,
       {
@@ -197,6 +206,20 @@ export const defaultVenueSettings: DemoVenueSettings = {
         groundsOpen: "17:00",
         guestSeating: "18:30",
         showStarts: "19:30",
+      },
+    },
+    secretPasswordExperience: {
+      "cape-town": {
+        enabled: false,
+        heading: "Tonight's Secret Password",
+        includeInCommunications: false,
+        instruction: "Whisper this to the doorman when you arrive.",
+      },
+      johannesburg: {
+        enabled: false,
+        heading: "Tonight's Secret Password",
+        includeInCommunications: false,
+        instruction: "Whisper this to the doorman when you arrive.",
       },
     },
     friendsAndFamily: {
@@ -1645,6 +1668,19 @@ export function normalizeVenueSettings(
           },
         ]),
       ) as DemoVenueSettings["operationalSettings"]["customerExperienceTimes"],
+      secretPasswordExperience: Object.fromEntries(
+        showLocationOptions.map((location) => [
+          location.value,
+          {
+            ...defaultVenueSettings.operationalSettings.secretPasswordExperience[
+              location.value
+            ],
+            ...(incoming.operationalSettings?.secretPasswordExperience?.[
+              location.value
+            ] ?? {}),
+          },
+        ]),
+      ) as DemoVenueSettings["operationalSettings"]["secretPasswordExperience"],
       friendsAndFamily: Object.fromEntries(
         showLocationOptions.map((location) => [
           location.value,

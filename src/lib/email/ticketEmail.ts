@@ -17,6 +17,10 @@ import {
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 import {
+  resolveServerSecretPassword,
+  shouldIncludeSecretPasswordInCommunications,
+} from "@/lib/secretPassword";
+import {
   createBrandedCustomerEmail,
   type EmailAttachment,
 } from "@/lib/email/customerEmail";
@@ -107,7 +111,7 @@ export async function createZingaraTicketEmail({
     show?.location ?? show?.venueName ?? show?.address,
   );
   const locationOption = location ? getShowLocationOption(location) : null;
-  const serviceClient = suppliedVenueSettings ? null : getServiceClient();
+  const serviceClient = getServiceClient();
   const venueSettings =
     suppliedVenueSettings ??
     (serviceClient
@@ -118,6 +122,16 @@ export async function createZingaraTicketEmail({
   if (!experienceTimes) {
     throw new Error("Authoritative customer experience times are missing.");
   }
+  const secretPassword =
+    serviceClient && location && show?.id &&
+    shouldIncludeSecretPasswordInCommunications(venueSettings, location)
+      ? await resolveServerSecretPassword({
+          client: serviceClient,
+          settings: venueSettings,
+          show: { date: show.date, id: show.id, time: show.time },
+          venueLocation: location,
+        })
+      : null;
   const venue = locationOption
     ? `${locationOption.courtName} · ${locationOption.city}`
     : show?.venueName ?? show?.address ?? "The Royal Countess";
@@ -138,6 +152,7 @@ export async function createZingaraTicketEmail({
     ["Grounds Open", experienceTimes.groundsOpen],
     ["Guest Seating", experienceTimes.guestSeating],
     ["Show Starts", experienceTimes.showStarts],
+    ...(secretPassword ? [[secretPassword.heading, secretPassword.phrase]] : []),
     ["Seating section", zone],
     ...(table ? [["Table", table]] : []),
     ["Guest information", ticketPosition],
@@ -161,6 +176,14 @@ export async function createZingaraTicketEmail({
     `Date: ${showDate}`,
     "",
     formatCustomerExperienceSchedule(experienceTimes),
+    ...(secretPassword
+      ? [
+          "",
+          secretPassword.heading.toUpperCase(),
+          secretPassword.phrase,
+          secretPassword.instruction,
+        ]
+      : []),
     `Seating section: ${zone}`,
     table ? `Table: ${table}` : "",
     `Guest information: ${ticketPosition}`,
@@ -180,6 +203,7 @@ export async function createZingaraTicketEmail({
     heading: "YOUR TICKET",
     html: `
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;">${detailRows}</table>
+      ${secretPassword ? `<div style="margin:20px 0;padding:18px;border:1px solid rgba(216,195,106,.45);border-radius:10px;background:#090909;text-align:center;"><div style="color:#d8c36a;font-size:12px;letter-spacing:2px;text-transform:uppercase;">${escapeHtml(secretPassword.heading)}</div><div style="margin-top:10px;color:#fff4c4;font-family:Georgia,serif;font-size:24px;">${escapeHtml(secretPassword.phrase)}</div><div style="margin-top:8px;color:#d4d4d8;font-size:13px;">${escapeHtml(secretPassword.instruction)}</div></div>` : ""}
       <div style="padding:22px 0 8px;text-align:center;">
         <div style="margin-bottom:12px;color:#d8c36a;font-size:12px;letter-spacing:2px;line-height:1.4;">QR CODE</div>
         <div style="display:inline-block;padding:12px;border-radius:12px;background:#ffffff;">

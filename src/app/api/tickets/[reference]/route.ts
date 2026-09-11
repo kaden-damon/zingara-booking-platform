@@ -29,6 +29,7 @@ import {
   recoverPlatformIncidentBestEffort,
 } from "@/lib/platformTelemetry";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { resolveServerSecretPassword } from "@/lib/secretPassword";
 
 export const dynamic = "force-dynamic";
 
@@ -479,6 +480,18 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
   const showLocation = normalizeShowLocation(
     show?.location ?? show?.venue ?? show?.venueName,
   );
+  const venueSettings = toVenueSettings(
+    venueRow as SupabaseVenueSettingsRow | null,
+  );
+  const secretPassword =
+    show && showLocation
+      ? await resolveServerSecretPassword({
+          client: supabase,
+          settings: venueSettings,
+          show,
+          venueLocation: showLocation,
+        })
+      : null;
 
   return {
     activeTicket,
@@ -497,7 +510,8 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
         }
       : null,
     tableColour: getTableColour(booking),
-    venueSettings: toVenueSettings(venueRow as SupabaseVenueSettingsRow | null),
+    secretPassword,
+    venueSettings,
   };
 }
 

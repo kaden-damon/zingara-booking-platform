@@ -8,6 +8,7 @@ import type {
 import { resolveGuestVisibleTable } from "./guestTicketDisplay";
 import { getCustomerExperienceTimes } from "./experienceTimes";
 import { ageRestrictionPolicy } from "./ageRestrictionPolicy";
+import type { ResolvedSecretPassword } from "./secretPassword";
 import {
   getDisplayZoneTitle,
   normalizeShowLocation,
@@ -35,6 +36,7 @@ export type DownloadableTicketPdfInput = {
   groundsOpen: string;
   guestSeating: string;
   location: TicketPdfLocation;
+  secretPassword?: ResolvedSecretPassword | null;
   showDate: string;
   showStarts: string;
   tableSeat: string;
@@ -50,6 +52,7 @@ export type DownloadableTicketPdfInput = {
 export type DownloadableTicketPdfSource = {
   booking: DemoBooking;
   show: (DemoShow & { name?: string; venue?: string | null }) | null;
+  secretPassword?: ResolvedSecretPassword | null;
   tableColour: {
     background: string;
     border: string;
@@ -429,6 +432,7 @@ export function resolveDownloadableTicketPdfInput(
     groundsOpen: experienceTimes.groundsOpen,
     guestSeating: experienceTimes.guestSeating,
     location: location.key,
+    secretPassword: source.secretPassword,
     showDate: formatTicketDisplayDate(source.show?.date),
     showStarts: experienceTimes.showStarts,
     tableSeat: tableNumber ? `Table ${tableNumber}` : "",
@@ -622,22 +626,53 @@ export async function createDownloadableTicketPdf(
     });
   });
 
-  fillRoundedRect(context, 317, 1601, 446, 494, 62, "#000000");
+  if (input.secretPassword) {
+    context.fillStyle = "#D8C36A";
+    fitText(
+      context,
+      input.secretPassword.heading.toUpperCase(),
+      centre,
+      1582,
+      720,
+      { family: sansFont, maxSize: 17, minSize: 12, weight: "700" },
+    );
+    context.fillStyle = "#FFF4C4";
+    fitText(context, input.secretPassword.phrase, centre, 1616, 720, {
+      family: "Georgia, 'Times New Roman', serif",
+      maxSize: 27,
+      minSize: 18,
+      weight: "700",
+    });
+  }
+
+  const qrTop = input.secretPassword ? 1644 : 1601;
+  const qrHeight = input.secretPassword ? 451 : 494;
+  fillRoundedRect(context, 317, qrTop, 446, qrHeight, 62, "#000000");
   strokeRoundedRect(
     context,
     317,
-    1601,
+    qrTop,
     446,
-    494,
+    qrHeight,
     62,
     "rgba(255,255,255,0.82)",
     2.2,
   );
 
   if (qrImage) {
+    const qrImageTop = input.secretPassword ? 1686 : 1668;
+    const qrBoxSize = input.secretPassword ? 320 : 340;
+    const qrImageSize = input.secretPassword ? 310 : 330;
+    const qrLeft = centre - qrBoxSize / 2;
     context.fillStyle = "#FFFFFF";
-    context.fillRect(370, 1668, 340, 340);
-    context.drawImage(qrImage, 375, 1673, 330, 330);
+    context.fillRect(qrLeft, qrImageTop, qrBoxSize, qrBoxSize);
+    context.drawImage(
+      qrImage,
+      centre - qrImageSize / 2,
+      qrImageTop + 5,
+      qrImageSize,
+      qrImageSize,
+    );
   }
 
   context.fillStyle = "#FFFFFF";
@@ -647,6 +682,16 @@ export async function createDownloadableTicketPdf(
     minSize: 25,
     weight: "400",
   });
+
+  if (input.secretPassword) {
+    context.fillStyle = "#A1A1AA";
+    fitText(context, input.secretPassword.instruction, centre, 2082, 720, {
+      family: sansFont,
+      maxSize: 14,
+      minSize: 10,
+      weight: "400",
+    });
+  }
 
   context.fillStyle = "#FFFFFF";
   fitText(

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import ScannableQrCode from "../../components/ScannableQrCode";
 import YourEvening from "../../components/YourEvening";
+import type { ResolvedSecretPassword } from "../../../lib/secretPassword";
 import AgeRestrictionNotice from "../../components/AgeRestrictionNotice";
 import { registerZingaraPushSubscription } from "../../../lib/browserNotifications";
 import {
@@ -36,6 +37,7 @@ type TicketPayload = {
   activeTicket: GuestTicket;
   booking: DemoBooking;
   show: DemoShow | null;
+  secretPassword: ResolvedSecretPassword | null;
   tableColour: {
     background: string;
     border: string;
@@ -118,6 +120,7 @@ export default function LiveTicketClient({
     label: "Zingara Gold",
   };
   const show = payload?.show ?? null;
+  const secretPassword = payload?.secretPassword ?? null;
   const guestTickets = booking?.guestTickets ?? [];
   const ticketState = getTicketState(booking, activeTicket);
   const guestVisibleTable =
@@ -399,6 +402,7 @@ export default function LiveTicketClient({
     try {
       const pdfInput = resolveDownloadableTicketPdfInput({
         booking,
+        secretPassword,
         tableColour,
         ticket,
         show,
@@ -566,6 +570,19 @@ export default function LiveTicketClient({
                     location={showLocation}
                     className="sm:col-span-2"
                   />
+                )}
+                {secretPassword && (
+                  <div className="rounded-2xl border border-[#D8C36A]/35 bg-black/55 p-5 text-center sm:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                      {secretPassword.heading}
+                    </p>
+                    <p className="mt-3 font-serif text-2xl font-semibold text-[#FFF4C4]">
+                      {secretPassword.phrase}
+                    </p>
+                    <p className="mt-2 text-sm text-zinc-300">
+                      {secretPassword.instruction}
+                    </p>
+                  </div>
                 )}
                 <AgeRestrictionNotice className="sm:col-span-2" compact />
                 {ticketLocationOption && (

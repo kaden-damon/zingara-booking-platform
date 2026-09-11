@@ -10,6 +10,8 @@ import {
   isSuperAdminProfile,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
+import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
+import { notifySecretPasswordWalletUpdates } from "@/lib/secretPassword";
 
 export const dynamic = "force-dynamic";
 
@@ -93,9 +95,21 @@ function validateConfiguration(
       settings.operationalSettings.friendsAndFamily[location.value];
     const experienceTimes =
       settings.operationalSettings.customerExperienceTimes[location.value];
+    const secretPasswordExperience =
+      settings.operationalSettings.secretPasswordExperience[location.value];
 
     if (!experienceTimes || !isValidExperienceTimes(experienceTimes)) {
       return `Enter valid, sequential Customer Experience Times for ${location.city}.`;
+    }
+
+    if (
+      !secretPasswordExperience ||
+      typeof secretPasswordExperience.enabled !== "boolean" ||
+      typeof secretPasswordExperience.includeInCommunications !== "boolean" ||
+      !secretPasswordExperience.heading.trim() ||
+      !secretPasswordExperience.instruction.trim()
+    ) {
+      return `Enter valid Secret Password guest wording for ${location.city}.`;
     }
 
     if (
@@ -260,6 +274,7 @@ export async function PUT(request: Request) {
     if (!settings) {
       return Response.json({ error: "Venue settings are required." }, { status: 400 });
     }
+    const previousSettings = await loadVenueSettings(getVenueKey(settings));
 
     const { data: venueTables, error: inventoryError } = await auth.serviceClient
       .from("venue_tables")
@@ -292,6 +307,51 @@ export async function PUT(request: Request) {
 
     if (error) {
       throw error;
+    }
+
+    const beforeSecretExperience =
+      previousSettings?.operationalSettings.secretPasswordExperience;
+    const afterSecretExperience =
+      settings.operationalSettings.secretPasswordExperience;
+    if (
+      auth.user &&
+      JSON.stringify(beforeSecretExperience) !== JSON.stringify(afterSecretExperience)
+    ) {
+      await tryRecordAuditEvent(
+        auth.serviceClient,
+        auth.staffProfile,
+        auth.user,
+        {
+          action: "Secret Password venue configuration updated",
+          afterValues: { configuration: afterSecretExperience },
+          beforeValues: { configuration: beforeSecretExperience ?? null },
+          entityLocation: "all",
+          entityReference: getVenueKey(settings),
+          entityType: "show",
+          outcome: "success",
+          request,
+          sourceArea: "venue-secret-passwords",
+        },
+      );
+      const today = new Intl.DateTimeFormat("en-CA", {
+        day: "2-digit",
+        month: "2-digit",
+        timeZone: "Africa/Johannesburg",
+        year: "numeric",
+      }).format(new Date());
+      for (const location of showLocationOptions) {
+        if (
+          JSON.stringify(beforeSecretExperience?.[location.value]) !==
+          JSON.stringify(afterSecretExperience[location.value])
+        ) {
+          await notifySecretPasswordWalletUpdates({
+            client: auth.serviceClient,
+            endDate: "9999-12-31",
+            startDate: today,
+            venueLocation: location.value,
+          });
+        }
+      }
     }
 
     return Response.json({ settings: await loadVenueSettings(getVenueKey(settings)) });

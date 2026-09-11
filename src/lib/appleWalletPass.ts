@@ -11,6 +11,10 @@ import {
 import { getShowLocationOption, normalizeShowLocation } from "@/lib/zingaraDemo";
 import type { DemoVenueSettings } from "@/lib/zingaraDemo";
 import { getCustomerExperienceTimes } from "@/lib/experienceTimes";
+import {
+  resolveServerSecretPassword,
+  type ResolvedSecretPassword,
+} from "@/lib/secretPassword";
 import { ageRestrictionPolicy } from "@/lib/ageRestrictionPolicy";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
@@ -43,6 +47,7 @@ type CustomerRow = {
 
 type ShowRow = {
   date: string;
+  id: string;
   name: string;
   time: string;
   venue: string;
@@ -79,6 +84,7 @@ type AppleWalletPassSource = {
   customer: CustomerRow | null;
   guestName: string;
   show: ShowRow;
+  secretPassword: ResolvedSecretPassword | null;
   table: TableRow | null;
   ticket: TicketRow;
   ticketIndex: number;
@@ -296,7 +302,7 @@ async function loadAppleWalletPassSource(
       .maybeSingle(),
     supabase
       .from("shows")
-      .select("name,date,time,venue")
+      .select("id,name,date,time,venue")
       .eq("id", booking.show_id)
       .maybeSingle(),
     booking.table_id
@@ -336,12 +342,22 @@ async function loadAppleWalletPassSource(
     0,
   );
   const venueSettings = await loadServerVenueSettings(supabase);
+  const location = normalizeShowLocation(show.venue);
+  const secretPassword = location
+    ? await resolveServerSecretPassword({
+        client: supabase,
+        settings: venueSettings,
+        show,
+        venueLocation: location,
+      })
+    : null;
 
   return {
     booking,
     customer,
     guestName,
     show,
+    secretPassword,
     table: tableResult.data as TableRow | null,
     ticket,
     ticketIndex: metadataTicket?.index ?? ticketRowIndex + 1,
@@ -539,6 +555,14 @@ async function buildAppleWalletPass(
       dataDetectorTypes: ["PKDataDetectorTypeLink"],
     },
   );
+
+  if (source.secretPassword) {
+    pass.backFields.unshift({
+      key: "secret-password",
+      label: source.secretPassword.heading.toUpperCase(),
+      value: `${source.secretPassword.phrase}\n${source.secretPassword.instruction}`,
+    });
+  }
   pass.setRelevantDate(performance.value);
   pass.setBarcodes({
     altText: source.ticket.ticket_code,
