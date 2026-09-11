@@ -7,6 +7,7 @@ import {
   type SecretPasswordSchedule,
 } from "./secretPasswordResolution.ts";
 import { getSecretPasswordLifecycleStatus } from "./secretPasswordLifecycle.ts";
+import { mergeSecretPasswordVenueConfiguration } from "./secretPasswordVenueConfiguration.ts";
 
 const show = { date: "2026-09-11", id: "show-cpt", time: "18:00" };
 
@@ -103,9 +104,117 @@ test("schedule API reactivates in place, preserves disabled state on edit and au
 test("venue enablement and schedule enablement remain independent", () => {
   const admin = readFileSync("src/app/admin/SecretPasswordSettings.tsx", "utf8");
   const route = readFileSync("src/app/api/admin/secret-passwords/route.ts", "utf8");
-  assert.match(admin, /onConfigurationChange\(location\.value, \{ enabled: event\.target\.checked \}\)/);
+  assert.match(admin, /updateConfiguration\(location\.value, \{ enabled: event\.target\.checked \}\)/);
   assert.match(route, /\.from\("venue_secret_password_schedules"\)[\s\S]*\.update\(\{ enabled \}\)/);
   assert.doesNotMatch(route, /\.from\("venue_settings"\)\.update/);
+});
+
+test("venue Secret Password settings use explicit independent Save Changes actions", () => {
+  const component = readFileSync("src/app/admin/SecretPasswordSettings.tsx", "utf8");
+  assert.match(component, /showLocationOptions\.map/);
+  assert.match(component, /onSaveConfiguration\(location, configurationDraft\[location\]\)/);
+  assert.match(component, /Save Changes/);
+  assert.match(component, /disabled=\{!isDirty \|\| saveState\.status === "saving"\}/);
+  assert.match(component, /Settings saved\./);
+  assert.match(component, /Settings were not saved\./);
+  assert.match(component, /persistedConfigurationRef/);
+});
+
+test("venue settings API merges one Secret Password venue into current authoritative settings", () => {
+  const route = readFileSync("src/app/api/admin/venue-settings/route.ts", "utf8");
+  const client = readFileSync("src/lib/supabase/venueSettings.ts", "utf8");
+  const admin = readFileSync("src/app/admin/page.tsx", "utf8");
+  assert.match(route, /body\.secretPasswordExperience/);
+  assert.match(route, /const currentSettings = await loadVenueSettings\(\)/);
+  assert.match(route, /mergeSecretPasswordVenueConfiguration\([\s\S]*currentSettings,[\s\S]*venueLocation,[\s\S]*configuration/);
+  assert.match(client, /body: \{ secretPasswordExperience: \{ configuration, venueLocation \} \}/);
+  assert.match(admin, /saveSecretPasswordVenueConfiguration\([\s\S]*location,[\s\S]*\{ \.\.\.configuration, heading, instruction \}/);
+  assert.match(admin, /configuration=\{venueConfig\.operationalSettings\.secretPasswordExperience\}/);
+  assert.doesNotMatch(route, /venue_secret_password_schedules/);
+});
+
+test("venue Secret Password values survive storage normalization without changing the other venue", () => {
+  const original = {
+    operationalSettings: {
+      secretPasswordExperience: {
+        "cape-town": {
+          enabled: false,
+          heading: "Tonight's Secret Password",
+          includeInCommunications: false,
+          instruction: "Whisper this to the doorman when you arrive.",
+        },
+        johannesburg: {
+          enabled: false,
+          heading: "Tonight's Secret Password",
+          includeInCommunications: false,
+          instruction: "Whisper this to the doorman when you arrive.",
+        },
+      },
+    },
+  } as Parameters<typeof mergeSecretPasswordVenueConfiguration>[0];
+  const capeTownBefore = structuredClone(
+    original.operationalSettings.secretPasswordExperience["cape-town"],
+  );
+  const johannesburg = {
+    enabled: true,
+    heading: "Tonight's Secret Password",
+    includeInCommunications: true,
+    instruction: "Whisper this to the doorman when you arrive.",
+  };
+  const saved = mergeSecretPasswordVenueConfiguration(
+    original,
+    "johannesburg",
+    johannesburg,
+  );
+  const refreshed = JSON.parse(JSON.stringify(saved)) as typeof saved;
+  assert.deepEqual(
+    refreshed.operationalSettings.secretPasswordExperience.johannesburg,
+    johannesburg,
+  );
+  assert.deepEqual(
+    refreshed.operationalSettings.secretPasswordExperience["cape-town"],
+    capeTownBefore,
+  );
+
+  const capeTown = {
+    ...capeTownBefore,
+    enabled: true,
+    heading: "Cape Town Password",
+    includeInCommunications: true,
+    instruction: "Cape Town instruction.",
+  };
+  const capeTownSaved = mergeSecretPasswordVenueConfiguration(
+    refreshed,
+    "cape-town",
+    capeTown,
+  );
+  assert.deepEqual(
+    capeTownSaved.operationalSettings.secretPasswordExperience["cape-town"],
+    capeTown,
+  );
+  assert.deepEqual(
+    capeTownSaved.operationalSettings.secretPasswordExperience.johannesburg,
+    johannesburg,
+  );
+});
+
+test("all four venue values persist together without an automatic communication", () => {
+  const component = readFileSync("src/app/admin/SecretPasswordSettings.tsx", "utf8");
+  const route = readFileSync("src/app/api/admin/venue-settings/route.ts", "utf8");
+  for (const field of ["enabled", "heading", "instruction", "includeInCommunications"]) {
+    assert.match(component, new RegExp(`config\\.${field}`));
+  }
+  assert.match(route, /Secret Password venue configuration updated/);
+  assert.match(route, /notifySecretPasswordWalletUpdates/);
+  assert.doesNotMatch(route, /sendEmail|sendCommunication|createCommunication/);
+});
+
+test("communication preference does not control live-ticket password resolution", () => {
+  const withCommunicationOff = {
+    ...configuration,
+    includeInCommunications: false,
+  };
+  assert.equal(resolveScheduledSecretPassword({ configuration: withCommunicationOff, show, schedules: [schedule()], venueLocation: "cape-town" })?.phrase, "Velvet Moon");
 });
 
 test("server and UI integrations preserve validation, permissions and bounded lookup", () => {

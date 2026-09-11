@@ -3,6 +3,7 @@ import {
   defaultVenueSettings,
   normalizeVenueSettings,
   showLocationOptions,
+  type EntryLocationKey,
 } from "@/lib/zingaraDemo";
 import { isValidExperienceTimes } from "@/lib/experienceTimes";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@/lib/supabase/serverAdmin";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 import { notifySecretPasswordWalletUpdates } from "@/lib/secretPassword";
+import { mergeSecretPasswordVenueConfiguration } from "@/lib/secretPasswordVenueConfiguration";
 
 export const dynamic = "force-dynamic";
 
@@ -268,8 +270,38 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as { settings?: DemoVenueSettings };
-    const settings = body.settings ? normalizeVenueSettings(body.settings) : null;
+    const body = (await request.json()) as {
+      secretPasswordExperience?: {
+        configuration: DemoVenueSettings["operationalSettings"]["secretPasswordExperience"][EntryLocationKey];
+        venueLocation: EntryLocationKey;
+      };
+      settings?: DemoVenueSettings;
+    };
+    let settings = body.settings ? normalizeVenueSettings(body.settings) : null;
+    if (!settings && body.secretPasswordExperience) {
+      const { configuration, venueLocation } = body.secretPasswordExperience;
+      if (!showLocationOptions.some((location) => location.value === venueLocation)) {
+        return Response.json({ error: "Select a valid venue." }, { status: 400 });
+      }
+      if (
+        !configuration ||
+        typeof configuration.enabled !== "boolean" ||
+        typeof configuration.includeInCommunications !== "boolean" ||
+        typeof configuration.heading !== "string" ||
+        typeof configuration.instruction !== "string"
+      ) {
+        return Response.json({ error: "Complete Secret Password venue settings are required." }, { status: 400 });
+      }
+      const currentSettings = await loadVenueSettings();
+      if (!currentSettings) {
+        return Response.json({ error: "Venue settings could not be loaded." }, { status: 409 });
+      }
+      settings = mergeSecretPasswordVenueConfiguration(
+        currentSettings,
+        venueLocation,
+        configuration,
+      );
+    }
 
     if (!settings) {
       return Response.json({ error: "Venue settings are required." }, { status: 400 });
@@ -325,7 +357,7 @@ export async function PUT(request: Request) {
           action: "Secret Password venue configuration updated",
           afterValues: { configuration: afterSecretExperience },
           beforeValues: { configuration: beforeSecretExperience ?? null },
-          entityLocation: "all",
+          entityLocation: body.secretPasswordExperience?.venueLocation ?? "all",
           entityReference: getVenueKey(settings),
           entityType: "show",
           outcome: "success",

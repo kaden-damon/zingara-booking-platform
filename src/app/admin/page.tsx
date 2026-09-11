@@ -340,6 +340,7 @@ import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
 import { runCancellationUiFlow } from "../../lib/bookingCancellation";
 import {
   getVenueSettings,
+  saveSecretPasswordVenueConfiguration,
   saveVenueSettings as persistVenueSettings,
 } from "../../lib/supabase/venueSettings";
 import {
@@ -7363,21 +7364,10 @@ type ExperienceTimesDraft = Record<
   { groundsOpen: string; guestSeating: string; showStarts: string }
 >;
 
-type SecretPasswordExperienceDraft =
-  DemoVenueSettings["operationalSettings"]["secretPasswordExperience"];
-
 function createExperienceTimesDraft(
   settings: DemoVenueSettings,
 ): ExperienceTimesDraft {
   return structuredClone(settings.operationalSettings.customerExperienceTimes);
-}
-
-function createSecretPasswordExperienceDraft(
-  settings: DemoVenueSettings,
-): SecretPasswordExperienceDraft {
-  return structuredClone(
-    settings.operationalSettings.secretPasswordExperience,
-  );
 }
 
 function createFriendsAndFamilyDraft(
@@ -10089,10 +10079,6 @@ export default function AdminDashboardPage() {
   const [experienceTimesDraft, setExperienceTimesDraft] =
     useState<ExperienceTimesDraft>(() =>
       createExperienceTimesDraft(defaultVenueSettings),
-    );
-  const [secretPasswordExperienceDraft, setSecretPasswordExperienceDraft] =
-    useState<SecretPasswordExperienceDraft>(() =>
-      createSecretPasswordExperienceDraft(defaultVenueSettings),
     );
   const [venueConfigurationSaveState, setVenueConfigurationSaveState] =
     useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
@@ -14141,9 +14127,6 @@ export default function AdminDashboardPage() {
     setPublicBookingSalesDraft(createPublicBookingSalesDraft(venueSettings));
     setFriendsAndFamilyDraft(createFriendsAndFamilyDraft(venueSettings));
     setExperienceTimesDraft(createExperienceTimesDraft(venueSettings));
-    setSecretPasswordExperienceDraft(
-      createSecretPasswordExperienceDraft(venueSettings),
-    );
   }, [venueSettings]);
   const visibleStaffNotifications = staffNotifications.filter(
     (notification) =>
@@ -16562,17 +16545,24 @@ export default function AdminDashboardPage() {
     setVenueConfigurationError("");
   }
 
-  function updateSecretPasswordExperienceDraft(
+  async function saveSecretPasswordExperienceConfiguration(
     location: EntryLocationKey,
-    updates: Partial<SecretPasswordExperienceDraft[EntryLocationKey]>,
+    configuration: DemoVenueSettings["operationalSettings"]["secretPasswordExperience"][EntryLocationKey],
   ) {
-    if (!isSuperAdmin) return;
-    setSecretPasswordExperienceDraft((current) => ({
-      ...current,
-      [location]: { ...current[location], ...updates },
-    }));
-    setVenueConfigurationSaveState("dirty");
-    setVenueConfigurationError("");
+    if (!isSuperAdmin) throw new Error("Super Admin access is required.");
+    const heading = configuration.heading.trim();
+    const instruction = configuration.instruction.trim();
+    if (!heading || !instruction) {
+      throw new Error("Enter the Secret Password guest heading and instruction before saving.");
+    }
+
+    const persistedSettings = await saveSecretPasswordVenueConfiguration(
+      location,
+      { ...configuration, heading, instruction },
+    );
+    setVenueSettings(persistedSettings);
+    showWorkflowToast(`✓ Saved · ${location === "cape-town" ? "Cape Town" : "Johannesburg"} Secret Password settings`);
+    return persistedSettings.operationalSettings.secretPasswordExperience[location];
   }
 
   async function saveAuthoritativeVenueConfiguration() {
@@ -16592,7 +16582,7 @@ export default function AdminDashboardPage() {
       ...venueSettings.operationalSettings.customerExperienceTimes,
     };
     const nextSecretPasswordExperience = structuredClone(
-      secretPasswordExperienceDraft,
+      venueSettings.operationalSettings.secretPasswordExperience,
     );
 
     for (const location of showLocationOptions) {
@@ -34668,8 +34658,8 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
                 <SecretPasswordSettings
-                  configuration={secretPasswordExperienceDraft}
-                  onConfigurationChange={updateSecretPasswordExperienceDraft}
+                  configuration={venueConfig.operationalSettings.secretPasswordExperience}
+                  onSaveConfiguration={saveSecretPasswordExperienceConfiguration}
                   shows={shows}
                 />
                 <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">

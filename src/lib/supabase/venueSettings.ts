@@ -4,6 +4,7 @@ import {
   getStoredVenueSettings,
   normalizeVenueSettings,
   storeVenueSettings,
+  type EntryLocationKey,
 } from "@/lib/zingaraDemo";
 import { fetchSupabaseApi } from "./apiClient";
 
@@ -112,5 +113,22 @@ export async function saveVenueSettings(settings: DemoVenueSettings) {
   const persistedSettings = await persistVenueSettingsToSupabase(settings);
   storeVenueSettings(persistedSettings);
 
+  return persistedSettings;
+}
+
+export async function saveSecretPasswordVenueConfiguration(
+  venueLocation: EntryLocationKey,
+  configuration: DemoVenueSettings["operationalSettings"]["secretPasswordExperience"][EntryLocationKey],
+) {
+  const payload = await fetchSupabaseApi<{ settings: DemoVenueSettings | null }>(
+    "/api/admin/venue-settings",
+    {
+      body: { secretPasswordExperience: { configuration, venueLocation } },
+      method: "PUT",
+    },
+  );
+  if (!payload.settings) throw new Error("Secret Password settings were not saved.");
+  const persistedSettings = normalizeVenueSettings(payload.settings);
+  storeVenueSettings(persistedSettings);
   return persistedSettings;
 }

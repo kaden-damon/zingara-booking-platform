@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { SecretPasswordSchedule, SecretPasswordScope } from "@/lib/secretPassword";
 import { getSecretPasswordLifecycleStatus } from "@/lib/secretPasswordLifecycle";
@@ -21,7 +21,10 @@ type SecretExperience = DemoVenueSettings["operationalSettings"]["secretPassword
 
 type Props = {
   configuration: SecretExperience;
-  onConfigurationChange: (location: EntryLocationKey, updates: Partial<SecretExperience[EntryLocationKey]>) => void;
+  onSaveConfiguration: (
+    location: EntryLocationKey,
+    configuration: SecretExperience[EntryLocationKey],
+  ) => Promise<SecretExperience[EntryLocationKey]>;
   shows: DemoShow[];
 };
 
@@ -55,11 +58,74 @@ function scopeLabel(scope: SecretPasswordScope) {
   return "Date range / weekly period";
 }
 
-export default function SecretPasswordSettings({ configuration, onConfigurationChange, shows }: Props) {
+const initialConfigurationSaveState = {
+  "cape-town": { message: "", status: "idle" as const },
+  johannesburg: { message: "", status: "idle" as const },
+};
+
+export default function SecretPasswordSettings({ configuration, onSaveConfiguration, shows }: Props) {
   const [schedules, setSchedules] = useState<SecretPasswordSchedule[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [status, setStatus] = useState<"error" | "idle" | "loading" | "saving">("loading");
   const [message, setMessage] = useState("");
+  const [configurationDraft, setConfigurationDraft] = useState<SecretExperience>(
+    () => structuredClone(configuration),
+  );
+  const persistedConfigurationRef = useRef(configuration);
+  const [configurationSaveState, setConfigurationSaveState] = useState<
+    Record<EntryLocationKey, { message: string; status: "error" | "idle" | "saved" | "saving" }>
+  >(initialConfigurationSaveState);
+
+  useEffect(() => {
+    const previous = persistedConfigurationRef.current;
+    setConfigurationDraft((current) => ({
+      "cape-town": JSON.stringify(current["cape-town"]) === JSON.stringify(previous["cape-town"])
+        ? structuredClone(configuration["cape-town"])
+        : current["cape-town"],
+      johannesburg: JSON.stringify(current.johannesburg) === JSON.stringify(previous.johannesburg)
+        ? structuredClone(configuration.johannesburg)
+        : current.johannesburg,
+    }));
+    persistedConfigurationRef.current = configuration;
+  }, [configuration]);
+
+  function updateConfiguration(
+    location: EntryLocationKey,
+    updates: Partial<SecretExperience[EntryLocationKey]>,
+  ) {
+    setConfigurationDraft((current) => ({
+      ...current,
+      [location]: { ...current[location], ...updates },
+    }));
+    setConfigurationSaveState((current) => ({
+      ...current,
+      [location]: { message: "", status: "idle" },
+    }));
+  }
+
+  async function saveConfiguration(location: EntryLocationKey) {
+    if (configurationSaveState[location].status === "saving") return;
+    setConfigurationSaveState((current) => ({
+      ...current,
+      [location]: { message: "", status: "saving" },
+    }));
+    try {
+      const persisted = await onSaveConfiguration(location, configurationDraft[location]);
+      setConfigurationDraft((current) => ({ ...current, [location]: persisted }));
+      setConfigurationSaveState((current) => ({
+        ...current,
+        [location]: { message: "Settings saved.", status: "saved" },
+      }));
+    } catch (error) {
+      setConfigurationSaveState((current) => ({
+        ...current,
+        [location]: {
+          message: error instanceof Error ? error.message : "Settings were not saved.",
+          status: "error",
+        },
+      }));
+    }
+  }
 
   async function reload() {
     setStatus("loading");
@@ -156,24 +222,37 @@ export default function SecretPasswordSettings({ configuration, onConfigurationC
 
       <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
         {showLocationOptions.map((location) => {
-          const config = configuration[location.value];
+          const config = configurationDraft[location.value];
+          const saveState = configurationSaveState[location.value];
+          const isDirty = JSON.stringify(config) !== JSON.stringify(configuration[location.value]);
           return (
             <fieldset key={location.value} className="rounded-lg border border-white/10 bg-black/40 p-4">
               <legend className="px-1 font-semibold text-white">{location.city}</legend>
               <label className="mt-2 flex items-center gap-2 text-sm text-zinc-300">
-                <input type="checkbox" checked={config.enabled} onChange={(event) => onConfigurationChange(location.value, { enabled: event.target.checked })} />
+                <input type="checkbox" checked={config.enabled} onChange={(event) => updateConfiguration(location.value, { enabled: event.target.checked })} />
                 Enable Secret Password
               </label>
               <label className="mt-3 block text-sm text-zinc-400">Guest heading
-                <input value={config.heading} onChange={(event) => onConfigurationChange(location.value, { heading: event.target.value })} className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" />
+                <input value={config.heading} onChange={(event) => updateConfiguration(location.value, { heading: event.target.value })} className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" />
               </label>
               <label className="mt-3 block text-sm text-zinc-400">Guest instruction
-                <input value={config.instruction} onChange={(event) => onConfigurationChange(location.value, { instruction: event.target.value })} className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" />
+                <input value={config.instruction} onChange={(event) => updateConfiguration(location.value, { instruction: event.target.value })} className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" />
               </label>
               <label className="mt-3 flex items-start gap-2 text-sm text-zinc-300">
-                <input type="checkbox" className="mt-1" checked={config.includeInCommunications} onChange={(event) => onConfigurationChange(location.value, { includeInCommunications: event.target.checked })} />
+                <input type="checkbox" className="mt-1" checked={config.includeInCommunications} onChange={(event) => updateConfiguration(location.value, { includeInCommunications: event.target.checked })} />
                 Include in ticket and booking communications
               </label>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={!isDirty || saveState.status === "saving"}
+                  onClick={() => void saveConfiguration(location.value)}
+                  className="rounded-lg bg-[#D8C36A] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {saveState.status === "saving" ? "Saving..." : "Save Changes"}
+                </button>
+                {saveState.message && <span className={saveState.status === "error" ? "text-sm text-red-300" : "text-sm text-emerald-300"}>{saveState.message}</span>}
+              </div>
             </fieldset>
           );
         })}
