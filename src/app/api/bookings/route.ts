@@ -207,6 +207,7 @@ type BookingWithReservationClaims = DemoBooking & {
 type ReservePublicBookingResult = {
   booking_id?: string;
   claimed_table_ids?: string[];
+  customer_id?: string;
   payment_id?: string;
   status?: "already_exists" | "conflict" | "success";
   table_code?: string;
@@ -944,7 +945,7 @@ function isPromoReservationError(error: unknown) {
 async function reservePublicBookingAtomically(
   supabase: SupabaseClient,
   booking: BookingWithReservationClaims,
-  customerId: string,
+  customerId: string | undefined,
   showId: string,
 ) {
   const claims = normalizeReservationClaims(booking);
@@ -960,20 +961,41 @@ async function reservePublicBookingAtomically(
         };
   const bookingPayload = getBookingPayload(
     bookingForReservation,
-    customerId,
+    customerId ?? "00000000-0000-0000-0000-000000000000",
     showId,
   );
   const paymentPayload = getPaymentPayload(
     bookingForReservation,
     "00000000-0000-0000-0000-000000000000",
   );
+  const resolvesCorporateCustomer = Boolean(
+    booking.source === "corporate-direct" && booking.corporateRequestId,
+  );
   const { data, error } = await supabase.rpc(
-    booking.zoneEntitlements && booking.zoneEntitlements.length > 1
+    resolvesCorporateCustomer
+      ? "reserve_corporate_conversion_with_customer"
+      : booking.zoneEntitlements && booking.zoneEntitlements.length > 1
       ? "reserve_corporate_multi_zone_entitlement"
       : claims.length > 0
       ? "reserve_public_booking_table"
       : "reserve_public_booking_entitlement",
-    booking.zoneEntitlements && booking.zoneEntitlements.length > 1
+    resolvesCorporateCustomer
+      ? {
+          p_booking_payload: bookingPayload,
+          p_customer_payload: getCustomerPayload(booking.customer),
+          p_mobile_lookup_variants: getPhoneLookupVariants(
+            booking.customer.phone,
+          ),
+          p_payment_payload: paymentPayload,
+          p_show_id: showId,
+          p_table_claims: claims.map((claim) => ({
+            capacity: claim.capacity,
+            section: claim.section,
+            table_code: claim.tableCode,
+          })),
+          p_zone_entitlements: booking.zoneEntitlements ?? [],
+        }
+      : booking.zoneEntitlements && booking.zoneEntitlements.length > 1
       ? {
           p_booking_payload: bookingPayload,
           p_payment_payload: paymentPayload,
@@ -1028,6 +1050,7 @@ async function reservePublicBookingAtomically(
 
   return {
     bookingId: result.booking_id,
+    customerId: result.customer_id ?? customerId,
     paymentId: result.payment_id,
     tableId: result.table_id,
     tableNumber: primaryClaim?.tableCode,
@@ -1835,10 +1858,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const customerId = await upsertCustomer(supabase, booking.customer);
+    booking = {
+      ...booking,
+      customer: normalizeBookingCustomer(booking.customer),
+    };
+    const resolvesCorporateCustomerAtomically = Boolean(
+      isTrustedStaff &&
+        booking.source === "corporate-direct" &&
+        booking.corporateRequestId,
+    );
+    let customerId = resolvesCorporateCustomerAtomically
+      ? undefined
+      : await upsertCustomer(supabase, booking.customer);
     const showId = show.id;
 
-    if (!customerId) {
+    if (!customerId && !resolvesCorporateCustomerAtomically) {
       console.error("[Zingara API] Failed to map booking relations", {
         bookingDate: booking.bookingDate,
         bookingReference: booking.reference,
@@ -1994,6 +2028,11 @@ export async function POST(request: Request) {
       if (reservation.bookingId) {
         await syncLifecycleEvents(supabase, booking, reservation.bookingId);
       }
+      customerId = reservation.customerId;
+
+      if (!customerId) {
+        throw new Error("Corporate booking customer could not be resolved.");
+      }
 
       const invoiceTicketId =
         booking.corporatePaymentBasis === "invoice-paid" &&
@@ -2034,6 +2073,10 @@ export async function POST(request: Request) {
         tableNumber: reservation.tableNumber,
         ticketId: invoiceTicketId,
       });
+    }
+
+    if (!customerId) {
+      throw new Error("Booking customer could not be resolved.");
     }
 
     const bookingId = await upsertBooking(supabase, booking, customerId, show.id);
@@ -2116,6 +2159,24 @@ export async function POST(request: Request) {
         {
           error:
             "That promo code is no longer available for this booking. Please refresh your payment summary and try again.",
+        },
+        { status: 409 },
+      );
+    }
+
+    const transactionErrorMessage =
+      error instanceof Error
+        ? error.message
+        : typeof error === "object" && error && "message" in error
+          ? String(error.message ?? "")
+          : "";
+
+    if (transactionErrorMessage.includes("CORPORATE_CUSTOMER_IDENTITY_AMBIGUOUS")) {
+      return Response.json(
+        {
+          code: "CORPORATE_CUSTOMER_IDENTITY_AMBIGUOUS",
+          error:
+            "Customer identity is ambiguous. Review the customer records using this email or mobile number, then retry conversion.",
         },
         { status: 409 },
       );

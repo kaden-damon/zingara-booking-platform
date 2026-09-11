@@ -39,8 +39,9 @@ export function validateBookingCreate(
 
   const customer = normalizeBookingCustomer(input.customer);
   const errors: BookingCreateFieldErrors = {};
-  const requiresCompleteContact =
+  const requiresEmail =
     !input.isTrustedStaff || input.bookingSource === "corporate-direct";
+  const requiresMobile = !input.isTrustedStaff;
 
   if (!customer.name) {
     errors.name = "Full name is required.";
@@ -50,13 +51,15 @@ export function validateBookingCreate(
     errors.partySize = "Enter a valid number of guests.";
   }
 
-  if (requiresCompleteContact) {
+  if (requiresEmail) {
     if (!customer.email) {
       errors.email = "Email address is required.";
     } else if (!emailPattern.test(customer.email)) {
       errors.email = "Enter a valid email address.";
     }
+  }
 
+  if (requiresMobile) {
     if (!customer.phone) {
       errors.phone = "Mobile number is required.";
     } else if (!parseInternationalPhone(customer.phone).valid) {
