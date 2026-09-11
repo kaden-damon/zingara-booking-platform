@@ -52,9 +52,11 @@ export function resolveSecretPasswordFromSchedules(input: {
   venueLocation: EntryLocationKey;
 }): ResolvedSecretPassword | null {
   const configuration =
-    input.settings.operationalSettings.secretPasswordExperience[
+    input.settings.operationalSettings?.secretPasswordExperience?.[
       input.venueLocation
     ];
+
+  if (!configuration) return null;
 
   return resolveScheduledSecretPassword({
     configuration,
@@ -71,7 +73,7 @@ export async function resolveServerSecretPassword(input: {
   venueLocation: EntryLocationKey;
 }) {
   const configuration =
-    input.settings.operationalSettings.secretPasswordExperience[
+    input.settings.operationalSettings?.secretPasswordExperience?.[
       input.venueLocation
     ];
   if (!configuration?.enabled) return null;
@@ -97,12 +99,26 @@ export async function resolveServerSecretPassword(input: {
   });
 }
 
+export async function resolveOptionalServerSecretPassword(
+  input: Parameters<typeof resolveServerSecretPassword>[0],
+) {
+  try {
+    return await resolveServerSecretPassword(input);
+  } catch (error) {
+    console.error(
+      "[Zingara Secret Password] Optional guest enrichment failed.",
+      error,
+    );
+    return null;
+  }
+}
+
 export function shouldIncludeSecretPasswordInCommunications(
   settings: DemoVenueSettings,
   venueLocation: EntryLocationKey,
 ) {
   return Boolean(
-    settings.operationalSettings.secretPasswordExperience[venueLocation]
+    settings.operationalSettings?.secretPasswordExperience?.[venueLocation]
       ?.includeInCommunications,
   );
 }

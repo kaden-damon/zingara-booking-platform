@@ -17,7 +17,7 @@ import {
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 import {
-  resolveServerSecretPassword,
+  resolveOptionalServerSecretPassword,
   shouldIncludeSecretPasswordInCommunications,
 } from "@/lib/secretPassword";
 import {
@@ -125,7 +125,7 @@ export async function createZingaraTicketEmail({
   const secretPassword =
     serviceClient && location && show?.id &&
     shouldIncludeSecretPasswordInCommunications(venueSettings, location)
-      ? await resolveServerSecretPassword({
+      ? await resolveOptionalServerSecretPassword({
           client: serviceClient,
           settings: venueSettings,
           show: { date: show.date, id: show.id, time: show.time },

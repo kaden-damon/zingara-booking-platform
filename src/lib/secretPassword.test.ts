@@ -77,19 +77,35 @@ test("server and UI integrations preserve validation, permissions and bounded lo
   assert.match(admin, /SecretPasswordOperationalBanner/);
 });
 
-test("guest delivery uses one resolver and does not alter QR, serial, or validation", () => {
+test("guest delivery uses non-blocking enrichment and does not alter QR, serial, or validation", () => {
   const ticketRoute = readFileSync("src/app/api/tickets/[reference]/route.ts", "utf8");
   const ticketClient = readFileSync("src/app/ticket/[reference]/ticket-client.tsx", "utf8");
   const pdf = readFileSync("src/lib/ticketPdf.ts", "utf8");
   const wallet = readFileSync("src/lib/appleWalletPass.ts", "utf8");
   const email = readFileSync("src/lib/email/ticketEmail.ts", "utf8");
-  assert.match(ticketRoute, /resolveServerSecretPassword/);
+  for (const source of [ticketRoute, wallet, email]) {
+    assert.match(source, /resolveOptionalServerSecretPassword/);
+  }
   assert.match(ticketClient, /secretPassword\.phrase/);
   assert.match(pdf, /input\.secretPassword/);
   assert.match(wallet, /key: "secret-password"/);
   assert.match(wallet, /serialNumber: source\.ticket\.id/);
   assert.match(wallet, /message: source\.ticket\.qr_payload/);
   assert.match(email, /shouldIncludeSecretPasswordInCommunications/);
+});
+
+test("legacy venue settings and resolver errors cannot block guest delivery", () => {
+  const resolver = readFileSync("src/lib/secretPassword.ts", "utf8");
+  const ticketRoute = readFileSync("src/app/api/tickets/[reference]/route.ts", "utf8");
+  assert.match(
+    resolver,
+    /operationalSettings\?\.secretPasswordExperience\?\.\[/,
+  );
+  assert.match(
+    resolver,
+    /resolveOptionalServerSecretPassword[\s\S]*try[\s\S]*catch[\s\S]*return null/,
+  );
+  assert.match(ticketRoute, /normalizeVenueSettings\(row\?\.settings\)/);
 });
 
 test("secret password remains theatrical and isolated from booking business state", () => {

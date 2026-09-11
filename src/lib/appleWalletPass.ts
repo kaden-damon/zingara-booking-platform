@@ -12,7 +12,7 @@ import { getShowLocationOption, normalizeShowLocation } from "@/lib/zingaraDemo"
 import type { DemoVenueSettings } from "@/lib/zingaraDemo";
 import { getCustomerExperienceTimes } from "@/lib/experienceTimes";
 import {
-  resolveServerSecretPassword,
+  resolveOptionalServerSecretPassword,
   type ResolvedSecretPassword,
 } from "@/lib/secretPassword";
 import { ageRestrictionPolicy } from "@/lib/ageRestrictionPolicy";
@@ -344,7 +344,7 @@ async function loadAppleWalletPassSource(
   const venueSettings = await loadServerVenueSettings(supabase);
   const location = normalizeShowLocation(show.venue);
   const secretPassword = location
-    ? await resolveServerSecretPassword({
+    ? await resolveOptionalServerSecretPassword({
         client: supabase,
         settings: venueSettings,
         show,

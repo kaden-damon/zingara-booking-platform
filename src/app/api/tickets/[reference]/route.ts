@@ -9,6 +9,7 @@ import {
   getZoneSectionLookupTitles,
   getGuestTicketsForBooking,
   getTicketUrl,
+  normalizeVenueSettings,
   normalizeShowLocation,
   normalizeTicketReference,
   seatingZones,
@@ -29,7 +30,7 @@ import {
   recoverPlatformIncidentBestEffort,
 } from "@/lib/platformTelemetry";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
-import { resolveServerSecretPassword } from "@/lib/secretPassword";
+import { resolveOptionalServerSecretPassword } from "@/lib/secretPassword";
 
 export const dynamic = "force-dynamic";
 
@@ -151,16 +152,17 @@ function getGuestFacingTicketPayload(payload: TicketPayload) {
 }
 
 function toVenueSettings(row: SupabaseVenueSettingsRow | null | undefined) {
+  const normalizedSettings = normalizeVenueSettings(row?.settings);
+
   return {
-    ...defaultVenueSettings,
-    ...(row?.settings ?? {}),
+    ...normalizedSettings,
     venueId:
       row?.venue_key ??
-      row?.settings?.venueId ??
+      normalizedSettings.venueId ??
       defaultVenueSettings.venueId,
     venueName:
       row?.name ??
-      row?.settings?.venueName ??
+      normalizedSettings.venueName ??
       defaultVenueSettings.venueName,
   };
 }
@@ -485,7 +487,7 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
   );
   const secretPassword =
     show && showLocation
-      ? await resolveServerSecretPassword({
+      ? await resolveOptionalServerSecretPassword({
           client: supabase,
           settings: venueSettings,
           show,
