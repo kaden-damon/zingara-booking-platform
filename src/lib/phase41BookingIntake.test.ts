@@ -34,7 +34,7 @@ test("public Corporate intake supports direct whole-number entry and server vali
   assert.doesNotMatch(route, /> 2000/);
 });
 
-test("internal Corporate booking supports direct numeric entry and mandatory contact", async () => {
+test("internal Corporate booking supports direct numeric entry and optional mobile", async () => {
   const page = await readFile(
     new URL("../app/book/page.tsx", import.meta.url),
     "utf8",
@@ -42,7 +42,8 @@ test("internal Corporate booking supports direct numeric entry and mandatory con
 
   assert.match(page, /aria-label="Number of guests"/);
   assert.match(page, /maximumCorporateGuestCount/);
-  assert.match(page, /isCorporateCalendarCheckout\) && <span aria-hidden="true">\*<\/span>/);
+  assert.match(page, /isCorporateCalendarCheckout \? \([\s\S]*\(Optional\)/);
+  assert.match(page, /required=\{!isTrustedManualCheckout\}/);
   assert.match(page, /isCorporateCalendarCheckout\s*\? "corporate-direct"/);
 });
 

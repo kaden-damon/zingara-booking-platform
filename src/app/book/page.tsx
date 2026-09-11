@@ -4308,10 +4308,14 @@ export default function BookingPage() {
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
                     Mobile Number{" "}
-                    {(!isTrustedManualCheckout || isCorporateCalendarCheckout) && <span aria-hidden="true">*</span>}
+                    {isCorporateCalendarCheckout ? (
+                      <span className="normal-case text-zinc-500">(Optional)</span>
+                    ) : !isTrustedManualCheckout ? (
+                      <span aria-hidden="true">*</span>
+                    ) : null}
                   </span>
                   <InternationalPhoneInput
-                    required={!isTrustedManualCheckout || isCorporateCalendarCheckout}
+                    required={!isTrustedManualCheckout}
                     aria-invalid={Boolean(customerValidationErrors.phone)}
                     aria-describedby={
                       customerValidationErrors.phone
@@ -5206,10 +5210,14 @@ export default function BookingPage() {
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
                     Mobile Number{" "}
-                    {(!isTrustedManualCheckout || isCorporateCalendarCheckout) && <span aria-hidden="true">*</span>}
+                    {isCorporateCalendarCheckout ? (
+                      <span className="normal-case text-zinc-500">(Optional)</span>
+                    ) : !isTrustedManualCheckout ? (
+                      <span aria-hidden="true">*</span>
+                    ) : null}
                   </span>
                   <InternationalPhoneInput
-                    required={!isTrustedManualCheckout || isCorporateCalendarCheckout}
+                    required={!isTrustedManualCheckout}
                     aria-invalid={Boolean(customerValidationErrors.phone)}
                     aria-describedby={
                       customerValidationErrors.phone

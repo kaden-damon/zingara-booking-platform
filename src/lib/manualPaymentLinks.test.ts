@@ -88,7 +88,7 @@ test("missing contact blocks sending but leaves Copy Link available", async () =
   assert.match(page, /isTrustedStaff: isTrustedManualCheckout/);
   assert.match(
     page,
-    /required={!isTrustedManualCheckout \|\| isCorporateCalendarCheckout}/,
+    /required={!isTrustedManualCheckout}/,
   );
   assert.match(page, /!manualPaymentLinkResult\.canSend/);
   assert.match(page, /Copy Link remains available/);
