@@ -208,6 +208,17 @@ import {
   type BookingLocationFilter,
 } from "../../lib/bookingLocationFilter";
 import {
+  bookingMatchesCreatedWindow,
+  bookingMatchesCreator,
+  bookingMatchesSalesSource,
+  bookingSalesSourceLabels,
+  getBookingSalesSource,
+  resolveBookingCreatedWindow,
+  type BookingCreatedDateFilter,
+  type BookingSalesSource,
+  type BookingSalesSourceFilter,
+} from "../../lib/bookingSalesFilters";
+import {
   convertCorporateRequest,
   getCorporateRequests,
   reconcileImportedCorporateFinancials,
@@ -10504,7 +10515,15 @@ export default function AdminDashboardPage() {
     useState<BookingLocationFilter>("all");
   const [bookingDateFilter, setBookingDateFilter] = useState("all");
   const [bookingSourceFilter, setBookingSourceFilter] =
-    useState<BookingSource | "all">("all");
+    useState<BookingSalesSourceFilter>("all");
+  const [bookingCreatedByFilter, setBookingCreatedByFilter] =
+    useState("all");
+  const [bookingCreatedDateFilter, setBookingCreatedDateFilter] =
+    useState<BookingCreatedDateFilter>("all");
+  const [bookingCreatedSpecificDate, setBookingCreatedSpecificDate] =
+    useState("");
+  const [bookingCreatedFrom, setBookingCreatedFrom] = useState("");
+  const [bookingCreatedTo, setBookingCreatedTo] = useState("");
   const [bookingPromoFilter, setBookingPromoFilter] =
     useState<BookingPromoFilter>("all");
   const [isBookingCalendarOpen, setIsBookingCalendarOpen] =
@@ -24507,6 +24526,13 @@ export default function AdminDashboardPage() {
       .toLowerCase();
   }
 
+  const bookingCreatedWindow = resolveBookingCreatedWindow({
+    filter: bookingCreatedDateFilter,
+    from: bookingCreatedFrom,
+    specificDate: bookingCreatedSpecificDate,
+    to: bookingCreatedTo,
+  });
+
   function bookingMatchesCurrentFilters(
     booking: DemoBooking,
     options: { includeArchiveView?: boolean } = {},
@@ -24559,6 +24585,10 @@ export default function AdminDashboardPage() {
       }
     }
 
+    if (!bookingMatchesCreatedWindow(booking.createdAt, bookingCreatedWindow)) {
+      return false;
+    }
+
     if (
       bookingArchiveFilter !== "archived" &&
       hideCancelledBookings &&
@@ -24575,10 +24605,11 @@ export default function AdminDashboardPage() {
       return false;
     }
 
-    if (
-      bookingSourceFilter !== "all" &&
-      (booking.source ?? "online") !== bookingSourceFilter
-    ) {
+    if (!bookingMatchesSalesSource(booking, bookingSourceFilter)) {
+      return false;
+    }
+
+    if (!bookingMatchesCreator(booking, bookingCreatedByFilter)) {
       return false;
     }
 
@@ -24615,7 +24646,21 @@ export default function AdminDashboardPage() {
     const selectedSource =
       bookingSourceFilter === "all"
         ? "All sources"
-        : bookingSourceLabels[bookingSourceFilter];
+        : bookingSalesSourceLabels[bookingSourceFilter];
+    const selectedCreator =
+      bookingCreatedByFilter === "all"
+        ? "All staff"
+        : bookings.find(
+            (booking) => booking.createdByStaffId === bookingCreatedByFilter,
+          )?.createdByStaffName ?? "Recorded staff creator";
+    const selectedCreatedDate =
+      bookingCreatedDateFilter === "all"
+        ? "All created dates"
+        : bookingCreatedDateFilter === "specific"
+          ? `Created ${bookingCreatedSpecificDate || "date required"}`
+          : bookingCreatedDateFilter === "range"
+            ? `Created ${bookingCreatedFrom || "from required"} to ${bookingCreatedTo || "to required"}`
+            : `Created ${bookingCreatedDateFilter}`;
     const selectedLocation =
       bookingLocationFilter === "all"
         ? "All locations"
@@ -24640,6 +24685,8 @@ export default function AdminDashboardPage() {
       bookingDateFilter === "all" ? "All dates" : bookingDateFilter,
       selectedStatus,
       selectedSource,
+      selectedCreator,
+      selectedCreatedDate,
       selectedPromo,
       hideCancelledBookings ? "Cancelled hidden" : "Cancelled included",
       bookingSearch.trim() ? `Search: ${bookingSearch.trim()}` : "No search",
@@ -24803,6 +24850,11 @@ export default function AdminDashboardPage() {
     [
       activeAdminTab,
       bookingArchiveFilter,
+      bookingCreatedByFilter,
+      bookingCreatedDateFilter,
+      bookingCreatedFrom,
+      bookingCreatedSpecificDate,
+      bookingCreatedTo,
       bookingDateFilter,
       bookingLocationFilter,
       bookingPromoFilter,
@@ -24818,6 +24870,32 @@ export default function AdminDashboardPage() {
       shows,
     ],
   );
+  const bookingSalesSourceOptions = useMemo(() => {
+    const presentSources = new Set(bookings.map(getBookingSalesSource));
+    const sourceOrder: BookingSalesSource[] = [
+      "customer_public",
+      "staff_internal",
+      "data_import",
+      "corporate_conversion",
+      "legacy_unknown",
+      "other",
+    ];
+
+    return sourceOrder.filter((source) => presentSources.has(source));
+  }, [bookings]);
+  const bookingCreatorOptions = useMemo(() => {
+    const creators = new Map<string, string>();
+
+    bookings.forEach((booking) => {
+      if (booking.createdByStaffId && booking.createdByStaffName) {
+        creators.set(booking.createdByStaffId, booking.createdByStaffName);
+      }
+    });
+
+    return [...creators.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [bookings]);
   const persistedPromoFilterOptions = useMemo(
     () => getPersistedPromoFilterOptions(bookings),
     [bookings],
@@ -42009,20 +42087,65 @@ export default function AdminDashboardPage() {
                     value={bookingSourceFilter}
                     onChange={(event) => {
                       setBookingSourceFilter(
-                        event.target.value as BookingSource | "all",
+                        event.target.value as BookingSalesSourceFilter,
                       );
                       setBookingPage(1);
                     }}
                     className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
                   >
                     <option value="all">All Sources</option>
-                    {(
-                      Object.keys(bookingSourceLabels) as BookingSource[]
-                    ).map((source) => (
+                    {bookingSalesSourceOptions.map((source) => (
                       <option key={source} value={source}>
-                        {bookingSourceLabels[source]}
+                        {bookingSalesSourceLabels[source]}
                       </option>
                     ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    ▾
+                  </span>
+                </label>
+
+                <label className="relative block min-w-0">
+                  <span className="sr-only">Filter bookings by creator</span>
+                  <select
+                    aria-label="Created By"
+                    value={bookingCreatedByFilter}
+                    onChange={(event) => {
+                      setBookingCreatedByFilter(event.target.value);
+                      setBookingPage(1);
+                    }}
+                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                  >
+                    <option value="all">Created By · All Staff</option>
+                    {bookingCreatorOptions.map((creator) => (
+                      <option key={creator.id} value={creator.id}>
+                        {creator.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    ▾
+                  </span>
+                </label>
+
+                <label className="relative block min-w-0">
+                  <span className="sr-only">Filter by booking created date</span>
+                  <select
+                    aria-label="Booking Created"
+                    value={bookingCreatedDateFilter}
+                    onChange={(event) => {
+                      setBookingCreatedDateFilter(
+                        event.target.value as BookingCreatedDateFilter,
+                      );
+                      setBookingPage(1);
+                    }}
+                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                  >
+                    <option value="all">Booking Created · All Created Dates</option>
+                    <option value="today">Booking Created · Today</option>
+                    <option value="yesterday">Booking Created · Yesterday</option>
+                    <option value="specific">Booking Created · Specific Date</option>
+                    <option value="range">Booking Created · Date Range</option>
                   </select>
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
                     ▾
@@ -42079,12 +42202,13 @@ export default function AdminDashboardPage() {
                 <div className="relative min-w-0">
                   <button
                     type="button"
+                    aria-label="Show Date"
                     onClick={() =>
                       setIsBookingCalendarOpen((isOpen) => !isOpen)
                     }
                     className="h-11 w-full rounded-full border border-white/15 bg-black/35 px-4 py-2 text-left text-sm font-semibold text-zinc-300 transition hover:border-[#D8C36A]/50 hover:text-white focus:border-[#D8C36A]/70 focus:outline-none"
                   >
-                    {bookingDateFilter === "all"
+                    Show Date · {bookingDateFilter === "all"
                       ? "All Dates"
                       : bookingDateFilter}
                   </button>
@@ -42202,6 +42326,60 @@ export default function AdminDashboardPage() {
                   />
                 </label>
               </div>
+
+              {(bookingCreatedDateFilter === "specific" ||
+                bookingCreatedDateFilter === "range") && (
+                <div className="rounded-2xl border border-[#D8C36A]/20 bg-black/25 p-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {bookingCreatedDateFilter === "specific" ? (
+                      <label className="grid gap-1 text-xs font-semibold text-zinc-300">
+                        Booking Created Date
+                        <input
+                          type="date"
+                          value={bookingCreatedSpecificDate}
+                          onChange={(event) => {
+                            setBookingCreatedSpecificDate(event.target.value);
+                            setBookingPage(1);
+                          }}
+                          className="h-11 min-w-0 rounded-full border border-white/15 bg-black/35 px-4 text-sm text-white outline-none transition focus:border-[#D8C36A]/70"
+                        />
+                      </label>
+                    ) : (
+                      <>
+                        <label className="grid gap-1 text-xs font-semibold text-zinc-300">
+                          From
+                          <input
+                            type="date"
+                            value={bookingCreatedFrom}
+                            onChange={(event) => {
+                              setBookingCreatedFrom(event.target.value);
+                              setBookingPage(1);
+                            }}
+                            className="h-11 min-w-0 rounded-full border border-white/15 bg-black/35 px-4 text-sm text-white outline-none transition focus:border-[#D8C36A]/70"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-xs font-semibold text-zinc-300">
+                          To
+                          <input
+                            type="date"
+                            value={bookingCreatedTo}
+                            onChange={(event) => {
+                              setBookingCreatedTo(event.target.value);
+                              setBookingPage(1);
+                            }}
+                            className="h-11 min-w-0 rounded-full border border-white/15 bg-black/35 px-4 text-sm text-white outline-none transition focus:border-[#D8C36A]/70"
+                          />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                  {bookingCreatedWindow.error && (
+                    <p role="alert" className="mt-2 text-sm text-amber-200">
+                      {bookingCreatedWindow.error}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="flex flex-col gap-3 xl:flex-row xl:flex-wrap xl:items-center xl:justify-between">
                 <div className="flex min-w-0 flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
@@ -42420,6 +42598,8 @@ export default function AdminDashboardPage() {
                   bookingShowFilter === "all" &&
                   bookingLocationFilter === "all" &&
                   bookingSourceFilter === "all" &&
+                  bookingCreatedByFilter === "all" &&
+                  bookingCreatedDateFilter === "all" &&
                   bookingStatusFilter === "all" &&
                   bookingPromoFilter === "all" &&
                   bookingDateFilter === "all" &&
@@ -42431,6 +42611,11 @@ export default function AdminDashboardPage() {
                   setBookingLocationFilter("all");
                   setBookingPromoFilter("all");
                   setBookingSourceFilter("all");
+                  setBookingCreatedByFilter("all");
+                  setBookingCreatedDateFilter("all");
+                  setBookingCreatedSpecificDate("");
+                  setBookingCreatedFrom("");
+                  setBookingCreatedTo("");
                   setBookingStatusFilter("all");
                   setBookingDateFilter("all");
                   setHideCancelledBookings(true);

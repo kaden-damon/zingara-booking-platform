@@ -49,6 +49,7 @@ type SupabaseBookingRow = {
   booking_source: string;
   booking_status: SupabaseBookingStatus;
   company_name: string | null;
+  corporate_request_id: string | null;
   corporate_payment_deadline: string | null;
   corporate_payment_expired_at: string | null;
   corporate_payment_reminder_at: string | null;
@@ -715,6 +716,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       balanceDue: row.balance_outstanding,
       bookingOrigin: row.booking_origin ?? "legacy_unknown",
       createdAt: row.created_at,
+      corporateRequestId: row.corporate_request_id ?? undefined,
       createdByStaffId: row.created_by_staff_id ?? undefined,
       createdByStaffName: resolveStaffDisplayName(row.created_by_staff),
       corporatePaymentDeadline: row.corporate_payment_deadline ?? undefined,
@@ -780,6 +782,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     bookingDate: "",
     communicationHistory: [],
     createdAt: row.created_at,
+    corporateRequestId: row.corporate_request_id ?? undefined,
     createdByStaffId: row.created_by_staff_id ?? undefined,
     createdByStaffName: resolveStaffDisplayName(row.created_by_staff),
     corporatePaymentDeadline: row.corporate_payment_deadline ?? undefined,
