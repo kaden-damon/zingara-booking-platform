@@ -1046,6 +1046,30 @@ export async function transferCorporateBookingZone(input: {
   return response.result;
 }
 
+export type CorporateZoneEntitlementUpdateResult = {
+  booking_reference: string;
+  idempotent: boolean;
+  ready: boolean;
+  zone_entitlements: Array<{ pax: number; zoneId: string }>;
+};
+
+export async function updateCorporateBookingZoneEntitlements(input: {
+  bookingReference: string;
+  expectedUpdatedAt: string;
+  validateOnly?: boolean;
+  zoneEntitlements: Array<{ pax: number; zoneId: string }>;
+}) {
+  const response = await fetchSupabaseApi<{
+    ok: true;
+    result: CorporateZoneEntitlementUpdateResult;
+  }>("/api/admin/bookings", {
+    body: { action: "update-corporate-zone-entitlements", ...input },
+    method: "PATCH",
+  });
+
+  return response.result;
+}
+
 export type BookingShowTransferResult = {
   bookingId: string;
   bookingReference: string;

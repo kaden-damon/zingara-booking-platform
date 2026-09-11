@@ -237,12 +237,16 @@ test("Booking Details exposes separate Corporate zone and Floor controls", () =>
     new URL("../app/admin/page.tsx", import.meta.url),
     "utf8",
   );
+  const entitlementEditor = readFileSync(
+    new URL("../app/admin/CorporateZoneEntitlementEditor.tsx", import.meta.url),
+    "utf8",
+  );
 
-  assert.match(adminPage, /Seating Zone/);
+  assert.match(entitlementEditor, /Seating Zones/);
   assert.match(adminPage, /Table \/ Floor Assignment/);
-  assert.match(adminPage, /CONFIRM MOVE/);
-  assert.match(adminPage, /MOVING\.\.\./);
-  assert.match(adminPage, /MOVED ✓/);
+  assert.match(entitlementEditor, /SAVE SEATING ALLOCATION/);
+  assert.match(entitlementEditor, /SAVING\.\.\./);
+  assert.match(entitlementEditor, /SAVED ✓/);
   assert.match(adminPage, /Plan Unallocated Tables/);
   assert.match(adminPage, /REVIEW & CREATE/);
   assert.match(adminPage, /CAPACITY REQUIRED/i);

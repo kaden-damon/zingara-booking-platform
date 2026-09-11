@@ -39,6 +39,10 @@ import {
   getBookingCapacityConflictResponse,
   validateBookingCapacityIncrease,
 } from "@/lib/supabase/bookingCapacity";
+import {
+  parseCorporateZoneEntitlements,
+  type CorporateZoneEntitlement,
+} from "@/lib/corporateZoneEntitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -1501,6 +1505,102 @@ async function persistCorporateZoneTransfer(
       walletError,
     );
   }
+
+  return Response.json({ ok: true, result: data });
+}
+
+async function persistCorporateZoneEntitlementUpdate(
+  request: Request,
+  input: {
+    bookingReference?: string;
+    expectedUpdatedAt?: string;
+    validateOnly?: boolean;
+    zoneEntitlements?: CorporateZoneEntitlement[];
+  },
+) {
+  const auth = await requireActiveStaff(request);
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
+    return auth.error;
+  }
+
+  const roleRow = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const role = getAdminRoleFromName(roleRow?.name);
+  if (!role || !rolePermissions[role].includes("bookings:manage")) {
+    return Response.json(
+      { error: "Booking management access is required." },
+      { status: 403 },
+    );
+  }
+
+  const bookingReference = input.bookingReference?.trim() ?? "";
+  const expectedUpdatedAt = input.expectedUpdatedAt?.trim() ?? "";
+  const draft = (input.zoneEntitlements ?? []).map((entitlement) => ({
+    pax: String(entitlement.pax),
+    zoneId: entitlement.zoneId,
+  }));
+  const totalPax = draft.reduce((sum, entitlement) => sum + Number(entitlement.pax), 0);
+  const entitlements = parseCorporateZoneEntitlements(draft, totalPax);
+  if (!bookingReference || !expectedUpdatedAt || !entitlements) {
+    return Response.json(
+      { error: "A valid Corporate booking and complete seating allocation are required." },
+      { status: 400 },
+    );
+  }
+
+  const { data: booking, error: bookingError } = await auth.serviceClient
+    .from("bookings")
+    .select("id,booking_reference,booking_source,booking_origin,show_id,guest_count,archived_at")
+    .eq("booking_reference", bookingReference)
+    .maybeSingle();
+  if (bookingError) throw bookingError;
+  if (!booking || booking.archived_at) {
+    return Response.json(
+      { error: "The active Corporate booking could not be resolved." },
+      { status: booking ? 409 : 404 },
+    );
+  }
+  if (booking.booking_origin !== "corporate" || booking.booking_source !== "corporate-direct") {
+    return Response.json(
+      { error: "Multi-zone seating allocation is available only for Corporate bookings." },
+      { status: 409 },
+    );
+  }
+  if (totalPax !== booking.guest_count) {
+    return Response.json(
+      { error: `This booking has ${booking.guest_count} guests. Allocate all ${booking.guest_count} guests across the selected seating zones before saving.` },
+      { status: 400 },
+    );
+  }
+
+  const { data: show, error: showError } = await auth.serviceClient
+    .from("shows")
+    .select("id,venue")
+    .eq("id", booking.show_id)
+    .maybeSingle();
+  if (showError) throw showError;
+  const location = normalizeShowLocation(show?.venue);
+  const venueScope = normalizeStaffVenueScope(auth.staffProfile.venue_scope ?? []);
+  if (!location || (!venueScope.includes("all") && !venueScope.includes(location))) {
+    return Response.json(
+      { error: "This performance is outside your assigned location." },
+      { status: 403 },
+    );
+  }
+
+  const { data, error } = await auth.serviceClient.rpc(
+    "update_corporate_booking_zone_entitlements_atomic",
+    {
+      p_actor_auth_user_id: auth.user.id,
+      p_actor_staff_profile_id: auth.staffProfile.id,
+      p_booking_reference: bookingReference,
+      p_expected_updated_at: expectedUpdatedAt,
+      p_validate_only: Boolean(input.validateOnly),
+      p_zone_entitlements: entitlements,
+    },
+  );
+  if (error) throw error;
 
   return Response.json({ ok: true, result: data });
 }
@@ -3040,6 +3140,8 @@ export async function PATCH(request: Request) {
     operationalNotes?: string;
     targetTableId?: string;
     targetZone?: string;
+    validateOnly?: boolean;
+    zoneEntitlements?: CorporateZoneEntitlement[];
   };
   const lockError = await ensureNoConflictingBookingLock(
     request,
@@ -3142,6 +3244,58 @@ export async function PATCH(request: Request) {
       console.error("[Zingara API] Corporate zone transfer failed", error);
       return Response.json(
         { error: "The Corporate seating zone could not be changed." },
+        { status: 500 },
+      );
+    }
+  }
+
+  if (body.action === "update-corporate-zone-entitlements") {
+    try {
+      return await persistCorporateZoneEntitlementUpdate(request, body);
+    } catch (error) {
+      const message =
+        typeof error === "object" && error && "message" in error
+          ? String((error as { message?: unknown }).message ?? "")
+          : "";
+      const capacity = message.match(/ZONE_CAPACITY_EXCEEDED\|([^|]+)\|/);
+      if (capacity) {
+        const targetTitle = getBookingSectionForTableZone(capacity[1]) ?? "The selected zone";
+        return Response.json(
+          { error: `${targetTitle} does not currently have enough operational capacity for this allocation. Reduce the allocation or add operational capacity from Floor.` },
+          { status: 409 },
+        );
+      }
+      if (message.includes("CORPORATE_ZONE_TABLE_CONFLICT")) {
+        return Response.json(
+          { error: "Existing table assignments are not compatible with this new seating split. Release or update the affected table assignment before changing the zone allocation." },
+          { status: 409 },
+        );
+      }
+      if (
+        message.includes("CORPORATE_ZONE_ENTITLEMENTS_STALE") ||
+        message.includes("CORPORATE_ZONE_PRIMARY_TABLE_INVALID")
+      ) {
+        return Response.json(
+          { error: "The Corporate booking or its table assignments changed. Refresh Booking Details and review the allocation before saving." },
+          { status: 409 },
+        );
+      }
+      if (message.includes("CORPORATE_ZONE_ENTITLEMENTS_INVALID")) {
+        return Response.json(
+          { error: "Allocate every booking guest once across valid, distinct seating zones." },
+          { status: 400 },
+        );
+      }
+      if (message.includes("BOOKING_MANAGEMENT_PERMISSION_REQUIRED")) {
+        return Response.json(
+          { error: "Booking management access is required." },
+          { status: 403 },
+        );
+      }
+
+      console.error("[Zingara API] Corporate zone entitlement update failed", error);
+      return Response.json(
+        { error: "The Corporate seating allocation could not be saved." },
         { status: 500 },
       );
     }

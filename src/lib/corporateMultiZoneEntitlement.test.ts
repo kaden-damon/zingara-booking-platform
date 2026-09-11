@@ -58,18 +58,20 @@ test("database validates split, locks capacity, commits atomically, and denies u
 });
 
 test("Floor planning and assignment remain zone-bound while booking pax stays singular", async () => {
-  const [floorRoute, migration, page] = await Promise.all([
+  const [floorRoute, migration, page, editor] = await Promise.all([
     source("../app/api/admin/floor-capacity-plan/route.ts"),
     source("../../supabase/migrations/20260909110000_phase_41_1p_multi_zone_corporate_entitlements.sql"),
     source("../app/admin/page.tsx"),
+    source("../app/admin/CorporateZoneEntitlementEditor.tsx"),
   ]);
   assert.match(floorRoute, /zone_entitlements/);
   assert.match(floorRoute, /entitlement\.pax/);
   assert.match(floorRoute, /assign_corporate_booking_zone_tables_atomic/);
   assert.match(migration, /CROSS_ZONE_TABLE_ASSIGNMENT/);
   assert.match(migration, /v_combined_capacity<v_entitlement_pax/);
-  assert.match(page, /guests total/);
-  assert.match(page, /Post-booking split editing is not available/);
+  assert.match(editor, /totalPax/);
+  assert.match(page, /CorporateZoneEntitlementEditor/);
+  assert.doesNotMatch(page, /Post-booking split editing is not available/);
 });
 
 test("multi-zone conversion preserves one booking, payment, ticket, and silent side effects", async () => {

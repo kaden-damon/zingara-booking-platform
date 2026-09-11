@@ -65,6 +65,22 @@ export function parseCorporateZoneEntitlements(
   }));
 }
 
+export function normalizeCorporateZoneEntitlementEditDraft(
+  entitlements: CorporateZoneEntitlementDraft[],
+) {
+  return entitlements.filter((entitlement) => Number(entitlement.pax) !== 0);
+}
+
+export function parseCorporateZoneEntitlementEdit(
+  entitlements: CorporateZoneEntitlementDraft[],
+  totalPax: number,
+) {
+  return parseCorporateZoneEntitlements(
+    normalizeCorporateZoneEntitlementEditDraft(entitlements),
+    totalPax,
+  );
+}
+
 export function getBookingZoneEntitlements(booking: {
   partySize: number;
   zoneEntitlements?: CorporateZoneEntitlement[];

@@ -15,6 +15,7 @@ import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
 import { AdminIpUndertakingGate } from "./AdminIpUndertakingGate";
 import { AdminSearchInput } from "./AdminSearchInput";
 import { BookingMetadataDraftEditor } from "./BookingMetadataDraftEditor";
+import { CorporateZoneEntitlementEditor } from "./CorporateZoneEntitlementEditor";
 import { CompactBookingList } from "./CompactBookingList";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
@@ -98,8 +99,8 @@ import {
   persistBookingCancellation,
   restoreBookings,
   saveBookings as persistBookings,
-  transferCorporateBookingZone,
   transferBookingShow,
+  updateCorporateBookingZoneEntitlements,
 } from "../../lib/supabase/bookings";
 import { planAdminBookingMutations } from "../../lib/adminBookingPersistence";
 import {
@@ -10650,14 +10651,6 @@ export default function AdminDashboardPage() {
     } | null>(null);
   const [corporateTableAssignmentError, setCorporateTableAssignmentError] =
     useState("");
-  const [corporateZoneMoveDrafts, setCorporateZoneMoveDrafts] = useState<
-    Record<string, CorporateFloorZone>
-  >({});
-  const [corporateZoneMoveAction, setCorporateZoneMoveAction] = useState<{
-    reference: string;
-    status: "moved" | "moving";
-  } | null>(null);
-  const corporateZoneMoveInFlightRef = useRef(new Set<string>());
   const [floorZoneFilter, setFloorZoneFilter] =
     useState<FloorZoneFilter>("all");
   const [expandedTableId, setExpandedTableId] = useState("");
@@ -22749,61 +22742,26 @@ export default function AdminDashboardPage() {
     }
   }
 
-  async function moveCorporateBookingZone(
+  async function saveCorporateZoneEntitlements(
     booking: DemoBooking,
-    targetZone: CorporateFloorZone,
+    zoneEntitlements: NonNullable<DemoBooking["zoneEntitlements"]>,
   ) {
     if (
       booking.source !== "corporate-direct" ||
       !booking.showId ||
       !booking.updatedAt ||
-      corporateZoneMoveInFlightRef.current.has(booking.reference) ||
       isBookingReadOnly(booking.reference)
     ) {
-      return;
+      throw new Error("This Corporate booking is not currently available for editing.");
     }
 
-    const currentZone = getZoneById(booking.zoneId)?.title ?? booking.zoneTitle;
-    const targetTitle = getZoneById(targetZone)?.title ?? targetZone;
-    const confirmed = window.confirm(
-      `Move ${booking.reference} (${booking.partySize} pax) from ${currentZone} to ${targetTitle}? The agreed financial state will remain unchanged and the booking will return to Floor Assignment without a physical table.`,
-    );
-    if (!confirmed) return;
-
-    const currentTable = tables.find((table) => table.id === booking.tableId);
-    const expectedTableId =
-      booking.tableId && booking.tableId !== "requires-floor-assignment"
-        ? currentTable?.authoritativeId ?? booking.tableId
-        : null;
-    const currentShow = getBookingShow(booking);
-
-    corporateZoneMoveInFlightRef.current.add(booking.reference);
-    setCorporateZoneMoveAction({ reference: booking.reference, status: "moving" });
-    try {
-      await transferCorporateBookingZone({
-        bookingReference: booking.reference,
-        expectedShowId: currentShow?.supabaseId ?? booking.showId,
-        expectedTableId,
-        expectedUpdatedAt: booking.updatedAt,
-        expectedZone: booking.zoneTitle,
-        targetZone,
-      });
-      await refreshAssignedShowState(booking.showId);
-      setCorporateZoneMoveDrafts((current) => {
-        const next = { ...current };
-        delete next[booking.reference];
-        return next;
-      });
-      setCorporateZoneMoveAction({ reference: booking.reference, status: "moved" });
-      showWorkflowToast(`✓ ${booking.reference} moved to ${targetTitle}`);
-    } catch (error) {
-      setCorporateZoneMoveAction(null);
-      showWorkflowToast(
-        error instanceof Error ? error.message : "Corporate zone move failed.",
-      );
-    } finally {
-      corporateZoneMoveInFlightRef.current.delete(booking.reference);
-    }
+    await updateCorporateBookingZoneEntitlements({
+      bookingReference: booking.reference,
+      expectedUpdatedAt: booking.updatedAt,
+      zoneEntitlements,
+    });
+    await refreshAssignedShowState(booking.showId);
+    showWorkflowToast(`✓ ${booking.reference} seating allocation updated`);
   }
 
   async function assignFloorQueuedBooking(booking: DemoBooking) {
@@ -42585,6 +42543,14 @@ export default function AdminDashboardPage() {
 	                  getCorporateBookingCompanyName(booking);
 	                const isCorporateBooking =
 	                  booking.source === "corporate-direct";
+	                const bookingSeatingSummary = isCorporateBooking
+	                  ? getBookingZoneEntitlements(booking)
+	                      .map(
+	                        (entitlement) =>
+	                          `${getZoneById(entitlement.zoneId)?.title ?? entitlement.zoneId} ${entitlement.pax}`,
+	                      )
+	                      .join(" · ")
+	                  : booking.zoneTitle;
 	                const linkedCorporateRequest = isCorporateBooking
 	                  ? corporateRequests.find(
 	                      (request) =>
@@ -42635,13 +42601,6 @@ export default function AdminDashboardPage() {
                           ) as Record<CorporateFloorZone, number>,
                         })
                       : [];
-                    const selectedCorporateZone =
-                      corporateZoneMoveDrafts[booking.reference] ??
-                      (booking.zoneId as CorporateFloorZone);
-                    const selectedCorporateZoneAvailability =
-                      corporateZoneAvailability.find(
-                        (zone) => zone.zoneId === selectedCorporateZone,
-                      );
                     const corporateTableTargets = isCorporateBooking
                       ? moveTables.filter((table) => table.zoneId === booking.zoneId)
                       : moveTables;
@@ -42780,7 +42739,7 @@ export default function AdminDashboardPage() {
 	                        )}
 
 	                        <p className="mt-1 text-sm font-semibold text-zinc-200 sm:text-base">
-                          {booking.zoneTitle} ·{" "}
+	                          {bookingSeatingSummary} ·{" "}
                           {booking.tableNumber || "Unassigned"}
                         </p>
 
@@ -42922,7 +42881,7 @@ export default function AdminDashboardPage() {
 	                                  </p>
 	                                )}
 	                              <p className="mt-1 break-words text-xs text-zinc-400 sm:text-sm">
-                                {booking.zoneTitle} ·{" "}
+                                {bookingSeatingSummary} ·{" "}
                                 {booking.tableNumber || "Unassigned"} ·{" "}
                                 {booking.reference}
                               </p>
@@ -43927,68 +43886,19 @@ export default function AdminDashboardPage() {
                             </select>
                           </label>
 
-                          {isCorporateBooking && (booking.zoneEntitlements?.length ?? 0) > 1 ? (
-                            <div className="rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3">
-                              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Seating</p>
-                              <div className="mt-2 space-y-1 text-sm text-zinc-200">
-                                {getBookingZoneEntitlements(booking).map((entitlement) => (
-                                  <p key={entitlement.zoneId}>
-                                    {getZoneById(entitlement.zoneId)?.title ?? entitlement.zoneId} · {entitlement.pax} guests
-                                    {assignedTableClaims.some((claim) => getCorporateSeatingZoneId(claim.section) === entitlement.zoneId)
-                                      ? ` · Tables ${assignedTableClaims.filter((claim) => getCorporateSeatingZoneId(claim.section) === entitlement.zoneId).map((claim) => claim.tableCode).join(" + ")}`
-                                      : " · Floor Assignment"}
-                                  </p>
-                                ))}
-                                <p className="border-t border-white/10 pt-1 font-semibold">{booking.partySize} guests total</p>
-                              </div>
-                              <p className="mt-2 text-xs text-zinc-500">Post-booking split editing is not available in this release.</p>
-                            </div>
-                          ) : isCorporateBooking ? (
-                            <div>
-                              <label>
-                                <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                  Seating Zone
-                                </span>
-                                <select
-                                  value={selectedCorporateZone}
-                                  disabled={bookingIsReadOnly}
-                                  onChange={(event) =>
-                                    setCorporateZoneMoveDrafts((current) => ({
-                                      ...current,
-                                      [booking.reference]: event.target.value as CorporateFloorZone,
-                                    }))
-                                  }
-                                  className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  {corporateZoneAvailability.map((zone) => (
-                                    <option
-                                      key={zone.zoneId}
-                                      value={zone.zoneId}
-                                      disabled={!zone.eligible}
-                                    >
-                                      {getZoneById(zone.zoneId)?.title ?? zone.zoneId} · {zone.remainingPax} seats available{zone.eligible ? "" : " · insufficient"}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => void moveCorporateBookingZone(booking, selectedCorporateZone)}
-                                disabled={
-                                  bookingIsReadOnly ||
-                                  selectedCorporateZone === booking.zoneId ||
-                                  !selectedCorporateZoneAvailability?.eligible ||
-                                  corporateZoneMoveAction?.reference === booking.reference
-                                }
-                                className="mt-2 min-h-10 w-full rounded-xl border border-[#D8C36A]/45 px-3 py-2 text-xs font-semibold uppercase tracking-[0.06em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
-                              >
-                                {corporateZoneMoveAction?.reference === booking.reference
-                                  ? corporateZoneMoveAction.status === "moving"
-                                    ? "MOVING..."
-                                    : "MOVED ✓"
-                                  : "CONFIRM MOVE"}
-                              </button>
-                            </div>
+                          {isCorporateBooking ? (
+                            <CorporateZoneEntitlementEditor
+                              key={`${booking.reference}-${booking.updatedAt}`}
+                              assignedClaims={assignedTableClaims}
+                              bookingReference={booking.reference}
+                              disabled={bookingIsReadOnly || !canManageBookings}
+                              initialEntitlements={getBookingZoneEntitlements(booking)}
+                              onSave={(zoneEntitlements) =>
+                                saveCorporateZoneEntitlements(booking, zoneEntitlements)
+                              }
+                              totalPax={booking.partySize}
+                              zoneCapacity={corporateZoneAvailability}
+                            />
                           ) : (
                             <label>
                               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
