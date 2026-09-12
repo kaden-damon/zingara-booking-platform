@@ -27,6 +27,9 @@ const nextConfig: NextConfig = {
     ];
   },
   outputFileTracingIncludes: {
+    "/api/admin/analytics/daily": [
+      "src/templates/Zingara_Daily_Analytics_Master_Template.xlsx",
+    ],
     "/api/admin/analytics/table-plan": [
       "src/templates/Zingara_Table_Plan_Master_Template.xlsx",
     ],

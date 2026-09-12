@@ -9,12 +9,30 @@ import {
   type ManagementAnalyticsFilters,
   weekdayNames,
 } from "@/lib/managementAnalytics";
+import { dailyAnalyticsSeriesStart } from "@/lib/dailyAnalytics";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
+import { getAdminAuthSession } from "@/lib/supabase/auth";
+import ZingaraDatePicker from "./ZingaraDatePicker";
 
 const money = new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" });
 const integer = new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 0 });
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
 const analyticsFiltersSessionStorageKey = "zingara-admin-management-analytics-filters";
+
+type DailyAnalyticsPreview = {
+  dayNumber: number;
+  filename: string;
+  reportDate: string;
+  summary: {
+    grossValue: number;
+    guests: number;
+    outstanding: number;
+    totalBookings: number;
+  };
+  payments: {
+    successfulApplied: number;
+  };
+};
 
 function restoreFilters(value: string | null): ManagementAnalyticsFilters {
   if (!value) return defaultManagementAnalyticsFilters;
@@ -50,6 +68,163 @@ function dateOffset(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return dateKey(date);
+}
+
+function completedDailyReportDates() {
+  const dates = new Set<string>();
+  const lastDate = dateOffset(-1);
+  const current = new Date(`${dailyAnalyticsSeriesStart}T12:00:00+02:00`);
+  while (dateKey(current) <= lastDate) {
+    dates.add(dateKey(current));
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function DailyAnalyticsReportPanel() {
+  const [reportDate, setReportDate] = useState(dateOffset(-1));
+  const [preview, setPreview] = useState<DailyAnalyticsPreview | null>(null);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState<
+    "idle" | "generating" | "ready" | "downloading"
+  >("idle");
+  const availableDates = useMemo(() => completedDailyReportDates(), []);
+  const busy = status === "generating" || status === "downloading";
+
+  async function generatePreview() {
+    setStatus("generating");
+    setError("");
+    setPreview(null);
+    try {
+      const response = await fetchSupabaseApi<{ report: DailyAnalyticsPreview }>(
+        `/api/admin/analytics/daily?date=${encodeURIComponent(reportDate)}&format=json`,
+        { cache: "no-store" },
+      );
+      setPreview(response.report);
+      setStatus("ready");
+    } catch (reportError) {
+      setError(
+        reportError instanceof Error
+          ? reportError.message
+          : "The Daily Analytics report could not be generated.",
+      );
+      setStatus("idle");
+    }
+  }
+
+  async function downloadWorkbook() {
+    setStatus("downloading");
+    setError("");
+    try {
+      const auth = await getAdminAuthSession();
+      if (!auth) throw new Error("Your Admin session has expired. Please sign in again.");
+      const response = await fetch(
+        `/api/admin/analytics/daily?date=${encodeURIComponent(reportDate)}&format=xlsx`,
+        {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${auth.session.access_token}` },
+        },
+      );
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(
+          payload.error ?? "The Daily Analytics workbook could not be downloaded.",
+        );
+      }
+      const blob = await response.blob();
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = preview?.filename ?? `Zingara_Daily_Analytics_${reportDate}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+      setStatus("ready");
+    } catch (downloadError) {
+      setError(
+        downloadError instanceof Error
+          ? downloadError.message
+          : "The Daily Analytics workbook could not be downloaded.",
+      );
+      setStatus(preview ? "ready" : "idle");
+    }
+  }
+
+  function changeDate(value: string) {
+    setReportDate(value);
+    setPreview(null);
+    setError("");
+    setStatus("idle");
+  }
+
+  return (
+    <section
+      aria-labelledby="daily-analytics-report-title"
+      className="border-y border-[#D8C36A]/25 py-5"
+    >
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#D8C36A]">
+            Daily Analytics Report
+          </p>
+          <h3 id="daily-analytics-report-title" className="zingara-heading mt-2 text-2xl font-bold">
+            Established Daily Workbook
+          </h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+            Generate the five-sheet end-of-day report for a completed date in the established Day 1 onward series.
+          </p>
+        </div>
+        <div className="grid w-full gap-3 sm:grid-cols-[minmax(0,18rem)_auto_auto] xl:w-auto">
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+              Reporting Date
+            </p>
+            <ZingaraDatePicker
+              align="right"
+              availableDates={availableDates}
+              label="Daily Analytics reporting date"
+              onChange={changeDate}
+              placeholder="Select reporting date"
+              value={reportDate}
+            />
+          </div>
+          <button
+            type="button"
+            disabled={busy || !reportDate}
+            onClick={() => void generatePreview()}
+            className="h-11 self-end rounded-full border border-[#D8C36A]/55 px-5 text-xs font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:border-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {status === "generating" ? "Generating..." : "Generate Report"}
+          </button>
+          <button
+            type="button"
+            disabled={busy || !preview}
+            onClick={() => void downloadWorkbook()}
+            className="h-11 self-end rounded-full bg-[#D8C36A] px-5 text-xs font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {status === "downloading" ? "Preparing Excel..." : "Download Excel"}
+          </button>
+        </div>
+      </div>
+      {error ? (
+        <p role="alert" className="mt-4 border-l-2 border-red-300 px-3 text-sm text-red-200">
+          {error}
+        </p>
+      ) : null}
+      {preview ? (
+        <div className="mt-5 grid gap-3 border-t border-white/10 pt-5 sm:grid-cols-2 lg:grid-cols-5">
+          <Metric label="Bookings" value={integer.format(preview.summary.totalBookings)} />
+          <Metric label="Guests" value={integer.format(preview.summary.guests)} />
+          <Metric label="Gross Value" value={money.format(preview.summary.grossValue)} />
+          <Metric label="Paid" value={money.format(preview.payments.successfulApplied)} emphasis />
+          <Metric label="Outstanding" value={money.format(preview.summary.outstanding)} />
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 function Metric({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
@@ -204,6 +379,8 @@ export default function ManagementAnalytics() {
         </div>
         <p className="mt-3 text-xs text-zinc-500">Authoritative cutoff {new Date(dataset.asOf).toLocaleString("en-ZA", { timeZone: analyticsTimezone })} SAST</p>
       </header>
+
+      <DailyAnalyticsReportPanel />
 
       <section aria-labelledby="analytics-filters">
         <h3 id="analytics-filters" className="text-xs font-bold uppercase tracking-[0.18em] text-[#D8C36A]">Filters</h3>
