@@ -96,6 +96,8 @@ import {
   getBookingZoneEntitlements,
   validateCorporateZoneEntitlements,
 } from "@/lib/corporateZoneEntitlements";
+import { findPotentialInternalBookingDuplicates } from "@/lib/supabase/duplicateIntegrityServer";
+import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -1413,6 +1415,7 @@ export async function POST(request: Request) {
   try {
     const rawBody = await request.text();
     const body = JSON.parse(rawBody) as {
+      allowPotentialDuplicate?: boolean;
       booking?: DemoBooking;
       journeyId?: string | null;
     };
@@ -1480,9 +1483,11 @@ export async function POST(request: Request) {
 
     let staffProfileId: string | null = null;
     let staffRole: ReturnType<typeof getAdminRoleFromName> | null = null;
+    let staffAuthContext: Awaited<ReturnType<typeof requireActiveStaff>> | null = null;
 
     if (isTrustedInternalHandoff) {
       const staffAuth = await requireActiveStaff(request);
+      staffAuthContext = staffAuth;
 
       if (
         staffAuth.error ||
@@ -1706,6 +1711,69 @@ export async function POST(request: Request) {
         { error: "Booking show could not be resolved." },
         { status: 400 },
       );
+    }
+
+    if (
+      isTrustedStaff &&
+      isCreate &&
+      !booking.corporateRequestId
+    ) {
+      const potentialDuplicates = await findPotentialInternalBookingDuplicates(
+        supabase,
+        {
+          amount: booking.totalPrice,
+          customerEmail: booking.customer.email,
+          customerMobile: booking.customer.phone,
+          pax: booking.partySize,
+          showId: show.id,
+          zone: booking.zoneTitle,
+        },
+      );
+
+      if (potentialDuplicates.length > 0) {
+        const references = potentialDuplicates
+          .map((candidate) => String(candidate.booking_reference))
+          .join(", ");
+        const override = body.allowPotentialDuplicate === true;
+
+        await tryRecordAuditEvent(
+          supabase,
+          staffAuthContext?.staffProfile,
+          staffAuthContext?.user,
+          {
+            action: override
+              ? "booking.duplicate-warning-overridden"
+              : "booking.potential-duplicate-prevented",
+            afterValues: {
+              attemptedBookingReference: booking.reference,
+              matchingBookingReferences: references,
+              partySize: booking.partySize,
+              showId: show.id,
+              zone: booking.zoneTitle,
+            },
+            changedFields: [],
+            entityReference: booking.reference,
+            entityType: "booking",
+            outcome: override ? "success" : "blocked",
+            reason: override
+              ? "Authorised staff confirmed a legitimate separate booking."
+              : "Potential duplicate booking requires staff review.",
+            request,
+            sourceArea: "Bookings",
+          },
+        );
+
+        if (!override) {
+          return Response.json(
+            {
+              code: "POTENTIAL_DUPLICATE_BOOKING",
+              error: `POTENTIAL_DUPLICATE_BOOKING: A ${booking.partySize}-guest booking already exists for this customer and performance (${references}).`,
+              existingBookingReferences: references,
+            },
+            { status: 409 },
+          );
+        }
+      }
     }
 
     let customPricedTemporaryTable: Awaited<

@@ -37,6 +37,7 @@ export function getImportedCorporateProvenance(
     ) as {
       fingerprint?: unknown;
       paymentState?: unknown;
+      sourceChecksum?: unknown;
       sourceFile?: unknown;
       sourceRow?: unknown;
       sourceSheet?: unknown;
@@ -45,6 +46,7 @@ export function getImportedCorporateProvenance(
     return {
       fingerprint: String(metadata.fingerprint ?? "").trim(),
       paymentState: String(metadata.paymentState ?? "").trim(),
+      sourceChecksum: String(metadata.sourceChecksum ?? "").trim(),
       sourceFile: String(metadata.sourceFile ?? "").trim(),
       sourceRow: Number(metadata.sourceRow),
       sourceSheet: String(metadata.sourceSheet ?? "").trim(),

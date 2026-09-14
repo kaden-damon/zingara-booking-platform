@@ -7,6 +7,7 @@ import {
   persistCorporateRequests,
 } from "@/lib/supabase/corporateRequestsServer";
 import { type CorporateRequest } from "@/lib/zingaraDemo";
+import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +68,31 @@ async function saveRequests(request: Request) {
     const persistedRequests = await persistCorporateRequests(
       auth.serviceClient,
       requests,
-      { replace: body.replace },
+      {
+        onDuplicateImport: async ({ fingerprint, request: duplicateRequest }) => {
+          await tryRecordAuditEvent(
+            auth.serviceClient,
+            auth.staffProfile,
+            auth.user,
+            {
+              action: "corporate-enquiry.duplicate-import-prevented",
+              afterValues: {
+                fingerprint,
+                source: duplicateRequest.source,
+              },
+              changedFields: [],
+              entityReference: duplicateRequest.id,
+              entityType: "workflow",
+              outcome: "blocked",
+              reason:
+                "This record has already been imported. The existing enquiry was retained and no duplicate was created.",
+              request,
+              sourceArea: "Corporate",
+            },
+          );
+        },
+        replace: body.replace,
+      },
     );
 
     return Response.json({ requests: persistedRequests });

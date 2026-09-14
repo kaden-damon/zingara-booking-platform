@@ -2,6 +2,7 @@ import {
   type CorporateRequest,
   type CorporateRequestStatus,
 } from "@/lib/zingaraDemo";
+import { getImportedCorporateProvenance } from "@/lib/corporateFinancialReconciliation";
 import { getServiceClient } from "./serverAdmin";
 
 type ServiceClient = NonNullable<ReturnType<typeof getServiceClient>>;
@@ -34,6 +35,10 @@ export type SupabaseCorporateRequestRow = {
   financial_reconciliation: import("@/lib/zingaraDemo").ImportedCorporateFinancialReconciliation | null;
   guest_count: number | null;
   id: string;
+  import_fingerprint: string | null;
+  import_source_checksum: string | null;
+  import_source_file: string | null;
+  import_source_row: number | null;
   linked_booking_id: string | null;
   linked_booking_reference: string | null;
   notes: string | null;
@@ -50,7 +55,7 @@ export type SupabaseCorporateRequestRow = {
 
 const metadataPrefix = "__zingara_corporate_request_meta__:";
 const corporateRequestSelect =
-  "id,request_type,status,company_name,contact_name,contact_number,email,preferred_event_date,alternative_event_date,guest_count,seating_preference,occasion,other_description,dietary_requirements,other_dietary_requirement,bar_tab,addons,notes,source,archived_at,linked_booking_id,linked_booking_reference,financial_reconciliation,created_at,updated_at";
+  "id,request_type,status,company_name,contact_name,contact_number,email,preferred_event_date,alternative_event_date,guest_count,seating_preference,occasion,other_description,dietary_requirements,other_dietary_requirement,bar_tab,addons,notes,source,archived_at,linked_booking_id,linked_booking_reference,financial_reconciliation,import_fingerprint,import_source_checksum,import_source_file,import_source_row,created_at,updated_at";
 
 function toSupabaseStatus(
   status: CorporateRequestStatus,
@@ -129,6 +134,8 @@ function serializeCorporateRequestNotes(request: CorporateRequest) {
 }
 
 export function toSupabaseCorporateRequest(request: CorporateRequest) {
+  const importProvenance = getImportedCorporateProvenance(request);
+
   return {
     addons: request.addons,
     alternative_event_date: request.alternativeDate || null,
@@ -141,6 +148,14 @@ export function toSupabaseCorporateRequest(request: CorporateRequest) {
     dietary_requirements: request.dietaryRequirements,
     email: request.email || null,
     guest_count: request.guestCount,
+    import_fingerprint: importProvenance?.fingerprint || null,
+    import_source_checksum:
+      importProvenance?.sourceChecksum || null,
+    import_source_file: importProvenance?.sourceFile || null,
+    import_source_row:
+      Number.isInteger(importProvenance?.sourceRow) && importProvenance!.sourceRow > 0
+        ? importProvenance!.sourceRow
+        : null,
     linked_booking_reference: request.linkedBookingReference ?? null,
     notes: serializeCorporateRequestNotes(request),
     occasion: request.occasion || null,
@@ -271,7 +286,13 @@ export async function loadActiveCorporateImportDuplicates(
 export async function persistCorporateRequests(
   serviceClient: ServiceClient,
   requests: CorporateRequest[],
-  options: { replace?: boolean } = {},
+  options: {
+    onDuplicateImport?: (input: {
+      fingerprint: string;
+      request: CorporateRequest;
+    }) => Promise<void> | void;
+    replace?: boolean;
+  } = {},
 ) {
   const existingRows = await getCorporateRequestRows(serviceClient);
   const requestIds = new Set(requests.map((request) => request.id));
@@ -289,9 +310,14 @@ export async function persistCorporateRequests(
         );
 
       if (existingRow) {
+        const updatePayload: Partial<typeof payload> = { ...payload };
+        delete updatePayload.import_fingerprint;
+        delete updatePayload.import_source_checksum;
+        delete updatePayload.import_source_file;
+        delete updatePayload.import_source_row;
         const { error } = await serviceClient
           .from("corporate_requests")
-          .update(payload)
+          .update(updatePayload)
           .eq("id", existingRow.id);
 
         if (error) {
@@ -301,12 +327,27 @@ export async function persistCorporateRequests(
         return;
       }
 
-      const { error } = await serviceClient
-        .from("corporate_requests")
-        .insert(payload);
+      const importFingerprint = payload.import_fingerprint;
+      const result = importFingerprint
+        ? await serviceClient
+            .from("corporate_requests")
+            .upsert(payload, {
+              ignoreDuplicates: true,
+              onConflict: "import_fingerprint",
+            })
+            .select("id")
+        : await serviceClient.from("corporate_requests").insert(payload).select("id");
+      const { error } = result;
 
       if (error) {
         throw error;
+      }
+
+      if (importFingerprint && (result.data?.length ?? 0) === 0) {
+        await options.onDuplicateImport?.({
+          fingerprint: importFingerprint,
+          request,
+        });
       }
     }),
   );

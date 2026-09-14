@@ -2309,14 +2309,35 @@ export default function BookingPage() {
 
   async function persistPendingCheckoutBooking(reference: string) {
     const booking = buildPendingCheckoutBooking(reference);
+    if (manualCheckoutRole === "none") {
+      return createBooking(booking, booking.journeyId);
+    }
 
-    return manualCheckoutRole === "none"
-      ? createBooking(booking, booking.journeyId)
-      : createAdminBooking(
-          booking,
-          booking.journeyId,
-          calendarBookingContext,
-        );
+    try {
+      return await createAdminBooking(
+        booking,
+        booking.journeyId,
+        calendarBookingContext,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!message.startsWith("POTENTIAL_DUPLICATE_BOOKING:")) throw error;
+
+      const detail = message.slice("POTENTIAL_DUPLICATE_BOOKING:".length).trim();
+      const approved = window.confirm(
+        `Potential duplicate booking found.\n\n${detail}\n\nReview the existing booking before continuing. Select OK only if this is a legitimate separate booking.`,
+      );
+      if (!approved) {
+        throw new Error("Booking creation stopped for duplicate review.");
+      }
+
+      return createAdminBooking(
+        booking,
+        booking.journeyId,
+        calendarBookingContext,
+        true,
+      );
+    }
   }
 
   async function handlePayFastCheckout() {

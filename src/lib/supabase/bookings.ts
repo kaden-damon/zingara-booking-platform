@@ -958,11 +958,17 @@ export async function createAdminBooking(
   booking: DemoBooking,
   journeyId?: string | null,
   calendarBookingContext?: CalendarBookingLockContext | null,
+  allowPotentialDuplicate = false,
 ) {
   const result = await fetchSupabaseApi<CreateBookingResult>(
     "/api/admin/bookings",
     {
-      body: { booking, calendarBookingContext, journeyId },
+      body: {
+        allowPotentialDuplicate,
+        booking,
+        calendarBookingContext,
+        journeyId,
+      },
       method: "POST",
     },
   );

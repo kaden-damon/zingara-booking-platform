@@ -17,6 +17,7 @@ import { AdminSearchInput } from "./AdminSearchInput";
 import { BookingMetadataDraftEditor } from "./BookingMetadataDraftEditor";
 import { CorporateZoneEntitlementEditor } from "./CorporateZoneEntitlementEditor";
 import { CompactBookingList } from "./CompactBookingList";
+import PotentialDuplicatesPanel from "./PotentialDuplicatesPanel";
 import SecretPasswordSettings from "./SecretPasswordSettings";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
 import ZingaraDatePicker from "./ZingaraDatePicker";
@@ -42118,6 +42119,10 @@ export default function AdminDashboardPage() {
                   </span>
                 )}
               </div>
+
+              {canManageBookings ? (
+                <PotentialDuplicatesPanel />
+              ) : null}
               {activeAdminTab === "corporate" && (
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
                   Confirmed Corporate bookings created through the Corporate
