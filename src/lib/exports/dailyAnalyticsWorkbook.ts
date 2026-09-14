@@ -47,7 +47,17 @@ function row(
   const height = options.height
     ? ` ht="${options.height}" customHeight="1"`
     : "";
-  return `<x:row r="${number}"${height}>${cells.join("")}</x:row>`;
+  const orderedCells = [...cells].sort((left, right) => {
+    const column = (cell: string) => {
+      const letters = cell.match(/<x:c r="([A-Z]+)\d+"/)?.[1] ?? "";
+      return [...letters].reduce(
+        (value, letter) => value * 26 + letter.charCodeAt(0) - 64,
+        0,
+      );
+    };
+    return column(left) - column(right);
+  });
+  return `<x:row r="${number}"${height}>${orderedCells.join("")}</x:row>`;
 }
 
 function excelDate(date: string) {
@@ -61,6 +71,18 @@ function replaceSheetData(source: string, rows: string[]) {
     return source.replace(/<x:sheetData\s*\/>/, next);
   }
   return source.replace(/<x:sheetData>[\s\S]*?<\/x:sheetData>/, next);
+}
+
+function normalizeContentTypes(source: string) {
+  const normalized = source.replace(
+    /<Default Extension="xml" ContentType="[^"]+"\s*\/>/,
+    '<Default Extension="xml" ContentType="application/xml" />',
+  );
+  if (/PartName="\/xl\/workbook\.xml"/.test(normalized)) return normalized;
+  return normalized.replace(
+    /<\/Types>/,
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml" /></Types>',
+  );
 }
 
 function formatDate(date: string) {
@@ -842,6 +864,7 @@ export async function buildDailyAnalyticsWorkbook(report: DailyAnalyticsReport) 
   const shows = buildShowRows(report);
 
   await Promise.all([
+    replaceFile(zip, "[Content_Types].xml", normalizeContentTypes),
     replaceFile(zip, "xl/worksheets/sheet1.xml", (source) =>
       replaceSheetData(source, summary.rows),
     ),
