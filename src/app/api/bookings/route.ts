@@ -98,6 +98,7 @@ import {
 } from "@/lib/corporateZoneEntitlements";
 import { findPotentialInternalBookingDuplicates } from "@/lib/supabase/duplicateIntegrityServer";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
+import { isPublicZoneSalesOpen } from "@/lib/supabase/publicShowAvailability";
 
 export const dynamic = "force-dynamic";
 
@@ -1023,6 +1024,17 @@ async function reservePublicBookingAtomically(
   );
 
   if (error) {
+    if (/PUBLIC_ZONE_SALES_CLOSED/.test(error.message)) {
+      return {
+        error: Response.json(
+          {
+            code: "PUBLIC_ZONE_SALES_CLOSED",
+            error: "This seating zone is sold out for online bookings.",
+          },
+          { status: 409 },
+        ),
+      };
+    }
     throw error;
   }
 
@@ -1859,6 +1871,16 @@ export async function POST(request: Request) {
             { status: 409 },
           );
         }
+      }
+
+      if (!(await isPublicZoneSalesOpen(supabase, show.id, booking.zoneId))) {
+        return Response.json(
+          {
+            code: "PUBLIC_ZONE_SALES_CLOSED",
+            error: "This seating zone is sold out for online bookings.",
+          },
+          { status: 409 },
+        );
       }
 
       try {

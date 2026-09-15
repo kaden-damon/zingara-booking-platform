@@ -20,6 +20,7 @@ import { CompactBookingList } from "./CompactBookingList";
 import PotentialDuplicatesPanel from "./PotentialDuplicatesPanel";
 import SecretPasswordSettings from "./SecretPasswordSettings";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
+import ShowZoneSalesControls from "./ShowZoneSalesControls";
 import ZingaraDatePicker from "./ZingaraDatePicker";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
@@ -36941,6 +36942,11 @@ export default function AdminDashboardPage() {
                     />
                   </label>
                 </div>
+
+                <ShowZoneSalesControls
+                  disabled={isEditingShowReadOnly || !activeShowEditLock}
+                  showReference={editingShow.supabaseId ?? editingShow.id}
+                />
 
                 <div className="rounded-2xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-400">
                   Editing preserves the existing show ID, so bookings,

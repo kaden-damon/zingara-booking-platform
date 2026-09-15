@@ -2,6 +2,7 @@ export type BookingSeatingEligibilityInput = {
   hasExplicitTableAssignment?: boolean;
   isInternalCorporate?: boolean;
   isLimited?: boolean;
+  isPublicSalesOpen?: boolean;
   maxGuests: number;
   minGuests: number;
   partySize: number;
@@ -52,6 +53,7 @@ export function getBookingSeatingEligibility({
   hasExplicitTableAssignment = false,
   isInternalCorporate = false,
   isLimited = false,
+  isPublicSalesOpen = true,
   maxGuests,
   minGuests,
   partySize,
@@ -62,7 +64,8 @@ export function getBookingSeatingEligibility({
     partySize >= minGuests &&
     (isInternalCorporate || supportsMultiTableFulfilment || partySize <= maxGuests);
   const hasEnoughVenueCapacity = remainingSeats >= partySize;
-  const isAvailable = isGroupSizeAvailable && hasEnoughVenueCapacity;
+  const isAvailable =
+    isGroupSizeAvailable && hasEnoughVenueCapacity && isPublicSalesOpen;
   const requiresFloorAssignment =
     isInternalCorporate && isAvailable && !hasExplicitTableAssignment;
 
@@ -70,6 +73,8 @@ export function getBookingSeatingEligibility({
 
   if (!isGroupSizeAvailable) {
     availabilityMessage = "Not Available For This Group Size";
+  } else if (!isPublicSalesOpen) {
+    availabilityMessage = "Sold Out";
   } else if (!hasEnoughVenueCapacity) {
     availabilityMessage = "Not Enough Seats Available";
   } else if (requiresFloorAssignment) {

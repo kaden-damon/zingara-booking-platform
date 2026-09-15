@@ -363,6 +363,7 @@ function isAvailableForBooking(
   occupiedSeats = 0,
   settings: DemoVenueSettings = defaultVenueSettings,
   isInternalCorporate = false,
+  isPublicSalesOpen = true,
 ) {
   const guestLimits = isInternalCorporate
     ? option
@@ -370,6 +371,7 @@ function isAvailableForBooking(
 
   return getBookingSeatingEligibility({
     isInternalCorporate,
+    isPublicSalesOpen: isInternalCorporate || isPublicSalesOpen,
     maxGuests: guestLimits.maxGuests,
     minGuests: guestLimits.minGuests,
     partySize: guests,
@@ -385,6 +387,7 @@ function getAvailabilityState(
   settings: DemoVenueSettings = defaultVenueSettings,
   isInternalCorporate = false,
   hasExplicitTableAssignment = false,
+  isPublicSalesOpen = true,
 ) {
   const remainingSeats = getRemainingSeats(option, occupiedSeats, settings);
   const guestLimits = isInternalCorporate
@@ -393,6 +396,7 @@ function getAvailabilityState(
   const baseEligibility = getBookingSeatingEligibility({
     hasExplicitTableAssignment,
     isInternalCorporate,
+    isPublicSalesOpen: isInternalCorporate || isPublicSalesOpen,
     maxGuests: guestLimits.maxGuests,
     minGuests: guestLimits.minGuests,
     partySize: guests,
@@ -404,6 +408,7 @@ function getAvailabilityState(
   const eligibility = getBookingSeatingEligibility({
     hasExplicitTableAssignment,
     isInternalCorporate,
+    isPublicSalesOpen: isInternalCorporate || isPublicSalesOpen,
     isLimited,
     maxGuests: guestLimits.maxGuests,
     minGuests: guestLimits.minGuests,
@@ -770,6 +775,9 @@ export default function BookingPage() {
   const [occupiedSeatsByZone, setOccupiedSeatsByZone] = useState<
     Partial<Record<SeatingZone["id"], number>>
   >({});
+  const [publicSalesOpenByZone, setPublicSalesOpenByZone] = useState<
+    Partial<Record<SeatingZone["id"], boolean>>
+  >({});
   const confirmedSectionRef = useRef<HTMLElement | null>(null);
   const trackedTelemetryEventsRef = useRef<Set<string>>(new Set());
   const showLoadRequestRef = useRef(0);
@@ -905,6 +913,7 @@ export default function BookingPage() {
   useEffect(() => {
     if (!selectedShow) {
       setOccupiedSeatsByZone({});
+      setPublicSalesOpenByZone({});
       return;
     }
 
@@ -912,6 +921,7 @@ export default function BookingPage() {
     const authoritativeShowId = selectedShow.supabaseId ?? selectedShow.id;
 
     setOccupiedSeatsByZone({});
+    setPublicSalesOpenByZone({});
     fetch(
       `/api/shows/availability?showId=${encodeURIComponent(authoritativeShowId)}`,
       { cache: "no-store", signal: controller.signal },
@@ -923,10 +933,12 @@ export default function BookingPage() {
 
         return (await response.json()) as {
           occupiedSeatsByZone?: Partial<Record<SeatingZone["id"], number>>;
+          publicSalesOpenByZone?: Partial<Record<SeatingZone["id"], boolean>>;
         };
       })
       .then((payload) => {
         setOccupiedSeatsByZone(payload.occupiedSeatsByZone ?? {});
+        setPublicSalesOpenByZone(payload.publicSalesOpenByZone ?? {});
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
@@ -1026,6 +1038,7 @@ export default function BookingPage() {
         occupiedSeatsByZone[zone.id] ?? 0,
         venueConfig,
         isCorporateCalendarCheckout,
+        manualCheckoutRole !== "none" || publicSalesOpenByZone[zone.id] !== false,
       ),
     );
   const canJoinWaitlist =
@@ -1075,6 +1088,7 @@ export default function BookingPage() {
         occupiedSeatsByZone[selectedZone.id] ?? 0,
         venueConfig,
         isCorporateCalendarCheckout,
+        manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
       ),
   );
   const complimentarySubmissionEligibility =
@@ -1433,6 +1447,7 @@ export default function BookingPage() {
         occupiedSeatsByZone[currentZone.id] ?? 0,
         venueConfig,
         isCorporateCalendarCheckout,
+        manualCheckoutRole !== "none" || publicSalesOpenByZone[currentZone.id] !== false,
       )
         ? null
         : currentZone,
@@ -1445,6 +1460,7 @@ export default function BookingPage() {
         occupiedSeatsByZone[currentZone.id] ?? 0,
         venueConfig,
         isCorporateCalendarCheckout,
+        manualCheckoutRole !== "none" || publicSalesOpenByZone[currentZone.id] !== false,
       )
         ? null
         : currentZone,
@@ -2150,6 +2166,7 @@ export default function BookingPage() {
         occupiedSeatsByZone[selectedZone.id] ?? 0,
         venueConfig,
         isCorporateCalendarCheckout,
+        manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
       )
     ) {
       return;
@@ -2361,6 +2378,7 @@ export default function BookingPage() {
         occupiedSeatsByZone[selectedZone.id] ?? 0,
         venueConfig,
         isCorporateCalendarCheckout,
+        manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
       )
     ) {
       return;
@@ -2610,6 +2628,7 @@ export default function BookingPage() {
         occupiedSeatsByZone[selectedZone.id] ?? 0,
         venueConfig,
         isCorporateCalendarCheckout,
+        true,
       )
     ) {
       return;
@@ -2773,6 +2792,7 @@ export default function BookingPage() {
       venueConfig,
       isCorporateCalendarCheckout,
       Boolean(selectedTemporaryTable),
+      manualCheckoutRole !== "none" || publicSalesOpenByZone[option.id] !== false,
     );
 
     return {
@@ -4046,6 +4066,12 @@ export default function BookingPage() {
                           will be completed in Floor Operations.
                         </p>
                       )}
+                      {manualCheckoutRole !== "none" &&
+                        publicSalesOpenByZone[selectedZone.id] === false && (
+                          <p className="mt-2 text-sm font-semibold text-amber-100">
+                            This seating zone is currently closed for public sales.
+                          </p>
+                        )}
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -4882,6 +4908,7 @@ export default function BookingPage() {
                 venueConfig,
                 isCorporateCalendarCheckout,
                 Boolean(selectedTemporaryTable),
+                manualCheckoutRole !== "none" || publicSalesOpenByZone[previewSeatingZone.id] !== false,
               );
               const status = availability.availabilityMessage;
               const statusClass = !availability.isAvailable
@@ -4942,6 +4969,13 @@ export default function BookingPage() {
                       will be completed in Floor Operations.
                     </p>
                   )}
+
+                  {manualCheckoutRole !== "none" &&
+                    publicSalesOpenByZone[previewSeatingZone.id] === false && (
+                      <p className="mt-3 text-sm font-semibold text-amber-100">
+                        This seating zone is currently closed for public sales.
+                      </p>
+                    )}
 
                   {!availability.isAvailable && recommendedShow && (
                     <div className="mt-4 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/10 p-4">
