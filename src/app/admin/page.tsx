@@ -21,6 +21,7 @@ import PotentialDuplicatesPanel from "./PotentialDuplicatesPanel";
 import SecretPasswordSettings from "./SecretPasswordSettings";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
 import ShowZoneSalesControls from "./ShowZoneSalesControls";
+import { StaffActionGuidanceAlert } from "./StaffActionGuidanceAlert";
 import ZingaraDatePicker from "./ZingaraDatePicker";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
@@ -57,6 +58,13 @@ import {
   buildOperationalTableReportRows,
 } from "../../lib/operationalReporting";
 import { normalizePhoneForComparison } from "../../lib/phone";
+import {
+  getCommunicationFailureGuidance,
+  getMissingEmailGuidance,
+  getUnverifiedBulkDeliveryGuidance,
+  resolveStaffActionGuidance,
+  type StaffActionGuidance,
+} from "../../lib/staffActionGuidance";
 
 import {
   type AdminRole,
@@ -10614,6 +10622,8 @@ export default function AdminDashboardPage() {
     useState(false);
   const [isWorkflowSending, setIsWorkflowSending] = useState(false);
   const [workflowToast, setWorkflowToast] = useState("");
+  const [staffActionGuidance, setStaffActionGuidance] =
+    useState<StaffActionGuidance | null>(null);
   const [ticketEmailSendState, setTicketEmailSendState] = useState<
     Record<string, "error" | "idle" | "sending" | "sent">
   >({});
@@ -16832,33 +16842,6 @@ export default function AdminDashboardPage() {
     });
   }
 
-  function createTemplateCommunication(
-    booking: DemoBooking,
-    template: CommunicationTemplate,
-    extras: Record<string, string | number | undefined> = {},
-  ) {
-    const show = getBookingShow(booking);
-
-    return createCommunicationRecord({
-      booking,
-      channel: template.channel,
-      message: renderCommunicationTemplate(
-        template.body,
-        booking,
-        show,
-        extras,
-      ),
-      subject: renderCommunicationTemplate(
-        template.subject,
-        booking,
-        show,
-        extras,
-      ),
-      templateId: template.id,
-      trigger: template.trigger,
-    });
-  }
-
   function appendCommunicationToBookings(
     sourceBookings: DemoBooking[],
     bookingReference: string,
@@ -16887,6 +16870,11 @@ export default function AdminDashboardPage() {
       !canManageCommunications &&
       trigger !== "check-in-confirmation"
     ) {
+      return;
+    }
+
+    if (channel === "email" && !booking.customer.email?.trim()) {
+      showStaffGuidance(getMissingEmailGuidance(booking.reference));
       return;
     }
 
@@ -16957,11 +16945,18 @@ export default function AdminDashboardPage() {
           return;
         }
 
-        showWorkflowToast("⚠ Email could not be sent.");
+        showStaffGuidance(
+          getCommunicationFailureGuidance(
+            new Error("Email could not be sent."),
+            booking.reference,
+          ),
+        );
       })
       .catch((error) => {
         console.error("[Zingara Admin] Communication send failed", error);
-        showWorkflowToast("⚠ Email could not be sent.");
+        showStaffGuidance(
+          getCommunicationFailureGuidance(error, booking.reference),
+        );
       });
   }
 
@@ -17122,10 +17117,13 @@ export default function AdminDashboardPage() {
       );
       completeOperationalTableAction(`create-${zoneId}`);
     } catch (error) {
-      showWorkflowToast(
-        error instanceof Error
-          ? error.message
-          : "The temporary operational table could not be added.",
+      showStaffGuidance(
+        resolveStaffActionGuidance(error, {
+          message: "The temporary operational table could not be added.",
+          nextStep: "Review the current Floor capacity state before retrying.",
+          status: "error",
+          title: "Temporary table wasn't added",
+        }),
       );
     } finally {
       setOperationalTableAction("");
@@ -17168,8 +17166,17 @@ export default function AdminDashboardPage() {
         state: stats,
       });
       if (!preview.allowed) {
-        showWorkflowToast(
-          `${zone.title} represents ${preview.representedPhysicalCapacity} of ${preview.effectiveOperationalCapacity} operational seats. Setting table ${table.tableNumber} to ${capacity} would raise the physical/merged representation to ${preview.projectedPhysicalRepresentation}. Add temporary operational capacity or reduce another physical table first.`,
+        showStaffGuidance(
+          resolveStaffActionGuidance(
+            new Error(
+              `${zone.title} represents ${preview.representedPhysicalCapacity} of ${preview.effectiveOperationalCapacity} operational seats. Setting table ${table.tableNumber} to ${capacity} would raise the physical/merged representation to ${preview.projectedPhysicalRepresentation}. Add temporary operational capacity or reduce another physical table first.`,
+            ),
+            {
+              message: "The physical table capacity cannot be changed.",
+              status: "blocked",
+              title: "Operational capacity prevents this action",
+            },
+          ),
         );
         return;
       }
@@ -17195,10 +17202,13 @@ export default function AdminDashboardPage() {
       );
       completeOperationalTableAction(`capacity-${table.id}`);
     } catch (error) {
-      showWorkflowToast(
-        error instanceof Error
-          ? error.message
-          : "The physical table capacity could not be saved.",
+      showStaffGuidance(
+        resolveStaffActionGuidance(error, {
+          message: "The physical table capacity could not be saved.",
+          nextStep: "Review the current Floor capacity state before retrying.",
+          status: "error",
+          title: "Table capacity wasn't updated",
+        }),
       );
     } finally {
       setOperationalTableAction("");
@@ -17247,10 +17257,13 @@ export default function AdminDashboardPage() {
       completeOperationalTableAction(action);
     } catch (error) {
       await refreshAssignedShowState(selectedShowId).catch(() => undefined);
-      showWorkflowToast(
-        error instanceof Error
-          ? error.message
-          : "The operational table changes could not be saved.",
+      showStaffGuidance(
+        resolveStaffActionGuidance(error, {
+          message: "The operational table changes could not be saved.",
+          nextStep: "Review the refreshed table state before retrying.",
+          status: "error",
+          title: "Table changes weren't saved",
+        }),
       );
     } finally {
       setOperationalTableAction("");
@@ -17336,10 +17349,13 @@ export default function AdminDashboardPage() {
       return true;
     } catch (error) {
       await refreshAssignedShowState(booking.showId).catch(() => undefined);
-      showWorkflowToast(
-        error instanceof Error
-          ? error.message
-          : "The table assignment could not be saved.",
+      showStaffGuidance(
+        resolveStaffActionGuidance(error, {
+          message: "The table assignment could not be saved.",
+          nextStep: "Review the refreshed booking and table state before retrying.",
+          status: "error",
+          title: "Table assignment wasn't saved",
+        }),
       );
       return false;
     } finally {
@@ -17505,10 +17521,13 @@ export default function AdminDashboardPage() {
       );
       completeOperationalTableAction(`merge-${primaryTable.id}`);
     } catch (error) {
-      showWorkflowToast(
-        error instanceof Error
-          ? error.message
-          : "The operational tables could not be merged.",
+      showStaffGuidance(
+        resolveStaffActionGuidance(error, {
+          message: "The operational tables could not be merged.",
+          nextStep: "Refresh the Floor and confirm that every selected table is still available.",
+          status: "error",
+          title: "Tables weren't merged",
+        }),
       );
     } finally {
       setOperationalTableAction("");
@@ -22936,10 +22955,13 @@ export default function AdminDashboardPage() {
       completeFloorAssignment(booking.reference);
     } catch (error) {
       await refreshAssignedShowState(booking.showId).catch(() => undefined);
-      showWorkflowToast(
-        error instanceof Error
-          ? error.message
-          : "The table assignment could not be saved.",
+      showStaffGuidance(
+        resolveStaffActionGuidance(error, {
+          message: "The table assignment could not be saved.",
+          nextStep: "Review the refreshed Floor state and choose another valid table if required.",
+          status: "error",
+          title: "Table assignment wasn't saved",
+        }),
       );
     } finally {
       floorAssignmentInFlightRef.current.delete(booking.reference);
@@ -22956,6 +22978,17 @@ export default function AdminDashboardPage() {
     booking: DemoBooking,
     channel: CommunicationChannel,
   ) {
+    if (channel === "email" && !booking.customer.email?.trim()) {
+      setTicketEmailSendState((current) => ({
+        ...current,
+        [booking.reference]: "error",
+      }));
+      showStaffGuidance(
+        getMissingEmailGuidance(booking.reference, "Ticket wasn't sent"),
+      );
+      return;
+    }
+
     if (channel === "push") {
       const ticketRecord = createWorkflowCommunication(
         booking,
@@ -23064,8 +23097,17 @@ export default function AdminDashboardPage() {
         showWorkflowToast(
           status === "suppressed"
             ? "Email updates are temporarily paused for this customer."
-            : "⚠ Ticket email could not be sent.",
+            : "Ticket email could not be sent.",
         );
+        if (status !== "suppressed") {
+          showStaffGuidance(
+            getCommunicationFailureGuidance(
+              new Error("Ticket email could not be sent."),
+              booking.reference,
+              "Ticket wasn't sent",
+            ),
+          );
+        }
         return;
       }
 
@@ -23080,7 +23122,13 @@ export default function AdminDashboardPage() {
         ...current,
         [booking.reference]: "error",
       }));
-      showWorkflowToast("⚠ Ticket email could not be sent.");
+      showStaffGuidance(
+        getCommunicationFailureGuidance(
+          error,
+          booking.reference,
+          "Ticket wasn't sent",
+        ),
+      );
     }
   }
 
@@ -23285,7 +23333,6 @@ export default function AdminDashboardPage() {
     }
 
     return (
-      Boolean(booking.customer.email?.trim()) &&
       isPaymentLinkEligible({
         archived: Boolean(booking.archivedAt),
         bookingStatus: booking.status,
@@ -23435,6 +23482,21 @@ export default function AdminDashboardPage() {
     booking: DemoBooking,
     managedLink = paymentLinkDetailsState[booking.reference]?.link ?? null,
   ) {
+    if (!booking.customer.email?.trim()) {
+      setPaymentLinkSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message: "Email address required. No payment link was sent.",
+          tone: "error",
+        },
+      }));
+      showStaffGuidance(
+        getMissingEmailGuidance(booking.reference, "Payment link wasn't sent"),
+      );
+      return;
+    }
+
     if (!canSendCustomerPaymentLink(booking)) {
       setPaymentLinkSendState((currentState) => ({
         ...currentState,
@@ -23534,6 +23596,13 @@ export default function AdminDashboardPage() {
           tone: "error",
         },
       }));
+      showStaffGuidance(
+        getCommunicationFailureGuidance(
+          error,
+          booking.reference,
+          "Payment link wasn't sent",
+        ),
+      );
     }
   }
 
@@ -23544,6 +23613,19 @@ export default function AdminDashboardPage() {
     const subject = form?.subject.trim() || "Zingara guest message";
 
     if (!canManageCommunications || !message) {
+      return;
+    }
+
+    if (channel === "email" && !booking.customer.email?.trim()) {
+      setCustomMessageSendState((currentState) => ({
+        ...currentState,
+        [booking.reference]: {
+          isSending: false,
+          message: "Email address required. No communication was sent.",
+          tone: "error",
+        },
+      }));
+      showStaffGuidance(getMissingEmailGuidance(booking.reference));
       return;
     }
 
@@ -23694,10 +23776,16 @@ export default function AdminDashboardPage() {
           tone: "error",
         },
       }));
+      if (channel === "email") {
+        showStaffGuidance(
+          getCommunicationFailureGuidance(error, booking.reference),
+        );
+      }
     }
   }
 
   function showWorkflowToast(message: string) {
+    setStaffActionGuidance(null);
     setWorkflowToast(message);
     if (workflowToastTimerRef.current) {
       window.clearTimeout(workflowToastTimerRef.current);
@@ -23705,6 +23793,49 @@ export default function AdminDashboardPage() {
     workflowToastTimerRef.current = window.setTimeout(() => {
       setWorkflowToast("");
     }, 2800);
+  }
+
+  function showStaffGuidance(guidance: StaffActionGuidance) {
+    if (workflowToastTimerRef.current) {
+      window.clearTimeout(workflowToastTimerRef.current);
+    }
+    setWorkflowToast("");
+    setStaffActionGuidance(guidance);
+  }
+
+  function followStaffGuidance(guidance: StaffActionGuidance) {
+    const target = guidance.action?.target;
+    if (!target) return;
+
+    setStaffActionGuidance(null);
+
+    if (target.destination === "customer") {
+      const booking = bookings.find(
+        (candidate) => candidate.reference === target.bookingReference,
+      );
+      if (booking) {
+        openCustomerProfile(booking.customer, {
+          bookingReference: booking.reference,
+          source: "bookings",
+        });
+      }
+      return;
+    }
+
+    if (target.destination === "booking" || target.destination === "payment-controls") {
+      setActiveAdminTab("bookings");
+      setBookingSearch(target.bookingReference);
+      setBookingPage(1);
+      return;
+    }
+
+    if ("showId" in target) {
+      setActiveAdminTab(target.destination === "floor" ? "operations" : "overview");
+      setSelectedShowId(target.showId);
+      if (target.destination === "floor") {
+        setActiveOperationsTab("floor");
+      }
+    }
   }
 
   function sendShowReminder() {
@@ -23725,32 +23856,9 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    saveBookings(
-      activeBookings.reduce(
-        (nextBookings, booking) =>
-          appendCommunicationToBookings(
-            nextBookings,
-            booking.reference,
-            (currentBooking) =>
-              createWorkflowCommunication(
-                currentBooking,
-                "show-reminder",
-                "email",
-              ),
-          ),
-        bookings,
-      ),
-    );
-    setWorkflowStatus(
-      `Show reminders sent to ${activeBookings.length} booking${activeBookings.length === 1 ? "" : "s"}.`,
-    );
-    void sendPreferredBrowserNotification(
-      "operational-broadcast-sent",
-      "booking-updated",
-      {
-        body: "Show reminders have been sent successfully.",
-      },
-    );
+    const guidance = getUnverifiedBulkDeliveryGuidance();
+    setWorkflowStatus(guidance.message);
+    showStaffGuidance(guidance);
   }
 
   function openSelectedTemplateCommunicationConfirmation() {
@@ -23801,42 +23909,10 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    setIsWorkflowSending(true);
-
-    try {
-      saveBookings(
-        activeBookings.reduce(
-          (nextBookings, booking) =>
-            appendCommunicationToBookings(
-              nextBookings,
-              booking.reference,
-              (currentBooking) =>
-                createTemplateCommunication(
-                  currentBooking,
-                  selectedCommunicationTemplate,
-                ),
-            ),
-          bookings,
-        ),
-      );
-      setWorkflowStatus(
-        `Communication sent successfully to ${activeBookings.length} booking${activeBookings.length === 1 ? "" : "s"}.`,
-      );
-      showWorkflowToast("Communication sent successfully.");
-      void sendPreferredBrowserNotification(
-        "operational-broadcast-sent",
-        "booking-updated",
-        {
-          body: "Communication sent successfully.",
-        },
-      );
-      setIsWorkflowSendConfirmOpen(false);
-    } catch {
-      setWorkflowStatus("Communication could not be sent.");
-      showWorkflowToast("⚠ Could not send communication");
-    } finally {
-      setIsWorkflowSending(false);
-    }
+    const guidance = getUnverifiedBulkDeliveryGuidance();
+    setWorkflowStatus(guidance.message);
+    showStaffGuidance(guidance);
+    setIsWorkflowSendConfirmOpen(false);
   }
 
   function broadcastOperationalUpdate() {
@@ -23857,46 +23933,9 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    saveBookings(
-      showBookings.reduce(
-        (nextBookings, booking) =>
-          appendCommunicationToBookings(
-            nextBookings,
-            booking.reference,
-            (currentBooking) =>
-              createWorkflowCommunication(
-                currentBooking,
-                "operational-broadcast",
-                broadcastForm.channel,
-                {
-                  message,
-                  subject:
-                    broadcastForm.subject.trim() ||
-                    "Zingara operational update",
-                  updateSummary: message,
-                },
-              ),
-          ),
-        bookings,
-      ),
-    );
-    setBroadcastForm((currentForm) => ({
-      ...currentForm,
-      message: "",
-      subject: "",
-    }));
-    setWorkflowStatus(
-      `Operational update sent to ${showBookings.length} booking${showBookings.length === 1 ? "" : "s"}.`,
-    );
-    showWorkflowToast("Broadcast sent successfully.");
-    void sendPreferredBrowserNotification(
-      "operational-broadcast-sent",
-      "booking-updated",
-      {
-        body: "Operational update sent successfully.",
-      },
-    );
-    void sendZingaraStaffPushNotification("operational-broadcast-sent");
+    const guidance = getUnverifiedBulkDeliveryGuidance();
+    setWorkflowStatus(guidance.message);
+    showStaffGuidance(guidance);
   }
 
   function findWaitlistConversionTable(entry: DemoWaitlistEntry) {
@@ -27766,6 +27805,17 @@ export default function AdminDashboardPage() {
             Open Operations
           </button>
         </div>
+      )}
+      {staffActionGuidance && (
+        <StaffActionGuidanceAlert
+          guidance={staffActionGuidance}
+          onAction={
+            staffActionGuidance.action
+              ? () => followStaffGuidance(staffActionGuidance)
+              : undefined
+          }
+          onDismiss={() => setStaffActionGuidance(null)}
+        />
       )}
       {workflowToast && (
         <div

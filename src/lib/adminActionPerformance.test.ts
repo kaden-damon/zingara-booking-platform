@@ -22,7 +22,7 @@ test("corporate conversion fails closed for invalid lifecycle state", () => {
       archivedAt: undefined,
       guestCount: 12,
       linkedBookingReference: undefined,
-      status: "quote-sent",
+      status: "cancelled",
     }).outcome,
     "blocked",
   );
@@ -91,11 +91,8 @@ test("corporate conversion acknowledges immediately and waits for one guarded ac
     handler.indexOf('setCorporateConversionActionState("pending")') <
       handler.indexOf("await convertCorporateRequest"),
   );
-  assert.ok(
-    handler.indexOf('setCorporateConversionActionState("pending")') <
-      handler.indexOf("await getShowsWithTables"),
-  );
-  assert.match(handler, /tableShow: selectedConversionShow\.id/);
+  assert.match(handler, /void getBooking\(result\.bookingReference\)/);
+  assert.doesNotMatch(handler, /await getShowsWithTables/);
   assert.match(handler, /corporateConversionInFlightRef\.current\.has/);
   assert.doesNotMatch(handler, /saveBookings\(|saveCorporateRequests\(/);
   assert.doesNotMatch(handler, /createWorkflowCommunication/);

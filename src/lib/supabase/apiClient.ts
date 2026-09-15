@@ -7,6 +7,25 @@ type ApiOptions = {
   method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
 };
 
+export class SupabaseApiError extends Error {
+  code?: string;
+  explanation?: string;
+  status: number;
+
+  constructor(input: {
+    code?: string;
+    explanation?: string;
+    message: string;
+    status: number;
+  }) {
+    super(input.message);
+    this.name = "SupabaseApiError";
+    this.code = input.code;
+    this.explanation = input.explanation;
+    this.status = input.status;
+  }
+}
+
 export async function fetchSupabaseApi<T>(
   path: string,
   options: ApiOptions = {},
@@ -35,6 +54,7 @@ export async function fetchSupabaseApi<T>(
     const errorPayload = (await response.json().catch(() => ({}))) as {
       code?: string;
       error?: string;
+      explanation?: string;
     };
 
     if (
@@ -47,7 +67,12 @@ export async function fetchSupabaseApi<T>(
       );
     }
 
-    throw new Error(errorPayload.error ?? "Supabase API request failed.");
+    throw new SupabaseApiError({
+      code: errorPayload.code,
+      explanation: errorPayload.explanation,
+      message: errorPayload.error ?? "Supabase API request failed.",
+      status: response.status,
+    });
   }
 
   return (await response.json()) as T;

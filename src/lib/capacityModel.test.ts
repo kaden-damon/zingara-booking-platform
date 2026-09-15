@@ -304,19 +304,25 @@ test("assignable table seats remain available to already-entitled unassigned gue
 });
 
 test("all active capacity consumers are wired to the shared model", () => {
-  const sources = [
+  const directConsumers = [
     "../app/admin/page.tsx",
     "../app/api/admin/floor-capacity-plan/route.ts",
-    "../app/api/shows/availability/route.ts",
+    "./supabase/publicShowAvailability.ts",
     "./floorAllocator.ts",
     "./floorInventory.ts",
     "./operationalReporting.ts",
     "./operationalZoneCapacity.ts",
   ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8"));
 
-  sources.forEach((source) => {
+  directConsumers.forEach((source) => {
     assert.match(source, /capacityModel|resolveZoneCapacityState|classifyCapacityTable/);
   });
+
+  const publicAvailabilityRoute = readFileSync(
+    new URL("../app/api/shows/availability/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(publicAvailabilityRoute, /loadPublicShowAvailability/);
 });
 
 test("database snapshot and mutation guard share the same representation state", () => {
