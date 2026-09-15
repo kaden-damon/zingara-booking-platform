@@ -246,9 +246,11 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.equal(
     bookingRows.find((row) => row.getCell(5).value === "Single Guest")
       ?.getCell(8).value,
-    "Deposit R200 · Paid R200 · Outstanding R200",
+    "Paid R200 · Outstanding R200",
   );
-  assert.equal(twoTableRows[0].getCell(8).value, "Deposit R1,000 · Paid R500 · Outstanding R500");
+  assert.match(String(twoTableRows[0].getCell(7).value), /TWO.* · Deposit R1,000/s);
+  assert.equal(twoTableRows[0].getCell(8).value, "Paid R500 · Outstanding R500");
+  assert.equal(twoTableRows[1].getCell(7).value, null);
   assert.equal(twoTableRows[1].getCell(8).value, null);
   const unknownMethodRow = bookingRows.find(
     (row) => row.getCell(5).value === "Single Guest",
@@ -363,10 +365,17 @@ test("Table Plan emits one payment summary for a multi-zone Corporate booking", 
     rows.filter(
       (row) =>
         row.getCell(8).value ===
-        "Deposit R2,000 · Paid R2,000 · Outstanding R6,000",
+        "Paid R2,000 · Outstanding R6,000",
     ).length,
     1,
   );
+  assert.equal(
+    rows.filter((row) =>
+      String(row.getCell(7).value ?? "").endsWith(" · Deposit R2,000"),
+    ).length,
+    1,
+  );
+  assert.equal(rows.filter((row) => row.getCell(7).value == null).length, 1);
   assert.equal(rows.filter((row) => row.getCell(8).value == null).length, 1);
   assert.equal(
     rows.reduce((total, row) => total + cellNumber(row.getCell(4).value), 0),

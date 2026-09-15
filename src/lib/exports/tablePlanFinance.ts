@@ -124,10 +124,15 @@ export function formatTablePlanPaymentSummary(
   summary: TablePlanPaymentSummary,
 ) {
   return [
-    `Deposit ${formatTablePlanCurrencyText(summary.depositRequirement)}`,
     `Paid ${formatTablePlanCurrencyText(summary.amountPaid)}`,
     `Outstanding ${formatTablePlanCurrencyText(summary.outstanding)}`,
   ].join(" · ");
+}
+
+export function formatTablePlanDepositAmount(
+  summary: TablePlanPaymentSummary,
+) {
+  return `Deposit ${formatTablePlanCurrencyText(summary.depositRequirement)}`;
 }
 
 function getPaymentBucket(payment: TablePlanFinancialPayment) {

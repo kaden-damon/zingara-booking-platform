@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   calculateTablePlanFinancialBreakdown,
+  formatTablePlanDepositAmount,
   formatTablePlanPaymentSummary,
   getDineplanZoneReceiptFormula,
   getTablePlanToPayTotalFormula,
@@ -51,17 +52,18 @@ test("preserves Ash's operational payment column order", () => {
   assert.equal(getTablePlanToPayTotalFormula(90), "SUM(M90)");
 });
 
-test("formats Booking Details financial values as one complete payment summary", () => {
+test("formats deposit separately from paid and outstanding", () => {
+  const depositSummary = resolveTablePlanPaymentSummary({
+    amountPaid: 0,
+    balanceOutstanding: 6_160,
+    depositPercentage: (2_200 / 6_160) * 100,
+    totalAmount: 6_160,
+  });
+
+  assert.equal(formatTablePlanDepositAmount(depositSummary), "Deposit R2,200");
   assert.equal(
-    formatTablePlanPaymentSummary(
-      resolveTablePlanPaymentSummary({
-        amountPaid: 0,
-        balanceOutstanding: 6_160,
-        depositPercentage: (2_200 / 6_160) * 100,
-        totalAmount: 6_160,
-      }),
-    ),
-    "Deposit R2,200 · Paid R0 · Outstanding R6,160",
+    formatTablePlanPaymentSummary(depositSummary),
+    "Paid R0 · Outstanding R6,160",
   );
   assert.equal(
     formatTablePlanPaymentSummary(
@@ -72,7 +74,7 @@ test("formats Booking Details financial values as one complete payment summary",
         totalAmount: 3_080,
       }),
     ),
-    "Deposit R0 · Paid R3,080 · Outstanding R0",
+    "Paid R3,080 · Outstanding R0",
   );
 });
 

@@ -20,6 +20,7 @@ import type {
 } from "@/lib/zingaraDemo";
 import {
   calculateTablePlanFinancialBreakdown,
+  formatTablePlanDepositAmount,
   formatTablePlanPaymentSummary,
   getDineplanZoneReceiptFormula,
   getTablePlanToPayTotalFormula,
@@ -619,6 +620,12 @@ function populateBookingDataRow(
   const totalAmount = Math.max(Number(booking.total_amount) || 0, 0);
   const confirmedPaidAmount = Math.max(Number(booking.amount_paid) || 0, 0);
   const paymentMetadata = getBookingPaymentMetadata(booking);
+  const paymentSummary = resolveTablePlanPaymentSummary({
+    amountPaid: booking.amount_paid,
+    balanceOutstanding: booking.balance_outstanding,
+    depositPercentage: paymentMetadata.depositPercentage,
+    totalAmount: booking.total_amount,
+  });
   const financials = calculateTablePlanFinancialBreakdown(
     {
       bookingOrigin: booking.booking_origin,
@@ -640,19 +647,15 @@ function populateBookingDataRow(
     : null;
   row.getCell(7).value = includeBookingDetails
     ? neutralizeSpreadsheetFormula(
-        referenceAndContact || booking.booking_reference,
+        [
+          referenceAndContact || booking.booking_reference,
+          formatTablePlanDepositAmount(paymentSummary),
+        ].join(" · "),
       )
     : null;
   if (!includeBookingDetails) return;
   row.getCell(paymentSummaryColumn).value = neutralizeSpreadsheetFormula(
-    formatTablePlanPaymentSummary(
-      resolveTablePlanPaymentSummary({
-        amountPaid: booking.amount_paid,
-        balanceOutstanding: booking.balance_outstanding,
-        depositPercentage: paymentMetadata.depositPercentage,
-        totalAmount: booking.total_amount,
-      }),
-    ),
+    formatTablePlanPaymentSummary(paymentSummary),
   );
   setMoneyValue(row.getCell(9), financials.fullCard);
   setMoneyValue(row.getCell(10), financials.prePaidCard);
