@@ -38,6 +38,32 @@ export type DuplicateIntegrityGroup = {
   whyFlagged: string;
 };
 
+export function duplicateBookingReviewKey(
+  records: Pick<DuplicateIntegrityRecord, "id" | "recordType">[],
+) {
+  if (
+    records.length < 2 ||
+    records.some((record) => record.recordType === "corporate-enquiry")
+  ) {
+    return null;
+  }
+
+  return records
+    .map((record) => record.id)
+    .sort((left, right) => left.localeCompare(right))
+    .join("|");
+}
+
+export function excludeReviewedBookingGroups(
+  groups: DuplicateIntegrityGroup[],
+  reviewedKeys: ReadonlySet<string>,
+) {
+  return groups.filter((group) => {
+    const reviewKey = duplicateBookingReviewKey(group.records);
+    return !reviewKey || !reviewedKeys.has(reviewKey);
+  });
+}
+
 const activeBookingStatuses = new Set([
   "new",
   "confirmed",

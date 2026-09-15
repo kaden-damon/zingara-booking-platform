@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildDuplicateIntegrityGroups,
+  duplicateBookingReviewKey,
+  excludeReviewedBookingGroups,
   type DuplicateIntegrityGroup,
   type DuplicateIntegrityRecord,
 } from "@/lib/duplicateIntegrity";
@@ -262,8 +264,26 @@ export async function loadPotentialDuplicateGroups(
     getEnquiryRecords(normalizedLocations, corporateRequests),
   ]);
   const initialGroups = buildDuplicateIntegrityGroups([...bookings, ...enquiries]);
+  const bookingReviewKeys = initialGroups
+    .map((group) => duplicateBookingReviewKey(group.records))
+    .filter((key): key is string => Boolean(key));
+  const { data: dispositions, error: dispositionError } = bookingReviewKeys.length
+    ? await serviceClient
+        .from("duplicate_booking_review_dispositions")
+        .select("review_key")
+        .in("review_key", bookingReviewKeys)
+    : { data: [], error: null };
+
+  if (dispositionError) throw dispositionError;
+
+  const unresolvedGroups = excludeReviewedBookingGroups(
+    initialGroups,
+    new Set((dispositions ?? []).map((row) => String(row.review_key))),
+  );
   const candidateIds = new Set(
-    initialGroups.flatMap((group) => group.records.map((record) => record.id)),
+    unresolvedGroups.flatMap((group) =>
+      group.records.map((record) => record.id),
+    ),
   );
   const enriched = await enrichCandidateRecords(
     serviceClient,
@@ -271,7 +291,7 @@ export async function loadPotentialDuplicateGroups(
   );
   const enrichedById = new Map(enriched.map((record) => [record.id, record]));
 
-  return initialGroups.map((group) => ({
+  return unresolvedGroups.map((group) => ({
     ...group,
     records: group.records.map((record) => enrichedById.get(record.id) ?? record),
   }));

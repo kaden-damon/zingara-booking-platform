@@ -4,6 +4,8 @@ import test from "node:test";
 
 import {
   buildDuplicateIntegrityGroups,
+  duplicateBookingReviewKey,
+  excludeReviewedBookingGroups,
   type DuplicateIntegrityRecord,
 } from "./duplicateIntegrity.ts";
 
@@ -207,4 +209,78 @@ test("Admin review is permission protected, lazy and does not scan in the Admin 
   assert.doesNotMatch(page, /buildDuplicateIntegrityGroups/);
   assert.match(server, /\.in\("booking_id", bookingIds\)/);
   assert.doesNotMatch(server, /for \([^)]*records[^)]*\)[\s\S]*for \([^)]*records/);
+});
+
+test("reviewed booking groups leave the unresolved queue without hiding enquiries", () => {
+  const bookingGroup = buildDuplicateIntegrityGroups([
+    record({ id: "booking-b", reference: "ZNG-TWO" }),
+    record({
+      amountPaid: 3850,
+      bookingStatus: "confirmed",
+      createdAt: "2026-09-14T10:01:28.000Z",
+      id: "booking-a",
+      reference: "ZNG-ONE",
+      status: "deposit-paid",
+      ticketCount: 1,
+    }),
+  ])[0];
+  assert.ok(bookingGroup);
+  assert.equal(
+    duplicateBookingReviewKey(bookingGroup.records),
+    "booking-a|booking-b",
+  );
+  assert.deepEqual(
+    excludeReviewedBookingGroups(
+      [bookingGroup],
+      new Set(["booking-a|booking-b"]),
+    ),
+    [],
+  );
+
+  const enquiryGroup = buildDuplicateIntegrityGroups([
+    record({
+      capacityPax: 0,
+      id: "enquiry-a",
+      importFingerprint: "same-import",
+      recordType: "corporate-enquiry",
+    }),
+    record({
+      capacityPax: 0,
+      id: "enquiry-b",
+      importFingerprint: "same-import",
+      recordType: "corporate-enquiry",
+    }),
+  ])[0];
+  assert.ok(enquiryGroup);
+  assert.equal(duplicateBookingReviewKey(enquiryGroup.records), null);
+  assert.equal(
+    excludeReviewedBookingGroups(
+      [enquiryGroup],
+      new Set(["enquiry-a|enquiry-b"]),
+    ).length,
+    1,
+  );
+});
+
+test("management duplicate reconciliation is guarded, immutable and lifecycle based", async () => {
+  const migration = await source(
+    "../../supabase/migrations/20260915120000_phase_41_2k_b_reconcile_confirmed_duplicates.sql",
+  );
+
+  assert.match(migration, /create table if not exists public\.duplicate_booking_review_dispositions/);
+  assert.match(migration, /prevent_duplicate_booking_review_disposition_mutation/);
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /EXPECTED_AUTHORITATIVE_STATE_CHANGED/);
+  assert.match(migration, /EXPECTED_RESIDUE_STATE_CHANGED/);
+  assert.match(migration, /public\.cancel_booking_atomic/);
+  assert.match(migration, /status = 'revoked'/);
+  assert.doesNotMatch(migration, /delete\s+from\s+public\.bookings/i);
+  assert.doesNotMatch(migration, /delete\s+from\s+public\.payments/i);
+  assert.doesNotMatch(migration, /update\s+public\.payments/i);
+  assert.match(migration, /legitimate_separate_bookings/g);
+  assert.match(migration, /confirmed_duplicate_resolved/g);
+  assert.match(migration, /ZNG-YHKT5G/);
+  assert.match(migration, /ZNG-2F7QFC/);
+  assert.match(migration, /ZNG-33E932/);
+  assert.match(migration, /ZNG-P34A6K/);
 });
