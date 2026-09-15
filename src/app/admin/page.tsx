@@ -7326,13 +7326,18 @@ function getZoneStats(
 
   return {
     baseCapacity: state.baseCapacity,
+    baseSellableRemaining: state.baseSellableRemaining,
     bookedSeats: state.activeEntitlementPax,
     ...inventoryStats,
+    assignableTableCapacity: state.assignableCapacity,
     effectiveOperationalCapacity: state.effectiveOperationalCapacity,
     overCapacitySeats: state.overOperationalCapacity,
     remainingSeats: state.operationalRemaining,
     representedPhysicalCapacity: state.representedPhysicalCapacity,
     representationHeadroom: state.representationHeadroom,
+    rawAssignableTableCapacity: state.rawAssignableCapacity,
+    rawOperationalTableCapacity: state.rawOperationalTableCapacity,
+    tableFitSlack: state.tableFitSlack,
     temporaryCapacity: state.temporaryCapacity,
     totalCapacity: state.effectiveOperationalCapacity,
   };
@@ -40332,10 +40337,10 @@ export default function AdminDashboardPage() {
                         {zone.title}
                       </p>
                       <p className="mt-2 text-2xl font-bold">
-                        {stats.remainingSeats}
+                        {stats.baseSellableRemaining}
                       </p>
                       <p className="text-xs text-zinc-500">
-                        operational seats remaining
+                        publicly sellable seats remaining
                       </p>
                       {stats.overCapacitySeats > 0 && (
                         <p className="mt-2 text-xs font-semibold text-red-300">
@@ -40348,13 +40353,13 @@ export default function AdminDashboardPage() {
                         {zoneOccupancyCounts.capacityRequired} capacity required
                       </p>
                       <p className="mt-1 text-xs leading-5 text-zinc-400">
-                        Base {stats.baseCapacity} · temporary +{stats.temporaryCapacity} · physical/merged represented {stats.representedPhysicalCapacity}/{stats.effectiveOperationalCapacity}
+                        Base/public {stats.baseCapacity} · temporary operational +{stats.temporaryCapacity} · effective operational {stats.effectiveOperationalCapacity}
                       </p>
                       <p className="mt-1 text-xs leading-5 text-zinc-400">
                         {zoneOccupancyCounts.available} available ·{" "}
                         {zoneOccupancyCounts.reserved} reserved ·{" "}
                         {zoneOccupancyCounts["checked-in"]} arrived ·{" "}
-                        {stats.assignableTableCapacity} assignable seats
+                        {stats.remainingSeats} operational remaining · {stats.assignableTableCapacity} assignable table seats
                       </p>
                     </button>
                   );
@@ -40936,37 +40941,43 @@ export default function AdminDashboardPage() {
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:min-w-[680px] lg:grid-cols-4">
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                        Effective Capacity
+                        Base / Public Capacity
                       </p>
                       <p className="mt-2 text-3xl font-bold">
-                        {stats.totalCapacity}
+                        {stats.baseCapacity}
                       </p>
                       <p className="mt-1 text-xs text-zinc-300">
-                        Base {stats.baseCapacity} · Temporary +{stats.temporaryCapacity}
+                        Public sellable remaining {stats.baseSellableRemaining}
                       </p>
                     </div>
 
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                        Booked Seats
+                        Temporary Operational
+                      </p>
+                      <p className="mt-2 text-3xl font-bold">
+                        +{stats.temporaryCapacity}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-300">
+                        Effective operational {stats.effectiveOperationalCapacity}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-white/15 bg-black/30 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        Active Entitlement
                       </p>
                       <p className="mt-2 text-3xl font-bold">
                         {stats.bookedSeats}
                       </p>
+                      <p className="mt-1 text-xs text-zinc-300">
+                        Operational remaining {stats.remainingSeats}
+                      </p>
                       {stats.overCapacitySeats > 0 && (
                         <p className="mt-2 text-xs font-semibold text-red-300">
-                          Over capacity by {stats.overCapacitySeats}
+                          Over operational capacity by {stats.overCapacitySeats}
                         </p>
                       )}
-                    </div>
-
-                    <div className="rounded-xl border border-white/15 bg-black/30 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                        Remaining Seats
-                      </p>
-                      <p className="mt-2 text-3xl font-bold">
-                        {stats.remainingSeats}
-                      </p>
                     </div>
 
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
@@ -40979,12 +40990,16 @@ export default function AdminDashboardPage() {
                         {stats.mergedOperationalTableCount} merged
                       </p>
                       <p className="mt-1 text-xs text-zinc-300">
-                        {stats.representedPhysicalCapacity}/{stats.effectiveOperationalCapacity} physical/merged represented ·{" "}
-                        {stats.assignableTableCapacity} currently assignable
+                        Physical/merged {stats.representedPhysicalCapacity} · temporary {stats.temporaryCapacity} · raw table seats {stats.rawOperationalTableCapacity}
                       </p>
                       <p className="mt-1 text-xs text-zinc-400">
-                        {stats.representationHeadroom} representation seats available
+                        {stats.assignableTableCapacity} assignable table seats · {stats.representationHeadroom} physical representation headroom
                       </p>
+                      {stats.tableFitSlack > 0 && (
+                        <p className="mt-1 text-xs text-zinc-400">
+                          {stats.tableFitSlack} table-fit slack seat{stats.tableFitSlack === 1 ? "" : "s"} above effective entitlement
+                        </p>
+                      )}
                       {stats.unconfiguredPhysicalTableCount > 0 && (
                         <p className="mt-1 text-xs text-amber-100">
                           {stats.unconfiguredPhysicalTableCount} capacity required
@@ -41016,6 +41031,10 @@ export default function AdminDashboardPage() {
                     </div>
                   </div>
                 </div>
+
+                <p className="mt-4 text-xs leading-5 text-zinc-400">
+                  Temporary operational capacity helps Floor seat existing guests and does not increase public ticket availability.
+                </p>
 
                 <AdminCollapsibleSection
                   className="mt-6 bg-black/25"

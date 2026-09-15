@@ -230,15 +230,18 @@ test("server consumers distinguish public base and staff operational capacity", 
   assert.match(floorPlanRoute, /resolveZoneCapacityState/);
 });
 
-test("Admin exposes base, temporary, and effective capacity", () => {
+test("Admin separates public capacity from operational capacity and table-fit slack", () => {
   const adminPage = readFileSync(
     new URL("../app/admin/page.tsx", import.meta.url),
     "utf8",
   );
 
-  assert.match(adminPage, /Effective Capacity/);
-  assert.match(adminPage, /Base \{stats\.baseCapacity\}/);
-  assert.match(adminPage, /Temporary \+\{stats\.temporaryCapacity\}/);
+  assert.match(adminPage, /Base \/ Public Capacity/);
+  assert.match(adminPage, /Public sellable remaining \{stats\.baseSellableRemaining\}/);
+  assert.match(adminPage, /Temporary Operational/);
+  assert.match(adminPage, /Effective operational \{stats\.effectiveOperationalCapacity\}/);
+  assert.match(adminPage, /table-fit slack/);
+  assert.match(adminPage, /does not increase public ticket availability/);
   assert.match(adminPage, /getOperationalZoneCapacity/);
 });
 
@@ -249,7 +252,10 @@ test("temporary-table reduction errors remain staff-safe", () => {
   );
 
   assert.match(route, /TEMPORARY_CAPACITY_BELOW_ACTIVE_ENTITLEMENT/);
-  assert.match(route, /active bookings still depend on those seats/);
+  assert.match(
+    route,
+    /active bookings or physical Floor representation still depend on those seats/,
+  );
   assert.match(route, /cannot be lower than its assigned booking's guest count/);
 });
 

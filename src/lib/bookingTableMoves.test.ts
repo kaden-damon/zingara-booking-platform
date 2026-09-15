@@ -214,7 +214,7 @@ test("Booking Details hydrates the selected show inventory and displays pax", ()
 
   assert.match(
     adminPage,
-    /getShowsWithTables\(\{\s*tableShow: detailedBooking\.showId,\s*\}\)/,
+    /getShowsWithTables\(\{\s*tableShow: detailedBooking\.showId,?\s*\}\)/,
   );
   assert.match(adminPage, /Guests \u00b7 \{booking\.partySize\}/);
   assert.match(adminPage, /Seating Zone \/ Target Table/);

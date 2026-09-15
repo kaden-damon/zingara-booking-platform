@@ -201,11 +201,20 @@ export function resolveZoneCapacityState(input: {
       (row) => row.table.status === "booked" || row.table.bookingReference,
     )
     .reduce((total, row) => total + row.capacity, 0);
-  const assignableCapacity = operationalUnits
+  const rawAssignableCapacity = operationalUnits
     .filter(
       (row) => row.table.status === "available" && !row.table.bookingReference,
     )
     .reduce((total, row) => total + row.capacity, 0);
+  const rawOperationalTableCapacity = operationalUnits.reduce(
+    (total, row) => total + row.capacity,
+    0,
+  );
+  const operationalRemaining = Math.max(
+    effectiveOperationalCapacity - activeEntitlementPax,
+    0,
+  );
+  const assignableCapacity = rawAssignableCapacity;
 
   return {
     activeEntitlementPax,
@@ -217,20 +226,23 @@ export function resolveZoneCapacityState(input: {
       (row) => row.representation === "capacity-required",
     ).length,
     effectiveOperationalCapacity,
-    operationalRemaining: Math.max(
-      effectiveOperationalCapacity - activeEntitlementPax,
-      0,
-    ),
+    operationalRemaining,
     overOperationalCapacity: Math.max(
       activeEntitlementPax - effectiveOperationalCapacity,
       0,
     ),
     representedPhysicalCapacity,
+    rawAssignableCapacity,
+    rawOperationalTableCapacity,
     representationHeadroom: Math.max(
       effectiveOperationalCapacity - representedPhysicalCapacity,
       0,
     ),
     reservedTableCapacity,
+    tableFitSlack: Math.max(
+      rawOperationalTableCapacity - effectiveOperationalCapacity,
+      0,
+    ),
     rows: represented,
     temporaryCapacity,
   };

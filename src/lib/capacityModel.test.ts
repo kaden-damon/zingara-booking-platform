@@ -75,10 +75,13 @@ test("one snapshot separates base, temporary, entitlement and representation", (
       capacityRequiredCount: state.capacityRequiredCount,
       effectiveOperationalCapacity: state.effectiveOperationalCapacity,
       operationalRemaining: state.operationalRemaining,
+      rawAssignableCapacity: state.rawAssignableCapacity,
+      rawOperationalTableCapacity: state.rawOperationalTableCapacity,
       representedPhysicalCapacity: state.representedPhysicalCapacity,
       representationHeadroom: state.representationHeadroom,
       reservedTableCapacity: state.reservedTableCapacity,
       temporaryCapacity: state.temporaryCapacity,
+      tableFitSlack: state.tableFitSlack,
     },
     {
       activeEntitlementPax: 11,
@@ -88,10 +91,13 @@ test("one snapshot separates base, temporary, entitlement and representation", (
       capacityRequiredCount: 1,
       effectiveOperationalCapacity: 24,
       operationalRemaining: 13,
+      rawAssignableCapacity: 4,
+      rawOperationalTableCapacity: 16,
       representedPhysicalCapacity: 12,
       representationHeadroom: 12,
       reservedTableCapacity: 12,
       temporaryCapacity: 4,
+      tableFitSlack: 0,
     },
   );
 });
@@ -233,6 +239,68 @@ test("temporary capacity never increases public sellable inventory", () => {
 
   assert.equal(state.baseSellableRemaining, 5);
   assert.equal(state.operationalRemaining, 35);
+});
+
+test("Cape Town 28 November table-fit slack is explicit and does not create entitlement", () => {
+  const state = resolveZoneCapacityState({
+    baseCapacity: 132,
+    bookings: [booking(114)],
+    showId,
+    tables: [
+      table("physical", 136, { bookingReference: "assigned", status: "booked" }),
+      table("temporary-reserved", 4, {
+        availabilityScope: "operational",
+        bookingReference: "assigned-temp",
+        isOverride: true,
+        physicalTable: false,
+        status: "booked",
+      }),
+      table("temporary-available", 140, {
+        availabilityScope: "operational",
+        isOverride: true,
+        physicalTable: false,
+      }),
+    ],
+    zoneId,
+  });
+
+  assert.equal(state.temporaryCapacity, 144);
+  assert.equal(state.effectiveOperationalCapacity, 276);
+  assert.equal(state.representedPhysicalCapacity, 136);
+  assert.equal(state.rawOperationalTableCapacity, 280);
+  assert.equal(state.tableFitSlack, 4);
+  assert.equal(state.operationalRemaining, 162);
+  assert.equal(state.rawAssignableCapacity, 140);
+  assert.equal(state.assignableCapacity, 140);
+  assert.equal(state.baseSellableRemaining, 18);
+});
+
+test("assignable table seats remain available to already-entitled unassigned guests", () => {
+  const state = resolveZoneCapacityState({
+    baseCapacity: 132,
+    bookings: [booking(144)],
+    showId,
+    tables: [
+      table("physical", 136, { bookingReference: "assigned", status: "booked" }),
+      table("temporary-reserved", 4, {
+        availabilityScope: "operational",
+        bookingReference: "assigned-temp",
+        isOverride: true,
+        physicalTable: false,
+        status: "booked",
+      }),
+      table("temporary-available", 140, {
+        availabilityScope: "operational",
+        isOverride: true,
+        physicalTable: false,
+      }),
+    ],
+    zoneId,
+  });
+
+  assert.equal(state.rawAssignableCapacity, 140);
+  assert.equal(state.operationalRemaining, 132);
+  assert.equal(state.assignableCapacity, 140);
 });
 
 test("all active capacity consumers are wired to the shared model", () => {
