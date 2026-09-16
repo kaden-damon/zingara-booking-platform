@@ -1,9 +1,6 @@
 import { type AdminRole } from "@/lib/zingaraAccess";
-import { sendZingaraEmail } from "@/lib/email/smtp";
 import {
   canManageStaffIssues,
-  getStaffIssueCategoryLabel,
-  getStaffIssuePriorityLabel,
   isStaffIssueCategory,
   isStaffIssuePriority,
   isStaffIssueStatus,
@@ -13,6 +10,16 @@ import {
   type StaffIssueStatus,
 } from "@/lib/staffIssues";
 import {
+  getStaffIssueMediaKind,
+  sanitizeStaffIssueFilename,
+  staffIssueMediaBucket,
+  validateStaffIssueAttachmentDescriptors,
+  type StaffIssueAttachmentDescriptor,
+  type StaffIssueAttachmentUpload,
+  type StaffIssueMediaType,
+} from "@/lib/staffIssueMedia";
+import { notifyKadenOfStaffIssue } from "@/lib/staffIssueNotification";
+import {
   getAdminRoleFromName,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
@@ -21,7 +28,6 @@ import {
   pickAuditFields,
   tryRecordAuditEvent,
 } from "@/lib/supabase/serverAudit";
-import { sendStaffIdentityPushNotification } from "@/lib/supabase/staffPush";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +40,14 @@ type StaffIssueReporterRow = {
 
 type StaffIssueRow = {
   admin_notes: string | null;
+  attachments?: Array<{
+    created_at: string;
+    file_size: number;
+    id: string;
+    mime_type: StaffIssueMediaType;
+    original_filename: string;
+    status: "failed" | "pending" | "ready";
+  }> | null;
   category: StaffIssueCategory;
   completed_at: string | null;
   created_at: string;
@@ -54,6 +68,9 @@ type StaffIssueRow = {
   updated_at: string;
 };
 
+const issueSelect =
+  "id,ticket_reference,reporter_staff_id,category,priority,status,title,description,location,module_or_area,admin_notes,resolution_notes,metadata,scheduled_at,started_at,completed_at,created_at,updated_at,attachments:staff_issue_attachments(id,original_filename,mime_type,file_size,status,created_at),reporter:staff_profiles!staff_issue_reports_reporter_staff_id_fkey(id,full_name,email,roles(name))";
+
 const issueAuditFields = [
   "admin_notes",
   "category",
@@ -68,84 +85,6 @@ const issueAuditFields = [
   "status",
   "title",
 ];
-const issueNotificationRecipient = "kaden@kaden.co.za";
-
-function getIssueNotificationMessage(issue: StaffIssueReport) {
-  return [
-    `A new Zingara staff issue has been reported: ${issue.ticketReference}`,
-    "",
-    `Title: ${issue.title}`,
-    `Category: ${getStaffIssueCategoryLabel(issue.category)}`,
-    `Priority: ${getStaffIssuePriorityLabel(issue.priority)}`,
-    `Description: ${issue.description}`,
-    `Reporter: ${issue.reporterName ?? issue.reporterEmail ?? "Not recorded"}`,
-    `Location: ${issue.location ?? "Not location-specific"}`,
-    `Module / Area: ${issue.moduleOrArea ?? "Not recorded"}`,
-    `Created: ${issue.createdAt}`,
-    "",
-    "Admin: /admin?section=platform-operations",
-  ].join("\n");
-}
-
-async function notifyKadenOfIssue(
-  serviceClient: NonNullable<
-    Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]
-  >,
-  issue: StaffIssueReport,
-) {
-  const { data: recipient, error } = await serviceClient
-    .from("staff_profiles")
-    .select("id,user_id")
-    .eq("email", issueNotificationRecipient)
-    .eq("active", true)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
-
-  const message = getIssueNotificationMessage(issue);
-  const notificationTasks: Promise<unknown>[] = [
-    sendZingaraEmail({
-      message,
-      subject: `[${issue.ticketReference}] ${issue.title}`,
-      to: issueNotificationRecipient,
-    }),
-  ];
-
-  if (recipient?.id) {
-    notificationTasks.push(
-      sendStaffIdentityPushNotification({
-        body: `${getStaffIssuePriorityLabel(issue.priority)} · ${issue.title}`,
-        staffProfileId: recipient.id,
-        title: `New issue · ${issue.ticketReference}`,
-        url: "/admin?section=platform-operations",
-        userId: recipient.user_id,
-      }),
-    );
-  } else {
-    console.error("[Zingara Issues] Kaden push identity was not found.");
-  }
-
-  const results = await Promise.allSettled(notificationTasks);
-
-  results.forEach((result) => {
-    if (result.status === "rejected") {
-      console.error("[Zingara Issues] Issue notification failed", result.reason);
-      return;
-    }
-
-    const value = result.value as { error?: string; ok?: boolean };
-
-    if (value.ok === false) {
-      console.error(
-        "[Zingara Issues] Issue notification was not delivered",
-        value.error ?? "No matching active subscription was available.",
-      );
-    }
-  });
-}
-
 function getStaffRole(profile: {
   roles?: StaffIssueReporterRow["roles"];
 }): AdminRole {
@@ -165,6 +104,16 @@ function toIssueReport(row: StaffIssueRow): StaffIssueReport {
 
   return {
     adminNotes: row.admin_notes,
+    attachments: (row.attachments ?? [])
+      .filter((attachment) => attachment.status === "ready")
+      .map((attachment) => ({
+        createdAt: attachment.created_at,
+        fileSize: Number(attachment.file_size),
+        id: attachment.id,
+        mediaKind: getStaffIssueMediaKind(attachment.mime_type),
+        mimeType: attachment.mime_type,
+        originalFilename: attachment.original_filename,
+      })),
     category: row.category,
     completedAt: row.completed_at,
     createdAt: row.created_at,
@@ -185,6 +134,22 @@ function toIssueReport(row: StaffIssueRow): StaffIssueReport {
     ticketReference: row.ticket_reference,
     title: row.title,
     updatedAt: row.updated_at,
+  };
+}
+
+function toNotificationDetails(issue: StaffIssueReport) {
+  return {
+    category: issue.category,
+    createdAt: issue.createdAt,
+    description: issue.description,
+    id: issue.id,
+    location: issue.location,
+    moduleOrArea: issue.moduleOrArea,
+    priority: issue.priority,
+    reporterEmail: issue.reporterEmail,
+    reporterName: issue.reporterName,
+    ticketReference: issue.ticketReference,
+    title: issue.title,
   };
 }
 
@@ -219,9 +184,7 @@ export async function GET(request: Request) {
 
   let query = auth.serviceClient
     .from("staff_issue_reports")
-    .select(
-      "id,ticket_reference,reporter_staff_id,category,priority,status,title,description,location,module_or_area,admin_notes,resolution_notes,metadata,scheduled_at,started_at,completed_at,created_at,updated_at,reporter:staff_profiles!staff_issue_reports_reporter_staff_id_fkey(id,full_name,email,roles(name))",
-    )
+    .select(issueSelect)
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -276,6 +239,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       category?: unknown;
+      attachments?: unknown;
       currentPath?: unknown;
       description?: unknown;
       location?: unknown;
@@ -288,6 +252,9 @@ export async function POST(request: Request) {
     const description = normalizeOptionalText(body.description);
     const category = body.category;
     const priority = body.priority ?? "normal";
+    const attachmentDescriptors = Array.isArray(body.attachments)
+      ? (body.attachments as StaffIssueAttachmentDescriptor[])
+      : [];
 
     if (!title || !description || !isStaffIssueCategory(category)) {
       return Response.json(
@@ -300,6 +267,16 @@ export async function POST(request: Request) {
       return Response.json({ error: "Priority is invalid." }, { status: 400 });
     }
 
+    const attachmentValidationError =
+      validateStaffIssueAttachmentDescriptors(attachmentDescriptors);
+
+    if (attachmentValidationError) {
+      return Response.json(
+        { error: attachmentValidationError },
+        { status: 400 },
+      );
+    }
+
     const submissionId = normalizeOptionalText(body.submissionId)?.slice(0, 100);
     const metadata: Record<string, unknown> = {};
 
@@ -307,9 +284,7 @@ export async function POST(request: Request) {
       const { data: existingIssue, error: existingIssueError } =
         await auth.serviceClient
           .from("staff_issue_reports")
-          .select(
-            "id,ticket_reference,reporter_staff_id,category,priority,status,title,description,location,module_or_area,admin_notes,resolution_notes,metadata,scheduled_at,started_at,completed_at,created_at,updated_at,reporter:staff_profiles!staff_issue_reports_reporter_staff_id_fkey(id,full_name,email,roles(name))",
-          )
+          .select(issueSelect)
           .eq("reporter_staff_id", auth.staffProfile.id)
           .contains("metadata", { submissionId })
           .maybeSingle();
@@ -320,8 +295,12 @@ export async function POST(request: Request) {
 
       if (existingIssue) {
         return Response.json({
+          attachmentFailures: [],
+          attachmentUploads: [],
           deduplicated: true,
           issue: toIssueReport(existingIssue as unknown as StaffIssueRow),
+          notificationDelivered: null,
+          notificationError: null,
         });
       }
 
@@ -344,9 +323,7 @@ export async function POST(request: Request) {
         reporter_staff_id: auth.staffProfile.id,
         title,
       })
-      .select(
-        "id,ticket_reference,reporter_staff_id,category,priority,status,title,description,location,module_or_area,admin_notes,resolution_notes,metadata,scheduled_at,started_at,completed_at,created_at,updated_at,reporter:staff_profiles!staff_issue_reports_reporter_staff_id_fkey(id,full_name,email,roles(name))",
-      )
+      .select(issueSelect)
       .single();
 
     if (error) {
@@ -354,6 +331,86 @@ export async function POST(request: Request) {
     }
 
     const issue = toIssueReport(data as unknown as StaffIssueRow);
+    const attachmentUploads: StaffIssueAttachmentUpload[] = [];
+    const attachmentFailures: Array<{ filename: string; reason: string }> = [];
+
+    if (attachmentDescriptors.length > 0) {
+      const attachmentRows = attachmentDescriptors.map((attachment) => {
+        const attachmentId = crypto.randomUUID();
+
+        return {
+          client_id: attachment.clientId,
+          created_at: new Date().toISOString(),
+          file_size: attachment.fileSize,
+          id: attachmentId,
+          issue_id: issue.id,
+          mime_type: attachment.mimeType,
+          original_filename: sanitizeStaffIssueFilename(
+            attachment.originalFilename,
+          ),
+          status: "pending",
+          storage_path: `${issue.id}/${attachmentId}`,
+          uploader_staff_id: auth.staffProfile.id,
+        };
+      });
+      const { error: attachmentInsertError } = await auth.serviceClient
+        .from("staff_issue_attachments")
+        .insert(
+          attachmentRows.map((row) => ({
+            created_at: row.created_at,
+            file_size: row.file_size,
+            id: row.id,
+            issue_id: row.issue_id,
+            mime_type: row.mime_type,
+            original_filename: row.original_filename,
+            status: row.status,
+            storage_path: row.storage_path,
+            uploader_staff_id: row.uploader_staff_id,
+          })),
+        );
+
+      if (attachmentInsertError) {
+        console.error(
+          "[Zingara Issues] Issue saved but attachment metadata failed",
+          attachmentInsertError,
+        );
+        attachmentDescriptors.forEach((attachment) => {
+          attachmentFailures.push({
+            filename: attachment.originalFilename,
+            reason: "Attachment storage could not be prepared.",
+          });
+        });
+      } else {
+        const storage = auth.serviceClient.storage.from(staffIssueMediaBucket);
+
+        for (const row of attachmentRows) {
+          const { data: signedUpload, error: signedUploadError } =
+            await storage.createSignedUploadUrl(row.storage_path);
+
+          if (signedUploadError || !signedUpload?.token) {
+            attachmentFailures.push({
+              filename: row.original_filename,
+              reason: "A secure upload could not be prepared.",
+            });
+            await auth.serviceClient
+              .from("staff_issue_attachments")
+              .update({
+                status: "failed",
+                upload_error: "Secure upload preparation failed.",
+              })
+              .eq("id", row.id);
+            continue;
+          }
+
+          attachmentUploads.push({
+            attachmentId: row.id,
+            clientId: row.client_id,
+            path: row.storage_path,
+            token: signedUpload.token,
+          });
+        }
+      }
+    }
 
     await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
       action: "staff-issue.create",
@@ -369,16 +426,37 @@ export async function POST(request: Request) {
       sourceArea: "System",
     });
 
-    try {
-      await notifyKadenOfIssue(auth.serviceClient, issue);
-    } catch (notificationError) {
-      console.error(
-        "[Zingara Issues] Issue saved but notification dispatch failed",
-        notificationError,
-      );
+    let notificationDelivered: boolean | null = null;
+    let notificationError: string | null = null;
+
+    if (attachmentUploads.length === 0) {
+      try {
+        const notification = await notifyKadenOfStaffIssue(
+          auth.serviceClient,
+          toNotificationDetails(issue),
+        );
+        notificationDelivered = notification.delivered;
+        notificationError = notification.error;
+      } catch (error) {
+        notificationDelivered = false;
+        notificationError = "The issue was saved, but the notification could not be sent.";
+        console.error(
+          "[Zingara Issues] Issue saved but notification dispatch failed",
+          error,
+        );
+      }
     }
 
-    return Response.json({ issue }, { status: 201 });
+    return Response.json(
+      {
+        attachmentFailures,
+        attachmentUploads,
+        issue,
+        notificationDelivered,
+        notificationError,
+      },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("[Zingara Issues] Failed to create staff issue", error);
     return Response.json(
@@ -479,9 +557,7 @@ export async function PATCH(request: Request) {
       .from("staff_issue_reports")
       .update(updates)
       .eq("id", id)
-      .select(
-        "id,ticket_reference,reporter_staff_id,category,priority,status,title,description,location,module_or_area,admin_notes,resolution_notes,metadata,scheduled_at,started_at,completed_at,created_at,updated_at,reporter:staff_profiles!staff_issue_reports_reporter_staff_id_fkey(id,full_name,email,roles(name))",
-      )
+      .select(issueSelect)
       .single();
 
     if (error) {

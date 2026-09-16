@@ -98,14 +98,14 @@ test("automatic reminders and reviews use the customer email boundary", async ()
 });
 
 test("staff-only alert emails remain outside the customer branded boundary", async () => {
-  const [issues, corporateHolds] = await Promise.all([
-    source("../../app/api/admin/issues/route.ts"),
+  const [issueNotification, corporateHolds] = await Promise.all([
+    source("../staffIssueNotification.ts"),
     source("../workflows/corporatePaymentHolds.ts"),
   ]);
 
-  assert.match(issues, /sendZingaraEmail\(\{/);
+  assert.match(issueNotification, /sendZingaraEmail\(\{/);
   assert.match(corporateHolds, /sendZingaraEmail\(\{/);
-  assert.doesNotMatch(issues, /sendOperationalCustomerEmail/);
+  assert.doesNotMatch(issueNotification, /sendOperationalCustomerEmail/);
   assert.doesNotMatch(corporateHolds, /sendOperationalCustomerEmail/);
 });
 

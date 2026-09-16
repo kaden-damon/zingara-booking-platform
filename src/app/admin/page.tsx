@@ -22,6 +22,8 @@ import SecretPasswordSettings from "./SecretPasswordSettings";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
 import ShowZoneSalesControls from "./ShowZoneSalesControls";
 import { StaffActionGuidanceAlert } from "./StaffActionGuidanceAlert";
+import { StaffIssueAttachments } from "./StaffIssueAttachments";
+import { StaffIssueMediaPicker } from "./StaffIssueMediaPicker";
 import ZingaraDatePicker from "./ZingaraDatePicker";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
@@ -65,6 +67,11 @@ import {
   resolveStaffActionGuidance,
   type StaffActionGuidance,
 } from "../../lib/staffActionGuidance";
+import type { StaffIssueAttachmentUpload } from "../../lib/staffIssueMedia";
+import {
+  uploadAndFinalizeStaffIssueMedia,
+  type StaffIssueSelectedFile,
+} from "../../lib/staffIssueMediaClient";
 
 import {
   type AdminRole,
@@ -10206,6 +10213,10 @@ export default function AdminDashboardPage() {
   const [staffIssueStatusMessage, setStaffIssueStatusMessage] =
     useState("");
   const [staffIssueError, setStaffIssueError] = useState("");
+  const [staffIssueMediaError, setStaffIssueMediaError] = useState("");
+  const [staffIssueMediaFiles, setStaffIssueMediaFiles] = useState<
+    StaffIssueSelectedFile[]
+  >([]);
   const [platformOperations, setPlatformOperations] =
     useState<PlatformOperationsPayload | null>(null);
   const [isPlatformOperationsLoading, setIsPlatformOperationsLoading] =
@@ -11799,8 +11810,9 @@ export default function AdminDashboardPage() {
       const bookingReference = url.searchParams.get("booking")?.trim();
       const waitlistId = url.searchParams.get("waitlist")?.trim();
       const corporateRequestId = url.searchParams.get("corporate")?.trim();
+      const issueId = url.searchParams.get("issue")?.trim();
       const section = url.searchParams.get("section")?.trim();
-      const deepLinkKey = `${bookingReference ?? ""}|${waitlistId ?? ""}|${corporateRequestId ?? ""}|${section ?? ""}`;
+      const deepLinkKey = `${bookingReference ?? ""}|${waitlistId ?? ""}|${corporateRequestId ?? ""}|${issueId ?? ""}|${section ?? ""}`;
 
       if (!deepLinkKey.replaceAll("|", "")) {
         return;
@@ -11834,6 +11846,10 @@ export default function AdminDashboardPage() {
         setActiveAdminTab("corporate");
         setCorporateWorkspace("enquiries");
         setOpenCorporateRequestId(corporateRequestId);
+      } else if (issueId) {
+        setActiveAdminTab("platform-operations");
+        setActiveSystemTab("issues");
+        setSelectedStaffIssueId(issueId);
       } else if (section === "bookings") {
         setActiveAdminTab("bookings");
       } else if (section === "waitlist") {
@@ -11859,6 +11875,7 @@ export default function AdminDashboardPage() {
         setActiveAdminTab("academy");
       } else if (section === "platform-operations") {
         setActiveAdminTab("platform-operations");
+        setActiveSystemTab("issues");
       }
 
       handledAdminDeepLinkRef.current = deepLinkKey;
@@ -14767,11 +14784,23 @@ export default function AdminDashboardPage() {
     staffIssueSubmissionIdRef.current = submissionId;
 
     try {
-      const payload = await fetchSupabaseApi<{ issue: StaffIssueReport }>(
+      const payload = await fetchSupabaseApi<{
+        attachmentFailures: Array<{ filename: string; reason: string }>;
+        attachmentUploads: StaffIssueAttachmentUpload[];
+        issue: StaffIssueReport;
+        notificationDelivered: boolean | null;
+        notificationError: string | null;
+      }>(
         "/api/admin/issues",
         {
           body: {
             ...staffIssueForm,
+            attachments: staffIssueMediaFiles.map((selected) => ({
+              clientId: selected.clientId,
+              fileSize: selected.file.size,
+              mimeType: selected.file.type,
+              originalFilename: selected.file.name,
+            })),
             currentPath:
               typeof window !== "undefined"
                 ? `${window.location.pathname}${window.location.hash}`
@@ -14782,6 +14811,74 @@ export default function AdminDashboardPage() {
         },
       );
 
+      let issue = payload.issue;
+      let attachmentFailures = payload.attachmentFailures;
+      let notificationDelivered = payload.notificationDelivered;
+      let notificationError = payload.notificationError;
+
+      setStaffIssueReports((issues) => [
+        issue,
+        ...issues.filter((candidate) => candidate.id !== issue.id),
+      ]);
+      setSelectedStaffIssueId(issue.id);
+
+      if (payload.attachmentUploads.length > 0) {
+        try {
+          setStaffIssueStatusMessage("Uploading and verifying media...");
+          const finalized = await uploadAndFinalizeStaffIssueMedia({
+            files: staffIssueMediaFiles,
+            issueId: issue.id,
+            uploads: payload.attachmentUploads,
+          });
+
+          issue = {
+            ...issue,
+            attachments: finalized.attachments,
+          };
+          attachmentFailures = [
+            ...attachmentFailures,
+            ...finalized.failures,
+          ];
+          notificationDelivered = finalized.notificationDelivered;
+          notificationError = finalized.notificationError;
+          setStaffIssueReports((issues) => [
+            issue,
+            ...issues.filter((candidate) => candidate.id !== issue.id),
+          ]);
+        } catch (mediaError) {
+          console.error(
+            "[Zingara admin] Issue saved but media finalization failed",
+            mediaError,
+          );
+          setStaffIssueError(
+            `Issue submitted · ${issue.ticketReference}. Media verification did not complete; the written report remains safely stored.`,
+          );
+          setStaffIssueStatusMessage(
+            `Issue submitted · ${issue.ticketReference}`,
+          );
+          showStaffGuidance({
+            message:
+              "The written issue was saved, but its selected media could not be verified.",
+            nextStep:
+              "Open the issue to review any completed attachments before retrying.",
+            status: "warning",
+            title: "Issue saved with incomplete media",
+          });
+          setStaffIssueForm({
+            category: "system_technical",
+            description: "",
+            location: "",
+            moduleOrArea: "",
+            priority: "normal",
+            title: "",
+          });
+          setStaffIssueMediaFiles([]);
+          setStaffIssueMediaError("");
+          staffIssueSubmissionIdRef.current = "";
+          return;
+        }
+      }
+
       setStaffIssueForm({
         category: "system_technical",
         description: "",
@@ -14790,16 +14887,36 @@ export default function AdminDashboardPage() {
         priority: "normal",
         title: "",
       });
+      setStaffIssueMediaFiles([]);
+      setStaffIssueMediaError("");
       staffIssueSubmissionIdRef.current = "";
-      setStaffIssueReports((issues) => [
-        payload.issue,
-        ...issues.filter((issue) => issue.id !== payload.issue.id),
-      ]);
-      setSelectedStaffIssueId(payload.issue.id);
-      setStaffIssueStatusMessage(
-        `Issue submitted · ${payload.issue.ticketReference}`,
+      setStaffIssueStatusMessage(`Issue submitted · ${issue.ticketReference}`);
+      const failedAttachmentNames = Array.from(
+        new Set(attachmentFailures.map((failure) => failure.filename)),
       );
-      showWorkflowToast(`✓ Issue submitted · ${payload.issue.ticketReference}`);
+
+      if (failedAttachmentNames.length > 0) {
+        setStaffIssueError(
+          `Issue submitted · ${issue.ticketReference}. Media failed: ${failedAttachmentNames.join(", ")}.`,
+        );
+        showStaffGuidance({
+          message: `The issue was saved, but ${failedAttachmentNames.join(", ")} could not be attached.`,
+          nextStep: "Open the issue to confirm which attachments are available.",
+          status: "warning",
+          title: "Issue saved with attachment errors",
+        });
+      } else if (notificationDelivered === false) {
+        showStaffGuidance({
+          message:
+            notificationError ??
+            "The issue was saved, but the notification provider did not confirm delivery.",
+          nextStep: "The issue and its media remain available in the register.",
+          status: "warning",
+          title: "Issue saved; notification wasn't sent",
+        });
+      } else {
+        showWorkflowToast(`Issue submitted · ${issue.ticketReference}`);
+      }
     } catch (error) {
       console.error("[Zingara admin] Failed to submit issue", error);
       setStaffIssueError("Issue could not be submitted.");
@@ -26992,6 +27109,14 @@ export default function AdminDashboardPage() {
             />
           </label>
 
+          <StaffIssueMediaPicker
+            disabled={isStaffIssueSubmitting}
+            error={staffIssueMediaError}
+            files={staffIssueMediaFiles}
+            onChange={setStaffIssueMediaFiles}
+            onError={setStaffIssueMediaError}
+          />
+
           <button
             type="submit"
             disabled={isStaffIssueSubmitting}
@@ -27257,6 +27382,11 @@ export default function AdminDashboardPage() {
                     {selectedStaffIssue.description}
                   </p>
                 </div>
+
+                <StaffIssueAttachments
+                  attachments={selectedStaffIssue.attachments}
+                  issueId={selectedStaffIssue.id}
+                />
 
                 {canManageIssueRegister ? (
                   <div className="space-y-4 rounded-2xl border border-[#D8C36A]/20 bg-[#120D05] p-4">

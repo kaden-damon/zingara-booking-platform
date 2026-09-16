@@ -1,4 +1,5 @@
 import type { AdminRole } from "@/lib/zingaraAccess";
+import type { StaffIssueAttachment } from "@/lib/staffIssueMedia";
 
 export const staffIssueCategories = [
   { label: "System / Technical", value: "system_technical" },
@@ -34,6 +35,7 @@ export type StaffIssueStatus = (typeof staffIssueStatuses)[number]["value"];
 
 export type StaffIssueReport = {
   adminNotes: string | null;
+  attachments: StaffIssueAttachment[];
   category: StaffIssueCategory;
   completedAt: string | null;
   createdAt: string;
