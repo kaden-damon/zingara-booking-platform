@@ -14,7 +14,9 @@ test("Admin page persists only the calculated changed booking set", async () => 
   );
 
   assert.match(handler, /planAdminBookingMutations\(bookings, nextBookings\)/);
-  assert.match(handler, /persistBookings\(changedBookings, \{ createReferences \}\)/);
+  assert.match(handler, /persistBookings\(changedBookings, \{/);
+  assert.match(handler, /createReferences,/);
+  assert.match(handler, /previousBookings: mutations\.flatMap/);
   assert.doesNotMatch(handler, /persistBookings\(nextBookings/);
   assert.doesNotMatch(handler, /nextBookings\.map\(.*upsertCustomerFromInfo/s);
 });

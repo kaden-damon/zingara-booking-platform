@@ -43,6 +43,7 @@ import {
   parseCorporateZoneEntitlements,
   type CorporateZoneEntitlement,
 } from "@/lib/corporateZoneEntitlements";
+import { mergeAdminBookingState } from "@/lib/adminBookingStateMerge";
 
 export const dynamic = "force-dynamic";
 
@@ -2294,6 +2295,9 @@ async function persistBookingCancellation(request: Request) {
 
 async function persistBookingStateUpdate(request: Request, body: {
   booking?: DemoBooking;
+  expectedUpdatedAt?: string;
+  financialMutation?: boolean;
+  previousBooking?: DemoBooking;
 }) {
   const auth = await requireActiveStaff(request);
 
@@ -2316,18 +2320,43 @@ async function persistBookingStateUpdate(request: Request, body: {
   const supabase = auth.serviceClient;
 
   try {
-    const booking = body.booking;
+    const requestedBooking = body.booking;
 
-    if (!booking?.reference) {
+    if (
+      !requestedBooking?.reference ||
+      !body.previousBooking ||
+      !body.expectedUpdatedAt
+    ) {
       return Response.json(
-        { error: "A booking payload is required." },
+        {
+          error:
+            "The booking changed-state snapshot is required. Refresh the booking and try again.",
+          code: "BOOKING_CHANGED",
+        },
         { status: 400 },
+      );
+    }
+
+    if (body.previousBooking.reference !== requestedBooking.reference) {
+      return Response.json(
+        { error: "The booking snapshot does not match this booking." },
+        { status: 400 },
+      );
+    }
+
+    if (body.previousBooking.updatedAt !== body.expectedUpdatedAt) {
+      return Response.json(
+        {
+          code: "BOOKING_CHANGED",
+          error: "The booking revision does not match the supplied snapshot.",
+        },
+        { status: 409 },
       );
     }
 
     const lockError = await ensureNoConflictingBookingLock(
       request,
-      booking.reference,
+      requestedBooking.reference,
     );
 
     if (lockError) {
@@ -2337,7 +2366,7 @@ async function persistBookingStateUpdate(request: Request, body: {
     const { data: beforeBooking, error: beforeError } = await supabase
       .from("bookings")
       .select(bookingSelect)
-      .eq("booking_reference", booking.reference)
+      .eq("booking_reference", requestedBooking.reference)
       .maybeSingle();
 
     if (beforeError) {
@@ -2351,6 +2380,94 @@ async function persistBookingStateUpdate(request: Request, body: {
       );
     }
 
+    const currentUpdatedAt = String(
+      (beforeBooking as { updated_at?: string }).updated_at ?? "",
+    );
+    const currentMetadata =
+      parseSerializedBookingNotes((beforeBooking as { notes?: unknown }).notes) ??
+      createLegacyBookingMetadataSnapshot(
+        beforeBooking as Record<string, unknown>,
+        requestedBooking.reference,
+      );
+    const currentPaymentStatus = String(
+      (beforeBooking as { payment_status?: string }).payment_status ??
+        "pending_payment",
+    );
+    const currentBookingStatus = String(
+      (beforeBooking as { booking_status?: string }).booking_status ??
+        "confirmed",
+    );
+    const authoritativeBooking: DemoBooking = {
+      ...currentMetadata,
+      addonsTotal: Number((beforeBooking as { addons_total?: number }).addons_total ?? 0),
+      amountPaid: Number((beforeBooking as { amount_paid?: number }).amount_paid ?? 0),
+      balanceDue: Number(
+        (beforeBooking as { balance_outstanding?: number }).balance_outstanding ?? 0,
+      ),
+      discountAmount: Number(
+        (beforeBooking as { discount_amount?: number }).discount_amount ?? 0,
+      ),
+      partySize: Number((beforeBooking as { guest_count?: number }).guest_count ?? 0),
+      paymentStatus:
+        currentPaymentStatus === "fully_paid"
+          ? "fully-paid"
+          : currentPaymentStatus === "deposit_paid"
+            ? "deposit-paid"
+            : currentPaymentStatus === "comp_vip"
+              ? "comp-vip"
+              : currentPaymentStatus === "refunded"
+                ? "refunded"
+                : "pending-payment",
+      serviceFeeAmount: Number(
+        (beforeBooking as { service_fee?: number }).service_fee ?? 0,
+      ),
+      source: (beforeBooking as { booking_source?: DemoBooking["source"] })
+        .booking_source,
+      status:
+        currentBookingStatus === "pending_payment"
+          ? "pending-payment"
+          : currentBookingStatus === "checked_in"
+            ? "checked-in"
+            : currentBookingStatus === "no_show"
+              ? "no-show"
+              : (currentBookingStatus as DemoBooking["status"]),
+      subtotalPrice: Number(
+        (beforeBooking as { subtotal_amount?: number }).subtotal_amount ?? 0,
+      ),
+      totalPrice: Number((beforeBooking as { total_amount?: number }).total_amount ?? 0),
+      updatedAt: currentUpdatedAt,
+    };
+    const merge = mergeAdminBookingState({
+      authoritative: authoritativeBooking,
+      previous: body.previousBooking,
+      requested: requestedBooking,
+    });
+
+    if (merge.financialFields.length > 0 && !body.financialMutation) {
+      return Response.json(
+        {
+          code: "PAYMENT_WORKFLOW_REQUIRED",
+          error:
+            "Payment totals can only be changed through Payment Controls or Financial Reconciliation.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (merge.conflictingFields.length > 0) {
+      return Response.json(
+        {
+          code: "BOOKING_CHANGED",
+          error: "This booking changed while you had it open.",
+          explanation:
+            "Refresh the booking and review the latest information before saving again.",
+        },
+        { status: 409 },
+      );
+    }
+
+    const booking = merge.mergedBooking;
+    const changedFieldSet = new Set(merge.changedFields);
     const beforeStatus = (beforeBooking as { booking_status?: string })
       .booking_status;
     const beforePaymentStatus = (
@@ -2405,6 +2522,83 @@ async function persistBookingStateUpdate(request: Request, body: {
       JSON.stringify(previousMetadata?.customer ?? null) !==
       JSON.stringify(classifiedBooking.customer);
 
+    const updatePayload: Record<string, unknown> = {
+      notes: serializeBookingNotes(classifiedBooking),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (changedFieldSet.has("addonsTotal")) {
+      updatePayload.addons_total = booking.addonsTotal ?? 0;
+    }
+    if (changedFieldSet.has("source") || changedFieldSet.has("partySize")) {
+      updatePayload.booking_source = bookingSource;
+    }
+    if (changedFieldSet.has("status")) {
+      updatePayload.booking_status = toSupabaseBookingStatus(booking.status);
+    }
+    if (changedFieldSet.has("source") || changedFieldSet.has("operationalNotes")) {
+      updatePayload.company_name =
+        bookingSource === "corporate-direct"
+          ? booking.operationalNotes?.match(/^Company: (.+)$/m)?.[1] ?? null
+          : null;
+    }
+    if (changedFieldSet.has("operationalNotes")) {
+      updatePayload.dietary_requirements =
+        booking.operationalNotes?.match(/^Dietary: (.+)$/m)?.[1] ?? null;
+    }
+    if (changedFieldSet.has("discountAmount")) {
+      updatePayload.discount_amount = booking.discountAmount ?? 0;
+    }
+    if (changedFieldSet.has("partySize")) {
+      updatePayload.guest_count = booking.partySize;
+    }
+    if (changedFieldSet.has("serviceFeeAmount")) {
+      updatePayload.service_fee = booking.serviceFeeAmount ?? 0;
+    }
+    if (changedFieldSet.has("subtotalPrice")) {
+      updatePayload.subtotal_amount = booking.subtotalPrice ?? booking.totalPrice;
+    }
+    if (changedFieldSet.has("totalPrice")) {
+      updatePayload.total_amount = booking.totalPrice;
+    }
+    if (body.financialMutation) {
+      if (changedFieldSet.has("amountPaid")) {
+        updatePayload.amount_paid = booking.amountPaid ?? 0;
+      }
+      if (changedFieldSet.has("balanceDue")) {
+        updatePayload.balance_outstanding = booking.balanceDue ?? 0;
+      }
+      if (changedFieldSet.has("paymentStatus")) {
+        updatePayload.payment_status = toSupabasePaymentStatus(
+          booking.paymentStatus,
+        );
+      }
+    }
+
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from("bookings")
+      .update(updatePayload)
+      .eq("id", bookingId)
+      .eq("updated_at", currentUpdatedAt)
+      .select(bookingSelect)
+      .maybeSingle();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    if (!updatedBooking) {
+      return Response.json(
+        {
+          code: "BOOKING_CHANGED",
+          error: "This booking changed while you had it open.",
+          explanation:
+            "Refresh the booking and review the latest information before saving again.",
+        },
+        { status: 409 },
+      );
+    }
+
     if (customerChanged) {
       const customerId = (beforeBooking as { customer_id?: string | null })
         .customer_id;
@@ -2431,37 +2625,6 @@ async function persistBookingStateUpdate(request: Request, body: {
       if (customerUpdateError) {
         throw customerUpdateError;
       }
-    }
-
-    const { data: updatedBooking, error: updateError } = await supabase
-      .from("bookings")
-      .update({
-        addons_total: booking.addonsTotal ?? 0,
-        amount_paid: booking.amountPaid ?? 0,
-        balance_outstanding: booking.balanceDue ?? 0,
-        booking_source: bookingSource,
-        booking_status: toSupabaseBookingStatus(booking.status),
-        company_name:
-          bookingSource === "corporate-direct"
-            ? booking.operationalNotes?.match(/^Company: (.+)$/m)?.[1] ?? null
-            : null,
-        dietary_requirements:
-          booking.operationalNotes?.match(/^Dietary: (.+)$/m)?.[1] ?? null,
-        discount_amount: booking.discountAmount ?? 0,
-        guest_count: booking.partySize,
-        notes: serializeBookingNotes(classifiedBooking),
-        payment_status: toSupabasePaymentStatus(booking.paymentStatus),
-        service_fee: booking.serviceFeeAmount ?? 0,
-        subtotal_amount: booking.subtotalPrice ?? booking.totalPrice,
-        total_amount: booking.totalPrice,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", bookingId)
-      .select(bookingSelect)
-      .maybeSingle();
-
-    if (updateError) {
-      throw updateError;
     }
 
     if (

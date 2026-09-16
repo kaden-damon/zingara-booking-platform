@@ -980,9 +980,17 @@ export async function createAdminBooking(
   };
 }
 
-export async function updateBooking(booking: DemoBooking) {
+export async function updateBooking(
+  booking: DemoBooking,
+  previousBooking: DemoBooking = booking,
+) {
   await fetchSupabaseApi("/api/admin/bookings", {
-    body: { action: "update-state", booking },
+    body: {
+      action: "update-state",
+      booking,
+      expectedUpdatedAt: previousBooking.updatedAt,
+      previousBooking,
+    },
     method: "PATCH",
   });
 
@@ -1171,15 +1179,28 @@ export async function deleteBooking(id: string) {
 
 export async function saveBookings(
   bookings: DemoBooking[],
-  options: { createReferences?: string[] } = {},
+  options: {
+    createReferences?: string[];
+    previousBookings?: DemoBooking[];
+  } = {},
 ) {
   const createReferences = new Set(options.createReferences ?? []);
+  const previousByReference = new Map(
+    (options.previousBookings ?? []).map((booking) => [booking.reference, booking]),
+  );
   const results = await Promise.allSettled(
     bookings.map(async (booking) => {
+      const previousBooking = previousByReference.get(booking.reference);
+
       await fetchSupabaseApi("/api/admin/bookings", {
         body: createReferences.has(booking.reference)
           ? { booking }
-          : { action: "update-state", booking },
+          : {
+              action: "update-state",
+              booking,
+              expectedUpdatedAt: previousBooking?.updatedAt ?? booking.updatedAt,
+              previousBooking: previousBooking ?? booking,
+            },
         method: createReferences.has(booking.reference) ? "POST" : "PATCH",
       });
     }),

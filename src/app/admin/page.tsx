@@ -16026,7 +16026,12 @@ export default function AdminDashboardPage() {
       mutation.before ? [] : [mutation.after.reference],
     );
 
-    void persistBookings(changedBookings, { createReferences })
+    void persistBookings(changedBookings, {
+      createReferences,
+      previousBookings: mutations.flatMap((mutation) =>
+        mutation.before ? [mutation.before] : [],
+      ),
+    })
       .then((persistedBookings) => {
         setBookings(persistedBookings);
         showWorkflowToast("✓ Saved · Booking updated");
@@ -18334,7 +18339,7 @@ export default function AdminDashboardPage() {
     );
 
     try {
-      await persistAdminBookingState(nextBooking);
+      await persistAdminBookingState(nextBooking, booking, true);
       showWorkflowToast("✓ Booking updated successfully.");
       void sendPreferredBrowserNotification(
         "new-booking",
@@ -18547,7 +18552,7 @@ export default function AdminDashboardPage() {
     );
 
     try {
-      await persistAdminBookingState(updatedBooking);
+      await persistAdminBookingState(updatedBooking, booking, true);
       const result = await persistCustomGuestCommunication(
         updatedBooking,
         compRecord,
@@ -23283,11 +23288,18 @@ export default function AdminDashboardPage() {
     });
   }
 
-  async function persistAdminBookingState(booking: DemoBooking) {
+  async function persistAdminBookingState(
+    booking: DemoBooking,
+    previousBooking: DemoBooking,
+    financialMutation = false,
+  ) {
     await fetchSupabaseApi<{ row: unknown }>("/api/admin/bookings", {
       body: {
         action: "update-state",
         booking,
+        expectedUpdatedAt: previousBooking.updatedAt,
+        financialMutation,
+        previousBooking,
       },
       method: "PATCH",
     });
