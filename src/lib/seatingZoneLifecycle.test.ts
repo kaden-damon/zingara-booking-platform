@@ -52,3 +52,10 @@ test("all new-selection surfaces consume lifecycle-filtered zones", () => {
   assert.match(conversion, /enabledZoneIds\.includes/);
   assert.match(editor, /enabledZoneIds\.includes/);
 });
+
+test("server guard blocks new activity without blocking historical retries", () => {
+  const bookingRoute = readFileSync(new URL("../app/api/bookings/route.ts", import.meta.url), "utf8");
+
+  assert.match(bookingRoute, /if \(disabledZone && isCreate\)/);
+  assert.match(bookingRoute, /code: "SEATING_ZONE_DISABLED"/);
+});

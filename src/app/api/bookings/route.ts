@@ -1709,7 +1709,7 @@ export async function POST(request: Request) {
     const disabledZone = seatingZones.find(
       (zone) => requestedZoneIds.has(zone.id) && !isSeatingZoneEnabled(lifecycleSettings, zone),
     );
-    if (disabledZone) {
+    if (disabledZone && isCreate) {
       return Response.json(
         {
           code: "SEATING_ZONE_DISABLED",
