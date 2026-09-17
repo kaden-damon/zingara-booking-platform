@@ -5,6 +5,7 @@ import {
   getGuestTicketsForBooking,
   normalizeShowLocation,
 } from "@/lib/zingaraDemo";
+import { resolveGuestVisibleTable } from "@/lib/guestTicketDisplay";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -66,6 +67,8 @@ type SupabaseTicketRow = {
   ticket_code: string;
   ticket_status: string;
 };
+
+type VerifiedTicket = Omit<GuestTicket, "id">;
 
 function normalizeEmail(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
@@ -170,7 +173,7 @@ function toTicketStatus(ticket: GuestTicket, row: SupabaseTicketRow | undefined)
 function getVerifiedTickets(
   booking: DemoBooking | undefined,
   ticketRows: SupabaseTicketRow[],
-) {
+): VerifiedTicket[] {
   if (!booking) {
     return ticketRows.map((ticketRow, index) => ({
       email: "",
@@ -372,6 +375,17 @@ export async function POST(request: Request) {
     const customerName = getCustomerName(metadataBooking, customerRow);
     const customerEmail = getCustomerEmail(metadataBooking, customerRow);
     const customerPhone = getCustomerPhone(metadataBooking, customerRow);
+    const guestVisibleTable = resolveGuestVisibleTable(
+      {
+        status:
+          metadataBooking?.status ??
+          (booking.booking_status === "checked_in"
+            ? "checked-in"
+            : "confirmed"),
+        tableNumber: metadataBooking?.tableNumber ?? "",
+      },
+      tickets.find((ticket) => ticket.status === "checked-in") ?? tickets[0],
+    );
 
     recoverPlatformIncidentBestEffort(
       {
@@ -404,7 +418,7 @@ export async function POST(request: Request) {
         ),
         seatingZone: metadataBooking?.zoneTitle ?? booking.section ?? "Seating",
         show: showRow?.name ?? "The Royal Countess Zingara",
-        table: metadataBooking?.tableNumber ?? "Internal",
+        table: guestVisibleTable || "TBC",
         ticketStatus,
         time: showRow?.time?.slice(0, 5) ?? "",
         totalAmount: metadataBooking?.totalPrice ?? Number(booking.total_amount ?? 0),
