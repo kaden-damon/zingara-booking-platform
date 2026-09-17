@@ -132,3 +132,20 @@ export async function saveSecretPasswordVenueConfiguration(
   storeVenueSettings(persistedSettings);
   return persistedSettings;
 }
+
+export async function saveSeatingZoneLifecycle(
+  zoneId: string,
+  enabled: boolean,
+) {
+  const payload = await fetchSupabaseApi<{ settings: DemoVenueSettings | null }>(
+    "/api/admin/venue-settings",
+    {
+      body: { seatingZoneLifecycle: { enabled, zoneId } },
+      method: "PUT",
+    },
+  );
+  if (!payload.settings) throw new Error("Seating zone status was not saved.");
+  const persistedSettings = normalizeVenueSettings(payload.settings);
+  storeVenueSettings(persistedSettings);
+  return persistedSettings;
+}

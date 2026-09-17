@@ -24,6 +24,7 @@ import {
   createCommunicationRecord,
   defaultVenueSettings,
   getCommunicationTemplate,
+  getEnabledSeatingZones,
   renderCommunicationTemplate,
   seatingZones,
 } from "../../lib/zingaraDemo";
@@ -173,6 +174,20 @@ export default function CorporateBookingPage() {
   >(null);
   const [calendarMonth, setCalendarMonth] = useState("2026-06");
   const calendarDays = getCalendarDays(calendarMonth);
+  const enabledSeatingZones = getEnabledSeatingZones(venueSettings);
+  const enabledSeatingZoneIds = enabledSeatingZones.map((zone) => zone.id).join(",");
+
+  useEffect(() => {
+    if (
+      enabledSeatingZones.length > 0 &&
+      !enabledSeatingZones.some((zone) => zone.title === form.seatingPreference)
+    ) {
+      setForm((current) => ({
+        ...current,
+        seatingPreference: enabledSeatingZones[0].title,
+      }));
+    }
+  }, [enabledSeatingZoneIds, form.seatingPreference]);
 
   useEffect(() => {
     void getPublicVenueSettings().then(setVenueSettings).catch(() => undefined);
@@ -649,7 +664,7 @@ export default function CorporateBookingPage() {
                   }
                   className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-[#D8C36A]/70"
                 >
-                  {seatingZones.map((zone) => (
+                  {enabledSeatingZones.map((zone) => (
                     <option key={zone.id} value={zone.title}>
                       {zone.title}
                     </option>

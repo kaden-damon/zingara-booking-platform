@@ -2,6 +2,7 @@ import {
   type DemoVenueSettings,
   defaultVenueSettings,
   normalizeVenueSettings,
+  seatingZones,
   showLocationOptions,
   type EntryLocationKey,
 } from "@/lib/zingaraDemo";
@@ -275,9 +276,33 @@ export async function PUT(request: Request) {
         configuration: DemoVenueSettings["operationalSettings"]["secretPasswordExperience"][EntryLocationKey];
         venueLocation: EntryLocationKey;
       };
+      seatingZoneLifecycle?: { enabled: boolean; zoneId: string };
       settings?: DemoVenueSettings;
     };
     let settings = body.settings ? normalizeVenueSettings(body.settings) : null;
+    if (!settings && body.seatingZoneLifecycle) {
+      const { enabled, zoneId } = body.seatingZoneLifecycle;
+      if (
+        typeof enabled !== "boolean" ||
+        !seatingZones.some((zone) => zone.id === zoneId)
+      ) {
+        return Response.json({ error: "Select a valid seating zone status." }, { status: 400 });
+      }
+      const currentSettings = await loadVenueSettings();
+      if (!currentSettings) {
+        return Response.json({ error: "Venue settings could not be loaded." }, { status: 409 });
+      }
+      settings = {
+        ...currentSettings,
+        zonePricing: {
+          ...currentSettings.zonePricing,
+          [zoneId]: {
+            ...currentSettings.zonePricing[zoneId],
+            enabled,
+          },
+        },
+      };
+    }
     if (!settings && body.secretPasswordExperience) {
       const { configuration, venueLocation } = body.secretPasswordExperience;
       if (!showLocationOptions.some((location) => location.value === venueLocation)) {
@@ -383,6 +408,31 @@ export async function PUT(request: Request) {
             venueLocation: location.value,
           });
         }
+      }
+    }
+
+    if (auth.user) {
+      for (const zone of seatingZones) {
+        const beforeEnabled = previousSettings?.zonePricing[zone.id]?.enabled !== false;
+        const afterEnabled = settings.zonePricing[zone.id]?.enabled !== false;
+        if (beforeEnabled === afterEnabled) continue;
+        await tryRecordAuditEvent(
+          auth.serviceClient,
+          auth.staffProfile,
+          auth.user,
+          {
+            action: afterEnabled ? "seating-zone.enabled" : "seating-zone.disabled",
+            afterValues: { enabled: afterEnabled, zoneId: zone.id },
+            beforeValues: { enabled: beforeEnabled, zoneId: zone.id },
+            changedFields: ["enabled"],
+            entityLocation: "all",
+            entityReference: zone.id,
+            entityType: "show",
+            outcome: "success",
+            request,
+            sourceArea: "Venue Configuration",
+          },
+        );
       }
     }
 

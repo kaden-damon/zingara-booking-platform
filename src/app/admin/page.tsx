@@ -360,6 +360,7 @@ import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
 import { runCancellationUiFlow } from "../../lib/bookingCancellation";
 import {
   getVenueSettings,
+  saveSeatingZoneLifecycle,
   saveSecretPasswordVenueConfiguration,
   saveVenueSettings as persistVenueSettings,
 } from "../../lib/supabase/venueSettings";
@@ -422,6 +423,7 @@ import {
   renderCommunicationTemplate,
   applyBookingOccupancyToTables,
   isOperationallyActiveBooking,
+  isSeatingZoneEnabled,
   normalizeShowLocation,
   normalizeTicketReference,
   isValidBookingStatus,
@@ -10117,6 +10119,7 @@ export default function AdminDashboardPage() {
   const [venueConfigurationSaveState, setVenueConfigurationSaveState] =
     useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
   const [venueConfigurationError, setVenueConfigurationError] = useState("");
+  const [zoneLifecycleSavingId, setZoneLifecycleSavingId] = useState("");
   const [hasHydrated, setHasHydrated] = useState(false);
   const [isSessionRestoring, setIsSessionRestoring] = useState(true);
   const [selectedTemplateId, setSelectedTemplateId] = useState(
@@ -16714,6 +16717,23 @@ export default function AdminDashboardPage() {
     setVenueSettings(persistedSettings);
     showWorkflowToast(`✓ Saved · ${location === "cape-town" ? "Cape Town" : "Johannesburg"} Secret Password settings`);
     return persistedSettings.operationalSettings.secretPasswordExperience[location];
+  }
+
+  async function updateSeatingZoneLifecycle(zoneId: SeatingZoneId, enabled: boolean) {
+    if (!isSuperAdmin || zoneLifecycleSavingId) return;
+    setZoneLifecycleSavingId(zoneId);
+    setVenueConfigurationError("");
+    try {
+      const persistedSettings = await saveSeatingZoneLifecycle(zoneId, enabled);
+      setVenueSettings(persistedSettings);
+      showWorkflowToast(`✓ Saved · Seating zone ${enabled ? "enabled" : "disabled"}`);
+    } catch (error) {
+      setVenueConfigurationError(
+        error instanceof Error ? error.message : "Seating zone status could not be saved.",
+      );
+    } finally {
+      setZoneLifecycleSavingId("");
+    }
   }
 
   async function saveAuthoritativeVenueConfiguration() {
@@ -34898,6 +34918,40 @@ export default function AdminDashboardPage() {
                 />
                 <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
                   <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
+                    Seating Zone Lifecycle
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-zinc-400">
+                    Disabled zones remain visible on historical bookings and reports, but cannot be selected for new enquiries or bookings.
+                  </p>
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {seatingZones.map((zone) => {
+                      const enabled = isSeatingZoneEnabled(venueSettings, zone);
+                      const saving = zoneLifecycleSavingId === zone.id;
+                      return (
+                        <div key={`zone-lifecycle-${zone.id}`} className="rounded-lg border border-white/10 bg-black/40 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-white">{zone.title}</p>
+                              <p className={`mt-1 text-xs font-semibold uppercase ${enabled ? "text-emerald-300" : "text-zinc-500"}`}>
+                                {enabled ? "Enabled" : "Disabled"}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={Boolean(zoneLifecycleSavingId)}
+                              onClick={() => void updateSeatingZoneLifecycle(zone.id, !enabled)}
+                              className="min-h-11 rounded-lg border border-[#D8C36A]/50 px-3 py-2 text-xs font-semibold uppercase text-[#F2D66C] disabled:opacity-45"
+                            >
+                              {saving ? "Saving..." : enabled ? "Disable Zone" : "Enable Zone"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
+                  <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
                     Customer Experience Times
                   </p>
                   <p className="mt-1 text-xs leading-5 text-zinc-400">
@@ -44326,6 +44380,9 @@ export default function AdminDashboardPage() {
                               assignedClaims={assignedTableClaims}
                               bookingReference={booking.reference}
                               disabled={bookingIsReadOnly || !canManageBookings}
+                              enabledZoneIds={seatingZones
+                                .filter((zone) => isSeatingZoneEnabled(venueSettings, zone))
+                                .map((zone) => zone.id)}
                               initialEntitlements={getBookingZoneEntitlements(booking)}
                               onSave={(zoneEntitlements) =>
                                 saveCorporateZoneEntitlements(booking, zoneEntitlements)
@@ -44789,6 +44846,9 @@ export default function AdminDashboardPage() {
               ? corporateConversionStatus
               : ""
           }
+          enabledZoneIds={seatingZones
+            .filter((zone) => isSeatingZoneEnabled(venueSettings, zone))
+            .map((zone) => zone.id)}
           initialZoneId={getCorporateRequestZoneId(
             corporateConversionReviewRequest,
           )}

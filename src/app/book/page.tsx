@@ -79,6 +79,7 @@ import {
   defaultVenueSettings,
   getConfiguredZoneDepositAmount,
   getConfiguredZonePrice,
+  getEnabledSeatingZones,
   getCompactShowDateTime,
   getSouthAfricaShowTime,
   getTicketUrl,
@@ -783,6 +784,8 @@ export default function BookingPage() {
   const showLoadRequestRef = useRef(0);
   const hasScrolledToConfirmedRef = useRef(false);
   const venueConfig = venueSettings;
+  const enabledSeatingZones = getEnabledSeatingZones(venueConfig);
+  const enabledSeatingZoneIds = enabledSeatingZones.map((zone) => zone.id).join(",");
   const maximumCorporateGuestCount = getConfiguredVenueGuestCapacity(venueConfig);
   const isLockedCalendarCheckout = Boolean(calendarBookingContext);
   const isCorporateCalendarCheckout =
@@ -794,6 +797,18 @@ export default function BookingPage() {
     isCorporateCalendarCheckout && corporatePaymentBasis === "invoice-paid";
   const isCorporateInvoice =
     isCorporateInvoiceOutstanding || isCorporateInvoicePaid;
+
+  useEffect(() => {
+    if (selectedZone && !enabledSeatingZones.some((zone) => zone.id === selectedZone.id)) {
+      setSelectedZone(null);
+    }
+    if (
+      previewSeatingZone &&
+      !enabledSeatingZones.some((zone) => zone.id === previewSeatingZone.id)
+    ) {
+      setPreviewSeatingZone(null);
+    }
+  }, [enabledSeatingZoneIds, previewSeatingZone, selectedZone]);
 
   const configuredZonePrice = selectedZone
     ? getConfiguredZonePrice(venueConfig, selectedZone)
@@ -2936,19 +2951,19 @@ export default function BookingPage() {
     );
   }
 
-  const elevatedStageZone = seatingZones.find(
+  const elevatedStageZone = enabledSeatingZones.find(
     (zone) => zone.id === "elevated-stage",
   );
-  const goldenCircleZone = seatingZones.find(
+  const goldenCircleZone = enabledSeatingZones.find(
     (zone) => zone.id === "golden-circle",
   );
-  const middleRingZone = seatingZones.find(
+  const middleRingZone = enabledSeatingZones.find(
     (zone) => zone.id === "middle-ring",
   );
-  const boothsZone = seatingZones.find(
+  const boothsZone = enabledSeatingZones.find(
     (zone) => zone.id === "royal-booths",
   );
-  const royalBalconyZone = seatingZones.find(
+  const royalBalconyZone = enabledSeatingZones.find(
     (zone) => zone.id === "royal-balcony",
   );
   const retryBookingHref = selectedEntryLocation
@@ -4215,7 +4230,7 @@ export default function BookingPage() {
                       className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 text-lg"
                     >
                       <option value="">Any available zone</option>
-                      {seatingZones.map((zone) => (
+                      {enabledSeatingZones.map((zone) => (
                         <option key={zone.id} value={zone.id}>
                           {zone.title}
                         </option>

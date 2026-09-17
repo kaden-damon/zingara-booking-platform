@@ -17,6 +17,8 @@ import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 import {
   defaultVenueSettings,
   normalizeVenueSettings,
+  isSeatingZoneEnabled,
+  seatingZones,
   type CorporateRequest,
   type DemoVenueSettings,
 } from "@/lib/zingaraDemo";
@@ -166,6 +168,17 @@ export async function POST(request: Request) {
     }
 
     const settings = await loadVenueSettings(serviceClient);
+    const selectedZone = seatingZones.find(
+      (zone) =>
+        zone.id === corporateRequest.seatingPreference ||
+        zone.title.toLowerCase() === corporateRequest.seatingPreference.trim().toLowerCase(),
+    );
+    if (!selectedZone || !isSeatingZoneEnabled(settings, selectedZone)) {
+      return Response.json(
+        { code: "SEATING_ZONE_DISABLED", error: "That seating zone is not available for new enquiries. Choose another seating zone." },
+        { status: 409 },
+      );
+    }
     const maximumGuestCount = getConfiguredVenueGuestCapacity(settings);
 
     if (

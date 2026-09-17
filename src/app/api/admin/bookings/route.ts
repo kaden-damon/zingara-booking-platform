@@ -3350,6 +3350,12 @@ export async function PATCH(request: Request) {
           { status: 409 },
         );
       }
+      if (message.includes("SEATING_ZONE_DISABLED")) {
+        return Response.json(
+          { error: "That seating zone is disabled for new booking entitlements. Choose an enabled zone in Venue Configuration." },
+          { status: 409 },
+        );
+      }
 
       if (
         message.includes("BOOKING_TABLE_ASSIGNMENT_CHANGED") ||
@@ -3425,6 +3431,12 @@ export async function PATCH(request: Request) {
         const targetTitle = getBookingSectionForTableZone(capacity[1]) ?? "The selected zone";
         return Response.json(
           { error: `${targetTitle} does not currently have enough operational capacity for this allocation. Reduce the allocation or add operational capacity from Floor.` },
+          { status: 409 },
+        );
+      }
+      if (message.includes("SEATING_ZONE_DISABLED")) {
+        return Response.json(
+          { error: "That seating zone is disabled for new booking entitlements. Choose an enabled zone in Venue Configuration." },
           { status: 409 },
         );
       }

@@ -20,6 +20,7 @@ type Props = {
   assignedClaims: Array<{ section: string; tableCode: string }>;
   bookingReference: string;
   disabled: boolean;
+  enabledZoneIds: string[];
   initialEntitlements: CorporateZoneEntitlement[];
   onSave: (entitlements: CorporateZoneEntitlement[]) => Promise<void>;
   totalPax: number;
@@ -46,6 +47,7 @@ export function CorporateZoneEntitlementEditor({
   assignedClaims,
   bookingReference,
   disabled,
+  enabledZoneIds,
   initialEntitlements,
   onSave,
   totalPax,
@@ -56,7 +58,10 @@ export function CorporateZoneEntitlementEditor({
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [serverError, setServerError] = useState("");
   const inFlightRef = useRef(false);
-  const editableZones = seatingZones.filter((zone) => zone.id !== "elevated-stage");
+  const existingZoneIds = new Set(initialEntitlements.map((entitlement) => entitlement.zoneId));
+  const editableZones = seatingZones.filter(
+    (zone) => enabledZoneIds.includes(zone.id) || existingZoneIds.has(zone.id),
+  );
   const normalizedDraft = normalizeCorporateZoneEntitlementEditDraft(draft);
   const allocatedPax = normalizedDraft.reduce(
     (sum, entitlement) => sum + (Number(entitlement.pax) || 0),

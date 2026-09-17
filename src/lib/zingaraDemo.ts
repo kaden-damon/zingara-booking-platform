@@ -1,6 +1,10 @@
 import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
 import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
 import { bookingClaimsTable } from "./bookingTableClaims";
+import {
+  filterEnabledSeatingZones,
+  isConfiguredSeatingZoneEnabled,
+} from "./seatingZoneLifecycle";
 
 export const demoBookingsStorageKey = "zingara-demo-bookings";
 export const demoShowsStorageKey = "zingara-demo-shows";
@@ -135,6 +139,7 @@ export type DemoVenueSettings = {
       depositAmount?: number;
       depositMode?: "fixed" | "percentage";
       depositPercentage: number;
+      enabled?: boolean;
       maxSeats?: number;
       maxTables?: number;
       price: number;
@@ -276,12 +281,14 @@ export const defaultVenueSettings: DemoVenueSettings = {
     "elevated-stage": {
       depositAmount: defaultStandardDepositPerPerson,
       depositPercentage: 50,
+      enabled: true,
       price: 1470,
     },
     "golden-circle": {
       depositAmount: defaultStandardDepositPerPerson,
       depositMode: "fixed",
       depositPercentage: 40,
+      enabled: true,
       maxSeats: 148,
       maxTables: 24,
       price: 1540,
@@ -290,6 +297,7 @@ export const defaultVenueSettings: DemoVenueSettings = {
       depositAmount: defaultStandardDepositPerPerson,
       depositMode: "fixed",
       depositPercentage: 35,
+      enabled: true,
       maxSeats: 132,
       maxTables: 26,
       price: 1320,
@@ -298,6 +306,7 @@ export const defaultVenueSettings: DemoVenueSettings = {
       depositAmount: defaultStandardDepositPerPerson,
       depositMode: "fixed",
       depositPercentage: 50,
+      enabled: true,
       maxSeats: 40,
       maxTables: 4,
       price: 1320,
@@ -306,6 +315,7 @@ export const defaultVenueSettings: DemoVenueSettings = {
       depositAmount: defaultStandardDepositPerPerson,
       depositMode: "fixed",
       depositPercentage: 50,
+      enabled: true,
       maxSeats: 138,
       maxTables: 23,
       price: 1480,
@@ -1579,6 +1589,18 @@ export function getConfiguredZoneMaxTables(
     settings.zonePricing[zone.id]?.maxTables ??
     venueZoneTableCapacities[zone.id]
   );
+}
+
+export function isSeatingZoneEnabled(
+  settings: DemoVenueSettings,
+  zone: Pick<SeatingZone, "id"> | SeatingZoneId,
+) {
+  const zoneId = typeof zone === "string" ? zone : zone.id;
+  return isConfiguredSeatingZoneEnabled(settings, zoneId);
+}
+
+export function getEnabledSeatingZones(settings: DemoVenueSettings) {
+  return filterEnabledSeatingZones(settings, seatingZones);
 }
 
 export function calculateConfiguredDeposit(

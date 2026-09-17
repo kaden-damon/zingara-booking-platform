@@ -37,9 +37,11 @@ type ConversionBooking = DemoBooking & {
 };
 
 function safeConversionError(error: unknown) {
-  return error instanceof Error && error.message
-    ? error.message
-    : "Unable to convert booking.";
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("SEATING_ZONE_DISABLED")) {
+    return "That seating zone is disabled for new booking entitlements. Choose an enabled seating zone.";
+  }
+  return message || "Unable to convert booking.";
 }
 
 function getLegacyShowId(notes: string | null) {

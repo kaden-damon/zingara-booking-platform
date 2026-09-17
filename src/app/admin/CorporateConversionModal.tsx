@@ -20,6 +20,7 @@ import {
 } from "../../lib/zingaraDemo";
 
 type Props = {
+  enabledZoneIds: string[];
   error: string;
   initialZoneId: string;
   isSuccess: boolean;
@@ -35,6 +36,7 @@ function initialVenue(request: CorporateRequest) {
 }
 
 export default function CorporateConversionModal({
+  enabledZoneIds,
   error,
   initialZoneId,
   isSuccess,
@@ -259,7 +261,7 @@ export default function CorporateConversionModal({
                   className="min-w-0 rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]"
                 >
                   <option value="">Select zone</option>
-                  {seatingZones.filter((zone) => zone.id !== "elevated-stage").map((zone) => (
+                  {seatingZones.filter((zone) => enabledZoneIds.includes(zone.id)).map((zone) => (
                     <option key={zone.id} value={zone.id}>{zone.title}</option>
                   ))}
                 </select>

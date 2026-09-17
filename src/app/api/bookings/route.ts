@@ -16,6 +16,7 @@ import {
   getZoneSectionLookupTitles,
   normalizeShowLocation,
   seatingZones,
+  isSeatingZoneEnabled,
   createTicketCode,
   getBookingTicketState,
   getTicketUrl,
@@ -1695,6 +1696,24 @@ export async function POST(request: Request) {
           corporateUrl: `/corporate?guests=${Math.trunc(booking.partySize)}`,
           error:
             "Parties of 20 or more are handled through Corporate Bookings.",
+        },
+        { status: 409 },
+      );
+    }
+
+    const lifecycleSettings = await loadVenueSettings(supabase);
+    const requestedZoneIds = new Set([
+      booking.zoneId,
+      ...(booking.zoneEntitlements ?? []).map((entitlement) => entitlement.zoneId),
+    ]);
+    const disabledZone = seatingZones.find(
+      (zone) => requestedZoneIds.has(zone.id) && !isSeatingZoneEnabled(lifecycleSettings, zone),
+    );
+    if (disabledZone) {
+      return Response.json(
+        {
+          code: "SEATING_ZONE_DISABLED",
+          error: `${disabledZone.title} is not available for new bookings. Choose another seating zone.`,
         },
         { status: 409 },
       );

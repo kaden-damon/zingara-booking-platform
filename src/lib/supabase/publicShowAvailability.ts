@@ -4,6 +4,7 @@ import {
   type SeatingZoneId,
   defaultVenueSettings,
   getConfiguredZoneMaxSeats,
+  getEnabledSeatingZones,
   getZoneSectionLookupTitles,
   normalizeVenueSettings,
   seatingZones,
@@ -61,6 +62,7 @@ export async function loadPublicShowAvailability(
       settings?: Parameters<typeof normalizeVenueSettings>[0];
     } | null)?.settings,
   );
+  const enabledZones = getEnabledSeatingZones(settings);
   const capacityBookings = (bookingResult.data ?? []).flatMap((row) => {
     const zoneId = getZoneIdForSection(row.section);
     if (!zoneId) return [];
@@ -78,7 +80,7 @@ export async function loadPublicShowAvailability(
     (salesResult.data ?? []).map((row) => [row.zone_id, row]),
   );
   const occupiedSeatsByZone = Object.fromEntries(
-    seatingZones.map((zone) => [
+    enabledZones.map((zone) => [
       zone.id,
       resolveZoneCapacityState({
         baseCapacity: getConfiguredZoneMaxSeats(settings, zone),
@@ -90,7 +92,7 @@ export async function loadPublicShowAvailability(
     ]),
   ) as Record<SeatingZoneId, number>;
   const remainingSeatsByZone = Object.fromEntries(
-    seatingZones.map((zone) => [
+    enabledZones.map((zone) => [
       zone.id,
       Math.max(
         getConfiguredZoneMaxSeats(settings, zone) - occupiedSeatsByZone[zone.id],
@@ -99,14 +101,14 @@ export async function loadPublicShowAvailability(
     ]),
   ) as Record<SeatingZoneId, number>;
   const publicSalesOpenByZone = Object.fromEntries(
-    seatingZones.map((zone) => [
+    enabledZones.map((zone) => [
       zone.id,
       controlsByZone.get(zone.id)?.public_sales_open !== false,
     ]),
   ) as Record<SeatingZoneId, boolean>;
 
   return {
-    controls: seatingZones
+    controls: enabledZones
       .filter((zone) => getConfiguredZoneMaxSeats(settings, zone) > 0)
       .map((zone) => {
       const control = controlsByZone.get(zone.id);
