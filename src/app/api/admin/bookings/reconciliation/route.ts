@@ -317,9 +317,6 @@ export async function POST(request: Request) {
       if (message.includes("SHOW_NOT_FOUND")) {
         return Response.json({ error: "The booking's performance could not be found." }, { status: 409 });
       }
-      if (message.includes("SHOW_NOT_ACTIVE")) {
-        return Response.json({ error: "Guests can only be added while the performance is active. Guest-count decreases remain available." }, { status: 409 });
-      }
       if (message.includes("ADDED_GUEST_FINANCIAL_BASIS_REQUIRED")) {
         return Response.json({ error: "The original payment basis is not authoritative for this legacy booking. Reconcile its financials separately before adding guests." }, { status: 409 });
       }

@@ -10,13 +10,22 @@ async function source(path: string) {
 
 const migrationPath =
   "../../supabase/migrations/20260904200000_phase_39_71_guest_count_decreases.sql";
+const statusFixMigrationPath =
+  "../../supabase/migrations/20260917100000_phase_41_2o_b_staff_guest_count_sales_status.sql";
 
 test("an ambiguous imported booking may decrease without pricing metadata", async () => {
-  const migration = await source(migrationPath);
+  const [migration, statusFixMigration] = await Promise.all([
+    source(migrationPath),
+    source(statusFixMigrationPath),
+  ]);
 
   assert.match(
     migration,
     /if p_guest_count > v_booking\.guest_count and v_show\.status::text <> 'active'/,
+  );
+  assert.match(
+    statusFixMigration,
+    /execute replace\(v_definition, v_guard, ''\)/,
   );
   assert.match(migration, /if v_added_guests > 0 then[\s\S]*ADDED_GUEST_FINANCIAL_BASIS_REQUIRED/);
   assert.deepEqual(
@@ -86,8 +95,8 @@ test("one atomic audit records pax and unchanged financial values", async () => 
 test("the API returns safe specific reconciliation failures", async () => {
   const route = await source("../app/api/admin/bookings/reconciliation/route.ts");
 
-  assert.match(route, /message\.includes\("SHOW_NOT_ACTIVE"\)/);
-  assert.match(route, /Guests can only be added while the performance is active/);
+  assert.doesNotMatch(route, /message\.includes\("SHOW_NOT_ACTIVE"\)/);
+  assert.doesNotMatch(route, /Guests can only be added while the performance is active/);
   assert.match(route, /message\.includes\("BOOKING_REVISION_CHANGED"\)/);
   assert.match(route, /message\.includes\("ADDED_GUEST_FINANCIAL_BASIS_REQUIRED"\)/);
 });
