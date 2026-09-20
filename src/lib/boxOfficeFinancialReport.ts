@@ -127,6 +127,8 @@ export type BoxOfficeFinancialReport = {
   };
   cash: {
     bookingAppliedReceipts: number;
+    /** @deprecated Retained for already-open Admin clients during deployment. */
+    bookingFees: number;
     grossCashReceived: number;
     netReceipts: number;
     refunds: number;
@@ -457,6 +459,7 @@ export function buildBoxOfficeFinancialReport(input: {
     bookingTypes: { corporate: summarize(undefined, "corporate"), standard: summarize(undefined, "standard") },
     cash: {
       bookingAppliedReceipts,
+      bookingFees: transactionFees,
       grossCashReceived,
       netReceipts: money(grossCashReceived - refundTotal),
       refunds: refundTotal,

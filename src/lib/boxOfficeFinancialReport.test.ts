@@ -116,6 +116,7 @@ test("5–6 September regression reproduces the verified accounting baseline", (
   });
   assert.deepEqual(report.cash, {
     bookingAppliedReceipts: 244_400,
+    bookingFees: 440,
     grossCashReceived: 244_840,
     netReceipts: 244_840,
     refunds: 0,
