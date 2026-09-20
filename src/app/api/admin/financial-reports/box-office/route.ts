@@ -58,6 +58,9 @@ export async function GET(request: Request) {
   const to = params.get("to") ?? "";
   const requestedLocation = params.get("location") ?? "all";
   const requestedType = params.get("bookingType") ?? "all";
+  const requestedShowId = params.get("showId") ?? "all";
+  const requestedPaymentStatus = (params.get("paymentStatus") ?? "all")
+    .replaceAll("-", "_");
   let range: ReturnType<typeof getSastDateRange>;
   try {
     range = getSastDateRange(from, to);
@@ -92,7 +95,7 @@ export async function GET(request: Request) {
     const [periodBookingRows, paymentRows, auditRows, refundRows, showRows] = await Promise.all([
       loadAllRows<Record<string, unknown>>((fromRow, toRow) => client
         .from("bookings")
-        .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
+        .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
         .gte("created_at", range.start).lt("created_at", range.endExclusive)
         .order("id").range(fromRow, toRow)),
       loadAllRows<Record<string, unknown>>((fromRow, toRow) => client
@@ -127,14 +130,14 @@ export async function GET(request: Request) {
       const references = linkedReferences.slice(index, index + 100);
       if (ids.length > 0) {
         const { data, error } = await client.from("bookings")
-          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
+          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
           .in("id", ids);
         if (error) throw error;
         extraRows.push(...((data ?? []) as Record<string, unknown>[]));
       }
       if (references.length > 0) {
         const { data, error } = await client.from("bookings")
-          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
+          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
           .in("booking_reference", references);
         if (error) throw error;
         extraRows.push(...((data ?? []) as Record<string, unknown>[]));
@@ -186,6 +189,7 @@ export async function GET(request: Request) {
         addonsTotal: number(row.addons_total), amountPaid: number(row.amount_paid), archivedAt: row.archived_at ? String(row.archived_at) : null,
         balanceOutstanding: number(row.balance_outstanding), bookingOrigin: row.booking_origin ? String(row.booking_origin) : null,
         bookingReference: String(row.booking_reference), bookingSource: String(row.booking_source ?? ""), bookingStatus: String(row.booking_status ?? ""),
+        paymentStatus: String(row.payment_status ?? ""),
         corporateRequestId: row.corporate_request_id ? String(row.corporate_request_id) : null, createdAt: String(row.created_at), customerId: String(row.customer_id),
         customerName, discountAmount: number(row.discount_amount), guestCount: number(row.guest_count), id: String(row.id), location,
         serviceFee: number(row.service_fee), showId: String(row.show_id), subtotalAmount: number(row.subtotal_amount), totalAmount: number(row.total_amount),
@@ -197,7 +201,14 @@ export async function GET(request: Request) {
         createdAt: String(row.created_at), entityReference: String(row.entity_reference), id: String(row.id), reason: row.reason ? String(row.reason) : null,
       })),
       bookings,
-      filters: { bookingType: requestedType as "all" | BoxOfficeBookingType, from, location: effectiveLocation as "all" | BoxOfficeLocation, to },
+      filters: {
+        bookingType: requestedType as "all" | BoxOfficeBookingType,
+        from,
+        location: effectiveLocation as "all" | BoxOfficeLocation,
+        paymentStatus: requestedPaymentStatus,
+        showId: requestedShowId,
+        to,
+      },
       payments: resolvedPaymentRows.map((row): BoxOfficePaymentRow => ({
         amount: number(row.amount), bookingId: String(row.booking_id), createdAt: String(row.created_at), id: String(row.id), method: row.method ? String(row.method) : null,
         paymentStatus: String(row.payment_status), paymentType: String(row.payment_type), processedAt: row.processed_at ? String(row.processed_at) : null,

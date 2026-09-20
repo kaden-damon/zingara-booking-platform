@@ -180,7 +180,7 @@ export default function BoxOfficeFinancialReportPanel({
             <div className="border-l-2 border-emerald-400 bg-white/[0.03] p-4">
               <p className="text-xs font-semibold uppercase text-emerald-300">Cash Received</p>
               <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 text-sm">
-                {[ ["Booking-Applied Receipts", rand(report.cash.bookingAppliedReceipts)], ["Booking Fees Collected", rand(report.cash.bookingFees)], ["Gross Cash Received", rand(report.cash.grossCashReceived)], ["Refunds Processed", rand(report.cash.refunds)], ["Net Receipts", rand(report.cash.netReceipts)] ].map(([label, value]) => (
+                {[ ["Booking-Applied Receipts", rand(report.cash.bookingAppliedReceipts)], ["Customer Transaction Fees", rand(report.cash.transactionFees)], ["Gross Cash Received", rand(report.cash.grossCashReceived)], ["Refunds Processed", rand(report.cash.refunds)], ["Net Cash After Refunds", rand(report.cash.netReceipts)] ].map(([label, value]) => (
                   <div key={String(label)}><p className="text-zinc-500">{label}</p><p className="mt-1 text-lg font-semibold text-white">{value}</p></div>
                 ))}
               </div>
@@ -222,10 +222,13 @@ export default function BoxOfficeFinancialReportPanel({
             <summary className="cursor-pointer px-4 py-4 font-semibold uppercase text-[#F2D66C]">Payment Reconciliation</summary>
             <div className="overflow-x-auto border-t border-white/10">
               <table className="w-full min-w-[980px] text-left text-sm"><thead className="bg-[#D8C36A]/10 text-xs uppercase text-[#F2D66C]"><tr>
-                {['Date / Time','Booking Reference','Customer / Company','Location','Booking Type','Payment Method','Classification','Applied Amount','Booking Fee','Gross Cash'].map((heading) => <th key={heading} className="px-3 py-3">{heading}</th>)}
+                {['Date / Time','Booking Reference','Customer / Company','Location','Booking Type','Payment Method','Classification','Applied Amount','Transaction Fee','Gross Cash'].map((heading) => <th key={heading} className="px-3 py-3">{heading}</th>)}
               </tr></thead><tbody className="divide-y divide-white/10">{report.receipts.map((row) => <tr key={row.id}>
-                <td className="px-3 py-3">{new Date(row.date).toLocaleString("en-ZA", { timeZone: boxOfficeReportTimezone })}</td><td className="px-3 py-3 font-mono text-[#F2D66C]">{row.bookingReference}</td><td className="px-3 py-3">{row.customerName}</td><td className="px-3 py-3">{row.location === "johannesburg" ? "Johannesburg" : "Cape Town"}</td><td className="px-3 py-3 capitalize">{row.bookingType}</td><td className="px-3 py-3">{row.method}</td><td className="px-3 py-3">{row.classification}</td><td className="px-3 py-3">{rand(row.amount)}</td><td className="px-3 py-3">{rand(row.bookingFee)}</td><td className="px-3 py-3 font-semibold">{rand(row.grossCash)}</td>
+                <td className="px-3 py-3">{new Date(row.date).toLocaleString("en-ZA", { timeZone: boxOfficeReportTimezone })}</td><td className="px-3 py-3 font-mono text-[#F2D66C]">{row.bookingReference}</td><td className="px-3 py-3">{row.customerName}</td><td className="px-3 py-3">{row.location === "johannesburg" ? "Johannesburg" : "Cape Town"}</td><td className="px-3 py-3 capitalize">{row.bookingType}</td><td className="px-3 py-3">{row.method}</td><td className="px-3 py-3">{row.classification}</td><td className="px-3 py-3">{rand(row.amount)}</td><td className="px-3 py-3">{rand(row.transactionFee)}</td><td className="px-3 py-3 font-semibold">{rand(row.grossCash)}</td>
               </tr>)}</tbody></table>
+              <p className="border-t border-white/10 px-4 py-3 text-xs text-zinc-500">
+                Transaction Fee is the Zingara/customer checkout component. PayFast merchant processing Fee and Net settlement are not stored here and are not inferred.
+              </p>
             </div>
           </details>
 
@@ -235,7 +238,7 @@ export default function BoxOfficeFinancialReportPanel({
               <table className="w-full min-w-[860px] text-left text-sm"><thead className="bg-[#D8C36A]/10 text-xs uppercase text-[#F2D66C]"><tr>
                 {['Created','Booking Reference','Customer / Company','Location','Type','Pax','Booking Value','Paid','Outstanding'].map((heading) => <th key={heading} className="px-3 py-3">{heading}</th>)}
               </tr></thead><tbody className="divide-y divide-white/10">{report.bookings.map((row) => <tr key={row.id}>
-                <td className="px-3 py-3">{new Date(row.createdAt).toLocaleString("en-ZA", { timeZone: boxOfficeReportTimezone })}</td><td className="px-3 py-3 font-mono text-[#F2D66C]">{row.bookingReference}</td><td className="px-3 py-3">{row.customerName}</td><td className="px-3 py-3">{row.location === "johannesburg" ? "Johannesburg" : "Cape Town"}</td><td className="px-3 py-3 capitalize">{row.bookingSource.includes("corporate") || row.corporateRequestId ? "Corporate" : "Standard"}</td><td className="px-3 py-3">{row.guestCount}</td><td className="px-3 py-3">{rand(row.totalAmount)}</td><td className="px-3 py-3">{rand(row.amountPaid)}</td><td className="px-3 py-3">{rand(row.balanceOutstanding)}</td>
+                <td className="px-3 py-3">{new Date(row.createdAt).toLocaleString("en-ZA", { timeZone: boxOfficeReportTimezone })}</td><td className="px-3 py-3 font-mono text-[#F2D66C]">{row.bookingReference}</td><td className="px-3 py-3">{row.customerName}</td><td className="px-3 py-3">{row.location === "johannesburg" ? "Johannesburg" : "Cape Town"}</td><td className="px-3 py-3 capitalize">{row.bookingSource.includes("corporate") || row.corporateRequestId ? "Corporate" : "Standard"}</td><td className="px-3 py-3">{row.guestCount}</td><td className="px-3 py-3">{rand(row.totalAmount)}</td><td className="px-3 py-3">{rand(row.amountPaid)}</td><td className="px-3 py-3">{rand(Math.max(row.totalAmount - row.amountPaid, 0))}</td>
               </tr>)}</tbody></table>
             </div>
           </details>

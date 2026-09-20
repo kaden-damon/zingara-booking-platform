@@ -40,6 +40,8 @@ import {
 import SystemPreferences from "./SystemPreferences";
 import ManagementAnalytics from "./ManagementAnalytics";
 import BoxOfficeFinancialReportPanel from "./BoxOfficeFinancialReport";
+import type { BoxOfficeFinancialReport } from "@/lib/boxOfficeFinancialReport";
+import { getJohannesburgDateKey } from "@/lib/managementAnalytics";
 import { useReportGenerationLock } from "./useReportGenerationLock";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
 import CorporateConversionModal from "./CorporateConversionModal";
@@ -10853,6 +10855,14 @@ export default function AdminDashboardPage() {
     useState<FinancialReportTab>("payments-received");
   const [financialLastRefreshedAt, setFinancialLastRefreshedAt] =
     useState(() => new Date().toISOString());
+  const [authoritativeFinancialRangeReport, setAuthoritativeFinancialRangeReport] =
+    useState<BoxOfficeFinancialReport | null>(null);
+  const [authoritativeFinancialMonthReport, setAuthoritativeFinancialMonthReport] =
+    useState<BoxOfficeFinancialReport | null>(null);
+  const [authoritativeFinancialReportError, setAuthoritativeFinancialReportError] =
+    useState("");
+  const [financialReportRefreshKey, setFinancialReportRefreshKey] = useState(0);
+  const financialReportRequestRef = useRef(0);
   const [deleteCorporateRequestId, setDeleteCorporateRequestId] =
     useState("");
   const [
@@ -13842,67 +13852,36 @@ export default function AdminDashboardPage() {
     financialDateFrom || `${financialReportingMonth}-01`;
   const financialDateToValue =
     financialDateTo ||
-    new Date(
-      Number(financialReportingMonth.slice(0, 4)),
-      Number(financialReportingMonth.slice(5, 7)),
-      0,
-    )
-      .toISOString()
-      .slice(0, 10);
-  const isDateWithinRange = (dateValue: string, from: string, to: string) =>
-    dateValue >= from && dateValue <= to;
-  const isConfirmedPaymentRow = (row: PaymentRow) =>
-    row.payment_status === "deposit_paid" ||
-    row.payment_status === "fully_paid" ||
-    row.payment_status === "refunded";
+    getJohannesburgDateKey(
+      new Date(
+        Date.UTC(
+          Number(financialReportingMonth.slice(0, 4)),
+          Number(financialReportingMonth.slice(5, 7)),
+          0,
+          12,
+        ),
+      ),
+    );
   const scopedFinancialBookings = activeBookingsForOperations.filter(
     isBookingInFinancialScope,
   );
-  const paymentsReceivedRows = paymentRows
-    .filter((row) => {
-      if (!isConfirmedPaymentRow(row)) {
-        return false;
-      }
-
-      const paymentDate = (row.processed_at ?? row.created_at).slice(0, 10);
-
-      if (!isDateWithinRange(paymentDate, financialDateFromValue, financialDateToValue)) {
-        return false;
-      }
-
-      const booking = row.reference
-        ? activeBookingsForOperations.find(
-            (currentBooking) => currentBooking.reference === row.reference,
-          )
-        : undefined;
-
-      return booking ? isBookingInFinancialScope(booking) : false;
-    })
-    .map((row) => {
-      const booking = activeBookingsForOperations.find(
-        (currentBooking) => currentBooking.reference === row.reference,
-      );
-      const show = booking ? getOperationsBookingShow(booking) : undefined;
-      const financials = booking ? getBookingFinancials(booking) : null;
-
-      return {
-        amountReceived: Number(row.amount ?? 0),
-        balanceDue: financials?.balanceDue ?? 0,
-        booking,
-        bookingTotal: financials?.totalPrice ?? 0,
-        bookingType: booking ? getFinancialBookingType(booking) : "standard",
-        description: row.notes ?? row.payment_type ?? "Not recorded",
-        guests: booking?.partySize ?? 0,
-        location: show
-          ? getShowLocationOption(getShowManifestLocation(show) ?? "cape-town").city
-          : "Not recorded",
-        method: row.method ?? "Not recorded",
-        paymentDate: row.processed_at ?? row.created_at,
-        paymentStatus: row.payment_status,
-        row,
-        show,
-      };
-    });
+  const paymentsReceivedRows = (authoritativeFinancialRangeReport?.receipts ?? [])
+    .map((receipt) => ({
+      amountReceived: receipt.amount,
+      balanceDue: receipt.balanceDue,
+      bookingReference: receipt.bookingReference,
+      bookingTotal: receipt.bookingTotal,
+      bookingType: receipt.bookingType,
+      customerName: receipt.customerName,
+      description: receipt.classification,
+      guests: receipt.guestCount,
+      id: receipt.id,
+      location: receipt.location === "johannesburg" ? "Johannesburg" : "Cape Town",
+      method: receipt.method,
+      paymentDate: receipt.date,
+      paymentStatus: "Received",
+      show: shows.find((show) => show.id === receipt.showId),
+    }));
   const futureBookingRows = scopedFinancialBookings.filter((booking) => {
     const show = getOperationsBookingShow(booking);
 
@@ -13917,13 +13896,16 @@ export default function AdminDashboardPage() {
     return true;
   });
   const monthStart = `${financialReportingMonth}-01`;
-  const monthEnd = new Date(
-    Number(financialReportingMonth.slice(0, 4)),
-    Number(financialReportingMonth.slice(5, 7)),
-    0,
-  )
-    .toISOString()
-    .slice(0, 10);
+  const monthEnd = getJohannesburgDateKey(
+    new Date(
+      Date.UTC(
+        Number(financialReportingMonth.slice(0, 4)),
+        Number(financialReportingMonth.slice(5, 7)),
+        0,
+        12,
+      ),
+    ),
+  );
   const monthlyBookings = scopedFinancialBookings.filter((booking) => {
     const show = getOperationsBookingShow(booking);
 
@@ -13934,7 +13916,7 @@ export default function AdminDashboardPage() {
       booking.totalPrice === 0 ||
       getBookingPaymentStatus(booking) === "comp-vip",
   );
-  const paymentsReceivedSummary = paymentsReceivedRows.reduce(
+  const paymentsReceivedReceiptSummary = paymentsReceivedRows.reduce(
     (summary, row) => ({
       corporate:
         summary.corporate +
@@ -13942,19 +13924,14 @@ export default function AdminDashboardPage() {
       count: summary.count + 1,
       deposits:
         summary.deposits +
-        (row.row.payment_type === "deposit" ? row.amountReceived : 0),
+        (row.description === "Deposit" ? row.amountReceived : 0),
       full:
         summary.full +
-        (row.row.payment_type === "full_payment" ||
-        row.row.payment_type === "balance"
+        (row.description === "Full Payment" ||
+        row.description === "Balance Payment"
           ? row.amountReceived
           : 0),
-      refunds:
-        summary.refunds +
-        (row.row.payment_type === "refund" ||
-        row.row.payment_status === "refunded"
-          ? row.amountReceived
-          : 0),
+      refunds: summary.refunds,
       standard:
         summary.standard +
         (row.bookingType === "standard" ? row.amountReceived : 0),
@@ -13970,6 +13947,10 @@ export default function AdminDashboardPage() {
       total: 0,
     },
   );
+  const paymentsReceivedSummary = {
+    ...paymentsReceivedReceiptSummary,
+    refunds: authoritativeFinancialRangeReport?.cash.refunds ?? 0,
+  };
   const futureRevenueSummary = futureBookingRows.reduce(
     (summary, booking) => {
       const financials = getBookingFinancials(booking);
@@ -13978,45 +13959,36 @@ export default function AdminDashboardPage() {
         collected: summary.collected + financials.amountPaid,
         count: summary.count + 1,
         guests: summary.guests + booking.partySize,
-        outstanding: summary.outstanding + financials.balanceDue,
+        outstanding:
+          summary.outstanding + Math.max(financials.totalPrice - financials.amountPaid, 0),
         value: summary.value + financials.totalPrice,
       };
     },
     { collected: 0, count: 0, guests: 0, outstanding: 0, value: 0 },
   );
-  const monthlyIncomeSummary = monthlyBookings.reduce(
+  const monthlyBookingSummary = monthlyBookings.reduce(
     (summary, booking) => {
       const financials = getBookingFinancials(booking);
-      const location = getFinancialBookingLocation(booking);
-      const type = getFinancialBookingType(booking);
       const isComp = complimentaryBookings.some(
         (compBooking) => compBooking.reference === booking.reference,
       );
 
       return {
         bookingCount: summary.bookingCount + 1,
-        capeTown:
-          summary.capeTown + (location === "cape-town" ? financials.amountPaid : 0),
-        closingOutstanding: summary.closingOutstanding + financials.balanceDue,
+        capeTown: summary.capeTown,
+        closingOutstanding:
+          summary.closingOutstanding + Math.max(financials.totalPrice - financials.amountPaid, 0),
         complimentaryValue:
           summary.complimentaryValue + (isComp ? financials.totalPrice : 0),
-        corporate:
-          summary.corporate + (type === "corporate" ? financials.amountPaid : 0),
-        deposits:
-          summary.deposits +
-          (booking.paymentOption === "deposit" ? financials.amountPaid : 0),
+        corporate: summary.corporate,
+        deposits: summary.deposits,
         grossBookingValue: summary.grossBookingValue + financials.totalPrice,
         guestCount: summary.guestCount + booking.partySize,
-        johannesburg:
-          summary.johannesburg +
-          (location === "johannesburg" ? financials.amountPaid : 0),
-        netCashReceived: summary.netCashReceived + financials.amountPaid,
-        paymentsReceived: summary.paymentsReceived + financials.amountPaid,
-        refunds:
-          summary.refunds +
-          (booking.paymentStatus === "refunded" ? financials.amountPaid : 0),
-        standard:
-          summary.standard + (type === "standard" ? financials.amountPaid : 0),
+        johannesburg: summary.johannesburg,
+        netCashReceived: summary.netCashReceived,
+        paymentsReceived: summary.paymentsReceived,
+        refunds: summary.refunds,
+        standard: summary.standard,
       };
     },
     {
@@ -14035,6 +14007,39 @@ export default function AdminDashboardPage() {
       standard: 0,
     },
   );
+  const authoritativeMonthlyReceipts = authoritativeFinancialMonthReport?.receipts ?? [];
+  const monthlyAppliedReceipts = authoritativeMonthlyReceipts.reduce(
+    (sum, receipt) => sum + receipt.amount,
+    0,
+  );
+  const monthlyRefunds = authoritativeFinancialMonthReport?.cash.refunds ?? 0;
+  const monthlyIncomeSummary = {
+    ...monthlyBookingSummary,
+    balancePayments: authoritativeMonthlyReceipts
+      .filter((receipt) => receipt.classification === "Balance Payment")
+      .reduce((sum, receipt) => sum + receipt.amount, 0),
+    capeTown: authoritativeMonthlyReceipts
+      .filter((receipt) => receipt.location === "cape-town")
+      .reduce((sum, receipt) => sum + receipt.amount, 0),
+    corporate: authoritativeMonthlyReceipts
+      .filter((receipt) => receipt.bookingType === "corporate")
+      .reduce((sum, receipt) => sum + receipt.amount, 0),
+    deposits: authoritativeMonthlyReceipts
+      .filter((receipt) => receipt.classification === "Deposit")
+      .reduce((sum, receipt) => sum + receipt.amount, 0),
+    fullPayments: authoritativeMonthlyReceipts
+      .filter((receipt) => receipt.classification === "Full Payment")
+      .reduce((sum, receipt) => sum + receipt.amount, 0),
+    johannesburg: authoritativeMonthlyReceipts
+      .filter((receipt) => receipt.location === "johannesburg")
+      .reduce((sum, receipt) => sum + receipt.amount, 0),
+    netCashReceived: monthlyAppliedReceipts - monthlyRefunds,
+    paymentsReceived: monthlyAppliedReceipts,
+    refunds: monthlyRefunds,
+    standard: authoritativeMonthlyReceipts
+      .filter((receipt) => receipt.bookingType === "standard")
+      .reduce((sum, receipt) => sum + receipt.amount, 0),
+  };
   const complimentarySummary = complimentaryBookings.reduce(
     (summary, booking) => {
       const location = getFinancialBookingLocation(booking);
@@ -14060,6 +14065,65 @@ export default function AdminDashboardPage() {
     ["Total Bookings", monthlyIncomeSummary.bookingCount.toString()],
     ["Total Guests", monthlyIncomeSummary.guestCount.toString()],
   ];
+
+  useEffect(() => {
+    if (
+      activeAdminTab !== "operations" ||
+      activeOperationsTab !== "financial-reports" ||
+      !canViewOperationsFinancials
+    ) {
+      return;
+    }
+
+    const requestId = financialReportRequestRef.current + 1;
+    financialReportRequestRef.current = requestId;
+    setAuthoritativeFinancialReportError("");
+    const common = {
+      bookingType: financialBookingTypeFilter,
+      location: effectiveFinancialLocation,
+      paymentStatus: financialPaymentStatusFilter,
+      showId: financialShowFilter,
+    };
+    const loadReport = (from: string, to: string) => {
+      const query = new URLSearchParams({ ...common, from, to });
+      return fetchSupabaseApi<{ report: BoxOfficeFinancialReport }>(
+        `/api/admin/financial-reports/box-office?${query}`,
+        { cache: "no-store" },
+      );
+    };
+
+    void Promise.all([
+      loadReport(financialDateFromValue, financialDateToValue),
+      loadReport(monthStart, monthEnd),
+    ])
+      .then(([rangePayload, monthPayload]) => {
+        if (requestId !== financialReportRequestRef.current) return;
+        setAuthoritativeFinancialRangeReport(rangePayload.report);
+        setAuthoritativeFinancialMonthReport(monthPayload.report);
+        setFinancialLastRefreshedAt(new Date().toISOString());
+      })
+      .catch((error) => {
+        if (requestId !== financialReportRequestRef.current) return;
+        setAuthoritativeFinancialReportError(
+          error instanceof Error
+            ? error.message
+            : "Authoritative financial receipts could not be loaded.",
+        );
+      });
+  }, [
+    activeAdminTab,
+    activeOperationsTab,
+    canViewOperationsFinancials,
+    effectiveFinancialLocation,
+    financialBookingTypeFilter,
+    financialDateFromValue,
+    financialDateToValue,
+    financialPaymentStatusFilter,
+    financialReportRefreshKey,
+    financialShowFilter,
+    monthEnd,
+    monthStart,
+  ]);
   const floorSelectorShows = [...shows].sort((left, right) => {
     const chronological = `${left.date}T${left.time || "00:00"}`.localeCompare(
       `${right.date}T${right.time || "00:00"}`,
@@ -18926,7 +18990,7 @@ export default function AdminDashboardPage() {
         const financials = getBookingFinancials(booking);
 
         return {
-          "Balance Due": financials.balanceDue,
+          "Balance Due": Math.max(financials.totalPrice - financials.amountPaid, 0),
           "Booking Reference": booking.reference,
           "Booking Status": bookingStatusLabels[booking.status ?? "confirmed"],
           "Check-In Status": getManifestCheckInStatus(booking),
@@ -19091,14 +19155,15 @@ export default function AdminDashboardPage() {
       rows: paymentsReceivedRows.map((row) => ({
         "Amount Received": row.amountReceived,
         "Balance Due": row.balanceDue,
-        "Booking Reference": row.booking?.reference ?? row.row.reference ?? "Not recorded",
+        "Booking Reference": row.bookingReference,
         "Booking Total": row.bookingTotal,
         "Booking Type": row.bookingType === "corporate" ? "Corporate" : "Standard",
-        "Guest / Company Name":
-          row.booking?.customer.name || row.booking?.customer.email || "Not recorded",
+        "Guest / Company Name": row.customerName,
         Guests: row.guests,
         Location: row.location,
-        "Payment Date": parseExportDate(row.paymentDate),
+        "Payment Date": parseExportDate(
+          getJohannesburgDateKey(new Date(row.paymentDate)),
+        ),
         "Payment Description": row.description,
         "Payment Method": row.method,
         "Payment Status": row.paymentStatus,
@@ -19178,7 +19243,8 @@ export default function AdminDashboardPage() {
         { Metric: "Standard booking income", Value: monthlyIncomeSummary.standard },
         { Metric: "Corporate booking income", Value: monthlyIncomeSummary.corporate },
         { Metric: "Deposits received", Value: monthlyIncomeSummary.deposits },
-        { Metric: "Balance payments received", Value: monthlyIncomeSummary.paymentsReceived - monthlyIncomeSummary.deposits },
+        { Metric: "Balance payments received", Value: monthlyIncomeSummary.balancePayments },
+        { Metric: "Full payments received", Value: monthlyIncomeSummary.fullPayments },
         { Metric: "Refunds recorded", Value: monthlyIncomeSummary.refunds },
         { Metric: "Complimentary booking value", Value: monthlyIncomeSummary.complimentaryValue },
         { Metric: "Gross booking value", Value: monthlyIncomeSummary.grossBookingValue },
@@ -25735,6 +25801,7 @@ export default function AdminDashboardPage() {
     setBookings(nextBookings);
     setPaymentRows(nextPayments);
     setFinancialLastRefreshedAt(new Date().toISOString());
+    setFinancialReportRefreshKey((current) => current + 1);
     showWorkflowToast("✓ Refreshed · Financial data updated");
   }
 
@@ -31338,6 +31405,12 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
+            {authoritativeFinancialReportError && (
+              <p className="mt-4 rounded-xl border border-red-400/30 bg-red-950/25 px-4 py-3 text-sm text-red-100" role="alert">
+                {authoritativeFinancialReportError}
+              </p>
+            )}
+
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {financialDashboardCards.map(([label, value]) => (
                 <article
@@ -31397,15 +31470,17 @@ export default function AdminDashboardPage() {
                       </tr>
                     ) : (
                       paymentsReceivedRows.map((row) => (
-                        <tr key={row.row.id} className="text-zinc-200">
+                        <tr key={row.id} className="text-zinc-200">
                           <td className="px-3 py-3">
-                            {formatOperationalShowDate(row.paymentDate.slice(0, 10))}
+                            {formatOperationalShowDate(
+                              getJohannesburgDateKey(new Date(row.paymentDate)),
+                            )}
                           </td>
                           <td className="px-3 py-3 font-mono text-[#F2D66C]">
-                            {row.booking?.reference ?? row.row.reference}
+                            {row.bookingReference}
                           </td>
                           <td className="px-3 py-3">
-                            {row.booking?.customer.name || "Not recorded"}
+                            {row.customerName}
                           </td>
                           <td className="px-3 py-3 capitalize">{row.bookingType}</td>
                           <td className="px-3 py-3">
@@ -31484,7 +31559,9 @@ export default function AdminDashboardPage() {
                               {formatCurrency(financials.amountPaid)}
                             </td>
                             <td className="px-3 py-3">
-                              {formatCurrency(financials.balanceDue)}
+                              {formatCurrency(
+                                Math.max(financials.totalPrice - financials.amountPaid, 0),
+                              )}
                             </td>
                             <td className="px-3 py-3">
                               {bookingStatusLabels[booking.status ?? "confirmed"]}

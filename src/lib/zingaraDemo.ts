@@ -1,6 +1,7 @@
 import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
 import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
 import { bookingClaimsTable } from "./bookingTableClaims";
+import { includedBookingFeeAmount } from "./bookingFees";
 import {
   filterEnabledSeatingZones,
   isConfiguredSeatingZoneEnabled,
@@ -25,7 +26,7 @@ export const defaultZingaraLandingLogoUrl =
   "/brand/zingara-logo-landing.svg";
 export const defaultZingaraLogoUrl = "/brand/zingara-activator.svg";
 export const defaultZingaraFaviconUrl = "/brand/wax-seal.png";
-export const includedBookingFeeAmount = 10;
+export { includedBookingFeeAmount } from "./bookingFees";
 export const defaultStandardDepositPerPerson = 550;
 
 export function getIncludedBookingFeeBreakdown(ticketGrossAmount = 0) {

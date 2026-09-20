@@ -24,6 +24,7 @@ function booking(
     bookingReference: `ZNG-FIXTURE-${index}`,
     bookingSource: "online",
     bookingStatus: "confirmed",
+    paymentStatus: "pending_payment",
     corporateRequestId: null,
     createdAt: periodStart,
     customerId: `customer-${index}`,
@@ -115,11 +116,12 @@ test("5–6 September regression reproduces the verified accounting baseline", (
   });
   assert.deepEqual(report.cash, {
     bookingAppliedReceipts: 244_400,
-    bookingFees: 440,
     grossCashReceived: 244_840,
     netReceipts: 244_840,
     refunds: 0,
+    transactionFees: 440,
   });
+  assert.equal(report.revenue.bookingFees, 10);
   assert.equal(report.locations.johannesburg.cashReceived, 244_840);
   assert.equal(report.locations["cape-town"].cashReceived, 0);
   assert.equal(report.paymentMethods.find((row) => row.label === "PayFast / Online")?.amount, 179_540);
@@ -143,6 +145,163 @@ test("manual cumulative payment rows use the immutable audited increment", () =>
   assert.equal(
     report.receipts.find((row) => row.bookingReference === "DP-WYXCPC")?.amount,
     65_300,
+  );
+});
+
+test("audit-only manual receipts are included without creating payment rows", () => {
+  const fixture = weekendFixture();
+  fixture.payments = fixture.payments.filter((payment) => payment.id !== "manual-dp");
+  fixture.audits[0].reason = "EFT payment received.";
+  fixture.audits[0].beforeValues = { amount_paid: 22_000 };
+  fixture.audits[0].afterValues = { amount_paid: 87_300, payment_status: "fully_paid" };
+  const report = buildBoxOfficeFinancialReport(fixture);
+  const receipt = report.receipts.find((row) => row.bookingReference === "DP-WYXCPC");
+  assert.equal(receipt?.amount, 65_300);
+  assert.equal(receipt?.method, "EFT / Manual");
+});
+
+test("payment rows and matching audit evidence are not double-counted", () => {
+  const report = buildBoxOfficeFinancialReport(weekendFixture());
+  assert.equal(
+    report.receipts.filter((row) => row.bookingReference === "DP-WYXCPC").length,
+    1,
+  );
+  assert.equal(report.cash.bookingAppliedReceipts, 244_400);
+});
+
+test("provider receipts are not duplicated by financial reconciliation audit evidence", () => {
+  const fixture = weekendFixture();
+  fixture.bookings[0].amountPaid = 179_100;
+  fixture.bookings[0].totalAmount = 179_100;
+  fixture.audits = [{
+    afterValues: { amount_paid: 179_100, payment_status: "fully_paid" },
+    beforeValues: { amount_paid: 0 },
+    createdAt: periodStart,
+    entityReference: "ZNG-FIXTURE-1",
+    id: "provider-allocation-audit",
+    reason: "Payment aggregate reconciled after provider processing.",
+  }];
+  fixture.payments = [fixture.payments[0]];
+  const report = buildBoxOfficeFinancialReport(fixture);
+  assert.equal(report.receipts.length, 1);
+  assert.equal(report.cash.bookingAppliedReceipts, 179_100);
+  assert.equal(report.cash.transactionFees, 440);
+  assert.equal(report.cash.grossCashReceived, 179_540);
+});
+
+test("a correction audit reduces an audit-only receipt instead of creating extra cash", () => {
+  const fixture = weekendFixture();
+  const manualBooking = fixture.bookings.find((row) => row.id === "booking-dp");
+  assert.ok(manualBooking);
+  manualBooking.amountPaid = 41_310;
+  manualBooking.totalAmount = 41_310;
+  fixture.payments = fixture.payments.filter((payment) => payment.id !== "manual-dp");
+  fixture.audits = [
+    { afterValues: { amount_paid: 45_900 }, beforeValues: { amount_paid: 0 }, createdAt: "2026-09-05T08:00:00Z", entityReference: "DP-WYXCPC", id: "audit-set", reason: "Invoice paid in full." },
+    { afterValues: { amount_paid: 41_310 }, beforeValues: { amount_paid: 45_900 }, createdAt: "2026-09-05T08:05:00Z", entityReference: "DP-WYXCPC", id: "audit-correct", reason: "Corrected paid total." },
+  ];
+  const report = buildBoxOfficeFinancialReport(fixture);
+  assert.equal(report.receipts.find((row) => row.bookingReference === "DP-WYXCPC")?.amount, 41_310);
+});
+
+test("archived and cancelled bookings retain historical successful cash", () => {
+  const fixture = weekendFixture();
+  fixture.bookings[0].archivedAt = "2026-09-07T00:00:00Z";
+  fixture.bookings[0].bookingStatus = "cancelled";
+  const report = buildBoxOfficeFinancialReport(fixture);
+  assert.equal(report.sales.bookings, 46);
+  assert.equal(report.receipts.some((row) => row.id === "payfast"), true);
+});
+
+test("outstanding is obligation less applied paid rather than a stale persisted balance", () => {
+  const fixture = weekendFixture();
+  fixture.bookings[0].totalAmount = 100_000;
+  fixture.bookings[0].amountPaid = 20_000;
+  fixture.bookings[0].balanceOutstanding = 0;
+  const report = buildBoxOfficeFinancialReport(fixture);
+  assert.equal(report.sales.outstanding, 80_000);
+  assert.equal(report.bookings[0].balanceOutstanding, 0);
+});
+
+test("a UTC timestamp after 22:00 belongs to the next SAST reporting day", () => {
+  const fixture = weekendFixture();
+  fixture.filters = { ...fixture.filters, from: "2026-09-02", to: "2026-09-02" };
+  fixture.payments[0].processedAt = "2026-09-01T22:30:00Z";
+  fixture.payments[0].createdAt = "2026-09-01T22:30:00Z";
+  fixture.payments = [fixture.payments[0]];
+  fixture.audits = [];
+  const report = buildBoxOfficeFinancialReport(fixture);
+  assert.equal(report.receipts.length, 1);
+  fixture.filters = { ...fixture.filters, from: "2026-09-01", to: "2026-09-01" };
+  assert.equal(buildBoxOfficeFinancialReport(fixture).receipts.length, 0);
+});
+
+test("1-16 September completed-period reconciliation preserves each accounting concept", () => {
+  const provider = booking(101, {
+    amountPaid: 5_739_209.25,
+    createdAt: "2026-09-01T08:00:00+02:00",
+    id: "provider-period",
+    subtotalAmount: 5_739_209.25,
+    totalAmount: 5_739_209.25,
+  });
+  const nonProvider = booking(102, {
+    amountPaid: 5_170_274,
+    createdAt: "2026-09-01T08:00:00+02:00",
+    id: "manual-period",
+    subtotalAmount: 5_170_274,
+    totalAmount: 5_170_274,
+  });
+  const report = buildBoxOfficeFinancialReport({
+    audits: [{
+      afterValues: { amount_paid: 4_400, payment_status: "fully_paid" },
+      beforeValues: { amount_paid: 0 },
+      createdAt: "2026-09-06T09:00:00+02:00",
+      entityReference: nonProvider.bookingReference,
+      id: "claudia-audit-only",
+      reason: "EFT payment received.",
+    }],
+    bookings: [provider, nonProvider],
+    filters: { bookingType: "all", from: "2026-09-01", location: "all", to: "2026-09-16" },
+    payments: [
+      {
+        amount: 5_739_209.25,
+        bookingId: provider.id,
+        createdAt: "2026-09-10T08:00:00+02:00",
+        id: "provider-period-payment",
+        method: "payfast",
+        paymentStatus: "fully_paid",
+        paymentType: "full_payment",
+        processedAt: "2026-09-10T08:01:00+02:00",
+        providerGrossAmount: 5_748_799.25,
+        providerTransactionId: "provider-period-reference",
+        transactionFeeAmount: 9_590,
+      },
+      {
+        amount: 5_165_874,
+        bookingId: nonProvider.id,
+        createdAt: "2026-09-05T08:00:00+02:00",
+        id: "manual-period-payment",
+        method: "eft",
+        paymentStatus: "fully_paid",
+        paymentType: "full_payment",
+        processedAt: "2026-09-05T08:01:00+02:00",
+        providerGrossAmount: 0,
+        providerTransactionId: null,
+        transactionFeeAmount: 0,
+      },
+    ],
+    refunds: [],
+  });
+  assert.equal(report.cash.bookingAppliedReceipts, 10_909_483.25);
+  assert.equal(report.cash.transactionFees, 9_590);
+  assert.equal(report.cash.grossCashReceived, 10_919_073.25);
+  assert.equal(
+    report.paymentMethods.find((row) => row.label === "PayFast / Online")?.amount,
+    5_748_799.25,
+  );
+  assert.equal(
+    report.paymentMethods.find((row) => row.label === "EFT / Manual")?.amount,
+    5_170_274,
   );
 });
 

@@ -1,3 +1,5 @@
+import { includedBookingFeeAmount } from "./bookingFees.ts";
+
 export const boxOfficeReportTimezone = "Africa/Johannesburg";
 
 export type BoxOfficeLocation = "cape-town" | "johannesburg";
@@ -7,6 +9,8 @@ export type BoxOfficeReportFilters = {
   bookingType: "all" | BoxOfficeBookingType;
   from: string;
   location: "all" | BoxOfficeLocation;
+  paymentStatus?: string;
+  showId?: string;
   to: string;
 };
 
@@ -19,6 +23,7 @@ export type BoxOfficeBookingRow = {
   bookingReference: string;
   bookingSource: string;
   bookingStatus: string;
+  paymentStatus: string;
   corporateRequestId: string | null;
   createdAt: string;
   customerId: string;
@@ -68,18 +73,22 @@ export type BoxOfficeRefundRow = {
 
 export type BoxOfficeReceipt = {
   amount: number;
-  bookingFee: number;
+  balanceDue: number;
+  bookingTotal: number;
   bookingReference: string;
   bookingType: BoxOfficeBookingType;
   classification: string;
   customerName: string;
   date: string;
   grossCash: number;
+  guestCount: number;
   id: string;
   location: BoxOfficeLocation;
   method: string;
   requiresReview: boolean;
   reviewReason?: string;
+  showId: string;
+  transactionFee: number;
 };
 
 type MoneySummary = {
@@ -118,10 +127,10 @@ export type BoxOfficeFinancialReport = {
   };
   cash: {
     bookingAppliedReceipts: number;
-    bookingFees: number;
     grossCashReceived: number;
     netReceipts: number;
     refunds: number;
+    transactionFees: number;
   };
 };
 
@@ -188,6 +197,97 @@ function paymentMethod(payment: BoxOfficePaymentRow) {
   return "Manual / Method Not Recorded";
 }
 
+function receiptContext(booking: BoxOfficeBookingRow) {
+  return {
+    balanceDue: money(Math.max(booking.totalAmount - booking.amountPaid, 0)),
+    bookingTotal: booking.totalAmount,
+    guestCount: booking.guestCount,
+    showId: booking.showId,
+  };
+}
+
+function auditClassification(audit: BoxOfficeAuditRow) {
+  const beforePaid = money(audit.beforeValues.amount_paid);
+  const afterStatus = String(audit.afterValues.payment_status ?? "");
+  if (afterStatus === "deposit_paid") return "Deposit";
+  return beforePaid > 0 ? "Balance Payment" : "Full Payment";
+}
+
+function auditMethod(audit: BoxOfficeAuditRow) {
+  const reason = audit.reason?.toLowerCase() ?? "";
+  return reason.includes("eft") || reason.includes("bank transfer")
+    ? "EFT / Manual"
+    : "Manual / Method Not Recorded";
+}
+
+function buildAuditEvidence(
+  booking: BoxOfficeBookingRow,
+  audits: BoxOfficeAuditRow[],
+) {
+  const receipts: BoxOfficeReceipt[] = [];
+  const sorted = [...audits].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  for (const audit of sorted) {
+    const datedReceipts = parseDatedReceipts(audit.reason);
+    if (datedReceipts.length > 0) {
+      for (const [index, receipt] of datedReceipts.entries()) {
+        const method = auditMethod(audit);
+        receipts.push({
+          amount: receipt.amount,
+          ...receiptContext(booking),
+          bookingReference: booking.bookingReference,
+          bookingType: getBoxOfficeBookingType(booking),
+          classification: index > 0 ? "Balance Payment" : auditClassification(audit),
+          customerName: booking.customerName,
+          date: receipt.date,
+          grossCash: receipt.amount,
+          id: `${audit.id}-evidence-${index}`,
+          location: booking.location,
+          method,
+          requiresReview: method === "Manual / Method Not Recorded",
+          reviewReason: method === "Manual / Method Not Recorded"
+            ? "Payment received during period but payment method was not persisted."
+            : undefined,
+          transactionFee: 0,
+        });
+      }
+      continue;
+    }
+    const beforePaid = money(audit.beforeValues.amount_paid);
+    const afterPaid = money(audit.afterValues.amount_paid);
+    if (afterPaid < beforePaid) {
+      let correction = money(beforePaid - afterPaid);
+      for (let index = receipts.length - 1; index >= 0 && correction > 0; index -= 1) {
+        const reduction = Math.min(receipts[index].amount, correction);
+        receipts[index].amount = money(receipts[index].amount - reduction);
+        receipts[index].grossCash = receipts[index].amount;
+        correction = money(correction - reduction);
+      }
+      continue;
+    }
+    if (afterPaid === beforePaid) continue;
+    const method = auditMethod(audit);
+    receipts.push({
+      amount: money(afterPaid - beforePaid),
+      ...receiptContext(booking),
+      bookingReference: booking.bookingReference,
+      bookingType: getBoxOfficeBookingType(booking),
+      classification: auditClassification(audit),
+      customerName: booking.customerName,
+      date: audit.createdAt,
+      grossCash: money(afterPaid - beforePaid),
+      id: `${audit.id}-audit-delta`,
+      location: booking.location,
+      method,
+      requiresReview: method === "Manual / Method Not Recorded",
+      reviewReason: method === "Manual / Method Not Recorded"
+        ? "Payment received during period but payment method was not persisted."
+        : undefined,
+      transactionFee: 0,
+    });
+  }
+  return receipts.filter((receipt) => receipt.amount > 0);
+}
+
 function summarizeGroups<T>(
   values: T[],
   getLabel: (value: T) => string,
@@ -217,7 +317,9 @@ export function buildBoxOfficeFinancialReport(input: {
   const bookingByReference = new Map(input.bookings.map((booking) => [booking.bookingReference, booking]));
   const matchesScope = (booking: BoxOfficeBookingRow) =>
     (input.filters.location === "all" || booking.location === input.filters.location) &&
-    (input.filters.bookingType === "all" || getBoxOfficeBookingType(booking) === input.filters.bookingType);
+    (input.filters.bookingType === "all" || getBoxOfficeBookingType(booking) === input.filters.bookingType) &&
+    (!input.filters.showId || input.filters.showId === "all" || booking.showId === input.filters.showId) &&
+    (!input.filters.paymentStatus || input.filters.paymentStatus === "all" || booking.paymentStatus === input.filters.paymentStatus);
   const periodBookings = input.bookings.filter(
     (booking) =>
       isWithin(booking.createdAt, start, endExclusive) &&
@@ -234,90 +336,55 @@ export function buildBoxOfficeFinancialReport(input: {
   }
 
   const receipts: BoxOfficeReceipt[] = [];
+  const paymentsByBooking = new Map<string, BoxOfficePaymentRow[]>();
   for (const payment of input.payments) {
-    if (!successfulPaymentStatuses.has(payment.paymentStatus)) continue;
-    const booking = bookingById.get(payment.bookingId);
-    if (!booking || !matchesScope(booking)) continue;
+    const values = paymentsByBooking.get(payment.bookingId) ?? [];
+    values.push(payment);
+    paymentsByBooking.set(payment.bookingId, values);
+  }
+  for (const booking of input.bookings) {
+    if (!matchesScope(booking)) continue;
+    const matchingAudits = auditsByReference.get(booking.bookingReference) ?? [];
+    const allAuditReceipts = buildAuditEvidence(booking, matchingAudits);
+    const candidateAuditReceipts = allAuditReceipts.filter((receipt) =>
+      isWithin(receipt.date, start, endExclusive),
+    );
+    const successfulPayments = (paymentsByBooking.get(booking.id) ?? []).filter(
+      (payment) => successfulPaymentStatuses.has(payment.paymentStatus),
+    );
+    const providerPayments = successfulPayments.filter((payment) =>
+      paymentMethod(payment) === "PayFast / Online",
+    );
+    const manualPayments = successfulPayments.filter((payment) =>
+      paymentMethod(payment) !== "PayFast / Online",
+    );
+    const providerTotal = money(providerPayments.reduce((sum, payment) => sum + payment.amount, 0));
+    const manualTotal = money(manualPayments.reduce((sum, payment) => sum + payment.amount, 0));
+    const totalAuditEvidence = money(
+      allAuditReceipts.reduce((sum, receipt) => sum + receipt.amount, 0),
+    );
+    const auditEvidenceIsAdditional = totalAuditEvidence > 0 &&
+      providerTotal + totalAuditEvidence <= booking.amountPaid + 0.005;
+    const auditReceipts = auditEvidenceIsAdditional ? candidateAuditReceipts : [];
+    receipts.push(...auditReceipts);
+    const useAuditAsManualAuthority = auditEvidenceIsAdditional && totalAuditEvidence === manualTotal;
+    const paymentsToReport = [
+      ...providerPayments,
+      ...(useAuditAsManualAuthority ? [] : manualPayments),
+    ];
+    for (const payment of paymentsToReport) {
     const method = paymentMethod(payment);
     const classification = paymentClassification(payment.paymentType);
     const isProvider = method === "PayFast / Online";
-    const matchingAudits = auditsByReference.get(booking.bookingReference) ?? [];
-    const evidenceAudit = isProvider
-      ? undefined
-      : [...matchingAudits]
-          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-          .find((audit) => parseDatedReceipts(audit.reason).length > 0);
-    const datedReceipts = evidenceAudit
-      ? parseDatedReceipts(evidenceAudit.reason)
-      : [];
-
-    if (datedReceipts.length > 0) {
-      for (const [index, receipt] of datedReceipts.entries()) {
-        if (!isWithin(receipt.date, start, endExclusive)) continue;
-        receipts.push({
-          amount: receipt.amount,
-          bookingFee: 0,
-          bookingReference: booking.bookingReference,
-          bookingType: getBoxOfficeBookingType(booking),
-          classification: index > 0 ? "Balance Payment" : classification,
-          customerName: booking.customerName,
-          date: receipt.date,
-          grossCash: receipt.amount,
-          id: `${payment.id}-evidence-${index}`,
-          location: booking.location,
-          method,
-          requiresReview: method === "Manual / Method Not Recorded",
-          reviewReason: method === "Manual / Method Not Recorded"
-            ? "Payment received during period but payment method was not persisted."
-            : undefined,
-        });
-      }
-      continue;
-    }
-
-    const deltaAudit = isProvider
-      ? undefined
-      : [...matchingAudits]
-          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-          .find((audit) => {
-            const before = money(audit.beforeValues.amount_paid);
-            const after = money(audit.afterValues.amount_paid);
-            return after > before && isWithin(audit.createdAt, start, endExclusive);
-          });
-    if (deltaAudit) {
-      const amount = money(
-        money(deltaAudit.afterValues.amount_paid) -
-          money(deltaAudit.beforeValues.amount_paid),
-      );
-      receipts.push({
-        amount,
-        bookingFee: 0,
-        bookingReference: booking.bookingReference,
-        bookingType: getBoxOfficeBookingType(booking),
-        classification,
-        customerName: booking.customerName,
-        date: deltaAudit.createdAt,
-        grossCash: amount,
-        id: `${payment.id}-audit-delta`,
-        location: booking.location,
-        method,
-        requiresReview: method === "Manual / Method Not Recorded",
-        reviewReason: method === "Manual / Method Not Recorded"
-          ? "Payment received during period but payment method was not persisted."
-          : undefined,
-      });
-      continue;
-    }
-
     const paymentDate = payment.processedAt ?? payment.createdAt;
     if (!isWithin(paymentDate, start, endExclusive)) continue;
-    const bookingFee = isProvider ? payment.transactionFeeAmount : 0;
+    const transactionFee = isProvider ? payment.transactionFeeAmount : 0;
     const grossCash = isProvider
-      ? payment.providerGrossAmount || money(payment.amount + bookingFee)
+      ? payment.providerGrossAmount || money(payment.amount + transactionFee)
       : payment.amount;
     receipts.push({
       amount: payment.amount,
-      bookingFee,
+      ...receiptContext(booking),
       bookingReference: booking.bookingReference,
       bookingType: getBoxOfficeBookingType(booking),
       classification,
@@ -331,7 +398,9 @@ export function buildBoxOfficeFinancialReport(input: {
       reviewReason: method === "Manual / Method Not Recorded"
         ? "Payment received during period but payment method was not persisted."
         : undefined,
+      transactionFee,
     });
+    }
   }
 
   const refunds = input.refunds.filter((refund) => {
@@ -340,7 +409,7 @@ export function buildBoxOfficeFinancialReport(input: {
     return refund.refundStatus === "accepted" && Boolean(booking && matchesScope(booking)) && isWithin(date, start, endExclusive);
   });
   const bookingAppliedReceipts = money(receipts.reduce((sum, receipt) => sum + receipt.amount, 0));
-  const bookingFees = money(receipts.reduce((sum, receipt) => sum + receipt.bookingFee, 0));
+  const transactionFees = money(receipts.reduce((sum, receipt) => sum + receipt.transactionFee, 0));
   const grossCashReceived = money(receipts.reduce((sum, receipt) => sum + receipt.grossCash, 0));
   const refundTotal = money(refunds.reduce((sum, refund) => sum + refund.refundAmount, 0));
   const sales = {
@@ -348,7 +417,10 @@ export function buildBoxOfficeFinancialReport(input: {
     bookingValue: money(periodBookings.reduce((sum, booking) => sum + booking.totalAmount, 0)),
     bookings: periodBookings.length,
     guests: periodBookings.reduce((sum, booking) => sum + booking.guestCount, 0),
-    outstanding: money(periodBookings.reduce((sum, booking) => sum + booking.balanceOutstanding, 0)),
+    outstanding: money(periodBookings.reduce(
+      (sum, booking) => sum + Math.max(booking.totalAmount - booking.amountPaid, 0),
+      0,
+    )),
   };
   const summarize = (location?: BoxOfficeLocation, type?: BoxOfficeBookingType): MoneySummary => {
     const bookings = periodBookings.filter((booking) =>
@@ -370,17 +442,25 @@ export function buildBoxOfficeFinancialReport(input: {
       refunds: refundAmount,
     };
   };
-  const detailGross = money(receipts.reduce((sum, receipt) => sum + receipt.amount + receipt.bookingFee, 0));
+  const detailGross = money(receipts.reduce((sum, receipt) => sum + receipt.amount + receipt.transactionFee, 0));
+  const bookingFees = money(periodBookings.reduce(
+    (sum, booking) => sum + (
+      booking.subtotalAmount - booking.addonsTotal > 0
+        ? includedBookingFeeAmount
+        : 0
+    ),
+    0,
+  ));
 
   return {
     bookings: periodBookings.sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
     bookingTypes: { corporate: summarize(undefined, "corporate"), standard: summarize(undefined, "standard") },
     cash: {
       bookingAppliedReceipts,
-      bookingFees,
       grossCashReceived,
       netReceipts: money(grossCashReceived - refundTotal),
       refunds: refundTotal,
+      transactionFees,
     },
     generatedAt: input.generatedAt ?? new Date().toISOString(),
     locations: {
@@ -402,7 +482,17 @@ export function buildBoxOfficeFinancialReport(input: {
       bookingFees,
       discounts: money(periodBookings.reduce((sum, booking) => sum + booking.discountAmount, 0)),
       serviceCharge: money(periodBookings.reduce((sum, booking) => sum + booking.serviceFee, 0)),
-      ticketSubtotal: money(periodBookings.reduce((sum, booking) => sum + booking.subtotalAmount - booking.addonsTotal, 0)),
+      ticketSubtotal: money(periodBookings.reduce(
+        (sum, booking) => sum + Math.max(
+          booking.subtotalAmount - booking.addonsTotal - (
+            booking.subtotalAmount - booking.addonsTotal > 0
+              ? includedBookingFeeAmount
+              : 0
+          ),
+          0,
+        ),
+        0,
+      )),
     },
     sales,
   };
