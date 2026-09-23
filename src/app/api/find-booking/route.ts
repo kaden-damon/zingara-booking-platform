@@ -16,6 +16,7 @@ import {
 } from "@/lib/platformTelemetry";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { normalizePhoneForComparison } from "@/lib/phone";
+import { isGuestManageableStandardBooking } from "@/lib/bookingManagementPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +33,13 @@ type FindBookingRequest = {
 };
 
 type SupabaseBookingRow = {
+  archived_at: string | null;
   balance_outstanding: number;
+  booking_origin: string | null;
   booking_reference: string;
+  booking_source: string;
   booking_status: string;
+  corporate_request_id: string | null;
   created_at: string;
   customer_id: string | null;
   guest_count: number;
@@ -45,6 +50,7 @@ type SupabaseBookingRow = {
   show_id: string | null;
   table_id: string | null;
   total_amount: number;
+  updated_at: string;
 };
 
 type SupabaseCustomerRow = {
@@ -299,7 +305,7 @@ export async function POST(request: Request) {
     const { data: bookingRow, error: bookingError } = await supabase
       .from("bookings")
       .select(
-        "id,customer_id,show_id,table_id,booking_reference,guest_count,booking_status,payment_status,section,total_amount,balance_outstanding,notes,created_at",
+        "id,customer_id,show_id,table_id,booking_reference,booking_source,booking_origin,corporate_request_id,guest_count,booking_status,payment_status,section,total_amount,balance_outstanding,notes,archived_at,created_at,updated_at",
       )
       .eq("booking_reference", bookingReference)
       .maybeSingle();
@@ -423,6 +429,20 @@ export async function POST(request: Request) {
         time: showRow?.time?.slice(0, 5) ?? "",
         totalAmount: metadataBooking?.totalPrice ?? Number(booking.total_amount ?? 0),
         venue: venueName,
+        canSelfManage: Boolean(
+          showRow &&
+          isGuestManageableStandardBooking({
+            archivedAt: booking.archived_at,
+            bookingOrigin: booking.booking_origin,
+            bookingSource: booking.booking_source,
+            bookingStatus: booking.booking_status,
+            corporateRequestId: booking.corporate_request_id,
+            now: new Date(),
+            paymentStatus: booking.payment_status,
+            performanceDate: showRow.date,
+            performanceTime: showRow.time,
+          }),
+        ),
       },
       tickets,
     });

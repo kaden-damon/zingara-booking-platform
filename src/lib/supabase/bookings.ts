@@ -1136,6 +1136,61 @@ export async function persistBookingCancellation(booking: DemoBooking) {
   };
 }
 
+export type BookingCancellationPreview = {
+  bookingReference: string;
+  bookingStatus: string;
+  cutoffAt: string;
+  cutoffDays: number;
+  depositAmount: number | null;
+  forfeitedAmount: number;
+  fullRefundWindow: boolean;
+  manualRefundRequired: boolean;
+  paidAmount: number;
+  performance: {
+    date: string;
+    name: string;
+    time: string;
+    venue: string;
+  };
+  policySummary: string;
+  refundableAmount: number;
+  refundState: string;
+  stateFingerprint: string;
+  updatedAt: string;
+};
+
+export async function previewManagedBookingCancellation(
+  bookingReference: string,
+) {
+  return fetchSupabaseApi<{
+    bookingKind: "corporate" | "standard";
+    preview: BookingCancellationPreview;
+  }>("/api/admin/bookings/manage", {
+    body: { action: "cancellation-preview", bookingReference },
+    method: "POST",
+  });
+}
+
+export async function persistManagedBookingCancellation(input: {
+  bookingReference: string;
+  expectedUpdatedAt: string;
+  reason: string;
+  stateFingerprint: string;
+}) {
+  const result = await fetchSupabaseApi<{ idempotent?: boolean }>(
+    "/api/admin/bookings/manage",
+    {
+      body: { action: "cancel", ...input },
+      method: "POST",
+    },
+  );
+
+  return {
+    bookings: await getBookings(),
+    idempotent: Boolean(result.idempotent),
+  };
+}
+
 export async function archiveBookings(
   references: string[],
   reason = "Archived by Super Admin.",

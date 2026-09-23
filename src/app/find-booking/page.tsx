@@ -8,6 +8,7 @@ import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import { getPublicVenueSettings } from "@/lib/supabase/venueSettings";
 import { defaultVenueSettings } from "@/lib/zingaraDemo";
+import ManageBookingPanel from "./ManageBookingPanel";
 
 type PayFastCheckoutResponse = {
   actionUrl?: string;
@@ -46,6 +47,7 @@ type FoundBooking = {
   time: string;
   totalAmount: number;
   venue: string;
+  canSelfManage: boolean;
 };
 
 type LookupResult = {
@@ -550,6 +552,21 @@ export default function FindBookingPage() {
                       </button>
                     </div>
                   </div>
+                )}
+
+                {result.booking.canSelfManage && (
+                  <ManageBookingPanel
+                    bookingReference={result.booking.bookingReference}
+                    initialMobile={
+                      verificationType === "mobile"
+                        ? mobileNumber
+                        : result.booking.customer.phone
+                    }
+                    onChanged={(message) => {
+                      setResult(null);
+                      setLookupMessage(message);
+                    }}
+                  />
                 )}
 
                 <div className="mt-7">

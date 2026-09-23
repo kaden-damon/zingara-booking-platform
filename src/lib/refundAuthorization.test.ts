@@ -7,21 +7,10 @@ import {
 
 const oldKadenTestProfileId = "47e832a4-76e4-4fc2-b4f9-f554b8d0f31a";
 
-test("allows the two approved active finance staff profiles", () => {
-  assert.equal(
-    canProcessRefund(
-      { active: true, id: approvedRefundStaffProfileIds.kaden },
-      true,
-    ),
-    true,
-  );
-  assert.equal(
-    canProcessRefund(
-      { active: true, id: approvedRefundStaffProfileIds.wagheedaAbrahams },
-      true,
-    ),
-    true,
-  );
+test("allows only the verified approved active finance staff profiles", () => {
+  for (const id of Object.values(approvedRefundStaffProfileIds)) {
+    assert.equal(canProcessRefund({ active: true, id }, true), true);
+  }
 });
 
 test("denies another Super Admin profile", () => {

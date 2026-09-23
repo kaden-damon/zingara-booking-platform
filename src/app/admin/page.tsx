@@ -118,11 +118,13 @@ import {
   getBookingHistories,
   getBookings,
   mapBookingPhysicalTable,
-  persistBookingCancellation,
+  persistManagedBookingCancellation,
+  previewManagedBookingCancellation,
   restoreBookings,
   saveBookings as persistBookings,
   transferBookingShow,
   updateCorporateBookingZoneEntitlements,
+  type BookingCancellationPreview,
 } from "../../lib/supabase/bookings";
 import { planAdminBookingMutations } from "../../lib/adminBookingPersistence";
 import {
@@ -10780,6 +10782,9 @@ export default function AdminDashboardPage() {
   const [cancellingBookingReference, setCancellingBookingReference] =
     useState("");
   const [isCancellingBooking, setIsCancellingBooking] = useState(false);
+  const [cancellationPreview, setCancellationPreview] =
+    useState<BookingCancellationPreview | null>(null);
+  const [cancellationPreviewError, setCancellationPreviewError] = useState("");
   const [compBookingReference, setCompBookingReference] = useState("");
   const [isCompBookingProcessing, setIsCompBookingProcessing] =
     useState(false);
@@ -17969,6 +17974,17 @@ export default function AdminDashboardPage() {
     setCancellingBookingReference(booking.reference);
     setCancellationReason(cancellationReasons[0]);
     setCancellationOtherReason("");
+    setCancellationPreview(null);
+    setCancellationPreviewError("");
+    void previewManagedBookingCancellation(booking.reference)
+      .then((result) => setCancellationPreview(result.preview))
+      .catch((error) => {
+        setCancellationPreviewError(
+          error instanceof Error
+            ? error.message
+            : "Cancellation policy could not be loaded.",
+        );
+      });
   }
 
   function closeCancellationModal() {
@@ -17979,6 +17995,8 @@ export default function AdminDashboardPage() {
     setCancellingBookingReference("");
     setCancellationReason(cancellationReasons[0]);
     setCancellationOtherReason("");
+    setCancellationPreview(null);
+    setCancellationPreviewError("");
   }
 
   async function cancelBooking(booking: DemoBooking, reason: string) {
@@ -17989,43 +18007,21 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    const cancelledAt = new Date().toISOString();
-    const cancelledBooking = {
-      ...booking,
-      cancelledAt,
-      cancellationReason: reason,
-      lifecycleHistory: [
-        createLifecycleEvent(
-          booking,
-          "cancelled",
-          `Cancellation reason: ${reason}`,
-        ),
-        ...(booking.lifecycleHistory ?? []),
-      ],
-      status: "cancelled" as const,
-    };
-    const cancellationRecord = createWorkflowCommunication(
-      cancelledBooking,
-      "cancellation-refund",
-      "email",
-      {
-        refundSummary:
-          "This notice records the cancellation and marks the booking for refund review.",
-      },
-    );
-
-    const nextCancelledBooking = {
-      ...cancelledBooking,
-      communicationHistory: [
-        cancellationRecord,
-        ...(booking.communicationHistory ?? []),
-      ],
-    };
+    if (!cancellationPreview) {
+      showWorkflowToast("Cancellation policy is still loading.");
+      return;
+    }
     setIsCancellingBooking(true);
 
     try {
       await runCancellationUiFlow({
-        mutate: () => persistBookingCancellation(nextCancelledBooking),
+        mutate: () =>
+          persistManagedBookingCancellation({
+            bookingReference: booking.reference,
+            expectedUpdatedAt: cancellationPreview.updatedAt,
+            reason,
+            stateFingerprint: cancellationPreview.stateFingerprint,
+          }),
         onAuthoritativeFailure: () => {
           showWorkflowToast("⚠ Could not save cancellation");
         },
@@ -18035,6 +18031,8 @@ export default function AdminDashboardPage() {
           setCancellingBookingReference("");
           setCancellationReason(cancellationReasons[0]);
           setCancellationOtherReason("");
+          setCancellationPreview(null);
+          setCancellationPreviewError("");
           void releaseCurrentBookingLock("cancelled");
 
           if (!idempotent) {
@@ -29682,6 +29680,41 @@ export default function AdminDashboardPage() {
                     {cancellingBooking?.reference ?? "this booking"}.
                   </p>
 
+                  <div className="mt-5 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                      Cancellation Policy Preview
+                    </p>
+                    {!cancellationPreview && !cancellationPreviewError && (
+                      <p className="mt-2 text-sm text-zinc-400">Calculating from authoritative payment and performance data...</p>
+                    )}
+                    {cancellationPreviewError && (
+                      <p role="alert" className="mt-2 text-sm text-red-200">{cancellationPreviewError}</p>
+                    )}
+                    {cancellationPreview && (
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                        <div className="col-span-2 text-zinc-300">
+                          {cancellationPreview.policySummary}
+                        </div>
+                        <div>
+                          <span className="block text-xs uppercase text-zinc-500">Paid</span>
+                          <strong>{formatCurrency(cancellationPreview.paidAmount)}</strong>
+                        </div>
+                        <div>
+                          <span className="block text-xs uppercase text-zinc-500">Refundable</span>
+                          <strong>{formatCurrency(cancellationPreview.refundableAmount)}</strong>
+                        </div>
+                        <div>
+                          <span className="block text-xs uppercase text-zinc-500">Forfeited</span>
+                          <strong>{formatCurrency(cancellationPreview.forfeitedAmount)}</strong>
+                        </div>
+                        <div>
+                          <span className="block text-xs uppercase text-zinc-500">Refund handling</span>
+                          <strong>{cancellationPreview.manualRefundRequired ? "Manual review required" : cancellationPreview.refundState.replaceAll("-", " ")}</strong>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="mt-5 grid gap-2">
                     {cancellationReasons.map((reason) => (
                       <label
@@ -29736,6 +29769,7 @@ export default function AdminDashboardPage() {
                       onClick={confirmBookingCancellation}
                       disabled={
                         isCancellingBooking ||
+                        !cancellationPreview ||
                         requiresOtherReason &&
                         !cancellationOtherReason.trim()
                       }
