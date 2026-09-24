@@ -10,12 +10,10 @@ export const dineplanMaximumFileSize = 10 * 1024 * 1024;
 const allowedExtensions = new Set(["csv", "pdf", "xlsx"]);
 
 async function loadPdfParser() {
-  const canvas = await import("@napi-rs/canvas");
-  const runtime = globalThis as unknown as Record<string, unknown>;
-  runtime.DOMMatrix ??= canvas.DOMMatrix;
-  runtime.ImageData ??= canvas.ImageData;
-  runtime.Path2D ??= canvas.Path2D;
-  return import("pdf-parse");
+  const { getData } = await import("pdf-parse/worker");
+  const pdfParser = await import("pdf-parse");
+  pdfParser.PDFParse.setWorker(getData());
+  return pdfParser;
 }
 
 function extensionOf(filename: string) {

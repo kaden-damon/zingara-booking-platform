@@ -3,6 +3,35 @@ import test from "node:test";
 import ExcelJS from "exceljs";
 import { parseDineplanFile, parseDineplanPdfText } from "./dineplanFileParser.ts";
 
+function createTextPdf(lines: string[]) {
+  const escapeText = (value: string) => value.replace(/([\\()])/g, "\\$1");
+  const content = [
+    "BT",
+    "/F1 9 Tf",
+    "40 790 Td",
+    ...lines.flatMap((line, index) => [index ? "0 -14 Td" : "", `(${escapeText(line)}) Tj`].filter(Boolean)),
+    "ET",
+  ].join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1000 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+    `<< /Length ${Buffer.byteLength(content, "ascii")} >>\nstream\n${content}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(pdf, "ascii"));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(pdf, "ascii");
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(pdf, "ascii");
+}
+
 test("Dineplan PDF text table parses into reservation records", () => {
   const text = `Johannesburg\nReport Date: 23/09/2026\nGenerated: 24/09/2026 07:40\nTime   Pax   Guest                    Payment          Notes        Telephone     Seating                  Table\n17:00  2     Dione Pieterse           Deposit Paid                   0821234567    Private Raised Booths    21\n17:00  9     Shannon Hennessy         Deposit Paid                   0820000000    Golden Circle            402\nReservations: 2\nCovers: 11`;
   const records = parseDineplanPdfText(text);
@@ -44,18 +73,25 @@ test("valid Dineplan PDF parses through the file boundary", async () => {
   assert.equal(parsed.generatedAt, "2026-09-24T07:40:00+02:00");
 });
 
-test("PDF parser runtime loads without missing server canvas globals", async () => {
-  await assert.rejects(
-    parseDineplanFile({
-      bytes: Buffer.from("%PDF-1.4\ninvalid fixture"),
-      filename: "invalid-runtime-check.pdf",
-      mimeType: "application/pdf",
-    }),
-    (error: unknown) => {
-      assert.doesNotMatch(String(error), /DOMMatrix|ImageData|Path2D is not defined/i);
-      return true;
-    },
-  );
+test("real Dineplan PDF parses through the server worker runtime", async () => {
+  const bytes = createTextPdf([
+    "Johannesburg",
+    "Report Date: 23/09/2026",
+    "Generated: 24/09/2026 07:40",
+    "Time   Pax   Guest                    Payment          Notes        Telephone     Seating                  Table",
+    "17:00  2     Dione Pieterse           Deposit Paid                   0821234567    Private Raised Booths    21",
+  ]);
+  const parsed = await parseDineplanFile({
+    bytes,
+    filename: "Dineplan_JHB_2026-09-23.pdf",
+    mimeType: "application/pdf",
+  });
+  assert.equal(parsed.venue, "johannesburg");
+  assert.equal(parsed.generatedAt, "2026-09-24T07:40:00+02:00");
+  assert.equal(parsed.reservations.length, 1);
+  assert.equal(parsed.reservations[0].performanceDate, "2026-09-23");
+  assert.equal(parsed.reservations[0].performanceTime, "17:00");
+  assert.equal(parsed.reservations[0].pax, 2);
 });
 
 test("valid Dineplan XLSX parses through the file boundary", async () => {

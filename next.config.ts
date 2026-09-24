@@ -42,7 +42,7 @@ const nextConfig: NextConfig = {
   },
   poweredByHeader: false,
   reactCompiler: true,
-  serverExternalPackages: ["@napi-rs/canvas", "exceljs", "passkit-generator", "pdf-parse"],
+  serverExternalPackages: ["exceljs", "passkit-generator", "pdf-parse"],
 };
 
 export default nextConfig;
