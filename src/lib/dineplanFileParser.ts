@@ -1,5 +1,4 @@
 import ExcelJS from "exceljs";
-import { PDFParse } from "pdf-parse";
 import {
   parseDelimitedRows,
   recordsFromRows,
@@ -9,6 +8,15 @@ import {
 
 export const dineplanMaximumFileSize = 10 * 1024 * 1024;
 const allowedExtensions = new Set(["csv", "pdf", "xlsx"]);
+
+async function loadPdfParser() {
+  const canvas = await import("@napi-rs/canvas");
+  const runtime = globalThis as unknown as Record<string, unknown>;
+  runtime.DOMMatrix ??= canvas.DOMMatrix;
+  runtime.ImageData ??= canvas.ImageData;
+  runtime.Path2D ??= canvas.Path2D;
+  return import("pdf-parse");
+}
 
 function extensionOf(filename: string) {
   return filename.toLowerCase().split(".").pop() ?? "";
@@ -117,6 +125,7 @@ export async function parseDineplanFile(input: {
     if (input.extractPdfText) {
       evidenceText = await input.extractPdfText(input.bytes);
     } else {
+      const { PDFParse } = await loadPdfParser();
       const parser = new PDFParse({ data: input.bytes });
       try {
         evidenceText = (await parser.getText()).text;

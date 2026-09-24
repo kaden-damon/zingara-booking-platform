@@ -44,6 +44,20 @@ test("valid Dineplan PDF parses through the file boundary", async () => {
   assert.equal(parsed.generatedAt, "2026-09-24T07:40:00+02:00");
 });
 
+test("PDF parser runtime loads without missing server canvas globals", async () => {
+  await assert.rejects(
+    parseDineplanFile({
+      bytes: Buffer.from("%PDF-1.4\ninvalid fixture"),
+      filename: "invalid-runtime-check.pdf",
+      mimeType: "application/pdf",
+    }),
+    (error: unknown) => {
+      assert.doesNotMatch(String(error), /DOMMatrix|ImageData|Path2D is not defined/i);
+      return true;
+    },
+  );
+});
+
 test("valid Dineplan XLSX parses through the file boundary", async () => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Reservations");
