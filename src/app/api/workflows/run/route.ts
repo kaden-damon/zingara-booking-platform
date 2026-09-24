@@ -5,6 +5,7 @@ import {
   type AutomatedWorkflowKey,
 } from "@/lib/workflows/automatedWorkflows";
 import { runCorporatePaymentHolds } from "@/lib/workflows/corporatePaymentHolds";
+import { runDineplanActionDigest } from "@/lib/workflows/dineplanActionDigest";
 import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
 
 export const dynamic = "force-dynamic";
@@ -72,6 +73,13 @@ export async function GET(request: Request) {
     });
     const corporatePaymentHolds = await runCorporatePaymentHolds(serviceClient);
     const publicPaymentHolds = await runPublicPaymentHoldCleanup(serviceClient);
+    let dineplanActionDigest: Awaited<ReturnType<typeof runDineplanActionDigest>> | { delivered: false; reason: "failed" };
+    try {
+      dineplanActionDigest = await runDineplanActionDigest(serviceClient);
+    } catch (digestError) {
+      console.error("[Zingara Workflows] Dineplan action digest failed", digestError);
+      dineplanActionDigest = { delivered: false, reason: "failed" };
+    }
     let telemetryCleanup: Awaited<ReturnType<typeof cleanupPlatformTelemetry>> =
       null;
 
@@ -91,6 +99,7 @@ export async function GET(request: Request) {
     return Response.json({
       ...result,
       corporatePaymentHolds,
+      dineplanActionDigest,
       publicPaymentHolds,
       telemetryCleanup,
     });

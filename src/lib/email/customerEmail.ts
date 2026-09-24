@@ -45,6 +45,10 @@ function getAbsoluteUrl(value: string) {
   return new URL(value, productionOrigin).toString();
 }
 
+export function createZingaraEmailCta(label: string, url: string) {
+  return `<a href="${escapeHtml(getAbsoluteUrl(url))}" style="display:block;padding:15px 20px;border-radius:999px;background:#d8c36a;color:#090806;font-size:14px;font-weight:700;line-height:1.2;text-align:center;text-decoration:none;">${escapeHtml(label)}</a>`;
+}
+
 export function replaceCustomerTableWithTbc(value: string) {
   return value.replace(
     /\btable(?:\s+number)?\s*[:#-]?\s*[A-Za-z+_-]*\d[A-Za-z0-9+_-]*/gi,
@@ -126,13 +130,17 @@ export async function createBrandedCustomerEmail(input: {
   ctaUrl?: string;
   heading?: string;
   html?: string | null;
+  includeAgePolicy?: boolean;
   message: string;
   subject?: string | null;
 }): Promise<BrandedCustomerEmail> {
   const message = normalizeCustomerEmailLinks(
     replaceCustomerTableWithTbc(input.message),
   );
-  const messageWithAgePolicy = `${message}\n\n${ageRestrictionPolicy.label.toUpperCase()}\n${ageRestrictionPolicy.policy}\n${ageRestrictionPolicy.explanation.split(". ")[0]}.`;
+  const includeAgePolicy = input.includeAgePolicy !== false;
+  const messageWithAgePolicy = includeAgePolicy
+    ? `${message}\n\n${ageRestrictionPolicy.label.toUpperCase()}\n${ageRestrictionPolicy.policy}\n${ageRestrictionPolicy.explanation.split(". ")[0]}.`
+    : message;
   const suppliedHtml = input.html
     ? normalizeCustomerEmailLinks(replaceCustomerTableWithTbc(input.html))
     : null;
@@ -168,13 +176,13 @@ export async function createBrandedCustomerEmail(input: {
             <div style="margin-top:22px;color:#fffaf0;font-family:Georgia,'Times New Roman',serif;font-size:23px;line-height:1.25;">${escapeHtml(heading)}</div>
           </td></tr>
           <tr><td style="padding:26px 24px 10px;">${content}
-            <div style="margin:22px 0 12px;padding:16px;border:1px solid #4f4525;border-radius:12px;background:#0e0c0a;">
+            ${includeAgePolicy ? `<div style="margin:22px 0 12px;padding:16px;border:1px solid #4f4525;border-radius:12px;background:#0e0c0a;">
               <div style="color:#f2d66c;font-size:12px;font-weight:700;letter-spacing:1.5px;line-height:1.4;">${escapeHtml(ageRestrictionPolicy.label.toUpperCase())}</div>
               <div style="margin-top:8px;color:#fffaf0;font-size:14px;line-height:1.6;">${escapeHtml(ageRestrictionPolicy.policy)}</div>
               <div style="margin-top:7px;color:#a8a29e;font-size:12px;line-height:1.6;">The Royal Countess is an adult-oriented dinner show and may include strong language, sexual innuendo and mature themes.</div>
-            </div>
+            </div>` : ""}
           </td></tr>
-          ${primaryUrl ? `<tr><td align="center" style="padding:12px 24px 26px;"><a href="${escapeHtml(primaryUrl)}" style="display:block;padding:15px 20px;border-radius:999px;background:#d8c36a;color:#090806;font-size:14px;font-weight:700;line-height:1.2;text-align:center;text-decoration:none;">${escapeHtml(input.ctaLabel ?? "OPEN SECURE ZINGARA LINK")}</a></td></tr>` : ""}
+          ${primaryUrl ? `<tr><td align="center" style="padding:12px 24px 26px;">${createZingaraEmailCta(input.ctaLabel ?? "OPEN SECURE ZINGARA LINK", primaryUrl)}</td></tr>` : ""}
           <tr><td align="center" style="padding:22px 24px;border-top:1px solid #4f4525;color:#a8a29e;font-size:11px;line-height:1.6;">
             This email and any ticket, QR code or secure booking link contained in it are intended for the recipient and should not be shared or forwarded. Tickets and QR codes may provide access to the event and should be kept secure.
             <div style="margin-top:14px;">${legalNavigation}</div>

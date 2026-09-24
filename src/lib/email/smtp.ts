@@ -20,10 +20,11 @@ export type { EmailAttachment } from "@/lib/email/customerEmail";
 
 type EmailSendInput = {
   attachments?: EmailAttachment[];
+  cc?: string | string[] | null;
   html?: string | null;
   message: string;
   subject?: string | null;
-  to?: string | null;
+  to?: string | string[] | null;
 };
 
 type EmailSendResult =
@@ -91,13 +92,14 @@ function getEmailConfig() {
 
 export async function sendZingaraEmail({
   attachments,
+  cc,
   html,
   message,
   subject,
   to,
 }: EmailSendInput): Promise<EmailSendResult> {
   const config = getEmailConfig();
-  const recipient = to?.trim();
+  const recipient = Array.isArray(to) ? to.map((value) => value.trim()).filter(Boolean) : to?.trim();
 
   if (!recipient) {
     return {
@@ -127,6 +129,7 @@ export async function sendZingaraEmail({
 
     await transporter.sendMail({
       attachments,
+      cc: cc ?? undefined,
       from: {
         address: config.fromAddress,
         name: config.fromName,
@@ -144,7 +147,7 @@ export async function sendZingaraEmail({
 
     console.error("[Zingara Email] Microsoft 365 SMTP send failed", {
       error: errorMessage,
-      to: recipient,
+      to: Array.isArray(recipient) ? recipient.join(", ") : recipient,
     });
 
     return {

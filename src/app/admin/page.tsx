@@ -20,6 +20,7 @@ import { CompactBookingList } from "./CompactBookingList";
 import PotentialDuplicatesPanel from "./PotentialDuplicatesPanel";
 import SecretPasswordSettings from "./SecretPasswordSettings";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
+import DineplanReconciliation from "./DineplanReconciliation";
 import ShowZoneSalesControls from "./ShowZoneSalesControls";
 import { StaffActionGuidanceAlert } from "./StaffActionGuidanceAlert";
 import { StaffIssueAttachments } from "./StaffIssueAttachments";
@@ -896,7 +897,7 @@ type SettingsTab =
   | "staff"
   | "venue"
   | "workflows";
-type SystemTab = "issues" | "operations" | "preferences";
+type SystemTab = "dineplan" | "issues" | "operations" | "preferences";
 type PromoAdminRecord = {
   active: boolean;
   code: string;
@@ -7021,6 +7022,7 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
 ];
 const systemTabs: Array<{ id: SystemTab; label: string }> = [
   { id: "operations", label: "Operations" },
+  { id: "dineplan", label: "Dineplan Reconciliation" },
   { id: "issues", label: "Issues" },
   { id: "preferences", label: "Preferences" },
 ];
@@ -11829,8 +11831,10 @@ export default function AdminDashboardPage() {
       const waitlistId = url.searchParams.get("waitlist")?.trim();
       const corporateRequestId = url.searchParams.get("corporate")?.trim();
       const issueId = url.searchParams.get("issue")?.trim();
+      const dineplanActionId = url.searchParams.get("action")?.trim();
       const section = url.searchParams.get("section")?.trim();
-      const deepLinkKey = `${bookingReference ?? ""}|${waitlistId ?? ""}|${corporateRequestId ?? ""}|${issueId ?? ""}|${section ?? ""}`;
+      const systemSection = url.searchParams.get("system")?.trim();
+      const deepLinkKey = `${bookingReference ?? ""}|${waitlistId ?? ""}|${corporateRequestId ?? ""}|${issueId ?? ""}|${dineplanActionId ?? ""}|${section ?? ""}|${systemSection ?? ""}`;
 
       if (!deepLinkKey.replaceAll("|", "")) {
         return;
@@ -11868,6 +11872,9 @@ export default function AdminDashboardPage() {
         setActiveAdminTab("platform-operations");
         setActiveSystemTab("issues");
         setSelectedStaffIssueId(issueId);
+      } else if (dineplanActionId || systemSection === "dineplan") {
+        setActiveAdminTab("platform-operations");
+        setActiveSystemTab("dineplan");
       } else if (section === "bookings") {
         setActiveAdminTab("bookings");
       } else if (section === "waitlist") {
@@ -35238,9 +35245,13 @@ export default function AdminDashboardPage() {
             aria-label="System sections"
             className="mb-8 rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/70 p-2 shadow-2xl shadow-black/20"
           >
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {systemTabs
-                .filter((tab) => tab.id !== "operations" || isSuperAdmin)
+                .filter(
+                  (tab) =>
+                    (tab.id !== "operations" || isSuperAdmin) &&
+                    (tab.id !== "dineplan" || canReconcileBookings || canManageSettings),
+                )
                 .map((tab) => (
                   <button
                     key={tab.id}
@@ -35263,6 +35274,12 @@ export default function AdminDashboardPage() {
         {activeAdminTab === "platform-operations" &&
           activeSystemTab === "issues" &&
           staffIssueRegisterPanel}
+
+        {activeAdminTab === "platform-operations" &&
+          activeSystemTab === "dineplan" &&
+          (canReconcileBookings || canManageSettings) && (
+            <DineplanReconciliation />
+          )}
 
         {activeAdminTab === "platform-operations" &&
           activeSystemTab === "preferences" && (

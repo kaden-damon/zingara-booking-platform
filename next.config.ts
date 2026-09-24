@@ -42,7 +42,7 @@ const nextConfig: NextConfig = {
   },
   poweredByHeader: false,
   reactCompiler: true,
-  serverExternalPackages: ["exceljs", "passkit-generator"],
+  serverExternalPackages: ["exceljs", "passkit-generator", "pdf-parse"],
 };
 
 export default nextConfig;

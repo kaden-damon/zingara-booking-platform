@@ -26,6 +26,16 @@ export function isCorporateBookingSource(
   return source === "corporate-direct";
 }
 
+export function isAuthoritativeCorporateBooking(input: {
+  bookingOrigin?: string | null;
+  bookingSource?: string | null;
+  corporateRequestId?: string | null;
+}) {
+  return input.bookingOrigin === "corporate" ||
+    isCorporateBookingSource(input.bookingSource) ||
+    Boolean(input.corporateRequestId);
+}
+
 export function enforceCorporateBookingSource(
   partySize: number,
   source: BookingSource | undefined,
