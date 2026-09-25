@@ -31,10 +31,28 @@ export type DineplanSnapshot = {
   checksum: string;
   covers: number;
   generatedAt: string | null;
+  quality: DineplanParseQuality;
   performanceDate: string | null;
   performanceTime: string | null;
   reservations: DineplanReservation[];
   venue: "cape-town" | "johannesburg" | null;
+};
+
+export type DineplanParseQuality = {
+  duplicateRows: number;
+  malformedIdentities: number;
+  missingContactFields: number;
+  parserTrusted: boolean;
+  sourceCovers: number | null;
+  sourceReservations: number | null;
+  warnings: string[];
+};
+
+export type DineplanReconciliationQuality = {
+  deterministicMatches: number;
+  reasons: string[];
+  status: "review_required" | "trusted";
+  trusted: boolean;
 };
 
 export type ZingaraAuthoritativeChange = {
@@ -269,6 +287,7 @@ export function recordsFromRows(rows: string[][]) {
 export function snapshotFromRecords(input: {
   bytes: Buffer;
   generatedAt?: string | null;
+  quality?: Partial<DineplanParseQuality>;
   records: Record<string, string>[];
   venue?: "cape-town" | "johannesburg" | null;
 }): DineplanSnapshot {
@@ -277,12 +296,51 @@ export function snapshotFromRecords(input: {
     .filter((row) => row.guestName || row.company || row.sourceReference);
   const dates = [...new Set(reservations.map((row) => row.performanceDate).filter(Boolean))];
   const times = [...new Set(reservations.map((row) => row.performanceTime).filter(Boolean))];
+  const identityKeys = reservations.map((row) => [
+    normalizedReference(row.sourceReference),
+    normalizedPhone(row.mobile),
+    normalized(row.guestName),
+    row.performanceDate,
+    row.performanceTime,
+    row.pax,
+    row.tables.join("+"),
+  ].join("|"));
+  const duplicateRows = identityKeys.length - new Set(identityKeys).size;
+  const malformedIdentities = reservations.filter((row) =>
+    row.pax <= 0 || normalized(row.guestName || row.company).length < 3
+  ).length;
+  const missingContactFields = reservations.filter((row) => !normalizedPhone(row.mobile)).length;
+  const sourceReservations = input.quality?.sourceReservations ?? null;
+  const sourceCovers = input.quality?.sourceCovers ?? null;
+  const warnings = [...(input.quality?.warnings ?? [])];
+  if (sourceReservations !== null && sourceReservations !== reservations.length) {
+    warnings.push(`Source summary reports ${sourceReservations} reservations but ${reservations.length} rows were parsed.`);
+  }
+  const covers = reservations.reduce((total, row) => total + row.pax, 0);
+  if (sourceCovers !== null && sourceCovers !== covers) {
+    warnings.push(`Source summary reports ${sourceCovers} covers but ${covers} covers were parsed.`);
+  }
+  if (duplicateRows > 0) warnings.push(`${duplicateRows} duplicate reservation row${duplicateRows === 1 ? " was" : "s were"} detected.`);
+  if (malformedIdentities > 0) warnings.push(`${malformedIdentities} reservation identit${malformedIdentities === 1 ? "y requires" : "ies require"} review.`);
+  if (sourceReservations !== null && reservations.length >= 10 && missingContactFields > reservations.length / 2) {
+    warnings.push(`${missingContactFields} of ${reservations.length} reservations are missing usable contact identity evidence.`);
+  }
+  const parserTrusted = input.quality?.parserTrusted !== false && warnings.length === 0;
   return {
     checksum: createHash("sha256").update(input.bytes).digest("hex"),
-    covers: reservations.reduce((total, row) => total + row.pax, 0),
+    covers,
     generatedAt: input.generatedAt ?? null,
     performanceDate: dates.length === 1 ? dates[0] : null,
     performanceTime: times.length === 1 ? times[0] : null,
+    quality: {
+      duplicateRows,
+      malformedIdentities,
+      missingContactFields,
+      parserTrusted,
+      sourceCovers,
+      sourceReservations,
+      warnings,
+    },
     reservations,
     venue: input.venue ?? null,
   };
@@ -357,7 +415,7 @@ export function reconcileDineplanSnapshot(
     if (!booking || match.confidence === "possible") {
       if (booking) unmatchedBookingIds.delete(booking.id);
       return {
-        capacityImpact: source.status === "confirmed" ? source.pax : 0,
+        capacityImpact: 0,
         classification: "review",
         differences: [booking ? "Identity match is not authoritative" : "Booking missing from Zingara"],
         dineplan: source,
@@ -366,7 +424,7 @@ export function reconcileDineplanSnapshot(
         reason: booking
           ? "A name-only candidate was found, but staff must verify the identity."
           : "No authoritative Zingara booking could be matched.",
-        severity: source.status === "confirmed" ? "critical" : "normal",
+        severity: !booking && source.status === "confirmed" ? "critical" : "normal",
         zingara: booking,
       };
     }
@@ -490,6 +548,36 @@ export function reconcileDineplanSnapshot(
       zingaraEntitlement,
     },
     counts,
+    quality: assessDineplanReconciliationTrust(snapshot, results),
     results,
+  };
+}
+
+export function assessDineplanReconciliationTrust(
+  snapshot: DineplanSnapshot,
+  results: DineplanReconciliationResult[],
+): DineplanReconciliationQuality {
+  const reasons = [...snapshot.quality.warnings];
+  if (!snapshot.quality.parserTrusted) reasons.push("The parsed source failed reservation integrity checks.");
+  const sourceRows = results.filter((result) => result.dineplan);
+  const deterministicMatches = sourceRows.filter((result) =>
+    result.matchConfidence === "exact" || result.matchConfidence === "high"
+  ).length;
+  const stableIdentities = snapshot.reservations.filter((row) =>
+    Boolean(normalizedReference(row.sourceReference) || normalizedPhone(row.mobile))
+  ).length;
+  const catastrophicCollapse =
+    snapshot.reservations.length >= 10 &&
+    stableIdentities >= Math.ceil(snapshot.reservations.length * 0.8) &&
+    deterministicMatches === 0;
+  if (catastrophicCollapse) {
+    reasons.push(`${stableIdentities} reservations contain stable identity evidence, but none matched deterministically.`);
+  }
+  const trusted = reasons.length === 0;
+  return {
+    deterministicMatches,
+    reasons,
+    status: trusted ? "trusted" : "review_required",
+    trusted,
   };
 }

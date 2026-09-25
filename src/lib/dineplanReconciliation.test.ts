@@ -116,6 +116,7 @@ test("name-only match remains REVIEW", () => {
   const result = reconcileDineplanSnapshot(source, [booking({ mobile: null })]);
   assert.equal(result.results[0].classification, "review");
   assert.equal(result.results[0].matchConfidence, "possible");
+  assert.equal(result.results[0].severity, "normal");
 });
 
 test("unmatched Dineplan reservation remains REVIEW", () => {
@@ -124,6 +125,20 @@ test("unmatched Dineplan reservation remains REVIEW", () => {
   assert.equal(result.results[0].classification, "review");
   assert.equal(result.results[0].matchConfidence, "unmatched");
   assert.equal(result.results[0].zingara, null);
+  assert.equal(result.results[0].capacityImpact, 0);
+});
+
+test("catastrophic deterministic match collapse fails the trust gate closed", () => {
+  const records = Array.from({ length: 10 }, (_, index) => ({
+    "Booking Date": "23/09/2026",
+    Covers: "2",
+    "Guest Name": `Source Guest ${index}`,
+    Telephone: `08212345${String(index).padStart(2, "0")}`,
+  }));
+  const result = reconcileDineplanSnapshot(snapshot(records), [booking()]);
+  assert.equal(result.quality.trusted, false);
+  assert.equal(result.quality.status, "review_required");
+  assert.match(result.quality.reasons.join(" "), /none matched deterministically/i);
 });
 
 test("Dineplan paid wording cannot mark or classify Zingara as paid", () => {

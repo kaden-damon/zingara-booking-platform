@@ -14,6 +14,14 @@ const migration = readFileSync(
   new URL("../../supabase/migrations/20260924090000_phase_41_2w_dineplan_reconciliation.sql", import.meta.url),
   "utf8",
 );
+const parserTrustMigration = readFileSync(
+  new URL("../../supabase/migrations/20260925171000_phase_41_2w_p0_d_parser_trust.sql", import.meta.url),
+  "utf8",
+);
+const actionCentre = readFileSync(
+  new URL("../app/admin/DineplanActionCentre.tsx", import.meta.url),
+  "utf8",
+);
 const adminPage = readFileSync(
   new URL("../app/admin/page.tsx", import.meta.url),
   "utf8",
@@ -192,4 +200,26 @@ test("action state is stable and immutable history is retained", () => {
   assert.match(migration, /resolved_by_snapshot_id/);
   assert.match(migration, /grant select, insert on public\.dineplan_reconciliation_action_events/);
   assert.doesNotMatch(migration, /grant[^;]+update[^;]+dineplan_reconciliation_action_events/i);
+});
+
+test("parser-version evidence is immutable and low-confidence reconciliation fails closed", () => {
+  assert.match(parserTrustMigration, /parser_version/);
+  assert.match(parserTrustMigration, /unique index[^;]+checksum, parser_version/s);
+  assert.match(parserTrustMigration, /review_required/);
+  assert.match(route, /reconciliation\.quality\.trusted/);
+  assert.match(route, /actionSyncStatus[^;]+withheld/);
+  assert.match(route, /if \(trusted\)[\s\S]+syncDineplanReconciliationActions/);
+  assert.match(component, /Reconciliation Needs Review/);
+  assert.match(component, /No operational actions or reminders were generated/);
+});
+
+test("operational actions are compact and full evidence is bounded", () => {
+  assert.match(actionCentre, /useState<ActionFilter>\("current"\)/);
+  assert.match(actionCentre, /actions require attention/);
+  assert.match(actionCentre, /<details/);
+  assert.match(component, /View Full Reconciliation/);
+  assert.match(component, /pageSize = 25/);
+  assert.match(component, /Search evidence/);
+  assert.match(component, /Comparison Rows/);
+  assert.match(component, /Capacity impact not yet established/);
 });

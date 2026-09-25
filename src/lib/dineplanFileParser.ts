@@ -7,6 +7,7 @@ import {
 } from "./dineplanReconciliation.ts";
 
 export const dineplanMaximumFileSize = 10 * 1024 * 1024;
+export const dineplanParserVersion = 2;
 const allowedExtensions = new Set(["csv", "pdf", "xlsx"]);
 
 async function loadPdfParser() {
@@ -126,31 +127,79 @@ export function parseDineplanPdfText(text: string) {
     throw new Error("The Dineplan PDF reservation columns could not be detected.");
   }
   const header = lines[headerIndex];
-  const labels = ["Time", /Pax|Covers/i.test(header) ? (header.match(/Pax|Covers/i)?.[0] ?? "Pax") : "Pax", "Guest", "Payment", "Notes", "Telephone", "Seating", "Table"];
-  const indexes = labels.map((label) => {
-    const match = header.match(new RegExp(`\\b${String(label).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"));
-    return match?.index ?? -1;
-  });
+  if (!header.includes("\t")) {
+    const labels = ["Time", /Pax|Covers/i.test(header) ? (header.match(/Pax|Covers/i)?.[0] ?? "Pax") : "Pax", "Guest", "Payment", "Notes", "Telephone", "Seating", "Table"];
+    const indexes = labels.map((label) => header.search(new RegExp(`\\b${String(label).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i")));
+    const usable = indexes.map((start, index) => ({ label: labels[index], start })).filter((entry) => entry.start >= 0).sort((left, right) => left.start - right.start);
+    const records = lines.slice(headerIndex + 1).flatMap<Record<string, string>>((line) => {
+      if (!/^\s*\d{1,2}:\d{2}\b/.test(line)) return [];
+      const record: Record<string, string> = {};
+      usable.forEach((entry, index) => {
+        record[entry.label] = line.slice(entry.start, usable[index + 1]?.start).trim();
+      });
+      return [record];
+    });
+    if (!records.length) throw new Error("No Dineplan reservations were found in the PDF.");
+    const performanceDate = performanceDateFromPdfContent(text);
+    if (performanceDate) records.forEach((record) => { record["Booking Date"] ||= performanceDate; });
+    return records;
+  }
   const records: Record<string, string>[] = [];
-  for (const line of lines.slice(headerIndex + 1)) {
-    if (/^(reservations|covers|total|generated|page)\b/i.test(line.trim())) continue;
-    const startsReservation = /^\s*\d{1,2}:\d{2}\b/.test(line);
-    if (!startsReservation) {
-      if (records.length) records[records.length - 1].Notes = `${records[records.length - 1].Notes ?? ""} ${line.trim()}`.trim();
+  let current: Record<string, string> | null = null;
+  let reachedDetails = false;
+  const finish = () => {
+    if (!current) return;
+    records.push(current);
+    current = null;
+    reachedDetails = false;
+  };
+  for (const rawLine of lines.slice(headerIndex + 1)) {
+    const line = rawLine.trim();
+    const row = line.match(/^(\d{1,2}:\d{2})\s*\t\s*(\d+)(?:\s*\t\s*|\s+)(.+)$/);
+    if (row) {
+      finish();
+      const columns = line.split(/\t+/).map((value) => value.trim());
+      current = { Time: row[1], Pax: row[2], Guest: columns[2] || row[3].trim() };
+      if (columns.length >= 4) {
+        current.Payment = columns[3] ?? "";
+        current["Payment Notes"] = columns[4] ?? "";
+        current.Telephone = columns[5] ?? "";
+        current.Seating = columns[6] ?? "";
+        current.Table = columns.slice(7).join(" ");
+        reachedDetails = true;
+      }
       continue;
     }
-    const record: Record<string, string> = {};
-    const usable = indexes
-      .map((start, index) => ({ label: labels[index], start }))
-      .filter((entry) => entry.start >= 0)
-      .sort((left, right) => left.start - right.start);
-    for (let index = 0; index < usable.length; index += 1) {
-      const current = usable[index];
-      const end = usable[index + 1]?.start;
-      record[current.label] = line.slice(current.start, end).trim();
+    if (!current) continue;
+    if (/^Shift Totals\b/i.test(line)) {
+      finish();
+      continue;
     }
-    records.push(record);
+    if (
+      /^(?:Time\s+\t?PAX\b|Dineplan\s+Bookings\b|https?:\/\/|--\s*\d+\s+of\s+\d+\s*--|\d{1,2}\/\d{1,2}\/\d{2,4},)/i.test(line)
+    ) continue;
+    if (/^(?:Credit|Paid|Payment)\s*:/i.test(line)) {
+      reachedDetails = true;
+      current.Payment = [current.Payment, line].filter(Boolean).join(" · ");
+      continue;
+    }
+    if (/^\d+\s*x\s*\S+/i.test(line)) {
+      reachedDetails = true;
+      current["Payment Notes"] = [current["Payment Notes"], line].filter(Boolean).join(" · ");
+      continue;
+    }
+    const columns = line.split(/\t+/).map((value) => value.trim()).filter(Boolean);
+    if (columns.length >= 2 && /\d/.test(columns[0])) {
+      reachedDetails = true;
+      current.Telephone = columns[0];
+      current.Seating = columns[1] ?? "";
+      current.Table = columns.slice(2).join(" ");
+      continue;
+    }
+    if (!reachedDetails) current.Guest = `${current.Guest} ${line}`.replace(/\s+/g, " ").trim();
+    else current.Notes = [current.Notes, line].filter(Boolean).join(" ");
   }
+  finish();
   if (!records.length) {
     throw new Error("No Dineplan reservations were found in the PDF.");
   }
@@ -161,6 +210,11 @@ export function parseDineplanPdfText(text: string) {
     });
   }
   return records;
+}
+
+function pdfSourceSummary(text: string) {
+  const match = text.match(/Shift\s+Totals\s+(\d+)\s*\|\s*(\d+)/i);
+  return match ? { sourceReservations: Number(match[1]), sourceCovers: Number(match[2]) } : null;
 }
 
 async function rowsFromWorkbook(bytes: Buffer) {
@@ -242,6 +296,9 @@ export async function parseDineplanFile(input: {
     bytes: input.bytes,
     generatedAt,
     records,
+    quality: extension === "pdf"
+      ? { ...(pdfSourceSummary(evidenceText) ?? {}), parserTrusted: true }
+      : { parserTrusted: true },
     venue,
   });
 }

@@ -20,7 +20,7 @@ type Snapshot = {
   reservation_count: number;
   show_id: string | null;
   source_generated_at: string | null;
-  status: "preview" | "reconciled";
+  status: "preview" | "reconciled" | "review_required";
   uploaded_at: string;
   venue: "cape-town" | "johannesburg" | null;
 };
@@ -46,6 +46,12 @@ type Reconciliation = {
     zingaraEntitlement: number;
   };
   counts: Record<string, number>;
+  quality: {
+    deterministicMatches: number;
+    reasons: string[];
+    status: "review_required" | "trusted";
+    trusted: boolean;
+  };
   results: DineplanReconciliationResult[];
 };
 
@@ -111,6 +117,8 @@ export default function DineplanReconciliation() {
   const [shows, setShows] = useState<CandidateShow[]>([]);
   const [showId, setShowId] = useState("");
   const [filter, setFilter] = useState<DineplanClassification | "all" | "critical">("all");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [busy, setBusy] = useState<"loading" | "uploading" | "reconciling" | "">("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -176,14 +184,16 @@ export default function DineplanReconciliation() {
     setBusy("reconciling");
     setError("");
     try {
-      const payload = await fetchSupabaseApi<{ actionSyncStatus: "ready" | "unavailable"; reconciliation: Reconciliation; snapshot: Snapshot }>(
+      const payload = await fetchSupabaseApi<{ actionSyncStatus: "ready" | "unavailable" | "withheld"; reconciliation: Reconciliation; snapshot: Snapshot }>(
         "/api/admin/dineplan-reconciliation",
         { body: { action: "reconcile", showId, snapshotId: snapshot.id }, method: "POST" },
       );
       setSnapshot({ ...payload.snapshot, reconciliation_results: payload.reconciliation });
       setMessage(payload.actionSyncStatus === "ready"
         ? "Reconciliation complete. Action Centre updated; no booking, payment, ticket, table or capacity data was changed."
-        : "Reconciliation was saved, but the Action Centre could not update. No authoritative booking data was changed.");
+        : payload.actionSyncStatus === "withheld"
+          ? "Reconciliation needs review. No operational actions or reminders were generated."
+          : "Reconciliation was saved, but the Action Centre could not update. No authoritative booking data was changed.");
       setActionRefreshKey((current) => current + 1);
       await loadSnapshots();
     } catch (reconciliationError) {
@@ -231,6 +241,8 @@ export default function DineplanReconciliation() {
     setShows([]);
     setShowId("");
     setFilter("all");
+    setSearch("");
+    setPage(1);
     setError("");
     setMessage("");
     if (!selected || selected.status !== "preview") return;
@@ -254,10 +266,17 @@ export default function DineplanReconciliation() {
   const reconciliation = snapshot?.reconciliation_results ?? null;
   const visibleResults = useMemo(() => {
     if (!reconciliation) return [];
-    return reconciliation.results.filter((result) =>
-      filter === "all" ? true : filter === "critical" ? result.severity === "critical" : result.classification === filter,
-    );
-  }, [filter, reconciliation]);
+    const query = search.trim().toLowerCase();
+    return reconciliation.results.filter((result) => {
+      const matchesFilter = filter === "all" ? true : filter === "critical" ? result.severity === "critical" : result.classification === filter;
+      if (!matchesFilter || !query) return matchesFilter;
+      return [result.dineplan?.guestName, result.dineplan?.company, result.dineplan?.mobile, result.zingara?.customerName, result.zingara?.company, result.zingara?.bookingReference]
+        .filter(Boolean).join(" ").toLowerCase().includes(query);
+    });
+  }, [filter, reconciliation, search]);
+  const pageSize = 25;
+  const totalPages = Math.max(1, Math.ceil(visibleResults.length / pageSize));
+  const pagedResults = visibleResults.slice((page - 1) * pageSize, page * pageSize);
   const nextThirtySummary = useMemo(() => {
     const rows = nextThirty ?? [];
     return rows.reduce(
@@ -354,34 +373,39 @@ export default function DineplanReconciliation() {
 
       {reconciliation && (
         <>
+          {!reconciliation.quality.trusted && <div role="alert" className="border border-amber-300/40 bg-amber-950/20 p-4 text-sm text-amber-100"><strong className="block uppercase">Reconciliation Needs Review</strong><span className="mt-1 block">The Dineplan source could not be reconciled with sufficient confidence. No operational actions or reminders were generated.</span>{reconciliation.quality.reasons.map((reason) => <span key={reason} className="mt-1 block text-xs text-amber-200/80">{reason}</span>)}</div>}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <button type="button" onClick={() => setFilter("all")} className={`border p-3 text-left ${filter === "all" ? "border-[#D8C36A] bg-[#D8C36A]/10" : "border-white/10 bg-black/30"}`}>
-              <span className="block text-xs uppercase text-zinc-400">All</span>
-              <span className="mt-1 block text-2xl font-semibold text-white">{reconciliation.results.length}</span>
-            </button>
-            {(["matched", "zingara_newer", "dineplan_newer", "review", "critical"] as const).map((key) => (
-              <button key={key} type="button" onClick={() => setFilter(key)} className={`border p-3 text-left ${filter === key ? "border-[#D8C36A] bg-[#D8C36A]/10" : "border-white/10 bg-black/30"}`}>
-                <span className="block text-xs uppercase text-zinc-400">{key === "critical" ? "Critical" : labels[key]}</span>
-                <span className="mt-1 block text-2xl font-semibold text-white">{reconciliation.counts[key] ?? 0}</span>
-              </button>
-            ))}
+            {[
+              ["Dineplan Reservations", snapshot?.reservation_count ?? 0],
+              ["Dineplan Covers", reconciliation.bridge.dineplanCovers],
+              ["Zingara Active Entitlement", reconciliation.bridge.zingaraEntitlement],
+              ["Matched", reconciliation.counts.matched ?? 0],
+              ["Differences", reconciliation.results.length - (reconciliation.counts.matched ?? 0)],
+              ["Actions Required", reconciliation.counts.actions_required ?? 0],
+            ].map(([label, value]) => <div key={label} className="border border-white/10 bg-black/30 p-3"><span className="block text-xs uppercase text-zinc-400">{label}</span><span className="mt-1 block text-2xl font-semibold text-white">{value}</span></div>)}
           </div>
           <div className="border-y border-white/10 py-4">
             <p className="text-sm text-white">Dineplan covers {reconciliation.bridge.dineplanCovers} · Zingara active entitlement {reconciliation.bridge.zingaraEntitlement} · Difference {reconciliation.bridge.difference > 0 ? "+" : ""}{reconciliation.bridge.difference}</p>
             {reconciliation.bridge.explainedByRows.map((row, index) => <p key={`${row.bookingReference}-${index}`} className="mt-1 text-xs text-zinc-400">{row.guest}: {row.delta > 0 ? "+" : ""}{row.delta} · {labels[row.classification]}</p>)}
           </div>
-          <div className="overflow-x-auto border border-white/10">
+          <details className="border border-white/10 bg-black/20 p-4">
+            <summary className="cursor-pointer text-sm font-semibold uppercase text-[#F2D66C]">View Full Reconciliation · {reconciliation.results.length} Comparison Rows</summary>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <label className="flex-1 text-xs font-semibold uppercase text-zinc-400">Search evidence<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Guest, company, mobile or booking reference" className="mt-2 w-full border border-zinc-700 bg-black px-3 py-2 text-sm normal-case text-white" /></label>
+              <div className="flex flex-wrap gap-2">{(["all", "matched", "zingara_newer", "dineplan_newer", "review", "critical"] as const).map((key) => <button key={key} type="button" onClick={() => { setFilter(key); setPage(1); }} className={`border px-3 py-2 text-xs uppercase ${filter === key ? "border-[#D8C36A] text-[#F2D66C]" : "border-white/15 text-zinc-300"}`}>{key === "all" ? "All" : key === "critical" ? "Critical" : labels[key]}</button>)}</div>
+            </div>
+          <div className="mt-4 overflow-x-auto border border-white/10">
             <table className="min-w-[980px] w-full text-left text-sm">
               <thead className="bg-black text-xs uppercase text-zinc-400"><tr>{["Status", "Guest", "Dineplan", "Zingara", "Difference", "Capacity Impact", "Reason", "Review"].map((heading) => <th key={heading} className="px-3 py-3">{heading}</th>)}</tr></thead>
               <tbody className="divide-y divide-white/10">
-                {visibleResults.map((result) => (
+                {pagedResults.map((result) => (
                   <tr key={resultKey(result)} className="align-top">
                     <td className="px-3 py-3"><span className={result.severity === "critical" ? "text-red-300" : "text-[#F2D66C]"}>{labels[result.classification]}{result.severity === "critical" ? " · Critical" : ""}</span></td>
                     <td className="px-3 py-3 text-white">{result.dineplan?.guestName || result.zingara?.customerName || "Unmatched"}</td>
                     <td className="px-3 py-3 text-zinc-300">{result.dineplan ? `${result.dineplan.pax} pax · ${result.dineplan.seatingZone ?? "Zone not stated"} · ${result.dineplan.tables.join("+") || "Table not stated"}` : "Not in snapshot"}</td>
                     <td className="px-3 py-3 text-zinc-300">{result.zingara ? `${result.zingara.partySize} pax · ${result.zingara.seatingZone ?? "Zone not stated"} · ${result.zingara.tables.join("+") || "Unassigned"}` : "No authoritative match"}{result.zingara && <a className="mt-2 block text-[#F2D66C] underline" href={`/admin?section=bookings&booking=${encodeURIComponent(result.zingara.bookingReference)}`}>Open Booking</a>}</td>
                     <td className="px-3 py-3 text-zinc-300">{result.differences.join("; ") || "None"}</td>
-                    <td className="px-3 py-3 text-zinc-300">{result.capacityImpact ? `${result.capacityImpact} pax currently consuming Zingara capacity` : "No identified impact"}</td>
+                    <td className="px-3 py-3 text-zinc-300">{result.capacityImpact ? `${result.capacityImpact} pax currently consume authoritative Zingara entitlement` : !result.zingara && result.dineplan ? `Potential additional exposure: ${result.dineplan.pax} pax. Capacity impact not yet established.` : "No identified impact"}</td>
                     <td className="px-3 py-3 text-zinc-300">{result.reason}<span className="mt-1 block text-xs text-zinc-500">{result.matchReason}</span></td>
                     <td className="px-3 py-3"><select defaultValue="" onChange={(event) => { if (event.target.value) void review(result, event.target.value); }} className="w-40 border border-zinc-700 bg-black px-2 py-2 text-xs text-white"><option value="">Select outcome</option><option value="reviewed">Reviewed</option><option value="no_action">No action required</option><option value="box_office">Box Office correction</option><option value="management_review">Management review</option></select></td>
                   </tr>
@@ -389,6 +413,8 @@ export default function DineplanReconciliation() {
               </tbody>
             </table>
           </div>
+            <div className="mt-3 flex items-center justify-between text-xs text-zinc-400"><span>{visibleResults.length} matching comparison rows · Page {page} of {totalPages}</span><div className="flex gap-2"><button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="border border-white/15 px-3 py-2 disabled:opacity-40">Previous</button><button type="button" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} className="border border-white/15 px-3 py-2 disabled:opacity-40">Next</button></div></div>
+          </details>
         </>
       )}
 

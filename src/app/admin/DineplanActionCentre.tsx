@@ -8,7 +8,7 @@ import type {
   DineplanDigest,
 } from "@/lib/dineplanActions";
 
-type ActionFilter = "acknowledged" | "all" | "critical" | "no_action" | "resolved" | "unacknowledged";
+type ActionFilter = "acknowledged" | "all" | "critical" | "current" | "no_action" | "resolved" | "unacknowledged";
 
 type StaffOption = { email: string; id: string; name: string };
 
@@ -49,7 +49,7 @@ function statusLabel(action: DineplanActionRecord) {
 
 export default function DineplanActionCentre({ refreshKey }: { refreshKey: number }) {
   const [payload, setPayload] = useState<ActionCentrePayload | null>(null);
-  const [filter, setFilter] = useState<ActionFilter>("all");
+  const [filter, setFilter] = useState<ActionFilter>("current");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
@@ -81,7 +81,7 @@ export default function DineplanActionCentre({ refreshKey }: { refreshKey: numbe
   const visible = useMemo(() => {
     const actions = payload?.actions ?? [];
     return actions
-      .filter((action) => filter === "all" ? true : filter === "critical" ? action.severity === "critical" && ["acknowledged", "unacknowledged"].includes(action.status) : action.status === filter)
+      .filter((action) => filter === "all" ? true : filter === "current" ? ["acknowledged", "unacknowledged"].includes(action.status) : filter === "critical" ? action.severity === "critical" && ["acknowledged", "unacknowledged"].includes(action.status) : action.status === filter)
       .sort((left, right) => {
         const leftOpen = ["acknowledged", "unacknowledged"].includes(left.status) ? 0 : 1;
         const rightOpen = ["acknowledged", "unacknowledged"].includes(right.status) ? 0 : 1;
@@ -145,6 +145,8 @@ export default function DineplanActionCentre({ refreshKey }: { refreshKey: numbe
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">Action Centre</p>
           <h3 className="mt-1 text-xl font-semibold text-white">Box Office Action Digest</h3>
+          <p className="mt-1 text-lg font-semibold text-white">{counts.unacknowledged + counts.acknowledged} actions require attention</p>
+          <p className="text-sm text-zinc-400">{counts.critical} Critical · {counts.unacknowledged} Need Attention · {counts.acknowledged} Being Handled</p>
           <p className="mt-1 text-sm text-zinc-400">Last Dineplan snapshot: {formatTimestamp(payload?.latestSource ?? null)} · Data age: {dataAge(payload?.latestSource ?? null)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -159,7 +161,7 @@ export default function DineplanActionCentre({ refreshKey }: { refreshKey: numbe
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {([
-          ["all", "All", payload?.actions.length ?? 0],
+          ["current", "Current Actions", counts.unacknowledged + counts.acknowledged],
           ["critical", "Critical", counts.critical],
           ["unacknowledged", "Need Attention", counts.unacknowledged],
           ["acknowledged", "Being Handled", counts.acknowledged],
@@ -179,22 +181,27 @@ export default function DineplanActionCentre({ refreshKey }: { refreshKey: numbe
                 <h4 className="mt-1 break-words font-semibold text-white">{action.guestLabel} · {action.pax} pax</h4>
                 <p className="mt-1 text-sm text-zinc-400">{action.venue === "cape-town" ? "Cape Town" : "Johannesburg"} · {action.performanceDate} · {action.zone ?? "Zone not stated"}</p>
               </div>
-              {action.bookingReference && <a href={`/admin?section=bookings&booking=${encodeURIComponent(action.bookingReference)}`} className="shrink-0 text-sm font-semibold text-[#F2D66C] underline">Open Booking</a>}
+              <div className="flex shrink-0 items-center gap-2">
+                {action.bookingReference && <a href={`/admin?section=bookings&booking=${encodeURIComponent(action.bookingReference)}`} className="text-sm font-semibold text-[#F2D66C] underline">Open Booking</a>}
+                {["acknowledged", "unacknowledged"].includes(action.status) && <button type="button" onClick={() => void updateAction(action.id, "acknowledge")} disabled={busy === action.id} className="bg-[#D8C36A] px-3 py-2 text-xs font-semibold uppercase text-black disabled:opacity-50">Acknowledge</button>}
+              </div>
             </div>
-            <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
-              <div><p className="text-xs uppercase text-zinc-500">Dineplan</p><p className="mt-1 text-zinc-200">{action.dineplanState}</p></div>
-              <div><p className="text-xs uppercase text-zinc-500">Zingara</p><p className="mt-1 text-zinc-200">{action.zingaraState}</p></div>
-            </div>
-            {action.capacityImpact > 0 && <p className="mt-3 text-sm font-semibold text-red-200">Capacity impact: {action.capacityImpact} pax currently consuming Zingara capacity</p>}
             <p className="mt-3 text-sm text-white"><strong>Manual action:</strong> {action.manualAction}</p>
+            <details className="mt-3 border-t border-white/10 pt-3">
+              <summary className="cursor-pointer text-xs font-semibold uppercase text-[#F2D66C]">Details</summary>
+              <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+                <div><p className="text-xs uppercase text-zinc-500">Dineplan</p><p className="mt-1 text-zinc-200">{action.dineplanState}</p></div>
+                <div><p className="text-xs uppercase text-zinc-500">Zingara</p><p className="mt-1 text-zinc-200">{action.zingaraState}</p></div>
+              </div>
+              {action.capacityImpact > 0 ? <p className="mt-3 text-sm font-semibold text-red-200">Authoritative capacity impact: {action.capacityImpact} pax currently consume Zingara entitlement</p> : action.zingaraState === "No authoritative match" ? <p className="mt-3 text-sm text-amber-100">Potential additional exposure: {action.pax} pax. Capacity impact is not yet established.</p> : null}
             {["acknowledged", "unacknowledged"].includes(action.status) && (
               <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                 <input value={notes[action.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [action.id]: event.target.value }))} placeholder="Optional acknowledgement note; reason required for No Action" className="min-w-0 flex-1 border border-zinc-700 bg-black px-3 py-2 text-sm text-white" />
-                <button type="button" onClick={() => void updateAction(action.id, "acknowledge")} disabled={busy === action.id} className="bg-[#D8C36A] px-3 py-2 text-xs font-semibold uppercase text-black disabled:opacity-50">Acknowledge</button>
                 <button type="button" onClick={() => void updateAction(action.id, "no_action")} disabled={busy === action.id || !(notes[action.id] ?? "").trim()} className="border border-white/20 px-3 py-2 text-xs font-semibold uppercase text-white disabled:opacity-40">No Action Required</button>
               </div>
             )}
             {action.status === "no_action" && action.noActionReason && <p className="mt-3 text-xs text-zinc-400">Reason: {action.noActionReason}</p>}
+            </details>
           </article>
         ))}
         {!visible.length && <p className="py-4 text-sm text-zinc-400">No actions match this filter.</p>}

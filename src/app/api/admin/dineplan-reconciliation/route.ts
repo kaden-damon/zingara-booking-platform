@@ -1,4 +1,4 @@
-import { parseDineplanFile } from "@/lib/dineplanFileParser";
+import { dineplanParserVersion, parseDineplanFile } from "@/lib/dineplanFileParser";
 import { isAuthoritativeCorporateBooking } from "@/lib/bookingClassification";
 import {
   reconcileDineplanSnapshot,
@@ -8,6 +8,7 @@ import {
 } from "@/lib/dineplanReconciliation";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 import { syncDineplanReconciliationActions } from "@/lib/dineplanActionStore";
+import { deriveDineplanActionCandidates } from "@/lib/dineplanActions";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
   matchesDineplanPerformance,
@@ -23,7 +24,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const snapshotSelect =
-  "id,checksum,original_filename,mime_type,file_size,uploaded_by,uploaded_at,source_generated_at,performance_date,performance_time,venue,show_id,reservation_count,covers,status,compared_at,reconciliation_results";
+  "id,checksum,parser_version,parse_quality,original_filename,mime_type,file_size,uploaded_by,uploaded_at,source_generated_at,performance_date,performance_time,venue,show_id,reservation_count,covers,status,compared_at,reconciliation_results";
 
 function roleOf(staffProfile: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["staffProfile"]>) {
   return Array.isArray(staffProfile.roles) ? staffProfile.roles[0] : staffProfile.roles;
@@ -286,6 +287,7 @@ export async function POST(request: Request) {
         .from("dineplan_reconciliation_snapshots")
         .select(snapshotSelect)
         .eq("checksum", snapshot.checksum)
+        .eq("parser_version", dineplanParserVersion)
         .maybeSingle();
       if (existing) {
         if (!canAccessSnapshot(auth.staffProfile, existing)) return forbidden();
@@ -293,6 +295,7 @@ export async function POST(request: Request) {
         if (existing.status === "preview") {
           const metadata = {
             covers: snapshot.covers,
+            parse_quality: snapshot.quality,
             performance_date: snapshot.performanceDate ?? existing.performance_date,
             performance_time: snapshot.performanceTime ?? existing.performance_time,
             reservation_count: snapshot.reservations.length,
@@ -321,6 +324,8 @@ export async function POST(request: Request) {
           file_size: bytes.length,
           mime_type: file.type || "application/octet-stream",
           normalized_reservations: snapshot.reservations,
+          parse_quality: snapshot.quality,
+          parser_version: dineplanParserVersion,
           original_filename: file.name.slice(0, 240),
           performance_date: snapshot.performanceDate,
           performance_time: snapshot.performanceTime,
@@ -376,6 +381,7 @@ export async function POST(request: Request) {
       checksum: stored.checksum,
       covers: stored.covers,
       generatedAt: stored.source_generated_at,
+      quality: stored.parse_quality,
       performanceDate: stored.performance_date,
       performanceTime: stored.performance_time,
       reservations: stored.normalized_reservations,
@@ -383,30 +389,37 @@ export async function POST(request: Request) {
     };
     const reconciliation = reconcileDineplanSnapshot(snapshot, bookings);
     const comparedAt = new Date().toISOString();
+    const trusted = reconciliation.quality.trusted;
+    const actionInput = {
+      comparedAt,
+      performanceDate: show.date,
+      performanceTime: show.time,
+      results: reconciliation.results,
+      showId: body.showId,
+      snapshotId: body.snapshotId,
+      sourceGeneratedAt: snapshot.generatedAt,
+      venue: location,
+    };
+    reconciliation.counts.actions_required = trusted
+      ? deriveDineplanActionCandidates(actionInput).length
+      : 0;
     const { error: updateError } = await auth.serviceClient
       .from("dineplan_reconciliation_snapshots")
-      .update({ compared_at: comparedAt, compared_by: auth.staffProfile.id, reconciliation_results: reconciliation, show_id: body.showId, status: "reconciled", venue: location })
+      .update({ compared_at: comparedAt, compared_by: auth.staffProfile.id, reconciliation_results: reconciliation, show_id: body.showId, status: trusted ? "reconciled" : "review_required", venue: location })
       .eq("id", body.snapshotId);
     if (updateError) throw updateError;
-    let actionSyncStatus: "ready" | "unavailable" = "ready";
-    try {
-      await syncDineplanReconciliationActions(auth.serviceClient, {
-        comparedAt,
-        performanceDate: show.date,
-        performanceTime: show.time,
-        results: reconciliation.results,
-        showId: body.showId,
-        snapshotId: body.snapshotId,
-        sourceGeneratedAt: snapshot.generatedAt,
-        venue: location,
-      });
-    } catch (actionError) {
-      actionSyncStatus = "unavailable";
-      console.error("[Dineplan Reconciliation] Action Centre sync failed", actionError);
+    let actionSyncStatus: "ready" | "unavailable" | "withheld" = trusted ? "ready" : "withheld";
+    if (trusted) {
+      try {
+        await syncDineplanReconciliationActions(auth.serviceClient, actionInput);
+      } catch (actionError) {
+        actionSyncStatus = "unavailable";
+        console.error("[Dineplan Reconciliation] Action Centre sync failed", actionError);
+      }
     }
     const auditRecorded = await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
       action: "Dineplan reconciliation run",
-      afterValues: { critical: reconciliation.counts.critical ?? 0, matched: reconciliation.counts.matched ?? 0, showId: body.showId },
+      afterValues: { critical: trusted ? reconciliation.counts.critical ?? 0 : 0, matched: reconciliation.counts.matched ?? 0, quality: reconciliation.quality.status, showId: body.showId },
       entityId: body.snapshotId,
       entityLocation: show.venue,
       entityReference: stored.original_filename,
@@ -415,7 +428,7 @@ export async function POST(request: Request) {
       request,
       sourceArea: "Dineplan Reconciliation",
     });
-    return Response.json({ actionSyncStatus, auditRecorded, comparedAt, reconciliation, show, snapshot: { ...stored, normalized_reservations: undefined, show_id: body.showId, status: "reconciled", venue: location } });
+    return Response.json({ actionSyncStatus, auditRecorded, comparedAt, reconciliation, show, snapshot: { ...stored, normalized_reservations: undefined, show_id: body.showId, status: trusted ? "reconciled" : "review_required", venue: location } });
   } catch (error) {
     console.error("[Dineplan Reconciliation] Comparison failed", error);
     return Response.json({ error: "The selected show could not be reconciled. No booking data was changed." }, { status: 500 });

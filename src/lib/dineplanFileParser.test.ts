@@ -91,6 +91,48 @@ https://account.dineplan.com/reservations/printlist/2026-09-25`;
   assert.equal(parsed.venue, "johannesburg");
 });
 
+test("real multi-line print-list rows preserve identities and reconcile source totals", async () => {
+  const text = `(Generated on 2026-09-25 16:28)\tBOOKINGS (Fri, 25 September 2026)
+Time \tPAX \tGuest \tPayment \tPayment Notes \tTelephone \tSeating \tTable
+17:00 \t4 \tAnnalie Padoa
+Credit: R 2,200.00
+Paid: R 2,200.00
+4 x DEP
+0724673172 \tMiddle Ring R1320pp \tVeronica 3
+-- 1 of 2 --
+Time \tPAX \tGuest \tPayment \tPayment Notes \tTelephone \tSeating \tTable
+17:00 \t5 \tAnnica and Johan Van
+Rensburg
+Credit: R 2,750.00
+Paid: R 2,750.00
+5 x DEP
+0821234567 \tGolden Circle R1540pp \t402
+Shift Totals 2 | 9`;
+  const parsed = await parseDineplanFile({
+    bytes: Buffer.from("%PDF-1.4 multiline fixture"),
+    extractPdfText: async () => text,
+    filename: "Dineplan Bookings_ Friday, 25th September 2026 - Zingara JHB, The Royal Countess Dinner Show.pdf",
+    mimeType: "application/pdf",
+  });
+  assert.equal(parsed.reservations.length, 2);
+  assert.equal(parsed.covers, 9);
+  assert.equal(parsed.reservations[0].guestName, "Annalie Padoa");
+  assert.equal(parsed.reservations[1].guestName, "Annica and Johan Van Rensburg");
+  assert.equal(parsed.quality.parserTrusted, true);
+  assert.equal(parsed.quality.duplicateRows, 0);
+});
+
+test("source count and cover mismatches fail parser quality closed", async () => {
+  const parsed = await parseDineplanFile({
+    bytes: Buffer.from("%PDF-1.4 mismatch fixture"),
+    extractPdfText: async () => `BOOKINGS (Fri, 25 September 2026)\nTime \tPAX \tGuest \tPayment \tPayment Notes \tTelephone \tSeating \tTable\n17:00 \t4 \tAnnalie Padoa\n0724673172 \tMiddle Ring \t3\nShift Totals 2 | 9`,
+    filename: "Dineplan Bookings_ Friday, 25th September 2026 - Zingara JHB, The Royal Countess Dinner Show.pdf",
+    mimeType: "application/pdf",
+  });
+  assert.equal(parsed.quality.parserTrusted, false);
+  assert.match(parsed.quality.warnings.join(" "), /2 reservations.*1 rows.*9 covers.*4 covers/i);
+});
+
 test("recognized Dineplan filenames are a guarded fallback and cannot override content", async () => {
   const table = `Time   Pax   Guest                    Payment          Notes        Telephone     Seating                  Table
 17:00  2     Example Guest            Deposit Paid                   0821234567    Golden Circle            402`;
