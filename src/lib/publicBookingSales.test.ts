@@ -171,7 +171,7 @@ test("public booking API blocks before customer creation", async () => {
   );
   const gateIndex = source.indexOf("PUBLIC_BOOKINGS_NOT_OPEN");
   const customerMutationIndex = source.indexOf(
-    "const customerId = await upsertCustomer",
+    "await upsertCustomer(supabase, booking.customer)",
   );
 
   assert.ok(gateIndex > 0);
