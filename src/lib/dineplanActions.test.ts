@@ -200,6 +200,22 @@ test("payment discrepancy creates verification guidance, never a payment mutatio
   assert.match(candidate.manualAction, /Do not mark paid from Dineplan wording alone/i);
 });
 
+test("confirmed source-only action gives specific verify-then-create guidance", () => {
+  const sourceOnly = result({
+    classification: "review",
+    differences: ["Booking missing from Zingara"],
+    dineplan: { ...result().dineplan!, guestName: "Lloyd Swartz", pax: 4, seatingZone: "Middle Ring R1320pp", sourceReference: null },
+    matchConfidence: "unmatched",
+    severity: "critical",
+    zingara: null,
+  });
+  const candidate = candidates(sourceOnly)[0];
+  assert.match(candidate.manualAction, /Dineplan shows Lloyd Swartz, 4 pax, Middle Ring R1320pp/);
+  assert.match(candidate.manualAction, /No authoritative Zingara booking was found for this performance/);
+  assert.match(candidate.manualAction, /Verify the source reservation, then create the booking in Zingara if it is still valid/);
+  assert.equal(candidate.bookingReference, null);
+});
+
 test("acknowledgement remains unresolved and unchanged snapshots preserve it", () => {
   const transition = getDineplanActionTransition({ materiallyChanged: false, presentInLatestReconciliation: true, status: "acknowledged" });
   assert.equal(transition.status, "acknowledged");

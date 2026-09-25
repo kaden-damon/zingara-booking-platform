@@ -202,7 +202,7 @@ function manualActionFor(kind: DineplanActionKind, result: DineplanReconciliatio
   if (kind === "verify_payment") return "Verify the payment evidence in Zingara. Do not mark paid from Dineplan wording alone.";
   return result.zingara
     ? "Review the booking evidence and use the existing Zingara workflow for any approved correction."
-    : "Verify that this reservation should exist in Zingara before using the normal booking creation workflow.";
+    : `Dineplan shows ${result.dineplan?.guestName ?? "this guest"}, ${result.dineplan?.pax ?? 0} pax${result.dineplan?.seatingZone ? `, ${result.dineplan.seatingZone}` : ""}. No authoritative Zingara booking was found for this performance. Verify the source reservation, then create the booking in Zingara if it is still valid.`;
 }
 
 function compactDineplanState(result: DineplanReconciliationResult) {

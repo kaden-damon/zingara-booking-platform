@@ -57,7 +57,7 @@ type Reconciliation = {
 
 const labels: Record<DineplanClassification, string> = {
   dineplan_newer: "Dineplan Newer",
-  matched: "Matched",
+  matched: "No Differences",
   review: "Review",
   zingara_newer: "Zingara Newer",
 };
@@ -379,14 +379,14 @@ export default function DineplanReconciliation() {
               ["Dineplan Reservations", snapshot?.reservation_count ?? 0],
               ["Dineplan Covers", reconciliation.bridge.dineplanCovers],
               ["Zingara Active Entitlement", reconciliation.bridge.zingaraEntitlement],
-              ["Matched", reconciliation.counts.matched ?? 0],
-              ["Differences", reconciliation.results.length - (reconciliation.counts.matched ?? 0)],
+              ["Associated with Zingara", reconciliation.quality?.deterministicMatches ?? reconciliation.results.filter((result) => ["exact", "high"].includes(result.matchConfidence)).length],
+              ["Comparison Rows", reconciliation.results.length],
               ["Actions Required", reconciliation.counts.actions_required ?? 0],
             ].map(([label, value]) => <div key={label} className="border border-white/10 bg-black/30 p-3"><span className="block text-xs uppercase text-zinc-400">{label}</span><span className="mt-1 block text-2xl font-semibold text-white">{value}</span></div>)}
           </div>
           <div className="border-y border-white/10 py-4">
-            <p className="text-sm text-white">Dineplan covers {reconciliation.bridge.dineplanCovers} · Zingara active entitlement {reconciliation.bridge.zingaraEntitlement} · Difference {reconciliation.bridge.difference > 0 ? "+" : ""}{reconciliation.bridge.difference}</p>
-            {reconciliation.bridge.explainedByRows.map((row, index) => <p key={`${row.bookingReference}-${index}`} className="mt-1 text-xs text-zinc-400">{row.guest}: {row.delta > 0 ? "+" : ""}{row.delta} · {labels[row.classification]}</p>)}
+            <p className="text-sm text-white">{reconciliation.bridge.dineplanCovers} Dineplan pax to {reconciliation.bridge.zingaraEntitlement} Zingara active entitlement · Net difference {reconciliation.bridge.difference > 0 ? "+" : ""}{reconciliation.bridge.difference}</p>
+            <p className="mt-2 text-xs text-zinc-400">Dineplan reconciliation monitors source booking differences. Floor assignment readiness is monitored separately.</p>
           </div>
           <details className="border border-white/10 bg-black/20 p-4">
             <summary className="cursor-pointer text-sm font-semibold uppercase text-[#F2D66C]">View Full Reconciliation · {reconciliation.results.length} Comparison Rows</summary>

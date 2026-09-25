@@ -7,7 +7,7 @@ import {
 } from "./dineplanReconciliation.ts";
 
 export const dineplanMaximumFileSize = 10 * 1024 * 1024;
-export const dineplanParserVersion = 2;
+export const dineplanParserVersion = 3;
 const allowedExtensions = new Set(["csv", "pdf", "xlsx"]);
 
 async function loadPdfParser() {

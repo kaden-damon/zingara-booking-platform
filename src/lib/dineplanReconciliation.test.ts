@@ -183,3 +183,62 @@ test("show-level bridge explains Dione's additional guest", () => {
   assert.equal(result.bridge.difference, 1);
   assert.equal(result.bridge.explainedByRows[0].delta, 1);
 });
+
+test("real 25 September action candidates associate only through unique imported identity evidence", () => {
+  const source = snapshot([
+    { "Booking Date": "25/09/2026", Covers: "4", "Guest Name": "Chantal Groenewald", Telephone: "0733220285", "Seating Area": "Middle Ring R1320pp", Table: "309" },
+    { "Booking Date": "25/09/2026", Covers: "4", "Guest Name": "Lloyd Swartz", Telephone: "0729986081", "Seating Area": "Middle Ring R1320pp", Table: "200" },
+    { "Booking Date": "25/09/2026", Covers: "6", "Guest Name": "Natasha De Goede", Telephone: "0824672592", "Seating Area": "Private Raised Booths R1480pp", Table: "24" },
+    { "Booking Date": "25/09/2026", Covers: "6", "Guest Name": "Natasha Pillay", Telephone: "0829095005", "Seating Area": "Middle Ring R1320pp", Table: "203" },
+    { "Booking Date": "25/09/2026", Covers: "8", "Guest Name": "SOLET STROH SOLET STROH", Telephone: "0824984415", "Seating Area": "Royal Balcony R1320pp", Table: "901" },
+    { "Booking Date": "25/09/2026", Covers: "12", "Guest Name": "Sonja Hood", Telephone: "0837071055", "Seating Area": "Private Raised Booths R1480pp", Table: "4, 5" },
+    { "Booking Date": "25/09/2026", Covers: "12", "Guest Name": "Sylvia Roux", Telephone: "0729934249", "Seating Area": "Golden Circle R1540pp", Table: "400" },
+    { "Booking Date": "25/09/2026", Covers: "7", "Guest Name": "Tyron Sussman", Telephone: "0792679674", "Seating Area": "Middle Ring R1320pp", Table: "201" },
+    { "Booking Date": "25/09/2026", Covers: "3", "Guest Name": "Ursula Maritz", Telephone: "0823590409", "Seating Area": "Golden Circle R1540pp", Table: "601" },
+  ]);
+  const imported = (overrides: Partial<ZingaraReconciliationBooking>) => booking({
+    bookingOrigin: "data_import",
+    performanceDate: "2026-09-25",
+    ...overrides,
+  });
+  const result = reconcileDineplanSnapshot(source, [
+    imported({ bookingReference: "DP-KS17NC", customerEmail: "chantalg80@gmail.com", customerFirstName: "chantalg80@gmail.com", customerName: "chantalg80@gmail.com Groenewald", customerSurname: "Groenewald", id: "chantal", mobile: null, partySize: 4, seatingZone: "Middle Ring", tables: ["207"] }),
+    imported({ bookingReference: "DP-ZGX4PC", customerFirstName: "Natasha", customerName: "Natasha Natasha De Goede", customerSurname: "Natasha De Goede", id: "natasha-de-goede", mobile: null, partySize: 6, seatingZone: "Private Booths", tables: ["23"] }),
+    imported({ bookingReference: "DP-N487NC", customerFirstName: "Natasha", customerName: "Natasha Pillay", customerSurname: "Pillay", id: "natasha-pillay", mobile: "+27829095005", partySize: 6, seatingZone: "Middle Ring", tables: ["203"] }),
+    imported({ bookingReference: "DP-C0GDPC", customerFirstName: "SOLET", customerName: "SOLET STROH S.", customerSurname: "STROH S.", id: "solet", mobile: null, partySize: 8, seatingZone: "Royal Balcony", tables: ["800"] }),
+    imported({ bookingReference: "DP-QQWCPC", customerEmail: "sonja.hood@kapsch.net", customerFirstName: "sonja.hood@kapsch.net", customerName: "sonja.hood@kapsch.net Hood", customerSurname: "Hood", id: "sonja", mobile: null, partySize: 12, seatingZone: "Private Booths", tables: ["10", "11"] }),
+    imported({ bookingReference: "DP-V038NC", customerEmail: "sylvia@ecwamix.co.za", customerFirstName: "sylvia@ecwamix.co.za", customerName: "sylvia@ecwamix.co.za Roux", customerSurname: "Roux", id: "sylvia", mobile: null, partySize: 12, seatingZone: "Golden Circle", tables: ["400"] }),
+    imported({ bookingReference: "DP-RX63NC", customerEmail: "ursula.maritz@lenmed.co.za", customerFirstName: "ursula.maritz@lenmed.co.za", customerName: "ursula.maritz@lenmed.co.za Maritz", customerSurname: "Maritz", id: "ursula", mobile: null, partySize: 3, seatingZone: "Golden Circle", tables: ["601"] }),
+  ]);
+  const byGuest = new Map(result.results.filter((row) => row.dineplan).map((row) => [row.dineplan!.guestName, row]));
+  for (const guest of ["Chantal Groenewald", "Natasha De Goede", "Natasha Pillay", "SOLET STROH SOLET STROH", "Sonja Hood", "Sylvia Roux", "Ursula Maritz"]) {
+    assert.ok(byGuest.get(guest)?.zingara, `${guest} should have an authoritative association`);
+    assert.match(byGuest.get(guest)?.matchReason ?? "", /imported identity|mobile and performance/i);
+  }
+  for (const guest of ["Lloyd Swartz", "Tyron Sussman"]) {
+    assert.equal(byGuest.get(guest)?.zingara, null);
+    assert.equal(byGuest.get(guest)?.severity, "critical");
+  }
+  assert.equal(result.quality.deterministicMatches, 7);
+});
+
+test("legacy identity evidence must be unique before it can associate a source row", () => {
+  const source = snapshot([{ "Booking Date": "25/09/2026", Covers: "4", "Guest Name": "Chantal Groenewald", "Seating Area": "Middle Ring R1320pp" }]);
+  const duplicate = {
+    bookingOrigin: "data_import",
+    customerEmail: "chantalg80@gmail.com",
+    customerFirstName: "chantalg80@gmail.com",
+    customerName: "chantalg80@gmail.com Groenewald",
+    customerSurname: "Groenewald",
+    mobile: null,
+    partySize: 4,
+    performanceDate: "2026-09-25",
+    seatingZone: "Middle Ring",
+  } satisfies Partial<ZingaraReconciliationBooking>;
+  const result = reconcileDineplanSnapshot(source, [
+    booking({ ...duplicate, id: "one", bookingReference: "DP-ONE" }),
+    booking({ ...duplicate, id: "two", bookingReference: "DP-TWO" }),
+  ]);
+  assert.equal(result.results[0].matchConfidence, "unmatched");
+  assert.equal(result.results[0].zingara, null);
+});

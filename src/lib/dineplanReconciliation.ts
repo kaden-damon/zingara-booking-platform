@@ -69,7 +69,10 @@ export type ZingaraReconciliationBooking = {
   bookingStatus: string;
   bookingKind: "corporate" | "standard";
   company: string | null;
+  customerEmail?: string | null;
+  customerFirstName?: string | null;
   customerName: string;
+  customerSurname?: string | null;
   id: string;
   importedAt: string | null;
   mobile: string | null;
@@ -348,12 +351,70 @@ export function snapshotFromRecords(input: {
 
 function zonesMatch(left: string | null, right: string | null) {
   if (!left || !right) return true;
-  return getCorporateSeatingZoneId(left) === getCorporateSeatingZoneId(right);
+  const canonical = (value: string) => getCorporateSeatingZoneId(
+    value
+      .replace(/\bR\s*\d+(?:[.,]\d+)?\s*(?:pp|p\/p|per\s+person)?\b/gi, "")
+      .replace(/\braised\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+  const leftZone = canonical(left);
+  const rightZone = canonical(right);
+  if (leftZone && rightZone) return leftZone === rightZone;
+  return normalized(left) === normalized(right);
 }
 
 function tablesMatch(left: string[], right: string[]) {
   if (!left.length || !right.length) return true;
   return normalized(left.join("+")) === normalized(right.join("+"));
+}
+
+function collapseRepeatedIdentity(value: string) {
+  const tokens = normalized(value).split(" ").filter(Boolean);
+  if (tokens.length >= 2 && tokens.length % 2 === 0) {
+    const midpoint = tokens.length / 2;
+    if (tokens.slice(0, midpoint).join(" ") === tokens.slice(midpoint).join(" ")) {
+      return tokens.slice(0, midpoint);
+    }
+  }
+  return tokens;
+}
+
+function importedIdentityMatches(
+  source: DineplanReservation,
+  candidate: ZingaraReconciliationBooking,
+) {
+  if (candidate.bookingOrigin !== "data_import") return false;
+  if (candidate.performanceDate !== source.performanceDate || candidate.partySize !== source.pax) return false;
+  if (!zonesMatch(source.seatingZone, candidate.seatingZone)) return false;
+
+  const sourceTokens = collapseRepeatedIdentity(source.guestName);
+  if (sourceTokens.length < 2) return false;
+  const sourceFirst = sourceTokens[0];
+  const sourceSurname = sourceTokens.slice(1).join(" ");
+
+  const storedFirst = normalized(candidate.customerFirstName);
+  let surnameTokens = normalized(candidate.customerSurname).split(" ").filter(Boolean);
+  const storedFirstTokens = storedFirst.includes(" ") || storedFirst.includes("@")
+    ? []
+    : storedFirst.split(" ").filter(Boolean);
+  if (
+    storedFirstTokens.length > 0 &&
+    surnameTokens.slice(0, storedFirstTokens.length).join(" ") === storedFirstTokens.join(" ")
+  ) {
+    surnameTokens = surnameTokens.slice(storedFirstTokens.length);
+  }
+  if (surnameTokens.at(-1)?.length === 1) surnameTokens = surnameTokens.slice(0, -1);
+  if (!surnameTokens.length || surnameTokens.join(" ") !== sourceSurname) return false;
+
+  const emailLocal = (candidate.customerEmail ?? candidate.customerFirstName ?? "")
+    .split("@", 1)[0]
+    .replace(/\d+$/g, "");
+  const candidateFirst = normalized(candidate.customerFirstName?.includes("@") ? emailLocal : candidate.customerFirstName)
+    .split(" ")[0];
+  return candidateFirst === sourceFirst || (
+    candidateFirst.startsWith(sourceFirst) && candidateFirst.length - sourceFirst.length <= 2
+  );
 }
 
 function findMatch(
@@ -381,6 +442,16 @@ function findMatch(
     if (phoneMatches.length === 1) {
       return { booking: phoneMatches[0], confidence: "high" as const, reason: "Mobile and performance date" };
     }
+  }
+  const importedIdentityMatchesForShow = candidates.filter((candidate) =>
+    importedIdentityMatches(source, candidate)
+  );
+  if (importedIdentityMatchesForShow.length === 1) {
+    return {
+      booking: importedIdentityMatchesForShow[0],
+      confidence: "high" as const,
+      reason: "Unique imported identity, performance, pax and zone",
+    };
   }
   const identity = normalized(source.company || source.guestName);
   const possible = candidates.filter(

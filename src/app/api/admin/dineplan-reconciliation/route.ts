@@ -122,7 +122,7 @@ async function loadReconciliationBookings(
 
   const { data: bookingRows, error: bookingError } = await serviceClient
     .from("bookings")
-    .select("id,booking_reference,booking_origin,booking_source,corporate_request_id,booking_status,payment_status,company_name,customer_id,guest_count,section,total_amount,amount_paid,balance_outstanding,created_at,updated_at,provenance_recorded_at,archived_at,customers(first_name,surname,mobile)")
+    .select("id,booking_reference,booking_origin,booking_source,corporate_request_id,booking_status,payment_status,company_name,customer_id,guest_count,section,total_amount,amount_paid,balance_outstanding,created_at,updated_at,provenance_recorded_at,archived_at,customers(first_name,surname,email,mobile)")
     .eq("show_id", showId);
   if (bookingError) throw bookingError;
   const ids = (bookingRows ?? []).map((booking) => booking.id);
@@ -203,7 +203,10 @@ async function loadReconciliationBookings(
         corporateRequestId: row.corporate_request_id,
       }) ? "corporate" : "standard",
       company: row.company_name,
+      customerEmail: typeof customer?.email === "string" ? customer.email : null,
+      customerFirstName: typeof customer?.first_name === "string" ? customer.first_name : null,
       customerName: [customer?.first_name, customer?.surname].filter(Boolean).join(" ") || row.company_name || "Imported Guest",
+      customerSurname: typeof customer?.surname === "string" ? customer.surname : null,
       id: row.id,
       importedAt,
       mobile: typeof customer?.mobile === "string" ? customer.mobile : null,

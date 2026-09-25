@@ -227,4 +227,7 @@ test("operational actions are compact and full evidence is bounded", () => {
   assert.match(component, /Search evidence/);
   assert.match(component, /Comparison Rows/);
   assert.match(component, /Capacity impact not yet established/);
+  assert.match(component, /Associated with Zingara/);
+  assert.match(component, /Floor assignment readiness is monitored separately/);
+  assert.doesNotMatch(component, /explainedByRows\.map/);
 });
