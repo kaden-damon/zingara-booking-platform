@@ -10,6 +10,10 @@ import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 import { syncDineplanReconciliationActions } from "@/lib/dineplanActionStore";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
+  matchesDineplanPerformance,
+  type DineplanPerformanceMetadata,
+} from "@/lib/dineplanPerformanceCandidates";
+import {
   getRolePermissions,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
@@ -82,7 +86,7 @@ function changedFields(fields: unknown): ZingaraAuthoritativeChange["fields"] {
 
 async function candidateShows(
   serviceClient: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]>,
-  snapshot: Pick<DineplanSnapshot, "performanceDate" | "performanceTime" | "venue">,
+  snapshot: DineplanPerformanceMetadata,
   venueScope: string[],
 ) {
   if (!snapshot.performanceDate) return [];
@@ -97,7 +101,11 @@ async function candidateShows(
   }
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []).filter((show) => canAccessLocation(venueScope, show.venue));
+  return (data ?? []).filter(
+    (show) =>
+      canAccessLocation(venueScope, show.venue) &&
+      matchesDineplanPerformance(snapshot, show),
+  );
 }
 
 async function loadReconciliationBookings(
@@ -106,7 +114,7 @@ async function loadReconciliationBookings(
 ) {
   const { data: show, error: showError } = await serviceClient
     .from("shows")
-    .select("id,date,time,venue")
+    .select("id,date,time,venue,status")
     .eq("id", showId)
     .single();
   if (showError || !show) throw showError ?? new Error("Show not found.");
@@ -218,6 +226,24 @@ export async function GET(request: Request) {
   if (auth.error || !auth.staffProfile || !auth.serviceClient) return auth.error;
   if (!canReconcile(auth.staffProfile)) return forbidden();
   const url = new URL(request.url);
+  const snapshotId = url.searchParams.get("snapshotId")?.trim();
+  if (snapshotId) {
+    const { data: stored, error: storedError } = await auth.serviceClient
+      .from("dineplan_reconciliation_snapshots")
+      .select(snapshotSelect)
+      .eq("id", snapshotId)
+      .single();
+    if (storedError || !stored) {
+      return Response.json({ error: "The uploaded snapshot could not be found." }, { status: 404 });
+    }
+    if (!canAccessSnapshot(auth.staffProfile, stored)) return forbidden();
+    const shows = await candidateShows(auth.serviceClient, {
+      performanceDate: stored.performance_date,
+      performanceTime: stored.performance_time,
+      venue: stored.venue,
+    }, auth.staffProfile.venue_scope ?? []);
+    return Response.json({ shows });
+  }
   let query = auth.serviceClient
     .from("dineplan_reconciliation_snapshots")
     .select(snapshotSelect)
@@ -339,8 +365,12 @@ export async function POST(request: Request) {
     const { bookings, show } = await loadReconciliationBookings(auth.serviceClient, body.showId);
     const location = normalizeShowLocation(show.venue);
     if (!location || !canAccessLocation(auth.staffProfile.venue_scope ?? [], show.venue)) return forbidden();
-    if (stored.venue && stored.venue !== location) {
-      return Response.json({ error: "The uploaded snapshot venue does not match the selected performance." }, { status: 400 });
+    if (!matchesDineplanPerformance({
+      performanceDate: stored.performance_date,
+      performanceTime: stored.performance_time,
+      venue: stored.venue,
+    }, show)) {
+      return Response.json({ error: "The selected performance does not match the Dineplan snapshot." }, { status: 400 });
     }
     const snapshot: DineplanSnapshot = {
       checksum: stored.checksum,

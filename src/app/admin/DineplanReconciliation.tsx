@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 import type {
@@ -69,6 +69,25 @@ function formatTimestamp(value: string | null | undefined) {
   }).format(new Date(value));
 }
 
+function candidateShowLabel(show: CandidateShow) {
+  const venue = show.venue === "johannesburg"
+    ? "Johannesburg"
+    : show.venue === "cape-town"
+      ? "Cape Town"
+      : show.venue;
+  const date = new Intl.DateTimeFormat("en-ZA", {
+    day: "numeric",
+    month: "long",
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+  }).format(new Date(`${show.date}T12:00:00+02:00`));
+  const status = show.status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+  return `${venue} · ${date} · ${show.time.slice(0, 5)} · ${status}`;
+}
+
 async function uploadSnapshot(file: File) {
   const supabase = getSupabaseClient();
   const session = supabase ? await supabase.auth.getSession() : { data: { session: null } };
@@ -97,6 +116,17 @@ export default function DineplanReconciliation() {
   const [message, setMessage] = useState("");
   const [nextThirty, setNextThirty] = useState<Snapshot[] | null>(null);
   const [actionRefreshKey, setActionRefreshKey] = useState(0);
+  const candidateRequestRef = useRef(0);
+
+  function candidateMessage(candidates: CandidateShow[]) {
+    if (candidates.length === 0) {
+      return "No authoritative performance matches this snapshot. Check the detected venue, date and time.";
+    }
+    if (candidates.length === 1) {
+      return "One matching performance was found. Select it to confirm before running reconciliation.";
+    }
+    return `${candidates.length} matching performances were found. Select the correct performance before running reconciliation.`;
+  }
 
   async function loadSnapshots() {
     setBusy("loading");
@@ -121,15 +151,18 @@ export default function DineplanReconciliation() {
 
   async function onUpload(file: File | undefined) {
     if (!file) return;
+    candidateRequestRef.current += 1;
     setBusy("uploading");
     setError("");
     setMessage("");
+    setShows([]);
+    setShowId("");
     try {
       const payload = await uploadSnapshot(file);
       setSnapshot(payload.snapshot);
       setShows(payload.shows);
-      setShowId(payload.shows.length === 1 ? payload.shows[0].id : "");
-      setMessage(payload.duplicate ? "This exact snapshot was already uploaded. Its existing evidence was reopened." : "Snapshot parsed. Confirm the detected performance before comparing.");
+      setShowId("");
+      setMessage(`${payload.duplicate ? "This exact snapshot was already uploaded. Its existing evidence was reopened. " : "Snapshot parsed. "}${candidateMessage(payload.shows)}`);
       await loadSnapshots();
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "The export could not be uploaded.");
@@ -190,14 +223,32 @@ export default function DineplanReconciliation() {
     }
   }
 
-  function openSnapshot(snapshotId: string) {
+  async function openSnapshot(snapshotId: string) {
+    const requestId = candidateRequestRef.current + 1;
+    candidateRequestRef.current = requestId;
     const selected = snapshots.find((item) => item.id === snapshotId) ?? null;
     setSnapshot(selected);
     setShows([]);
-    setShowId(selected?.show_id ?? "");
+    setShowId("");
     setFilter("all");
     setError("");
-    setMessage(selected?.status === "preview" ? "Re-upload this source file to confirm its performance and run the comparison." : "");
+    setMessage("");
+    if (!selected || selected.status !== "preview") return;
+    setBusy("loading");
+    try {
+      const payload = await fetchSupabaseApi<{ shows: CandidateShow[] }>(
+        `/api/admin/dineplan-reconciliation?snapshotId=${encodeURIComponent(selected.id)}`,
+        { cache: "no-store" },
+      );
+      if (candidateRequestRef.current !== requestId) return;
+      setShows(payload.shows);
+      setMessage(candidateMessage(payload.shows));
+    } catch (candidateError) {
+      if (candidateRequestRef.current !== requestId) return;
+      setError(candidateError instanceof Error ? candidateError.message : "Matching performances could not be loaded.");
+    } finally {
+      if (candidateRequestRef.current === requestId) setBusy("");
+    }
   }
 
   const reconciliation = snapshot?.reconciliation_results ?? null;
@@ -240,7 +291,7 @@ export default function DineplanReconciliation() {
           {snapshots.length > 0 && (
             <label className="min-w-56 text-xs font-semibold uppercase text-zinc-400">
               Recent snapshot
-              <select value={snapshot?.id ?? ""} onChange={(event) => openSnapshot(event.target.value)} className="mt-2 w-full border border-zinc-700 bg-black px-3 py-2 text-sm normal-case text-white">
+              <select value={snapshot?.id ?? ""} onChange={(event) => { void openSnapshot(event.target.value); }} className="mt-2 w-full border border-zinc-700 bg-black px-3 py-2 text-sm normal-case text-white">
                 <option value="">Select a snapshot</option>
                 {snapshots.map((item) => <option key={item.id} value={item.id}>{item.performance_date ?? "Unconfirmed"} · {item.original_filename}</option>)}
               </select>
@@ -288,9 +339,9 @@ export default function DineplanReconciliation() {
           {snapshot.status === "preview" && (
             <div className="flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-end">
               <label className="flex-1 text-xs font-semibold uppercase text-zinc-400">Confirm performance
-                <select value={showId} onChange={(event) => setShowId(event.target.value)} className="mt-2 w-full border border-zinc-700 bg-black px-3 py-3 text-sm normal-case text-white">
+                <select value={showId} onChange={(event) => setShowId(event.target.value)} disabled={busy === "loading"} className="mt-2 w-full border border-zinc-700 bg-black px-3 py-3 text-sm normal-case text-white disabled:opacity-50">
                   <option value="">Select the detected Zingara performance</option>
-                  {shows.map((show) => <option key={show.id} value={show.id}>{show.venue} · {show.date} · {show.time} · {show.status}</option>)}
+                  {shows.map((show) => <option key={show.id} value={show.id}>{candidateShowLabel(show)}</option>)}
                 </select>
               </label>
               <button type="button" onClick={() => void runReconciliation()} disabled={!showId || Boolean(busy)} className="bg-[#D8C36A] px-5 py-3 text-xs font-semibold uppercase tracking-[0.1em] text-black disabled:cursor-not-allowed disabled:opacity-40">

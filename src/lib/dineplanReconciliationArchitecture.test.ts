@@ -74,6 +74,13 @@ test("performance candidates stay bounded and duplicate previews refresh metadat
   assert.match(route, /source_generated_at: snapshot\.generatedAt/);
   assert.match(route, /performance_date: snapshot\.performanceDate/);
   assert.match(route, /return Response\.json\(\{ duplicate: true, shows, snapshot: resolvedSnapshot \}\)/);
+  assert.match(route, /searchParams\.get\("snapshotId"\)/);
+  assert.match(route, /matchesDineplanPerformance/);
+  assert.match(component, /setShowId\(""\)/);
+  assert.doesNotMatch(component, /payload\.shows\.length === 1 \? payload\.shows\[0\]\.id/);
+  assert.match(component, /One matching performance was found\. Select it to confirm/);
+  assert.match(component, /Johannesburg/);
+  assert.match(component, /show\.time\.slice\(0, 5\)/);
   assert.match(route, /action !== "reconcile" \|\| !body\.snapshotId \|\| !body\.showId/);
 });
 
