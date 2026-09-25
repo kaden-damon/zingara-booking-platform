@@ -66,6 +66,17 @@ test("snapshots are private, bounded and deduplicated by checksum", () => {
   assert.doesNotMatch(migration, /storage\.buckets|storage_path|binary|bytea/i);
 });
 
+test("performance candidates stay bounded and duplicate previews refresh metadata only", () => {
+  assert.match(route, /\.eq\("date", snapshot\.performanceDate\)/);
+  assert.match(route, /query = query\.eq\("time", snapshot\.performanceTime\)/);
+  assert.match(route, /query = query\.ilike\("venue"/);
+  assert.match(route, /existing\.status === "preview"/);
+  assert.match(route, /source_generated_at: snapshot\.generatedAt/);
+  assert.match(route, /performance_date: snapshot\.performanceDate/);
+  assert.match(route, /return Response\.json\(\{ duplicate: true, shows, snapshot: resolvedSnapshot \}\)/);
+  assert.match(route, /action !== "reconcile" \|\| !body\.snapshotId \|\| !body\.showId/);
+});
+
 test("review metadata is isolated from booking lifecycle and the System tab is lazy", () => {
   assert.match(migration, /dineplan_reconciliation_reviews/);
   assert.match(component, /Authoritative booking data remains unchanged/);

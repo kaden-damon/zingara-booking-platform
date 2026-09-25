@@ -263,7 +263,29 @@ export async function POST(request: Request) {
         .maybeSingle();
       if (existing) {
         if (!canAccessSnapshot(auth.staffProfile, existing)) return forbidden();
-        return Response.json({ duplicate: true, shows, snapshot: existing });
+        let resolvedSnapshot = existing;
+        if (existing.status === "preview") {
+          const metadata = {
+            covers: snapshot.covers,
+            performance_date: snapshot.performanceDate ?? existing.performance_date,
+            performance_time: snapshot.performanceTime ?? existing.performance_time,
+            reservation_count: snapshot.reservations.length,
+            source_generated_at: snapshot.generatedAt ?? existing.source_generated_at,
+            venue: snapshot.venue ?? existing.venue,
+          };
+          const { data: refreshed, error: refreshError } = await auth.serviceClient
+            .from("dineplan_reconciliation_snapshots")
+            .update(metadata)
+            .eq("id", existing.id)
+            .eq("status", "preview")
+            .select(snapshotSelect)
+            .single();
+          if (refreshError || !refreshed) {
+            throw refreshError ?? new Error("The existing snapshot metadata could not be refreshed.");
+          }
+          resolvedSnapshot = refreshed;
+        }
+        return Response.json({ duplicate: true, shows, snapshot: resolvedSnapshot });
       }
       const { data, error } = await auth.serviceClient
         .from("dineplan_reconciliation_snapshots")
