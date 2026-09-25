@@ -213,6 +213,11 @@ test("parser-version evidence is immutable and low-confidence reconciliation fai
   assert.match(component, /No operational actions or reminders were generated/);
 });
 
+test("historical snapshots without trust metadata remain readable", () => {
+  assert.match(component, /quality\?: \{/);
+  assert.match(component, /reconciliation\.quality && !reconciliation\.quality\.trusted/);
+});
+
 test("operational actions are compact and full evidence is bounded", () => {
   assert.match(actionCentre, /useState<ActionFilter>\("current"\)/);
   assert.match(actionCentre, /actions require attention/);

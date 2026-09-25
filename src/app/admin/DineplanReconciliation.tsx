@@ -46,7 +46,7 @@ type Reconciliation = {
     zingaraEntitlement: number;
   };
   counts: Record<string, number>;
-  quality: {
+  quality?: {
     deterministicMatches: number;
     reasons: string[];
     status: "review_required" | "trusted";
@@ -373,7 +373,7 @@ export default function DineplanReconciliation() {
 
       {reconciliation && (
         <>
-          {!reconciliation.quality.trusted && <div role="alert" className="border border-amber-300/40 bg-amber-950/20 p-4 text-sm text-amber-100"><strong className="block uppercase">Reconciliation Needs Review</strong><span className="mt-1 block">The Dineplan source could not be reconciled with sufficient confidence. No operational actions or reminders were generated.</span>{reconciliation.quality.reasons.map((reason) => <span key={reason} className="mt-1 block text-xs text-amber-200/80">{reason}</span>)}</div>}
+          {reconciliation.quality && !reconciliation.quality.trusted && <div role="alert" className="border border-amber-300/40 bg-amber-950/20 p-4 text-sm text-amber-100"><strong className="block uppercase">Reconciliation Needs Review</strong><span className="mt-1 block">The Dineplan source could not be reconciled with sufficient confidence. No operational actions or reminders were generated.</span>{reconciliation.quality.reasons.map((reason) => <span key={reason} className="mt-1 block text-xs text-amber-200/80">{reason}</span>)}</div>}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {[
               ["Dineplan Reservations", snapshot?.reservation_count ?? 0],
