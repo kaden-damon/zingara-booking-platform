@@ -10790,6 +10790,12 @@ export default function AdminDashboardPage() {
   const [compBookingReference, setCompBookingReference] = useState("");
   const [isCompBookingProcessing, setIsCompBookingProcessing] =
     useState(false);
+  const [markPaidConfirmation, setMarkPaidConfirmation] = useState<{
+    idempotencyKey: string;
+    reason: string;
+    reference: string;
+  } | null>(null);
+  const [isMarkPaidProcessing, setIsMarkPaidProcessing] = useState(false);
   const [refundBookingReference, setRefundBookingReference] = useState("");
   const [isRefundBookingProcessing, setIsRefundBookingProcessing] =
     useState(false);
@@ -18457,6 +18463,139 @@ export default function AdminDashboardPage() {
       console.error("[Zingara Admin] Payment update failed", error);
       setBookings(await getBookings());
       showWorkflowToast("⚠ Booking update could not be saved.");
+    }
+  }
+
+  function openMarkPaidConfirmation(booking: DemoBooking) {
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      if (isBookingReadOnly(booking.reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
+      return;
+    }
+
+    const financials = getBookingFinancials(booking);
+    if (
+      financials.paymentStatus === "fully-paid" ||
+      calculateOutstandingAmount(
+        financials.totalPrice,
+        financials.amountPaid,
+      ) <= 0
+    ) {
+      showStaffGuidance(
+        resolveStaffActionGuidance(
+          { code: "BOOKING_ALREADY_PAID", message: "This booking is already fully paid." },
+          {
+            action: {
+              label: "Open Payment Controls",
+              target: {
+                bookingReference: booking.reference,
+                destination: "payment-controls",
+              },
+            },
+            message: "No additional manual payment was recorded.",
+            status: "blocked",
+            title: "Booking already paid",
+          },
+        ),
+      );
+      return;
+    }
+
+    setMarkPaidConfirmation({
+      idempotencyKey:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `mark-paid-${booking.reference}-${Date.now()}`,
+      reason: "",
+      reference: booking.reference,
+    });
+  }
+
+  function closeMarkPaidConfirmation() {
+    if (!isMarkPaidProcessing) {
+      setMarkPaidConfirmation(null);
+    }
+  }
+
+  async function confirmMarkPaid() {
+    if (!markPaidConfirmation || isMarkPaidProcessing) return;
+
+    const booking = bookings.find(
+      (candidate) => candidate.reference === markPaidConfirmation.reference,
+    );
+    const reason = markPaidConfirmation.reason.trim();
+    if (!booking?.updatedAt || reason.length < 3) return;
+
+    setIsMarkPaidProcessing(true);
+    try {
+      const response = await fetchSupabaseApi<{
+        message: string;
+        result: {
+          amount_paid: number;
+          balance_outstanding: number;
+          booking_status: string;
+          idempotent: boolean;
+          payment_status: string;
+          updated_at: string;
+        };
+      }>("/api/admin/bookings/mark-paid", {
+        body: {
+          bookingReference: booking.reference,
+          expectedUpdatedAt: booking.updatedAt,
+          idempotencyKey: markPaidConfirmation.idempotencyKey,
+          reason,
+        },
+        method: "POST",
+      });
+
+      const [authoritativeBookings, authoritativePayments] = await Promise.all([
+        getBookings(),
+        getPayments(),
+      ]);
+      setBookings(authoritativeBookings);
+      setPaymentRows(authoritativePayments);
+      setMarkPaidConfirmation(null);
+      showWorkflowToast(`✓ ${response.message}`);
+
+      const [guestPushResult, staffPushResult] = await Promise.all([
+        sendZingaraGuestPushNotification("payment-received", {
+          bookingReference: booking.reference,
+        }),
+        sendZingaraStaffPushNotification("payment-received", {
+          bookingReference: booking.reference,
+        }),
+      ]);
+      if (!guestPushResult.ok && !staffPushResult.ok) {
+        showWorkflowToast(
+          `✓ ${response.message} No active push subscription is available.`,
+        );
+      }
+    } catch (error) {
+      console.error("[Zingara Admin] Atomic Mark Paid failed", error);
+      const [authoritativeBookings, authoritativePayments] = await Promise.all([
+        getBookings(),
+        getPayments(),
+      ]);
+      setBookings(authoritativeBookings);
+      setPaymentRows(authoritativePayments);
+      showStaffGuidance(
+        resolveStaffActionGuidance(error, {
+          action: {
+            label: "Open Payment Controls",
+            target: {
+              bookingReference: booking.reference,
+              destination: "payment-controls",
+            },
+          },
+          message: "No partial financial change was retained.",
+          nextStep: "Review the latest payment state and retry only if the balance is still outstanding.",
+          status: "error",
+          title: "Booking was not marked paid",
+        }),
+      );
+    } finally {
+      setIsMarkPaidProcessing(false);
     }
   }
 
@@ -29785,6 +29924,99 @@ export default function AdminDashboardPage() {
                       {isCancellingBooking
                         ? "Cancelling..."
                         : "Confirm Cancellation"}
+                    </button>
+                  </div>
+                </section>
+              </div>
+            );
+          })()}
+
+        {markPaidConfirmation &&
+          (() => {
+            const markPaidBooking = bookings.find(
+              (booking) => booking.reference === markPaidConfirmation.reference,
+            );
+            const markPaidFinancials = markPaidBooking
+              ? getBookingFinancials(markPaidBooking)
+              : null;
+
+            return (
+              <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
+                <section className="w-full max-w-xl rounded-[2rem] border border-emerald-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-200">
+                    Record Manual Full Payment
+                  </p>
+                  <h2 className="mt-3 text-2xl font-bold">
+                    {markPaidBooking?.customer.name ?? "Mark Booking Paid"}
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-zinc-300">
+                    Use this only when the full outstanding balance was received
+                    outside the normal PayFast confirmation flow. The payment is
+                    recorded only after the authoritative transaction commits.
+                  </p>
+                  {markPaidBooking && markPaidFinancials && (
+                    <div className="mt-4 grid gap-3 rounded-2xl border border-white/10 bg-black/35 p-4 text-sm sm:grid-cols-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Booking</p>
+                        <p className="mt-1 font-semibold text-white">{markPaidBooking.reference}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Outstanding</p>
+                        <p className="mt-1 font-semibold text-white">
+                          {formatCurrency(
+                            calculateOutstandingAmount(
+                              markPaidFinancials.totalPrice,
+                              markPaidFinancials.amountPaid,
+                            ),
+                          )}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Method</p>
+                        <p className="mt-1 font-semibold text-white">Manual / EFT</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <label className="mt-5 block">
+                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Payment evidence / reason
+                    </span>
+                    <textarea
+                      value={markPaidConfirmation.reason}
+                      onChange={(event) =>
+                        setMarkPaidConfirmation((current) =>
+                          current ? { ...current, reason: event.target.value } : current,
+                        )
+                      }
+                      rows={3}
+                      disabled={isMarkPaidProcessing}
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Record the authorised EFT, invoice, cash or other manual payment evidence."
+                    />
+                  </label>
+
+                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={closeMarkPaidConfirmation}
+                      disabled={isMarkPaidProcessing}
+                      className="rounded-full border border-white/20 px-5 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void confirmMarkPaid()}
+                      disabled={
+                        isMarkPaidProcessing ||
+                        markPaidConfirmation.reason.trim().length < 3
+                      }
+                      className="rounded-full border border-emerald-300/45 bg-emerald-300 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isMarkPaidProcessing
+                        ? "Recording payment..."
+                        : "Confirm Mark Paid"}
                     </button>
                   </div>
                 </section>
@@ -44165,6 +44397,24 @@ export default function AdminDashboardPage() {
                                   ),
                                 )}
                               </p>
+                              <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl border border-white/10 bg-black/35 p-3 text-sm">
+                                <div>
+                                  <p className="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                                    Payment Status
+                                  </p>
+                                  <p className="mt-1 font-semibold text-white">
+                                    {paymentStatusLabels[financials.paymentStatus]}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                                    Booking Status
+                                  </p>
+                                  <p className="mt-1 font-semibold text-white">
+                                    {bookingStatusLabels[booking.status ?? "confirmed"]}
+                                  </p>
+                                </div>
+                              </div>
                               {bookingPayments
                                 .filter(
                                   (payment) =>
@@ -44328,15 +44578,21 @@ export default function AdminDashboardPage() {
                               )}
                               <button
                                 type="button"
-                                onClick={() =>
-                                  updateBookingPayment(
-                                    booking,
-                                    "fully-paid",
-                                  )
+                                onClick={() => openMarkPaidConfirmation(booking)}
+                                disabled={
+                                  isMarkPaidProcessing ||
+                                  financials.paymentStatus === "fully-paid" ||
+                                  calculateOutstandingAmount(
+                                    financials.totalPrice,
+                                    financials.amountPaid,
+                                  ) <= 0
                                 }
-                                className="rounded-full border border-emerald-300/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-emerald-100 transition hover:bg-emerald-300 hover:text-black"
+                                className="rounded-full border border-emerald-300/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-emerald-100 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                Mark Paid
+                                {isMarkPaidProcessing &&
+                                markPaidConfirmation?.reference === booking.reference
+                                  ? "Recording..."
+                                  : "Mark Paid"}
                               </button>
 	                              <button
 	                                type="button"

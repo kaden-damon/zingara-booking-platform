@@ -66,6 +66,28 @@ test("public capacity, table fit, and inactive show remain distinct", () => {
   );
 });
 
+test("Mark Paid outcomes explain already-settled and lifecycle-blocked bookings", () => {
+  const alreadyPaid = resolveStaffActionGuidance(
+    Object.assign(new Error("This booking is already fully paid."), {
+      code: "BOOKING_ALREADY_PAID",
+    }),
+    { message: "Failed.", title: "Failed" },
+  );
+  assert.equal(alreadyPaid.status, "blocked");
+  assert.equal(alreadyPaid.title, "Booking already paid");
+  assert.match(alreadyPaid.nextStep ?? "", /Payment Controls/);
+
+  const unavailable = resolveStaffActionGuidance(
+    Object.assign(new Error("This booking cannot be manually marked paid."), {
+      code: "MARK_PAID_NOT_ALLOWED",
+    }),
+    { message: "Failed.", title: "Failed" },
+  );
+  assert.equal(unavailable.status, "blocked");
+  assert.equal(unavailable.title, "Mark Paid is not available");
+  assert.match(unavailable.nextStep ?? "", /lifecycle and payment evidence/);
+});
+
 test("unknown outcomes and hostile accessors fall back without throwing", () => {
   const fallback = { message: "The action could not be completed.", title: "Action failed" };
   assert.deepEqual(resolveStaffActionGuidance(null, fallback), {

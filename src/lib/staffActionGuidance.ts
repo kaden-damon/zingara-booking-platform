@@ -151,6 +151,28 @@ export function resolveStaffActionGuidance(
       };
     }
 
+    if (/booking_already_paid|already fully paid/.test(searchable)) {
+      return {
+        ...fallback,
+        message: outcome.explanation || "This booking is already fully paid.",
+        nextStep: "Review Payment Controls before recording any further financial action.",
+        status: "blocked",
+        technicalCode: outcome.code ?? "BOOKING_ALREADY_PAID",
+        title: "Booking already paid",
+      };
+    }
+
+    if (/mark_paid_not_allowed|cannot be manually marked paid/.test(searchable)) {
+      return {
+        ...fallback,
+        message,
+        nextStep: "Review the booking lifecycle and payment evidence before choosing another action.",
+        status: "blocked",
+        technicalCode: outcome.code ?? "MARK_PAID_NOT_ALLOWED",
+        title: "Mark Paid is not available",
+      };
+    }
+
     if (/stale|changed before|refresh and retry|already claimed|not available/.test(searchable)) {
       return {
         ...fallback,
