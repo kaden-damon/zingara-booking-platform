@@ -19,17 +19,17 @@ function getBearerToken(request: Request) {
 }
 
 function isAuthorisedCronRequest(request: Request) {
-  const configuredSecret = (
-    process.env.WORKFLOW_CRON_SECRET ??
-    process.env.CRON_SECRET ??
-    ""
-  ).trim();
+  const configuredSecrets = [
+    process.env.CRON_SECRET,
+    process.env.WORKFLOW_CRON_SECRET,
+  ].flatMap((value) => value?.trim() ? [value.trim()] : []);
 
-  if (!configuredSecret) {
+  if (!configuredSecrets.length) {
     return false;
   }
 
-  return getBearerToken(request) === configuredSecret;
+  const bearerToken = getBearerToken(request);
+  return Boolean(bearerToken && configuredSecrets.includes(bearerToken));
 }
 
 function shouldRunDailyTelemetryCleanup() {

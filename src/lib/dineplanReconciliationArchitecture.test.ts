@@ -42,6 +42,10 @@ const digestWorkflow = readFileSync(
   new URL("./workflows/dineplanActionDigest.ts", import.meta.url),
   "utf8",
 );
+const digestTrigger = readFileSync(
+  new URL("./workflows/dineplanActionDigestTrigger.ts", import.meta.url),
+  "utf8",
+);
 const workflowRoute = readFileSync(
   new URL("../app/api/workflows/run/route.ts", import.meta.url),
   "utf8",
@@ -176,6 +180,30 @@ test("digest preview cannot send and scheduler reuses the existing hourly runner
   assert.match(workflowRoute, /runDineplanActionDigest/);
   assert.match(digestWorkflow, /sendZingaraEmail/);
   assert.match(smtp, /cc: cc \?\? undefined/);
+});
+
+test("trusted reconciliation triggers the first digest through the same claimed delivery path", () => {
+  assert.match(route, /triggerDineplanActionDigestAfterReconciliation/);
+  assert.match(route, /actionCount: actions\.length/);
+  assert.match(route, /runDigest: runDineplanActionDigest/);
+  assert.match(digestTrigger, /await input\.runDigest\(input\.client\)/);
+  assert.match(digestWorkflow, /claim_due_dineplan_reconciliation_actions/);
+  assert.match(migration, /last_notified_at <= now\(\) - make_interval/);
+  assert.match(migration, /for update skip locked/);
+});
+
+test("immediate digest fails closed for untrusted or empty reconciliations", () => {
+  assert.match(digestTrigger, /if \(!input\.trusted\)/);
+  assert.match(digestTrigger, /if \(input\.actionCount <= 0\)/);
+  assert.match(digestTrigger, /reason: "untrusted"/);
+  assert.match(digestTrigger, /reason: "no_actions"/);
+});
+
+test("Vercel cron authentication accepts the standard secret without weakening legacy support", () => {
+  assert.match(workflowRoute, /process\.env\.CRON_SECRET/);
+  assert.match(workflowRoute, /process\.env\.WORKFLOW_CRON_SECRET/);
+  assert.match(workflowRoute, /configuredSecrets\.includes\(bearerToken\)/);
+  assert.match(workflowRoute, /status: 401/);
 });
 
 test("hourly action job claims stored actions and never reruns reconciliation", () => {

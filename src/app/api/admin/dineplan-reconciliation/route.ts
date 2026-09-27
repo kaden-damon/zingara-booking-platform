@@ -8,6 +8,8 @@ import {
 } from "@/lib/dineplanReconciliation";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 import { syncDineplanReconciliationActions } from "@/lib/dineplanActionStore";
+import { runDineplanActionDigest } from "@/lib/workflows/dineplanActionDigest";
+import { triggerDineplanActionDigestAfterReconciliation } from "@/lib/workflows/dineplanActionDigestTrigger";
 import { deriveDineplanActionCandidates } from "@/lib/dineplanActions";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
@@ -412,9 +414,20 @@ export async function POST(request: Request) {
       .eq("id", body.snapshotId);
     if (updateError) throw updateError;
     let actionSyncStatus: "ready" | "unavailable" | "withheld" = trusted ? "ready" : "withheld";
+    let actionDigestStatus: Awaited<ReturnType<typeof triggerDineplanActionDigestAfterReconciliation>> = {
+      available: true,
+      delivered: false,
+      reason: trusted ? "no_actions" : "untrusted",
+    };
     if (trusted) {
       try {
-        await syncDineplanReconciliationActions(auth.serviceClient, actionInput);
+        const actions = await syncDineplanReconciliationActions(auth.serviceClient, actionInput);
+        actionDigestStatus = await triggerDineplanActionDigestAfterReconciliation({
+          actionCount: actions.length,
+          client: auth.serviceClient,
+          runDigest: runDineplanActionDigest,
+          trusted,
+        });
       } catch (actionError) {
         actionSyncStatus = "unavailable";
         console.error("[Dineplan Reconciliation] Action Centre sync failed", actionError);
@@ -431,7 +444,7 @@ export async function POST(request: Request) {
       request,
       sourceArea: "Dineplan Reconciliation",
     });
-    return Response.json({ actionSyncStatus, auditRecorded, comparedAt, reconciliation, show, snapshot: { ...stored, normalized_reservations: undefined, show_id: body.showId, status: trusted ? "reconciled" : "review_required", venue: location } });
+    return Response.json({ actionDigestStatus, actionSyncStatus, auditRecorded, comparedAt, reconciliation, show, snapshot: { ...stored, normalized_reservations: undefined, show_id: body.showId, status: trusted ? "reconciled" : "review_required", venue: location } });
   } catch (error) {
     console.error("[Dineplan Reconciliation] Comparison failed", error);
     return Response.json({ error: "The selected show could not be reconciled. No booking data was changed." }, { status: 500 });
