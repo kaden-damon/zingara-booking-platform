@@ -16,6 +16,10 @@ import {
   validateDineplanEmailSchedule,
   type DineplanActionRecord,
 } from "./dineplanActions.ts";
+import {
+  formatDineplanStaffState,
+  getDineplanStaffActionCopy,
+} from "./dineplanPresentation.ts";
 import type { DineplanReconciliationResult } from "./dineplanReconciliation.ts";
 import { createBrandedCustomerEmail } from "./email/customerEmail.ts";
 
@@ -283,12 +287,12 @@ test("normal digest subject contains unresolved count and single show", () => {
     now,
     settings: defaultDineplanActionSettings,
   });
-  assert.match(digest!.subject, /1 booking discrepancies \| JHB 03 Oct 2026/);
+  assert.match(digest!.subject, /1 booking needs attention \| JHB 03 Oct 2026/);
 });
 
-test("critical digest subject contains critical count and affected pax", () => {
+test("critical digest subject contains critical count and affected guests", () => {
   const digest = buildDineplanActionDigest({ actions: [action({ capacityImpact: 35 })], adminBaseUrl: "https://book.zingara.co.za", now, settings: defaultDineplanActionSettings });
-  assert.match(digest!.subject, /1 critical booking discrepancies \| 35 pax affected/);
+  assert.match(digest!.subject, /1 booking needs attention \| 35 guests affected/);
 });
 
 test("digest groups multiple actions and contains authenticated navigation only", () => {
@@ -299,8 +303,8 @@ test("digest groups multiple actions and contains authenticated navigation only"
     settings: defaultDineplanActionSettings,
   });
   assert.equal(digest!.unresolvedCount, 2);
-  assert.match(digest!.message, /OPEN BOOKING: https:\/\/book\.zingara\.co\.za\/admin\?section=bookings/);
-  assert.match(digest!.message, /ACKNOWLEDGE: https:\/\/book\.zingara\.co\.za\/admin\?section=platform-operations/);
+  assert.match(digest!.message, /Open in Zingara: https:\/\/book\.zingara\.co\.za\/admin\?section=bookings/);
+  assert.doesNotMatch(digest!.message, /ACKNOWLEDGE|Unacknowledged/i);
 });
 
 test("Action Digest renders inside the existing branded Zingara mailer", async () => {
@@ -311,19 +315,19 @@ test("Action Digest renders inside the existing branded Zingara mailer", async (
     settings: defaultDineplanActionSettings,
   });
   const branded = await createBrandedCustomerEmail({
-    ctaLabel: "REVIEW IN ZINGARA",
-    ctaUrl: "https://book.zingara.co.za/admin?section=platform-operations&tab=dineplan-actions",
-    heading: "Dineplan Action Digest",
+    heading: "Box Office Action Digest",
     html: digest!.html,
     includeAgePolicy: false,
+    includePrimaryCta: false,
     message: digest!.message,
     subject: digest!.subject,
   });
 
   assert.match(branded.html, /data-zingara-customer-email="true"/);
   assert.match(branded.html, /THE ROYAL COUNTESS/);
-  assert.match(branded.html, /Dineplan Action Digest/);
-  assert.match(branded.html, /REVIEW IN ZINGARA/);
+  assert.match(branded.html, /Box Office Action Digest/);
+  assert.match(branded.html, /OPEN IN ZINGARA/);
+  assert.doesNotMatch(branded.html, /ACKNOWLEDGE|Unacknowledged/i);
   assert.doesNotMatch(branded.html, /Age Restriction/);
 });
 
@@ -347,14 +351,14 @@ test("stale threshold and stale critical upload warning are explicit", () => {
   assert.equal(isDineplanSnapshotStale("2026-09-23T07:59:00Z", defaultDineplanActionSettings, now), true);
   assert.equal(isDineplanSnapshotStale("2026-09-24T07:30:00Z", defaultDineplanActionSettings, now), false);
   const digest = buildDineplanActionDigest({ actions: [action({ sourceGeneratedAt: "2026-09-23T07:00:00Z" })], adminBaseUrl: "https://book.zingara.co.za", now, settings: defaultDineplanActionSettings });
-  assert.match(digest!.message, /Upload a fresh Dineplan export/i);
+  assert.match(digest!.message, /Upload a new file/i);
 });
 
 test("critical action inside pre-show threshold triggers escalation", () => {
   const imminent = action({ performanceDate: "2026-09-24", performanceTime: "12:00" });
   assert.equal(isDineplanPreShowEscalation(imminent, defaultDineplanActionSettings, now), true);
   const digest = buildDineplanActionDigest({ actions: [imminent], adminBaseUrl: "https://book.zingara.co.za", now, settings: defaultDineplanActionSettings });
-  assert.match(digest!.subject, /remain for today's JHB show/);
+  assert.match(digest!.subject, /attention for today's JHB show/);
 });
 
 test("past-show operational actions stop reminders while financial review may continue", () => {
@@ -363,7 +367,14 @@ test("past-show operational actions stop reminders while financial review may co
   assert.equal(isDineplanReminderEligible({ ...past, actionKind: "verify_payment" }, defaultDineplanActionSettings, now), true);
 });
 
-test("acknowledged owner remains visible in digest", () => {
+test("historically acknowledged action remains eligible without acknowledgement copy", () => {
   const digest = buildDineplanActionDigest({ actions: [action({ acknowledgedByName: "Box Office User", status: "acknowledged" })], adminBaseUrl: "https://book.zingara.co.za", now, settings: defaultDineplanActionSettings });
-  assert.match(digest!.message, /BEING HANDLED BY Box Office User/);
+  assert.ok(digest);
+  assert.doesNotMatch(digest!.message, /acknowledge|unacknowledged|being handled/i);
+});
+
+test("staff presentation uses simple guest and booking language", () => {
+  assert.equal(formatDineplanStaffState("Confirmed · 18 pax · No authoritative match"), "Confirmed · 18 guests · No booking found");
+  assert.equal(getDineplanStaffActionCopy(action({ actionKind: "verify_pax" })), "Check the guest count and update the incorrect booking.");
+  assert.equal(getDineplanStaffActionCopy(action({ actionKind: "review_booking", zingaraState: "No authoritative match" })), "Check the Dineplan booking. If it's correct, create it in Zingara.");
 });

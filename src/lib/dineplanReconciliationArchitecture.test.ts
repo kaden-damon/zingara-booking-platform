@@ -99,7 +99,7 @@ test("performance candidates stay bounded and duplicate previews refresh metadat
   assert.match(route, /matchesDineplanPerformance/);
   assert.match(component, /setShowId\(""\)/);
   assert.doesNotMatch(component, /payload\.shows\.length === 1 \? payload\.shows\[0\]\.id/);
-  assert.match(component, /One matching performance was found\. Select it to confirm/);
+  assert.match(component, /File read successfully\. Select the matching performance to continue/);
   assert.match(component, /Johannesburg/);
   assert.match(component, /show\.time\.slice\(0, 5\)/);
   assert.match(route, /action !== "reconcile" \|\| !body\.snapshotId \|\| !body\.showId/);
@@ -107,7 +107,7 @@ test("performance candidates stay bounded and duplicate previews refresh metadat
 
 test("review metadata is isolated from booking lifecycle and the System tab is lazy", () => {
   assert.match(migration, /dineplan_reconciliation_reviews/);
-  assert.match(component, /Authoritative booking data remains unchanged/);
+  assert.match(component, /No booking details were changed/);
   assert.match(adminPage, /activeSystemTab === "dineplan"/);
   assert.doesNotMatch(adminPage, /refreshDineplan|loadDineplan/);
   assert.match(component, /\/admin\?section=bookings&booking=/);
@@ -117,7 +117,7 @@ test("review metadata is isolated from booking lifecycle and the System tab is l
 test("next 30 days aggregates only uploaded reconciliation snapshots", () => {
   assert.match(route, /searchParams\.get\("scope"\) === "next30"/);
   assert.match(route, /dineplan_reconciliation_snapshots/);
-  assert.match(component, /Uploaded and reconciled snapshots only/);
+  assert.match(component, /Uploaded and compared files only/);
   assert.doesNotMatch(component, /setInterval|EventSource|WebSocket/);
 });
 
@@ -255,17 +255,17 @@ test("parser-version evidence is immutable and low-confidence reconciliation fai
   assert.match(route, /reconciliation\.quality\.trusted/);
   assert.match(route, /actionSyncStatus[^;]+withheld/);
   assert.match(route, /if \(trusted\)[\s\S]+syncDineplanReconciliationActions/);
-  assert.match(component, /Reconciliation Needs Review/);
-  assert.match(component, /No operational actions or reminders were generated/);
+  assert.match(component, /We couldn't safely compare this file/);
+  assert.match(component, /No booking actions or reminders were created/);
 });
 
 test("failed snapshots are visibly separated from the trusted source driving actions", () => {
   assert.match(component, /selectedSnapshot=\{snapshot\}/);
-  assert.match(actionCentre, /Action source/);
+  assert.match(actionCentre, /Dineplan updated/);
   assert.match(actionCentre, /selectedSnapshot\?\.status === "review_required"/);
-  assert.match(actionCentre, /No actions or reminders were generated from this source/);
-  assert.match(actionCentre, /Previous trusted actions/);
-  assert.match(actionCentre, /not the selected failed snapshot/);
+  assert.match(actionCentre, /No booking actions were created from it/);
+  assert.match(actionCentre, /Earlier bookings that still need attention/);
+  assert.match(actionCentre, /last file that could be safely compared/);
   assert.doesNotMatch(actionCentre, /setInterval|polling/i);
 });
 
@@ -275,15 +275,23 @@ test("historical snapshots without trust metadata remain readable", () => {
 });
 
 test("operational actions are compact and full evidence is bounded", () => {
-  assert.match(actionCentre, /useState<ActionFilter>\("current"\)/);
-  assert.match(actionCentre, /actions require attention/);
+  assert.match(actionCentre, /Bookings that need attention/);
+  assert.match(actionCentre, /booking\$\{currentActions\.length === 1 \? " needs" : "s need"\} attention/);
   assert.match(actionCentre, /<details/);
-  assert.match(component, /View Full Reconciliation/);
+  assert.match(component, /View full comparison/);
   assert.match(component, /pageSize = 25/);
-  assert.match(component, /Search evidence/);
-  assert.match(component, /Comparison Rows/);
-  assert.match(component, /Capacity impact not yet established/);
-  assert.match(component, /Associated with Zingara/);
-  assert.match(component, /Floor assignment readiness is monitored separately/);
+  assert.match(component, />Search</);
+  assert.match(component, /Dineplan guests/);
+  assert.match(component, /Zingara guests/);
+  assert.match(component, /Table readiness is checked separately in Floor/);
   assert.doesNotMatch(component, /explainedByRows\.map/);
+});
+
+test("normal Dineplan workflow removes acknowledgement and technical copy", () => {
+  assert.doesNotMatch(actionCentre, />Acknowledge</i);
+  assert.doesNotMatch(actionCentre, />Unacknowledged</i);
+  assert.doesNotMatch(actionCentre, / pax(?:<|\s)/i);
+  assert.doesNotMatch(component, />No authoritative match</i);
+  assert.match(actionCentre, /Email & reminder settings/);
+  assert.match(actionCentre, /Advanced settings/);
 });

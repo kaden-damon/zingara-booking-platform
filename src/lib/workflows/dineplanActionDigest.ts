@@ -108,11 +108,10 @@ export async function runDineplanActionDigest(
       continue;
     }
     const branded = await createBrandedCustomerEmail({
-      ctaLabel: "REVIEW IN ZINGARA",
-      ctaUrl: `${productionAdminOrigin}/admin?section=platform-operations&system=dineplan`,
       heading: cohort.audience === "corporate" ? "Corporate Booking Action Digest" : "Box Office Action Digest",
       html: digest.html,
       includeAgePolicy: false,
+      includePrimaryCta: false,
       message: digest.message,
       subject: digest.subject,
     });

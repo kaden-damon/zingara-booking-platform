@@ -6,6 +6,10 @@ import type {
 } from "./dineplanReconciliation.ts";
 import { normalizeStaffVenueScope } from "./staffLocations.ts";
 import { createZingaraEmailCta } from "./email/customerEmail.ts";
+import {
+  formatDineplanStaffState,
+  getDineplanStaffActionCopy,
+} from "./dineplanPresentation.ts";
 
 export type DineplanActionKind =
   | "review_booking"
@@ -477,7 +481,6 @@ export function buildDineplanActionDigest(input: {
   if (!actions.length) return null;
   const criticalCount = actions.filter((action) => action.severity === "critical").length;
   const capacityPax = actions.filter((action) => action.severity === "critical").reduce((total, action) => total + action.capacityImpact, 0);
-  const acknowledged = actions.filter((action) => action.status === "acknowledged").length;
   const snapshots = actions.map((action) => action.sourceGeneratedAt).filter((value): value is string => Boolean(value)).sort();
   const latestSnapshot = snapshots.at(-1) ?? null;
   const stale = isDineplanSnapshotStale(latestSnapshot, input.settings, now);
@@ -486,38 +489,41 @@ export function buildDineplanActionDigest(input: {
   let subject: string;
   if (preShowEscalation) {
     const first = actions[0];
-    subject = `URGENT — ${actions.length} booking discrepancies remain for today's ${venueLabel(first.venue)} show${capacityPax > 0 ? ` | ${capacityPax} pax affected` : ""}`;
+    subject = `URGENT - ${actions.length} booking${actions.length === 1 ? " needs" : "s need"} attention for today's ${venueLabel(first.venue)} show${capacityPax > 0 ? ` | ${capacityPax} guests affected` : ""}`;
   } else if (criticalCount > 0) {
-    subject = `URGENT — Zingara: ${criticalCount} critical booking discrepancies${capacityPax > 0 ? ` | ${capacityPax} pax affected` : ""}`;
+    subject = `URGENT - ${criticalCount} booking${criticalCount === 1 ? " needs" : "s need"} attention${capacityPax > 0 ? ` | ${capacityPax} guests affected` : ""}`;
   } else if (showKeys.size === 1) {
     const first = actions[0];
-    subject = `Zingara Action Required: ${actions.length} booking discrepancies | ${venueLabel(first.venue)} ${formatDate(first.performanceDate)}`;
+    subject = `Zingara: ${actions.length} booking${actions.length === 1 ? " needs" : "s need"} attention | ${venueLabel(first.venue)} ${formatDate(first.performanceDate)}`;
   } else {
-    subject = `Zingara Action Required: ${actions.length} booking discrepancies | ${showKeys.size} shows`;
+    subject = `Zingara: ${actions.length} bookings need attention | ${showKeys.size} performances`;
   }
+  const first = actions[0];
+  const singleShow = showKeys.size === 1;
+  const performanceLine = singleShow
+    ? `${venueLabel(first.venue)} · ${formatDate(first.performanceDate)} · ${first.performanceTime?.slice(0, 5) ?? "Time not available"}`
+    : `${showKeys.size} performances`;
   const header = [
-    `${actions.length} BOOKINGS NEED ATTENTION`,
-    `${criticalCount} Critical · ${actions.length - acknowledged} Unacknowledged · ${acknowledged} Being Handled`,
-    `Last Dineplan snapshot: ${formatTimestamp(latestSnapshot)}`,
-    `Data age: ${dataAge(latestSnapshot, now)}`,
+    `${actions.length} booking${actions.length === 1 ? " needs" : "s need"} attention`,
+    performanceLine,
+    `Dineplan updated ${formatTimestamp(latestSnapshot)}`,
+    `Last updated ${dataAge(latestSnapshot, now)} ago`,
   ];
-  if (stale && criticalCount > 0) header.push("DINEPLAN SNAPSHOT MAY BE OUT OF DATE. Upload a fresh Dineplan export before making a source-dependent correction.");
+  if (stale && criticalCount > 0) header.push("The Dineplan file may be out of date. Upload a new file before making changes based on it.");
   const itemLines = actions.flatMap((action, index) => {
     const openBooking = action.bookingReference
       ? `${input.adminBaseUrl}/admin?section=bookings&booking=${encodeURIComponent(action.bookingReference)}`
       : `${input.adminBaseUrl}/admin?section=platform-operations&system=dineplan&action=${action.id}`;
-    const acknowledge = `${input.adminBaseUrl}/admin?section=platform-operations&system=dineplan&action=${action.id}`;
+    const actionCopy = getDineplanStaffActionCopy(action);
     return [
       "",
-      `${index + 1}. ${action.guestLabel} — ${action.pax} pax`,
-      `${venueLabel(action.venue)} · ${formatDate(action.performanceDate)} · ${action.zone ?? "Zone not stated"}`,
-      `Dineplan: ${action.dineplanState}`,
-      `Zingara: ${action.zingaraState}`,
-      action.capacityImpact > 0 ? `CAPACITY IMPACT: ${action.capacityImpact} pax currently consuming Zingara capacity` : null,
-      action.status === "acknowledged" ? `BEING HANDLED BY ${action.acknowledgedByName ?? "staff"}` : "BOX OFFICE ACTION REQUIRED",
-      `ACTION: ${action.manualAction}`,
-      `OPEN BOOKING: ${openBooking}`,
-      `ACKNOWLEDGE: ${acknowledge}`,
+      `${index + 1}. ${action.guestLabel} · ${action.pax} guests`,
+      `${action.zone ?? "Section not stated"}${action.bookingKind === "corporate" ? " · Corporate" : ""}`,
+      `Dineplan: ${formatDineplanStaffState(action.dineplanState)}`,
+      `Zingara: ${formatDineplanStaffState(action.zingaraState)}`,
+      action.capacityImpact > 0 ? `${action.capacityImpact} guests are currently booked in Zingara.` : null,
+      `Action: ${actionCopy}`,
+      `Open in Zingara: ${openBooking}`,
     ].filter((line): line is string => Boolean(line));
   });
   const message = [...header, ...itemLines].join("\n");
@@ -525,9 +531,9 @@ export function buildDineplanActionDigest(input: {
     const openBooking = action.bookingReference
       ? `${input.adminBaseUrl}/admin?section=bookings&booking=${encodeURIComponent(action.bookingReference)}`
       : `${input.adminBaseUrl}/admin?section=platform-operations&system=dineplan&action=${action.id}`;
-    const acknowledge = `${input.adminBaseUrl}/admin?section=platform-operations&system=dineplan&action=${action.id}`;
-    return `<li style="margin:0 0 20px"><strong>${escapeHtml(action.guestLabel)} — ${action.pax} pax${action.bookingKind === "corporate" ? " · Corporate" : ""}</strong><br>${venueLabel(action.venue)} · ${escapeHtml(formatDate(action.performanceDate))} · ${escapeHtml(action.zone ?? "Zone not stated")}<br>Dineplan: ${escapeHtml(action.dineplanState)}<br>Zingara: ${escapeHtml(action.zingaraState)}${action.capacityImpact > 0 ? `<br><strong>CAPACITY IMPACT: ${action.capacityImpact} pax</strong>` : ""}<br><strong>${action.status === "acknowledged" ? `BEING HANDLED BY ${escapeHtml(action.acknowledgedByName ?? "staff")}` : "BOX OFFICE ACTION REQUIRED"}</strong><br>ACTION: ${escapeHtml(action.manualAction)}<div style="margin-top:12px">${createZingaraEmailCta(action.bookingReference ? "OPEN BOOKING" : "REVIEW IN ZINGARA", openBooking)}</div><div style="margin-top:8px">${createZingaraEmailCta("ACKNOWLEDGE", acknowledge)}</div></li>`;
+    const actionCopy = getDineplanStaffActionCopy(action);
+    return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;margin:0 0 14px;border:1px solid #4f4525;border-radius:12px;background:#0e0c0a;"><tr><td style="padding:16px;"><div style="color:#fffaf0;font-size:16px;font-weight:700;line-height:1.4;">${escapeHtml(action.guestLabel)} · ${action.pax} guests${action.bookingKind === "corporate" ? " · Corporate" : ""}</div><div style="margin-top:4px;color:#a8a29e;font-size:13px;line-height:1.5;">${escapeHtml(action.zone ?? "Section not stated")}</div><div style="margin-top:14px;color:#d8c36a;font-size:11px;font-weight:700;letter-spacing:1px;">DINEPLAN</div><div style="margin-top:3px;color:#fffaf0;font-size:14px;line-height:1.5;">${escapeHtml(formatDineplanStaffState(action.dineplanState))}</div><div style="margin-top:11px;color:#d8c36a;font-size:11px;font-weight:700;letter-spacing:1px;">ZINGARA</div><div style="margin-top:3px;color:#fffaf0;font-size:14px;line-height:1.5;">${escapeHtml(formatDineplanStaffState(action.zingaraState))}</div>${action.capacityImpact > 0 ? `<div style="margin-top:11px;color:#fca5a5;font-size:13px;line-height:1.5;">${action.capacityImpact} guests are currently booked in Zingara.</div>` : ""}<div style="margin-top:14px;color:#d8c36a;font-size:11px;font-weight:700;letter-spacing:1px;">ACTION</div><div style="margin-top:3px;color:#fffaf0;font-size:14px;line-height:1.55;">${escapeHtml(actionCopy)}</div><table role="presentation" cellspacing="0" cellpadding="0" style="margin-top:14px;"><tr><td>${createZingaraEmailCta("OPEN IN ZINGARA", openBooking)}</td></tr></table></td></tr></table>`;
   }).join("");
-  const html = `<h2>${actions.length} BOOKINGS NEED ATTENTION</h2><p>${criticalCount} Critical · ${actions.length - acknowledged} Unacknowledged · ${acknowledged} Being Handled<br>Last Dineplan snapshot: ${escapeHtml(formatTimestamp(latestSnapshot))}<br>Data age: ${escapeHtml(dataAge(latestSnapshot, now))}</p>${stale && criticalCount > 0 ? "<p><strong>DINEPLAN SNAPSHOT MAY BE OUT OF DATE. Upload a fresh Dineplan export before making a source-dependent correction.</strong></p>" : ""}<ol>${htmlItems}</ol>`;
+  const html = `<p style="margin:0 0 18px;color:#fffaf0;font-size:15px;line-height:1.65;"><strong style="font-size:18px;">${actions.length} booking${actions.length === 1 ? " needs" : "s need"} attention</strong><br>${escapeHtml(performanceLine)}<br>Dineplan updated ${escapeHtml(formatTimestamp(latestSnapshot))}<br><span style="color:#a8a29e;">Last updated ${escapeHtml(dataAge(latestSnapshot, now))} ago</span></p>${stale && criticalCount > 0 ? '<p style="margin:0 0 16px;color:#fde68a;font-size:14px;line-height:1.6;"><strong>The Dineplan file may be out of date.</strong> Upload a new file before making changes based on it.</p>' : ""}${htmlItems}`;
   return { capacityPax, criticalCount, html, message, preShowEscalation, stale, subject, unresolvedCount: actions.length };
 }

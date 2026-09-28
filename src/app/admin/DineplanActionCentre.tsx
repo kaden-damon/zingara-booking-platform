@@ -7,8 +7,10 @@ import type {
   DineplanActionSettings,
   DineplanDigest,
 } from "@/lib/dineplanActions";
-
-type ActionFilter = "acknowledged" | "all" | "critical" | "current" | "no_action" | "resolved" | "unacknowledged";
+import {
+  formatDineplanStaffState,
+  getDineplanStaffActionCopy,
+} from "@/lib/dineplanPresentation";
 
 type StaffOption = { email: string; id: string; name: string };
 
@@ -71,13 +73,6 @@ function dataAge(value: string | null) {
   return `${hours} hour${hours === 1 ? "" : "s"}`;
 }
 
-function statusLabel(action: DineplanActionRecord) {
-  if (action.status === "acknowledged") return `Being handled${action.acknowledgedByName ? ` by ${action.acknowledgedByName}` : ""}`;
-  if (action.status === "no_action") return "No Action Required";
-  if (action.status === "resolved") return "Resolved by Reconciliation";
-  return "Unacknowledged";
-}
-
 export default function DineplanActionCentre({
   refreshKey,
   selectedSnapshot,
@@ -86,7 +81,6 @@ export default function DineplanActionCentre({
   selectedSnapshot: SelectedSnapshot | null;
 }) {
   const [payload, setPayload] = useState<ActionCentrePayload | null>(null);
-  const [filter, setFilter] = useState<ActionFilter>("current");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
@@ -105,26 +99,12 @@ export default function DineplanActionCentre({
 
   useEffect(() => { void load(); }, [refreshKey]);
 
-  const counts = useMemo(() => {
-    const actions = payload?.actions ?? [];
-    return {
-      acknowledged: actions.filter((action) => action.status === "acknowledged").length,
-      critical: actions.filter((action) => action.severity === "critical" && ["acknowledged", "unacknowledged"].includes(action.status)).length,
-      no_action: actions.filter((action) => action.status === "no_action").length,
-      resolved: actions.filter((action) => action.status === "resolved").length,
-      unacknowledged: actions.filter((action) => action.status === "unacknowledged").length,
-    };
-  }, [payload]);
-  const visible = useMemo(() => {
-    const actions = payload?.actions ?? [];
-    return actions
-      .filter((action) => filter === "all" ? true : filter === "current" ? ["acknowledged", "unacknowledged"].includes(action.status) : filter === "critical" ? action.severity === "critical" && ["acknowledged", "unacknowledged"].includes(action.status) : action.status === filter)
-      .sort((left, right) => {
-        const leftOpen = ["acknowledged", "unacknowledged"].includes(left.status) ? 0 : 1;
-        const rightOpen = ["acknowledged", "unacknowledged"].includes(right.status) ? 0 : 1;
-        return leftOpen - rightOpen || (left.severity === "critical" ? -1 : 1) - (right.severity === "critical" ? -1 : 1) || Date.parse(right.lastDetectedAt) - Date.parse(left.lastDetectedAt);
-      });
-  }, [filter, payload]);
+  const currentActions = useMemo(() => (payload?.actions ?? [])
+    .filter((action) => ["acknowledged", "unacknowledged"].includes(action.status))
+    .sort((left, right) => (left.severity === "critical" ? -1 : 1) - (right.severity === "critical" ? -1 : 1) || Date.parse(right.lastDetectedAt) - Date.parse(left.lastDetectedAt)), [payload]);
+  const pastActions = useMemo(() => (payload?.actions ?? [])
+    .filter((action) => ["no_action", "resolved"].includes(action.status))
+    .sort((left, right) => Date.parse(right.lastDetectedAt) - Date.parse(left.lastDetectedAt)), [payload]);
   const actionSources = useMemo(() => {
     const sources = new Map<string, DineplanActionRecord>();
     for (const action of payload?.actions ?? []) {
@@ -140,15 +120,15 @@ export default function DineplanActionCentre({
     selectedSnapshot && actionSources.some((source) => source.snapshotId === selectedSnapshot.id),
   );
 
-  async function updateAction(actionId: string, action: "acknowledge" | "no_action") {
+  async function recordNoAction(actionId: string) {
     setBusy(actionId);
     setError("");
     try {
       await fetchSupabaseApi("/api/admin/dineplan-reconciliation/actions", {
-        body: { action, actionId, note: notes[actionId] ?? "" },
+        body: { action: "no_action", actionId, note: notes[actionId] ?? "" },
         method: "PATCH",
       });
-      setMessage(action === "acknowledge" ? "Action acknowledged. It remains unresolved until a later snapshot verifies the correction." : "No Action Required recorded with an immutable reason.");
+      setMessage("No action required was recorded with the reason supplied.");
       await load();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "The action could not be updated.");
@@ -188,107 +168,78 @@ export default function DineplanActionCentre({
     }
   }
 
-  if (!payload && !error) return <div className="border-y border-white/10 py-5 text-sm text-zinc-400">Loading Action Centre...</div>;
+  if (!payload && !error) return <div className="rounded-xl border border-white/10 bg-black/25 p-5 text-sm text-zinc-400">Loading bookings that need attention...</div>;
 
   return (
-    <section className="space-y-5 border-y border-[#D8C36A]/25 py-6">
+    <section className="space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">Action Centre</p>
-          <h3 className="mt-1 text-xl font-semibold text-white">Box Office Action Digest</h3>
-          <p className="mt-1 text-lg font-semibold text-white">{counts.unacknowledged + counts.acknowledged} actions require attention</p>
-          <p className="text-sm text-zinc-400">{counts.critical} Critical · {counts.unacknowledged} Need Attention · {counts.acknowledged} Being Handled</p>
-          <p className="mt-2 text-xs font-semibold uppercase text-zinc-500">Action source</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">Bookings that need attention</p>
+          <h3 className="mt-1 text-xl font-semibold text-white">{currentActions.length ? `${currentActions.length} booking${currentActions.length === 1 ? " needs" : "s need"} attention` : "Everything matches"}</h3>
           {actionSources.length ? actionSources.map((source) => (
             <p key={source.snapshotId} className="mt-1 text-sm text-zinc-300">
-              {venueLabel(source.venue)} · {formatPerformanceDate(source.performanceDate)} · {source.performanceTime?.slice(0, 5) ?? "Time not detected"} · generated {formatTimestamp(source.sourceGeneratedAt)}
+              {venueLabel(source.venue)} · {formatPerformanceDate(source.performanceDate)} · {source.performanceTime?.slice(0, 5) ?? "Time not available"} · Dineplan updated {formatTimestamp(source.sourceGeneratedAt)}
             </p>
-          )) : <p className="mt-1 text-sm text-zinc-400">No unresolved actions currently have a trusted source.</p>}
-          <p className="mt-1 text-xs text-zinc-500">Latest trusted source age: {dataAge(payload?.latestSource ?? null)}</p>
-          <p className="mt-3 text-xs font-semibold uppercase text-zinc-500">Scheduled emails</p>
-          <p className="mt-1 text-sm text-zinc-300">
-            {payload?.settings.scheduledEmailsEnabled ? "ON" : "OFF"} · Morning {payload?.settings.morningEmailTime} · Midday {payload?.settings.middayEmailTime} · Final {payload?.settings.finalEmailTime} · SAST
-          </p>
-          <p className="mt-1 text-xs text-zinc-500">
-            Last scheduled check: {formatTimestamp(payload?.scheduleStatus.lastScheduledCheckAt ?? null)}
-            {payload?.scheduleStatus.lastResult ? ` · ${payload.scheduleStatus.lastResult.replaceAll("_", " ")}` : ""}
-          </p>
-          <p className="mt-1 text-xs text-zinc-500">
-            Last successful digest/upload reminder: {formatTimestamp(payload?.scheduleStatus.lastSuccessfulDeliveryAt ?? null)}
-          </p>
+          )) : <p className="mt-1 text-sm text-zinc-400">Upload the latest Dineplan PDF to check this performance.</p>}
+          {payload?.latestSource && <p className="mt-1 text-xs text-zinc-500">File age: {dataAge(payload.latestSource)}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => document.getElementById("dineplan-export-upload")?.click()} className="border border-[#D8C36A]/40 px-3 py-2 text-xs font-semibold uppercase text-[#F2D66C]">Upload Fresh Snapshot</button>
-          <button type="button" onClick={() => void loadPreview()} disabled={busy === "preview"} className="border border-white/20 px-3 py-2 text-xs font-semibold uppercase text-white disabled:opacity-50">{busy === "preview" ? "Preparing..." : "Preview Action Digest"}</button>
+          <button type="button" onClick={() => document.getElementById("dineplan-export-upload")?.click()} className="min-h-11 rounded-full bg-[#D8C36A] px-5 py-2.5 text-xs font-bold uppercase tracking-[0.08em] text-black transition hover:bg-[#F2D66C]">Upload new file</button>
+          <button type="button" onClick={() => void loadPreview()} disabled={busy === "preview"} className="min-h-11 rounded-full border border-white/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-white transition hover:border-[#D8C36A]/60 disabled:opacity-50">{busy === "preview" ? "Preparing..." : "Preview email"}</button>
         </div>
       </div>
 
       {selectedSnapshot?.status === "review_required" && !selectedSnapshotDrivesActions && (
-        <div role="alert" className="border border-amber-300/40 bg-amber-950/20 p-4 text-sm text-amber-100">
-          <strong className="block uppercase">{formatPerformanceDate(selectedSnapshot.performance_date)} reconciliation needs review</strong>
-          <span className="mt-1 block">No actions or reminders were generated from this source.</span>
+        <div role="alert" className="rounded-xl border border-amber-300/30 bg-amber-950/20 p-4 text-sm text-amber-100">
+          <strong className="block">We couldn't safely compare this file</strong>
+          <span className="mt-1 block">Review the {formatPerformanceDate(selectedSnapshot.performance_date)} file or upload a new one. No booking actions were created from it.</span>
           {actionSources.length > 0 && (
             <>
-              <strong className="mt-4 block text-xs uppercase text-[#F2D66C]">Previous trusted actions</strong>
-              <span className="mt-1 block text-zinc-200">The actions below are from the trusted action source shown above, not the selected failed snapshot.</span>
+              <strong className="mt-3 block text-xs uppercase text-[#F2D66C]">Earlier bookings that still need attention</strong>
+              <span className="mt-1 block text-zinc-200">The bookings below come from the last file that could be safely compared.</span>
             </>
           )}
         </div>
       )}
 
-      {payload?.snapshotStale && <div role="alert" className="border border-amber-300/30 bg-amber-950/20 p-4 text-sm text-amber-100"><strong>Dineplan snapshot may be out of date.</strong> Upload a fresh export before making a source-dependent correction.</div>}
-      {error && <div role="alert" className="border border-red-300/30 bg-red-950/25 p-4 text-sm text-red-100">{error}</div>}
-      {message && <div role="status" className="border border-emerald-300/25 bg-emerald-950/15 p-4 text-sm text-emerald-100">{message}</div>}
-
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {([
-          ["current", "Current Actions", counts.unacknowledged + counts.acknowledged],
-          ["critical", "Critical", counts.critical],
-          ["unacknowledged", "Need Attention", counts.unacknowledged],
-          ["acknowledged", "Being Handled", counts.acknowledged],
-          ["resolved", "Resolved Since Snapshot", counts.resolved],
-          ["no_action", "No Action", counts.no_action],
-        ] as Array<[ActionFilter, string, number]>).map(([key, label, count]) => (
-          <button key={key} type="button" onClick={() => setFilter(key)} className={`border p-3 text-left ${filter === key ? "border-[#D8C36A] bg-[#D8C36A]/10" : "border-white/10 bg-black/30"}`}><span className="block text-xs uppercase text-zinc-400">{label}</span><span className="mt-1 block text-2xl font-semibold text-white">{count}</span></button>
-        ))}
-      </div>
+      {payload?.snapshotStale && <div role="alert" className="rounded-xl border border-amber-300/30 bg-amber-950/20 p-4 text-sm text-amber-100"><strong>Dineplan file may be out of date.</strong> Upload a new file before making changes based on it.</div>}
+      {error && <div role="alert" className="rounded-xl border border-red-300/30 bg-red-950/25 p-4 text-sm text-red-100">{error}</div>}
+      {message && <div role="status" className="rounded-xl border border-emerald-300/25 bg-emerald-950/15 p-4 text-sm text-emerald-100">{message}</div>}
 
       <div className="space-y-3">
-        {visible.map((action) => (
-          <article key={action.id} className={`border p-4 ${action.severity === "critical" && ["acknowledged", "unacknowledged"].includes(action.status) ? "border-red-300/30 bg-red-950/10" : "border-white/10 bg-black/20"}`}>
-            <div className="flex flex-col gap-3 lg:flex-row lg:justify-between">
+        {currentActions.map((action) => {
+          const openUrl = action.bookingReference ? `/admin?section=bookings&booking=${encodeURIComponent(action.bookingReference)}` : `/admin?section=platform-operations&system=dineplan&action=${action.id}`;
+          return (
+          <article id={`dineplan-action-${action.id}`} key={action.id} className={`rounded-xl border p-4 sm:p-5 ${action.severity === "critical" ? "border-red-300/30 bg-red-950/10" : "border-white/10 bg-black/25"}`}>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <p className={`text-xs font-semibold uppercase ${action.severity === "critical" ? "text-red-300" : "text-[#F2D66C]"}`}>{action.severity} · {action.bookingKind === "corporate" ? "Corporate · " : ""}{statusLabel(action)}</p>
-                <h4 className="mt-1 break-words font-semibold text-white">{action.guestLabel} · {action.pax} pax</h4>
-                <p className="mt-1 text-sm text-zinc-400">{action.venue === "cape-town" ? "Cape Town" : "Johannesburg"} · {action.performanceDate} · {action.zone ?? "Zone not stated"}</p>
+                <p className={`flex items-center gap-2 text-xs font-semibold uppercase ${action.severity === "critical" ? "text-red-300" : "text-[#F2D66C]"}`}><span className={`h-2 w-2 rounded-full ${action.severity === "critical" ? "bg-red-300" : "bg-[#D8C36A]"}`} />{action.severity === "critical" ? "Urgent" : "Needs attention"}{action.bookingKind === "corporate" ? " · Corporate" : ""}</p>
+                <h4 className="mt-2 break-words text-base font-semibold text-white">{action.guestLabel} · {action.pax} guests</h4>
+                <p className="mt-1 text-sm text-zinc-400">{action.zone ?? "Section not stated"}</p>
+                <p className="mt-3 text-sm leading-6 text-zinc-100">{getDineplanStaffActionCopy(action)}</p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {action.bookingReference && <a href={`/admin?section=bookings&booking=${encodeURIComponent(action.bookingReference)}`} className="text-sm font-semibold text-[#F2D66C] underline">Open Booking</a>}
-                {["acknowledged", "unacknowledged"].includes(action.status) && <button type="button" onClick={() => void updateAction(action.id, "acknowledge")} disabled={busy === action.id} className="bg-[#D8C36A] px-3 py-2 text-xs font-semibold uppercase text-black disabled:opacity-50">Acknowledge</button>}
-              </div>
+              <a href={openUrl} className="inline-flex min-h-11 shrink-0 items-center justify-center self-start rounded-full bg-[#D8C36A] px-5 py-2.5 text-xs font-bold uppercase tracking-[0.08em] text-black transition hover:bg-[#F2D66C]">Open</a>
             </div>
-            <p className="mt-3 text-sm text-white"><strong>Manual action:</strong> {action.manualAction}</p>
             <details className="mt-3 border-t border-white/10 pt-3">
-              <summary className="cursor-pointer text-xs font-semibold uppercase text-[#F2D66C]">Details</summary>
+              <summary className="cursor-pointer text-sm font-semibold text-[#F2D66C]">View details</summary>
               <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
-                <div><p className="text-xs uppercase text-zinc-500">Dineplan</p><p className="mt-1 text-zinc-200">{action.dineplanState}</p></div>
-                <div><p className="text-xs uppercase text-zinc-500">Zingara</p><p className="mt-1 text-zinc-200">{action.zingaraState}</p></div>
+                <div><p className="text-xs uppercase text-zinc-500">Dineplan</p><p className="mt-1 text-zinc-200">{formatDineplanStaffState(action.dineplanState)}</p></div>
+                <div><p className="text-xs uppercase text-zinc-500">Zingara</p><p className="mt-1 text-zinc-200">{formatDineplanStaffState(action.zingaraState)}</p></div>
               </div>
-              {action.capacityImpact > 0 ? <p className="mt-3 text-sm font-semibold text-red-200">Authoritative capacity impact: {action.capacityImpact} pax currently consume Zingara entitlement</p> : action.zingaraState === "No authoritative match" ? <p className="mt-3 text-sm text-amber-100">Potential additional exposure: {action.pax} pax. Capacity impact is not yet established.</p> : null}
-            {["acknowledged", "unacknowledged"].includes(action.status) && (
+              {action.capacityImpact > 0 ? <p className="mt-3 text-sm font-semibold text-red-200">{action.capacityImpact} guests are currently booked in Zingara.</p> : /No authoritative match|No booking found/i.test(action.zingaraState) ? <p className="mt-3 text-sm text-amber-100">This may add {action.pax} guests if the booking is created.</p> : null}
               <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                <input value={notes[action.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [action.id]: event.target.value }))} placeholder="Optional acknowledgement note; reason required for No Action" className="min-w-0 flex-1 border border-zinc-700 bg-black px-3 py-2 text-sm text-white" />
-                <button type="button" onClick={() => void updateAction(action.id, "no_action")} disabled={busy === action.id || !(notes[action.id] ?? "").trim()} className="border border-white/20 px-3 py-2 text-xs font-semibold uppercase text-white disabled:opacity-40">No Action Required</button>
+                <input value={notes[action.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [action.id]: event.target.value }))} placeholder="Reason required for No action" className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm text-white" />
+                <button type="button" onClick={() => void recordNoAction(action.id)} disabled={busy === action.id || !(notes[action.id] ?? "").trim()} className="min-h-11 rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-40">No action required</button>
               </div>
-            )}
-            {action.status === "no_action" && action.noActionReason && <p className="mt-3 text-xs text-zinc-400">Reason: {action.noActionReason}</p>}
             </details>
           </article>
-        ))}
-        {!visible.length && <p className="py-4 text-sm text-zinc-400">No actions match this filter.</p>}
+        );})}
+        {!currentActions.length && <div className="rounded-xl border border-emerald-300/20 bg-emerald-950/10 p-4 text-sm text-emerald-100">There are no current bookings that need attention.</div>}
       </div>
 
-      {previews.map((preview, index) => <div key={`${preview.audience}-${index}`} className="border border-white/10 bg-black/40 p-4"><p className="text-xs font-semibold uppercase text-[#D8C36A]">{preview.audience === "corporate" ? "Corporate-only" : "General + Management"} Email Preview · Not Sent</p><p className="mt-2 text-xs text-zinc-400">To: {preview.to.join(", ") || "No configured recipients"}{preview.cc.length ? ` · CC: ${preview.cc.join(", ")}` : ""}</p><p className="mt-2 font-semibold text-white">{preview.digest.subject}</p><pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-zinc-300">{preview.digest.message}</pre></div>)}
+      {pastActions.length > 0 && <details className="rounded-xl border border-white/10 bg-black/20 p-4"><summary className="cursor-pointer text-sm font-semibold text-zinc-300">Past outcomes · {pastActions.length}</summary><div className="mt-3 divide-y divide-white/10">{pastActions.map((action) => <div key={action.id} className="py-3 text-sm"><p className="font-medium text-white">{action.guestLabel} · {action.pax} guests</p><p className="mt-1 text-zinc-400">{action.status === "resolved" ? "Resolved after a later comparison" : "No action required"}{action.noActionReason ? ` · ${action.noActionReason}` : ""}</p></div>)}</div></details>}
+
+      {previews.length > 0 && <details className="rounded-xl border border-white/10 bg-black/20 p-4"><summary className="cursor-pointer text-sm font-semibold text-[#F2D66C]">Email preview · not sent</summary><div className="mt-4 space-y-4">{previews.map((preview, index) => <div key={`${preview.audience}-${index}`} className="rounded-lg border border-white/10 bg-black/40 p-4"><p className="text-xs font-semibold uppercase text-[#D8C36A]">{preview.audience === "corporate" ? "Corporate only" : "General and management"}</p><p className="mt-2 text-xs text-zinc-400">To: {preview.to.join(", ") || "No configured recipients"}{preview.cc.length ? ` · CC: ${preview.cc.join(", ")}` : ""}</p><p className="mt-2 font-semibold text-white">{preview.digest.subject}</p><pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-zinc-300">{preview.digest.message}</pre></div>)}</div></details>}
 
       {payload?.canConfigure && <ActionSettings settings={payload.settings} staffOptions={payload.staffOptions} busy={busy === "settings"} onSave={saveSettings} />}
     </section>
@@ -317,30 +268,34 @@ function ActionSettings({ settings, staffOptions, busy, onSave }: { settings: Di
     draft.morningEmailTime < draft.middayEmailTime &&
     draft.middayEmailTime < draft.finalEmailTime;
   return (
-    <details className="border border-white/10 p-4">
-      <summary className="cursor-pointer text-sm font-semibold uppercase text-[#F2D66C]">Recipient & Reminder Settings</summary>
+    <details className="rounded-xl border border-white/10 bg-black/20 p-4">
+      <summary className="cursor-pointer text-sm font-semibold text-[#F2D66C]">Email & reminder settings</summary>
       <div className="mt-4 grid gap-5 lg:grid-cols-3">
         <div><p className="text-xs font-semibold uppercase text-zinc-400">Box Office · General</p><div className="mt-2 space-y-2">{staffOptions.map((staff) => <label key={`to-${staff.id}`} className="flex gap-2 text-sm text-zinc-200"><input type="checkbox" checked={draft.actionRecipientStaffIds.includes(staff.id)} onChange={() => toggleBoxOffice("actionRecipientStaffIds", staff.id)} /><span>{staff.name} · {staff.email}</span></label>)}</div></div>
         <div><p className="text-xs font-semibold uppercase text-zinc-400">Box Office · Corporate Only</p><div className="mt-2 space-y-2">{staffOptions.map((staff) => <label key={`corporate-${staff.id}`} className="flex gap-2 text-sm text-zinc-200"><input type="checkbox" checked={draft.corporateRecipientStaffIds.includes(staff.id)} onChange={() => toggleBoxOffice("corporateRecipientStaffIds", staff.id)} /><span>{staff.name} · {staff.email}</span></label>)}</div></div>
         <div><p className="text-xs font-semibold uppercase text-zinc-400">Management CC</p><div className="mt-2 space-y-2">{staffOptions.map((staff) => <label key={`cc-${staff.id}`} className="flex gap-2 text-sm text-zinc-200"><input type="checkbox" checked={draft.managementCcStaffIds.includes(staff.id)} onChange={() => toggle("managementCcStaffIds", staff.id)} /><span>{staff.name} · {staff.email}</span></label>)}</div></div>
       </div>
       <div className="mt-5 border-t border-white/10 pt-5">
-        <p className="text-xs font-semibold uppercase text-zinc-400">Dineplan Email Schedule</p>
+        <p className="text-xs font-semibold uppercase text-zinc-400">Dineplan email schedule</p>
         <label className="mt-3 flex items-center gap-2 text-sm text-zinc-200"><input type="checkbox" checked={draft.scheduledEmailsEnabled} onChange={(event) => setDraft((current) => ({ ...current, scheduledEmailsEnabled: event.target.checked }))} />Scheduled emails enabled</label>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          <label className="text-xs uppercase text-zinc-400">Morning<input type="time" required={draft.scheduledEmailsEnabled} value={draft.morningEmailTime} onChange={(event) => setDraft((current) => ({ ...current, morningEmailTime: event.target.value }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
-          <label className="text-xs uppercase text-zinc-400">Midday<input type="time" required={draft.scheduledEmailsEnabled} value={draft.middayEmailTime} onChange={(event) => setDraft((current) => ({ ...current, middayEmailTime: event.target.value }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
-          <label className="text-xs uppercase text-zinc-400">Final<input type="time" required={draft.scheduledEmailsEnabled} value={draft.finalEmailTime} onChange={(event) => setDraft((current) => ({ ...current, finalEmailTime: event.target.value }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
+          <label className="text-xs uppercase text-zinc-400">Morning<input type="time" required={draft.scheduledEmailsEnabled} value={draft.morningEmailTime} onChange={(event) => setDraft((current) => ({ ...current, morningEmailTime: event.target.value }))} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
+          <label className="text-xs uppercase text-zinc-400">Midday<input type="time" required={draft.scheduledEmailsEnabled} value={draft.middayEmailTime} onChange={(event) => setDraft((current) => ({ ...current, middayEmailTime: event.target.value }))} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
+          <label className="text-xs uppercase text-zinc-400">Final<input type="time" required={draft.scheduledEmailsEnabled} value={draft.finalEmailTime} onChange={(event) => setDraft((current) => ({ ...current, finalEmailTime: event.target.value }))} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
         </div>
         <p className="mt-2 text-xs text-zinc-500">Timezone: SAST · Morning must be before Midday, and Midday before Final.</p>
         {!scheduleIsValid && <p className="mt-2 text-xs text-red-300">Enter three different times in chronological order.</p>}
       </div>
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <label className="text-xs uppercase text-zinc-400">Acknowledged cadence hours<input type="number" min="1" max="24" value={draft.normalAcknowledgedCadenceHours} onChange={(event) => setDraft((current) => ({ ...current, normalAcknowledgedCadenceHours: Number(event.target.value) }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
-        <label className="text-xs uppercase text-zinc-400">Pre-show escalation hours<input type="number" min="1" max="24" value={draft.preShowEscalationHours} onChange={(event) => setDraft((current) => ({ ...current, preShowEscalationHours: Number(event.target.value) }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
-        <label className="text-xs uppercase text-zinc-400">Snapshot stale hours<input type="number" min="1" max="168" value={draft.snapshotStaleHours} onChange={(event) => setDraft((current) => ({ ...current, snapshotStaleHours: Number(event.target.value) }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
-      </div>
-      <button type="button" onClick={() => void onSave(draft)} disabled={busy || !scheduleIsValid} className="mt-5 bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase text-black disabled:opacity-50">{busy ? "Saving..." : "Save Action Settings"}</button>
+      <details className="mt-5 rounded-lg border border-white/10 bg-black/30 p-4">
+        <summary className="cursor-pointer text-sm font-medium text-zinc-300">Advanced settings</summary>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <label className="text-xs text-zinc-400">Follow-up interval after staff review<input type="number" min="1" max="24" value={draft.normalAcknowledgedCadenceHours} onChange={(event) => setDraft((current) => ({ ...current, normalAcknowledgedCadenceHours: Number(event.target.value) }))} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
+          <label className="text-xs text-zinc-400">Urgent window before show<input type="number" min="1" max="24" value={draft.preShowEscalationHours} onChange={(event) => setDraft((current) => ({ ...current, preShowEscalationHours: Number(event.target.value) }))} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
+          <label className="text-xs text-zinc-400">File considered old after<input type="number" min="1" max="168" value={draft.snapshotStaleHours} onChange={(event) => setDraft((current) => ({ ...current, snapshotStaleHours: Number(event.target.value) }))} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
+        </div>
+        <p className="mt-2 text-xs text-zinc-500">Values are in hours.</p>
+      </details>
+      <button type="button" onClick={() => void onSave(draft)} disabled={busy || !scheduleIsValid} className="mt-5 min-h-11 rounded-full bg-[#D8C36A] px-5 py-2.5 text-xs font-bold uppercase tracking-[0.08em] text-black transition hover:bg-[#F2D66C] disabled:opacity-50">{busy ? "Saving..." : "Save settings"}</button>
     </details>
   );
 }

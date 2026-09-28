@@ -131,6 +131,7 @@ export async function createBrandedCustomerEmail(input: {
   heading?: string;
   html?: string | null;
   includeAgePolicy?: boolean;
+  includePrimaryCta?: boolean;
   message: string;
   subject?: string | null;
 }): Promise<BrandedCustomerEmail> {
@@ -147,9 +148,11 @@ export async function createBrandedCustomerEmail(input: {
   const content = suppliedHtml
     ? extractBodyContent(suppliedHtml)
     : plainTextToContent(message);
-  const primaryUrl = input.ctaUrl
-    ? getAbsoluteUrl(input.ctaUrl)
-    : findPrimaryUrl(message, suppliedHtml);
+  const primaryUrl = input.includePrimaryCta === false
+    ? null
+    : input.ctaUrl
+      ? getAbsoluteUrl(input.ctaUrl)
+      : findPrimaryUrl(message, suppliedHtml);
   const brandAttachment = await loadBrandAttachment();
   const heading =
     input.heading?.trim() || input.subject?.trim() || "Zingara Guest Update";

@@ -67,25 +67,25 @@ export function buildDineplanSourceReminder(input: {
 }) {
   const urgent = input.checkpoint === "final";
   const heading = urgent
-    ? "URGENT - Dineplan Reconciliation Required Before Service"
+    ? "URGENT - Dineplan File Needed Before Service"
     : input.source.state === "untrusted"
-      ? "Dineplan Reconciliation Review Required"
-      : "Dineplan Upload Required";
+      ? "Dineplan File Needs Review"
+      : "Dineplan File Needed";
   const sourceDetail = input.source.state === "missing"
-    ? "No Dineplan source has been uploaded for this performance."
+    ? "No Dineplan file has been uploaded for this performance."
     : input.source.state === "untrusted"
-      ? "The latest Dineplan reconciliation did not pass the trust gate. No operational actions were generated."
-      : `The latest trusted Dineplan source is stale. Source age: ${formatSourceAge(input.source.generatedAt, input.now)}.`;
+      ? "We couldn't safely compare the latest Dineplan file. No booking actions were created from it."
+      : `The Dineplan file may be out of date. Last updated ${formatSourceAge(input.source.generatedAt, input.now)} ago.`;
   const instruction = input.source.state === "untrusted"
-    ? "Review the reconciliation evidence in Zingara and upload a fresh Dineplan PDF if required."
-    : "Please export the latest Dineplan PDF and upload and reconcile it in Zingara.";
+    ? "Review the file in Zingara and upload a new Dineplan PDF if needed."
+    : "Export the latest Dineplan PDF and upload it in Zingara.";
   const showLabel = `${venueLabel(input.venue)} - ${formatShow(input.show)}`;
   return {
     heading,
     html: `<h2>${heading}</h2><p><strong>${showLabel}</strong></p><p>${sourceDetail}</p><p>${instruction}</p>`,
-    message: [heading, "", showLabel, sourceDetail, instruction, "", `Open Dineplan Reconciliation: ${productionAdminOrigin}/admin?section=platform-operations&system=dineplan`].join("\n"),
+    message: [heading, "", showLabel, sourceDetail, instruction, "", `Open in Zingara: ${productionAdminOrigin}/admin?section=platform-operations&system=dineplan`].join("\n"),
     subject: urgent
-      ? `URGENT - Dineplan reconciliation required before service | ${venueLabel(input.venue)}`
+      ? `URGENT - Dineplan file needed before service | ${venueLabel(input.venue)}`
       : `${heading} | ${venueLabel(input.venue)} ${input.show.date}`,
   };
 }

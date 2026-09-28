@@ -59,9 +59,9 @@ test("trusted sources use the existing action digest and source problems use upl
   assert.match(workflow, /source\.state === "current"/);
   assert.match(workflow, /runDineplanActionDigest/);
   assert.match(workflow, /source\.state === "untrusted"/);
-  assert.match(workflow, /No operational actions were generated/);
-  assert.match(workflow, /latest trusted Dineplan source is stale/);
-  assert.match(workflow, /No Dineplan source has been uploaded/);
+  assert.match(workflow, /No booking actions were created/);
+  assert.match(workflow, /Dineplan file may be out of date/);
+  assert.match(workflow, /No Dineplan file has been uploaded/);
 });
 
 test("source reminders reuse staff IDs, venue scope and the shared branded mailer", () => {
@@ -69,7 +69,7 @@ test("source reminders reuse staff IDs, venue scope and the shared branded maile
   assert.match(workflow, /settings\.managementCcStaffIds/);
   assert.match(workflow, /canReceiveDineplanVenue/);
   assert.match(workflow, /createBrandedCustomerEmail/);
-  assert.match(workflow, /OPEN DINEPLAN RECONCILIATION/);
+  assert.match(workflow, /Open in Zingara/);
   assert.match(workflow, /message: branded\.message/);
   assert.doesNotMatch(workflow, /fatima@|jacques@|michael@|lisa@/i);
 });
