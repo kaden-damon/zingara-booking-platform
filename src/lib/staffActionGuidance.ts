@@ -162,6 +162,28 @@ export function resolveStaffActionGuidance(
       };
     }
 
+    if (/corporate_reinstatement_payment_required|record the verified eft payment/.test(searchable)) {
+      return {
+        ...fallback,
+        message: outcome.explanation || "Record the verified EFT payment before reinstating this booking.",
+        nextStep: "Use Mark Paid with the verified EFT or manual payment evidence, then reopen Reinstate Booking.",
+        status: "blocked",
+        technicalCode: outcome.code ?? "CORPORATE_REINSTATEMENT_PAYMENT_REQUIRED",
+        title: "Payment required",
+      };
+    }
+
+    if (/corporate_reinstatement_not_eligible|not eligible for corporate reinstatement/.test(searchable)) {
+      return {
+        ...fallback,
+        message,
+        nextStep: "Use the controlled cancellation or refund management process for this booking.",
+        status: "blocked",
+        technicalCode: outcome.code ?? "CORPORATE_REINSTATEMENT_NOT_ELIGIBLE",
+        title: "Reinstatement is not available",
+      };
+    }
+
     if (/mark_paid_not_allowed|cannot be manually marked paid/.test(searchable)) {
       return {
         ...fallback,

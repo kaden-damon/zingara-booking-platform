@@ -77,6 +77,18 @@ function rpcErrorResponse(error: { message?: string }) {
     );
   }
 
+  if (message.includes("EXPIRED_CORPORATE_PAYMENT_NOT_ALLOWED")) {
+    return Response.json(
+      {
+        code: "EXPIRED_CORPORATE_PAYMENT_NOT_ALLOWED",
+        error: "Late EFT recording is not available for this cancellation.",
+        explanation:
+          "Only Corporate bookings released by the automated payment-deadline workflow can use this payment path.",
+      },
+      { status: 409 },
+    );
+  }
+
   if (message.includes("BOOKING_NOT_FOUND") || message.includes("SHOW_NOT_FOUND")) {
     return Response.json({ code: "BOOKING_NOT_FOUND", error: "Booking could not be resolved." }, { status: 404 });
   }
@@ -124,7 +136,7 @@ export async function POST(request: Request) {
 
     const { data: booking, error: bookingError } = await auth.serviceClient
       .from("bookings")
-      .select("id,show_id,booking_reference")
+      .select("id,show_id,booking_reference,booking_origin,booking_source,booking_status,corporate_payment_expired_at")
       .eq("booking_reference", bookingReference)
       .maybeSingle();
     if (bookingError) throw bookingError;
@@ -144,18 +156,33 @@ export async function POST(request: Request) {
       return Response.json({ error: "This booking is outside your assigned location." }, { status: 403 });
     }
 
+    const isSystemExpiredCorporate =
+      booking.booking_origin === "corporate" &&
+      booking.booking_source === "corporate-direct" &&
+      booking.booking_status === "cancelled" &&
+      Boolean(booking.corporate_payment_expired_at);
     const ticketCode = createTicketCode(bookingReference);
-    const { data, error } = await auth.serviceClient.rpc("mark_booking_paid_atomic", {
-      p_actor_auth_user_id: auth.user.id,
-      p_actor_staff_profile_id: auth.staffProfile.id,
-      p_booking_reference: bookingReference,
-      p_expected_updated_at: expectedUpdatedAt,
-      p_idempotency_key: idempotencyKey,
-      p_reason: reason,
-      p_ticket_code: ticketCode,
-      p_ticket_url: getTicketUrl(bookingReference),
-      p_user_agent: request.headers.get("user-agent"),
-    });
+    const { data, error } = isSystemExpiredCorporate
+      ? await auth.serviceClient.rpc("record_expired_corporate_payment_atomic", {
+          p_actor_auth_user_id: auth.user.id,
+          p_actor_staff_profile_id: auth.staffProfile.id,
+          p_booking_reference: bookingReference,
+          p_expected_updated_at: expectedUpdatedAt,
+          p_idempotency_key: idempotencyKey,
+          p_reason: reason,
+          p_user_agent: request.headers.get("user-agent"),
+        })
+      : await auth.serviceClient.rpc("mark_booking_paid_atomic", {
+          p_actor_auth_user_id: auth.user.id,
+          p_actor_staff_profile_id: auth.staffProfile.id,
+          p_booking_reference: bookingReference,
+          p_expected_updated_at: expectedUpdatedAt,
+          p_idempotency_key: idempotencyKey,
+          p_reason: reason,
+          p_ticket_code: ticketCode,
+          p_ticket_url: getTicketUrl(bookingReference),
+          p_user_agent: request.headers.get("user-agent"),
+        });
 
     if (error) {
       const response = rpcErrorResponse(error);
@@ -167,7 +194,9 @@ export async function POST(request: Request) {
     return Response.json({
       message: result.idempotent
         ? "This manual payment was already recorded."
-        : "Manual payment recorded successfully.",
+        : isSystemExpiredCorporate
+          ? "Manual EFT payment recorded. The booking remains released until reinstatement is confirmed."
+          : "Manual payment recorded successfully.",
       result,
     });
   } catch (error) {

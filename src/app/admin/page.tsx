@@ -563,6 +563,31 @@ type PaymentLinkDetailsState = Record<
     link: PaymentLinkDetails | null;
   }
 >;
+
+type CorporateReinstatementAllocation = {
+  active_entitlement: number;
+  available_after: number;
+  available_before: number;
+  deficit: number;
+  effective_capacity: number;
+  pax: number;
+  zone_id: string;
+};
+
+type CorporateReinstatementPreview = {
+  allocations: CorporateReinstatementAllocation[];
+  amount_paid: number;
+  balance_outstanding: number;
+  booking_reference: string;
+  code: "CAPACITY_BLOCKED" | "NOT_ELIGIBLE" | "PAYMENT_REQUIRED" | "READY";
+  eligible: boolean;
+  expired_at: string;
+  floor_assignment_required: boolean;
+  guest_count: number;
+  payment_satisfied: boolean;
+  payment_status: string;
+  updated_at: string;
+};
 type BroadcastForm = {
   channel: CommunicationChannel;
   message: string;
@@ -10796,6 +10821,13 @@ export default function AdminDashboardPage() {
     reference: string;
   } | null>(null);
   const [isMarkPaidProcessing, setIsMarkPaidProcessing] = useState(false);
+  const [corporateReinstatement, setCorporateReinstatement] = useState<{
+    guidance: string;
+    idempotencyKey: string;
+    preview: CorporateReinstatementPreview;
+  } | null>(null);
+  const [isCorporateReinstatementProcessing, setIsCorporateReinstatementProcessing] =
+    useState(false);
   const [refundBookingReference, setRefundBookingReference] = useState("");
   const [isRefundBookingProcessing, setIsRefundBookingProcessing] =
     useState(false);
@@ -18558,18 +18590,20 @@ export default function AdminDashboardPage() {
       setMarkPaidConfirmation(null);
       showWorkflowToast(`✓ ${response.message}`);
 
-      const [guestPushResult, staffPushResult] = await Promise.all([
-        sendZingaraGuestPushNotification("payment-received", {
-          bookingReference: booking.reference,
-        }),
-        sendZingaraStaffPushNotification("payment-received", {
-          bookingReference: booking.reference,
-        }),
-      ]);
-      if (!guestPushResult.ok && !staffPushResult.ok) {
-        showWorkflowToast(
-          `✓ ${response.message} No active push subscription is available.`,
-        );
+      if (response.result.booking_status !== "cancelled") {
+        const [guestPushResult, staffPushResult] = await Promise.all([
+          sendZingaraGuestPushNotification("payment-received", {
+            bookingReference: booking.reference,
+          }),
+          sendZingaraStaffPushNotification("payment-received", {
+            bookingReference: booking.reference,
+          }),
+        ]);
+        if (!guestPushResult.ok && !staffPushResult.ok) {
+          showWorkflowToast(
+            `✓ ${response.message} No active push subscription is available.`,
+          );
+        }
       }
     } catch (error) {
       console.error("[Zingara Admin] Atomic Mark Paid failed", error);
@@ -18596,6 +18630,113 @@ export default function AdminDashboardPage() {
       );
     } finally {
       setIsMarkPaidProcessing(false);
+    }
+  }
+
+  async function openCorporateReinstatement(booking: DemoBooking) {
+    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+      if (isBookingReadOnly(booking.reference)) {
+        showWorkflowToast("This booking is currently being edited.");
+      }
+      return;
+    }
+
+    setIsCorporateReinstatementProcessing(true);
+    try {
+      const response = await fetchSupabaseApi<{
+        guidance: string;
+        preview: CorporateReinstatementPreview;
+      }>("/api/admin/bookings/reinstate-corporate", {
+        body: {
+          action: "preview",
+          bookingReference: booking.reference,
+        },
+        method: "POST",
+      });
+      setCorporateReinstatement({
+        guidance: response.guidance,
+        idempotencyKey:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `reinstate-${booking.reference}-${Date.now()}`,
+        preview: response.preview,
+      });
+    } catch (error) {
+      showStaffGuidance(
+        resolveStaffActionGuidance(error, {
+          message: "The reinstatement preview could not be loaded.",
+          nextStep: "Reload Booking Details and retry after reviewing the latest state.",
+          status: "error",
+          title: "Reinstatement preview unavailable",
+        }),
+      );
+    } finally {
+      setIsCorporateReinstatementProcessing(false);
+    }
+  }
+
+  function closeCorporateReinstatement() {
+    if (!isCorporateReinstatementProcessing) {
+      setCorporateReinstatement(null);
+    }
+  }
+
+  async function confirmCorporateReinstatement() {
+    if (!corporateReinstatement || isCorporateReinstatementProcessing) return;
+
+    const booking = bookings.find(
+      (candidate) =>
+        candidate.reference === corporateReinstatement.preview.booking_reference,
+    );
+    if (!booking?.updatedAt || !corporateReinstatement.preview.eligible) return;
+
+    setIsCorporateReinstatementProcessing(true);
+    try {
+      const response = await fetchSupabaseApi<{ message: string }>(
+        "/api/admin/bookings/reinstate-corporate",
+        {
+          body: {
+            action: "reinstate",
+            bookingReference: booking.reference,
+            expectedUpdatedAt: booking.updatedAt,
+            idempotencyKey: corporateReinstatement.idempotencyKey,
+          },
+          method: "POST",
+        },
+      );
+      const [authoritativeBookings, authoritativePayments] = await Promise.all([
+        getBookings(),
+        getPayments(),
+      ]);
+      setBookings(authoritativeBookings);
+      setPaymentRows(authoritativePayments);
+      setCorporateReinstatement(null);
+      showWorkflowToast(`✓ ${response.message}`);
+    } catch (error) {
+      const [authoritativeBookings, authoritativePayments] = await Promise.all([
+        getBookings(),
+        getPayments(),
+      ]);
+      setBookings(authoritativeBookings);
+      setPaymentRows(authoritativePayments);
+      showStaffGuidance(
+        resolveStaffActionGuidance(error, {
+          action: {
+            label: "Open Payment Controls",
+            target: {
+              bookingReference: booking.reference,
+              destination: "payment-controls",
+            },
+          },
+          message: "The Corporate booking was not reinstated.",
+          nextStep: "Review the authoritative payment, lifecycle, and capacity state before retrying.",
+          status: "blocked",
+          title: "Reinstatement blocked",
+        }),
+      );
+      setCorporateReinstatement(null);
+    } finally {
+      setIsCorporateReinstatementProcessing(false);
     }
   }
 
@@ -29944,7 +30085,10 @@ export default function AdminDashboardPage() {
               <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
                 <section className="w-full max-w-xl rounded-[2rem] border border-emerald-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
                   <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-200">
-                    Record Manual Full Payment
+                    {markPaidBooking?.status === "cancelled" &&
+                    markPaidBooking.corporatePaymentExpiredAt
+                      ? "Record Late Corporate EFT"
+                      : "Record Manual Full Payment"}
                   </p>
                   <h2 className="mt-3 text-2xl font-bold">
                     {markPaidBooking?.customer.name ?? "Mark Booking Paid"}
@@ -29954,6 +30098,12 @@ export default function AdminDashboardPage() {
                     outside the normal PayFast confirmation flow. The payment is
                     recorded only after the authoritative transaction commits.
                   </p>
+                  {markPaidBooking?.status === "cancelled" &&
+                    markPaidBooking.corporatePaymentExpiredAt && (
+                      <p className="mt-3 rounded-xl border border-amber-300/30 bg-amber-950/20 px-4 py-3 text-sm leading-6 text-amber-100">
+                        Recording this EFT payment does not restore booking entitlement. Reopen Reinstate Booking afterward to confirm live capacity and reactivate the booking.
+                      </p>
+                    )}
                   {markPaidBooking && markPaidFinancials && (
                     <div className="mt-4 grid gap-3 rounded-2xl border border-white/10 bg-black/35 p-4 text-sm sm:grid-cols-3">
                       <div>
@@ -30016,7 +30166,112 @@ export default function AdminDashboardPage() {
                     >
                       {isMarkPaidProcessing
                         ? "Recording payment..."
-                        : "Confirm Mark Paid"}
+                        : markPaidBooking?.status === "cancelled" &&
+                            markPaidBooking.corporatePaymentExpiredAt
+                          ? "Confirm Late EFT"
+                          : "Confirm Mark Paid"}
+                    </button>
+                  </div>
+                </section>
+              </div>
+            );
+          })()}
+
+        {corporateReinstatement &&
+          (() => {
+            const preview = corporateReinstatement.preview;
+            const reinstatementBooking = bookings.find(
+              (booking) => booking.reference === preview.booking_reference,
+            );
+
+            return (
+              <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
+                <section className="w-full max-w-2xl rounded-[2rem] border border-[#D8C36A]/35 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#F2D66C]">
+                    Reinstate Corporate Booking
+                  </p>
+                  <h2 className="mt-3 text-2xl font-bold">
+                    {reinstatementBooking?.customer.name ?? preview.booking_reference}
+                  </h2>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    {preview.booking_reference} · {preview.guest_count} guests · System payment deadline expired {formatSouthAfricanTimestamp(preview.expired_at)}
+                  </p>
+
+                  <div className="mt-5 grid gap-3 border-y border-white/10 py-4 text-sm sm:grid-cols-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Paid</p>
+                      <p className="mt-1 font-semibold">{formatCurrency(preview.amount_paid)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Outstanding</p>
+                      <p className="mt-1 font-semibold">{formatCurrency(preview.balance_outstanding)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Floor outcome</p>
+                      <p className="mt-1 font-semibold">
+                        {preview.floor_assignment_required ? "Requires floor assignment" : "Existing table retained"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 overflow-hidden rounded-xl border border-white/10">
+                    {preview.allocations.map((allocation) => (
+                      <div
+                        key={allocation.zone_id}
+                        className="grid gap-2 border-b border-white/10 px-4 py-3 text-sm last:border-b-0 sm:grid-cols-[1fr_auto_auto]"
+                      >
+                        <div>
+                          <p className="font-semibold text-white">
+                            {getZoneById(allocation.zone_id as SeatingZoneId)?.title ?? allocation.zone_id}
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            Restore {allocation.pax} guests
+                          </p>
+                        </div>
+                        <p className="text-zinc-300">
+                          {allocation.active_entitlement} active / {allocation.effective_capacity} effective
+                        </p>
+                        <p className={allocation.deficit > 0 ? "font-semibold text-red-200" : "font-semibold text-emerald-200"}>
+                          {allocation.deficit > 0
+                            ? `${allocation.deficit} over capacity`
+                            : `${allocation.available_after} remaining`}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p
+                    className={`mt-4 rounded-xl border px-4 py-3 text-sm leading-6 ${
+                      preview.eligible
+                        ? "border-emerald-300/30 bg-emerald-950/20 text-emerald-100"
+                        : "border-amber-300/30 bg-amber-950/20 text-amber-100"
+                    }`}
+                  >
+                    {corporateReinstatement.guidance}
+                  </p>
+
+                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={closeCorporateReinstatement}
+                      disabled={isCorporateReinstatementProcessing}
+                      className="rounded-full border border-white/20 px-5 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void confirmCorporateReinstatement()}
+                      disabled={
+                        isCorporateReinstatementProcessing || !preview.eligible
+                      }
+                      className="rounded-full border border-emerald-300/45 bg-emerald-300 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isCorporateReinstatementProcessing
+                        ? "Reinstating..."
+                        : preview.payment_satisfied
+                          ? "Confirm Reinstatement"
+                          : "Payment Required"}
                     </button>
                   </div>
                 </section>
@@ -43391,6 +43646,10 @@ export default function AdminDashboardPage() {
 	                  getCorporateBookingCompanyName(booking);
 	                const isCorporateBooking =
 	                  booking.source === "corporate-direct";
+	                const isSystemExpiredCorporate =
+	                  isCorporateBooking &&
+	                  booking.status === "cancelled" &&
+	                  Boolean(booking.corporatePaymentExpiredAt);
 	                const bookingSeatingSummary = isCorporateBooking
 	                  ? getBookingZoneEntitlements(booking)
 	                      .map(
@@ -44592,8 +44851,24 @@ export default function AdminDashboardPage() {
                                 {isMarkPaidProcessing &&
                                 markPaidConfirmation?.reference === booking.reference
                                   ? "Recording..."
-                                  : "Mark Paid"}
+                                  : isSystemExpiredCorporate
+                                    ? "Record Late EFT"
+                                    : "Mark Paid"}
                               </button>
+	                              {isSystemExpiredCorporate && (
+	                                <button
+	                                  type="button"
+	                                  onClick={() =>
+	                                    void openCorporateReinstatement(booking)
+	                                  }
+	                                  disabled={isCorporateReinstatementProcessing}
+	                                  className="rounded-full border border-[#D8C36A]/45 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+	                                >
+	                                  {isCorporateReinstatementProcessing
+	                                    ? "Checking..."
+	                                    : "Reinstate Booking"}
+	                                </button>
+	                              )}
 	                              <button
 	                                type="button"
 	                                onClick={() =>
@@ -44736,13 +45011,14 @@ export default function AdminDashboardPage() {
                             </span>
                             <select
                               value={booking.status ?? "confirmed"}
+                              disabled={bookingIsReadOnly || isSystemExpiredCorporate}
                               onChange={(event) =>
                                 updateBookingStatus(
                                   booking,
                                   event.target.value as BookingStatus,
                                 )
                               }
-                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3"
+                              className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {bookingStatuses
                                 .filter(
@@ -44756,6 +45032,11 @@ export default function AdminDashboardPage() {
                                   </option>
                                 ))}
                             </select>
+                            {isSystemExpiredCorporate && (
+                              <span className="mt-2 block text-xs leading-5 text-amber-200">
+                                Use Reinstate Booking after recording verified EFT payment.
+                              </span>
+                            )}
                           </label>
 
                           {isCorporateBooking ? (

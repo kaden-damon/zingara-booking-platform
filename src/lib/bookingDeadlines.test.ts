@@ -149,7 +149,10 @@ test("public API cutoff guard precedes customer mutation and exempts staff", asy
     "utf8",
   );
   const guard = source.indexOf("PUBLIC_BOOKING_CUTOFF_REACHED");
-  const mutation = source.indexOf("const customerId = await upsertCustomer");
+  const mutation = source.indexOf(
+    "await upsertCustomer(supabase, booking.customer)",
+    guard,
+  );
   assert.ok(guard > 0 && mutation > guard);
   assert.match(source, /booking\.source === "online" && !isTrustedStaff/);
 });
