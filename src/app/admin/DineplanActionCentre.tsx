@@ -12,6 +12,15 @@ type ActionFilter = "acknowledged" | "all" | "critical" | "current" | "no_action
 
 type StaffOption = { email: string; id: string; name: string };
 
+type SelectedSnapshot = {
+  id: string;
+  performance_date: string | null;
+  performance_time: string | null;
+  source_generated_at: string | null;
+  status: "preview" | "reconciled" | "review_required";
+  venue: "cape-town" | "johannesburg" | null;
+};
+
 type ActionCentrePayload = {
   actions: DineplanActionRecord[];
   canConfigure: boolean;
@@ -32,6 +41,22 @@ function formatTimestamp(value: string | null) {
   }).format(new Date(value));
 }
 
+function formatPerformanceDate(value: string | null) {
+  if (!value) return "Unconfirmed performance";
+  return new Intl.DateTimeFormat("en-ZA", {
+    day: "numeric",
+    month: "long",
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+  }).format(new Date(`${value}T12:00:00+02:00`));
+}
+
+function venueLabel(value: string | null) {
+  if (value === "johannesburg") return "Johannesburg";
+  if (value === "cape-town") return "Cape Town";
+  return "Venue not detected";
+}
+
 function dataAge(value: string | null) {
   if (!value) return "Unknown";
   const minutes = Math.max(0, Math.round((Date.now() - Date.parse(value)) / 60_000));
@@ -47,7 +72,13 @@ function statusLabel(action: DineplanActionRecord) {
   return "Unacknowledged";
 }
 
-export default function DineplanActionCentre({ refreshKey }: { refreshKey: number }) {
+export default function DineplanActionCentre({
+  refreshKey,
+  selectedSnapshot,
+}: {
+  refreshKey: number;
+  selectedSnapshot: SelectedSnapshot | null;
+}) {
   const [payload, setPayload] = useState<ActionCentrePayload | null>(null);
   const [filter, setFilter] = useState<ActionFilter>("current");
   const [error, setError] = useState("");
@@ -88,6 +119,20 @@ export default function DineplanActionCentre({ refreshKey }: { refreshKey: numbe
         return leftOpen - rightOpen || (left.severity === "critical" ? -1 : 1) - (right.severity === "critical" ? -1 : 1) || Date.parse(right.lastDetectedAt) - Date.parse(left.lastDetectedAt);
       });
   }, [filter, payload]);
+  const actionSources = useMemo(() => {
+    const sources = new Map<string, DineplanActionRecord>();
+    for (const action of payload?.actions ?? []) {
+      if (!["acknowledged", "unacknowledged"].includes(action.status)) continue;
+      const prior = sources.get(action.snapshotId);
+      if (!prior || Date.parse(action.lastDetectedAt) > Date.parse(prior.lastDetectedAt)) {
+        sources.set(action.snapshotId, action);
+      }
+    }
+    return [...sources.values()].sort((left, right) => Date.parse(right.lastDetectedAt) - Date.parse(left.lastDetectedAt));
+  }, [payload]);
+  const selectedSnapshotDrivesActions = Boolean(
+    selectedSnapshot && actionSources.some((source) => source.snapshotId === selectedSnapshot.id),
+  );
 
   async function updateAction(actionId: string, action: "acknowledge" | "no_action") {
     setBusy(actionId);
@@ -147,13 +192,32 @@ export default function DineplanActionCentre({ refreshKey }: { refreshKey: numbe
           <h3 className="mt-1 text-xl font-semibold text-white">Box Office Action Digest</h3>
           <p className="mt-1 text-lg font-semibold text-white">{counts.unacknowledged + counts.acknowledged} actions require attention</p>
           <p className="text-sm text-zinc-400">{counts.critical} Critical · {counts.unacknowledged} Need Attention · {counts.acknowledged} Being Handled</p>
-          <p className="mt-1 text-sm text-zinc-400">Last Dineplan snapshot: {formatTimestamp(payload?.latestSource ?? null)} · Data age: {dataAge(payload?.latestSource ?? null)}</p>
+          <p className="mt-2 text-xs font-semibold uppercase text-zinc-500">Action source</p>
+          {actionSources.length ? actionSources.map((source) => (
+            <p key={source.snapshotId} className="mt-1 text-sm text-zinc-300">
+              {venueLabel(source.venue)} · {formatPerformanceDate(source.performanceDate)} · {source.performanceTime?.slice(0, 5) ?? "Time not detected"} · generated {formatTimestamp(source.sourceGeneratedAt)}
+            </p>
+          )) : <p className="mt-1 text-sm text-zinc-400">No unresolved actions currently have a trusted source.</p>}
+          <p className="mt-1 text-xs text-zinc-500">Latest trusted source age: {dataAge(payload?.latestSource ?? null)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => document.getElementById("dineplan-export-upload")?.click()} className="border border-[#D8C36A]/40 px-3 py-2 text-xs font-semibold uppercase text-[#F2D66C]">Upload Fresh Snapshot</button>
           <button type="button" onClick={() => void loadPreview()} disabled={busy === "preview"} className="border border-white/20 px-3 py-2 text-xs font-semibold uppercase text-white disabled:opacity-50">{busy === "preview" ? "Preparing..." : "Preview Action Digest"}</button>
         </div>
       </div>
+
+      {selectedSnapshot?.status === "review_required" && !selectedSnapshotDrivesActions && (
+        <div role="alert" className="border border-amber-300/40 bg-amber-950/20 p-4 text-sm text-amber-100">
+          <strong className="block uppercase">{formatPerformanceDate(selectedSnapshot.performance_date)} reconciliation needs review</strong>
+          <span className="mt-1 block">No actions or reminders were generated from this source.</span>
+          {actionSources.length > 0 && (
+            <>
+              <strong className="mt-4 block text-xs uppercase text-[#F2D66C]">Previous trusted actions</strong>
+              <span className="mt-1 block text-zinc-200">The actions below are from the trusted action source shown above, not the selected failed snapshot.</span>
+            </>
+          )}
+        </div>
+      )}
 
       {payload?.snapshotStale && <div role="alert" className="border border-amber-300/30 bg-amber-950/20 p-4 text-sm text-amber-100"><strong>Dineplan snapshot may be out of date.</strong> Upload a fresh export before making a source-dependent correction.</div>}
       {error && <div role="alert" className="border border-red-300/30 bg-red-950/25 p-4 text-sm text-red-100">{error}</div>}

@@ -333,7 +333,7 @@ export default function DineplanReconciliation() {
       {error && <div role="alert" className="border border-red-300/30 bg-red-950/25 p-4 text-sm text-red-100">{error}</div>}
       {message && <div role="status" className="border border-emerald-300/25 bg-emerald-950/15 p-4 text-sm text-emerald-100">{message}</div>}
 
-      <DineplanActionCentre refreshKey={actionRefreshKey} />
+      <DineplanActionCentre refreshKey={actionRefreshKey} selectedSnapshot={snapshot} />
 
       {nextThirty && (
         <div className="border-y border-white/10 py-5">

@@ -7,7 +7,7 @@ import {
 } from "./dineplanReconciliation.ts";
 
 export const dineplanMaximumFileSize = 10 * 1024 * 1024;
-export const dineplanParserVersion = 3;
+export const dineplanParserVersion = 4;
 const allowedExtensions = new Set(["csv", "pdf", "xlsx"]);
 
 async function loadPdfParser() {
@@ -147,11 +147,17 @@ export function parseDineplanPdfText(text: string) {
   const records: Record<string, string>[] = [];
   let current: Record<string, string> | null = null;
   let reachedDetails = false;
+  let awaitingGuest = false;
+  let collectingSplitCompany = false;
+  let splitRowActive = false;
   const finish = () => {
     if (!current) return;
     records.push(current);
     current = null;
     reachedDetails = false;
+    awaitingGuest = false;
+    collectingSplitCompany = false;
+    splitRowActive = false;
   };
   for (const rawLine of lines.slice(headerIndex + 1)) {
     const line = rawLine.trim();
@@ -170,6 +176,14 @@ export function parseDineplanPdfText(text: string) {
       }
       continue;
     }
+    const splitRow = line.match(/^(\d{1,2}:\d{2})\s*\t\s*(\d+)\s*$/);
+    if (splitRow) {
+      finish();
+      current = { Time: splitRow[1], Pax: splitRow[2], Guest: "" };
+      awaitingGuest = true;
+      splitRowActive = true;
+      continue;
+    }
     if (!current) continue;
     if (/^Shift Totals\b/i.test(line)) {
       finish();
@@ -178,6 +192,17 @@ export function parseDineplanPdfText(text: string) {
     if (
       /^(?:Time\s+\t?PAX\b|Dineplan\s+Bookings\b|https?:\/\/|--\s*\d+\s+of\s+\d+\s*--|\d{1,2}\/\d{1,2}\/\d{2,4},)/i.test(line)
     ) continue;
+    if (awaitingGuest) {
+      const columns = line.split(/\t+/).map((value) => value.trim()).filter(Boolean);
+      const identity = columns[0] ?? "";
+      const corporateIdentity = identity.match(/^(.+?)\s+\(([^)]+)\)(?:\s+(.*))?$/);
+      current.Guest = corporateIdentity?.[1]?.trim() || identity;
+      if (corporateIdentity?.[2]) current.Company = corporateIdentity[2].trim();
+      const trailing = [corporateIdentity?.[3], ...columns.slice(1)].filter(Boolean).join(" ");
+      if (trailing) current.Notes = trailing;
+      awaitingGuest = false;
+      continue;
+    }
     if (/^(?:Credit|Paid|Payment)\s*:/i.test(line)) {
       reachedDetails = true;
       current.Payment = [current.Payment, line].filter(Boolean).join(" · ");
@@ -191,10 +216,24 @@ export function parseDineplanPdfText(text: string) {
     const columns = line.split(/\t+/).map((value) => value.trim()).filter(Boolean);
     if (columns.length >= 2 && /\d/.test(columns[0])) {
       reachedDetails = true;
+      splitRowActive = false;
       current.Telephone = columns[0];
       current.Seating = columns[1] ?? "";
       current.Table = columns.slice(2).join(" ");
       continue;
+    }
+    if (splitRowActive && !reachedDetails) {
+      if (current.Notes || /^INV-\S+/i.test(line)) {
+        current.Notes = [current.Notes, line].filter(Boolean).join(" ");
+        continue;
+      }
+      if (collectingSplitCompany || line.startsWith("(")) {
+        current.Company = [current.Company, line.replace(/^\(/, "").replace(/\)$/, "")]
+          .filter(Boolean)
+          .join(" ");
+        collectingSplitCompany = !line.endsWith(")");
+        continue;
+      }
     }
     if (!reachedDetails) current.Guest = `${current.Guest} ${line}`.replace(/\s+/g, " ").trim();
     else current.Notes = [current.Notes, line].filter(Boolean).join(" ");

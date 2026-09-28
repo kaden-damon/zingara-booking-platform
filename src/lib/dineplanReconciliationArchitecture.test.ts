@@ -241,6 +241,16 @@ test("parser-version evidence is immutable and low-confidence reconciliation fai
   assert.match(component, /No operational actions or reminders were generated/);
 });
 
+test("failed snapshots are visibly separated from the trusted source driving actions", () => {
+  assert.match(component, /selectedSnapshot=\{snapshot\}/);
+  assert.match(actionCentre, /Action source/);
+  assert.match(actionCentre, /selectedSnapshot\?\.status === "review_required"/);
+  assert.match(actionCentre, /No actions or reminders were generated from this source/);
+  assert.match(actionCentre, /Previous trusted actions/);
+  assert.match(actionCentre, /not the selected failed snapshot/);
+  assert.doesNotMatch(actionCentre, /setInterval|polling/i);
+});
+
 test("historical snapshots without trust metadata remain readable", () => {
   assert.match(component, /quality\?: \{/);
   assert.match(component, /reconciliation\.quality && !reconciliation\.quality\.trusted/);

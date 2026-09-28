@@ -122,6 +122,45 @@ Shift Totals 2 | 9`;
   assert.equal(parsed.quality.duplicateRows, 0);
 });
 
+test("split time and pax row reconstructs the real 30 September 16-pax reservation", async () => {
+  const text = `(Generated on 2026-09-28 10:36)\tBOOKINGS (Wed, 30 September 2026)
+Time \tPAX \tGuest \tPayment \tPayment Notes \tTelephone \tSeating \tTable
+17:00 \t2 \tRetha Schutte
+Credit: R 1,100.00
+Paid: R 1,100.00
+2 x DEP
+0829201906 \tGolden Circle R1540pp \t500, 501
+17:00 \t16
+Rudolf Beerschoten
+(Unlimited Brand
+Services)
+INV-1106 Paid in Full
+(R27,720.00), Tickets
+(R24,640.00), Gratuity
+(R3,080.00)
+0829201906 \tGolden Circle R1540pp \t500, 501
+Shift Totals 2 | 18`;
+  const parsed = await parseDineplanFile({
+    bytes: Buffer.from("%PDF-1.4 30 September split-row evidence"),
+    extractPdfText: async () => text,
+    filename: "Dineplan Bookings_ Wednesday, 30th September 2026 - Zingara JHB, The Royal Countess Dinner Show.pdf",
+    mimeType: "application/pdf",
+  });
+
+  assert.equal(parsed.reservations.length, 2);
+  assert.equal(parsed.covers, 18);
+  assert.equal(parsed.quality.parserTrusted, true);
+  assert.equal(parsed.quality.duplicateRows, 0);
+  assert.equal(parsed.reservations[0].guestName, "Retha Schutte");
+  assert.equal(parsed.reservations[0].notes, null);
+  assert.equal(parsed.reservations[1].guestName, "Rudolf Beerschoten");
+  assert.equal(parsed.reservations[1].company, "Unlimited Brand Services");
+  assert.equal(parsed.reservations[1].pax, 16);
+  assert.equal(parsed.reservations[1].notes, "INV-1106 Paid in Full (R27,720.00), Tickets (R24,640.00), Gratuity (R3,080.00)");
+  assert.equal(parsed.reservations[1].mobile, "0829201906");
+  assert.deepEqual(parsed.reservations[1].tables, ["500", "501"]);
+});
+
 test("source count and cover mismatches fail parser quality closed", async () => {
   const parsed = await parseDineplanFile({
     bytes: Buffer.from("%PDF-1.4 mismatch fixture"),
