@@ -10061,6 +10061,8 @@ export default function AdminDashboardPage() {
   const [paginationPreferencesLoaded, setPaginationPreferencesLoaded] =
     useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
+  const [crmDirectoryView, setCrmDirectoryView] =
+    useState<"companies" | "customers">("customers");
   const [customerArchiveFilter, setCustomerArchiveFilter] =
     useState<CustomerArchiveFilter>("active");
   const [customerNameStatusFilter, setCustomerNameStatusFilter] =
@@ -11153,17 +11155,24 @@ export default function AdminDashboardPage() {
       !hasHydrated ||
       !currentStaff ||
       activeAdminTab !== "customers" ||
+      crmDirectoryView !== "customers" ||
       customerDataLoadStatus !== "idle"
     ) {
       return;
     }
 
     void refreshLiveCustomerRecords();
-  }, [activeAdminTab, currentStaff, customerDataLoadStatus, hasHydrated]);
+  }, [
+    activeAdminTab,
+    crmDirectoryView,
+    currentStaff,
+    customerDataLoadStatus,
+    hasHydrated,
+  ]);
 
   useEffect(() => {
     const requiresBookingHistories =
-      activeAdminTab === "customers" ||
+      (activeAdminTab === "customers" && crmDirectoryView === "customers") ||
       (activeAdminTab === "settings" && activeSettingsTab === "workflows");
 
     if (
@@ -11180,6 +11189,7 @@ export default function AdminDashboardPage() {
   }, [
     activeAdminTab,
     activeSettingsTab,
+    crmDirectoryView,
     bookings.length,
     currentStaff,
     hasHydrated,
@@ -26868,36 +26878,22 @@ export default function AdminDashboardPage() {
     );
   }, [bookings, customerCrmRecords, liveCustomerRecords, waitlist]);
   const hasLoadedLiveCustomerRecords = customerDataLoadStatus === "loaded";
-  const {
-    activeCustomerCount,
-    archivedCustomerCount,
-    incompleteCustomerNameCount,
-  } = useMemo(() => {
+  const incompleteCustomerNameCount = useMemo(() => {
     if (!hasLoadedLiveCustomerRecords) {
-      return {
-        activeCustomerCount: 0,
-        archivedCustomerCount: 0,
-        incompleteCustomerNameCount: 0,
-      };
+      return 0;
     }
 
-    let activeCount = 0;
     let incompleteNameCount = 0;
 
     for (const profile of customerProfiles) {
       if (profile.archivedAt) continue;
-      activeCount += 1;
 
       if (!getCustomerProfileNameStatus(profile).isComplete) {
         incompleteNameCount += 1;
       }
     }
 
-    return {
-      activeCustomerCount: activeCount,
-      archivedCustomerCount: customerProfiles.length - activeCount,
-      incompleteCustomerNameCount: incompleteNameCount,
-    };
+    return incompleteNameCount;
   }, [customerProfiles, hasLoadedLiveCustomerRecords]);
   const customerSearchTerm = customerSearch.trim().toLowerCase();
   const filteredCustomerProfiles = useMemo(
@@ -38647,11 +38643,38 @@ export default function AdminDashboardPage() {
                 </p>
                 <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-3xl font-bold">
-                    Customer Relationship Profiles
+                    CRM Directory
                   </h2>
 
-                  <label className="group relative block w-10 shrink-0 transition-all duration-300 focus-within:w-full sm:focus-within:w-80">
-                    <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-[#F2D66C] transition-all duration-300 group-focus-within:left-4 group-focus-within:translate-x-0">
+                  <div
+                    role="group"
+                    aria-label="CRM directory view"
+                    className="grid grid-cols-2 gap-1 rounded-full border border-white/15 bg-black/35 p-1"
+                  >
+                    {(
+                      [
+                        ["customers", "Customers"],
+                        ["companies", "Companies"],
+                      ] as const
+                    ).map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setCrmDirectoryView(mode)}
+                        className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                          crmDirectoryView === mode
+                            ? "bg-[#D8C36A] text-black"
+                            : "text-zinc-300 hover:text-white"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {crmDirectoryView === "customers" && (
+                  <label className="relative block w-full max-w-sm">
+                    <span className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-[#F2D66C]">
                       <svg
                         aria-hidden="true"
                         viewBox="0 0 24 24"
@@ -38670,55 +38693,54 @@ export default function AdminDashboardPage() {
                       value={customerSearch}
                       onSearchChange={setCustomerSearch}
                       aria-label="Search customers"
-                      className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-0 text-sm text-transparent shadow-[0_0_18px_rgba(216,195,106,0.1)] transition-all duration-300 focus:border-[#D8C36A]/70 focus:pr-4 focus:text-white focus:outline-none"
+                      placeholder="Search customers"
+                      className="h-10 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-11 pr-4 text-sm text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] transition focus:border-[#D8C36A]/70 focus:outline-none"
                     />
                   </label>
+                  )}
                 </div>
                 <p className="mt-2 text-zinc-400">
-                  Reusable guest profiles with spend, attendance,
-                  favourite zones, add-ons, promo usage, notes, VIP
-                  tags, and communication history.
+                  {crmDirectoryView === "customers"
+                    ? "Reusable guest profiles with spend, attendance, preferences and communication history."
+                    : "Company details are shared by linked contacts."}
                 </p>
-                <div className="mt-4 flex flex-wrap items-center gap-2">
+                {crmDirectoryView === "customers" && (
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                  <div>
+                    <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                      Status
+                    </p>
+                    <div className="flex flex-wrap gap-1 rounded-full border border-white/10 bg-black/25 p-1">
                   {(
                     [
-                      [
-                        "active",
-                        hasLoadedLiveCustomerRecords
-                          ? `Active ${activeCustomerCount}`
-                          : "Active",
-                      ],
-                      [
-                        "archived",
-                        hasLoadedLiveCustomerRecords
-                          ? `Archived ${archivedCustomerCount}`
-                          : "Archived",
-                      ],
-                      [
-                        "all",
-                        hasLoadedLiveCustomerRecords
-                          ? `All ${customerProfiles.length}`
-                          : "All",
-                      ],
+                      ["active", "Active"],
+                      ["archived", "Archived"],
+                      ["all", "All"],
                     ] as Array<[CustomerArchiveFilter, string]>
                   ).map(([filter, label]) => (
                     <button
                       key={filter}
                       type="button"
                       onClick={() => setCustomerArchiveFilter(filter)}
-                      className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                      className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
                         customerArchiveFilter === filter
-                          ? "border-[#D8C36A] bg-[#D8C36A] text-black"
-                          : "border-white/15 text-zinc-300 hover:bg-white hover:text-black"
+                          ? "bg-[#D8C36A] text-black"
+                          : "text-zinc-300 hover:text-white"
                       }`}
                     >
                       {label}
                     </button>
                   ))}
-                  <span className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                      Profile Details
+                    </p>
+                    <div className="flex flex-wrap gap-1 rounded-full border border-white/10 bg-black/25 p-1">
                   {(
                     [
-                      ["all", "All Names"],
+                      ["all", "All Profiles"],
                       ["complete", "Complete"],
                       [
                         "incomplete",
@@ -38732,35 +38754,47 @@ export default function AdminDashboardPage() {
                       key={filter}
                       type="button"
                       onClick={() => setCustomerNameStatusFilter(filter)}
-                      className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                      className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
                         customerNameStatusFilter === filter
-                          ? "border-emerald-300 bg-emerald-300 text-black"
-                          : "border-white/15 text-zinc-300 hover:bg-white hover:text-black"
+                          ? "bg-emerald-300 text-black"
+                          : "text-zinc-300 hover:text-white"
                       }`}
                     >
                       {label}
                     </button>
                   ))}
+                    </div>
+                  </div>
                 </div>
+                )}
               </div>
             </div>
 
-            <CompanyCrmWorkspace
-              canManage={canManageBookings}
-              onCustomerChanged={refreshLiveCustomerRecords}
-              selectedCustomer={
-                selectedLiveCustomerRecord
-                  ? {
-                      companyId: selectedLiveCustomerRecord.company_id,
-                      crmRevision: selectedLiveCustomerRecord.crm_revision,
-                      id: selectedLiveCustomerRecord.id,
-                      jobTitle: selectedLiveCustomerRecord.job_title,
-                      name: getLiveCustomerName(selectedLiveCustomerRecord),
-                    }
-                  : null
-              }
-            />
-
+            {crmDirectoryView === "companies" ? (
+              <CompanyCrmWorkspace
+                canManage={canManageBookings}
+                mode="directory"
+                onCustomerChanged={refreshLiveCustomerRecords}
+                selectedCustomer={null}
+              />
+            ) : (
+            <>
+              <CompanyCrmWorkspace
+                canManage={canManageBookings}
+                mode="customer-link"
+                onCustomerChanged={refreshLiveCustomerRecords}
+                selectedCustomer={
+                  selectedLiveCustomerRecord
+                    ? {
+                        companyId: selectedLiveCustomerRecord.company_id,
+                        crmRevision: selectedLiveCustomerRecord.crm_revision,
+                        id: selectedLiveCustomerRecord.id,
+                        jobTitle: selectedLiveCustomerRecord.job_title,
+                        name: getLiveCustomerName(selectedLiveCustomerRecord),
+                      }
+                    : null
+                }
+              />
             <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[420px_1fr]">
               <div className="flex h-[620px] flex-col self-start rounded-2xl border border-white/10 bg-black/35 p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
@@ -39546,6 +39580,8 @@ export default function AdminDashboardPage() {
               </div>
               )}
             </div>
+            </>
+            )}
           </section>
         )}
 

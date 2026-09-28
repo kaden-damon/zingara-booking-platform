@@ -5,13 +5,10 @@ import {
   emptyCompanyInput,
   type CompanyRecord,
   type CompanyWriteInput,
-  type CrmReviewCandidate,
 } from "@/lib/companyMaster";
 import {
   getCompanies,
-  getCrmReviewCandidates,
   linkCustomerCompany,
-  reviewCrmCandidate,
   saveCompany,
 } from "@/lib/supabase/companies";
 import { paginateItems } from "@/lib/pagination";
@@ -27,11 +24,11 @@ type SelectedCustomer = {
 
 type Props = {
   canManage: boolean;
+  mode: "customer-link" | "directory";
   onCustomerChanged?: () => Promise<unknown> | void;
   selectedCustomer: SelectedCustomer | null;
 };
 
-type WorkspaceView = "closed" | "companies" | "review";
 type CompanyViewMode = "compact" | "grid" | "list";
 
 const companyViewModeSessionStorageKey = "zingara-admin-company-view-mode";
@@ -74,12 +71,11 @@ function companyToInput(company: CompanyRecord): CompanyWriteInput {
 
 export default function CompanyCrmWorkspace({
   canManage,
+  mode,
   onCustomerChanged,
   selectedCustomer,
 }: Props) {
-  const [view, setView] = useState<WorkspaceView>("closed");
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
-  const [reviews, setReviews] = useState<CrmReviewCandidate[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -97,19 +93,13 @@ export default function CompanyCrmWorkspace({
   const [showCompanyForm, setShowCompanyForm] = useState(false);
   const [customerCompanyId, setCustomerCompanyId] = useState("");
   const [customerJobTitle, setCustomerJobTitle] = useState("");
-  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
-  const [reviewSelections, setReviewSelections] = useState<Record<string, string>>({});
 
-  async function loadWorkspace(includeReviews = view === "review") {
+  async function loadWorkspace() {
     setLoading(true);
     setError("");
     try {
-      const [companyRows, reviewRows] = await Promise.all([
-        getCompanies(true),
-        includeReviews ? getCrmReviewCandidates() : Promise.resolve(reviews),
-      ]);
+      const companyRows = await getCompanies(true);
       setCompanies(companyRows);
-      if (includeReviews) setReviews(reviewRows);
       setLoaded(true);
     } catch (loadError) {
       setError(
@@ -124,11 +114,17 @@ export default function CompanyCrmWorkspace({
 
   useEffect(() => {
     // This syncs the lazy CRM snapshot when a Customer is opened.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (selectedCustomer && !loaded && !loading) void loadWorkspace(false);
+    if (
+      (mode === "directory" || selectedCustomer) &&
+      !loaded &&
+      !loading
+    ) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadWorkspace();
+    }
     // This is intentionally lazy: no Company request is added to Admin boot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCustomer?.id]);
+  }, [mode, selectedCustomer?.id]);
 
   useEffect(() => {
     // The editable link draft follows the selected Customer record.
@@ -180,12 +176,6 @@ export default function CompanyCrmWorkspace({
     [companyPage, companyPageSize, visibleCompanies],
   );
 
-  async function openView(nextView: Exclude<WorkspaceView, "closed">) {
-    const closing = view === nextView;
-    setView(closing ? "closed" : nextView);
-    if (!closing) await loadWorkspace(nextView === "review");
-  }
-
   function beginCreate() {
     setEditingCompanyId(null);
     setCompanyDraft(emptyCompanyInput());
@@ -231,7 +221,7 @@ export default function CompanyCrmWorkspace({
       });
       setShowCompanyForm(false);
       setStatus(editingCompanyId ? "Company details updated." : "Company created.");
-      await loadWorkspace(view === "review");
+      await loadWorkspace();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Company could not be saved.");
     } finally {
@@ -256,52 +246,13 @@ export default function CompanyCrmWorkspace({
           : `${selectedCustomer.name} unlinked from Company.`,
       );
       await onCustomerChanged?.();
-      await loadWorkspace(false);
+      await loadWorkspace();
     } catch (saveError) {
       setError(
         saveError instanceof Error
           ? saveError.message
           : "The Customer Company link could not be saved.",
       );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function decideReview(
-    review: CrmReviewCandidate,
-    action: "keep-separate" | "link-to-company" | "merge" | "not-a-duplicate",
-  ) {
-    if (!canManage) return;
-    const selectedId = reviewSelections[review.id];
-    const note = reviewNotes[review.id]?.trim() ?? "";
-    if (note.length < 5) {
-      setError("Add a short Management Note before saving the decision.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const otherId = review.subjectIds.find((id) => id !== selectedId);
-      await reviewCrmCandidate({
-        action,
-        companyId:
-          review.candidateType === "company-as-person"
-            ? String(review.evidence.companyId ?? "")
-            : review.candidateType === "company-variant"
-              ? selectedId
-              : undefined,
-        duplicateCustomerId:
-          review.candidateType === "customer-duplicate" ? otherId : undefined,
-        note,
-        reviewId: review.id,
-        survivorCustomerId:
-          review.candidateType === "customer-duplicate" ? selectedId : undefined,
-      });
-      setStatus("Review decision saved.");
-      await loadWorkspace(true);
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Review decision could not be saved.");
     } finally {
       setLoading(false);
     }
@@ -316,32 +267,12 @@ export default function CompanyCrmWorkspace({
 
   return (
     <div className="mb-6 space-y-4">
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 pb-4">
-        <button
-          type="button"
-          onClick={() => void openView("companies")}
-          className={`rounded-lg border px-4 py-2 text-sm font-semibold ${
-            view === "companies"
-              ? "border-[#D8C36A] bg-[#D8C36A] text-black"
-              : "border-white/15 text-white"
-          }`}
-        >
-          Companies
-        </button>
-        <button
-          type="button"
-          onClick={() => void openView("review")}
-          className={`rounded-lg border px-4 py-2 text-sm font-semibold ${
-            view === "review"
-              ? "border-[#D8C36A] bg-[#D8C36A] text-black"
-              : "border-white/15 text-white"
-          }`}
-        >
-          Data Review{reviews.length > 0 ? ` (${reviews.length})` : ""}
-        </button>
-        {loading && <span className="text-sm text-zinc-400">Loading…</span>}
-        {status && <span className="text-sm text-emerald-300">{status}</span>}
-      </div>
+      {(loading || status) && (
+        <div className="flex flex-wrap items-center gap-3">
+          {loading && <span className="text-sm text-zinc-400">Loading…</span>}
+          {status && <span className="text-sm text-emerald-300">{status}</span>}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-400/30 bg-red-950/30 px-4 py-3 text-sm text-red-200">
@@ -349,7 +280,7 @@ export default function CompanyCrmWorkspace({
         </div>
       )}
 
-      {selectedCustomer && (
+      {mode === "customer-link" && selectedCustomer && (
         <section className="rounded-lg border border-[#D8C36A]/25 bg-black/35 p-4">
           <div className="flex flex-wrap items-end gap-3">
             <label className="min-w-60 flex-1 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
@@ -397,7 +328,7 @@ export default function CompanyCrmWorkspace({
         </section>
       )}
 
-      {view === "companies" && (
+      {mode === "directory" && (
         <section className="rounded-lg border border-white/10 bg-zinc-950/80 p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>
@@ -751,94 +682,6 @@ export default function CompanyCrmWorkspace({
         </section>
       )}
 
-      {view === "review" && (
-        <section className="rounded-lg border border-white/10 bg-zinc-950/80 p-4">
-          <h3 className="text-lg font-bold text-white">CRM Data Review</h3>
-          <p className="mt-1 text-sm text-zinc-400">
-            Ambiguous records remain separate until an authorised staff member decides.
-          </p>
-          <div className="mt-4 space-y-3">
-            {reviews.length === 0 ? (
-              <p className="text-sm text-zinc-400">No review items are waiting.</p>
-            ) : (
-              reviews.map((review) => (
-                <article key={review.id} className="rounded-lg border border-white/10 bg-black/40 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#D8C36A]">
-                    {review.candidateType.replaceAll("-", " ")}
-                  </p>
-                  <p className="mt-2 font-semibold text-white">{review.displayNames.join(" / ")}</p>
-                  <p className="mt-1 text-sm text-zinc-400">{review.reason}</p>
-                  {(review.candidateType === "company-variant" ||
-                    review.candidateType === "customer-duplicate") && (
-                    <label className="mt-3 block max-w-lg text-xs font-semibold uppercase tracking-[0.1em] text-zinc-400">
-                      Record to keep
-                      <select
-                        className={`${inputClass()} mt-2`}
-                        value={reviewSelections[review.id] ?? ""}
-                        onChange={(event) =>
-                          setReviewSelections((current) => ({ ...current, [review.id]: event.target.value }))
-                        }
-                      >
-                        <option value="">Select</option>
-                        {review.subjectIds.map((id, index) => (
-                          <option key={id} value={id}>{review.displayNames[index] ?? id}</option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <label className="mt-3 block text-xs font-semibold uppercase tracking-[0.1em] text-zinc-400">
-                    Management Notes
-                    <input
-                      className={`${inputClass()} mt-2`}
-                      value={reviewNotes[review.id] ?? ""}
-                      onChange={(event) =>
-                        setReviewNotes((current) => ({ ...current, [review.id]: event.target.value }))
-                      }
-                    />
-                  </label>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {review.candidateType === "company-as-person" ? (
-                      <button
-                        type="button"
-                        disabled={!canManage || loading}
-                        onClick={() => void decideReview(review, "link-to-company")}
-                        className="rounded-lg bg-[#D8C36A] px-3 py-2 text-xs font-bold text-black disabled:opacity-50"
-                      >
-                        Link to Company
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={!canManage || loading || !reviewSelections[review.id]}
-                        onClick={() => void decideReview(review, "merge")}
-                        className="rounded-lg bg-[#D8C36A] px-3 py-2 text-xs font-bold text-black disabled:opacity-50"
-                      >
-                        Merge
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      disabled={!canManage || loading}
-                      onClick={() => void decideReview(review, "keep-separate")}
-                      className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                    >
-                      Keep Separate
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!canManage || loading}
-                      onClick={() => void decideReview(review, "not-a-duplicate")}
-                      className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                    >
-                      Not a Duplicate
-                    </button>
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-        </section>
-      )}
     </div>
   );
 }

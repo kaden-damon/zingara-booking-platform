@@ -14,6 +14,7 @@ const companiesRoutePath = `${root}/src/app/api/admin/companies/route.ts`;
 const contactRoutePath = `${root}/src/app/api/admin/companies/contact/route.ts`;
 const reviewsRoutePath = `${root}/src/app/api/admin/companies/reviews/route.ts`;
 const panelPath = `${root}/src/app/admin/CompanyCrmWorkspace.tsx`;
+const adminPagePath = `${root}/src/app/admin/page.tsx`;
 const bookingRoutePath = `${root}/src/app/api/bookings/route.ts`;
 const corporateServerPath = `${root}/src/lib/supabase/corporateRequestsServer.ts`;
 
@@ -163,9 +164,50 @@ test("CRM Company workspace is lazy and exposes required plain-English actions",
   assert.match(panel, /\+ Create/);
   assert.match(panel, /Primary Contact/);
   assert.match(panel, /Save Company Link/);
-  assert.match(panel, /Data Review/);
-  assert.match(panel, /Keep Separate/);
-  assert.match(panel, /Not a Duplicate/);
+});
+
+test("Customers and Companies are mutually exclusive CRM directory views", async () => {
+  const page = await readFile(adminPagePath, "utf8");
+  assert.match(page, /useState<"companies" \| "customers">\("customers"\)/);
+  assert.match(page, /aria-label="CRM directory view"/);
+  assert.match(page, /crmDirectoryView === "companies" \? \(/);
+  assert.match(page, /mode="directory"/);
+  assert.match(page, /mode="customer-link"/);
+  assert.match(page, /crmDirectoryView === "customers" && \(/);
+});
+
+test("normal CRM navigation omits Data Review while review history remains supported", async () => {
+  const [page, panel, reviewRoute, sql] = await Promise.all([
+    readFile(adminPagePath, "utf8"),
+    readFile(panelPath, "utf8"),
+    readFile(reviewsRoutePath, "utf8"),
+    readFile(migrationPath, "utf8"),
+  ]);
+  assert.doesNotMatch(page, />\s*Data Review/);
+  assert.doesNotMatch(panel, /CRM Data Review/);
+  assert.match(reviewRoute, /reviewCrmCandidate|crm_data_review_candidates/);
+  assert.match(sql, /decision_note text/);
+  assert.match(sql, /reviewed_at timestamptz/);
+});
+
+test("Customer filters and search render only in Customers mode", async () => {
+  const page = await readFile(adminPagePath, "utf8");
+  assert.match(page, /crmDirectoryView === "customers" && \([\s\S]{0,1600}<AdminSearchInput/);
+  assert.match(page, /Status/);
+  assert.match(page, /Profile Details/);
+  assert.match(page, /All Profiles/);
+  assert.doesNotMatch(page, /All Names/);
+});
+
+test("Customer and Company loading remain scoped to their selected workspace", async () => {
+  const [page, panel] = await Promise.all([
+    readFile(adminPagePath, "utf8"),
+    readFile(panelPath, "utf8"),
+  ]);
+  assert.match(page, /crmDirectoryView !== "customers"/);
+  assert.match(page, /activeAdminTab === "customers" && crmDirectoryView === "customers"/);
+  assert.match(panel, /mode === "directory" \|\| selectedCustomer/);
+  assert.equal((panel.match(/getCompanies\(true\)/g) ?? []).length, 1);
 });
 
 test("Company directory defaults to the Bookings-style Compact view", async () => {
