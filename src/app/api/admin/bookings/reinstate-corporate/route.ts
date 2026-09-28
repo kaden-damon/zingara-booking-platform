@@ -58,7 +58,13 @@ function zoneLabel(zoneId: string) {
 }
 
 function capacityExplanation(allocation: CapacityAllocation) {
-  return `Cannot reinstate: ${zoneLabel(allocation.zone_id)} requires ${allocation.pax} seats but only ${Math.max((allocation.effective_capacity ?? 0) - (allocation.active_entitlement ?? 0), 0)} are available.`;
+  const available = Math.max(
+    (allocation.effective_capacity ?? 0) -
+      (allocation.active_entitlement ?? 0),
+    0,
+  );
+  const shortfall = Math.max(allocation.pax - available, 0);
+  return `REINSTATEMENT BLOCKED — CAPACITY CONFLICT. ${allocation.pax} seats need to be restored in ${zoneLabel(allocation.zone_id)}. ${available} seats are currently available. Shortfall: ${shortfall} seats. Management must resolve capacity or booking allocation before reinstatement.`;
 }
 
 function rpcErrorResponse(error: { message?: string }) {
@@ -199,10 +205,10 @@ export async function POST(request: Request) {
       return Response.json({
         preview,
         guidance:
-          preview.code === "PAYMENT_REQUIRED"
-            ? "Record the verified EFT payment before reinstating this booking."
-            : blockedAllocation
-              ? capacityExplanation(blockedAllocation)
+          blockedAllocation
+            ? capacityExplanation(blockedAllocation)
+            : preview.code === "PAYMENT_REQUIRED"
+              ? "Record the verified EFT payment before reinstating this booking."
               : preview.code === "NOT_ELIGIBLE"
                 ? "This booking was not released by the Corporate payment-expiry workflow."
                 : "Payment and live capacity checks are ready for confirmation.",

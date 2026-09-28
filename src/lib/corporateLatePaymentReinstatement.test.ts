@@ -107,7 +107,8 @@ test("server route enforces permission and venue scope", async () => {
 test("server route returns actionable payment, capacity, stale, and eligibility guidance", async () => {
   const route = await source("src/app/api/admin/bookings/reinstate-corporate/route.ts");
   assert.match(route, /Record the verified EFT payment before reinstating/);
-  assert.match(route, /requires .* seats but only .* are available/);
+  assert.match(route, /REINSTATEMENT BLOCKED — CAPACITY CONFLICT/);
+  assert.match(route, /Shortfall: \$\{shortfall\} seats/);
   assert.match(route, /changed since you opened it/);
   assert.match(route, /Only system-expired Corporate bookings/);
 });
