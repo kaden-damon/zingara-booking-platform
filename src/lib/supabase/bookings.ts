@@ -49,6 +49,7 @@ type SupabaseBookingRow = {
   booking_source: string;
   booking_status: SupabaseBookingStatus;
   company_name: string | null;
+  company_id: string | null;
   corporate_request_id: string | null;
   corporate_payment_deadline: string | null;
   corporate_payment_expired_at: string | null;
@@ -615,6 +616,7 @@ async function toSupabaseBooking(booking: DemoBooking) {
       booking.source === "corporate-direct"
         ? booking.operationalNotes?.match(/^Company: (.+)$/m)?.[1] ?? null
         : null,
+    company_id: booking.companyId ?? null,
     customer_id: customerId,
     dietary_requirements:
       booking.operationalNotes?.match(/^Dietary: (.+)$/m)?.[1] ?? null,
@@ -710,6 +712,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       amountPaid: row.amount_paid,
       customer: authoritativeCustomer ?? metadataBooking.customer,
       customerId: row.customer_id,
+      companyId: row.company_id ?? undefined,
       archivedAt: row.archived_at ?? metadataBooking.archivedAt,
       archivedBy: row.archived_by ?? metadataBooking.archivedBy,
       archiveReason: row.archive_reason ?? metadataBooking.archiveReason,
@@ -773,6 +776,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     addons: [],
     addonsTotal: row.addons_total,
     customerId: row.customer_id,
+    companyId: row.company_id ?? undefined,
     amountPaid: row.amount_paid,
     archivedAt: row.archived_at ?? undefined,
     archivedBy: row.archived_by ?? undefined,

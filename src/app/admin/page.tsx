@@ -48,6 +48,7 @@ import { useReportGenerationLock } from "./useReportGenerationLock";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
 import CorporateConversionModal from "./CorporateConversionModal";
 import CorporateFinancialReconciliationModal from "./CorporateFinancialReconciliationModal";
+import CompanyCrmWorkspace from "./CompanyCrmWorkspace";
 import { getReportGenerationLockMessage } from "../../lib/reportGenerationLock";
 import {
   adminIpUndertaking,
@@ -666,9 +667,13 @@ type CustomerProfile = {
   waitlistEntries: DemoWaitlistEntry[];
 };
 type LiveCustomerRecord = {
+  company_id: string | null;
+  crm_revision: number;
   email: string | null;
   first_name: string;
   id: string;
+  job_title: string | null;
+  merged_into_customer_id: string | null;
   mobile: string | null;
   preferences: {
     archivedAt?: string;
@@ -38739,6 +38744,22 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             </div>
+
+            <CompanyCrmWorkspace
+              canManage={canManageBookings}
+              onCustomerChanged={refreshLiveCustomerRecords}
+              selectedCustomer={
+                selectedLiveCustomerRecord
+                  ? {
+                      companyId: selectedLiveCustomerRecord.company_id,
+                      crmRevision: selectedLiveCustomerRecord.crm_revision,
+                      id: selectedLiveCustomerRecord.id,
+                      jobTitle: selectedLiveCustomerRecord.job_title,
+                      name: getLiveCustomerName(selectedLiveCustomerRecord),
+                    }
+                  : null
+              }
+            />
 
             <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[420px_1fr]">
               <div className="flex h-[620px] flex-col self-start rounded-2xl border border-white/10 bg-black/35 p-5">

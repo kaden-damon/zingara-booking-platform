@@ -18,11 +18,15 @@ type CustomerPreferences = {
 };
 
 type SupabaseCustomerRow = {
+  company_id: string | null;
   created_at?: string;
+  crm_revision: number;
   dietary_requirements: string | null;
   email: string | null;
   first_name: string;
   id: string;
+  job_title: string | null;
+  merged_into_customer_id: string | null;
   mobile: string | null;
   preferences: CustomerPreferences | null;
   relationship_notes: string | null;

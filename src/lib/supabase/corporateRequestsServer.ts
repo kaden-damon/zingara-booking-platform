@@ -22,6 +22,8 @@ type SupabaseCorporateRequestType =
   | "corporate_booking";
 
 export type SupabaseCorporateRequestRow = {
+  company_id: string | null;
+  contact_customer_id: string | null;
   addons: string[];
   alternative_event_date: string | null;
   archived_at: string | null;
@@ -55,7 +57,7 @@ export type SupabaseCorporateRequestRow = {
 
 const metadataPrefix = "__zingara_corporate_request_meta__:";
 const corporateRequestSelect =
-  "id,request_type,status,company_name,contact_name,contact_number,email,preferred_event_date,alternative_event_date,guest_count,seating_preference,occasion,other_description,dietary_requirements,other_dietary_requirement,bar_tab,addons,notes,source,archived_at,linked_booking_id,linked_booking_reference,financial_reconciliation,import_fingerprint,import_source_checksum,import_source_file,import_source_row,created_at,updated_at";
+  "id,request_type,status,company_id,contact_customer_id,company_name,contact_name,contact_number,email,preferred_event_date,alternative_event_date,guest_count,seating_preference,occasion,other_description,dietary_requirements,other_dietary_requirement,bar_tab,addons,notes,source,archived_at,linked_booking_id,linked_booking_reference,financial_reconciliation,import_fingerprint,import_source_checksum,import_source_file,import_source_row,created_at,updated_at";
 
 function toSupabaseStatus(
   status: CorporateRequestStatus,
@@ -142,6 +144,8 @@ export function toSupabaseCorporateRequest(request: CorporateRequest) {
     archived_at: request.archivedAt ?? null,
     bar_tab: request.barTab || null,
     company_name: request.companyName,
+    company_id: request.companyId ?? null,
+    contact_customer_id: request.contactCustomerId ?? null,
     contact_name: request.contactName,
     contact_number: request.contactNumber || null,
     created_at: request.createdAt,
@@ -195,6 +199,9 @@ function toCorporateRequest(row: SupabaseCorporateRequestRow): CorporateRequest 
   if (metadataRequest) {
     return {
       ...metadataRequest,
+      companyId: row.company_id ?? metadataRequest.companyId,
+      contactCustomerId:
+        row.contact_customer_id ?? metadataRequest.contactCustomerId,
       archivedAt: row.archived_at ?? metadataRequest.archivedAt,
       financialReconciliation:
         row.financial_reconciliation ?? metadataRequest.financialReconciliation,
@@ -216,7 +223,9 @@ function toCorporateRequest(row: SupabaseCorporateRequestRow): CorporateRequest 
     barTab: row.bar_tab ?? "No Bar Tab",
     communicationHistory: [],
     companyName: row.company_name,
+    companyId: row.company_id ?? undefined,
     contactName: row.contact_name,
+    contactCustomerId: row.contact_customer_id ?? undefined,
     contactNumber: row.contact_number ?? "",
     createdAt: row.created_at,
     dietaryRequirements: row.dietary_requirements ?? [],

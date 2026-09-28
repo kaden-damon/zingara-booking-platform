@@ -675,6 +675,7 @@ export type BookingLifecycleEvent = {
 export type DemoBooking = {
   supabaseBookingId?: string;
   customerId?: string;
+  companyId?: string;
   corporateRequestId?: string;
   reference: string;
   showId?: string;
@@ -822,6 +823,8 @@ export type ImportedCorporateFinancialReconciliation = {
 };
 export type CorporateRequest = {
   id: string;
+  companyId?: string;
+  contactCustomerId?: string;
   companyName: string;
   contactName: string;
   contactNumber: string;
@@ -2052,6 +2055,10 @@ function normalizeCorporateRequest(
       request.id,
       `CORP-${Date.now().toString(36).toUpperCase()}-${index + 1}`,
     ),
+    companyId: request.companyId ? getSafeString(request.companyId) : undefined,
+    contactCustomerId: request.contactCustomerId
+      ? getSafeString(request.contactCustomerId)
+      : undefined,
     companyName: getSafeString(request.companyName),
     contactName: getSafeString(request.contactName),
     contactNumber: getSafeString(request.contactNumber),

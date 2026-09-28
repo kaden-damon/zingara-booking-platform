@@ -687,6 +687,7 @@ function getBookingPayload(
       bookingSource === "corporate-direct"
         ? booking.operationalNotes?.match(/^Company: (.+)$/m)?.[1] ?? null
         : null,
+    company_id: booking.companyId ?? null,
     corporate_request_id: booking.corporateRequestId ?? null,
     customer_id: customerId,
     created_by_staff_id: booking.createdByStaffId ?? null,

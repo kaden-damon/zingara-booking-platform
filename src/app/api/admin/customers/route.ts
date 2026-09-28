@@ -53,11 +53,15 @@ type CustomerPreferences = {
 };
 
 type SupabaseCustomerRow = {
+  company_id: string | null;
+  crm_revision: number;
   dietary_requirements: string | null;
   email: string | null;
   first_name: string;
   id: string;
   mobile: string | null;
+  job_title: string | null;
+  merged_into_customer_id: string | null;
   preferences: CustomerPreferences | null;
   relationship_notes: string | null;
   surname: string | null;
@@ -65,7 +69,7 @@ type SupabaseCustomerRow = {
 };
 
 const customerSelect =
-  "id,first_name,surname,email,mobile,vip_status,preferences,relationship_notes,dietary_requirements,created_at,updated_at";
+  "id,first_name,surname,email,mobile,vip_status,preferences,relationship_notes,dietary_requirements,company_id,job_title,merged_into_customer_id,crm_revision,created_at,updated_at";
 const customerQueryBatchSize = 1000;
 const customerAuditFields = [
   "first_name",
