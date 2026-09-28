@@ -77,3 +77,25 @@ export async function fetchSupabaseApi<T>(
 
   return (await response.json()) as T;
 }
+
+export async function fetchSupabaseBlob(path: string) {
+  const supabase = getSupabaseClient();
+  const session = supabase
+    ? await supabase.auth.getSession()
+    : { data: { session: null } };
+  const accessToken = session.data.session?.access_token;
+  const response = await fetch(path, {
+    cache: "no-store",
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as { error?: string };
+    throw new SupabaseApiError({
+      message: payload.error ?? "The file could not be generated.",
+      status: response.status,
+    });
+  }
+
+  return response.blob();
+}

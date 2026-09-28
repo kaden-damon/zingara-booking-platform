@@ -43,6 +43,7 @@ import ManagementAnalytics from "./ManagementAnalytics";
 import BoxOfficeFinancialReportPanel from "./BoxOfficeFinancialReport";
 import type { BoxOfficeFinancialReport } from "@/lib/boxOfficeFinancialReport";
 import { getJohannesburgDateKey } from "@/lib/managementAnalytics";
+import { createPdfBytesFromPageContent } from "@/lib/exports/zingaraTextPdf";
 import { useReportGenerationLock } from "./useReportGenerationLock";
 import SystemMaintenancePanel from "./SystemMaintenancePanel";
 import CorporateConversionModal from "./CorporateConversionModal";
@@ -458,6 +459,7 @@ import {
   isInternallyManageableShow,
 } from "../../lib/operationsData";
 import BookingPaginationControls from "./BookingPaginationControls";
+import CorporateBookingOperationsPanel from "./CorporateBookingOperationsPanel";
 
 type NewTableForm = {
   customPricePerPerson: string;
@@ -8720,44 +8722,14 @@ function createReportPdfBlob({
     y -= 14;
   });
 
-  const objects: string[] = [];
-  const pageRefs: string[] = [];
-
-  objects.push("<< /Type /Catalog /Pages 2 0 R >>");
-  objects.push("");
-  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-
-  pages.forEach((content, index) => {
-    const pageObjectId = objects.length + 1;
-    const contentObjectId = pageObjectId + 1;
-
-    pageRefs.push(`${pageObjectId} 0 R`);
-    objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjectId} 0 R >>`,
-    );
-    objects.push(
-      `<< /Length ${content.length} >>\nstream\n${content}BT /F1 8 Tf ${width - 90} 24 Td (Page ${index + 1} of ${pages.length}) Tj ET\nendstream`,
-    );
-  });
-
-  objects[1] = `<< /Type /Pages /Kids [${pageRefs.join(" ")}] /Count ${pages.length} >>`;
-
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [0];
-
-  objects.forEach((object, index) => {
-    offsets.push(pdf.length);
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
-
-  const xrefOffset = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.slice(1).forEach((offset) => {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  });
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-
-  return new Blob([pdf], { type: "application/pdf" });
+  const pageContent = pages.map(
+    (content, index) =>
+      `${content}BT /F1 8 Tf ${width - 90} 24 Td (Page ${index + 1} of ${pages.length}) Tj ET\n`,
+  );
+  return new Blob(
+    [createPdfBytesFromPageContent({ height, pages: pageContent, width })],
+    { type: "application/pdf" },
+  );
 }
 
 function parseCsvTable(text: string) {
@@ -44078,6 +44050,14 @@ export default function AdminDashboardPage() {
                             : `${formatCurrency(booking.balanceDue ?? 0)} remains outstanding. Payment may be reconciled after POP or collected later through a managed payment link.`}
                         </p>
                       </div>
+                    )}
+                    {isCorporateBooking && (
+                      <CorporateBookingOperationsPanel
+                        key={booking.reference}
+                        bookingReference={booking.reference}
+                        canManage={canManageBookings}
+                        readOnly={bookingIsReadOnly || bookingLockedByOther}
+                      />
                     )}
                     {booking.promoRedemption && (
                       <div className="mt-4 grid gap-3 rounded-2xl border border-emerald-300/20 bg-emerald-950/10 p-4 sm:grid-cols-3">
