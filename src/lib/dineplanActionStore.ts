@@ -219,7 +219,7 @@ export async function syncDineplanReconciliationActions(
 export async function loadDineplanActionSettings(client: SupabaseClient): Promise<DineplanActionSettings> {
   const { data, error } = await client
     .from("dineplan_reconciliation_settings")
-    .select("action_recipient_staff_ids,corporate_recipient_staff_ids,management_cc_staff_ids,hourly_reminders_enabled,normal_acknowledged_cadence_hours,pre_show_escalation_hours,snapshot_stale_hours")
+    .select("action_recipient_staff_ids,corporate_recipient_staff_ids,management_cc_staff_ids,scheduled_emails_enabled,morning_email_time,midday_email_time,final_email_time,normal_acknowledged_cadence_hours,pre_show_escalation_hours,snapshot_stale_hours")
     .eq("id", 1)
     .maybeSingle();
   if (error) throw error;
@@ -227,10 +227,13 @@ export async function loadDineplanActionSettings(client: SupabaseClient): Promis
   return {
     actionRecipientStaffIds: data.action_recipient_staff_ids ?? [],
     corporateRecipientStaffIds: data.corporate_recipient_staff_ids ?? [],
-    hourlyRemindersEnabled: Boolean(data.hourly_reminders_enabled),
+    finalEmailTime: String(data.final_email_time ?? "15:30").slice(0, 5),
     managementCcStaffIds: data.management_cc_staff_ids ?? [],
+    middayEmailTime: String(data.midday_email_time ?? "12:00").slice(0, 5),
+    morningEmailTime: String(data.morning_email_time ?? "09:00").slice(0, 5),
     normalAcknowledgedCadenceHours: Number(data.normal_acknowledged_cadence_hours) || 3,
     preShowEscalationHours: Number(data.pre_show_escalation_hours) || 3,
+    scheduledEmailsEnabled: Boolean(data.scheduled_emails_enabled),
     snapshotStaleHours: Number(data.snapshot_stale_hours) || 24,
   };
 }

@@ -18,6 +18,10 @@ const parserTrustMigration = readFileSync(
   new URL("../../supabase/migrations/20260925171000_phase_41_2w_p0_d_parser_trust.sql", import.meta.url),
   "utf8",
 );
+const scheduleMigration = readFileSync(
+  new URL("../../supabase/migrations/20260928220000_phase_41_2w_p0_h_dineplan_daily_schedule.sql", import.meta.url),
+  "utf8",
+);
 const actionCentre = readFileSync(
   new URL("../app/admin/DineplanActionCentre.tsx", import.meta.url),
   "utf8",
@@ -42,6 +46,10 @@ const digestWorkflow = readFileSync(
   new URL("./workflows/dineplanActionDigest.ts", import.meta.url),
   "utf8",
 );
+const scheduledWorkflow = readFileSync(
+  new URL("./workflows/dineplanScheduledEmails.ts", import.meta.url),
+  "utf8",
+);
 const digestTrigger = readFileSync(
   new URL("./workflows/dineplanActionDigestTrigger.ts", import.meta.url),
   "utf8",
@@ -52,6 +60,7 @@ const workflowRoute = readFileSync(
 );
 const smtp = readFileSync(new URL("./email/smtp.ts", import.meta.url), "utf8");
 const emailTemplate = readFileSync(new URL("./email/customerEmail.ts", import.meta.url), "utf8");
+const vercelConfig = readFileSync(new URL("../../vercel.json", import.meta.url), "utf8");
 
 test("reconciliation route is permission protected and has no booking mutation path", () => {
   assert.match(route, /requireActiveStaff/);
@@ -143,6 +152,10 @@ test("recipient settings accept active staff identities only and default disable
   assert.match(actionRoute, /settings:manage/);
   assert.doesNotMatch(actionRoute, /from\("customers"\)/);
   assert.match(migration, /hourly_reminders_enabled boolean not null default false/);
+  assert.match(scheduleMigration, /scheduled_emails_enabled boolean not null default false/);
+  assert.match(scheduleMigration, /morning_email_time time not null default time '09:00'/);
+  assert.match(scheduleMigration, /midday_email_time time not null default time '12:00'/);
+  assert.match(scheduleMigration, /final_email_time time not null default time '15:30'/);
   assert.match(migration, /action_recipient_staff_ids uuid\[\]/);
   assert.match(migration, /corporate_recipient_staff_ids uuid\[\]/);
   for (const email of [
@@ -174,10 +187,11 @@ test("Action Digest reuses the authoritative Zingara HTML shell and CTA styling"
   assert.doesNotMatch(digestWorkflow, /<!doctype html>|<html lang=/);
 });
 
-test("digest preview cannot send and scheduler reuses the existing hourly runner", () => {
+test("digest preview cannot send and scheduler uses configured checkpoints", () => {
   assert.match(actionRoute, /preview=1|searchParams\.get\("preview"\)/);
   assert.doesNotMatch(actionRoute, /sendZingaraEmail/);
-  assert.match(workflowRoute, /runDineplanActionDigest/);
+  assert.match(workflowRoute, /runDineplanScheduledEmails/);
+  assert.match(vercelConfig, /\*\/15 \* \* \* \*/);
   assert.match(digestWorkflow, /sendZingaraEmail/);
   assert.match(smtp, /cc: cc \?\? undefined/);
 });
@@ -185,7 +199,8 @@ test("digest preview cannot send and scheduler reuses the existing hourly runner
 test("trusted reconciliation triggers the first digest through the same claimed delivery path", () => {
   assert.match(route, /triggerDineplanActionDigestAfterReconciliation/);
   assert.match(route, /actionCount: actions\.length/);
-  assert.match(route, /runDigest: runDineplanActionDigest/);
+  assert.match(route, /runDigest: \(client\) => runDineplanActionDigest/);
+  assert.match(route, /mode: "immediate"/);
   assert.match(digestTrigger, /await input\.runDigest\(input\.client\)/);
   assert.match(digestWorkflow, /claim_due_dineplan_reconciliation_actions/);
   assert.match(migration, /last_notified_at <= now\(\) - make_interval/);
@@ -206,11 +221,14 @@ test("Vercel cron authentication accepts the standard secret without weakening l
   assert.match(workflowRoute, /status: 401/);
 });
 
-test("hourly action job claims stored actions and never reruns reconciliation", () => {
+test("scheduled action job claims stored actions and never reruns reconciliation", () => {
   assert.match(digestWorkflow, /claim_due_dineplan_reconciliation_actions/);
   assert.doesNotMatch(digestWorkflow, /reconcileDineplanSnapshot|normalized_reservations|dineplan_reconciliation_snapshots/);
-  assert.match(migration, /for update skip locked/);
-  assert.match(migration, /notification_claimed_at/);
+  assert.match(scheduleMigration, /for update skip locked/);
+  assert.match(scheduleMigration, /notification_claimed_at/);
+  assert.match(scheduleMigration, /unique \(show_id, checkpoint_date, checkpoint_name\)/);
+  assert.match(scheduledWorkflow, /runDineplanActionDigest/);
+  assert.match(scheduledWorkflow, /buildDineplanSourceReminder/);
 });
 
 test("provider outcome integrity records sent only after acceptance", () => {

@@ -27,6 +27,12 @@ type ActionCentrePayload = {
   latestSource: string | null;
   preview: DineplanDigest | null;
   previews: Array<{ audience: "corporate" | "general"; cc: string[]; digest: DineplanDigest; to: string[] }>;
+  scheduleStatus: {
+    lastResult: string | null;
+    lastScheduledCheckAt: string | null;
+    lastSuccessfulDeliveryAt: string | null;
+    lastSuccessfulDeliveryKind: string | null;
+  };
   settings: DineplanActionSettings;
   snapshotStale: boolean;
   staffOptions: StaffOption[];
@@ -173,7 +179,7 @@ export default function DineplanActionCentre({
         body: { action: "update_settings", ...settings },
         method: "PATCH",
       });
-      setMessage("Action recipients and reminder policy saved. Existing actions were not changed.");
+      setMessage("Action recipients and scheduled email checkpoints saved. Existing actions were not changed.");
       await load();
     } catch (settingsError) {
       setError(settingsError instanceof Error ? settingsError.message : "Action settings could not be saved.");
@@ -199,6 +205,17 @@ export default function DineplanActionCentre({
             </p>
           )) : <p className="mt-1 text-sm text-zinc-400">No unresolved actions currently have a trusted source.</p>}
           <p className="mt-1 text-xs text-zinc-500">Latest trusted source age: {dataAge(payload?.latestSource ?? null)}</p>
+          <p className="mt-3 text-xs font-semibold uppercase text-zinc-500">Scheduled emails</p>
+          <p className="mt-1 text-sm text-zinc-300">
+            {payload?.settings.scheduledEmailsEnabled ? "ON" : "OFF"} · Morning {payload?.settings.morningEmailTime} · Midday {payload?.settings.middayEmailTime} · Final {payload?.settings.finalEmailTime} · SAST
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Last scheduled check: {formatTimestamp(payload?.scheduleStatus.lastScheduledCheckAt ?? null)}
+            {payload?.scheduleStatus.lastResult ? ` · ${payload.scheduleStatus.lastResult.replaceAll("_", " ")}` : ""}
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Last successful digest/upload reminder: {formatTimestamp(payload?.scheduleStatus.lastSuccessfulDeliveryAt ?? null)}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => document.getElementById("dineplan-export-upload")?.click()} className="border border-[#D8C36A]/40 px-3 py-2 text-xs font-semibold uppercase text-[#F2D66C]">Upload Fresh Snapshot</button>
@@ -294,6 +311,11 @@ function ActionSettings({ settings, staffOptions, busy, onSave }: { settings: Di
       [other]: enabled ? current[other] : current[other].filter((value) => value !== id),
     };
   });
+  const scheduleTimes = [draft.morningEmailTime, draft.middayEmailTime, draft.finalEmailTime];
+  const scheduleIsValid = scheduleTimes.every((time) => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) &&
+    new Set(scheduleTimes).size === scheduleTimes.length &&
+    draft.morningEmailTime < draft.middayEmailTime &&
+    draft.middayEmailTime < draft.finalEmailTime;
   return (
     <details className="border border-white/10 p-4">
       <summary className="cursor-pointer text-sm font-semibold uppercase text-[#F2D66C]">Recipient & Reminder Settings</summary>
@@ -302,13 +324,23 @@ function ActionSettings({ settings, staffOptions, busy, onSave }: { settings: Di
         <div><p className="text-xs font-semibold uppercase text-zinc-400">Box Office · Corporate Only</p><div className="mt-2 space-y-2">{staffOptions.map((staff) => <label key={`corporate-${staff.id}`} className="flex gap-2 text-sm text-zinc-200"><input type="checkbox" checked={draft.corporateRecipientStaffIds.includes(staff.id)} onChange={() => toggleBoxOffice("corporateRecipientStaffIds", staff.id)} /><span>{staff.name} · {staff.email}</span></label>)}</div></div>
         <div><p className="text-xs font-semibold uppercase text-zinc-400">Management CC</p><div className="mt-2 space-y-2">{staffOptions.map((staff) => <label key={`cc-${staff.id}`} className="flex gap-2 text-sm text-zinc-200"><input type="checkbox" checked={draft.managementCcStaffIds.includes(staff.id)} onChange={() => toggle("managementCcStaffIds", staff.id)} /><span>{staff.name} · {staff.email}</span></label>)}</div></div>
       </div>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <label className="text-xs uppercase text-zinc-400"><span className="flex items-center gap-2 normal-case text-zinc-200"><input type="checkbox" checked={draft.hourlyRemindersEnabled} onChange={(event) => setDraft((current) => ({ ...current, hourlyRemindersEnabled: event.target.checked }))} />Hourly reminders enabled</span></label>
+      <div className="mt-5 border-t border-white/10 pt-5">
+        <p className="text-xs font-semibold uppercase text-zinc-400">Dineplan Email Schedule</p>
+        <label className="mt-3 flex items-center gap-2 text-sm text-zinc-200"><input type="checkbox" checked={draft.scheduledEmailsEnabled} onChange={(event) => setDraft((current) => ({ ...current, scheduledEmailsEnabled: event.target.checked }))} />Scheduled emails enabled</label>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <label className="text-xs uppercase text-zinc-400">Morning<input type="time" required={draft.scheduledEmailsEnabled} value={draft.morningEmailTime} onChange={(event) => setDraft((current) => ({ ...current, morningEmailTime: event.target.value }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
+          <label className="text-xs uppercase text-zinc-400">Midday<input type="time" required={draft.scheduledEmailsEnabled} value={draft.middayEmailTime} onChange={(event) => setDraft((current) => ({ ...current, middayEmailTime: event.target.value }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
+          <label className="text-xs uppercase text-zinc-400">Final<input type="time" required={draft.scheduledEmailsEnabled} value={draft.finalEmailTime} onChange={(event) => setDraft((current) => ({ ...current, finalEmailTime: event.target.value }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
+        </div>
+        <p className="mt-2 text-xs text-zinc-500">Timezone: SAST · Morning must be before Midday, and Midday before Final.</p>
+        {!scheduleIsValid && <p className="mt-2 text-xs text-red-300">Enter three different times in chronological order.</p>}
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <label className="text-xs uppercase text-zinc-400">Acknowledged cadence hours<input type="number" min="1" max="24" value={draft.normalAcknowledgedCadenceHours} onChange={(event) => setDraft((current) => ({ ...current, normalAcknowledgedCadenceHours: Number(event.target.value) }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
         <label className="text-xs uppercase text-zinc-400">Pre-show escalation hours<input type="number" min="1" max="24" value={draft.preShowEscalationHours} onChange={(event) => setDraft((current) => ({ ...current, preShowEscalationHours: Number(event.target.value) }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
         <label className="text-xs uppercase text-zinc-400">Snapshot stale hours<input type="number" min="1" max="168" value={draft.snapshotStaleHours} onChange={(event) => setDraft((current) => ({ ...current, snapshotStaleHours: Number(event.target.value) }))} className="mt-1 w-full border border-zinc-700 bg-black px-3 py-2 text-white" /></label>
       </div>
-      <button type="button" onClick={() => void onSave(draft)} disabled={busy} className="mt-5 bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase text-black disabled:opacity-50">{busy ? "Saving..." : "Save Action Settings"}</button>
+      <button type="button" onClick={() => void onSave(draft)} disabled={busy || !scheduleIsValid} className="mt-5 bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase text-black disabled:opacity-50">{busy ? "Saving..." : "Save Action Settings"}</button>
     </details>
   );
 }

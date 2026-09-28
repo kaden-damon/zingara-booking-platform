@@ -364,6 +364,7 @@ export async function POST(request: Request) {
   if (body?.action !== "reconcile" || !body.snapshotId || !body.showId) {
     return Response.json({ error: "Confirm the detected show before running reconciliation." }, { status: 400 });
   }
+  const confirmedShowId = body.showId;
   const { data: stored, error: snapshotError } = await auth.serviceClient
     .from("dineplan_reconciliation_snapshots")
     .select(`${snapshotSelect},normalized_reservations`)
@@ -372,7 +373,7 @@ export async function POST(request: Request) {
   if (snapshotError || !stored) return Response.json({ error: "The uploaded snapshot could not be found." }, { status: 404 });
   if (!canAccessSnapshot(auth.staffProfile, stored)) return forbidden();
   try {
-    const { bookings, show } = await loadReconciliationBookings(auth.serviceClient, body.showId);
+    const { bookings, show } = await loadReconciliationBookings(auth.serviceClient, confirmedShowId);
     const location = normalizeShowLocation(show.venue);
     if (!location || !canAccessLocation(auth.staffProfile.venue_scope ?? [], show.venue)) return forbidden();
     if (!matchesDineplanPerformance({
@@ -400,7 +401,7 @@ export async function POST(request: Request) {
       performanceDate: show.date,
       performanceTime: show.time,
       results: reconciliation.results,
-      showId: body.showId,
+      showId: confirmedShowId,
       snapshotId: body.snapshotId,
       sourceGeneratedAt: snapshot.generatedAt,
       venue: location,
@@ -410,7 +411,7 @@ export async function POST(request: Request) {
       : 0;
     const { error: updateError } = await auth.serviceClient
       .from("dineplan_reconciliation_snapshots")
-      .update({ compared_at: comparedAt, compared_by: auth.staffProfile.id, reconciliation_results: reconciliation, show_id: body.showId, status: trusted ? "reconciled" : "review_required", venue: location })
+      .update({ compared_at: comparedAt, compared_by: auth.staffProfile.id, reconciliation_results: reconciliation, show_id: confirmedShowId, status: trusted ? "reconciled" : "review_required", venue: location })
       .eq("id", body.snapshotId);
     if (updateError) throw updateError;
     let actionSyncStatus: "ready" | "unavailable" | "withheld" = trusted ? "ready" : "withheld";
@@ -425,7 +426,10 @@ export async function POST(request: Request) {
         actionDigestStatus = await triggerDineplanActionDigestAfterReconciliation({
           actionCount: actions.length,
           client: auth.serviceClient,
-          runDigest: runDineplanActionDigest,
+          runDigest: (client) => runDineplanActionDigest(client, {
+            mode: "immediate",
+            showIds: [confirmedShowId],
+          }),
           trusted,
         });
       } catch (actionError) {

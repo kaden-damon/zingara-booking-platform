@@ -24,22 +24,109 @@ export type DineplanActionStatus =
 export type DineplanActionSettings = {
   actionRecipientStaffIds: string[];
   corporateRecipientStaffIds: string[];
-  hourlyRemindersEnabled: boolean;
   managementCcStaffIds: string[];
+  morningEmailTime: string;
+  middayEmailTime: string;
   normalAcknowledgedCadenceHours: number;
   preShowEscalationHours: number;
+  scheduledEmailsEnabled: boolean;
   snapshotStaleHours: number;
+  finalEmailTime: string;
 };
 
 export const defaultDineplanActionSettings: DineplanActionSettings = {
   actionRecipientStaffIds: [],
   corporateRecipientStaffIds: [],
-  hourlyRemindersEnabled: false,
   managementCcStaffIds: [],
+  morningEmailTime: "09:00",
+  middayEmailTime: "12:00",
   normalAcknowledgedCadenceHours: 3,
   preShowEscalationHours: 3,
+  scheduledEmailsEnabled: false,
   snapshotStaleHours: 24,
+  finalEmailTime: "15:30",
 };
+
+export type DineplanScheduleCheckpoint = "final" | "midday" | "morning";
+
+const scheduleTimePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+export function validateDineplanEmailSchedule(
+  settings: Pick<
+    DineplanActionSettings,
+    "finalEmailTime" | "middayEmailTime" | "morningEmailTime"
+  >,
+) {
+  const times = [
+    settings.morningEmailTime,
+    settings.middayEmailTime,
+    settings.finalEmailTime,
+  ];
+  if (times.some((time) => !scheduleTimePattern.test(time))) {
+    return "Enter all Dineplan email times in HH:mm format.";
+  }
+  if (new Set(times).size !== times.length) {
+    return "Morning, Midday and Final email times must be different.";
+  }
+  const minutes = times.map((time) => {
+    const [hour, minute] = time.split(":").map(Number);
+    return hour * 60 + minute;
+  });
+  if (!(minutes[0] < minutes[1] && minutes[1] < minutes[2])) {
+    return "Dineplan email times must run in Morning, Midday, Final order.";
+  }
+  return null;
+}
+
+export function dineplanScheduleEntries(
+  settings: Pick<
+    DineplanActionSettings,
+    "finalEmailTime" | "middayEmailTime" | "morningEmailTime"
+  >,
+) {
+  return [
+    { name: "morning" as const, time: settings.morningEmailTime },
+    { name: "midday" as const, time: settings.middayEmailTime },
+    { name: "final" as const, time: settings.finalEmailTime },
+  ];
+}
+
+export function getJohannesburgDateTimeParts(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    month: "2-digit",
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  const hour = value("hour") === "24" ? "00" : value("hour");
+  return {
+    date: `${value("year")}-${value("month")}-${value("day")}`,
+    minutes: Number(hour) * 60 + Number(value("minute")),
+    time: `${hour}:${value("minute")}`,
+  };
+}
+
+export function getDueDineplanScheduleCheckpoint(
+  settings: Pick<
+    DineplanActionSettings,
+    "finalEmailTime" | "middayEmailTime" | "morningEmailTime"
+  >,
+  now = new Date(),
+  pollingWindowMinutes = 20,
+) {
+  const current = getJohannesburgDateTimeParts(now);
+  return dineplanScheduleEntries(settings).find((entry) => {
+    const [hour, minute] = entry.time.split(":").map(Number);
+    const checkpointMinutes = hour * 60 + minute;
+    return current.minutes >= checkpointMinutes &&
+      current.minutes < checkpointMinutes + pollingWindowMinutes;
+  }) ?? null;
+}
 
 export function canReceiveDineplanVenue(
   venueScope: string[],

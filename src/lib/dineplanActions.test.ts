@@ -4,6 +4,8 @@ import {
   buildDineplanActionDigest,
   canReceiveDineplanVenue,
   defaultDineplanActionSettings,
+  getDueDineplanScheduleCheckpoint,
+  getJohannesburgDateTimeParts,
   deriveDineplanActionCandidates,
   getDineplanActionTransition,
   isDineplanPreShowEscalation,
@@ -11,12 +13,38 @@ import {
   isDineplanResultActionable,
   isDineplanSnapshotStale,
   routeDineplanDigestAudiences,
+  validateDineplanEmailSchedule,
   type DineplanActionRecord,
 } from "./dineplanActions.ts";
 import type { DineplanReconciliationResult } from "./dineplanReconciliation.ts";
 import { createBrandedCustomerEmail } from "./email/customerEmail.ts";
 
 const now = new Date("2026-09-24T08:00:00.000Z");
+
+test("Dineplan scheduled email defaults are 09:00, 12:00 and 15:30 SAST", () => {
+  assert.equal(defaultDineplanActionSettings.morningEmailTime, "09:00");
+  assert.equal(defaultDineplanActionSettings.middayEmailTime, "12:00");
+  assert.equal(defaultDineplanActionSettings.finalEmailTime, "15:30");
+  assert.equal(defaultDineplanActionSettings.scheduledEmailsEnabled, false);
+  assert.deepEqual(
+    getJohannesburgDateTimeParts(new Date("2026-09-28T13:30:00Z")),
+    { date: "2026-09-28", minutes: 930, time: "15:30" },
+  );
+});
+
+test("configured schedule rejects malformed, duplicate and non-chronological times", () => {
+  assert.match(validateDineplanEmailSchedule({ morningEmailTime: "9am", middayEmailTime: "12:00", finalEmailTime: "15:30" }) ?? "", /HH:mm/);
+  assert.match(validateDineplanEmailSchedule({ morningEmailTime: "09:00", middayEmailTime: "09:00", finalEmailTime: "15:30" }) ?? "", /different/);
+  assert.match(validateDineplanEmailSchedule({ morningEmailTime: "12:00", middayEmailTime: "09:00", finalEmailTime: "15:30" }) ?? "", /order/);
+  assert.equal(validateDineplanEmailSchedule({ morningEmailTime: "08:45", middayEmailTime: "12:15", finalEmailTime: "16:05" }), null);
+});
+
+test("checkpoint detection sends only inside the bounded SAST polling window", () => {
+  assert.equal(getDueDineplanScheduleCheckpoint(defaultDineplanActionSettings, new Date("2026-09-28T07:00:00Z"))?.name, "morning");
+  assert.equal(getDueDineplanScheduleCheckpoint(defaultDineplanActionSettings, new Date("2026-09-28T10:00:00Z"))?.name, "midday");
+  assert.equal(getDueDineplanScheduleCheckpoint(defaultDineplanActionSettings, new Date("2026-09-28T13:30:00Z"))?.name, "final");
+  assert.equal(getDueDineplanScheduleCheckpoint(defaultDineplanActionSettings, new Date("2026-09-28T08:00:00Z")), null);
+});
 
 function result(overrides: Partial<DineplanReconciliationResult> = {}): DineplanReconciliationResult {
   return {
@@ -304,7 +332,7 @@ test("zero actionable or only resolved items produces no email digest", () => {
   assert.equal(buildDineplanActionDigest({ actions: [action({ status: "resolved" })], adminBaseUrl: "https://book.zingara.co.za", now, settings: defaultDineplanActionSettings }), null);
 });
 
-test("critical unacknowledged and acknowledged actions remain hourly eligible", () => {
+test("critical unacknowledged and acknowledged actions remain cadence eligible", () => {
   assert.equal(isDineplanReminderEligible(action({ lastNotifiedAt: "2026-09-24T06:59:00Z" }), defaultDineplanActionSettings, now), true);
   assert.equal(isDineplanReminderEligible(action({ acknowledgedAt: "2026-09-24T06:00:00Z", lastNotifiedAt: "2026-09-24T06:59:00Z", status: "acknowledged" }), defaultDineplanActionSettings, now), true);
 });

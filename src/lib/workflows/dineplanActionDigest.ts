@@ -17,7 +17,14 @@ function schemaUnavailable(error: { code?: string; message?: string } | null | u
   return error?.code === "42P01" || /dineplan_reconciliation_/i.test(error?.message ?? "");
 }
 
-export async function runDineplanActionDigest(client: SupabaseClient) {
+export async function runDineplanActionDigest(
+  client: SupabaseClient,
+  options: {
+    checkpointAt?: string;
+    mode?: "immediate" | "scheduled";
+    showIds?: string[];
+  } = {},
+) {
   let settings;
   try {
     settings = await loadDineplanActionSettings(client);
@@ -27,7 +34,7 @@ export async function runDineplanActionDigest(client: SupabaseClient) {
     }
     throw error;
   }
-  if (!settings.hourlyRemindersEnabled) {
+  if (!settings.scheduledEmailsEnabled) {
     return { available: true, delivered: false, reason: "disabled" };
   }
   if (!settings.actionRecipientStaffIds.length) {
@@ -38,6 +45,10 @@ export async function runDineplanActionDigest(client: SupabaseClient) {
     {
       p_limit: 500,
       p_normal_acknowledged_cadence_hours: settings.normalAcknowledgedCadenceHours,
+      p_notified_before: options.checkpointAt
+        ? new Date(Date.parse(options.checkpointAt) - 30 * 60_000).toISOString()
+        : null,
+      p_show_ids: options.showIds?.length ? options.showIds : null,
     },
   );
   if (claimError) throw claimError;
@@ -120,7 +131,7 @@ export async function runDineplanActionDigest(client: SupabaseClient) {
         action_ids: actionIds,
         audience: cohort.audience,
         cc_staff_ids: cohort.ccIds,
-        delivery_type: digest.preShowEscalation ? "pre_show" : "hourly",
+        delivery_type: options.mode === "scheduled" ? "scheduled" : "immediate",
         error_message: result.error,
         recipient_staff_ids: cohort.toIds,
         status: "failed",
@@ -139,7 +150,7 @@ export async function runDineplanActionDigest(client: SupabaseClient) {
       audience: cohort.audience,
       cc_staff_ids: cohort.ccIds,
       delivered_at: now,
-      delivery_type: digest.preShowEscalation ? "pre_show" : "hourly",
+      delivery_type: options.mode === "scheduled" ? "scheduled" : "immediate",
       recipient_staff_ids: cohort.toIds,
       status: "sent",
       subject: digest.subject,

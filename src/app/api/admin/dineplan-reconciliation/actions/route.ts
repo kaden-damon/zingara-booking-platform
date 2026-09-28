@@ -4,6 +4,7 @@ import {
   isDineplanReminderEligible,
   isDineplanSnapshotStale,
   routeDineplanDigestAudiences,
+  validateDineplanEmailSchedule,
   type DineplanActionSettings,
 } from "@/lib/dineplanActions";
 import {
@@ -105,15 +106,37 @@ async function loadLatestSource(
   return data?.source_generated_at ?? null;
 }
 
+async function loadScheduleStatus(
+  serviceClient: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]>,
+  staffProfile: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["staffProfile"]>,
+) {
+  const { data, error } = await serviceClient
+    .from("dineplan_reconciliation_schedule_runs")
+    .select("checkpoint_at,completed_at,delivery_kind,result,status,venue")
+    .order("checkpoint_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  const visible = (data ?? []).filter((row) => canAccessVenue(staffProfile, row.venue));
+  const latest = visible[0] ?? null;
+  const successful = visible.find((row) => row.status === "sent") ?? null;
+  return {
+    lastResult: latest?.result ?? null,
+    lastScheduledCheckAt: latest?.completed_at ?? latest?.checkpoint_at ?? null,
+    lastSuccessfulDeliveryAt: successful?.completed_at ?? successful?.checkpoint_at ?? null,
+    lastSuccessfulDeliveryKind: successful?.delivery_kind ?? null,
+  };
+}
+
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
   if (auth.error || !auth.staffProfile || !auth.serviceClient) return auth.error;
   if (!canReconcile(auth.staffProfile)) return forbidden();
   try {
-    const [settings, actions, latestSource] = await Promise.all([
+    const [settings, actions, latestSource, scheduleStatus] = await Promise.all([
       loadDineplanActionSettings(auth.serviceClient),
       loadActionRows(auth.serviceClient, auth.staffProfile),
       loadLatestSource(auth.serviceClient, auth.staffProfile),
+      loadScheduleStatus(auth.serviceClient, auth.staffProfile),
     ]);
     const canConfigure = canManageSettings(auth.staffProfile);
     const previewRequested = new URL(request.url).searchParams.get("preview") === "1";
@@ -170,6 +193,7 @@ export async function GET(request: Request) {
       latestSource,
       preview: previews[0]?.digest ?? null,
       previews,
+      scheduleStatus,
       settings: settingsResponse(settings, canConfigure),
       snapshotStale: isDineplanSnapshotStale(latestSource, settings),
       staffOptions,
@@ -197,14 +221,21 @@ export async function PATCH(request: Request) {
     const normalAcknowledgedCadenceHours = Number(body.normalAcknowledgedCadenceHours);
     const preShowEscalationHours = Number(body.preShowEscalationHours);
     const snapshotStaleHours = Number(body.snapshotStaleHours);
+    const morningEmailTime = typeof body.morningEmailTime === "string" ? body.morningEmailTime : "";
+    const middayEmailTime = typeof body.middayEmailTime === "string" ? body.middayEmailTime : "";
+    const finalEmailTime = typeof body.finalEmailTime === "string" ? body.finalEmailTime : "";
     if (
       !Number.isInteger(normalAcknowledgedCadenceHours) || normalAcknowledgedCadenceHours < 1 || normalAcknowledgedCadenceHours > 24 ||
       !Number.isInteger(preShowEscalationHours) || preShowEscalationHours < 1 || preShowEscalationHours > 24 ||
       !Number.isInteger(snapshotStaleHours) || snapshotStaleHours < 1 || snapshotStaleHours > 168
     ) return Response.json({ error: "Enter valid reminder and stale-data thresholds." }, { status: 400 });
     const recipientIds = [...new Set([...actionRecipientStaffIds, ...corporateRecipientStaffIds, ...managementCcStaffIds])];
-    if (Boolean(body.hourlyRemindersEnabled) && !actionRecipientStaffIds.length) {
-      return Response.json({ error: "Choose at least one active Box Office action recipient before enabling reminders." }, { status: 400 });
+    const scheduleError = validateDineplanEmailSchedule({ finalEmailTime, middayEmailTime, morningEmailTime });
+    if (scheduleError) {
+      return Response.json({ error: scheduleError }, { status: 400 });
+    }
+    if (Boolean(body.scheduledEmailsEnabled) && !actionRecipientStaffIds.length) {
+      return Response.json({ error: "Choose at least one active Box Office action recipient before enabling scheduled emails." }, { status: 400 });
     }
     if (recipientIds.length) {
       const { data, error } = await auth.serviceClient
@@ -221,10 +252,13 @@ export async function PATCH(request: Request) {
     const settings = {
       actionRecipientStaffIds,
       corporateRecipientStaffIds,
-      hourlyRemindersEnabled: Boolean(body.hourlyRemindersEnabled),
+      finalEmailTime,
       managementCcStaffIds,
+      middayEmailTime,
+      morningEmailTime,
       normalAcknowledgedCadenceHours,
       preShowEscalationHours,
+      scheduledEmailsEnabled: Boolean(body.scheduledEmailsEnabled),
       snapshotStaleHours,
     } satisfies DineplanActionSettings;
     const { error } = await auth.serviceClient
@@ -232,10 +266,13 @@ export async function PATCH(request: Request) {
       .update({
         action_recipient_staff_ids: settings.actionRecipientStaffIds,
         corporate_recipient_staff_ids: settings.corporateRecipientStaffIds,
-        hourly_reminders_enabled: settings.hourlyRemindersEnabled,
+        final_email_time: settings.finalEmailTime,
         management_cc_staff_ids: settings.managementCcStaffIds,
+        midday_email_time: settings.middayEmailTime,
+        morning_email_time: settings.morningEmailTime,
         normal_acknowledged_cadence_hours: settings.normalAcknowledgedCadenceHours,
         pre_show_escalation_hours: settings.preShowEscalationHours,
+        scheduled_emails_enabled: settings.scheduledEmailsEnabled,
         snapshot_stale_hours: settings.snapshotStaleHours,
         updated_at: new Date().toISOString(),
         updated_by: auth.staffProfile.id,
@@ -244,7 +281,13 @@ export async function PATCH(request: Request) {
     if (error) throw error;
     await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
       action: "Dineplan action digest settings updated",
-      afterValues: { hourlyRemindersEnabled: settings.hourlyRemindersEnabled, recipientCount: recipientIds.length },
+      afterValues: {
+        finalEmailTime: settings.finalEmailTime,
+        middayEmailTime: settings.middayEmailTime,
+        morningEmailTime: settings.morningEmailTime,
+        recipientCount: recipientIds.length,
+        scheduledEmailsEnabled: settings.scheduledEmailsEnabled,
+      },
       entityReference: "dineplan-action-settings",
       entityType: "data-portability-import",
       outcome: "success",
