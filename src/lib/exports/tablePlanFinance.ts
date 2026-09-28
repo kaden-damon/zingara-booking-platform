@@ -24,6 +24,13 @@ export type TablePlanLegacyPaymentEvidence = {
   ticket_gratuity_amount?: number;
 };
 
+export type TablePlanValueAllocation = {
+  barTabAmount: number;
+  paymentMethod: "card" | "eft" | "unknown";
+  ticketAmount: number;
+  ticketGratuityAmount: number;
+};
+
 export type TablePlanFinancialBreakdown = {
   barGratuityAmount: number;
   barTabPaidAmount: number;
@@ -84,6 +91,7 @@ type TablePlanFinancialInput = {
   paymentOption?: string | null;
   paymentStatus: string;
   totalAmount: number;
+  valueAllocation?: TablePlanValueAllocation | null;
 };
 
 function toMoney(value: number | null | undefined) {
@@ -234,12 +242,15 @@ export function calculateTablePlanFinancialBreakdown(
 ): TablePlanFinancialBreakdown {
   const totalAmount = toMoney(input.totalAmount);
   const authoritativePaid = toMoney(input.confirmedPaidAmount);
+  const valueAllocation = input.valueAllocation;
   const isComplimentary = legacyEvidence
     ? legacyEvidence.complimentary === true
     : input.paymentStatus === "comp_vip";
   const breakdown: TablePlanFinancialBreakdown = {
     barGratuityAmount: toMoney(legacyEvidence?.bar_gratuity_amount),
-    barTabPaidAmount: toMoney(legacyEvidence?.bar_tab_paid_amount),
+    barTabPaidAmount: valueAllocation
+      ? toMoney(valueAllocation.barTabAmount)
+      : toMoney(legacyEvidence?.bar_tab_paid_amount),
     complimentaryAmount: isComplimentary
       ? toMoney(legacyEvidence?.complimentary_amount) || totalAmount
       : 0,
@@ -251,7 +262,9 @@ export function calculateTablePlanFinancialBreakdown(
     halaalMealsAmount: toMoney(legacyEvidence?.halaal_meals_amount),
     kosherMealsAmount: toMoney(legacyEvidence?.kosher_meals_amount),
     ticketObligation: 0,
-    ticketGratuityAmount: toMoney(legacyEvidence?.ticket_gratuity_amount),
+    ticketGratuityAmount: valueAllocation
+      ? toMoney(valueAllocation.ticketGratuityAmount)
+      : toMoney(legacyEvidence?.ticket_gratuity_amount),
     totalPaid: isComplimentary ? 0 : authoritativePaid,
     toPay: 0,
   };
@@ -273,6 +286,22 @@ export function calculateTablePlanFinancialBreakdown(
     ] as const) {
       breakdown[bucket] += evidenceAmount;
       classifiedPaid += evidenceAmount;
+    }
+
+    if (valueAllocation) {
+      breakdown.fullCard = 0;
+      breakdown.prePaidCard = 0;
+      breakdown.prePaidEft = 0;
+      breakdown.fullEft = 0;
+      if (valueAllocation.paymentMethod === "card") {
+        breakdown.fullCard = toMoney(valueAllocation.ticketAmount);
+      } else if (valueAllocation.paymentMethod === "eft") {
+        breakdown.fullEft = toMoney(valueAllocation.ticketAmount);
+      }
+      classifiedPaid =
+        valueAllocation.paymentMethod === "unknown"
+          ? 0
+          : toMoney(valueAllocation.ticketAmount);
     }
 
     const recoveredAncillaryAmount =
@@ -322,7 +351,9 @@ export function calculateTablePlanFinancialBreakdown(
 
   breakdown.ticketObligation = isComplimentary
     ? 0
-    : resolveAuthoritativeTicketObligation(
+    : valueAllocation
+      ? toMoney(valueAllocation.ticketAmount)
+      : resolveAuthoritativeTicketObligation(
         input,
         breakdown.totalPaid,
         legacyEvidence,

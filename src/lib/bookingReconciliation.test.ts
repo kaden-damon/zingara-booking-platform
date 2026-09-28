@@ -3,10 +3,31 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  calculatePaidGuestReductionAllocation,
   getReconciledPaymentStatus,
   validateFinancialReconciliation,
   validateGuestCountReconciliation,
 } from "./bookingReconciliation.ts";
+
+test("paid guest reduction preserves retained value without double-transferring gratuity", () => {
+  assert.deepEqual(
+    calculatePaidGuestReductionAllocation({
+      currentBarTabAmount: 0,
+      currentGuestCount: 38,
+      newGuestCount: 32,
+      sourceGratuityAmount: 7_315,
+      sourceTicketAmount: 58_520,
+    }),
+    {
+      barTabAmount: 16_555,
+      gratuityTransferred: 7_315,
+      releasedTicketValue: 9_240,
+      ticketAmount: 49_280,
+      ticketUnitAmount: 1_540,
+      totalRetainedValue: 65_835,
+    },
+  );
+});
 
 async function source(path: string) {
   return readFile(new URL(path, import.meta.url), "utf8");

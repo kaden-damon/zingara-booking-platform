@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import {
+  calculatePaidGuestReductionAllocation,
   getReconciledPaymentStatus,
   toMoney,
   validateFinancialReconciliation,
@@ -22,6 +23,7 @@ export type BookingReconciliationDetails = {
     balanceOutstanding: number;
     bookingFee: number;
     bookingReference: string;
+    bookingOrigin: string | null;
     depositAmount: number;
     guestCount: number;
     paymentStatus: string;
@@ -35,6 +37,12 @@ export type BookingReconciliationDetails = {
     amount: number;
     label: string;
   }[];
+  retainedValueBasis: {
+    barTabAmount: number;
+    sourceDocument: string;
+    sourceGratuityAmount: number;
+    sourceTicketAmount: number;
+  } | null;
   providerBackedAmount: number;
   addedGuestPricingBasis: AddedGuestPricingBasis;
 };
@@ -118,11 +126,23 @@ function MoneyInput({
   );
 }
 
+function formatMoney(value: number) {
+  return `R${new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(toMoney(value))}`;
+}
+
 export function FinancialReconciliationModal(
   props: BaseProps & {
     amountPaid: number;
     onSave: (draft: {
       amountPaid: number;
+      legacyInvoiceEvidence?: {
+        sourceDocument: string;
+        sourceGratuityAmount: number;
+        sourceTicketAmount: number;
+      };
       reason: string;
       totalAmount: number;
     }) => void;
@@ -135,7 +155,14 @@ export function FinancialReconciliationModal(
     amountPaid: props.amountPaid,
     reason: props.reason,
     totalAmount: props.totalAmount,
+    sourceDocument: "",
+    sourceGratuityAmount: 0,
+    sourceTicketAmount: 0,
   });
+  const requiresImportedEvidence =
+    booking.bookingOrigin === "data_import" &&
+    booking.paymentStatus === "comp_vip" &&
+    !props.details.retainedValueBasis;
   const outstanding = Math.max(toMoney(draft.totalAmount - draft.amountPaid), 0);
   const validation = validateFinancialReconciliation(draft);
 
@@ -145,25 +172,40 @@ export function FinancialReconciliationModal(
       <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-white/10 bg-black/35 p-4">
           <p className="text-xs font-semibold uppercase text-zinc-500">Current</p>
-          <p className="mt-2 text-sm text-zinc-200">Obligation R{booking.totalAmount.toFixed(2)}</p>
-          <p className="text-sm text-zinc-200">Paid R{booking.amountPaid.toFixed(2)}</p>
-          <p className="text-sm text-zinc-200">Outstanding R{booking.balanceOutstanding.toFixed(2)}</p>
+          <p className="mt-2 text-sm text-zinc-200">Total Booking Amount {formatMoney(booking.totalAmount)}</p>
+          <p className="text-sm text-zinc-200">Total Amount Paid {formatMoney(booking.amountPaid)}</p>
+          <p className="text-sm text-zinc-200">Outstanding Balance {formatMoney(booking.balanceOutstanding)}</p>
           <p className="mt-2 text-xs text-zinc-500">Deposit/prepayment R{booking.depositAmount.toFixed(2)}</p>
           <p className="text-xs text-zinc-500">Booking Fee R{booking.bookingFee.toFixed(2)}</p>
           <p className="text-xs text-zinc-500">Status {booking.paymentStatus}</p>
         </div>
         <div className="rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
           <p className="text-xs font-semibold uppercase text-[#F2D66C]">New</p>
-          <p className="mt-2 text-sm text-white">Obligation R{toMoney(draft.totalAmount).toFixed(2)}</p>
-          <p className="text-sm text-white">Paid R{toMoney(draft.amountPaid).toFixed(2)}</p>
-          <p className="text-sm text-white">Outstanding R{outstanding.toFixed(2)}</p>
-          <p className="mt-2 text-xs text-zinc-400">Status {getReconciledPaymentStatus(draft.totalAmount, draft.amountPaid).replaceAll("_", " ")}</p>
+          <p className="mt-2 text-sm text-white">Total Booking Amount {formatMoney(draft.totalAmount)}</p>
+          <p className="text-sm text-white">Total Amount Paid {formatMoney(draft.amountPaid)}</p>
+          <p className="text-sm text-white">Outstanding Balance {formatMoney(outstanding)}</p>
+          <p className="mt-2 text-xs text-zinc-400">Payment Status {getReconciledPaymentStatus(draft.totalAmount, draft.amountPaid).replaceAll("_", " ")}</p>
         </div>
       </div>
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <MoneyInput label="Booking obligation" value={draft.totalAmount} onChange={(totalAmount) => setDraft((current) => ({ ...current, totalAmount }))} />
-        <MoneyInput label="Amount paid" value={draft.amountPaid} onChange={(amountPaid) => setDraft((current) => ({ ...current, amountPaid }))} />
+        <MoneyInput label="Total Booking Amount" value={draft.totalAmount} onChange={(totalAmount) => setDraft((current) => ({ ...current, totalAmount }))} />
+        <MoneyInput label="Total Amount Paid" value={draft.amountPaid} onChange={(amountPaid) => setDraft((current) => ({ ...current, amountPaid }))} />
       </div>
+      <p className="mt-2 text-xs text-zinc-500">Total Booking Amount is the total value of this booking.</p>
+      {requiresImportedEvidence && (
+        <section className="mt-4 rounded-xl border border-amber-300/30 bg-amber-950/15 p-4">
+          <p className="text-xs font-semibold uppercase text-amber-200">Imported Invoice Evidence</p>
+          <p className="mt-2 text-xs text-zinc-400">Record the reviewed invoice references and allocation. This does not create PayFast evidence.</p>
+          <label className="mt-3 block text-xs font-semibold uppercase text-zinc-400">
+            Invoice reference(s) *
+            <input value={draft.sourceDocument} onChange={(event) => setDraft((current) => ({ ...current, sourceDocument: event.target.value }))} className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-black px-3 text-sm normal-case text-white outline-none focus:border-[#D8C36A]" />
+          </label>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <MoneyInput label="Ticket Value" value={draft.sourceTicketAmount} onChange={(sourceTicketAmount) => setDraft((current) => ({ ...current, sourceTicketAmount }))} />
+            <MoneyInput label="Gratuity" value={draft.sourceGratuityAmount} onChange={(sourceGratuityAmount) => setDraft((current) => ({ ...current, sourceGratuityAmount }))} />
+          </div>
+        </section>
+      )}
       <div className="mt-4 rounded-xl border border-white/10 p-4 text-xs text-zinc-400">
         <p>Provider-backed paid amount: R{props.details.providerBackedAmount.toFixed(2)} (preserved)</p>
         <p className="mt-2 font-semibold uppercase text-zinc-500">Legacy evidence</p>
@@ -176,7 +218,7 @@ export function FinancialReconciliationModal(
         <textarea rows={3} value={draft.reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} className="w-full rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]" />
       </label>
       {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
-      <button type="button" disabled={props.isSaving || Boolean(validation)} onClick={() => props.onSave(draft)} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
+      <button type="button" disabled={props.isSaving || Boolean(validation) || (requiresImportedEvidence && (!draft.sourceDocument.trim() || toMoney(draft.sourceTicketAmount + draft.sourceGratuityAmount) !== toMoney(draft.totalAmount)))} onClick={() => props.onSave({ amountPaid: draft.amountPaid, reason: draft.reason, totalAmount: draft.totalAmount, legacyInvoiceEvidence: requiresImportedEvidence ? { sourceDocument: draft.sourceDocument, sourceGratuityAmount: draft.sourceGratuityAmount, sourceTicketAmount: draft.sourceTicketAmount } : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
         {props.isSaving ? "Saving..." : "Confirm Financial Reconciliation"}
       </button>
     </ModalFrame>
@@ -191,6 +233,11 @@ export function GuestCountReconciliationModal(
       manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;
       manualUnitAmount?: number;
       reason: string;
+      retainedValueTransfer?: {
+        operationId: string;
+        transferGratuityToBarTab: true;
+        transferReleasedValueToBarTab: true;
+      };
     }) => void;
     reason: string;
     result: GuestCountReconciliationResult | null;
@@ -202,7 +249,9 @@ export function GuestCountReconciliationModal(
     manualPaymentBasis: "" as LegacyGuestIncreasePaymentBasis | "",
     manualUnitAmount: 0,
     reason: props.reason,
+    transferRetainedValue: false,
   });
+  const [operationId] = useState(() => crypto.randomUUID());
   const validation = validateGuestCountReconciliation(draft);
   const financials = calculateAddedGuestFinancials({
     basis: props.details.addedGuestPricingBasis,
@@ -222,6 +271,19 @@ export function GuestCountReconciliationModal(
   });
   const manualFinancialsValid =
     !requiresManualFinancialBasis || manualFinancials.additionalAmount !== null;
+  const retainedValueAllocation = props.details.retainedValueBasis
+    ? calculatePaidGuestReductionAllocation({
+        currentBarTabAmount: props.details.retainedValueBasis.barTabAmount,
+        currentGuestCount: booking.guestCount,
+        newGuestCount: draft.guestCount,
+        sourceGratuityAmount: props.details.retainedValueBasis.sourceGratuityAmount,
+        sourceTicketAmount: props.details.retainedValueBasis.sourceTicketAmount,
+      })
+    : null;
+  const requiresRetainedValueTransfer =
+    Boolean(retainedValueAllocation) &&
+    booking.amountPaid >= booking.totalAmount &&
+    booking.totalAmount > 0;
   const [link, setLink] = useState<{ canSend: boolean; paymentUrl: string; token: string } | null>(null);
   const [linkStatus, setLinkStatus] = useState("");
 
@@ -326,13 +388,31 @@ export function GuestCountReconciliationModal(
           <p className="mt-3 text-xs text-zinc-500">The entered basis is recorded as staff-authorised legacy reconciliation. Current venue pricing is not inferred.</p>
         </section>
       )}
+      {requiresRetainedValueTransfer && retainedValueAllocation && (
+        <section className="mt-4 rounded-xl border border-[#D8C36A]/30 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
+          <p className="text-xs font-semibold uppercase text-[#F2D66C]">Retained Value Allocation</p>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <p>Guests removed<br /><strong>{booking.guestCount - draft.guestCount}</strong></p>
+            <p>Ticket rate<br /><strong>{formatMoney(retainedValueAllocation.ticketUnitAmount)} pp</strong></p>
+            <p>Released ticket value<br /><strong>{formatMoney(retainedValueAllocation.releasedTicketValue)}</strong></p>
+            <p>Gratuity transferred<br /><strong>{formatMoney(retainedValueAllocation.gratuityTransferred)}</strong></p>
+            <p>Final ticket value<br /><strong>{formatMoney(retainedValueAllocation.ticketAmount)}</strong></p>
+            <p>Final Bar Tab<br /><strong>{formatMoney(retainedValueAllocation.barTabAmount)}</strong></p>
+            <p>Total Amount Paid<br /><strong>{formatMoney(booking.amountPaid)}</strong></p>
+            <p>Refund<br /><strong>{formatMoney(0)}</strong></p>
+          </div>
+          <button type="button" aria-pressed={draft.transferRetainedValue} onClick={() => setDraft((current) => ({ ...current, transferRetainedValue: !current.transferRetainedValue }))} className={`mt-4 min-h-11 w-full rounded-full border px-4 text-xs font-semibold uppercase ${draft.transferRetainedValue ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/20 text-white"}`}>
+            {draft.transferRetainedValue ? "Transfer Confirmed" : "Transfer Released Value + Gratuity to Bar Tab"}
+          </button>
+        </section>
+      )}
       <p className="mt-2 text-xs text-zinc-500">If the table no longer fits, the booking will move safely to the Floor Assignment Queue.</p>
       <label className="mt-4 block">
         <span className="mb-2 block text-xs font-semibold uppercase text-zinc-400">Reason for change *</span>
         <textarea rows={3} value={draft.reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} className="w-full rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]" />
       </label>
       {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
-      {!props.result && <button type="button" disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || !manualFinancialsValid} onClick={() => props.onSave({ guestCount: draft.guestCount, manualPaymentBasis: requiresManualFinancialBasis ? draft.manualPaymentBasis || undefined : undefined, manualUnitAmount: requiresManualFinancialBasis ? draft.manualUnitAmount : undefined, reason: draft.reason })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
+      {!props.result && <button type="button" disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || !manualFinancialsValid || (requiresRetainedValueTransfer && !draft.transferRetainedValue)} onClick={() => props.onSave({ guestCount: draft.guestCount, manualPaymentBasis: requiresManualFinancialBasis ? draft.manualPaymentBasis || undefined : undefined, manualUnitAmount: requiresManualFinancialBasis ? draft.manualUnitAmount : undefined, reason: draft.reason, retainedValueTransfer: requiresRetainedValueTransfer && draft.transferRetainedValue ? { operationId, transferGratuityToBarTab: true, transferReleasedValueToBarTab: true } : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
         {props.isSaving ? "UPDATING..." : "CONFIRM GUEST COUNT"}
       </button>}
       {props.result ? (

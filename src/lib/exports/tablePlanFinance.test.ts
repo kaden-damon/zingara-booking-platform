@@ -434,6 +434,42 @@ test("keeps recovered ancillary amounts outside ticket receipts", () => {
   assert.equal(result.toPay, 0);
 });
 
+test("renders an approved retained-value allocation in the existing ticket and Bar Tab columns", () => {
+  const result = calculateTablePlanFinancialBreakdown(
+    {
+      confirmedPaidAmount: 65_835,
+      guestCount: 32,
+      paymentStatus: "fully_paid",
+      totalAmount: 65_835,
+      valueAllocation: {
+        barTabAmount: 16_555,
+        paymentMethod: "eft",
+        ticketAmount: 49_280,
+        ticketGratuityAmount: 0,
+      },
+    },
+    [],
+    {
+      bar_tab_paid_amount: 0,
+      booking_id: "dp-76bgpc",
+      complimentary: false,
+      full_card_amount: 0,
+      full_eft_amount: 58_520,
+      pre_paid_card_amount: 0,
+      pre_paid_eft_amount: 0,
+      source_ticket_amount: 58_520,
+      ticket_gratuity_amount: 7_315,
+    },
+  );
+
+  assert.equal(result.fullEft, 49_280);
+  assert.equal(result.ticketObligation, 49_280);
+  assert.equal(result.ticketGratuityAmount, 0);
+  assert.equal(result.barTabPaidAmount, 16_555);
+  assert.equal(result.totalPaid, 49_280);
+  assert.equal(result.toPay, 0);
+});
+
 test("lets explicit recovered payment evidence override a damaged comp import", () => {
   const result = calculateTablePlanFinancialBreakdown(
     {

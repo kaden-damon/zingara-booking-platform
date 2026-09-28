@@ -4,6 +4,15 @@ export type FinancialReconciliationInput = {
   totalAmount: number;
 };
 
+export type PaidGuestReductionAllocation = {
+  barTabAmount: number;
+  gratuityTransferred: number;
+  releasedTicketValue: number;
+  ticketAmount: number;
+  ticketUnitAmount: number;
+  totalRetainedValue: number;
+};
+
 export function toMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
@@ -52,4 +61,51 @@ export function validateGuestCountReconciliation(input: {
   }
 
   return null;
+}
+
+export function calculatePaidGuestReductionAllocation(input: {
+  currentGuestCount: number;
+  currentBarTabAmount: number;
+  newGuestCount: number;
+  sourceGratuityAmount: number;
+  sourceTicketAmount: number;
+}): PaidGuestReductionAllocation | null {
+  if (
+    !Number.isInteger(input.currentGuestCount) ||
+    !Number.isInteger(input.newGuestCount) ||
+    input.currentGuestCount <= 0 ||
+    input.newGuestCount <= 0 ||
+    input.newGuestCount >= input.currentGuestCount
+  ) {
+    return null;
+  }
+
+  const ticketUnitAmount = toMoney(
+    input.sourceTicketAmount / input.currentGuestCount,
+  );
+  if (
+    ticketUnitAmount <= 0 ||
+    toMoney(ticketUnitAmount * input.currentGuestCount) !==
+      toMoney(input.sourceTicketAmount)
+  ) {
+    return null;
+  }
+
+  const ticketAmount = toMoney(ticketUnitAmount * input.newGuestCount);
+  const releasedTicketValue = toMoney(
+    input.sourceTicketAmount - ticketAmount,
+  );
+  const gratuityTransferred = toMoney(input.sourceGratuityAmount);
+  const barTabAmount = toMoney(
+    input.currentBarTabAmount + releasedTicketValue + gratuityTransferred,
+  );
+
+  return {
+    barTabAmount,
+    gratuityTransferred,
+    releasedTicketValue,
+    ticketAmount,
+    ticketUnitAmount,
+    totalRetainedValue: toMoney(ticketAmount + barTabAmount),
+  };
 }

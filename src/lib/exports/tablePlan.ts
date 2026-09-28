@@ -29,6 +29,7 @@ import {
   tablePlanFinancialColumnHeaders,
   type TablePlanLegacyPaymentEvidence,
   type TablePlanFinancialPayment,
+  type TablePlanValueAllocation,
 } from "@/lib/exports/tablePlanFinance";
 
 export const tablePlanTemplatePath = path.join(
@@ -525,22 +526,41 @@ function getBookingNotes(booking: TablePlanBooking) {
 
 function getBookingPaymentMetadata(booking: TablePlanBooking) {
   if (!booking.notes?.startsWith(bookingMetadataPrefix)) {
-    return { depositPercentage: null, paymentOption: null };
+    return { depositPercentage: null, paymentOption: null, valueAllocation: null };
   }
 
   try {
     const metadata = JSON.parse(
       booking.notes.slice(bookingMetadataPrefix.length),
-    ) as { depositPercentage?: number; paymentOption?: string };
+    ) as {
+      depositPercentage?: number;
+      paymentOption?: string;
+      valueAllocation?: TablePlanValueAllocation;
+    };
+
+    const allocation = metadata.valueAllocation;
+    const valueAllocation =
+      allocation &&
+      Number.isFinite(Number(allocation.ticketAmount)) &&
+      Number.isFinite(Number(allocation.barTabAmount)) &&
+      ["card", "eft", "unknown"].includes(allocation.paymentMethod)
+        ? {
+            barTabAmount: Number(allocation.barTabAmount),
+            paymentMethod: allocation.paymentMethod,
+            ticketAmount: Number(allocation.ticketAmount),
+            ticketGratuityAmount: Number(allocation.ticketGratuityAmount) || 0,
+          }
+        : null;
 
     return {
       depositPercentage: Number.isFinite(Number(metadata.depositPercentage))
         ? Number(metadata.depositPercentage)
         : null,
       paymentOption: metadata.paymentOption?.trim().toLowerCase() || null,
+      valueAllocation,
     };
   } catch {
-    return { depositPercentage: null, paymentOption: null };
+    return { depositPercentage: null, paymentOption: null, valueAllocation: null };
   }
 }
 
@@ -635,6 +655,7 @@ function populateBookingDataRow(
       paymentOption: paymentMetadata.paymentOption,
       paymentStatus: booking.payment_status,
       totalAmount,
+      valueAllocation: paymentMetadata.valueAllocation,
     },
     payments,
     legacyPaymentEvidence,

@@ -109,7 +109,7 @@ export async function GET(request: Request) {
         .eq("booking_id", booking.id),
       auth.serviceClient
         .from("legacy_booking_payment_evidence")
-        .select("full_card_amount,pre_paid_card_amount,pre_paid_eft_amount,full_eft_amount,complimentary_amount,ticket_gratuity_amount,bar_tab_paid_amount,bar_gratuity_amount")
+        .select("id,source_system,source_document,source_ticket_amount,full_card_amount,pre_paid_card_amount,pre_paid_eft_amount,full_eft_amount,complimentary_amount,ticket_gratuity_amount,bar_tab_paid_amount,bar_gratuity_amount")
         .eq("booking_id", booking.id),
     ]);
 
@@ -143,6 +143,9 @@ export async function GET(request: Request) {
       bookingOrigin: booking.booking_origin,
       metadata: parseBookingMetadata(booking.notes),
     });
+    const allocationEvidence = legacyRows.find(
+      (row) => row.source_system === "manual_invoice",
+    );
 
     return Response.json({
       booking: {
@@ -150,6 +153,7 @@ export async function GET(request: Request) {
         balanceOutstanding: Number(booking.balance_outstanding),
         bookingFee: breakdown.bookingFee,
         bookingReference: booking.booking_reference,
+        bookingOrigin: booking.booking_origin,
         depositAmount:
           depositEvidence ||
           (booking.payment_status === "deposit_paid"
@@ -166,6 +170,14 @@ export async function GET(request: Request) {
         zone: booking.section,
       },
       legacyEvidence,
+      retainedValueBasis: allocationEvidence
+        ? {
+            barTabAmount: toMoney(Number(allocationEvidence.bar_tab_paid_amount)),
+            sourceDocument: String(allocationEvidence.source_document ?? ""),
+            sourceGratuityAmount: toMoney(Number(allocationEvidence.ticket_gratuity_amount)),
+            sourceTicketAmount: toMoney(Number(allocationEvidence.source_ticket_amount)),
+          }
+        : null,
       providerBackedAmount,
       addedGuestPricingBasis,
     });
@@ -198,9 +210,19 @@ export async function POST(request: Request) {
       bookingReference?: string;
       expectedUpdatedAt?: string;
       guestCount?: number;
+      legacyInvoiceEvidence?: {
+        sourceDocument?: string;
+        sourceGratuityAmount?: number;
+        sourceTicketAmount?: number;
+      };
       manualPaymentBasis?: "deposit" | "full";
       manualUnitAmount?: number;
       reason?: string;
+      retainedValueTransfer?: {
+        operationId?: string;
+        transferGratuityToBarTab?: boolean;
+        transferReleasedValueToBarTab?: boolean;
+      };
       totalAmount?: number;
     };
     const bookingReference = body.bookingReference?.trim().toUpperCase();
@@ -222,11 +244,17 @@ export async function POST(request: Request) {
 
     const hasManualFinancialBasis =
       body.manualPaymentBasis !== undefined || body.manualUnitAmount !== undefined;
+    const hasLegacyInvoiceEvidence = Boolean(body.legacyInvoiceEvidence);
+    const hasRetainedValueTransfer = Boolean(body.retainedValueTransfer);
     const rpcName =
       body.action === "financial"
-        ? "reconcile_booking_financials_atomic"
+        ? hasLegacyInvoiceEvidence
+          ? "reconcile_imported_booking_financials_atomic"
+          : "reconcile_booking_financials_atomic"
         : body.action === "guest-count"
-          ? hasManualFinancialBasis
+          ? hasRetainedValueTransfer
+            ? "reconcile_paid_booking_guest_reduction_atomic"
+            : hasManualFinancialBasis
             ? "reconcile_legacy_booking_guest_count_financials_atomic"
             : "reconcile_booking_guest_count_financials_atomic"
           : null;
@@ -244,6 +272,24 @@ export async function POST(request: Request) {
       if (validationError) {
         return Response.json({ error: validationError }, { status: 400 });
       }
+      if (hasLegacyInvoiceEvidence) {
+        const evidence = body.legacyInvoiceEvidence!;
+        const sourceDocument = evidence.sourceDocument?.trim() ?? "";
+        const sourceTicketAmount = toMoney(Number(evidence.sourceTicketAmount));
+        const sourceGratuityAmount = toMoney(Number(evidence.sourceGratuityAmount));
+        if (
+          !sourceDocument ||
+          sourceTicketAmount <= 0 ||
+          sourceGratuityAmount < 0 ||
+          toMoney(sourceTicketAmount + sourceGratuityAmount) !==
+            toMoney(Number(body.totalAmount))
+        ) {
+          return Response.json(
+            { error: "Invoice references, ticket value and gratuity must reconcile exactly to the Total Booking Amount." },
+            { status: 400 },
+          );
+        }
+      }
     } else {
       const validationError = validateGuestCountReconciliation({
         guestCount: Number(body.guestCount),
@@ -251,6 +297,17 @@ export async function POST(request: Request) {
       });
       if (validationError) {
         return Response.json({ error: validationError }, { status: 400 });
+      }
+      if (
+        hasRetainedValueTransfer &&
+        (!body.retainedValueTransfer?.operationId?.trim() ||
+          body.retainedValueTransfer.transferReleasedValueToBarTab !== true ||
+          body.retainedValueTransfer.transferGratuityToBarTab !== true)
+      ) {
+        return Response.json(
+          { error: "Confirm the retained ticket value and gratuity transfer to Bar Tab." },
+          { status: 400 },
+        );
       }
       if (
         hasManualFinancialBasis &&
@@ -273,6 +330,7 @@ export async function POST(request: Request) {
       p_expected_updated_at: body.expectedUpdatedAt,
       p_reason: reason,
       p_request_id:
+        body.retainedValueTransfer?.operationId?.trim() ??
         request.headers.get("x-vercel-id") ??
         request.headers.get("x-request-id") ??
         crypto.randomUUID(),
@@ -280,12 +338,30 @@ export async function POST(request: Request) {
     };
     const parameters =
       body.action === "financial"
-        ? {
+        ? hasLegacyInvoiceEvidence
+          ? {
+              ...requestMetadata,
+              p_amount_paid: toMoney(Number(body.amountPaid)),
+              p_source_document: body.legacyInvoiceEvidence!.sourceDocument!.trim(),
+              p_source_gratuity_amount: toMoney(Number(body.legacyInvoiceEvidence!.sourceGratuityAmount)),
+              p_source_ticket_amount: toMoney(Number(body.legacyInvoiceEvidence!.sourceTicketAmount)),
+              p_total_amount: toMoney(Number(body.totalAmount)),
+            }
+          : {
             ...requestMetadata,
             p_amount_paid: toMoney(Number(body.amountPaid)),
             p_total_amount: toMoney(Number(body.totalAmount)),
           }
-        : {
+        : hasRetainedValueTransfer
+          ? {
+              ...requestMetadata,
+              p_guest_count: Number(body.guestCount),
+              p_transfer_gratuity_to_bar_tab:
+                body.retainedValueTransfer!.transferGratuityToBarTab === true,
+              p_transfer_released_value_to_bar_tab:
+                body.retainedValueTransfer!.transferReleasedValueToBarTab === true,
+            }
+          : {
             ...requestMetadata,
             p_guest_count: Number(body.guestCount),
             ...(hasManualFinancialBasis
@@ -325,6 +401,18 @@ export async function POST(request: Request) {
       }
       if (message.includes("LEGACY_INCREASE_REQUIRED")) {
         return Response.json({ error: "Manual legacy pricing can only be used when adding guests." }, { status: 400 });
+      }
+      if (message.includes("GUEST_COUNT_REDUCTION_REQUIRED")) {
+        return Response.json({ error: "Enter a lower guest count for this retained-value workflow." }, { status: 400 });
+      }
+      if (message.includes("RETAINED_VALUE_ALLOCATION_REQUIRED")) {
+        return Response.json({ error: "Confirm the retained value transfer to Bar Tab." }, { status: 400 });
+      }
+      if (message.includes("LEGACY_FINANCIAL_EVIDENCE_REQUIRED")) {
+        return Response.json({ error: "Record the authoritative imported invoice evidence before reducing this paid booking." }, { status: 409 });
+      }
+      if (message.includes("LEGACY_TICKET_RATE_INVALID") || message.includes("RETAINED_VALUE_ALLOCATION_MISMATCH")) {
+        return Response.json({ error: "The imported ticket, gratuity and Bar Tab values do not reconcile exactly. Review the evidence before continuing." }, { status: 409 });
       }
       if (message.includes("BOOKING_RECONCILIATION_NOT_ALLOWED")) {
         return Response.json({ error: "This booking is not eligible for reconciliation." }, { status: 409 });

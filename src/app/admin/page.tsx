@@ -23729,6 +23729,11 @@ export default function AdminDashboardPage() {
 
   async function saveFinancialReconciliation(draft: {
     amountPaid: number;
+    legacyInvoiceEvidence?: {
+      sourceDocument: string;
+      sourceGratuityAmount: number;
+      sourceTicketAmount: number;
+    };
     reason: string;
     totalAmount: number;
   }) {
@@ -23747,6 +23752,7 @@ export default function AdminDashboardPage() {
             financialReconciliation.details.booking.bookingReference,
           expectedUpdatedAt:
             financialReconciliation.details.booking.updatedAt,
+          legacyInvoiceEvidence: draft.legacyInvoiceEvidence,
           reason: draft.reason,
           totalAmount: draft.totalAmount,
         },
@@ -23776,6 +23782,11 @@ export default function AdminDashboardPage() {
     manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;
     manualUnitAmount?: number;
     reason: string;
+    retainedValueTransfer?: {
+      operationId: string;
+      transferGratuityToBarTab: true;
+      transferReleasedValueToBarTab: true;
+    };
   }) {
     if (!guestCountReconciliation || guestCountReconciliationInFlightRef.current) return;
 
@@ -23797,6 +23808,7 @@ export default function AdminDashboardPage() {
           manualPaymentBasis: draft.manualPaymentBasis,
           manualUnitAmount: draft.manualUnitAmount,
           reason: draft.reason,
+          retainedValueTransfer: draft.retainedValueTransfer,
         },
         method: "POST",
       });
