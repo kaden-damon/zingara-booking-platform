@@ -44114,6 +44114,24 @@ export default function AdminDashboardPage() {
                             expiredAt: booking.corporatePaymentExpiredAt,
                           }).replaceAll("-", " ")}
                         </p>
+                        {!booking.corporatePaymentExpiredAt &&
+                          (booking.corporatePaymentReminderSentAt ? (
+                            <p className="mt-1 text-emerald-200/80">
+                              Reminder sent: {new Intl.DateTimeFormat("en-ZA", {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                                timeZone: "Africa/Johannesburg",
+                              }).format(new Date(booking.corporatePaymentReminderSentAt))}
+                            </p>
+                          ) : booking.corporatePaymentReminderAt ? (
+                            <p className="mt-1 text-amber-100/75">
+                              Reminder scheduled: {new Intl.DateTimeFormat("en-ZA", {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                                timeZone: "Africa/Johannesburg",
+                              }).format(new Date(booking.corporatePaymentReminderAt))}
+                            </p>
+                          ) : null)}
                       </div>
                     )}
 
