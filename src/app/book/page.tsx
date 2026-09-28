@@ -112,6 +112,10 @@ import {
   supportsMultiTableBookingFulfilment,
 } from "../../lib/bookingSeatingAvailability";
 import { getCustomerExperienceTimes } from "../../lib/experienceTimes";
+import {
+  isShowPubliclyBookable,
+  isShowPubliclyVisible,
+} from "../../lib/publicShowSales";
 
 type SeatingOption = SeatingZone;
 
@@ -540,9 +544,11 @@ function getGuestShowStatus(show: DemoShow): BookingCalendarStatus {
 }
 
 function isGuestVisibleShow(show: DemoShow) {
+  const status = show.operationalStatus ?? "active";
+
   return (
     !show.archivedAt &&
-    (show.operationalStatus ?? "active") !== "inactive"
+    isShowPubliclyVisible(status)
   );
 }
 
@@ -553,7 +559,7 @@ function isGuestBookableShow(show: DemoShow | undefined) {
 
   const status = show.operationalStatus ?? "active";
 
-  return status === "active" || status === "special-event";
+  return isShowPubliclyBookable(status);
 }
 
 function normalizeEntryLocation(

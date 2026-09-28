@@ -10,6 +10,10 @@ import {
   seatingZones,
 } from "@/lib/zingaraDemo";
 import { resolveZoneCapacityState } from "@/lib/capacityModel";
+import {
+  isShowPubliclyBookable,
+  publicShowUnavailableMessage,
+} from "@/lib/publicShowSales";
 
 const occupyingBookingStatuses = [
   "new",
@@ -43,6 +47,7 @@ export type PublicShowAvailability = {
   occupiedSeatsByZone: Record<SeatingZoneId, number>;
   publicSalesOpenByZone: Record<SeatingZoneId, boolean>;
   remainingSeatsByZone: Record<SeatingZoneId, number>;
+  showPubliclyBookable: boolean;
 };
 
 export async function loadPublicShowAvailability(
@@ -55,6 +60,7 @@ export async function loadPublicShowAvailability(
     occupiedSeatsByZone: {} as Record<SeatingZoneId, number>,
     publicSalesOpenByZone: {} as Record<SeatingZoneId, boolean>,
     remainingSeatsByZone: {} as Record<SeatingZoneId, number>,
+    showPubliclyBookable: false,
   };
 }
 
@@ -67,7 +73,7 @@ export async function loadPublicShowAvailabilityBatch(
     return new Map<string, PublicShowAvailability>();
   }
 
-  const [bookingResult, settingsResult, salesResult] = await Promise.all([
+  const [bookingResult, settingsResult, salesResult, showsResult] = await Promise.all([
     serviceClient
       .from("bookings")
       .select("show_id,guest_count,section,zone_entitlements")
@@ -83,11 +89,16 @@ export async function loadPublicShowAvailabilityBatch(
       .from("show_zone_sales_controls")
       .select("show_id,zone_id,public_sales_open,reason,changed_at,updated_at")
       .in("show_id", uniqueShowIds),
+    serviceClient
+      .from("shows")
+      .select("id,status")
+      .in("id", uniqueShowIds),
   ]);
 
   if (bookingResult.error) throw bookingResult.error;
   if (settingsResult.error) throw settingsResult.error;
   if (salesResult.error) throw salesResult.error;
+  if (showsResult.error) throw showsResult.error;
 
   const settings = normalizeVenueSettings(
     (settingsResult.data as {
@@ -95,8 +106,12 @@ export async function loadPublicShowAvailabilityBatch(
     } | null)?.settings,
   );
   const enabledZones = getEnabledSeatingZones(settings);
+  const showStatuses = new Map(
+    (showsResult.data ?? []).map((show) => [show.id, show.status]),
+  );
   const results = new Map<string, PublicShowAvailability>();
   for (const showId of uniqueShowIds) {
+    const showPubliclyBookable = isShowPubliclyBookable(showStatuses.get(showId));
     const capacityBookings = (bookingResult.data ?? []).flatMap((row) => {
       if (row.show_id !== showId) return [];
       const zoneId = getZoneIdForSection(row.section);
@@ -131,7 +146,8 @@ export async function loadPublicShowAvailabilityBatch(
     ])) as Record<SeatingZoneId, number>;
     const publicSalesOpenByZone = Object.fromEntries(enabledZones.map((zone) => [
       zone.id,
-      controlsByZone.get(zone.id)?.public_sales_open !== false,
+      showPubliclyBookable &&
+        controlsByZone.get(zone.id)?.public_sales_open !== false,
     ])) as Record<SeatingZoneId, boolean>;
 
     results.set(showId, {
@@ -141,8 +157,11 @@ export async function loadPublicShowAvailabilityBatch(
           const control = controlsByZone.get(zone.id);
           return {
             changedAt: control?.changed_at ?? null,
-            publicSalesOpen: control?.public_sales_open !== false,
-            reason: control?.reason ?? null,
+            publicSalesOpen:
+              showPubliclyBookable && control?.public_sales_open !== false,
+            reason: showPubliclyBookable
+              ? control?.reason ?? null
+              : publicShowUnavailableMessage,
             updatedAt: control?.updated_at ?? null,
             zoneId: zone.id,
             zoneTitle: zone.title,
@@ -151,6 +170,7 @@ export async function loadPublicShowAvailabilityBatch(
       occupiedSeatsByZone,
       publicSalesOpenByZone,
       remainingSeatsByZone,
+      showPubliclyBookable,
     });
   }
 

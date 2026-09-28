@@ -100,6 +100,11 @@ import {
 import { findPotentialInternalBookingDuplicates } from "@/lib/supabase/duplicateIntegrityServer";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 import { isPublicZoneSalesOpen } from "@/lib/supabase/publicShowAvailability";
+import {
+  isShowPubliclyBookable,
+  publicShowUnavailableMessage,
+  type ShowLifecycleStatus,
+} from "@/lib/publicShowSales";
 
 export const dynamic = "force-dynamic";
 
@@ -177,6 +182,7 @@ type SupabaseShowRow = {
   date: string;
   id: string;
   notes: string | null;
+  status: ShowLifecycleStatus;
   time: string;
   venue: string | null;
 };
@@ -637,7 +643,7 @@ async function getSupabaseShowRow(
 
   const { data, error } = await supabase
     .from("shows")
-    .select("id,date,time,notes,venue");
+    .select("id,date,time,notes,status,venue");
 
   if (error) {
     throw error;
@@ -1025,6 +1031,17 @@ async function reservePublicBookingAtomically(
   );
 
   if (error) {
+    if (/SHOW_NOT_AVAILABLE/.test(error.message)) {
+      return {
+        error: Response.json(
+          {
+            code: "SHOW_NOT_AVAILABLE",
+            error: publicShowUnavailableMessage,
+          },
+          { status: 409 },
+        ),
+      };
+    }
     if (/PUBLIC_ZONE_SALES_CLOSED/.test(error.message)) {
       return {
         error: Response.json(
@@ -1853,6 +1870,16 @@ export async function POST(request: Request) {
     }
 
     if (booking.source === "online" && !isTrustedStaff) {
+      if (!isShowPubliclyBookable(show.status)) {
+        return Response.json(
+          {
+            code: "SHOW_NOT_AVAILABLE",
+            error: publicShowUnavailableMessage,
+          },
+          { status: 409 },
+        );
+      }
+
       const showLocation = normalizeShowLocation(show.venue);
       const publicBookingSettings = await loadVenueSettings(supabase);
 

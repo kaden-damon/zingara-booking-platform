@@ -3,6 +3,7 @@ import {
   type DemoShow,
 } from "@/lib/zingaraDemo";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { isShowPubliclyVisible } from "@/lib/publicShowSales";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +104,8 @@ export async function GET() {
   }
 
   return Response.json({
-    shows: ((data ?? []) as PublicShowRow[]).map(toPublicShow),
+    shows: ((data ?? []) as PublicShowRow[])
+      .filter((show) => isShowPubliclyVisible(show.status))
+      .map(toPublicShow),
   });
 }
