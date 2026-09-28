@@ -160,12 +160,46 @@ test("CRM Company workspace is lazy and exposes required plain-English actions",
   const panel = await readFile(panelPath, "utf8");
   assert.match(panel, /no Company request is added to Admin boot/);
   assert.match(panel, /Company Directory/);
-  assert.match(panel, /Create Company/);
+  assert.match(panel, /\+ Create/);
   assert.match(panel, /Primary Contact/);
   assert.match(panel, /Save Company Link/);
   assert.match(panel, /Data Review/);
   assert.match(panel, /Keep Separate/);
   assert.match(panel, /Not a Duplicate/);
+});
+
+test("Company directory defaults to the Bookings-style Compact view", async () => {
+  const panel = await readFile(panelPath, "utf8");
+  assert.match(panel, /useState<CompanyViewMode>\("compact"\)/);
+  assert.match(panel, /\["list", "List"\]/);
+  assert.match(panel, /\["grid", "Grid"\]/);
+  assert.match(panel, /\["compact", "Compact"\]/);
+  assert.match(panel, /aria-label="Companies view mode"/);
+  assert.match(panel, /companyViewModeSessionStorageKey/);
+});
+
+test("Company directory paginates the filtered Company cohort", async () => {
+  const panel = await readFile(panelPath, "utf8");
+  assert.match(panel, /paginateItems\(visibleCompanies, companyPage, companyPageSize\)/);
+  assert.match(panel, /setCompanyPage\(1\)/);
+  assert.match(panel, /itemLabel="Companies"/);
+  assert.match(panel, /companyPagination\.items\.map/);
+  assert.doesNotMatch(panel, /visibleCompanies\.map/);
+});
+
+test("Company history lives in the opened profile rather than directory cards", async () => {
+  const panel = await readFile(panelPath, "utf8");
+  assert.match(panel, /id="company-profile-editor"/);
+  assert.match(panel, /Company Profile/);
+  assert.match(panel, /Contacts and history/);
+  assert.doesNotMatch(panel, /<details/);
+  assert.doesNotMatch(panel, /<summary/);
+});
+
+test("Company directory keeps batched lazy loading without row requests", async () => {
+  const panel = await readFile(panelPath, "utf8");
+  assert.equal((panel.match(/getCompanies\(true\)/g) ?? []).length, 1);
+  assert.doesNotMatch(panel, /companyPagination\.items[\s\S]{0,400}getCompanies/);
 });
 
 test("private Customers remain valid without a Company", async () => {

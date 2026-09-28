@@ -14,6 +14,8 @@ import {
   reviewCrmCandidate,
   saveCompany,
 } from "@/lib/supabase/companies";
+import { paginateItems } from "@/lib/pagination";
+import BookingPaginationControls from "./BookingPaginationControls";
 
 type SelectedCustomer = {
   companyId: string | null;
@@ -30,6 +32,9 @@ type Props = {
 };
 
 type WorkspaceView = "closed" | "companies" | "review";
+type CompanyViewMode = "compact" | "grid" | "list";
+
+const companyViewModeSessionStorageKey = "zingara-admin-company-view-mode";
 
 function inputClass() {
   return "h-10 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white outline-none focus:border-[#D8C36A]/70 disabled:opacity-50";
@@ -80,6 +85,11 @@ export default function CompanyCrmWorkspace({
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [companyViewMode, setCompanyViewMode] =
+    useState<CompanyViewMode>("compact");
+  const [companyViewModeLoaded, setCompanyViewModeLoaded] = useState(false);
+  const [companyPage, setCompanyPage] = useState(1);
+  const [companyPageSize, setCompanyPageSize] = useState(25);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [companyDraft, setCompanyDraft] = useState<CompanyWriteInput>(
     emptyCompanyInput(),
@@ -113,15 +123,43 @@ export default function CompanyCrmWorkspace({
   }
 
   useEffect(() => {
+    // This syncs the lazy CRM snapshot when a Customer is opened.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (selectedCustomer && !loaded && !loading) void loadWorkspace(false);
     // This is intentionally lazy: no Company request is added to Admin boot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomer?.id]);
 
   useEffect(() => {
+    // The editable link draft follows the selected Customer record.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCustomerCompanyId(selectedCustomer?.companyId ?? "");
     setCustomerJobTitle(selectedCustomer?.jobTitle ?? "");
   }, [selectedCustomer]);
+
+  useEffect(() => {
+    const storedViewMode = window.sessionStorage.getItem(
+      companyViewModeSessionStorageKey,
+    );
+    if (
+      storedViewMode === "compact" ||
+      storedViewMode === "grid" ||
+      storedViewMode === "list"
+    ) {
+      // Session preference is external state and is read once on mount.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCompanyViewMode(storedViewMode);
+    }
+    setCompanyViewModeLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!companyViewModeLoaded) return;
+    window.sessionStorage.setItem(
+      companyViewModeSessionStorageKey,
+      companyViewMode,
+    );
+  }, [companyViewMode, companyViewModeLoaded]);
 
   const visibleCompanies = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -137,6 +175,11 @@ export default function CompanyCrmWorkspace({
     });
   }, [companies, search]);
 
+  const companyPagination = useMemo(
+    () => paginateItems(visibleCompanies, companyPage, companyPageSize),
+    [companyPage, companyPageSize, visibleCompanies],
+  );
+
   async function openView(nextView: Exclude<WorkspaceView, "closed">) {
     const closing = view === nextView;
     setView(closing ? "closed" : nextView);
@@ -148,6 +191,11 @@ export default function CompanyCrmWorkspace({
     setCompanyDraft(emptyCompanyInput());
     setShowCompanyForm(true);
     setError("");
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById("company-profile-editor")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   function beginEdit(company: CompanyRecord) {
@@ -155,6 +203,19 @@ export default function CompanyCrmWorkspace({
     setCompanyDraft(companyToInput(company));
     setShowCompanyForm(true);
     setError("");
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById("company-profile-editor")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function companyStatus(company: CompanyRecord) {
+    return company.mergedIntoCompanyId
+      ? "Merged"
+      : company.archivedAt
+        ? "Archived"
+        : "Active";
   }
 
   async function persistCompany() {
@@ -249,6 +310,9 @@ export default function CompanyCrmWorkspace({
   const selectedCompany = companies.find(
     (company) => company.id === customerCompanyId,
   );
+  const editingCompany = companies.find(
+    (company) => company.id === editingCompanyId,
+  );
 
   return (
     <div className="mb-6 space-y-4">
@@ -335,33 +399,76 @@ export default function CompanyCrmWorkspace({
 
       {view === "companies" && (
         <section className="rounded-lg border border-white/10 bg-zinc-950/80 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <h3 className="text-lg font-bold text-white">Company Directory</h3>
               <p className="text-sm text-zinc-400">
-                Company details are stored once and shared by linked contacts.
+                Company details are shared by linked contacts.
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <input
-                className={`${inputClass()} w-64`}
+                aria-label="Search Companies"
+                className={`${inputClass()} sm:w-64`}
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setCompanyPage(1);
+                }}
                 placeholder="Search Companies"
               />
+              <div
+                role="group"
+                aria-label="Companies view mode"
+                className="grid grid-cols-3 gap-1 rounded-full border border-white/15 bg-black/35 p-1"
+              >
+                {(
+                  [
+                    ["list", "List"],
+                    ["grid", "Grid"],
+                    ["compact", "Compact"],
+                  ] as Array<[CompanyViewMode, string]>
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setCompanyViewMode(mode)}
+                    className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition sm:px-4 ${
+                      companyViewMode === mode
+                        ? "bg-[#D8C36A] text-black"
+                        : "text-zinc-300 hover:text-white"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <button
                 type="button"
                 disabled={!canManage}
                 onClick={beginCreate}
-                className="rounded-lg bg-[#D8C36A] px-4 text-sm font-bold text-black disabled:opacity-50"
+                className="h-10 rounded-full bg-[#D8C36A] px-5 text-xs font-bold uppercase tracking-[0.1em] text-black transition hover:bg-[#F2D66C] disabled:opacity-50"
               >
-                Create Company
+                + Create
               </button>
             </div>
           </div>
 
           {showCompanyForm && (
-            <div className="mt-4 rounded-lg border border-[#D8C36A]/25 bg-black p-4">
+            <div
+              id="company-profile-editor"
+              className="mt-4 scroll-mt-6 rounded-lg border border-[#D8C36A]/25 bg-black p-4"
+            >
+              <div className="mb-4">
+                <h4 className="font-bold text-white">
+                  {editingCompanyId ? "Company Profile" : "Create Company"}
+                </h4>
+                <p className="mt-1 text-sm text-zinc-400">
+                  {editingCompanyId
+                    ? "Company details, contacts and booking history."
+                    : "Add the shared Company details used by linked contacts."}
+                </p>
+              </div>
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                 {(
                   [
@@ -489,7 +596,11 @@ export default function CompanyCrmWorkspace({
                 <button
                   type="button"
                   onClick={() => void persistCompany()}
-                  disabled={loading}
+                  disabled={
+                    !canManage ||
+                    loading ||
+                    Boolean(editingCompany?.mergedIntoCompanyId)
+                  }
                   className="rounded-lg bg-[#D8C36A] px-4 py-2 text-sm font-bold text-black disabled:opacity-50"
                 >
                   Save Company
@@ -502,62 +613,141 @@ export default function CompanyCrmWorkspace({
                   Cancel
                 </button>
               </div>
+              {editingCompanyId && (
+                <div className="mt-5 border-t border-white/10 pt-4">
+                  <h4 className="text-sm font-bold text-white">Contacts and history</h4>
+                  <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                    <div className="space-y-2 text-sm text-zinc-300">
+                      {editingCompany?.contacts.map((contact) => (
+                          <p key={contact.id}>
+                            {contact.firstName} {contact.surname ?? ""}
+                            {contact.jobTitle ? ` · ${contact.jobTitle}` : ""}
+                            {contact.id === companyDraft.primaryContactCustomerId
+                              ? " · Primary Contact"
+                              : ""}
+                          </p>
+                        ))}
+                    </div>
+                    <div className="space-y-2 text-sm text-zinc-400">
+                      {editingCompany?.bookingHistory
+                        .slice(0, 10)
+                        .map((booking) => (
+                          <p key={booking.bookingReference}>
+                            {booking.bookingReference} · {booking.guestCount} pax · {booking.status}
+                          </p>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {visibleCompanies.map((company) => (
-              <article key={company.id} className="rounded-lg border border-white/10 bg-black/40 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h4 className="font-bold text-white">{company.legalName}</h4>
-                    {company.tradingName && company.tradingName !== company.legalName && (
-                      <p className="text-sm text-zinc-400">Trading as {company.tradingName}</p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    disabled={!canManage || Boolean(company.mergedIntoCompanyId)}
-                    onClick={() => beginEdit(company)}
-                    className="rounded-lg border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold text-[#F2D66C] disabled:opacity-50"
+          {companyViewMode === "compact" && (
+            <div className="mt-4 overflow-hidden rounded-lg border border-[#8D7A2F]/30 bg-black/40">
+              <div className="hidden min-h-9 grid-cols-[minmax(220px,2fr)_90px_90px_140px_90px_80px] items-center gap-3 border-b border-[#D8C36A]/25 bg-black/70 px-3 text-[0.62rem] font-semibold uppercase tracking-[0.06em] text-zinc-500 lg:grid">
+                <span>Company</span><span>Contacts</span><span>Bookings</span>
+                <span>Corporate Enquiries</span><span>Status</span><span>Action</span>
+              </div>
+              <div role="list" aria-label="Compact Companies">
+                {companyPagination.items.map((company) => (
+                  <div
+                    key={company.id}
+                    role="listitem"
+                    className="grid min-h-14 gap-1 border-b border-white/[0.07] px-3 py-2 last:border-b-0 lg:min-h-11 lg:grid-cols-[minmax(220px,2fr)_90px_90px_140px_90px_80px] lg:items-center lg:gap-3 lg:py-1.5"
                   >
-                    Edit
-                  </button>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-zinc-300">
-                  <span>{company.contacts.length} Contacts</span>
-                  <span>{company.bookingCount} Bookings</span>
-                  <span>{company.corporateRequestCount} Corporate enquiries</span>
-                  <span>
-                    {company.mergedIntoCompanyId
-                      ? "Merged"
-                      : company.archivedAt
-                        ? "Archived"
-                        : "Active"}
-                  </span>
-                </div>
-                {company.contacts.length > 0 && (
-                  <details className="mt-3 border-t border-white/10 pt-3">
-                    <summary className="cursor-pointer text-sm font-semibold text-[#D8C36A]">Contacts and history</summary>
-                    <div className="mt-2 space-y-2 text-sm text-zinc-300">
-                      {company.contacts.map((contact) => (
-                        <p key={contact.id}>
-                          {contact.firstName} {contact.surname ?? ""}
-                          {contact.jobTitle ? ` · ${contact.jobTitle}` : ""}
-                          {contact.id === company.primaryContactCustomerId ? " · Primary Contact" : ""}
-                        </p>
-                      ))}
-                      {company.bookingHistory.slice(0, 5).map((booking) => (
-                        <p key={booking.bookingReference} className="text-zinc-500">
-                          {booking.bookingReference} · {booking.guestCount} pax · {booking.status}
-                        </p>
-                      ))}
+                    <button
+                      type="button"
+                      onClick={() => beginEdit(company)}
+                      className="min-w-0 truncate text-left text-sm font-bold text-white transition hover:text-[#F2D66C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C36A]"
+                    >
+                      {company.legalName}
+                    </button>
+                    <div className="flex items-center gap-3 text-xs text-zinc-400 lg:contents">
+                      <span>{company.contacts.length}<span className="ml-1 lg:hidden">contacts</span></span>
+                      <span>{company.bookingCount}<span className="ml-1 lg:hidden">bookings</span></span>
+                      <span>{company.corporateRequestCount}<span className="ml-1 lg:hidden">enquiries</span></span>
+                      <span className="rounded-full border border-white/15 px-2 py-0.5 text-[0.65rem] font-semibold uppercase text-zinc-300">
+                        {companyStatus(company)}
+                      </span>
                     </div>
-                  </details>
-                )}
-              </article>
-            ))}
-          </div>
+                    <button
+                      type="button"
+                      onClick={() => beginEdit(company)}
+                      className="hidden rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A]/10 lg:inline-flex lg:justify-center"
+                    >
+                      Open
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {companyViewMode === "list" && (
+            <div className="mt-4 space-y-2">
+              {companyPagination.items.map((company) => (
+                <article key={company.id} className="flex flex-col gap-3 rounded-lg border border-white/10 bg-black/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <button type="button" onClick={() => beginEdit(company)} className="min-w-0 text-left">
+                    <span className="block truncate text-sm font-bold text-white hover:text-[#F2D66C]">{company.legalName}</span>
+                    <span className="mt-1 block truncate text-xs text-zinc-400">
+                      {company.tradingName && company.tradingName !== company.legalName
+                        ? `${company.tradingName} · `
+                        : ""}
+                      {company.billingEmail || "No billing email"}
+                    </span>
+                  </button>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
+                    <span>{company.contacts.length} contacts</span>
+                    <span>{company.bookingCount} bookings</span>
+                    <span>{company.corporateRequestCount} enquiries</span>
+                    <span className="rounded-full border border-white/15 px-2 py-1 text-[0.65rem] font-semibold uppercase text-zinc-300">{companyStatus(company)}</span>
+                    <button type="button" onClick={() => beginEdit(company)} className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 font-semibold text-[#F2D66C] hover:bg-[#D8C36A]/10">Open</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+
+          {companyViewMode === "grid" && (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {companyPagination.items.map((company) => (
+                <article key={company.id} className="rounded-lg border border-white/10 bg-black/40 p-3 transition hover:border-[#D8C36A]/40">
+                  <button type="button" onClick={() => beginEdit(company)} className="w-full min-w-0 text-left">
+                    <span className="block truncate text-sm font-bold text-white hover:text-[#F2D66C]">{company.legalName}</span>
+                    <span className="mt-1 block truncate text-xs text-zinc-500">{company.tradingName || company.billingEmail || "Company profile"}</span>
+                  </button>
+                  <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400">
+                    <span>{company.contacts.length} contacts</span>
+                    <span>{company.bookingCount} bookings</span>
+                    <span>{company.corporateRequestCount} enquiries</span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <span className="rounded-full border border-white/15 px-2 py-1 text-[0.65rem] font-semibold uppercase text-zinc-300">{companyStatus(company)}</span>
+                    <button type="button" onClick={() => beginEdit(company)} className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold text-[#F2D66C] hover:bg-[#D8C36A]/10">Open</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+
+          {visibleCompanies.length === 0 && (
+            <p className="mt-4 rounded-lg border border-white/10 bg-black/30 p-4 text-sm text-zinc-400">
+              No Companies match this search.
+            </p>
+          )}
+
+          <BookingPaginationControls
+            key={`companies-${companyPageSize}`}
+            itemLabel="Companies"
+            onPageChange={setCompanyPage}
+            onPageSizeChange={(pageSize) => {
+              setCompanyPageSize(pageSize);
+              setCompanyPage(1);
+            }}
+            pageSize={companyPageSize}
+            window={companyPagination.window}
+          />
         </section>
       )}
 
