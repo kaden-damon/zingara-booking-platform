@@ -46,3 +46,12 @@ test("Customer CRM retry still reissues the loader", async () => {
   assert.match(source, /const records = await loadLiveCustomerRecords\(\)/);
   assert.match(source, /onClick=\{\(\) => void refreshLiveCustomerRecords\(\)\}/);
 });
+
+test("Customer booking history opens the existing Booking Details view", async () => {
+  const source = await readFile(adminPageUrl, "utf8");
+
+  assert.match(source, /function openCustomerHistoryBooking\(reference: string\)/);
+  assert.match(source, /setBookingSearch\(reference\)/);
+  assert.match(source, /void openBookingDetails\(reference\)/);
+  assert.match(source, />\s*Open Booking\s*<\/button>/);
+});

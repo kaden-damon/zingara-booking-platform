@@ -44,6 +44,8 @@ export const runtime = "nodejs";
 
 type BookingRow = {
   amount_paid: number;
+  archive_reason: string | null;
+  archived_at: string | null;
   balance_outstanding: number;
   booking_reference: string;
   booking_status: "confirmed" | "pending_payment" | string;
@@ -77,6 +79,9 @@ type ShowRow = {
 };
 
 type PayFastCoreResult = {
+  amount_paid?: number;
+  archived_at?: string | null;
+  balance_outstanding?: number;
   booking_was_confirmed?: boolean;
   booking_id?: string;
   payment_id?: string;
@@ -85,12 +90,15 @@ type PayFastCoreResult = {
     | "duplicate_provider_transaction"
     | "missing"
     | "processed";
+  restoration_status?: string;
   was_confirmed?: boolean;
 };
 
 type PaymentAmountRow = {
   amount: number | null;
+  id?: string;
   payment_status: string;
+  processed_at?: string | null;
   provider_gross_amount: number | null;
   provider_transaction_id: string | null;
   transaction_fee_amount: number | null;
@@ -357,7 +365,7 @@ async function loadBooking(
   const { data, error } = await supabase
     .from("bookings")
     .select(
-      "id,customer_id,show_id,booking_reference,booking_status,payment_status,total_amount,amount_paid,balance_outstanding,notes",
+      "id,customer_id,show_id,booking_reference,booking_status,payment_status,total_amount,amount_paid,balance_outstanding,notes,archived_at,archive_reason",
     )
     .eq("booking_reference", bookingReference)
     .maybeSingle();
@@ -367,6 +375,77 @@ async function loadBooking(
   }
 
   return data as BookingRow | null;
+}
+
+async function loadPersistedPayment(
+  supabase: SupabaseClient,
+  bookingId: string,
+  paymentId: string | undefined,
+  providerTransactionId: string | undefined,
+) {
+  let query = supabase
+    .from("payments")
+    .select(
+      "id,amount,payment_status,processed_at,provider_gross_amount,provider_transaction_id,transaction_fee_amount",
+    )
+    .eq("booking_id", bookingId);
+
+  if (paymentId) {
+    query = query.eq("id", paymentId);
+  } else if (providerTransactionId) {
+    query = query.eq("provider_transaction_id", providerTransactionId);
+  } else {
+    throw new Error("Persisted PayFast payment identity is missing");
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    throw new Error("Persisted PayFast payment could not be reloaded");
+  }
+
+  return data as PaymentAmountRow;
+}
+
+function toAuthoritativeBooking(
+  fallback: DemoBooking,
+  row: BookingRow,
+  payment: PaymentAmountRow,
+) {
+  const fallbackWithPayment = fallback as DemoBooking & {
+    paymentDate?: string;
+    transactionReference?: string;
+  };
+  const stored = parseBookingMetadata(row.notes) ?? fallback;
+  const paymentStatus =
+    row.payment_status === "fully_paid" ? "fully-paid" : "deposit-paid";
+  const status = row.booking_status.replaceAll("_", "-");
+  const transaction = toStoredTransactionAmounts(payment);
+
+  return {
+    ...stored,
+    amountPaid: Number(row.amount_paid) || 0,
+    balanceDue: Number(row.balance_outstanding) || 0,
+    lastBookingAppliedAmount: transaction.bookingAppliedAmount,
+    lastProviderGrossAmount: transaction.providerGrossAmount,
+    lastTransactionFeeAmount: transaction.transactionFeeAmount,
+    paymentDate:
+      payment.processed_at ??
+      (stored as typeof fallbackWithPayment).paymentDate,
+    paymentStatus,
+    status,
+    totalPrice: Number(row.total_amount) || stored.totalPrice,
+    transactionReference:
+      payment.provider_transaction_id ??
+      (stored as typeof fallbackWithPayment).transactionReference,
+  } as DemoBooking & {
+    paymentDate?: string;
+    transactionReference?: string;
+  };
 }
 
 async function loadShow(supabase: SupabaseClient, showId: string) {
@@ -567,12 +646,19 @@ async function ensureCommunication(
   trigger: CommunicationTrigger,
   templates: Awaited<ReturnType<typeof loadTemplates>>,
   ticket?: { qrPayload: string; ticketCode: string } | null,
+  providerTransactionId?: string,
 ) {
   const type = getSupabaseCommunicationType(trigger);
   const template = getCommunicationTemplate(templates, trigger, "email");
 
   if (!template) {
     return null;
+  }
+
+  if (trigger === "payment-confirmation" && !providerTransactionId) {
+    throw new Error(
+      "Persisted provider transaction identity is required for payment email",
+    );
   }
 
   let ticketEmail: Awaited<ReturnType<typeof createZingaraTicketEmail>> | null = null;
@@ -652,17 +738,24 @@ async function ensureCommunication(
     templateId: template.id,
     trigger,
   });
-  const { data: claimData, error: claimError } = await supabase.rpc(
-    "claim_email_communication_once",
-    {
-      p_booking_id: bookingId,
-      p_customer_id: customerId,
-      p_message: record.message,
-      p_show_id: showId,
-      p_subject: record.subject ?? null,
-      p_type: type,
-    },
-  );
+  const { data: claimData, error: claimError } =
+    trigger === "payment-confirmation"
+      ? await supabase.rpc("claim_payfast_payment_email_once", {
+          p_booking_id: bookingId,
+          p_customer_id: customerId,
+          p_message: record.message,
+          p_provider_transaction_id: providerTransactionId,
+          p_show_id: showId,
+          p_subject: record.subject ?? null,
+        })
+      : await supabase.rpc("claim_email_communication_once", {
+          p_booking_id: bookingId,
+          p_customer_id: customerId,
+          p_message: record.message,
+          p_show_id: showId,
+          p_subject: record.subject ?? null,
+          p_type: type,
+        });
 
   if (claimError) {
     throw claimError;
@@ -769,23 +862,55 @@ async function confirmPayment(
   }
 
   const bookingId = coreResult.booking_id ?? row.id;
+  const [persistedRow, persistedPayment] = await Promise.all([
+    loadBooking(supabase, booking.reference),
+    loadPersistedPayment(
+      supabase,
+      bookingId,
+      coreResult.payment_id,
+      data.pf_payment_id,
+    ),
+  ]);
+
+  if (!persistedRow) {
+    throw new Error("Persisted booking could not be reloaded after PayFast confirmation");
+  }
+
+  const authoritativeBooking = toAuthoritativeBooking(
+    booking,
+    persistedRow,
+    persistedPayment,
+  );
+  const restorationStatus =
+    coreResult.restoration_status ??
+    (persistedRow.archived_at ? "review_required" : "active");
+  const isOperationallyActive =
+    persistedRow.archived_at === null &&
+    persistedRow.booking_status === "confirmed";
   const wasConfirmed =
     coreResult.status === "already_confirmed" || Boolean(coreResult.was_confirmed);
   const bookingWasConfirmed = Boolean(coreResult.booking_was_confirmed);
 
-  const ensuredTicket = await ensureTicket(supabase, bookingId, updatedBooking);
-  await ensureLifecycleEvent(supabase, bookingId, {
-    createdAt: now,
-    fromStatus: "pending_payment",
-    note: `PayFast payment received: ${data.pf_payment_id ?? data.m_payment_id}`,
-    toStatus: "confirmed",
-  });
-  await ensureLifecycleEvent(supabase, bookingId, {
-    createdAt: now,
-    fromStatus: "pending_payment",
-    note: "Booking confirmed after PayFast ITN validation",
-    toStatus: "confirmed",
-  });
+  if (!isOperationallyActive) {
+    console.error("[Zingara PayFast] Payment persisted but booking requires lifecycle review", {
+      bookingReference: booking.reference,
+      restorationStatus,
+    });
+
+    return {
+      bookingReference: booking.reference,
+      restorationStatus,
+      status: coreResult.status,
+      ticketCode,
+      wasConfirmed,
+    };
+  }
+
+  const ensuredTicket = await ensureTicket(
+    supabase,
+    bookingId,
+    authoritativeBooking,
+  );
 
   const showRow = await loadShow(supabase, row.show_id);
   const show = toShow(showRow);
@@ -796,7 +921,7 @@ async function confirmPayment(
     bookingId,
     row.customer_id,
     row.show_id,
-    updatedBooking,
+    authoritativeBooking,
     show,
     "reservation-confirmed",
     templates,
@@ -807,35 +932,38 @@ async function confirmPayment(
     bookingId,
     row.customer_id,
     row.show_id,
-    updatedBooking,
+    authoritativeBooking,
     show,
     "payment-confirmation",
     templates,
+    undefined,
+    persistedPayment.provider_transaction_id ?? undefined,
   );
 
   if (!wasConfirmed) {
     if (!bookingWasConfirmed) {
       void sendGuestPushNotification({
-        bookingReference: updatedBooking.reference,
+        bookingReference: authoritativeBooking.reference,
         trigger: "reservation-confirmed",
       });
       void sendStaffPushNotification({
-        bookingReference: updatedBooking.reference,
+        bookingReference: authoritativeBooking.reference,
         trigger: "new-booking",
       });
     }
     void sendGuestPushNotification({
-      bookingReference: updatedBooking.reference,
+      bookingReference: authoritativeBooking.reference,
       trigger: "payment-received",
     });
     void sendStaffPushNotification({
-      bookingReference: updatedBooking.reference,
+      bookingReference: authoritativeBooking.reference,
       trigger: "payment-received",
     });
   }
 
   return {
-    bookingReference: updatedBooking.reference,
+    bookingReference: authoritativeBooking.reference,
+    restorationStatus,
     status: coreResult.status,
     ticketCode,
     wasConfirmed,
@@ -986,22 +1114,24 @@ export async function POST(request: Request) {
       },
       supabase,
     );
-    recordPlatformEventBestEffort(
-      {
-        bookingReference: result.bookingReference,
-        durationMs: Date.now() - startedAt,
-        eventType: "booking_completed",
-        journeyId,
-        metadata: {
-          paymentStatus: data.payment_status ?? null,
-          source: "payfast-itn",
+    if (result.restorationStatus === "active") {
+      recordPlatformEventBestEffort(
+        {
+          bookingReference: result.bookingReference,
+          durationMs: Date.now() - startedAt,
+          eventType: "booking_completed",
+          journeyId,
+          metadata: {
+            paymentStatus: data.payment_status ?? null,
+            source: "payfast-itn",
+          },
+          operation: "complete_booking_from_itn",
+          route: "/api/payfast/itn",
+          statusCode: 200,
         },
-        operation: "complete_booking_from_itn",
-        route: "/api/payfast/itn",
-        statusCode: 200,
-      },
-      supabase,
-    );
+        supabase,
+      );
+    }
 
     return Response.json(
       {

@@ -248,6 +248,7 @@ import {
   type BookingSalesSource,
   type BookingSalesSourceFilter,
 } from "../../lib/bookingSalesFilters";
+import { isExactBookingReferenceSearch } from "../../lib/bookingReferenceSearch";
 import {
   convertCorporateRequest,
   getCorporateRequests,
@@ -11097,6 +11098,15 @@ export default function AdminDashboardPage() {
     }
 
     void loadBookingDetails(reference);
+  }
+
+  function openCustomerHistoryBooking(reference: string) {
+    setSelectedCustomerKey(null);
+    setCustomerProfileReturnContext({ source: "direct" });
+    setActiveAdminTab("bookings");
+    setBookingSearch(reference);
+    setBookingPage(1);
+    void openBookingDetails(reference);
   }
 
   async function refreshLiveCustomerRecords() {
@@ -25170,6 +25180,12 @@ export default function AdminDashboardPage() {
 
     if (activeAdminTab === "corporate" && !corporateBooking) {
       return false;
+    }
+
+    // Exact references are direct navigation within the already-authorised
+    // booking population, so ordinary browsing filters must not hide them.
+    if (isExactBookingReferenceSearch(bookingSearch, booking.reference)) {
+      return true;
     }
 
     if (options.includeArchiveView !== false) {
@@ -39513,6 +39529,17 @@ export default function AdminDashboardPage() {
                                   >
                                     {paymentStatusLabels[paymentStatus]}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openCustomerHistoryBooking(
+                                        booking.reference,
+                                      )
+                                    }
+                                    className="rounded-full border border-[#D8C36A]/45 px-3 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                                  >
+                                    Open Booking
+                                  </button>
                                 </div>
                               </div>
                               );
