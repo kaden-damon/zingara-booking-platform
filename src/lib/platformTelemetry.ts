@@ -14,6 +14,8 @@ export type PlatformEventType =
   | "payment_initiated"
   | "rate_limited"
   | "seating_selected"
+  | "session_started"
+  | "site_view"
   | "show_selected";
 
 export type PlatformEventSeverity = "error" | "info" | "warning";
@@ -59,6 +61,8 @@ export const publicPlatformEventTypes = new Set<PlatformEventType>([
   "payfast_returned",
   "payment_initiated",
   "seating_selected",
+  "session_started",
+  "site_view",
   "show_selected",
 ]);
 
@@ -74,6 +78,8 @@ export const serverPlatformEventTypes = new Set<PlatformEventType>([
 const sensitiveKeyPattern =
   /authorization|auth|card|cookie|credential|cvv|passphrase|password|payfast|secret|service[_-]?role|signature|site_password|smtp|supabase|token|vapid/i;
 const allowedMetadataKeys = new Set([
+  "device",
+  "environment",
   "location",
   "paymentState",
   "paymentStatus",
@@ -82,6 +88,9 @@ const allowedMetadataKeys = new Set([
   "stage",
   "status",
   "step",
+  "trafficKind",
+  "trafficSource",
+  "visitorId",
 ]);
 const maxStringLength = 120;
 const maxMetadataKeys = 8;
@@ -132,6 +141,9 @@ export function sanitizeTelemetryMetadata(
     }
 
     if (typeof value === "string") {
+      if (key === "visitorId" && !/^visitor_[a-zA-Z0-9_-]{24,80}$/.test(value)) {
+        continue;
+      }
       sanitized[key] = value.slice(0, maxStringLength);
     } else if (typeof value === "number" && Number.isFinite(value)) {
       sanitized[key] = value;

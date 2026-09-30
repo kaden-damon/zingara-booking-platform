@@ -322,6 +322,7 @@ export default function CookiePrivacyPreferences({
             <CookieConsentPanel
               config={draft}
               onAcknowledge={() => undefined}
+              onSavePreferences={() => undefined}
               preview
             />
           </div>

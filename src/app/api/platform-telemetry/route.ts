@@ -62,6 +62,28 @@ type TelemetryPayload = {
   type?: unknown;
 };
 
+function getPublicRequestMetadata(request: Request) {
+  const userAgent = request.headers.get("user-agent")?.toLowerCase() ?? "";
+  const hostname = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+    ?? request.headers.get("host")?.trim()
+    ?? "";
+  const trafficKind = /bot|crawler|spider|headless|lighthouse|preview|uptime/.test(userAgent)
+    ? "automated"
+    : "human";
+  const device = /ipad|tablet|kindle/.test(userAgent)
+    ? "tablet"
+    : /mobile|android|iphone/.test(userAgent)
+      ? "mobile"
+      : "desktop";
+  const environment = hostname === "book.zingara.co.za"
+    ? "production"
+    : hostname.includes("vercel.app")
+      ? "preview"
+      : "development";
+
+  return { device, environment, trafficKind };
+}
+
 function text(value: unknown, maxLength = 160) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
@@ -232,13 +254,16 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unsupported telemetry event." }, { status: 400 });
     }
 
+    const metadata = sanitizeTelemetryMetadata(payload.metadata);
     const recorded = await recordPlatformEvent(
       {
         bookingReference: text(payload.bookingReference, 80) || null,
         durationMs: number(payload.durationMs),
         eventType,
         journeyId: journeyId || null,
-        metadata: sanitizeTelemetryMetadata(payload.metadata),
+        metadata: sessionType === "public"
+          ? { ...metadata, ...getPublicRequestMetadata(request) }
+          : metadata,
         operation: text(payload.operation, 80) || null,
         route: text(payload.route, 120) || null,
         safeFingerprint: text(payload.safeFingerprint, 120) || null,

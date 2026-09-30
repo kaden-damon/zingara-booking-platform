@@ -8,7 +8,7 @@ async function source(path: string) {
 
 test("System has concise Operations, Issues and Preferences destinations", async () => {
   const admin = await source("../app/admin/page.tsx");
-  assert.match(admin, /type SystemTab = "issues" \| "operations" \| "preferences"/);
+  assert.match(admin, /type SystemTab = "dineplan" \| "issues" \| "operations" \| "preferences"/);
   assert.match(admin, /aria-label="System sections"/);
   assert.match(admin, /activeSystemTab === "preferences"/);
 });
@@ -29,14 +29,18 @@ test("Admin preview is isolated and uses the simplified notice", async () => {
   assert.match(preview, /onAcknowledge=\{\(\) => undefined\}/);
 });
 
-test("public notice is simplified, absent from Admin and exposes Cookie Policy", async () => {
+test("public notice is absent from Admin and optional analytics requires an explicit choice", async () => {
   const publicConsent = await source("../app/components/PublicCookieConsent.tsx");
   const panel = await source("../app/components/CookieConsentPanel.tsx");
   assert.match(publicConsent, /pathname\.startsWith\("\/admin"\)/);
   assert.match(publicConsent, /analytics: false/);
   assert.match(publicConsent, /marketing: false/);
-  assert.doesNotMatch(publicConsent, /footerLinkLabel|openPreferences/);
-  assert.doesNotMatch(panel, /ACCEPT ALL|ESSENTIAL ONLY|MANAGE PREFERENCES/);
+  assert.match(publicConsent, /onSavePreferences/);
+  assert.match(publicConsent, /footerLinkLabel/);
+  assert.match(publicConsent, /setIsVisible\(true\)/);
+  assert.match(panel, /managePreferencesLabel/);
+  assert.match(panel, /analyticsDescription/);
+  assert.match(panel, /marketingDescription/);
   assert.match(panel, /onAcknowledge/);
   assert.match(panel, /\/royal-decrees\/cookie-policy/);
 });

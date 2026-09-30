@@ -1,5 +1,6 @@
 export const cookieConsentStorageKey = "zingara-cookie-consent";
 export const cookieConsentChangedEvent = "zingara:cookie-consent-changed";
+export const cookieConsentReadyEvent = "zingara:cookie-consent-ready";
 
 export type CookieConsent = {
   analytics: boolean;

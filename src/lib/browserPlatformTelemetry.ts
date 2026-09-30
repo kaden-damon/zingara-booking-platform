@@ -1,5 +1,6 @@
 import { getAdminAuthSession } from "@/lib/supabase/auth";
 import { platformPresenceHeartbeatMs } from "@/lib/platformPresence";
+import { hasAnalyticsConsent } from "@/lib/cookieConsent";
 
 type TelemetryMetadata = Record<string, boolean | number | string | null>;
 
@@ -22,6 +23,8 @@ type TrackEventInput = TelemetryBase & {
     | "payfast_returned"
     | "payment_initiated"
     | "seating_selected"
+    | "session_started"
+    | "site_view"
     | "show_selected";
   operation?: string | null;
   route?: string | null;
@@ -36,7 +39,9 @@ type TrackSessionInput = TelemetryBase & {
 
 const publicSessionKey = "zingara-platform-session-id";
 const staffSessionKey = "zingara-staff-platform-session-id";
-const journeyKey = "zingara-booking-journey-id";
+const visitorKey = "zingara-platform-visitor-id";
+const journeyKey = "zingara-booking-journey-id-v2";
+const publicSessionTimeoutMs = 30 * 60 * 1000;
 let lastPresenceSignature = "";
 let lastPresenceAt = 0;
 
@@ -73,19 +78,82 @@ function storageSet(key: string, value: string) {
   }
 }
 
+function sessionStorageGet(key: string) {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function sessionStorageSet(key: string, value: string) {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Telemetry is best-effort only.
+  }
+}
+
+type PublicSessionRecord = {
+  id: string;
+  lastSeenAt: number;
+  startedEventRecorded: boolean;
+};
+
+function getPublicSessionRecord() {
+  const now = Date.now();
+  const stored = storageGet(publicSessionKey);
+
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored) as Partial<PublicSessionRecord>;
+      if (
+        typeof parsed.id === "string" &&
+        typeof parsed.lastSeenAt === "number" &&
+        now - parsed.lastSeenAt < publicSessionTimeoutMs
+      ) {
+        const record = {
+          id: parsed.id,
+          lastSeenAt: now,
+          startedEventRecorded: parsed.startedEventRecorded === true,
+        };
+        storageSet(publicSessionKey, JSON.stringify(record));
+        return record;
+      }
+    } catch {
+      // Legacy identifiers are rotated into a measurable 30-minute session.
+    }
+  }
+
+  const record = {
+    id: randomId("session"),
+    lastSeenAt: now,
+    startedEventRecorded: false,
+  };
+  storageSet(publicSessionKey, JSON.stringify(record));
+  return record;
+}
+
 export function getPlatformSessionId() {
   if (typeof window === "undefined") {
     return randomId("session");
   }
 
-  const existing = storageGet(publicSessionKey);
+  return getPublicSessionRecord().id;
+}
 
-  if (existing) {
+export function getPlatformVisitorId() {
+  if (typeof window === "undefined") {
+    return randomId("visitor");
+  }
+
+  const existing = storageGet(visitorKey);
+  if (existing && /^visitor_[a-zA-Z0-9_-]{24,80}$/.test(existing)) {
     return existing;
   }
 
-  const next = randomId("session");
-  storageSet(publicSessionKey, next);
+  const next = randomId("visitor");
+  storageSet(visitorKey, next);
   return next;
 }
 
@@ -110,15 +178,87 @@ export function getBookingJourneyId() {
     return randomId("journey");
   }
 
-  const existing = storageGet(journeyKey);
+  const sessionId = getPlatformSessionId();
+  const existing = sessionStorageGet(journeyKey);
 
   if (existing) {
-    return existing;
+    try {
+      const parsed = JSON.parse(existing) as { id?: unknown; sessionId?: unknown };
+      if (
+        typeof parsed.id === "string" &&
+        parsed.id.startsWith("journey_") &&
+        parsed.sessionId === sessionId
+      ) {
+        return parsed.id;
+      }
+    } catch {
+      // Rotate malformed or legacy journey storage.
+    }
   }
 
   const next = randomId("journey");
-  storageSet(journeyKey, next);
+  sessionStorageSet(journeyKey, JSON.stringify({ id: next, sessionId }));
   return next;
+}
+
+function getTrafficSource() {
+  if (typeof document === "undefined" || !document.referrer) return "direct";
+
+  try {
+    const hostname = new URL(document.referrer).hostname.toLowerCase();
+    if (hostname === window.location.hostname) return "zingara";
+    if (hostname.includes("google.")) return "google";
+    if (hostname.includes("facebook.") || hostname === "fb.com") return "facebook";
+    if (hostname.includes("instagram.")) return "instagram";
+    if (hostname.includes("tiktok.")) return "tiktok";
+    if (hostname.includes("bing.")) return "bing";
+    return "other-referral";
+  } catch {
+    return "unknown";
+  }
+}
+
+function getKnownLocation() {
+  if (typeof window === "undefined") return null;
+  const queryLocation = new URLSearchParams(window.location.search).get("location");
+  const storedLocation = storageGet("zingara-selected-location");
+  return [queryLocation, storedLocation].find((value) =>
+    value === "cape-town" || value === "johannesburg",
+  ) ?? null;
+}
+
+export function trackPublicSiteView(route: string) {
+  if (typeof window === "undefined") return;
+
+  const record = getPublicSessionRecord();
+  const metadata = {
+    location: getKnownLocation(),
+    source: "public-website",
+    trafficSource: getTrafficSource(),
+    visitorId: getPlatformVisitorId(),
+  };
+
+  if (!record.startedEventRecorded) {
+    storageSet(publicSessionKey, JSON.stringify({
+      ...record,
+      startedEventRecorded: true,
+    }));
+    trackPlatformEvent({
+      eventType: "session_started",
+      journeyId: null,
+      metadata,
+      route,
+      sessionId: record.id,
+    });
+  }
+
+  trackPlatformEvent({
+    eventType: "site_view",
+    journeyId: null,
+    metadata,
+    route,
+    sessionId: record.id,
+  });
 }
 
 function safeMetadata(metadata: TelemetryMetadata | undefined) {
@@ -168,14 +308,19 @@ async function postTelemetry(body: Record<string, unknown>, authenticated = fals
 
 export function trackPlatformEvent(input: TrackEventInput) {
   const sessionId = input.sessionId ?? getPlatformSessionId();
-  const journeyId = input.journeyId ?? getBookingJourneyId();
+  const journeyId = input.journeyId === undefined
+    ? getBookingJourneyId()
+    : input.journeyId;
+  const metadata = input.sessionType !== "staff" && hasAnalyticsConsent()
+    ? { ...input.metadata, visitorId: getPlatformVisitorId() }
+    : input.metadata;
 
   void postTelemetry({
     bookingReference: input.bookingReference,
     durationMs: input.durationMs,
     eventType: input.eventType,
     journeyId,
-    metadata: safeMetadata(input.metadata),
+    metadata: safeMetadata(metadata),
     operation: input.operation,
     route: input.route ?? getCurrentRoute(),
     safeFingerprint: input.safeFingerprint,

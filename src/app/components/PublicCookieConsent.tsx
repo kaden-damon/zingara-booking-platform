@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { createConsent, getConsent, updateConsent } from "../../lib/cookieConsent";
+import {
+  cookieConsentReadyEvent,
+  createConsent,
+  getConsent,
+  updateConsent,
+  type CookieConsent,
+} from "../../lib/cookieConsent";
 import {
   defaultCookieConsentConfig,
   normalizeCookieConsentConfig,
@@ -13,6 +19,7 @@ import CookieConsentPanel from "./CookieConsentPanel";
 export default function PublicCookieConsent() {
   const pathname = usePathname();
   const [config, setConfig] = useState<CookieConsentConfig | null>(null);
+  const [consent, setConsent] = useState<CookieConsent | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const isAdmin = pathname.startsWith("/admin");
 
@@ -41,7 +48,11 @@ export default function PublicCookieConsent() {
         const storedConsent = getConsent(nextConfig.consentVersion);
 
         setConfig(nextConfig);
+        setConsent(storedConsent);
         setIsVisible(nextConfig.enabled && !storedConsent);
+        window.dispatchEvent(new CustomEvent(cookieConsentReadyEvent, {
+          detail: { analytics: nextConfig.enabled && storedConsent?.analytics === true },
+        }));
       })
       .catch(() => {
         if (!active) return;
@@ -50,7 +61,11 @@ export default function PublicCookieConsent() {
         const storedConsent = getConsent(nextConfig.consentVersion);
 
         setConfig(nextConfig);
+        setConsent(storedConsent);
         setIsVisible(nextConfig.enabled && !storedConsent);
+        window.dispatchEvent(new CustomEvent(cookieConsentReadyEvent, {
+          detail: { analytics: nextConfig.enabled && storedConsent?.analytics === true },
+        }));
       });
 
     return () => {
@@ -58,30 +73,57 @@ export default function PublicCookieConsent() {
     };
   }, [isAdmin]);
 
-  if (isAdmin || !config || !config.enabled || !isVisible) {
+  if (isAdmin || !config || !config.enabled) {
     return null;
   }
 
   function acknowledgeNotice() {
     if (!config) return;
 
-    updateConsent(
-      createConsent(config.consentVersion, {
+    const next = createConsent(config.consentVersion, {
         analytics: false,
         marketing: false,
-      }),
-    );
+      });
+    updateConsent(next);
+    setConsent(next);
+    setIsVisible(false);
+  }
+
+  function savePreferences(choices: { analytics: boolean; marketing: boolean }) {
+    if (!config) return;
+    const next = createConsent(config.consentVersion, choices);
+    updateConsent(next);
+    setConsent(next);
     setIsVisible(false);
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[100] p-4 sm:p-6">
-      <div className="pointer-events-auto mx-auto w-full max-w-md">
-        <CookieConsentPanel
-          config={config}
-          onAcknowledge={acknowledgeNotice}
-        />
-      </div>
-    </div>
+    <>
+      {isVisible ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[100] p-4 sm:p-6">
+          <div className="pointer-events-auto mx-auto w-full max-w-md">
+            <CookieConsentPanel
+              config={config}
+              initialChoices={{
+                analytics: consent?.analytics === true,
+                marketing: consent?.marketing === true,
+              }}
+              onAcknowledge={acknowledgeNotice}
+              onSavePreferences={savePreferences}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="w-full border-t border-white/8 bg-black px-4 py-3 text-center">
+          <button
+            type="button"
+            onClick={() => setIsVisible(true)}
+            className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500 underline underline-offset-4 transition hover:text-white"
+          >
+            {config.footerLinkLabel}
+          </button>
+        </div>
+      )}
+    </>
   );
 }

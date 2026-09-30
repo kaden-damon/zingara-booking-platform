@@ -13,6 +13,7 @@ import { dailyAnalyticsSeriesStart } from "@/lib/dailyAnalytics";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 import { getAdminAuthSession } from "@/lib/supabase/auth";
 import ZingaraDatePicker from "./ZingaraDatePicker";
+import WebsiteConversionPanel from "./WebsiteConversionPanel";
 
 const money = new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" });
 const integer = new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 0 });
@@ -248,6 +249,7 @@ function FilterSelect({ label, value, onChange, children }: { label: string; val
 }
 
 type AnalyticsSectionId =
+  | "website-conversion"
   | "booking-activity"
   | "performance-demand"
   | "day-of-week"
@@ -401,6 +403,17 @@ export default function ManagementAnalytics() {
       </section>
 
       <div className="space-y-4">
+        <AnalyticsSection
+          {...sectionProps("website-conversion")}
+          title="Website & Booking Conversion"
+          description="Anonymous website traffic, booking funnel activity and authoritative public online bookings."
+        >
+          <WebsiteConversionPanel
+            from={filters.bookingCreatedFrom}
+            to={filters.bookingCreatedTo}
+            venue={filters.venue}
+          />
+        </AnalyticsSection>
         <AnalyticsSection {...sectionProps("booking-activity")} title="Booking Activity" description="Genuine acquisition, booking value, guests and customer activity.">
           <div className="grid grid-cols-2 gap-y-3 md:grid-cols-3 xl:grid-cols-6"><Metric label="Bookings" value={integer.format(core.bookings)} emphasis /><Metric label="Guests" value={integer.format(core.guests)} emphasis /><Metric label="Booking Value" value={money.format(core.bookingValue)} emphasis /><Metric label="Amount Paid" value={money.format(core.amountPaid)} /><Metric label="Outstanding" value={money.format(core.outstanding)} /><Metric label="Average Booking" value={money.format(core.averageBookingValue)} /><Metric label="Average Party" value={core.averagePartySize.toFixed(2)} /><Metric label="Confirmed" value={integer.format(core.confirmed)} /><Metric label="Pending Payment" value={integer.format(core.pendingPayment)} /><Metric label="Cancelled" value={integer.format(core.cancelled)} /><Metric label="Deposits" value={integer.format(analytics.payments.deposits)} /><Metric label="Full Payments" value={integer.format(analytics.payments.fullPayments)} /><Metric label="Complimentary" value={integer.format(core.complimentaryBookings)} /><Metric label="Corporate" value={integer.format(core.corporateBookings)} /><Metric label="New Customers" value={integer.format(core.newCustomers)} /><Metric label="Returning" value={integer.format(core.returningCustomers)} /></div>
         </AnalyticsSection>

@@ -4,6 +4,7 @@ import localFont from "next/font/local";
 import PwaRuntime from "./components/PwaRuntime";
 import ZingaraHeader from "./components/ZingaraHeader";
 import PublicCookieConsent from "./components/PublicCookieConsent";
+import PublicTrafficTelemetry from "./PublicTrafficTelemetry";
 import { publicManifestPath } from "../lib/pwaManifests";
 import { defaultZingaraFaviconUrl } from "../lib/zingaraDemo";
 import "./globals.css";
@@ -89,6 +90,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <PwaRuntime />
+        <PublicTrafficTelemetry />
         <ZingaraHeader />
         {children}
         <PublicCookieConsent />
