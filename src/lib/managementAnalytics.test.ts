@@ -39,6 +39,33 @@ test("imported legacy rows are excluded from acquisition but included in demand"
   assert.equal(result.sourceAnalysis.find((row) => row.source === "imported")?.bookings, 1);
 });
 
+test("performance demand excludes archived active-looking rows", () => {
+  const result = calculateManagementAnalytics(
+    dataset([
+      booking({ archivedAt: "2026-09-03T08:00:00+02:00" }),
+      booking({
+        bookingReference: "ZNG-ACTIVE",
+        customerId: "customer-2",
+        id: "booking-2",
+      }),
+    ]),
+    defaultManagementAnalyticsFilters,
+  );
+
+  assert.equal(result.performanceDemand[0].bookings, 1);
+  assert.equal(result.performanceDemand[0].guests, 4);
+});
+
+test("checked-in bookings remain active performance entitlement", () => {
+  const result = calculateManagementAnalytics(
+    dataset([booking({ bookingStatus: "checked_in" })]),
+    defaultManagementAnalyticsFilters,
+  );
+
+  assert.equal(result.performanceDemand[0].bookings, 1);
+  assert.equal(result.performanceDemand[0].guests, 4);
+});
+
 test("venue filter scopes every analytical dimension", () => {
   const rows = [booking(), booking({ id: "booking-2", showId: "show-2", customerId: "customer-2" })];
   const result = calculateManagementAnalytics(dataset(rows, [show("show-1", "2026-10-17"), show("show-2", "2026-10-18", "cape-town")]), filtered({ venue: "cape-town" }));

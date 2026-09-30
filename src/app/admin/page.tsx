@@ -13561,7 +13561,20 @@ export default function AdminDashboardPage() {
     (total, booking) => total + getBookingFinancials(booking).amountPaid,
     0,
   );
-  const analyticsVenueCapacity = 458;
+  const analyticsVenueCapacity = analyticsSelectedShow
+    ? seatingZones.reduce(
+        (total, zone) =>
+          total +
+          getZoneStats(
+            tables,
+            activeBookingsForOperations,
+            analyticsSelectedShow.id,
+            zone,
+            getConfiguredZoneMaxSeats(venueSettings, zone),
+          ).totalCapacity,
+        0,
+      )
+    : 0;
   const analyticsOccupancy =
     analyticsVenueCapacity > 0
       ? (analyticsBookedGuests / analyticsVenueCapacity) * 100
@@ -37999,7 +38012,7 @@ export default function AdminDashboardPage() {
             >
               <div className="rounded-2xl border border-[#D8C36A]/25 bg-black/35 p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                  Show Revenue
+                  Revenue Collected
                 </p>
                 <p className="mt-2 text-3xl font-bold">
                   {isAnalyticsShowPending

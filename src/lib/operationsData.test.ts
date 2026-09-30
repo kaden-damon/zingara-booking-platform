@@ -233,6 +233,20 @@ test("Operations Dashboard does not use booking creation date as show date", asy
   assert.doesNotMatch(dashboard, /bookingDate|todaysOperationalBookings/);
 });
 
+test("selected-show analytics reuses operational capacity and collected-money semantics", async () => {
+  const page = await readFile(new URL("../app/admin/page.tsx", import.meta.url), "utf8");
+  const analytics = page.slice(
+    page.indexOf("const analyticsActiveBookings"),
+    page.indexOf("function selectAnalyticsShow"),
+  );
+
+  assert.match(analytics, /isOperationallyActiveBooking\(booking\)/);
+  assert.match(analytics, /getBookingFinancials\(booking\)\.amountPaid/);
+  assert.match(analytics, /getZoneStats\([\s\S]*?getConfiguredZoneMaxSeats\(venueSettings, zone\)[\s\S]*?\.totalCapacity/);
+  assert.doesNotMatch(analytics, /analyticsVenueCapacity\s*=\s*458/);
+  assert.match(page, /Revenue Collected/);
+});
+
 test("ticket validation route enforces the selected performance server-side", async () => {
   const route = await readFile(
     new URL("../app/api/admin/tickets/validate/route.ts", import.meta.url),

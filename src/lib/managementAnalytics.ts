@@ -100,7 +100,11 @@ export const weekdayNames = [
   "Saturday",
 ] as const;
 
-const activeBookingStatuses = new Set(["confirmed", "pending_payment"]);
+const activeBookingStatuses = new Set([
+  "checked_in",
+  "confirmed",
+  "pending_payment",
+]);
 const successfulPaymentStatuses = new Set(["fully_paid", "deposit_paid"]);
 
 export function getJohannesburgDateKey(value: string | Date) {
@@ -265,6 +269,8 @@ function getDemandBookings(
   showsById: Map<string, ManagementAnalyticsShow>,
 ) {
   return dataset.bookings.filter((booking) => {
+    if (booking.archivedAt) return false;
+
     if (
       filters.bookingStatus === "all" &&
       !activeBookingStatuses.has(booking.bookingStatus)
@@ -294,8 +300,10 @@ export function calculateManagementAnalytics(
   const activityBookings = getActivityBookings(dataset, filters, showsById);
   const demandBookings = getDemandBookings(dataset, filters, showsById);
   const activitySummary = bookingSummary(activityBookings);
-  const activeActivityBookings = activityBookings.filter((booking) =>
-    activeBookingStatuses.has(booking.bookingStatus),
+  const activeActivityBookings = activityBookings.filter(
+    (booking) =>
+      !booking.archivedAt &&
+      activeBookingStatuses.has(booking.bookingStatus),
   );
   const activeActivitySummary = bookingSummary(activeActivityBookings);
   const activityCustomerIds = Array.from(
