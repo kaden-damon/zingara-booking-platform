@@ -245,6 +245,8 @@ test("selected-show analytics reuses operational capacity and collected-money se
   assert.match(analytics, /getZoneStats\([\s\S]*?getConfiguredZoneMaxSeats\(venueSettings, zone\)[\s\S]*?\.totalCapacity/);
   assert.doesNotMatch(analytics, /analyticsVenueCapacity\s*=\s*458/);
   assert.match(page, /Revenue Collected/);
+  assert.match(page, /Per-Show Booking Value/);
+  assert.match(page, /Booking Value By Show/);
 });
 
 test("ticket validation route enforces the selected performance server-side", async () => {

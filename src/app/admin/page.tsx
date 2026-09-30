@@ -5686,8 +5686,8 @@ const analyticsReportingLessons: AcademyArticle[] = [
     howTo: [
       "Open Analytics, then Revenue & Demand Reporting.",
       "Use the shared performance selector to choose JHB or CPT and the required show.",
-      "Review Show Revenue, Booked Guests, Occupancy, and Avg Spend / Guest.",
-      "Expand or collapse Per-Show Revenue, Occupancy Trends, Add-On Revenue Breakdown, Promo Code Usage, and Customer Value as needed.",
+      "Review Revenue Collected, Booked Guests, Occupancy, and Avg Spend / Guest.",
+      "Expand or collapse Per-Show Booking Value, Occupancy Trends, Add-On Revenue Breakdown, Promo Code Usage, and Customer Value as needed.",
       "Use Operational Reports & Exports for the selected performance.",
     ],
     id: "analytics-overview",
@@ -37978,7 +37978,7 @@ export default function AdminDashboardPage() {
                   Revenue & Demand Reporting
                 </h2>
                 <p className="mt-2 text-zinc-400">
-                  Per-show revenue, occupancy trends, add-on
+                  Per-show booking value, occupancy trends, add-on
                   performance, promo usage, waitlist conversion, and
                   booking source mix.
                 </p>
@@ -38261,10 +38261,10 @@ export default function AdminDashboardPage() {
                 >
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Per-Show Revenue
+                      Per-Show Booking Value
                     </p>
                     <h3 className="zingara-heading mt-1 text-2xl font-bold">
-                      Revenue By Show
+                      Booking Value By Show
                     </h3>
                   </div>
                   <span className="rounded-full border border-[#D8C36A]/25 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#D8C36A]">
