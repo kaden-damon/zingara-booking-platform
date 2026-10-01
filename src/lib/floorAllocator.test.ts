@@ -103,6 +103,50 @@ test("preserves valid allocations and plans only unresolved bookings", () => {
   assert.equal(result.allocations[0]?.targetTableId, "table-free");
 });
 
+test("does not preserve or propose a permanent table below minimum occupancy", () => {
+  const invalid = booking("two-pax", 2, "royal-booths", "booth-12");
+  const result = plan(
+    [invalid],
+    [
+      table("booth-12", "royal-booths", {
+        bookingId: invalid.id,
+        capacity: 6,
+        maximumCapacity: 6,
+        minimumCapacity: 4,
+        status: "booked",
+      }),
+      table("booth-14", "royal-booths", {
+        capacity: 6,
+        maximumCapacity: 6,
+        minimumCapacity: 4,
+      }),
+    ],
+  );
+
+  assert.deepEqual(result.preservedBookingIds, []);
+  assert.equal(result.allocations.length, 0);
+  assert.equal(result.unresolved.length, 1);
+});
+
+test("temporary operational capacity can fit a smaller party", () => {
+  const result = plan(
+    [booking("two-pax", 2, "royal-booths")],
+    [
+      table("temporary", "royal-booths", {
+        availabilityScope: "operational",
+        capacity: 2,
+        isOverride: true,
+        isPhysical: false,
+        maximumCapacity: 2,
+        minimumCapacity: 2,
+      }),
+    ],
+  );
+
+  assert.equal(result.allocations.length, 1);
+  assert.equal(result.allocations[0]?.targetType, "temporary");
+});
+
 test("never invents capacity for a CAPACITY REQUIRED physical table", () => {
   const result = plan(
     [booking("gc", 10, "golden-circle")],
@@ -202,13 +246,20 @@ test("limits new physical planning inventory without moving preserved allocation
     showId,
     snapshotToken: "snapshot",
     tables: [
-      table("table-1", "middle-ring", { capacity: 2 }),
+      table("table-1", "middle-ring", {
+        capacity: 2,
+        minimumCapacity: 2,
+      }),
       table("table-2", "middle-ring", {
         bookingId: preserved.id,
         capacity: 2,
+        minimumCapacity: 2,
         status: "booked",
       }),
-      table("table-3", "middle-ring", { capacity: 2 }),
+      table("table-3", "middle-ring", {
+        capacity: 2,
+        minimumCapacity: 2,
+      }),
     ],
     zoneCeilings: {
       "golden-circle": 148,

@@ -52,6 +52,7 @@ export type GuestCountReconciliationResult = {
   added_guests: number;
   balance_outstanding: number;
   booking_reference: string;
+  floor_assignment_required?: boolean;
   payment_basis: "deposit" | "full" | null;
   unit_amount: number | null;
 };
@@ -418,7 +419,11 @@ export function GuestCountReconciliationModal(
       {props.result ? (
         <div className="mt-5 rounded-xl border border-emerald-400/25 bg-emerald-950/20 p-4">
           <p className="text-sm font-semibold text-emerald-200">UPDATED ✓</p>
-          {props.result.added_guests > 0 ? <p className="mt-1 text-xs text-zinc-300">R{props.result.additional_amount.toFixed(2)} added · R{props.result.balance_outstanding.toFixed(2)} outstanding</p> : <p className="mt-1 text-xs text-zinc-300">Guest count updated. The agreed financial obligation is unchanged.</p>}
+          {props.result.floor_assignment_required ? (
+            <p className="mt-1 text-xs text-zinc-300">
+              Guest count updated. The previous table no longer fits this booking, so it has been returned to Floor Assignment.
+            </p>
+          ) : props.result.added_guests > 0 ? <p className="mt-1 text-xs text-zinc-300">R{props.result.additional_amount.toFixed(2)} added · R{props.result.balance_outstanding.toFixed(2)} outstanding</p> : <p className="mt-1 text-xs text-zinc-300">Guest count updated. The agreed financial obligation is unchanged.</p>}
           {props.result.added_guests > 0 && (!link ? (
             <button type="button" onClick={() => void createPaymentLink()} className="mt-3 min-h-11 w-full rounded-full bg-[#D8C36A] px-4 text-xs font-semibold uppercase text-black">Create Payment Link</button>
           ) : (

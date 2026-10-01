@@ -23817,7 +23817,11 @@ export default function AdminDashboardPage() {
           ? { ...current, error: "", isSaving: false, result: response.result }
           : current,
       );
-      showWorkflowToast("Guest count reconciled.");
+      showWorkflowToast(
+        response.result.floor_assignment_required
+          ? "Guest count updated. The previous table no longer fits this booking, so it has been returned to Floor Assignment."
+          : "Guest count reconciled.",
+      );
     } catch (error) {
       setGuestCountReconciliation((current) =>
         current

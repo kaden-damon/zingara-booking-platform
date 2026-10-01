@@ -142,6 +142,14 @@ type ShowTableAssignmentRow = {
   table_code: string;
 };
 
+function getTableOccupancyConflict(message: string) {
+  const match = message.match(/TABLE_OCCUPANCY_OUT_OF_RANGE\|(\d+)\|(\d+)\|/);
+
+  return match
+    ? `This table requires ${match[1]}–${match[2]} guests.`
+    : null;
+}
+
 function normalizeTableZone(section: string | null | undefined) {
   const normalized = section?.trim().toLowerCase() ?? "";
 
@@ -1045,6 +1053,14 @@ async function persistBookingTableAssignment(
     });
 
   if (assignmentError) {
+    const occupancyConflict = getTableOccupancyConflict(
+      assignmentError.message,
+    );
+
+    if (occupancyConflict) {
+      return Response.json({ error: occupancyConflict }, { status: 409 });
+    }
+
     const knownConflict = [
       "BOOKING_ALREADY_ASSIGNED",
       "BOOKING_NOT_ASSIGNABLE",
@@ -3358,6 +3374,12 @@ export async function PATCH(request: Request) {
           { error: "That seating zone is disabled for new booking entitlements. Choose an enabled zone in Venue Configuration." },
           { status: 409 },
         );
+      }
+
+      const occupancyConflict = getTableOccupancyConflict(message);
+
+      if (occupancyConflict) {
+        return Response.json({ error: occupancyConflict }, { status: 409 });
       }
 
       if (

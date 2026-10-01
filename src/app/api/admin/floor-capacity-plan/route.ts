@@ -615,6 +615,19 @@ export async function POST(request: Request) {
       );
       if (assignmentError) {
         const message = assignmentError.message;
+        const occupancyMatch = message.match(
+          /TABLE_OCCUPANCY_OUT_OF_RANGE\|(\d+)\|(\d+)\|/,
+        );
+
+        if (occupancyMatch) {
+          return Response.json(
+            {
+              error: `This table requires ${occupancyMatch[1]}–${occupancyMatch[2]} guests.`,
+            },
+            { status: 409 },
+          );
+        }
+
         if (
           /FLOOR_PLAN_STALE|COMBINED_TABLE_CAPACITY_INSUFFICIENT|CROSS_SHOW|CROSS_ZONE|MERGED_|TABLE_CAPACITY_REQUIRED|ZONE_CAPACITY_INSUFFICIENT/i.test(
             message,

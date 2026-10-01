@@ -4,6 +4,7 @@ import {
   type DemoTable,
   type SeatingZoneId,
 } from "./zingaraDemo";
+import { getPhysicalTableDefinition } from "./physicalTables";
 
 const manualMoveZoneOrder: SeatingZoneId[] = [
   "golden-circle",
@@ -28,6 +29,36 @@ export function isTemporaryOperationalTable(table: DemoTable) {
   );
 }
 
+export function getOperationalTableMinimumOccupancy(
+  table: DemoTable,
+  tables: DemoTable[],
+): number {
+  if (table.physicalTable === true) {
+    return (
+      getPhysicalTableDefinition(table.zoneId, table.tableNumber)
+        ?.minimumCapacity ?? 1
+    );
+  }
+
+  if (table.mergedFrom?.length) {
+    const members = table.mergedFrom
+      .map((memberId) => tables.find((candidate) => candidate.id === memberId))
+      .filter((member): member is DemoTable => Boolean(member));
+
+    if (members.length !== table.mergedFrom.length) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    return members.reduce(
+      (total, member) =>
+        total + getOperationalTableMinimumOccupancy(member, tables),
+      0,
+    );
+  }
+
+  return 1;
+}
+
 export function isEligibleManualBookingMoveTarget(
   table: DemoTable,
   booking: DemoBooking,
@@ -37,6 +68,7 @@ export function isEligibleManualBookingMoveTarget(
     (table.physicalTable === true && !table.mergedFrom?.length) ||
     isTemporaryOperationalTable(table) ||
     isValidMergedOperationalParent(table, tables);
+  const minimumOccupancy = getOperationalTableMinimumOccupancy(table, tables);
 
   return (
     table.id !== booking.tableId &&
@@ -44,6 +76,7 @@ export function isEligibleManualBookingMoveTarget(
     isAssignableTable &&
     Boolean(table.authoritativeId) &&
     table.capacityConfigured !== false &&
+    booking.partySize >= minimumOccupancy &&
     table.seatCapacity >= booking.partySize &&
     table.status === "available" &&
     !table.bookingReference &&

@@ -202,6 +202,7 @@ function isValidAllocation(
   booking: FloorAllocatorBooking,
   table: FloorAllocatorTable | undefined,
   tablesById: Map<string, CapacityTable>,
+  operationalTablesById: Map<string, FloorAllocatorTable>,
 ) {
   return Boolean(
     table &&
@@ -209,6 +210,7 @@ function isValidAllocation(
       table.zone === booking.zone &&
       table.capacityConfigured &&
       table.capacity !== null &&
+      booking.pax >= getMinimumOccupancy(table, operationalTablesById) &&
       table.capacity >= booking.pax &&
       table.status === "booked" &&
       table.bookingId === booking.id &&
@@ -244,6 +246,32 @@ function compareTableCodes(left: MutableTable, right: MutableTable) {
 
 function getTableCapacity(table: MutableTable) {
   return table.plannedCapacity ?? table.capacity ?? 0;
+}
+
+function getMinimumOccupancy(
+  table: FloorAllocatorTable,
+  tablesById: Map<string, FloorAllocatorTable>,
+): number {
+  if (table.isPhysical) {
+    return Number(table.minimumCapacity ?? 1);
+  }
+
+  if (table.mergedFrom.length > 0) {
+    const members = table.mergedFrom
+      .map((memberId) => tablesById.get(memberId))
+      .filter((member): member is FloorAllocatorTable => Boolean(member));
+
+    if (members.length !== table.mergedFrom.length) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    return members.reduce(
+      (total, member) => total + getMinimumOccupancy(member, tablesById),
+      0,
+    );
+  }
+
+  return 1;
 }
 
 function getUnitType(table: MutableTable): FloorAllocationProposal["targetType"] {
@@ -289,6 +317,10 @@ function chooseMergeMembers(
 
     for (const state of [...states.values()]) {
       const members = [...state.members, table];
+      const minimumOccupancy = members.reduce(
+        (total, member) => total + Number(member.minimumCapacity ?? 1),
+        0,
+      );
       const baseCapacity = state.capacity + minimum;
       const maximumCapacity =
         state.members.reduce(
@@ -300,6 +332,10 @@ function chooseMergeMembers(
           0,
         ) + maximum;
       const requiredCapacity = Math.max(baseCapacity, pax);
+
+      if (members.length >= 2 && pax < minimumOccupancy) {
+        continue;
+      }
 
       if (members.length < 2 || requiredCapacity > maximumCapacity) {
         states.set(`${members.length}:${maximumCapacity}`, {
@@ -357,6 +393,7 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
         booking,
         booking.tableId ? tablesById.get(booking.tableId) : undefined,
         capacityTablesById,
+        tablesById,
       ),
     )
     .map((booking) => booking.id)
@@ -446,6 +483,10 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
 
     const optionCount = (booking: FloorAllocatorBooking) => {
       const individualOptions = availableTables.filter((table) => {
+        if (booking.pax < getMinimumOccupancy(table, tablesById)) {
+          return false;
+        }
+
         if (table.capacityConfigured) {
           return getTableCapacity(table) >= booking.pax;
         }
@@ -486,7 +527,9 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
         })
         .filter(
           (candidate) =>
-            candidate.canConfigure && candidate.proposedCapacity >= booking.pax,
+            candidate.canConfigure &&
+            booking.pax >= getMinimumOccupancy(candidate.table, tablesById) &&
+            candidate.proposedCapacity >= booking.pax,
         )
         .sort(
           (left, right) =>

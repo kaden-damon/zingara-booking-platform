@@ -163,6 +163,37 @@ test("manual moves preserve capacity, claim, show, and merged-child safeguards",
   }
 });
 
+test("permanent Private Booth targets enforce the 4 to 6 guest range", () => {
+  const booth = table("12", "royal-booths", { seatCapacity: 6 });
+
+  for (const pax of [2, 3, 7]) {
+    const source = booking();
+    source.partySize = pax;
+    assert.equal(isEligibleManualBookingMoveTarget(booth, source, [booth]), false);
+  }
+
+  for (const pax of [4, 6]) {
+    const source = booking();
+    source.partySize = pax;
+    assert.equal(isEligibleManualBookingMoveTarget(booth, source, [booth]), true);
+  }
+});
+
+test("temporary tables remain eligible below permanent catalogue minimums", () => {
+  const source = booking();
+  source.partySize = 2;
+  const temporary = table("PB-TEMP", "royal-booths", {
+    availabilityScope: "operational",
+    physicalTable: false,
+    seatCapacity: 2,
+  });
+
+  assert.equal(
+    isEligibleManualBookingMoveTarget(temporary, source, [temporary]),
+    true,
+  );
+});
+
 test("same-zone physical moves and valid flat merged parents remain eligible", () => {
   const source = booking();
   const physical = table("PB-4", "royal-booths");
@@ -184,6 +215,32 @@ test("same-zone physical moves and valid flat merged parents remain eligible", (
 
   assert.equal(isEligibleManualBookingMoveTarget(physical, source, inventory), true);
   assert.equal(isValidMergedOperationalParent(merged, inventory), true);
+  assert.equal(isEligibleManualBookingMoveTarget(merged, source, inventory), true);
+});
+
+test("merged Private Booth targets enforce the combined member minimum", () => {
+  const source = booking();
+  const childA = table("1", "royal-booths", {
+    mergedInto: "1+2",
+    seatCapacity: 6,
+    status: "disabled",
+  });
+  const childB = table("2", "royal-booths", {
+    mergedInto: "1+2",
+    seatCapacity: 6,
+    status: "disabled",
+  });
+  const merged = table("1+2", "royal-booths", {
+    availabilityScope: "operational",
+    mergedFrom: [childA.id, childB.id],
+    physicalTable: false,
+    seatCapacity: 12,
+  });
+  const inventory = [childA, childB, merged];
+
+  source.partySize = 7;
+  assert.equal(isEligibleManualBookingMoveTarget(merged, source, inventory), false);
+  source.partySize = 8;
   assert.equal(isEligibleManualBookingMoveTarget(merged, source, inventory), true);
 });
 
