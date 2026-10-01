@@ -14,6 +14,18 @@ import { loadWorkflowConfigurations } from "@/lib/workflows/automatedWorkflows";
 import { normalizeShowLocation } from "@/lib/zingaraDemo";
 
 const pageSize = 1000;
+const filterBatchSize = 100;
+
+export function chunkReviewAnalyticsIds(
+  ids: string[],
+  size = filterBatchSize,
+) {
+  const batches: string[][] = [];
+  for (let offset = 0; offset < ids.length; offset += size) {
+    batches.push(ids.slice(offset, offset + size));
+  }
+  return batches;
+}
 
 async function loadAllRows<Row>(
   loadPage: (from: number, to: number) => PromiseLike<{
@@ -28,6 +40,28 @@ async function loadAllRows<Row>(
     const page = (data ?? []) as Row[];
     rows.push(...page);
     if (page.length < pageSize) break;
+  }
+  return rows;
+}
+
+async function loadRowsForIds<Row>(
+  ids: string[],
+  loadPage: (
+    ids: string[],
+    from: number,
+    to: number,
+  ) => PromiseLike<{
+    data: unknown[] | null;
+    error: { message?: string } | null;
+  }>,
+) {
+  const rows: Row[] = [];
+  for (const batch of chunkReviewAnalyticsIds(ids)) {
+    rows.push(
+      ...(await loadAllRows<Row>((from, to) =>
+        loadPage(batch, from, to),
+      )),
+    );
   }
   return rows;
 }
@@ -140,46 +174,48 @@ export async function loadReviewAnalyticsReport(
     communicationRows,
     bookingRows,
   ] = await Promise.all([
-    loadAllRows<ReviewRow>((from, to) =>
+    loadRowsForIds<ReviewRow>(showIds, (ids, from, to) =>
       serviceClient
         .from("guest_reviews")
         .select(
           "id,booking_id,show_id,venue,public_display_name,rating,contact_requested,publication_consent,moderation_status,submitted_at,unpublished_at,featured",
         )
-        .in("show_id", showIds)
+        .in("show_id", ids)
         .order("submitted_at", { ascending: false })
         .range(from, to),
     ),
-    loadAllRows<{ booking_id: string; created_at: string; show_id: string }>((from, to) =>
-      serviceClient
-        .from("review_invitations")
-        .select("booking_id,show_id,created_at")
-        .in("show_id", showIds)
-        .order("created_at")
-        .range(from, to),
+    loadRowsForIds<{ booking_id: string; created_at: string; show_id: string }>(
+      showIds,
+      (ids, from, to) =>
+        serviceClient
+          .from("review_invitations")
+          .select("booking_id,show_id,created_at")
+          .in("show_id", ids)
+          .order("created_at")
+          .range(from, to),
     ),
-    loadAllRows<{
+    loadRowsForIds<{
       booking_id: string | null;
       created_at: string;
       sent_at: string | null;
       show_id: string | null;
-    }>((from, to) =>
+    }>(showIds, (ids, from, to) =>
       serviceClient
         .from("communications")
         .select("booking_id,show_id,sent_at,created_at")
         .eq("type", "post_show_review")
         .eq("status", "sent")
-        .in("show_id", showIds)
+        .in("show_id", ids)
         .order("created_at")
         .range(from, to),
     ),
-    loadAllRows<BookingRow>((from, to) =>
+    loadRowsForIds<BookingRow>(showIds, (ids, from, to) =>
       serviceClient
         .from("bookings")
         .select(
           "id,show_id,booking_reference,booking_status,payment_status,archived_at",
         )
-        .in("show_id", showIds)
+        .in("show_id", ids)
         .order("id")
         .range(from, to),
     ),
@@ -206,11 +242,11 @@ export async function loadReviewAnalyticsReport(
   ];
   const [ticketRows, reviewTextRows] = await Promise.all([
     bookingIds.length
-      ? loadAllRows<TicketRow>((from, to) =>
+      ? loadRowsForIds<TicketRow>(bookingIds, (ids, from, to) =>
           serviceClient
             .from("tickets")
             .select("booking_id,ticket_status")
-            .in("booking_id", bookingIds)
+            .in("booking_id", ids)
             .eq("ticket_status", "checked_in")
             .order("booking_id")
             .range(from, to),
