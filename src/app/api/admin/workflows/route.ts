@@ -70,16 +70,6 @@ function normaliseConfiguration(
     throw new Error("Review URLs must be valid https URLs.");
   }
 
-  if (
-    workflowKey === "post_show_review" &&
-    enabled &&
-    (!capeTownReviewUrl || !johannesburgReviewUrl)
-  ) {
-    throw new Error(
-      "Cape Town and Johannesburg review URLs are required before enabling reviews.",
-    );
-  }
-
   return {
     ...existing,
     activatedAt:

@@ -10,6 +10,11 @@ import {
   insertCommunicationPayload,
   type EmailCommunicationPayload,
 } from "@/lib/email/communicationIdempotency";
+import {
+  getOrCreateVerifiedReviewLink,
+  getReviewApplicationOrigin,
+} from "@/lib/reviews/reviewServer";
+import { getReviewPreviewUrl } from "@/lib/reviews/reviews";
 
 export type AutomatedWorkflowKey = "pre_show_reminder" | "post_show_review";
 
@@ -107,6 +112,7 @@ type TicketRow = {
 
 type EligibleWorkflowBooking = {
   booking: BookingRow;
+  configuration: AutomatedWorkflowConfiguration;
   customer: CustomerRow;
   html?: string;
   message: string;
@@ -315,21 +321,6 @@ function getLocationLabel(show: ShowRow) {
     : "Cape Town — The Night Court";
 }
 
-function getReviewUrlForShow(
-  config: AutomatedWorkflowConfiguration,
-  show: ShowRow | undefined,
-) {
-  if (show?.venue === "johannesburg") {
-    return config.johannesburgReviewUrl.trim();
-  }
-
-  if (show?.venue === "cape-town") {
-    return config.capeTownReviewUrl.trim();
-  }
-
-  return "";
-}
-
 function hasSuccessfulCommunication(
   booking: BookingRow,
   communications: CommunicationRow[],
@@ -364,6 +355,10 @@ function getCustomerName(customer: CustomerRow) {
 }
 
 function isBookingOperationallyExcluded(booking: BookingRow) {
+  if (/^(qa|test|demo)[-_]/i.test(booking.booking_reference.trim())) {
+    return "synthetic_booking";
+  }
+
   if (booking.archived_at) {
     return "archived";
   }
@@ -381,6 +376,13 @@ function isBookingOperationallyExcluded(booking: BookingRow) {
   }
 
   return null;
+}
+
+export function isReviewPerformanceAfterActivation(
+  performance: Date,
+  activatedAt: Date,
+) {
+  return performance >= activatedAt;
 }
 
 function renderWorkflowTemplate(
@@ -460,6 +462,7 @@ function evaluateWorkflow(
   shows: Map<string, ShowRow>,
   customers: Map<string, CustomerRow>,
   communications: CommunicationRow[],
+  reviewedBookingIds: Set<string>,
   tickets: TicketRow[],
   now: Date,
 ) {
@@ -557,14 +560,13 @@ function evaluateWorkflow(
         continue;
       }
     } else {
-      const reviewUrl = getReviewUrlForShow(config, show);
-      const checkedInTicket = getCheckedInTicketEvidence(booking, tickets);
-
-      if (!reviewUrl) {
+      if (reviewedBookingIds.has(booking.id)) {
         summary.excluded += 1;
-        increment(summary.reasons, "missing_review_url");
+        increment(summary.reasons, "already_reviewed");
         continue;
       }
+
+      const checkedInTicket = getCheckedInTicketEvidence(booking, tickets);
 
       if (!checkedInTicket) {
         summary.excluded += 1;
@@ -578,10 +580,7 @@ function evaluateWorkflow(
         continue;
       }
 
-      if (
-        checkedInTicket.updated_at &&
-        new Date(checkedInTicket.updated_at) < activationDate
-      ) {
+      if (!isReviewPerformanceAfterActivation(showDateTime, activationDate)) {
         summary.excluded += 1;
         increment(summary.reasons, "before_activation_boundary");
         continue;
@@ -590,7 +589,7 @@ function evaluateWorkflow(
 
     const extras: Record<string, string | number> =
       workflowKey === "post_show_review"
-        ? { reviewUrl: getReviewUrlForShow(config, show) }
+        ? { reviewUrl: getReviewPreviewUrl(getReviewApplicationOrigin()) }
         : {};
 
     const emailContent = renderWorkflowEmailContent(
@@ -603,6 +602,7 @@ function evaluateWorkflow(
 
     eligible.push({
       booking,
+      configuration: config,
       customer,
       html: emailContent.html,
       message: emailContent.message,
@@ -634,6 +634,7 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
     { data: showRows, error: showsError },
     { data: customerRows, error: customersError },
     { data: communicationRows, error: communicationsError },
+    { data: reviewRows, error: reviewsError },
     { data: ticketRows, error: ticketsError },
   ] = await Promise.all([
     loadWorkflowConfigurations(supabase),
@@ -648,6 +649,7 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
       .from("communications")
       .select("booking_id,type,status")
       .in("type", ["show_reminder", "post_show_review"]),
+    supabase.from("guest_reviews").select("booking_id"),
     supabase.from("tickets").select("booking_id,ticket_status,updated_at"),
   ]);
 
@@ -656,6 +658,7 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
     showsError ??
     customersError ??
     communicationsError ??
+    reviewsError ??
     ticketsError;
 
   if (error) {
@@ -671,6 +674,9 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
         customer.id,
         customer,
       ]),
+    ),
+    reviewedBookingIds: new Set(
+      (reviewRows ?? []).map((review) => review.booking_id as string),
     ),
     shows: new Map(((showRows ?? []) as ShowRow[]).map((show) => [show.id, show])),
     tickets: (ticketRows ?? []) as TicketRow[],
@@ -711,6 +717,7 @@ export async function runAutomatedWorkflows(
     allowedRecipient?: string;
     mode?: "dry-run" | "send";
     now?: Date;
+    reviewOrigin?: string;
     workflowKey?: AutomatedWorkflowKey;
   } = {},
 ): Promise<WorkflowRunResult> {
@@ -740,6 +747,7 @@ export async function runAutomatedWorkflows(
       dataset.shows,
       dataset.customers,
       dataset.communications,
+      dataset.reviewedBookingIds,
       dataset.tickets,
       now,
     );
@@ -761,16 +769,63 @@ export async function runAutomatedWorkflows(
     }
 
     for (const item of eligibleItems) {
+      let deliveryItem = item;
+
+      if (item.workflowKey === "post_show_review") {
+        try {
+          const invitation = await getOrCreateVerifiedReviewLink(
+            supabase,
+            item.booking.id,
+            { now, origin: options.reviewOrigin },
+          );
+          const extras = { reviewUrl: invitation.url };
+          const rendered = renderWorkflowEmailContent(
+            item.configuration.body,
+            item.booking,
+            item.customer,
+            item.show,
+            extras,
+          );
+          deliveryItem = {
+            ...item,
+            html: rendered.html,
+            message: rendered.message,
+            subject: renderWorkflowTemplate(
+              item.configuration.subject,
+              item.booking,
+              item.customer,
+              item.show,
+              extras,
+            ),
+          };
+        } catch (error) {
+          console.error("[Zingara Workflows] Verified review link could not be created", {
+            bookingId: item.booking.id,
+            message: error instanceof Error ? error.message : "Unknown error",
+          });
+          await insertWorkflowCommunication(
+            supabase,
+            {
+              ...item,
+              html: undefined,
+              message: "Review request was not sent because its verified link could not be created.",
+            },
+            "failed",
+          );
+          continue;
+        }
+      }
+
       const duplicate = await findDuplicateSentCommunication(supabase, {
-        booking_id: item.booking.id,
+        booking_id: deliveryItem.booking.id,
         channel: "email",
-        customer_id: item.booking.customer_id,
-        message: item.message,
+        customer_id: deliveryItem.booking.customer_id,
+        message: deliveryItem.message,
         sent_at: null,
-        show_id: item.booking.show_id,
+        show_id: deliveryItem.booking.show_id,
         status: "sent",
-        subject: item.subject,
-        type: getWorkflowCommunicationType(item.workflowKey),
+        subject: deliveryItem.subject,
+        type: getWorkflowCommunicationType(deliveryItem.workflowKey),
       });
 
       if (duplicate) {
@@ -778,26 +833,31 @@ export async function runAutomatedWorkflows(
         continue;
       }
 
-      if (!item.booking.customer_id) {
-        await insertWorkflowCommunication(supabase, item, "failed");
+      if (!deliveryItem.booking.customer_id) {
+        await insertWorkflowCommunication(supabase, deliveryItem, "failed");
         continue;
       }
 
       const sendResult = await sendOperationalCustomerEmail({
-        customerId: item.booking.customer_id,
+        ctaLabel:
+          deliveryItem.workflowKey === "post_show_review"
+            ? "RATE YOUR EXPERIENCE"
+            : undefined,
+        customerId: deliveryItem.booking.customer_id,
+        hidePrimaryUrlInHtml: deliveryItem.workflowKey === "post_show_review",
         kind:
-          item.workflowKey === "pre_show_reminder"
+          deliveryItem.workflowKey === "pre_show_reminder"
             ? "show_reminder"
             : "post_show_review",
-        html: item.html,
-        message: item.message,
-        subject: item.subject,
-        to: item.recipient,
+        html: deliveryItem.html,
+        message: deliveryItem.message,
+        subject: deliveryItem.subject,
+        to: deliveryItem.recipient,
       });
 
       await insertWorkflowCommunication(
         supabase,
-        item,
+        deliveryItem,
         sendResult.ok ? "sent" : sendResult.suppressed ? "suppressed" : "failed",
       );
 

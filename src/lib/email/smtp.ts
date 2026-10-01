@@ -44,7 +44,9 @@ type EmailSendResult =
     };
 
 type OperationalCustomerEmailInput = EmailSendInput & {
+  ctaLabel?: string;
   customerId: string;
+  hidePrimaryUrlInHtml?: boolean;
   kind: OperationalCommunicationKind;
 };
 
@@ -158,7 +160,9 @@ export async function sendZingaraEmail({
 }
 
 export async function sendOperationalCustomerEmail({
+  ctaLabel,
   customerId,
+  hidePrimaryUrlInHtml,
   kind,
   ...email
 }: OperationalCustomerEmailInput): Promise<EmailSendResult> {
@@ -205,7 +209,11 @@ export async function sendOperationalCustomerEmail({
     return sendZingaraEmail(email);
   }
 
-  const branded = await createBrandedCustomerEmail(email);
+  const branded = await createBrandedCustomerEmail({
+    ...email,
+    ctaLabel,
+    hidePrimaryUrlInHtml,
+  });
 
   return sendZingaraEmail({
     ...email,

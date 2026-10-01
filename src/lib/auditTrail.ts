@@ -12,6 +12,7 @@ export type AuditEntityType =
   | "payment"
   | "promo-code"
   | "report-generation"
+  | "review"
   | "security"
   | "show"
   | "staff"

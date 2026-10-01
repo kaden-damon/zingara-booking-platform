@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { createBrandedCustomerEmail } from "./customerEmail.ts";
 
 async function source(path: string) {
   return readFile(new URL(path, import.meta.url), "utf8");
@@ -9,9 +10,24 @@ async function source(path: string) {
 test("all operational customer email passes through one branded shell", async () => {
   const smtp = await source("./smtp.ts");
 
-  assert.match(smtp, /createBrandedCustomerEmail\(email\)/);
+  assert.match(smtp, /createBrandedCustomerEmail\(\{/);
   assert.match(smtp, /brandedCustomerEmailMarker/);
   assert.match(smtp, /return sendZingaraEmail\(\{/);
+});
+
+test("review email keeps its secure URL in the CTA and plain-text fallback only", async () => {
+  const reviewUrl = "https://book.zingara.co.za/review/local-secure-token-12345678901234567890";
+  const email = await createBrandedCustomerEmail({
+    ctaLabel: "RATE YOUR EXPERIENCE",
+    hidePrimaryUrlInHtml: true,
+    message: `Dear Guest,\n\nRate your Zingara experience:\n\n${reviewUrl}\n\nThank you.`,
+    subject: "Rate your Zingara experience",
+  });
+
+  assert.match(email.html, />RATE YOUR EXPERIENCE</);
+  assert.equal(email.html.split(reviewUrl).length - 1, 1);
+  assert.doesNotMatch(email.html, new RegExp(`>${reviewUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}<`));
+  assert.match(email.message, new RegExp(reviewUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
 test("shared shell carries Zingara branding and email-safe presentation", async () => {

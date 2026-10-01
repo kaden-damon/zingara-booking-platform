@@ -64,7 +64,7 @@ export function normalizeCustomerEmailLinks(value: string) {
         `${prefix}${getAbsoluteUrl(route)}${suffix}`,
     )
     .replace(
-      /(^|[\s(>])(\/(?:ticket|payment|find-booking|book|royal-decrees)\/[^\s<)]*)/gm,
+      /(^|[\s(>])(\/(?:ticket|payment|find-booking|book|review|royal-decrees)\/[^\s<)]*)/gm,
       (_match, prefix: string, route: string) =>
         `${prefix}${getAbsoluteUrl(route)}`,
     );
@@ -98,7 +98,7 @@ function findPrimaryUrl(message: string, html?: string | null) {
   const absoluteSource = normalizeCustomerEmailLinks(source);
   return (
     absoluteSource.match(
-      /https:\/\/book\.zingara\.co\.za\/(?:ticket|payment|find-booking|book)\/[^\s<"')]+/i,
+      /https:\/\/book\.zingara\.co\.za\/(?:ticket|payment|find-booking|book|review)\/[^\s<"')]+/i,
     )?.[0] ?? null
   );
 }
@@ -129,6 +129,7 @@ export async function createBrandedCustomerEmail(input: {
   ctaLabel?: string;
   ctaUrl?: string;
   heading?: string;
+  hidePrimaryUrlInHtml?: boolean;
   html?: string | null;
   includeAgePolicy?: boolean;
   includePrimaryCta?: boolean;
@@ -145,14 +146,25 @@ export async function createBrandedCustomerEmail(input: {
   const suppliedHtml = input.html
     ? normalizeCustomerEmailLinks(replaceCustomerTableWithTbc(input.html))
     : null;
-  const content = suppliedHtml
-    ? extractBodyContent(suppliedHtml)
-    : plainTextToContent(message);
   const primaryUrl = input.includePrimaryCta === false
     ? null
     : input.ctaUrl
       ? getAbsoluteUrl(input.ctaUrl)
       : findPrimaryUrl(message, suppliedHtml);
+  const visibleMessage =
+    input.hidePrimaryUrlInHtml && primaryUrl
+      ? message
+          .split(/\r?\n/)
+          .filter((line) => line.trim() !== primaryUrl)
+          .join("\n")
+      : message;
+  const visibleHtml =
+    input.hidePrimaryUrlInHtml && primaryUrl && suppliedHtml
+      ? suppliedHtml.replaceAll(primaryUrl, "")
+      : suppliedHtml;
+  const content = visibleHtml
+    ? extractBodyContent(visibleHtml)
+    : plainTextToContent(visibleMessage);
   const brandAttachment = await loadBrandAttachment();
   const heading =
     input.heading?.trim() || input.subject?.trim() || "Zingara Guest Update";

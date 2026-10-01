@@ -18,6 +18,7 @@ import { BookingMetadataDraftEditor } from "./BookingMetadataDraftEditor";
 import { CorporateZoneEntitlementEditor } from "./CorporateZoneEntitlementEditor";
 import { CompactBookingList } from "./CompactBookingList";
 import PotentialDuplicatesPanel from "./PotentialDuplicatesPanel";
+import ReviewsAdminWorkspace from "./ReviewsAdminWorkspace";
 import SecretPasswordSettings from "./SecretPasswordSettings";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
 import DineplanReconciliation from "./DineplanReconciliation";
@@ -896,6 +897,7 @@ type AdminTab =
   | "corporate"
   | "operations"
   | "customers"
+  | "reviews"
   | "analytics"
   | "platform-operations"
   | "settings"
@@ -1525,7 +1527,7 @@ const automatedWorkflowSampleVariables: Record<string, string> = {
   customerName: "Sample Guest",
   guest_count: "2",
   location: "Cape Town — The Night Court",
-  reviewUrl: "https://book.zingara.co.za",
+  reviewUrl: "/review/preview",
   seatingZone: "Private Booths",
   showDate: "09/08/2026",
   showName: "The Royal Countess",
@@ -1606,6 +1608,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "bookings", label: "Bookings" },
   { id: "operations", label: "Operations" },
   { id: "customers", label: "Customers" },
+  { id: "reviews", label: "Reviews" },
   { id: "analytics", label: "Analytics" },
   { id: "platform-operations", label: "System" },
   { id: "settings", label: "Settings" },
@@ -1621,6 +1624,7 @@ const adminPresenceAreas: Record<AdminTab, string> = {
   operations: "Operations",
   overview: "Dashboard",
   "platform-operations": "Platform Operations",
+  reviews: "Guest Reviews",
   settings: "Settings",
 };
 
@@ -14513,10 +14517,15 @@ export default function AdminDashboardPage() {
   }
 
   function renderAutomatedWorkflowSample(value: string) {
+    const sampleVariables: Record<string, string> = {
+      ...automatedWorkflowSampleVariables,
+      reviewUrl: `${window.location.origin}/review/preview`,
+    };
+
     return value.replaceAll(
       /\{\{\s*([\w]+)\s*\}\}/g,
       (match, variableName: string) =>
-        automatedWorkflowSampleVariables[variableName] ?? match,
+        sampleVariables[variableName] ?? match,
     );
   }
 
@@ -14537,13 +14546,6 @@ export default function AdminDashboardPage() {
       subject: renderAutomatedWorkflowSample(workflow.subject),
       title: getWorkflowDisplayTitle(workflow.workflowKey),
     });
-  }
-
-  function hasWorkflowReviewUrls(workflow: AutomatedWorkflowConfiguration) {
-    return Boolean(
-      workflow.capeTownReviewUrl.trim() &&
-        workflow.johannesburgReviewUrl.trim(),
-    );
   }
 
   async function login(event: FormEvent<HTMLFormElement>) {
@@ -15457,19 +15459,6 @@ export default function AdminDashboardPage() {
     }
 
     const nextEnabled = workflowStatusConfirmation.action === "enable";
-    const workflow = automatedWorkflows.find(
-      (item) => item.workflowKey === workflowStatusConfirmation.workflowKey,
-    );
-
-    if (
-      nextEnabled &&
-      workflow?.workflowKey === "post_show_review" &&
-      !hasWorkflowReviewUrls(workflow)
-    ) {
-      showWorkflowToast("⚠ Add both review URLs before enabling reviews");
-      setWorkflowStatusConfirmation(null);
-      return;
-    }
 
     const workflowsToSave = automatedWorkflows.map((item) =>
       item.workflowKey === workflowStatusConfirmation.workflowKey
@@ -28508,7 +28497,7 @@ export default function AdminDashboardPage() {
 
         <nav
           aria-label="Admin sections"
-          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-9 lg:rounded-[2rem]"
+          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-10 lg:rounded-[2rem]"
         >
           <a
             href="/admin/quick-start"
@@ -28516,7 +28505,9 @@ export default function AdminDashboardPage() {
           >
             Quick Start
           </a>
-          {adminTabs.map((tab) => {
+          {adminTabs
+            .filter((tab) => tab.id !== "reviews" || canManageCommunications)
+            .map((tab) => {
             const isActive =
               activeAdminTab === tab.id ||
               (tab.id === "bookings" && activeAdminTab === "corporate");
@@ -32317,6 +32308,12 @@ export default function AdminDashboardPage() {
               ))}
             </div>
           </section>
+        )}
+
+        {activeAdminTab === "reviews" && canManageCommunications && (
+          <div className="mb-10">
+            <ReviewsAdminWorkspace />
+          </div>
         )}
 
         {activeAdminTab === "settings" && canManageSettings && (
@@ -39988,9 +39985,6 @@ export default function AdminDashboardPage() {
                     : "Days before show";
                   const dryRunSummary =
                     workflowDryRun?.results[workflow.workflowKey];
-                  const isReviewWorkflowMissingUrls =
-                    isReviewWorkflow && !hasWorkflowReviewUrls(workflow);
-
                   return (
                     <article
                       key={workflow.workflowKey}
@@ -40037,8 +40031,7 @@ export default function AdminDashboardPage() {
                             }
                             disabled={
                               !isSuperAdmin ||
-                              isWorkflowConfigSaving ||
-                              (!workflow.enabled && isReviewWorkflowMissingUrls)
+                              isWorkflowConfigSaving
                             }
                             className="inline-flex min-w-[150px] items-center justify-center rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
                           >
@@ -40046,11 +40039,6 @@ export default function AdminDashboardPage() {
                               ? "Disable Workflow"
                               : "Enable Workflow"}
                           </button>
-                          {isReviewWorkflowMissingUrls && !workflow.enabled && (
-                            <p className="max-w-[220px] text-xs leading-5 text-amber-200">
-                              Add both review URLs before enabling this journey.
-                            </p>
-                          )}
                         </div>
                       </div>
 
@@ -40126,34 +40114,9 @@ export default function AdminDashboardPage() {
                       </div>
 
                       {isReviewWorkflow && (
-                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <label className="text-sm text-zinc-400">
-                            Cape Town Review URL
-                            <input
-                              value={workflow.capeTownReviewUrl}
-                              onChange={(event) =>
-                                updateAutomatedWorkflow(workflow.workflowKey, {
-                                  capeTownReviewUrl: event.target.value,
-                                })
-                              }
-                              placeholder="https://..."
-                              className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
-                            />
-                          </label>
-                          <label className="text-sm text-zinc-400">
-                            Johannesburg Review URL
-                            <input
-                              value={workflow.johannesburgReviewUrl}
-                              onChange={(event) =>
-                                updateAutomatedWorkflow(workflow.workflowKey, {
-                                  johannesburgReviewUrl: event.target.value,
-                                })
-                              }
-                              placeholder="https://..."
-                              className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white"
-                            />
-                          </label>
-                        </div>
+                        <p className="mt-3 border-l-2 border-[#D8C36A]/50 pl-3 text-sm leading-6 text-zinc-300">
+                          Each eligible booking receives its own secure Zingara review link. No venue review URL needs to be maintained.
+                        </p>
                       )}
 
                       <div className="mt-4 rounded-2xl border border-white/10 bg-black/35 p-4">
@@ -40200,11 +40163,6 @@ export default function AdminDashboardPage() {
             {workflowStatusConfirmation && (
               <div className="mb-5 rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-5 shadow-2xl shadow-black/40">
                 {(() => {
-                  const workflow = automatedWorkflows.find(
-                    (item) =>
-                      item.workflowKey ===
-                      workflowStatusConfirmation.workflowKey,
-                  );
                   const isReviewWorkflow =
                     workflowStatusConfirmation.workflowKey ===
                     "post_show_review";
@@ -40230,14 +40188,6 @@ export default function AdminDashboardPage() {
                               : "Once enabled, eligible guests will automatically receive this reminder according to the configured schedule."
                             : "This workflow will stop sending future automated guest communications until it is enabled again."}
                         </p>
-                        {isEnable &&
-                          isReviewWorkflow &&
-                          workflow &&
-                          !hasWorkflowReviewUrls(workflow) && (
-                            <p className="mt-3 text-sm font-semibold text-amber-200">
-                              Add both review URLs before enabling this journey.
-                            </p>
-                          )}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -40251,15 +40201,7 @@ export default function AdminDashboardPage() {
                         <button
                           type="button"
                           onClick={() => void confirmWorkflowStatusChange()}
-                          disabled={
-                            isWorkflowConfigSaving ||
-                            Boolean(
-                              isEnable &&
-                                isReviewWorkflow &&
-                                workflow &&
-                                !hasWorkflowReviewUrls(workflow),
-                            )
-                          }
+                          disabled={isWorkflowConfigSaving}
                           className="inline-flex min-w-[160px] items-center justify-center rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {isWorkflowConfigSaving
