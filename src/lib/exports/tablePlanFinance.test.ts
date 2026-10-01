@@ -14,8 +14,8 @@ import {
 } from "./tablePlanFinance.ts";
 
 test("builds dynamic zone formulas across all four payment columns", () => {
-  assert.equal(getDineplanZoneReceiptFormula(29, 57), "SUM(I29:L57)");
-  assert.equal(getDineplanZoneReceiptFormula(31, 63), "SUM(I31:L63)");
+  assert.equal(getDineplanZoneReceiptFormula(29, 57), "SUM(K29:N57)");
+  assert.equal(getDineplanZoneReceiptFormula(31, 63), "SUM(K31:N63)");
 });
 
 test("uses numeric Rand formatting including explicit zero values", () => {
@@ -49,7 +49,7 @@ test("preserves Ash's operational payment column order", () => {
     Array.from(tablePlanFinancialColumnHeaders).includes("TOTAL PAID"),
     false,
   );
-  assert.equal(getTablePlanToPayTotalFormula(90), "SUM(M90)");
+  assert.equal(getTablePlanToPayTotalFormula(90), "SUM(O90)");
 });
 
 test("formats deposit separately from paid and outstanding", () => {

@@ -76,11 +76,11 @@ export function getDineplanZoneReceiptFormula(
   firstDataRow: number,
   finalDataRow: number,
 ) {
-  return `SUM(I${firstDataRow}:L${finalDataRow})`;
+  return `SUM(K${firstDataRow}:N${finalDataRow})`;
 }
 
 export function getTablePlanToPayTotalFormula(tableTotalsRow: number) {
-  return `SUM(M${tableTotalsRow})`;
+  return `SUM(O${tableTotalsRow})`;
 }
 
 type TablePlanFinancialInput = {
