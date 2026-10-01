@@ -125,6 +125,34 @@ test("ordinary physical and temporary operational tables remain eligible", () =>
   );
 });
 
+test("queue allocation enforces permanent minimum occupancy without restricting temporary tables", () => {
+  const privateBooth = table("booth-12", {
+    seatCapacity: 6,
+    tableNumber: "12",
+    zoneId: "royal-booths",
+  });
+  const temporaryBooth = table("temp-booth", {
+    availabilityScope: "operational",
+    physicalTable: false,
+    seatCapacity: 6,
+    tableNumber: "TEMP-1",
+    zoneId: "royal-booths",
+  });
+
+  assert.equal(
+    findBestTableAllocation([privateBooth], showId, "royal-booths", 2),
+    undefined,
+  );
+  assert.equal(
+    findBestTableAllocation([privateBooth], showId, "royal-booths", 4)?.table.id,
+    privateBooth.id,
+  );
+  assert.equal(
+    findBestTableAllocation([temporaryBooth], showId, "royal-booths", 2)?.table.id,
+    temporaryBooth.id,
+  );
+});
+
 test("atomic assignment accepts only the established operational booking cohort", async () => {
   const migration = await readFile(
     new URL(

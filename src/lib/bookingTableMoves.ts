@@ -3,8 +3,8 @@ import {
   type DemoBooking,
   type DemoTable,
   type SeatingZoneId,
+  getOperationalTableMinimumOccupancy,
 } from "./zingaraDemo";
-import { getPhysicalTableDefinition } from "./physicalTables";
 
 const manualMoveZoneOrder: SeatingZoneId[] = [
   "golden-circle",
@@ -27,36 +27,6 @@ export function isTemporaryOperationalTable(table: DemoTable) {
     !table.mergedFrom?.length &&
     !table.mergedInto
   );
-}
-
-export function getOperationalTableMinimumOccupancy(
-  table: DemoTable,
-  tables: DemoTable[],
-): number {
-  if (table.physicalTable === true) {
-    return (
-      getPhysicalTableDefinition(table.zoneId, table.tableNumber)
-        ?.minimumCapacity ?? 1
-    );
-  }
-
-  if (table.mergedFrom?.length) {
-    const members = table.mergedFrom
-      .map((memberId) => tables.find((candidate) => candidate.id === memberId))
-      .filter((member): member is DemoTable => Boolean(member));
-
-    if (members.length !== table.mergedFrom.length) {
-      return Number.POSITIVE_INFINITY;
-    }
-
-    return members.reduce(
-      (total, member) =>
-        total + getOperationalTableMinimumOccupancy(member, tables),
-      0,
-    );
-  }
-
-  return 1;
 }
 
 export function isEligibleManualBookingMoveTarget(

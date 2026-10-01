@@ -1,4 +1,7 @@
-import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
+import {
+  getPhysicalTableDefinition,
+  isLegacyPlaceholderTableCode,
+} from "@/lib/physicalTables";
 import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
 import { bookingClaimsTable } from "./bookingTableClaims";
 import { includedBookingFeeAmount } from "./bookingFees";
@@ -3823,6 +3826,36 @@ function compareTableAllocations(
   );
 }
 
+export function getOperationalTableMinimumOccupancy(
+  table: DemoTable,
+  tables: DemoTable[],
+): number {
+  if (table.physicalTable === true) {
+    return (
+      getPhysicalTableDefinition(table.zoneId, table.tableNumber)
+        ?.minimumCapacity ?? 1
+    );
+  }
+
+  if (table.mergedFrom?.length) {
+    const members = table.mergedFrom
+      .map((memberId) => tables.find((candidate) => candidate.id === memberId))
+      .filter((member): member is DemoTable => Boolean(member));
+
+    if (members.length !== table.mergedFrom.length) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    return members.reduce(
+      (total, member) =>
+        total + getOperationalTableMinimumOccupancy(member, tables),
+      0,
+    );
+  }
+
+  return 1;
+}
+
 function getCompatibleMergedAllocation(
   tables: DemoTable[],
   showId: string,
@@ -3856,8 +3889,13 @@ function getCompatibleMergedAllocation(
         (totalSeats, table) => totalSeats + table.seatCapacity,
         0,
       );
+      const minimumOccupancy = sourceTables.reduce(
+        (totalGuests, table) =>
+          totalGuests + getOperationalTableMinimumOccupancy(table, tables),
+        0,
+      );
 
-      if (seatCapacity >= partySize) {
+      if (partySize >= minimumOccupancy && seatCapacity >= partySize) {
         allocations.push({
           isCombination: true,
           sourceTables,
@@ -3900,6 +3938,7 @@ export function findBestTableAllocation(
       table.showId === showId &&
       table.zoneId === zoneId &&
       isAllocatableTable(table) &&
+      partySize >= getOperationalTableMinimumOccupancy(table, tables) &&
       (!table.mergedFrom?.length ||
         isValidMergedOperationalTable(table, tables)),
   );
