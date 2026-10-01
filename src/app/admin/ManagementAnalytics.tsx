@@ -13,6 +13,7 @@ import { dailyAnalyticsSeriesStart } from "@/lib/dailyAnalytics";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 import { getAdminAuthSession } from "@/lib/supabase/auth";
 import ZingaraDatePicker from "./ZingaraDatePicker";
+import ReviewAnalyticsPanel from "./ReviewAnalyticsPanel";
 import WebsiteConversionPanel from "./WebsiteConversionPanel";
 
 const money = new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" });
@@ -250,6 +251,7 @@ function FilterSelect({ label, value, onChange, children }: { label: string; val
 
 type AnalyticsSectionId =
   | "website-conversion"
+  | "guest-reviews"
   | "booking-activity"
   | "performance-demand"
   | "day-of-week"
@@ -296,7 +298,11 @@ function AnalyticsSection({
   );
 }
 
-export default function ManagementAnalytics() {
+export default function ManagementAnalytics({
+  onOpenReview,
+}: {
+  onOpenReview?: (reviewId: string, status: string) => void;
+}) {
   const [dataset, setDataset] = useState<ManagementAnalyticsDataset | null>(null);
   const [filters, setFilters] = useState<ManagementAnalyticsFilters>(defaultManagementAnalyticsFilters);
   const [filtersLoaded, setFiltersLoaded] = useState(false);
@@ -309,10 +315,13 @@ export default function ManagementAnalytics() {
   ]);
 
   useEffect(() => {
-    setFilters(
-      restoreFilters(sessionStorage.getItem(analyticsFiltersSessionStorageKey)),
-    );
-    setFiltersLoaded(true);
+    const timer = window.setTimeout(() => {
+      setFilters(
+        restoreFilters(sessionStorage.getItem(analyticsFiltersSessionStorageKey)),
+      );
+      setFiltersLoaded(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -346,6 +355,15 @@ export default function ManagementAnalytics() {
     return () => { active = false; };
   }, []);
   const analytics = useMemo(() => dataset ? calculateManagementAnalytics(dataset, filters) : null, [dataset, filters]);
+  const performanceOptions = useMemo(
+    () =>
+      (dataset?.shows ?? [])
+        .filter((show) => filters.venue === "all" || show.venue === filters.venue)
+        .sort((left, right) =>
+          `${right.date}${right.time}`.localeCompare(`${left.date}${left.time}`),
+        ),
+    [dataset, filters.venue],
+  );
   const demandRows = useMemo(() => {
     if (!analytics) return [];
     return [...analytics.performanceDemand].sort((left, right) => sort === "date"
@@ -388,11 +406,14 @@ export default function ManagementAnalytics() {
         <h3 id="analytics-filters" className="text-xs font-bold uppercase tracking-[0.18em] text-[#D8C36A]">Filters</h3>
         <div className="mt-3 flex flex-wrap gap-2">{[["Today", "today"], ["Yesterday", "yesterday"], ["Last 7 Days", "7"], ["Last 30 Days", "30"], ["Month To Date", "mtd"]].map(([label, value]) => <button key={value} type="button" onClick={() => quickRange(value as "today" | "yesterday" | "7" | "30" | "mtd")} className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase text-zinc-300 hover:border-[#D8C36A]/60 hover:text-white">{label}</button>)}<button type="button" onClick={() => setFilters(defaultManagementAnalyticsFilters)} className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase text-zinc-500 hover:text-white">Clear</button></div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-          <FilterSelect label="Venue" value={filters.venue} onChange={(value) => update("venue", value as ManagementAnalyticsFilters["venue"])}><option value="all">All</option><option value="johannesburg">Johannesburg</option><option value="cape-town">Cape Town</option></FilterSelect>
+          <FilterSelect label="Venue" value={filters.venue} onChange={(value) => setFilters((current) => ({ ...current, performanceId: "", venue: value as ManagementAnalyticsFilters["venue"] }))}><option value="all">All</option><option value="johannesburg">Johannesburg</option><option value="cape-town">Cape Town</option></FilterSelect>
+          <FilterSelect label="Performance" value={filters.performanceId} onChange={(value) => update("performanceId", value)}><option value="">All Performances</option>{performanceOptions.map((show) => <option key={show.id} value={show.id}>{show.date} · {show.venue === "johannesburg" ? "Johannesburg" : "Cape Town"} · {show.time.slice(0, 5)}</option>)}</FilterSelect>
           <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Booking Created From<input type="date" value={filters.bookingCreatedFrom} onChange={(event) => update("bookingCreatedFrom", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
           <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Booking Created To<input type="date" value={filters.bookingCreatedTo} onChange={(event) => update("bookingCreatedTo", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
           <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Performance From<input type="date" value={filters.performanceFrom} onChange={(event) => update("performanceFrom", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
           <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Performance To<input type="date" value={filters.performanceTo} onChange={(event) => update("performanceTo", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
+          <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Review Submitted From<input type="date" value={filters.reviewSubmittedFrom} onChange={(event) => update("reviewSubmittedFrom", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
+          <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Review Submitted To<input type="date" value={filters.reviewSubmittedTo} onChange={(event) => update("reviewSubmittedTo", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
           <FilterSelect label="Seating Zone" value={filters.seatingZone} onChange={(value) => update("seatingZone", value)}><option value="all">All</option>{["Golden Circle", "Middle Ring", "Private Booths", "Royal Balcony"].map((zone) => <option key={zone}>{zone}</option>)}</FilterSelect>
           <FilterSelect label="Booking Type" value={filters.bookingType} onChange={(value) => update("bookingType", value as ManagementAnalyticsFilters["bookingType"])}><option value="all">All</option><option value="standard">Standard</option><option value="corporate">Corporate</option></FilterSelect>
           <FilterSelect label="Booking Status" value={filters.bookingStatus} onChange={(value) => update("bookingStatus", value)}><option value="all">All</option><option value="confirmed">Confirmed</option><option value="pending_payment">Pending Payment</option><option value="cancelled">Cancelled</option></FilterSelect>
@@ -413,6 +434,13 @@ export default function ManagementAnalytics() {
             to={filters.bookingCreatedTo}
             venue={filters.venue}
           />
+        </AnalyticsSection>
+        <AnalyticsSection
+          {...sectionProps("guest-reviews")}
+          title="Guest Reviews & Experience"
+          description="Attendance, review invitations, verified guest feedback and public review outcomes."
+        >
+          <ReviewAnalyticsPanel filters={filters} onOpenReview={onOpenReview} />
         </AnalyticsSection>
         <AnalyticsSection {...sectionProps("booking-activity")} title="Booking Activity" description="Genuine acquisition, booking value, guests and customer activity.">
           <div className="grid grid-cols-2 gap-y-3 md:grid-cols-3 xl:grid-cols-6"><Metric label="Bookings" value={integer.format(core.bookings)} emphasis /><Metric label="Guests" value={integer.format(core.guests)} emphasis /><Metric label="Booking Value" value={money.format(core.bookingValue)} emphasis /><Metric label="Amount Paid" value={money.format(core.amountPaid)} /><Metric label="Outstanding" value={money.format(core.outstanding)} /><Metric label="Average Booking" value={money.format(core.averageBookingValue)} /><Metric label="Average Party" value={core.averagePartySize.toFixed(2)} /><Metric label="Confirmed" value={integer.format(core.confirmed)} /><Metric label="Pending Payment" value={integer.format(core.pendingPayment)} /><Metric label="Cancelled" value={integer.format(core.cancelled)} /><Metric label="Deposits" value={integer.format(analytics.payments.deposits)} /><Metric label="Full Payments" value={integer.format(analytics.payments.fullPayments)} /><Metric label="Complimentary" value={integer.format(core.complimentaryBookings)} /><Metric label="Corporate" value={integer.format(core.corporateBookings)} /><Metric label="New Customers" value={integer.format(core.newCustomers)} /><Metric label="Returning" value={integer.format(core.returningCustomers)} /></div>

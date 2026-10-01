@@ -45,6 +45,7 @@ const statusOptions: Array<{ label: string; value: ReviewStatus }> = [
   { label: "Published", value: "published" },
   { label: "Not Published", value: "not_published" },
 ];
+const reviewAnalyticsTargetKey = "zingara-admin-review-analytics-target";
 
 function venueLabel(value: string) {
   return value === "johannesburg" ? "Johannesburg" : "Cape Town";
@@ -74,6 +75,26 @@ export default function ReviewsAdminWorkspace() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [targetReviewId, setTargetReviewId] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const stored = sessionStorage.getItem(reviewAnalyticsTargetKey);
+        if (!stored) return;
+        const target = JSON.parse(stored) as { reviewId?: string; status?: ReviewStatus };
+        if (!target.reviewId || !statusOptions.some((option) => option.value === target.status)) return;
+        setStatus(target.status!);
+        setPage(1);
+        setSearch("");
+        setTargetReviewId(target.reviewId);
+        sessionStorage.removeItem(reviewAnalyticsTargetKey);
+      } catch {
+        sessionStorage.removeItem(reviewAnalyticsTargetKey);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +102,7 @@ export default function ReviewsAdminWorkspace() {
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: "20", status });
       if (search.trim()) params.set("search", search.trim());
+      if (targetReviewId) params.set("reviewId", targetReviewId);
       const data = await fetchSupabaseApi<ReviewPage>(`/api/admin/reviews?${params.toString()}`, {
         cache: "no-store",
       });
@@ -93,7 +115,7 @@ export default function ReviewsAdminWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, status]);
+  }, [page, search, status, targetReviewId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -141,6 +163,7 @@ export default function ReviewsAdminWorkspace() {
               className={`whitespace-nowrap rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] ${status === option.value ? "bg-amber-300 text-black" : "text-zinc-400 hover:text-white"}`}
               key={option.value}
               onClick={() => {
+                setTargetReviewId("");
                 setStatus(option.value);
                 setPage(1);
               }}
@@ -155,6 +178,7 @@ export default function ReviewsAdminWorkspace() {
           <input
             className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-zinc-600"
             onChange={(event) => {
+              setTargetReviewId("");
               setSearch(event.target.value);
               setPage(1);
             }}
@@ -163,6 +187,16 @@ export default function ReviewsAdminWorkspace() {
           />
         </label>
       </div>
+
+      {targetReviewId ? (
+        <button
+          className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-300 hover:text-amber-200"
+          onClick={() => setTargetReviewId("")}
+          type="button"
+        >
+          Back to review queue
+        </button>
+      ) : null}
 
       {error && <p className="border-l-2 border-red-400 pl-3 text-sm text-red-200" role="alert">{error}</p>}
 

@@ -14,6 +14,7 @@ import {
   getOrCreateVerifiedReviewLink,
   getReviewApplicationOrigin,
 } from "@/lib/reviews/reviewServer";
+import { hasPersistedReviewAttendance } from "@/lib/reviews/reviewAnalytics";
 import { getReviewPreviewUrl } from "@/lib/reviews/reviews";
 
 export type AutomatedWorkflowKey = "pre_show_reminder" | "post_show_review";
@@ -334,13 +335,6 @@ function hasSuccessfulCommunication(
   );
 }
 
-function getCheckedInTicketEvidence(booking: BookingRow, tickets: TicketRow[]) {
-  return tickets.find(
-    (ticket) =>
-      ticket.booking_id === booking.id && ticket.ticket_status === "checked_in",
-  );
-}
-
 function getRecipient(
   booking: BookingRow,
   customers: Map<string, CustomerRow>,
@@ -566,7 +560,10 @@ function evaluateWorkflow(
         continue;
       }
 
-      const checkedInTicket = getCheckedInTicketEvidence(booking, tickets);
+      const checkedInTicket = hasPersistedReviewAttendance(
+        booking.id,
+        tickets,
+      );
 
       if (!checkedInTicket) {
         summary.excluded += 1;

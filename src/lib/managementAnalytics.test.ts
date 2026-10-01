@@ -72,6 +72,16 @@ test("venue filter scopes every analytical dimension", () => {
   assert.equal(result.core.bookings, 1); assert.equal(result.performanceDemand.length, 1); assert.equal(result.performanceDemand[0].venue, "cape-town");
 });
 
+test("performance selector scopes existing Management Analytics dimensions", () => {
+  const rows = [booking(), booking({ id: "booking-2", showId: "show-2", customerId: "customer-2" })];
+  const result = calculateManagementAnalytics(
+    dataset(rows, [show("show-1", "2026-10-17"), show("show-2", "2026-10-18")]),
+    filtered({ performanceId: "show-2" }),
+  );
+  assert.equal(result.core.bookings, 1);
+  assert.deepEqual(result.performanceDemand.map((row) => row.id), ["show-2"]);
+});
+
 test("Tuesday remains an individual weekday category", () => {
   const result = calculateManagementAnalytics(dataset([booking()], [show("show-1", "2026-10-20")]), defaultManagementAnalyticsFilters);
   const tuesday = result.dayOfWeek.find((row) => row.day === "Tuesday");
@@ -149,6 +159,7 @@ test("management routes require analytics permission and export eight named shee
 test("Analytics UI is isolated from Admin root state and offers required management controls", async () => {
   const component = await readFile(new URL("../app/admin/ManagementAnalytics.tsx", import.meta.url), "utf8");
   assert.match(component, /Performance Demand/); assert.match(component, /Tuesday/); assert.match(component, /Midweek vs Weekend/); assert.match(component, /Performance Month \/ Season Demand/); assert.match(component, /Booking Lead Time/); assert.match(component, /Download Excel/); assert.match(component, /Website & Booking Conversion/);
+  assert.match(component, /Guest Reviews & Experience/); assert.match(component, /Review Submitted From/); assert.match(component, /Performance/);
   assert.match(component, /fetchSupabaseApi/); assert.match(component, /Authorization: `Bearer/);
   assert.doesNotMatch(component, /setBookings|setCustomers|saveBookings/);
 });

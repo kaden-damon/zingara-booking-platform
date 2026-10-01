@@ -37962,7 +37962,17 @@ export default function AdminDashboardPage() {
               ))}
             </nav>
 
-            {analyticsWorkspace === "sales" && <ManagementAnalytics />}
+            {analyticsWorkspace === "sales" && (
+              <ManagementAnalytics
+                onOpenReview={canManageCommunications ? (reviewId, status) => {
+                  sessionStorage.setItem(
+                    "zingara-admin-review-analytics-target",
+                    JSON.stringify({ reviewId, status }),
+                  );
+                  setActiveAdminTab("reviews");
+                } : undefined}
+              />
+            )}
 
             {analyticsWorkspace === "revenue" && (
               <>

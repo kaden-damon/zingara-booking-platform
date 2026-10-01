@@ -24,7 +24,7 @@ function hasReviewAccess(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
 async function loadReviewPage(
   serviceClient: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]>,
   scope: string[],
-  input: { page: number; pageSize: number; search: string; status: string },
+  input: { page: number; pageSize: number; reviewId: string; search: string; status: string },
 ) {
   const venues = allowedVenues(scope);
   const from = (input.page - 1) * input.pageSize;
@@ -38,6 +38,10 @@ async function loadReviewPage(
     .in("venue", venues.length ? venues : ["__none__"])
     .order("submitted_at", { ascending: false })
     .range(from, from + input.pageSize - 1);
+
+  if (input.reviewId) {
+    query = query.eq("id", input.reviewId);
+  }
 
   if (input.search) {
     const safeSearch = input.search.replace(/[,%()]/g, " ").trim();
@@ -140,12 +144,17 @@ export async function GET(request: Request) {
   }
   const page = Math.max(1, Number(url.searchParams.get("page") ?? "1") || 1);
   const pageSize = Math.min(50, Math.max(10, Number(url.searchParams.get("pageSize") ?? "20") || 20));
+  const reviewId = url.searchParams.get("reviewId")?.trim() ?? "";
+  if (reviewId && !/^[0-9a-f-]{36}$/i.test(reviewId)) {
+    return Response.json({ error: "Invalid review identifier." }, { status: 400 });
+  }
 
   try {
     return Response.json(
       await loadReviewPage(auth.serviceClient, auth.staffProfile.venue_scope, {
         page,
         pageSize,
+        reviewId,
         search: url.searchParams.get("search")?.trim() ?? "",
         status,
       }),

@@ -70,7 +70,10 @@ export type ManagementAnalyticsFilters = {
   dayOfWeek: number[];
   paymentStatus: string;
   performanceFrom: string;
+  performanceId: string;
   performanceTo: string;
+  reviewSubmittedFrom: string;
+  reviewSubmittedTo: string;
   seatingZone: string;
   source: "all" | AnalyticsSource;
   venue: "all" | AnalyticsVenue;
@@ -84,7 +87,10 @@ export const defaultManagementAnalyticsFilters: ManagementAnalyticsFilters = {
   dayOfWeek: [],
   paymentStatus: "all",
   performanceFrom: "",
+  performanceId: "",
   performanceTo: "",
+  reviewSubmittedFrom: "",
+  reviewSubmittedTo: "",
   seatingZone: "all",
   source: "all",
   venue: "all",
@@ -166,6 +172,7 @@ function matchesDimensionFilters(
 ) {
   if (!show) return false;
   if (filters.venue !== "all" && show.venue !== filters.venue) return false;
+  if (filters.performanceId && show.id !== filters.performanceId) return false;
   if (!inRange(show.date, filters.performanceFrom, filters.performanceTo)) {
     return false;
   }
@@ -322,6 +329,7 @@ export function calculateManagementAnalytics(
 
   const filteredShows = dataset.shows.filter((show) => {
     if (filters.venue !== "all" && show.venue !== filters.venue) return false;
+    if (filters.performanceId && show.id !== filters.performanceId) return false;
     if (!inRange(show.date, filters.performanceFrom, filters.performanceTo)) {
       return false;
     }
@@ -688,7 +696,10 @@ export function filtersFromSearchParams(searchParams: URLSearchParams) {
     dayOfWeek,
     paymentStatus: searchParams.get("paymentStatus") ?? "all",
     performanceFrom: searchParams.get("performanceFrom") ?? "",
+    performanceId: searchParams.get("performanceId") ?? "",
     performanceTo: searchParams.get("performanceTo") ?? "",
+    reviewSubmittedFrom: searchParams.get("reviewSubmittedFrom") ?? "",
+    reviewSubmittedTo: searchParams.get("reviewSubmittedTo") ?? "",
     seatingZone: searchParams.get("seatingZone") ?? "all",
     source:
       source === "public" ||
