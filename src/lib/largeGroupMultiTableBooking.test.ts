@@ -77,7 +77,7 @@ test("Floor UI offers reviewed atomic multi-table assignment to Standard booking
   const page = await source("../app/admin/page.tsx");
   const route = await source("../app/api/admin/floor-capacity-plan/route.ts");
 
-  assert.match(page, /usesReviewedMultiTableAssignment/);
+  assert.match(page, /usesReviewedPlanAssignment/);
   assert.match(page, /ASSIGN SUGGESTED TABLES/);
   assert.match(page, /reviewCorporateTableAssignment/);
   assert.match(route, /assign_corporate_booking_zone_tables_atomic/);

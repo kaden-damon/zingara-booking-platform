@@ -164,7 +164,7 @@ test("18-pax Standard Private Booth booking is fulfilled by three 6-seat booths"
   assert.equal(plan.queuedPax, 18);
 });
 
-test("unapproved outlier temporary capacities are excluded", () => {
+test("existing temporary tables remain assignable even when their size is not approved for new creation", () => {
   const plan = buildZoneFloorCapacityPlan({
     activeEntitlementPax: 65,
     allowedTemporaryCapacities: [6, 7],
@@ -180,11 +180,75 @@ test("unapproved outlier temporary capacities are excluded", () => {
     zoneId: "royal-booths",
   });
 
-  assert.deepEqual(
-    plan.bookingPlans[0]?.existingTableCodes,
-    [],
-  );
-  assert.equal(plan.bookingPlans[0]?.newCapacities.length, 10);
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["36"]);
+  assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
+});
+
+test("reviewed table mixes enforce the combined minimum occupancy", () => {
+  const plan = buildZoneFloorCapacityPlan({
+    activeEntitlementPax: 2,
+    allowedTemporaryCapacities: [2, 6],
+    availableTables: [
+      {
+        capacity: 6,
+        id: "permanent",
+        kind: "physical",
+        minimumOccupancy: 4,
+        tableCode: "12",
+      },
+      {
+        capacity: 2,
+        id: "temporary",
+        kind: "temporary",
+        minimumOccupancy: 1,
+        tableCode: "TEMP-2",
+      },
+    ],
+    capacityRequiredPhysicalTables: 0,
+    claimedReservedCapacity: 0,
+    queuedBookings: [
+      { id: "two-pax", isCorporate: false, pax: 2, reference: "STD-2" },
+    ],
+    zoneCapacity: 138,
+    zoneId: "royal-booths",
+  });
+
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["TEMP-2"]);
+  assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
+});
+
+test("a unique 23-seat temporary table participates in a valid large-group mix", () => {
+  const plan = buildZoneFloorCapacityPlan({
+    activeEntitlementPax: 25,
+    allowedTemporaryCapacities: [8, 12],
+    availableTables: [
+      {
+        capacity: 12,
+        id: "physical-401",
+        kind: "physical",
+        minimumOccupancy: 8,
+        tableCode: "401",
+      },
+      {
+        capacity: 23,
+        id: "temporary-506",
+        kind: "temporary",
+        minimumOccupancy: 1,
+        tableCode: "506",
+      },
+    ],
+    capacityRequiredPhysicalTables: 0,
+    claimedReservedCapacity: 0,
+    queuedBookings: [
+      { id: "andy", isCorporate: true, pax: 25, reference: "ZNG-VPU56U" },
+    ],
+    zoneCapacity: 148,
+    zoneId: "golden-circle",
+  });
+
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["401", "506"]);
+  assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
+  assert.equal(plan.bookingPlans[0]?.unresolvedReason, null);
 });
 
 test("migration keeps Corporate zone transfer financial state immutable and service-role only", () => {

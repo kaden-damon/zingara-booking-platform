@@ -11,7 +11,10 @@ import {
   classifyCapacityTable,
   resolveZoneCapacityState,
 } from "@/lib/capacityModel";
-import { physicalTableDefinitions } from "@/lib/physicalTables";
+import {
+  getPhysicalTableDefinition,
+  physicalTableDefinitions,
+} from "@/lib/physicalTables";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
   getRolePermissions,
@@ -169,6 +172,39 @@ function getAllowedTemporaryCapacities(
       ...catalogueDefaults,
     ]),
   ).sort((left, right) => left - right);
+}
+
+function getFloorPlanningMinimumOccupancy(
+  table: TableRow,
+  tables: TableRow[],
+  zoneId: CorporateFloorZone,
+) {
+  if (table.is_physical) {
+    return (
+      getPhysicalTableDefinition(zoneId, table.table_code)?.minimumCapacity ??
+      Number(table.capacity)
+    );
+  }
+
+  if ((table.merged_from ?? []).length >= 2) {
+    const members = (table.merged_from ?? [])
+      .map((memberId) => tables.find((candidate) => candidate.id === memberId))
+      .filter((member): member is TableRow => Boolean(member));
+
+    if (members.length !== table.merged_from?.length) {
+      return Number(table.capacity);
+    }
+
+    return members.reduce(
+      (total, member) =>
+        total +
+        (getPhysicalTableDefinition(zoneId, member.table_code)
+          ?.minimumCapacity ?? Number(member.capacity)),
+      0,
+    );
+  }
+
+  return 1;
 }
 
 async function authorize(request: Request) {
@@ -347,6 +383,11 @@ async function loadPlan(
               capacity: Number(table.capacity),
               id: table.id,
               kind,
+              minimumOccupancy: getFloorPlanningMinimumOccupancy(
+                table,
+                tables,
+                zoneId,
+              ),
               tableCode: table.table_code,
             } satisfies FloorPlanningTable,
           ]

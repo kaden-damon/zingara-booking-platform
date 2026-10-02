@@ -41516,8 +41516,8 @@ export default function AdminDashboardPage() {
                       .map((plan) => ({ plan, zoneId: zone.zoneId })),
                   );
                   const bookingPlan = bookingPlans[0]?.plan;
-                  const usesReviewedMultiTableAssignment = Boolean(
-                    bookingPlan && bookingPlan.existingTableIds.length > 1,
+                  const usesReviewedPlanAssignment = Boolean(
+                    bookingPlan && bookingPlan.existingTableIds.length > 0,
                   );
                   const paymentStatus = getBookingPaymentStatus(booking);
 
@@ -41556,22 +41556,24 @@ export default function AdminDashboardPage() {
                         <p>
                           Suggested:{" "}
                           <span className="font-semibold text-white">
-                            {allocation
-                              ? allocation.isCombination
+                            {bookingPlan
+                              ? bookingPlan.unresolvedReason
+                                ? bookingPlan.unresolvedReason
+                                : [
+                                    bookingPlan.existingTableCodes.length > 0
+                                      ? bookingPlan.existingTableCodes.join(" + ")
+                                      : null,
+                                    bookingPlan.newCapacities.length > 0
+                                      ? `create ${bookingPlan.newCapacities.join(" + ")}`
+                                      : null,
+                                  ].filter(Boolean).join(" + ") || "No new capacity required"
+                              : allocation
+                                ? allocation.isCombination
                                 ? `${allocation.table.tableNumber} (merge required)`
                                 : allocation.table.tableNumber
-                              : bookingPlan?.unresolvedReason
-                                ? bookingPlan.unresolvedReason
-                                : bookingPlan
-                                  ? [
-                                      bookingPlan.existingTableCodes.length > 0
-                                        ? bookingPlan.existingTableCodes.join(" + ")
-                                        : null,
-                                      bookingPlan.newCapacities.length > 0
-                                        ? `create ${bookingPlan.newCapacities.join(" + ")}`
-                                        : null,
-                                    ].filter(Boolean).join(" + ") || "No new capacity required"
-                              : "No suitable table"}
+                                : isCorporate
+                                  ? "Run Plan Unallocated Tables"
+                                  : "No suitable table"}
                           </span>
                         </p>
                         <p>
@@ -41586,15 +41588,15 @@ export default function AdminDashboardPage() {
                         {(isCorporate ? bookingPlans : [{ plan: bookingPlan, zoneId: booking.zoneId as CorporateFloorZone }]).map(({ plan, zoneId }) => (
                           <button
                             key={`${booking.reference}-${zoneId}`}
-                            title={isCorporate || usesReviewedMultiTableAssignment ? "ASSIGN SUGGESTED TABLES" : undefined}
+                            title={isCorporate || usesReviewedPlanAssignment ? "ASSIGN SUGGESTED TABLES" : undefined}
                             type="button"
                             onClick={() =>
-                              (isCorporate || usesReviewedMultiTableAssignment) && plan
+                              (isCorporate || usesReviewedPlanAssignment) && plan
                                 ? reviewCorporateTableAssignment(booking, plan, zoneId)
                                 : assignFloorQueuedBooking(booking)
                             }
                             disabled={
-                              (isCorporate || usesReviewedMultiTableAssignment
+                              (isCorporate || usesReviewedPlanAssignment
                                 ? !plan || Boolean(plan.unresolvedReason) || plan.newCapacities.length > 0 || plan.existingTableIds.length === 0
                                 : !allocation) || !canManageBookings || floorAssignmentAction?.reference === booking.reference
                             }
@@ -41602,7 +41604,7 @@ export default function AdminDashboardPage() {
                           >
                             {floorAssignmentAction?.reference === booking.reference
                               ? floorAssignmentAction.status === "assigning" ? "ASSIGNING..." : "ASSIGNED ✓"
-                              : isCorporate || usesReviewedMultiTableAssignment
+                              : isCorporate || usesReviewedPlanAssignment
                                 ? `ASSIGN ${getZoneById(zoneId)?.title?.toUpperCase() ?? zoneId} TABLES`
                                 : "Assign Suggested Table"}
                           </button>

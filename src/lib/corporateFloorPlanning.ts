@@ -29,6 +29,7 @@ export type FloorPlanningTable = {
   capacity: number;
   id: string;
   kind: "merged" | "physical" | "temporary";
+  minimumOccupancy?: number;
   tableCode: string;
 };
 
@@ -165,42 +166,56 @@ function findExistingTableMix(
   requiredSeats: number,
   tables: FloorPlanningTable[],
 ) {
-  const states = new Map<number, FloorPlanningTable[]>([[0, []]]);
+  type TableMixState = {
+    capacity: number;
+    minimumOccupancy: number;
+    tables: FloorPlanningTable[];
+  };
+  const states = new Map<string, TableMixState>([
+    ["0:0", { capacity: 0, minimumOccupancy: 0, tables: [] }],
+  ]);
   const maximumCapacity = Math.max(
     requiredSeats + Math.max(...tables.map((table) => table.capacity), 0),
     requiredSeats,
   );
 
   for (const table of tables) {
-    for (const [total, selected] of [...states.entries()].sort(
-      ([left], [right]) => right - left,
+    for (const state of [...states.values()].sort(
+      (left, right) => right.capacity - left.capacity,
     )) {
-      const nextTotal = total + table.capacity;
-      if (nextTotal > maximumCapacity) continue;
+      const capacity = state.capacity + table.capacity;
+      if (capacity > maximumCapacity) continue;
 
-      const next = [...selected, table];
-      const existing = states.get(nextTotal);
-      if (!existing || next.length < existing.length) {
-        states.set(nextTotal, next);
+      const minimumOccupancy =
+        state.minimumOccupancy + Math.max(table.minimumOccupancy ?? 1, 1);
+      const nextTables = [...state.tables, table];
+      const key = `${capacity}:${minimumOccupancy}`;
+      const existing = states.get(key);
+      if (!existing || nextTables.length < existing.tables.length) {
+        states.set(key, { capacity, minimumOccupancy, tables: nextTables });
       }
     }
   }
 
-  return [...states.entries()]
-    .filter(([total]) => total >= requiredSeats)
+  return [...states.values()]
+    .filter(
+      (state) =>
+        state.capacity >= requiredSeats &&
+        state.minimumOccupancy <= requiredSeats,
+    )
     .sort(
-      ([leftTotal, leftTables], [rightTotal, rightTables]) =>
-        leftTotal - rightTotal ||
-        leftTables.length - rightTables.length ||
-        leftTables
+      (left, right) =>
+        left.capacity - right.capacity ||
+        left.tables.length - right.tables.length ||
+        left.tables
           .map((table) => table.tableCode)
           .join("+")
           .localeCompare(
-            rightTables.map((table) => table.tableCode).join("+"),
+            right.tables.map((table) => table.tableCode).join("+"),
             "en",
             { numeric: true },
           ),
-    )[0]?.[1];
+    )[0]?.tables;
 }
 
 function countCapacities(capacities: number[]) {
@@ -227,12 +242,7 @@ export function buildZoneFloorCapacityPlan(input: {
     new Set(input.allowedTemporaryCapacities.filter((capacity) => capacity > 0)),
   ).sort((left, right) => left - right);
   let availableTables = input.availableTables
-    .filter(
-      (table) =>
-        table.capacity > 0 &&
-        (table.kind !== "temporary" ||
-          allowedTemporaryCapacities.includes(table.capacity)),
-    )
+    .filter((table) => table.capacity > 0)
     .sort(
       (left, right) =>
         left.capacity - right.capacity ||
