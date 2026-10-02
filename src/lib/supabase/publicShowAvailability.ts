@@ -50,11 +50,20 @@ export type PublicShowAvailability = {
   showPubliclyBookable: boolean;
 };
 
+type ShowAvailabilityOptions = {
+  capacityScope?: "base" | "operational";
+};
+
 export async function loadPublicShowAvailability(
   serviceClient: SupabaseClient,
   showId: string,
+  options: ShowAvailabilityOptions = {},
 ): Promise<PublicShowAvailability> {
-  const results = await loadPublicShowAvailabilityBatch(serviceClient, [showId]);
+  const results = await loadPublicShowAvailabilityBatch(
+    serviceClient,
+    [showId],
+    options,
+  );
   return results.get(showId) ?? {
     controls: [],
     occupiedSeatsByZone: {} as Record<SeatingZoneId, number>,
@@ -67,13 +76,30 @@ export async function loadPublicShowAvailability(
 export async function loadPublicShowAvailabilityBatch(
   serviceClient: SupabaseClient,
   showIds: string[],
+  options: ShowAvailabilityOptions = {},
 ): Promise<Map<string, PublicShowAvailability>> {
   const uniqueShowIds = [...new Set(showIds)].filter(Boolean);
   if (uniqueShowIds.length === 0) {
     return new Map<string, PublicShowAvailability>();
   }
 
-  const [bookingResult, settingsResult, salesResult, showsResult] = await Promise.all([
+  const operationalTablesPromise = options.capacityScope === "operational"
+    ? serviceClient
+        .from("show_tables")
+        .select("id,show_id,section,capacity,capacity_configured,status,is_physical,is_override,availability_scope,merged_from,merged_parent_id,booking_id")
+        .in("show_id", uniqueShowIds)
+        .eq("is_physical", false)
+        .eq("is_override", true)
+        .eq("availability_scope", "operational")
+        .is("merged_parent_id", null)
+    : Promise.resolve({ data: [], error: null });
+  const [
+    bookingResult,
+    settingsResult,
+    salesResult,
+    showsResult,
+    operationalTablesResult,
+  ] = await Promise.all([
     serviceClient
       .from("bookings")
       .select("show_id,guest_count,section,zone_entitlements")
@@ -93,12 +119,14 @@ export async function loadPublicShowAvailabilityBatch(
       .from("shows")
       .select("id,status")
       .in("id", uniqueShowIds),
+    operationalTablesPromise,
   ]);
 
   if (bookingResult.error) throw bookingResult.error;
   if (settingsResult.error) throw settingsResult.error;
   if (salesResult.error) throw salesResult.error;
   if (showsResult.error) throw showsResult.error;
+  if (operationalTablesResult.error) throw operationalTablesResult.error;
 
   const settings = normalizeVenueSettings(
     (settingsResult.data as {
@@ -130,19 +158,44 @@ export async function loadPublicShowAvailabilityBatch(
         .filter((row) => row.show_id === showId)
         .map((row) => [row.zone_id, row]),
     );
-    const occupiedSeatsByZone = Object.fromEntries(enabledZones.map((zone) => [
+    const capacityTables = (operationalTablesResult.data ?? []).flatMap((table) => {
+      if (table.show_id !== showId) return [];
+      const zoneId = getZoneIdForSection(table.section);
+      if (!zoneId) return [];
+      return [{
+        availabilityScope: table.availability_scope,
+        bookingReference: table.booking_id,
+        capacityConfigured: table.capacity_configured,
+        id: table.id,
+        isOverride: table.is_override,
+        mergedFrom: table.merged_from,
+        mergedInto: table.merged_parent_id,
+        physicalTable: table.is_physical,
+        seatCapacity: table.capacity,
+        showId: table.show_id,
+        status: table.status,
+        zoneId,
+      }];
+    });
+    const capacityStateByZone = new Map(enabledZones.map((zone) => [
       zone.id,
       resolveZoneCapacityState({
         baseCapacity: getConfiguredZoneMaxSeats(settings, zone),
         bookings: capacityBookings,
         showId,
-        tables: [],
+        tables: capacityTables,
         zoneId: zone.id,
-      }).activeEntitlementPax,
+      }),
+    ]));
+    const occupiedSeatsByZone = Object.fromEntries(enabledZones.map((zone) => [
+      zone.id,
+      capacityStateByZone.get(zone.id)?.activeEntitlementPax ?? 0,
     ])) as Record<SeatingZoneId, number>;
     const remainingSeatsByZone = Object.fromEntries(enabledZones.map((zone) => [
       zone.id,
-      Math.max(getConfiguredZoneMaxSeats(settings, zone) - occupiedSeatsByZone[zone.id], 0),
+      options.capacityScope === "operational"
+        ? capacityStateByZone.get(zone.id)?.operationalRemaining ?? 0
+        : capacityStateByZone.get(zone.id)?.baseSellableRemaining ?? 0,
     ])) as Record<SeatingZoneId, number>;
     const publicSalesOpenByZone = Object.fromEntries(enabledZones.map((zone) => [
       zone.id,

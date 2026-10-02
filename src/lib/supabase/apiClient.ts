@@ -5,6 +5,7 @@ type ApiOptions = {
   body?: unknown;
   cache?: RequestCache;
   method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
+  signal?: AbortSignal;
 };
 
 export class SupabaseApiError extends Error {
@@ -48,6 +49,7 @@ export async function fetchSupabaseApi<T>(
     cache: options.cache,
     headers,
     method: options.method ?? "GET",
+    signal: options.signal,
   });
 
   if (!response.ok) {

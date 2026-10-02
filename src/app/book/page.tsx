@@ -358,7 +358,11 @@ function getRemainingSeats(
   option: SeatingOption,
   occupiedSeats: number,
   settings: DemoVenueSettings = defaultVenueSettings,
+  authoritativeRemainingSeats?: number,
 ) {
+  if (Number.isFinite(authoritativeRemainingSeats)) {
+    return Math.max(Math.trunc(authoritativeRemainingSeats ?? 0), 0);
+  }
   return getRemainingVenueSeatsForZone(option, occupiedSeats, settings);
 }
 
@@ -369,6 +373,7 @@ function isAvailableForBooking(
   settings: DemoVenueSettings = defaultVenueSettings,
   isInternalCorporate = false,
   isPublicSalesOpen = true,
+  authoritativeRemainingSeats?: number,
 ) {
   const guestLimits = isInternalCorporate
     ? option
@@ -380,7 +385,12 @@ function isAvailableForBooking(
     maxGuests: guestLimits.maxGuests,
     minGuests: guestLimits.minGuests,
     partySize: guests,
-    remainingSeats: getRemainingSeats(option, occupiedSeats, settings),
+    remainingSeats: getRemainingSeats(
+      option,
+      occupiedSeats,
+      settings,
+      authoritativeRemainingSeats,
+    ),
     supportsMultiTableFulfilment: supportsMultiTableBookingFulfilment(option.id),
   }).isAvailable;
 }
@@ -393,8 +403,14 @@ function getAvailabilityState(
   isInternalCorporate = false,
   hasExplicitTableAssignment = false,
   isPublicSalesOpen = true,
+  authoritativeRemainingSeats?: number,
 ) {
-  const remainingSeats = getRemainingSeats(option, occupiedSeats, settings);
+  const remainingSeats = getRemainingSeats(
+    option,
+    occupiedSeats,
+    settings,
+    authoritativeRemainingSeats,
+  );
   const guestLimits = isInternalCorporate
     ? option
     : getStandardBookingZoneGuestLimits(option.id, option);
@@ -785,6 +801,9 @@ export default function BookingPage() {
   const [publicSalesOpenByZone, setPublicSalesOpenByZone] = useState<
     Partial<Record<SeatingZone["id"], boolean>>
   >({});
+  const [remainingSeatsByZone, setRemainingSeatsByZone] = useState<
+    Partial<Record<SeatingZone["id"], number>>
+  >({});
   const confirmedSectionRef = useRef<HTMLElement | null>(null);
   const trackedTelemetryEventsRef = useRef<Set<string>>(new Set());
   const showLoadRequestRef = useRef(0);
@@ -935,6 +954,7 @@ export default function BookingPage() {
     if (!selectedShow) {
       setOccupiedSeatsByZone({});
       setPublicSalesOpenByZone({});
+      setRemainingSeatsByZone({});
       return;
     }
 
@@ -943,23 +963,22 @@ export default function BookingPage() {
 
     setOccupiedSeatsByZone({});
     setPublicSalesOpenByZone({});
-    fetch(
-      `/api/shows/availability?showId=${encodeURIComponent(authoritativeShowId)}`,
+    setRemainingSeatsByZone({});
+    const capacityScope = manualCheckoutRole !== "none"
+      ? "operational"
+      : "base";
+    fetchSupabaseApi<{
+      occupiedSeatsByZone?: Partial<Record<SeatingZone["id"], number>>;
+      publicSalesOpenByZone?: Partial<Record<SeatingZone["id"], boolean>>;
+      remainingSeatsByZone?: Partial<Record<SeatingZone["id"], number>>;
+    }>(
+      `/api/shows/availability?showId=${encodeURIComponent(authoritativeShowId)}&capacityScope=${capacityScope}`,
       { cache: "no-store", signal: controller.signal },
     )
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error("Show availability could not be loaded.");
-        }
-
-        return (await response.json()) as {
-          occupiedSeatsByZone?: Partial<Record<SeatingZone["id"], number>>;
-          publicSalesOpenByZone?: Partial<Record<SeatingZone["id"], boolean>>;
-        };
-      })
       .then((payload) => {
         setOccupiedSeatsByZone(payload.occupiedSeatsByZone ?? {});
         setPublicSalesOpenByZone(payload.publicSalesOpenByZone ?? {});
+        setRemainingSeatsByZone(payload.remainingSeatsByZone ?? {});
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
@@ -968,7 +987,7 @@ export default function BookingPage() {
       });
 
     return () => controller.abort();
-  }, [selectedShow]);
+  }, [isCorporateCalendarCheckout, manualCheckoutRole, selectedShow]);
 
   useEffect(() => {
     const code = normalizePromoCode(promoCodeInput);
@@ -1060,6 +1079,7 @@ export default function BookingPage() {
         venueConfig,
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[zone.id] !== false,
+        remainingSeatsByZone[zone.id],
       ),
     );
   const canJoinWaitlist =
@@ -1110,6 +1130,7 @@ export default function BookingPage() {
         venueConfig,
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
+        remainingSeatsByZone[selectedZone.id],
       ),
   );
   const complimentarySubmissionEligibility =
@@ -1469,6 +1490,7 @@ export default function BookingPage() {
         venueConfig,
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[currentZone.id] !== false,
+        remainingSeatsByZone[currentZone.id],
       )
         ? null
         : currentZone,
@@ -1482,6 +1504,7 @@ export default function BookingPage() {
         venueConfig,
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[currentZone.id] !== false,
+        remainingSeatsByZone[currentZone.id],
       )
         ? null
         : currentZone,
@@ -2188,6 +2211,7 @@ export default function BookingPage() {
         venueConfig,
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
+        remainingSeatsByZone[selectedZone.id],
       )
     ) {
       return;
@@ -2400,6 +2424,7 @@ export default function BookingPage() {
         venueConfig,
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
+        remainingSeatsByZone[selectedZone.id],
       )
     ) {
       return;
@@ -2650,6 +2675,7 @@ export default function BookingPage() {
         venueConfig,
         isCorporateCalendarCheckout,
         true,
+        remainingSeatsByZone[selectedZone.id],
       )
     ) {
       return;
@@ -2814,6 +2840,7 @@ export default function BookingPage() {
       isCorporateCalendarCheckout,
       Boolean(selectedTemporaryTable),
       manualCheckoutRole !== "none" || publicSalesOpenByZone[option.id] !== false,
+      remainingSeatsByZone[option.id],
     );
 
     return {
@@ -4074,7 +4101,10 @@ export default function BookingPage() {
                         {formatCurrency(
                           getConfiguredZonePrice(venueConfig, selectedZone),
                         )}{" "}
-                        pp · {availability.remainingSeats} Seats Available
+                        pp · {availability.remainingSeats}{" "}
+                        {manualCheckoutRole !== "none"
+                          ? "Operational Seats Available"
+                          : "Seats Available"}
                       </p>
                       {!isCorporateCalendarCheckout && selectedZone.id === "royal-booths" && (
                         <p className="mt-1.5 text-xs font-semibold uppercase text-zinc-300">
@@ -4930,6 +4960,7 @@ export default function BookingPage() {
                 isCorporateCalendarCheckout,
                 Boolean(selectedTemporaryTable),
                 manualCheckoutRole !== "none" || publicSalesOpenByZone[previewSeatingZone.id] !== false,
+                remainingSeatsByZone[previewSeatingZone.id],
               );
               const status = availability.availabilityMessage;
               const statusClass = !availability.isAvailable
@@ -4976,7 +5007,10 @@ export default function BookingPage() {
                           previewSeatingZone,
                         ),
                       )}{" "}
-                      pp · {availability.remainingSeats} Seats Available
+                      pp · {availability.remainingSeats}{" "}
+                      {manualCheckoutRole !== "none"
+                        ? "Operational Seats Available"
+                        : "Seats Available"}
                     </p>
                   </div>
 
