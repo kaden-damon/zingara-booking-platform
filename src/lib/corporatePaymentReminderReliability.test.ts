@@ -1,23 +1,23 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const workflow = await readFile(
+const workflow = readFileSync(
   new URL("./workflows/corporatePaymentHolds.ts", import.meta.url),
   "utf8",
 );
-const migration = await readFile(
+const migration = readFileSync(
   new URL(
     "../../supabase/migrations/20260928160000_phase_41_2y_p0_b_corporate_reminder_reliability.sql",
     import.meta.url,
   ),
   "utf8",
 );
-const runner = await readFile(
+const runner = readFileSync(
   new URL("../app/api/workflows/run/route.ts", import.meta.url),
   "utf8",
 );
-const admin = await readFile(new URL("../app/admin/page.tsx", import.meta.url), "utf8");
+const admin = readFileSync(new URL("../app/admin/page.tsx", import.meta.url), "utf8");
 
 test("the configured seven-day hold and one-day reminder policy remain unchanged", () => {
   assert.doesNotMatch(migration, /durationDays/);
@@ -57,11 +57,9 @@ test("claims are atomic, concurrent-safe, retryable, and service-role only", () 
   assert.match(workflow, /releaseReminderClaims/);
 });
 
-test("reminders are claimed and delivered before expiry processing", () => {
-  assert.ok(
-    workflow.indexOf('"claim_due_corporate_payment_reminders"') <
-      workflow.indexOf('"expire_unpaid_corporate_booking"'),
-  );
+test("reminders are claimed and delivered without expiry processing", () => {
+  assert.match(workflow, /"claim_due_corporate_payment_reminders"/);
+  assert.doesNotMatch(workflow, /expire_unpaid_corporate_booking/);
   assert.match(workflow, /\.is\("corporate_payment_reminder_sent_at", null\)/);
 });
 
@@ -79,8 +77,9 @@ test("the hourly Production scheduler still invokes the Corporate reminder pathw
   assert.match(runner, /process\.env\.CRON_SECRET/);
 });
 
-test("Booking Details exposes the deadline and truthful reminder metadata", () => {
-  assert.match(admin, /Corporate Payment Hold/);
+test("Booking Details exposes payment follow-up and truthful reminder metadata", () => {
+  assert.match(admin, /Corporate Payment Follow-up/);
+  assert.doesNotMatch(admin, /Corporate Payment Hold/);
   assert.match(admin, /Reminder sent:/);
   assert.match(admin, /Reminder scheduled:/);
   assert.match(admin, /timeZone: "Africa\/Johannesburg"/);

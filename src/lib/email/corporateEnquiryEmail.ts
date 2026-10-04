@@ -11,6 +11,7 @@ import {
   sendOperationalCustomerEmail,
   sendZingaraEmail,
 } from "@/lib/email/smtp";
+import { resolveInternalOperationalRecipients } from "@/lib/email/internalOperationalRecipients";
 import type {
   CommunicationRecord,
   CorporateRequest,
@@ -74,9 +75,10 @@ async function sendAndLog(
   supabase: SupabaseClient,
   input: {
     branded: BrandedCustomerEmail;
+    cc?: string[];
     customerId: string | null;
     message: string;
-    recipient: string | null | undefined;
+    recipient: string | string[] | null | undefined;
     sentAt: string;
     subject: string;
     type: "corporate_tentative_booking" | "custom_message";
@@ -108,6 +110,7 @@ async function sendAndLog(
       })
     : await sendZingaraEmail({
         attachments: input.branded.attachments,
+        cc: input.cc,
         html: input.branded.html,
         message: input.message,
         subject: input.subject,
@@ -139,12 +142,16 @@ export async function sendCorporateEnquiryEmails(
     message: internalMessage,
     subject: internalSubject,
   });
+  const internalRecipients = await resolveInternalOperationalRecipients(supabase, {
+    to: recipient,
+  });
 
   await sendAndLog(supabase, {
     branded: internalBranded,
     customerId: null,
     message: internalMessage,
-    recipient,
+    cc: internalRecipients.cc,
+    recipient: internalRecipients.to,
     sentAt: request.createdAt,
     subject: internalSubject,
     type: "custom_message",

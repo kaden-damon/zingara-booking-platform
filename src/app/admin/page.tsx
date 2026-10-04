@@ -16891,7 +16891,7 @@ export default function AdminDashboardPage() {
       ) {
         setVenueConfigurationSaveState("error");
         setVenueConfigurationError(
-          `Enter a valid cutoff and Corporate hold/reminder duration for ${location.city}.`,
+          `Enter a valid cutoff and Corporate payment follow-up duration for ${location.city}.`,
         );
         return;
       }
@@ -35492,11 +35492,11 @@ export default function AdminDashboardPage() {
                                   })
                                 }
                               />
-                              Corporate payment hold
+                              Corporate payment follow-up
                             </label>
                             <div className="mt-2 grid grid-cols-2 gap-2">
                               <label className="text-sm text-zinc-400">
-                                Hold days
+                                Payment due after (days)
                                 <input
                                   type="number"
                                   min={1}
@@ -43836,9 +43836,9 @@ export default function AdminDashboardPage() {
                                       amountPaid: booking.amountPaid ?? 0,
                                       deadline: booking.corporatePaymentDeadline,
                                       expiredAt: booking.corporatePaymentExpiredAt,
-                                    }) === "expired"
-                                  ? "Payment expired"
-                                  : "Awaiting payment"}
+                                    }) === "payment-follow-up-due"
+                                  ? "Payment follow-up due"
+                                  : "Awaiting payment follow-up"}
                             </span>
                           )}
                           <span className="inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-sky-300/30 bg-sky-950/25 px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] text-sky-100">
@@ -44145,10 +44145,10 @@ export default function AdminDashboardPage() {
                     {isCorporateBooking && booking.corporatePaymentDeadline && (
                       <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-950/15 p-4 text-sm text-amber-50">
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-200">
-                          Corporate Payment Hold
+                          Corporate Payment Follow-up
                         </p>
                         <p className="mt-2">
-                          Payment deadline: {new Intl.DateTimeFormat("en-ZA", {
+                          Payment due: {new Intl.DateTimeFormat("en-ZA", {
                             dateStyle: "medium",
                             timeStyle: "short",
                             timeZone: "Africa/Johannesburg",

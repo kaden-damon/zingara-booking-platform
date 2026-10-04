@@ -132,7 +132,7 @@ function validateConfiguration(
       corporateHold.reminderDaysBefore < 0 ||
       corporateHold.reminderDaysBefore >= corporateHold.durationDays
     ) {
-      return `Enter a valid Corporate payment hold for ${location.city}.`;
+      return `Enter a valid Corporate payment follow-up for ${location.city}.`;
     }
 
     if (

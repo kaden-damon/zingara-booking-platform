@@ -75,8 +75,8 @@ export function getCorporatePaymentHoldStatus(input: {
 }) {
   if (!input.deadline) return "not-applicable" as const;
   if (input.amountPaid > 0) return "payment-received" as const;
-  if (input.expiredAt || (input.now ?? new Date()).getTime() >= Date.parse(input.deadline)) {
-    return "expired" as const;
+  if ((input.now ?? new Date()).getTime() >= Date.parse(input.deadline)) {
+    return "payment-follow-up-due" as const;
   }
-  return "awaiting-payment" as const;
+  return "awaiting-payment-follow-up" as const;
 }

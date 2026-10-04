@@ -132,14 +132,14 @@ test("any booking-applied payment protects a Corporate hold", () => {
   );
 });
 
-test("unpaid booking becomes expired after its deadline", () => {
+test("unpaid Corporate booking remains a payment follow-up after its due date", () => {
   assert.equal(
     getCorporatePaymentHoldStatus({
       amountPaid: 0,
       deadline: "2026-09-01T00:00:00.000Z",
       now: new Date("2026-09-02T00:00:00.000Z"),
     }),
-    "expired",
+    "payment-follow-up-due",
   );
 });
 
@@ -157,7 +157,7 @@ test("public API cutoff guard precedes customer mutation and exempts staff", asy
   assert.match(source, /booking\.source === "online" && !isTrustedStaff/);
 });
 
-test("Corporate hold migration is prospective, service-role-only, and atomic", async () => {
+test("historical Corporate hold migration remains documented as the superseded implementation", async () => {
   const sql = await readFile(
     new URL(
       "../../supabase/migrations/20260902150000_phase_39_48_booking_cutoff_corporate_holds.sql",

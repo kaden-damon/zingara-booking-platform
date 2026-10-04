@@ -1,10 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { notifyAppleWalletBooking } from "@/lib/appleWalletSync";
 import {
   createBrandedCustomerEmail,
   createZingaraEmailCta,
 } from "@/lib/email/customerEmail";
+import { resolveInternalOperationalRecipients } from "@/lib/email/internalOperationalRecipients";
 import { sendZingaraEmail } from "@/lib/email/smtp";
 
 type ReminderRow = {
@@ -69,7 +69,7 @@ function buildReminderContent(staffName: string, rows: ReminderRow[]) {
       `${row.booking_reference} · ${guest}`,
       `${row.guest_count} guests · ${row.seating_zone} · ${row.show_venue} · ${formatShow(row)}`,
       `Outstanding: ${formatCurrency(Number(row.balance_outstanding ?? 0))}`,
-      `Expires: ${formatDeadline(row.corporate_payment_deadline)}`,
+      `Payment follow-up: ${formatDeadline(row.corporate_payment_deadline)}`,
       "Action: Follow up on payment. If EFT/POP has been received, record it in Zingara.",
       `Open booking: ${bookingUrl(row.booking_reference)}`,
     ].join("\n");
@@ -77,17 +77,17 @@ function buildReminderContent(staffName: string, rows: ReminderRow[]) {
   const message = [
     `Hello ${staffName || "Team"},`,
     "",
-    `${rows.length} Corporate booking payment hold${rows.length === 1 ? "" : "s"} require follow-up before expiry.`,
+    `${rows.length} Corporate booking${rows.length === 1 ? " requires" : "s require"} payment follow-up.`,
     "",
     ...items.flatMap((item) => [item, ""]),
   ].join("\n").trim();
   const htmlItems = rows.map((row) => {
     const guest = row.company_name?.trim() || row.guest_name || "Corporate guest";
-    return `<li style="margin:0 0 22px"><strong>${escapeHtml(row.booking_reference)} · ${escapeHtml(guest)}</strong><br>${escapeHtml(row.guest_count)} guests · ${escapeHtml(row.seating_zone)} · ${escapeHtml(row.show_venue)} · ${escapeHtml(formatShow(row))}<br>Outstanding: <strong>${escapeHtml(formatCurrency(Number(row.balance_outstanding ?? 0)))}</strong><br>Expires: <strong>${escapeHtml(formatDeadline(row.corporate_payment_deadline))}</strong><br><br>Follow up on payment. If EFT/POP has been received, record it in Zingara.<div style="margin-top:12px">${createZingaraEmailCta("OPEN BOOKING", bookingUrl(row.booking_reference))}</div></li>`;
+    return `<li style="margin:0 0 22px"><strong>${escapeHtml(row.booking_reference)} · ${escapeHtml(guest)}</strong><br>${escapeHtml(row.guest_count)} guests · ${escapeHtml(row.seating_zone)} · ${escapeHtml(row.show_venue)} · ${escapeHtml(formatShow(row))}<br>Outstanding: <strong>${escapeHtml(formatCurrency(Number(row.balance_outstanding ?? 0)))}</strong><br>Payment follow-up: <strong>${escapeHtml(formatDeadline(row.corporate_payment_deadline))}</strong><br><br>Follow up on payment or record payment in Zingara.<div style="margin-top:12px">${createZingaraEmailCta("OPEN BOOKING", bookingUrl(row.booking_reference))}</div></li>`;
   }).join("");
 
   return {
-    html: `<p>${rows.length} Corporate booking payment hold${rows.length === 1 ? "" : "s"} require follow-up before expiry.</p><ol>${htmlItems}</ol>`,
+    html: `<p>${rows.length} Corporate booking${rows.length === 1 ? " requires" : "s require"} payment follow-up.</p><ol>${htmlItems}</ol>`,
     message,
   };
 }
@@ -144,19 +144,23 @@ export async function runCorporatePaymentHolds(client: SupabaseClient) {
   for (const rows of groups.values()) {
     const staff = rows[0];
     const content = buildReminderContent(staff.staff_name, rows);
+    const recipients = await resolveInternalOperationalRecipients(client, {
+      to: staff.staff_email,
+    });
     const branded = await createBrandedCustomerEmail({
-      heading: "Corporate Payment Hold Reminder",
+      heading: "Corporate Payment Follow-up",
       html: content.html,
       includeAgePolicy: false,
       message: content.message,
-      subject: `Zingara Corporate payment hold reminder (${rows.length})`,
+      subject: `Zingara Corporate payment follow-up (${rows.length})`,
     });
     const result = await sendZingaraEmail({
       attachments: branded.attachments,
+      cc: recipients.cc,
       html: branded.html,
       message: branded.message,
-      subject: `Zingara Corporate payment hold reminder (${rows.length})`,
-      to: staff.staff_email,
+      subject: `Zingara Corporate payment follow-up (${rows.length})`,
+      to: recipients.to,
     });
     const bookingIds = rows.map((row) => row.booking_id);
 
@@ -185,7 +189,7 @@ export async function runCorporatePaymentHolds(client: SupabaseClient) {
         entity_reference: row.booking_reference,
         entity_type: "booking",
         outcome: "success",
-        reason: "Consolidated deadline reminder sent to the booking creator.",
+        reason: "Consolidated payment follow-up sent to the booking creator and configured management recipient.",
         source_area: "Corporate Bookings",
       })),
     );
@@ -193,33 +197,10 @@ export async function runCorporatePaymentHolds(client: SupabaseClient) {
     remindersSent += 1;
   }
 
-  const { data: expiredRows, error: expiredQueryError } = await client
-    .from("bookings")
-    .select("id,booking_reference")
-    .not("corporate_payment_deadline", "is", null)
-    .lte("corporate_payment_deadline", new Date().toISOString())
-    .is("corporate_payment_expired_at", null)
-    .lte("amount_paid", 0)
-    .in("booking_status", ["new", "pending_payment"])
-    .limit(500);
-
-  if (expiredQueryError) throw expiredQueryError;
-
-  let expired = 0;
-  for (const booking of expiredRows ?? []) {
-    const { data, error } = await client.rpc("expire_unpaid_corporate_booking", {
-      p_booking_id: booking.id,
-    });
-    if (error) throw error;
-    if ((data as { expired?: boolean } | null)?.expired) {
-      expired += 1;
-      await notifyAppleWalletBooking(client, booking.id);
-    }
-  }
-
   return {
     claimedReminders: eligible.length,
-    expired,
+    corporateAutoExpiryEnabled: false,
+    expired: 0,
     reminderEmailsSent: remindersSent,
   };
 }
