@@ -96,6 +96,15 @@ test("manual invitation route reuses security, branded mail and communication ev
   assert.doesNotMatch(route, /metadata:\s*\{[^}]*token/i);
 });
 
+test("manual review sends have an authoritative communication type", async () => {
+  const sql = await readFile(
+    `${root}/supabase/migrations/20261004225000_phase_43_5a_manual_review_communication_type.sql`,
+    "utf8",
+  );
+  assert.match(sql, /alter type public\.communication_type/);
+  assert.match(sql, /add value if not exists 'post_show_review_manual'/);
+});
+
 test("manual invitation migration changes review grain without weakening verified attendance", async () => {
   const sql = await readFile(`${root}/supabase/migrations/20261004210000_phase_43_5_manual_review_invitations.sql`, "utf8");
   assert.match(sql, /drop constraint if exists review_invitations_booking_id_key/);
