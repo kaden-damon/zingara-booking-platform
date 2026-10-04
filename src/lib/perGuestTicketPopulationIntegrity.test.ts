@@ -10,6 +10,10 @@ const cleanupMigration = readFileSync(
   "supabase/migrations/20261004170000_historical_surplus_guest_ticket_cleanup.sql",
   "utf8",
 );
+const deficitMigration = readFileSync(
+  "supabase/migrations/20261004190000_per_guest_ticket_deficit_integrity.sql",
+  "utf8",
+);
 
 test("40 to 28 preserves canonical tickets and voids only 29 to 40", () => {
   assert.match(migration, /generate_series\(1, 28\) ticket_index/);
@@ -117,4 +121,55 @@ test("cleanup changes no booking, payment, show, table, or capacity records", ()
   assert.doesNotMatch(cleanupMigration, /update\s+public\.show_tables/i);
   assert.match(cleanupMigration, /booking\.surplus-guest-tickets-invalidated/);
   assert.match(cleanupMigration, /request_id = trim\(p_request_id\)/);
+});
+
+test("all eleven proven deficit bookings are hard-bound", () => {
+  for (const reference of [
+    "ZNG-MDW4HJ",
+    "ZNG-43V3AQ",
+    "ZNG-562EB5",
+    "ZNG-3VCJ3F",
+    "ZNG-LNLM2Q",
+    "ZNG-PHPZ96",
+    "ZNG-X8F2P7",
+    "ZNG-Z4TS5A",
+    "ZNG-ZBKJUS",
+    "ZNG-BRQDS4",
+    "ZNG-GQEC53",
+  ]) {
+    assert.match(deficitMigration, new RegExp(reference));
+  }
+  assert.match(deficitMigration, /TICKET_REPAIR_BOOKING_NOT_AUTHORIZED/);
+  assert.match(deficitMigration, /BOOKING_REVISION_CHANGED/);
+});
+
+test("missing canonical identities reuse the live ticket security contract", () => {
+  assert.match(deficitMigration, /qr_payload, ticket_code, ticket_status, ticket_url/);
+  assert.match(deficitMigration, /missing\.code,[\s\S]*missing\.code,[\s\S]*'valid'/);
+  assert.match(deficitMigration, /'\/ticket\/' \|\| missing\.code/);
+  assert.match(deficitMigration, /TICKET_POPULATION_TERMINAL_IDENTITY_REVIEW_REQUIRED/);
+});
+
+test("pax increases reconcile per-guest populations at the database boundary", () => {
+  assert.match(deficitMigration, /bookings_reconcile_guest_tickets_after_pax_increase/);
+  assert.match(deficitMigration, /new\.guest_count > old\.guest_count/);
+  assert.match(deficitMigration, /reconcile_per_guest_ticket_population/);
+  assert.match(deficitMigration, /booking\.missing-guest-tickets-reconciled/);
+});
+
+test("booking-level models are excluded and retries cannot duplicate tickets", () => {
+  assert.match(deficitMigration, /jsonb_array_length\(v_metadata_tickets\) = 0/);
+  assert.match(deficitMigration, /'status', 'not_per_guest'/);
+  assert.match(deficitMigration, /where not exists \(/);
+  assert.match(deficitMigration, /tickets_ticket_code_key|ticket\.ticket_code = code/);
+  assert.match(deficitMigration, /'status', 'already_processed'/);
+});
+
+test("deficit repair preserves all non-ticket business state", () => {
+  assert.doesNotMatch(deficitMigration, /update\s+public\.payments/i);
+  assert.doesNotMatch(deficitMigration, /update\s+public\.shows/i);
+  assert.doesNotMatch(deficitMigration, /update\s+public\.show_tables/i);
+  assert.doesNotMatch(deficitMigration, /set\s+guest_count/i);
+  assert.doesNotMatch(deficitMigration, /delete\s+from\s+public\.tickets/i);
+  assert.match(deficitMigration, /set notes =/);
 });
