@@ -9,9 +9,9 @@ import {
 } from "./staffOnboarding.ts";
 
 test("staff onboarding is versioned and concise", () => {
-  assert.equal(latestStaffTourVersion, "plain-language-2026-10");
-  assert.equal(staffTourPages.length, 5);
-  assert.equal(new Set(staffTourPages.map((page) => page.id)).size, 5);
+  assert.equal(latestStaffTourVersion, "bookings-simplified-2026-10");
+  assert.equal(staffTourPages.length, 3);
+  assert.equal(new Set(staffTourPages.map((page) => page.id)).size, 3);
 });
 
 test("only the current release acknowledgement suppresses the tour", () => {

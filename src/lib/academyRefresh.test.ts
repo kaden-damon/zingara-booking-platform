@@ -96,6 +96,7 @@ test("Academy covers Floor, CRM, tickets, sales gating, and maintenance", () => 
 
 test("Academy keeps a permanent plain-language Recent Changes reference", () => {
   for (const lessonId of [
+    "compact-bookings-and-simplified-details",
     "plain-language-release",
     "recent-booking-and-corporate-tools",
     "recent-floor-ticket-and-checkin-tools",
@@ -109,4 +110,5 @@ test("Academy keeps a permanent plain-language Recent Changes reference", () => 
   assert.match(admin, /Send Review/);
   assert.match(admin, /Website & Booking Conversion/);
   assert.match(admin, /Guest Reviews & Experience/);
+  assert.match(admin, /Compact is the default only when no view choice exists for the current session/);
 });

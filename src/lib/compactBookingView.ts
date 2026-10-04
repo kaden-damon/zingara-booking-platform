@@ -13,6 +13,7 @@ export type CompactBookingSortKey =
   | "table";
 
 export type CompactBookingRow = {
+  attentionLabel?: string;
   amountPaid: number;
   amountPaidLabel: string;
   balanceDue: number;
@@ -27,6 +28,7 @@ export type CompactBookingRow = {
   reference: string;
   section: string;
   showDate: string;
+  showLabel: string;
   sourceLabel: string;
   statusLabel: string;
   statusTone: "amber" | "green" | "purple" | "red" | "sky" | "zinc";

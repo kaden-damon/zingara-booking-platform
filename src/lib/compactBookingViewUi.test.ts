@@ -25,6 +25,14 @@ test("Compact preference survives Admin tab changes within the session", async (
   assert.match(page, /storedViewMode === "compact"/);
 });
 
+test("Compact is the default while a deliberate session choice is preserved", async () => {
+  const page = await source("../app/admin/page.tsx");
+
+  assert.match(page, /useState<BookingViewMode>\("compact"\)/);
+  assert.match(page, /storedViewMode === "list"/);
+  assert.match(page, /storedViewMode === "grid"/);
+});
+
 test("Compact shares the authoritative Standard and Corporate Bookings cohort", async () => {
   const page = await source("../app/admin/page.tsx");
 
@@ -46,6 +54,7 @@ test("Compact rows retain required scanning fields and sorting controls", async 
   for (const label of [
     "Status",
     "Customer",
+    "Show",
     "Pax",
     "Section",
     "Table / Floor",
@@ -162,5 +171,24 @@ test("Compact distinguishes Floor Assignment, Corporate, Data Import, and Comp s
   assert.match(page, /booking\.source === "corporate-direct"[\s\S]{0,60}\? "Corporate"/);
   assert.match(page, /booking\.bookingOrigin === "data_import"[\s\S]{0,60}\? "Data Import"/);
   assert.match(page, /paymentStatusLabels\[financials\.paymentStatus\]/);
-  assert.match(page, /"comp-vip": "Comp\/VIP"/);
+  assert.match(page, /const paymentStatusLabels:[\s\S]{0,100}staffPaymentStatusLabels/);
+});
+
+test("Booking filters use progressive disclosure without changing search", async () => {
+  const page = await source("../app/admin/page.tsx");
+
+  assert.match(page, /bookingFiltersExpanded/);
+  assert.match(page, /Filters\{activeSecondaryBookingFilterCount/);
+  assert.match(page, /Search name, reference, email or company/);
+  assert.match(page, /bookingMatchesCurrentFilters/);
+});
+
+test("Booking Details puts statuses and attention before the full breakdown", async () => {
+  const page = await source("../app/admin/page.tsx");
+
+  assert.match(page, /Booking: \{bookingStatusLabels/);
+  assert.match(page, /Payment: \{paymentStatusLabels/);
+  assert.match(page, /Seating: \{currentTable \? "Table assigned" : "Table needed"\}/);
+  assert.match(page, />Needs attention</);
+  assert.match(page, />Full price breakdown</);
 });

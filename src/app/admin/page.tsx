@@ -6918,6 +6918,27 @@ const faqLessons: AcademyArticle[] = [
 const academyArticles: AcademyArticle[] = [
   {
     category: "Recent Changes",
+    commonMistakes: ["Assuming filters or booking actions were removed because they are not always visible."],
+    difficulty: "beginner",
+    howTo: [
+      "Open Bookings or confirmed Corporate Bookings to use the new Compact view.",
+      "Use Search for a guest, company, email, or exact booking reference.",
+      "Open Filters when you need show, date, source, creator, status, or promo choices.",
+      "Open Booking Details to see the current booking, payment, and seating status before taking action.",
+      "Switch to List or Grid at any time; your choice remains for the current session.",
+    ],
+    id: "compact-bookings-and-simplified-details",
+    keywords: ["recent changes", "compact", "bookings", "filters", "booking details", "list", "grid"],
+    moduleId: "recent-changes",
+    purpose: "Use the compact booking list and clearer Booking Details layout.",
+    relatedActions: ["bookings"],
+    related: ["Bookings Overview", "Simpler Words and Clearer Statuses"],
+    tips: ["Nothing important was removed.", "Compact is the default only when no view choice exists for the current session."],
+    title: "Compact Bookings and Clearer Booking Details",
+    whenToUse: "Use this when the Bookings workspace looks different after the latest update.",
+  },
+  {
+    category: "Recent Changes",
     commonMistakes: ["Assuming simpler labels changed how bookings, payments, or seating work."],
     difficulty: "beginner",
     howTo: [
@@ -9986,6 +10007,7 @@ function getCompactBookingStatusTone(
 function getCompactBookingRow(
   booking: DemoBooking,
   showDate = booking.bookingDate,
+  showLabel = formatSouthAfricanDate(showDate),
 ): CompactBookingRow {
   const financials = getBookingFinancials(booking);
   const status = booking.status ?? "confirmed";
@@ -10003,6 +10025,12 @@ function getCompactBookingRow(
   const promoCode = getPersistedBookingPromoCode(booking);
 
   return {
+    attentionLabel:
+      financials.balanceDue > 0
+        ? "Payment outstanding"
+        : !hasPhysicalTable && status !== "cancelled"
+          ? "Table needed"
+          : undefined,
     amountPaid: financials.amountPaid,
     amountPaidLabel: formatCurrency(financials.amountPaid),
     balanceDue: financials.balanceDue,
@@ -10020,6 +10048,7 @@ function getCompactBookingRow(
     reference: booking.reference,
     section: booking.zoneTitle || "Zone not recorded",
     showDate,
+    showLabel,
     sourceLabel: promoCode ? `${baseSourceLabel} · ${promoCode}` : baseSourceLabel,
     statusLabel: bookingStatusLabels[status],
     statusTone: getCompactBookingStatusTone(status),
@@ -10560,7 +10589,7 @@ export default function AdminDashboardPage() {
     setCommunicationVariableCopyError,
   ] = useState("");
   const [bookingViewMode, setBookingViewMode] =
-    useState<BookingViewMode>("list");
+    useState<BookingViewMode>("compact");
   const [bookingViewModeSessionLoaded, setBookingViewModeSessionLoaded] =
     useState(false);
   const [standardCompactBookingSort, setStandardCompactBookingSort] = useState<{
@@ -10633,6 +10662,7 @@ export default function AdminDashboardPage() {
   const [bookingLocationFilter, setBookingLocationFilter] =
     useState<BookingLocationFilter>("all");
   const [bookingDateFilter, setBookingDateFilter] = useState("all");
+  const [bookingFiltersExpanded, setBookingFiltersExpanded] = useState(false);
   const [bookingSourceFilter, setBookingSourceFilter] =
     useState<BookingSalesSourceFilter>("all");
   const [bookingCreatedByFilter, setBookingCreatedByFilter] =
@@ -25607,6 +25637,16 @@ export default function AdminDashboardPage() {
       : standardCompactBookingSort;
   const compactBookingSortKey = activeCompactBookingSort.key;
   const compactBookingSortDirection = activeCompactBookingSort.direction;
+  const activeSecondaryBookingFilterCount = [
+    bookingShowFilter !== "all",
+    bookingLocationFilter !== "all",
+    bookingSourceFilter !== "all",
+    bookingCreatedByFilter !== "all",
+    bookingCreatedDateFilter !== "all",
+    bookingStatusFilter !== "all",
+    bookingPromoFilter !== "all",
+    bookingDateFilter !== "all",
+  ].filter(Boolean).length;
   function setActiveCompactBookingSort(
     key: CompactBookingSortKey,
     direction: CompactBookingSortDirection,
@@ -25629,6 +25669,7 @@ export default function AdminDashboardPage() {
         getCompactBookingRow(
           booking,
           getBookingShow(booking)?.date ?? booking.bookingDate,
+          getBookingPerformanceLabel(booking),
         ),
       ),
       compactBookingSortKey,
@@ -25697,6 +25738,7 @@ export default function AdminDashboardPage() {
             getCompactBookingRow(
               booking,
               getBookingShow(booking)?.date ?? booking.bookingDate,
+              getBookingPerformanceLabel(booking),
             ),
           )
         : [],
@@ -43114,7 +43156,39 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="mt-5 grid gap-4">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <label className="relative block min-w-0 flex-1">
+                  <span className="sr-only">Search bookings</span>
+                  <span className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-[#F2D66C]">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5">
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m20 20-4.35-4.35" />
+                    </svg>
+                  </span>
+                  <AdminSearchInput
+                    value={bookingSearch}
+                    onSearchChange={(value) => {
+                      setBookingSearch(value);
+                      setBookingPage(1);
+                    }}
+                    aria-label={activeAdminTab === "corporate" ? "Search corporate bookings" : "Search bookings"}
+                    placeholder="Search name, reference, email or company"
+                    className="h-12 w-full rounded-full border border-[#D8C36A]/45 bg-black/55 pl-10 pr-4 text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition placeholder:text-zinc-500 focus:border-[#D8C36A]/80"
+                  />
+                </label>
+                <button
+                  aria-expanded={bookingFiltersExpanded}
+                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/15 bg-black/35 px-5 text-sm font-semibold text-zinc-200 transition hover:border-[#D8C36A]/60 hover:text-white"
+                  onClick={() => setBookingFiltersExpanded((expanded) => !expanded)}
+                  type="button"
+                >
+                  Filters{activeSecondaryBookingFilterCount > 0 ? ` · ${activeSecondaryBookingFilterCount}` : ""}
+                  <span aria-hidden="true">{bookingFiltersExpanded ? "−" : "+"}</span>
+                </button>
+              </div>
+
+              {bookingFiltersExpanded && (
+              <div className="grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 <div className="relative block min-w-0">
                     <span className="sr-only">Filter bookings by show</span>
                     <PerformanceCalendarSelector
@@ -43288,43 +43362,8 @@ export default function AdminDashboardPage() {
                   value={bookingDateFilter === "all" ? "" : bookingDateFilter}
                 />
 
-                <label className="relative block min-w-0">
-                  <span className="sr-only">Search bookings</span>
-                  <span className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-[#F2D66C]">
-                    <svg
-                      aria-hidden="true"
-                      viewBox="0 0 24 24"
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2.5"
-                    >
-                      <circle cx="11" cy="11" r="7" />
-                      <path d="m20 20-4.35-4.35" />
-                    </svg>
-                  </span>
-                  <AdminSearchInput
-                    value={bookingSearch}
-                    onSearchChange={(value) => {
-                      setBookingSearch(value);
-                      setBookingPage(1);
-                    }}
-                    aria-label={
-                      activeAdminTab === "corporate"
-                        ? "Search corporate bookings"
-                        : "Search bookings"
-                    }
-                    placeholder={
-                      activeAdminTab === "corporate"
-                        ? "Search corporate bookings..."
-                        : "Search bookings"
-                    }
-                    className="h-11 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 pl-10 pr-4 text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition placeholder:text-zinc-500 focus:border-[#D8C36A]/70"
-                  />
-                </label>
               </div>
+              )}
 
               {(bookingCreatedDateFilter === "specific" ||
                 bookingCreatedDateFilter === "range") && (
@@ -44094,10 +44133,24 @@ export default function AdminDashboardPage() {
 	                              <span className="mt-2 inline-flex min-h-7 items-center rounded-full border border-[#D8C36A]/35 bg-[#D8C36A]/10 px-3 py-1 text-xs font-semibold uppercase text-[#F2D66C]">
 	                                Guests · {booking.partySize}
 	                              </span>
-                              <p className="mt-2 break-words text-xs text-zinc-400 sm:text-sm">
-                                Source: {bookingOriginLabels[booking.bookingOrigin ?? "legacy_unknown"]}
-                                {" · "}Created by: {getBookingCreatorLabel(booking)}
-                              </p>
+	                              <div className="mt-3 flex flex-wrap gap-2">
+	                                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${bookingStatusClasses[booking.status ?? "confirmed"]}`}>
+	                                  Booking: {bookingStatusLabels[booking.status ?? "confirmed"]}
+	                                </span>
+	                                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${paymentStatusClasses[financials.paymentStatus]}`}>
+	                                  Payment: {paymentStatusLabels[financials.paymentStatus]}
+	                                </span>
+	                                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${currentTable ? "border-emerald-300/35 bg-emerald-950/25 text-emerald-100" : "border-amber-300/35 bg-amber-950/25 text-amber-100"}`}>
+	                                  Seating: {currentTable ? "Table assigned" : "Table needed"}
+	                                </span>
+	                              </div>
+	                              <details className="mt-3 text-xs text-zinc-400">
+	                                <summary className="cursor-pointer font-semibold text-zinc-300">Booking source and history</summary>
+	                                <p className="mt-2 break-words">
+	                                  Source: {bookingOriginLabels[booking.bookingOrigin ?? "legacy_unknown"]}
+	                                  {" · "}Created by: {getBookingCreatorLabel(booking)}
+	                                </p>
+	                              </details>
                             </div>
                             <button
                               type="button"
@@ -44107,9 +44160,41 @@ export default function AdminDashboardPage() {
                               Close
                             </button>
                           </div>
-                          <div className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5">
-                    <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-zinc-400">
-                      <p>
+	                          <div className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5">
+                    <div className="rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#D8C36A]">Needs attention</p>
+                          <p className="mt-1 text-sm font-semibold text-white">
+                            {financials.balanceDue > 0
+                              ? `${formatCurrency(financials.balanceDue)} payment outstanding`
+                              : !currentTable && (booking.status ?? "confirmed") !== "cancelled"
+                                ? "This booking needs a table"
+                                : "No urgent action"}
+                          </p>
+                        </div>
+                        {financials.balanceDue > 0 ? (
+                          <a href={`#payment-controls-${booking.reference}`} className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#D8C36A] px-4 text-xs font-bold uppercase text-black transition hover:bg-[#F2D66C]">
+                            Review Payment
+                          </a>
+                        ) : !currentTable && (booking.status ?? "confirmed") !== "cancelled" ? (
+                          <a href="/admin?section=floor" className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#D8C36A] px-4 text-xs font-bold uppercase text-black transition hover:bg-[#F2D66C]">
+                            Open Floor
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                    <section className="mt-4 rounded-xl border border-white/10 bg-black/25 p-4" aria-labelledby={`booking-summary-${booking.reference}`}>
+                      <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500" id={`booking-summary-${booking.reference}`}>Booking summary</h4>
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                        <p><span className="block text-xs text-zinc-500">Total</span><strong className="text-white">{formatCurrency(financials.totalPrice)}</strong></p>
+                        <p><span className="block text-xs text-zinc-500">Paid</span><strong className="text-white">{formatCurrency(financials.amountPaid)}</strong></p>
+                        <p><span className="block text-xs text-zinc-500">Outstanding</span><strong className={financials.balanceDue > 0 ? "text-amber-200" : "text-white"}>{formatCurrency(financials.balanceDue)}</strong></p>
+                        <p><span className="block text-xs text-zinc-500">Guests</span><strong className="text-white">{booking.partySize}</strong></p>
+                      </div>
+                      <details className="mt-4 text-sm text-zinc-400">
+                        <summary className="cursor-pointer font-semibold text-zinc-300">Full price breakdown</summary>
+                        <p className="mt-3 leading-6">
                         {hasPayFastTransactionDetails ? "Booking Subtotal " : "Ticket "}
                         {formatCurrency(
                           hasPayFastTransactionDetails
@@ -44136,7 +44221,8 @@ export default function AdminDashboardPage() {
                         {formatCurrency(financials.amountPaid)}
                         {" · "}Outstanding{" "}
                         {formatCurrency(financials.balanceDue)}
-                      </p>
+                        </p>
+                      </details>
                     {(booking.addons ?? []).length > 0 && (
                         <p className="mt-2 text-[#D8C36A]">
                           Add-ons:{" "}
@@ -44145,7 +44231,7 @@ export default function AdminDashboardPage() {
                             .join(", ")}
                         </p>
                       )}
-                    </div>
+                    </section>
                     {isCorporateBooking && booking.corporatePaymentBasis && (
                       <div className="mt-4 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
@@ -44767,7 +44853,7 @@ export default function AdminDashboardPage() {
 
                     {canManageBookings && !bookingIsReadOnly ? (
                       <>
-                        <div className="mt-4 min-w-0 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
+                        <div id={`payment-controls-${booking.reference}`} className="mt-4 min-w-0 scroll-mt-4 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
                           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <div>
                               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -45264,27 +45350,23 @@ export default function AdminDashboardPage() {
                             )}
                           </div>
                         )}
-                        <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                              Show / Date
-                            </p>
-                            <p className="mt-1 text-sm text-zinc-300">
-                              Move this existing booking to another active performance without changing its identity, price, payment, or ticket.
-                            </p>
+                        <details className="mt-4 rounded-xl border border-white/10 bg-black/25 p-4">
+                          <summary className="cursor-pointer text-sm font-semibold text-zinc-200">More booking actions</summary>
+                          <div className="mt-4 flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Show / Date</p>
+                              <p className="mt-1 text-sm text-zinc-300">Move this booking to another active performance.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => openBookingShowTransfer(booking)}
+                              disabled={eligibleTransferShows.length === 0 || !isBookingEligibleForShowTransfer(booking.status)}
+                              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full border border-[#D8C36A]/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Move to Another Show
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => openBookingShowTransfer(booking)}
-                            disabled={
-                              eligibleTransferShows.length === 0 ||
-                              !isBookingEligibleForShowTransfer(booking.status)
-                            }
-                            className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full border border-[#D8C36A]/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            Move to Another Show
-                          </button>
-                        </div>
+                        </details>
                         {bookingShowTransfer?.bookingReference ===
                           booking.reference && (
                           <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/75 p-3 backdrop-blur-sm sm:items-center sm:p-5">

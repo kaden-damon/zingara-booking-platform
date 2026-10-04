@@ -20,6 +20,7 @@ type CompactBookingListProps = {
 const columns: Array<{ key?: CompactBookingSortKey; label: string }> = [
   { label: "Status" },
   { key: "name", label: "Customer" },
+  { key: "showDate", label: "Show" },
   { key: "pax", label: "Pax" },
   { key: "section", label: "Section" },
   { key: "table", label: "Table / Floor" },
@@ -31,7 +32,7 @@ const columns: Array<{ key?: CompactBookingSortKey; label: string }> = [
 ];
 
 const compactGridColumns =
-  "xl:grid-cols-[minmax(88px,0.7fr)_minmax(150px,1.55fr)_42px_minmax(96px,0.9fr)_minmax(96px,0.9fr)_minmax(82px,0.75fr)_minmax(86px,0.8fr)_minmax(86px,0.8fr)_minmax(96px,0.9fr)_minmax(96px,0.9fr)]";
+  "xl:grid-cols-[minmax(96px,0.8fr)_minmax(145px,1.35fr)_minmax(130px,1.1fr)_42px_minmax(90px,0.8fr)_minmax(90px,0.8fr)_minmax(78px,0.7fr)_minmax(82px,0.75fr)_minmax(82px,0.75fr)_minmax(92px,0.8fr)_minmax(92px,0.8fr)]";
 
 const statusDotClasses: Record<CompactBookingRow["statusTone"], string> = {
   amber: "bg-amber-300",
@@ -116,7 +117,7 @@ export function CompactBookingList({
                     className={`h-2 w-2 shrink-0 rounded-full ${statusDotClasses[row.statusTone]}`}
                   />
                   <span className="truncate text-[0.64rem] font-semibold uppercase text-zinc-300">
-                    {row.statusLabel}
+                    {row.attentionLabel ?? row.statusLabel}
                   </span>
                 </span>
 
@@ -187,6 +188,7 @@ export function CompactBookingList({
                   </span>
                 </span>
 
+                <span className="hidden truncate text-xs font-semibold text-zinc-300 xl:block">{row.showLabel}</span>
                 <span className="hidden text-sm font-bold text-white xl:block">{row.pax}</span>
                 <span className="hidden truncate text-xs font-semibold text-zinc-300 xl:block">{row.section}</span>
                 <span className="hidden truncate text-xs text-zinc-300 xl:block">{row.tableLabel}</span>
@@ -204,7 +206,7 @@ export function CompactBookingList({
 
                 <span className="mt-1 flex min-w-0 items-center justify-between gap-3 pl-4 text-[0.7rem] text-zinc-400 xl:hidden">
                   <span className="min-w-0 truncate">
-                    {row.tableLabel} · {row.paymentLabel} · Paid {row.amountPaidLabel}
+                    {row.showLabel} · {row.tableLabel} · {row.paymentLabel}
                     {row.balanceDue > 0 ? ` · ${row.balanceLabel}` : ""}
                   </span>
                   <span className="max-w-[42%] shrink-0 truncate font-mono text-zinc-500">

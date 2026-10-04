@@ -21,6 +21,7 @@ const row = (
   reference: "ZNG-ADA001",
   section: "Middle Ring",
   showDate: "2026-10-01",
+  showLabel: "Johannesburg · 1 October 2026 · 17:00",
   sourceLabel: "Online / Website",
   statusLabel: "Confirmed",
   statusTone: "green",

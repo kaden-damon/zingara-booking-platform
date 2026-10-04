@@ -122,7 +122,9 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
           <Steps>
             <li>Open Bookings.</li>
             <li>Use Create Booking for a new staff booking.</li>
+            <li>Compact view is the default. Switch to List or Grid when either view suits the task better.</li>
             <li>Search by guest, booking reference, email or another supported field.</li>
+            <li>Open Filters for show, date, source, creator, status or promo choices.</li>
             <li>Open Booking Details.</li>
             <li>Review booking, payment, table and ticket status before changing anything.</li>
             <li>Save only the required changes.</li>

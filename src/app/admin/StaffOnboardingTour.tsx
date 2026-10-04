@@ -93,7 +93,7 @@ export function StaffOnboardingTour() {
           {page.supporting && (
             <p className="mt-5 text-sm font-semibold text-[#F2D66C]">{page.supporting}</p>
           )}
-          {page.id === "help" && (
+          {page.id === "nothing-removed" && (
             <Link
               className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-[#F2D66C] underline underline-offset-4"
               href="/admin?section=academy"
@@ -139,7 +139,7 @@ export function StaffOnboardingTour() {
             }}
             type="button"
           >
-            {isLastPage ? (isSaving ? "Saving..." : "Get started") : "Next"}
+            {isLastPage ? (isSaving ? "Saving..." : "Got it") : "Next"}
           </button>
         </div>
       </section>
