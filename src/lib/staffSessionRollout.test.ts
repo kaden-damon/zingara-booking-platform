@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 // @ts-expect-error Node's built-in TypeScript test runner requires the extension.
@@ -30,4 +31,15 @@ test("accounts without a staff rollout cutoff are unchanged", () => {
     isStaffSessionCurrent(requestWithIssuedAt(1), { app_metadata: {} } as never),
     true,
   );
+});
+
+test("an invalidated staff token is cleared before returning to Admin login", () => {
+  const apiClient = readFileSync(
+    new URL("./supabase/apiClient.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(apiClient, /STAFF_SESSION_REFRESH_REQUIRED/);
+  assert.match(apiClient, /signOut\(\{ scope: "local" \}\)/);
+  assert.match(apiClient, /window\.location\.replace\("\/admin"\)/);
 });

@@ -69,6 +69,15 @@ export async function fetchSupabaseApi<T>(
       );
     }
 
+    if (
+      response.status === 401 &&
+      errorPayload.code === "STAFF_SESSION_REFRESH_REQUIRED" &&
+      typeof window !== "undefined"
+    ) {
+      await supabase?.auth.signOut({ scope: "local" });
+      window.location.replace("/admin");
+    }
+
     throw new SupabaseApiError({
       code: errorPayload.code,
       explanation: errorPayload.explanation,
