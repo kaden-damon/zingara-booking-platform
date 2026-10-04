@@ -35,6 +35,7 @@ type InvitationRow = {
   last_link_copied_at: string | null;
   recipient_email: string | null;
   recipient_name: string;
+  revision: number;
   sent_at: string | null;
   status: "active" | "expired" | "revoked" | "submitted";
   submitted_at: string | null;
@@ -67,6 +68,7 @@ function publicInvitation(row: InvitationRow) {
     id: row.id,
     invitationType: row.invitation_type,
     recipientName: row.recipient_name,
+    revision: row.revision,
     sentAt: row.sent_at,
     status: invitationStatus(row),
     submittedAt: row.submitted_at,
@@ -110,7 +112,7 @@ async function listInvitations(
 ) {
   const { data, error } = await serviceClient
     .from("review_invitations")
-    .select("id,invitation_type,recipient_name,recipient_email,status,expires_at,sent_at,submitted_at,last_link_copied_at,created_at,token_envelope")
+    .select("id,invitation_type,recipient_name,recipient_email,status,expires_at,sent_at,submitted_at,last_link_copied_at,created_at,token_envelope,revision")
     .eq("booking_id", bookingId)
     .in("invitation_type", ["manual_email", "manual_link"])
     .order("created_at", { ascending: false });
@@ -150,10 +152,11 @@ async function saveInvitation(input: {
   if (normalizedEmail) {
     const result = await input.serviceClient
       .from("review_invitations")
-      .select("id,invitation_type,recipient_name,recipient_email,status,expires_at,sent_at,submitted_at,last_link_copied_at,created_at,token_envelope")
+      .select("id,invitation_type,recipient_name,recipient_email,status,expires_at,sent_at,submitted_at,last_link_copied_at,created_at,token_envelope,revision")
       .eq("booking_id", input.bookingId)
       .eq("invitation_type", "manual_email")
       .eq("normalized_email", normalizedEmail)
+      .in("status", ["active", "submitted"])
       .maybeSingle();
     if (result.error) throw result.error;
     existing = result.data as InvitationRow | null;
@@ -196,7 +199,7 @@ async function saveInvitation(input: {
     ? input.serviceClient.from("review_invitations").update(values).eq("id", existing.id)
     : input.serviceClient.from("review_invitations").insert(values);
   const { data, error } = await query
-    .select("id,invitation_type,recipient_name,recipient_email,status,expires_at,sent_at,submitted_at,last_link_copied_at,created_at,token_envelope")
+    .select("id,invitation_type,recipient_name,recipient_email,status,expires_at,sent_at,submitted_at,last_link_copied_at,created_at,token_envelope,revision")
     .single();
   if (error?.code === "23505" && normalizedEmail) {
     throw new Error("REVIEW_ALREADY_SENT");
@@ -271,11 +274,12 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as {
-      action?: "copy_existing" | "create_link" | "send_email";
+      action?: "copy_existing" | "create_link" | "revoke" | "send_email";
       bookingReference?: string;
       email?: unknown;
       invitationId?: string;
       name?: unknown;
+      revision?: number;
     };
     const reference = body.bookingReference?.trim().toUpperCase() ?? "";
     if (!reference || !body.action) {
@@ -286,6 +290,72 @@ export async function POST(request: Request) {
     if (!hasVenueAccess(auth.staffProfile.venue_scope, context.show.venue)) {
       return Response.json({ error: "You do not have access to this venue." }, { status: 403 });
     }
+    const limit = await checkRateLimit(
+      request,
+      { limit: manualReviewInvitationLimitPerHour, scope: "manual_review_invitation", windowSeconds: 3600 },
+      [auth.staffProfile.id, context.booking.id],
+      auth.serviceClient,
+    );
+    if (!limit.allowed) return rateLimitResponse(limit.retryAfterSeconds);
+
+    if (body.action === "revoke") {
+      if (!body.invitationId || !Number.isInteger(body.revision) || Number(body.revision) < 1) {
+        return Response.json({ error: "Invitation revision is required." }, { status: 400 });
+      }
+      const { data, error: revokeError } = await auth.serviceClient.rpc(
+        "revoke_manual_review_invitation_atomic",
+        {
+          p_actor_staff_profile_id: auth.staffProfile.id,
+          p_booking_id: context.booking.id,
+          p_expected_revision: body.revision,
+          p_invitation_id: body.invitationId,
+        },
+      );
+      if (revokeError) {
+        if (revokeError.message.includes("REVIEW_INVITATION_ALREADY_SUBMITTED")) {
+          return Response.json(
+            { error: "A review has already been submitted from this invitation." },
+            { status: 409 },
+          );
+        }
+        if (revokeError.message.includes("REVIEW_INVITATION_STALE_REVISION")) {
+          return Response.json(
+            { error: "This invitation changed. Refresh and try again." },
+            { status: 409 },
+          );
+        }
+        if (revokeError.message.includes("REVIEW_INVITATION_NOT_FOUND")) {
+          return Response.json({ error: "Invitation not found." }, { status: 404 });
+        }
+        throw revokeError;
+      }
+      const result = data as { idempotent?: boolean; revision?: number; status?: string } | null;
+      if (!result?.idempotent) {
+        await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+          action: "manual_review_invitation_revoked",
+          afterValues: {
+            invitationId: body.invitationId,
+            invitationType: "manual",
+            status: result?.status ?? "revoked",
+          },
+          beforeValues: {},
+          changedFields: ["reviewInvitationStatus"],
+          entityId: context.booking.id,
+          entityLocation: context.show.venue,
+          entityReference: context.booking.booking_reference,
+          entityType: "booking",
+          outcome: "success",
+          request,
+          sourceArea: "Booking Details",
+        });
+      }
+      return Response.json({
+        idempotent: result?.idempotent === true,
+        revision: result?.revision,
+        status: "Revoked",
+      });
+    }
+
     const eligibilityReason = getManualReviewEligibilityReason({
       archivedAt: context.booking.archived_at,
       bookingReference: context.booking.booking_reference,
@@ -297,14 +367,6 @@ export async function POST(request: Request) {
     if (eligibilityReason) {
       return Response.json({ error: "Review invitations are only available for eligible completed bookings." }, { status: 409 });
     }
-
-    const limit = await checkRateLimit(
-      request,
-      { limit: manualReviewInvitationLimitPerHour, scope: "manual_review_invitation", windowSeconds: 3600 },
-      [auth.staffProfile.id, context.booking.id],
-      auth.serviceClient,
-    );
-    if (!limit.allowed) return rateLimitResponse(limit.retryAfterSeconds);
 
     if (body.action === "copy_existing") {
       if (!body.invitationId) return Response.json({ error: "Invitation is required." }, { status: 400 });
@@ -419,7 +481,7 @@ export async function POST(request: Request) {
       .from("review_invitations")
       .update({ sent_at: sentAt, updated_at: sentAt })
       .eq("id", saved.invitation.id)
-      .select("id,invitation_type,recipient_name,recipient_email,status,expires_at,sent_at,submitted_at,last_link_copied_at,created_at,token_envelope")
+      .select("id,invitation_type,recipient_name,recipient_email,status,expires_at,sent_at,submitted_at,last_link_copied_at,created_at,token_envelope,revision")
       .single();
     if (updateError) throw updateError;
     await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {

@@ -108,3 +108,50 @@ test("manual invitation migration changes review grain without weakening verifie
   assert.match(sql, /v_review\.verified_guest/);
   assert.doesNotMatch(sql, /delete from public\.(review_invitations|guest_reviews)/i);
 });
+
+test("manual invitation revocation is atomic, idempotent and preserves history", async () => {
+  const sql = await readFile(
+    `${root}/supabase/migrations/20261004223000_phase_43_5a_review_invitation_revocation.sql`,
+    "utf8",
+  );
+  assert.match(sql, /revoke_manual_review_invitation_atomic/);
+  assert.match(sql, /for update/);
+  assert.match(sql, /REVIEW_INVITATION_STALE_REVISION/);
+  assert.match(sql, /REVIEW_INVITATION_ALREADY_SUBMITTED/);
+  assert.match(sql, /if v_invitation\.status = 'revoked'[\s\S]*'idempotent', true/);
+  assert.match(sql, /status = 'revoked'/);
+  assert.match(sql, /revoked_at = v_now/);
+  assert.match(sql, /revision = revision \+ 1/);
+  assert.match(sql, /manual_review_invitation_revoked/);
+  assert.match(sql, /status in \('active', 'submitted'\)/);
+  assert.doesNotMatch(sql, /delete from public\.review_invitations/i);
+  assert.doesNotMatch(sql, /token_hash.*metadata|token_envelope.*metadata/i);
+});
+
+test("revocation API remains booking, permission and venue scoped", async () => {
+  const route = await readFile(
+    `${root}/src/app/api/admin/bookings/review-invitations/route.ts`,
+    "utf8",
+  );
+  assert.match(route, /action\?: "copy_existing" \| "create_link" \| "revoke" \| "send_email"/);
+  assert.match(route, /revoke_manual_review_invitation_atomic/);
+  assert.match(route, /p_booking_id: context\.booking\.id/);
+  assert.match(route, /p_expected_revision: body\.revision/);
+  assert.match(route, /REVIEW_INVITATION_ALREADY_SUBMITTED/);
+  assert.match(route, /REVIEW_INVITATION_STALE_REVISION/);
+  assert.match(route, /manual_review_invitation_revoked/);
+  assert.match(route, /permissions\.includes\("bookings:manage"\)/);
+  assert.match(route, /permissions\.includes\("communications:manage"\)/);
+  assert.match(route, /hasVenueAccess/);
+  assert.match(route, /\.in\("status", \["active", "submitted"\]\)/);
+  assert.doesNotMatch(route, /delete\(\).*review_invitations|from\("review_invitations"\)\.delete/s);
+});
+
+test("Booking Details exposes compact revoke controls without review deletion", async () => {
+  const panel = await readFile(`${root}/src/app/admin/BookingReviewInvitations.tsx`, "utf8");
+  assert.match(panel, />\s*Revoke\s*</);
+  assert.match(panel, /action: "revoke"/);
+  assert.match(panel, /revision: invitation\.revision/);
+  assert.match(panel, /Review invitation revoked/);
+  assert.doesNotMatch(panel, /delete review|remove review/i);
+});

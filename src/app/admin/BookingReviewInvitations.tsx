@@ -8,6 +8,7 @@ type Invitation = {
   id: string;
   invitationType: "manual_email" | "manual_link";
   recipientName: string;
+  revision: number;
   sentAt: string | null;
   status: string;
   submittedAt: string | null;
@@ -28,7 +29,7 @@ export default function BookingReviewInvitations({ bookingReference }: Props) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState<"copy" | "send" | "">("");
+  const [busy, setBusy] = useState<"copy" | "revoke" | "send" | "">("");
   const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
@@ -97,6 +98,29 @@ export default function BookingReviewInvitations({ bookingReference }: Props) {
     }
   }
 
+  async function revoke(invitation: Invitation) {
+    if (!window.confirm(`Revoke the review invitation for ${invitation.recipientName}?`)) return;
+    setBusy("revoke");
+    setMessage("");
+    try {
+      await fetchSupabaseApi("/api/admin/bookings/review-invitations", {
+        body: {
+          action: "revoke",
+          bookingReference,
+          invitationId: invitation.id,
+          revision: invitation.revision,
+        },
+        method: "POST",
+      });
+      setMessage("Review invitation revoked.");
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The review invitation could not be revoked.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   if (!data) return null;
   if (!data.eligible && data.invitations.length === 0) return null;
 
@@ -138,16 +162,28 @@ export default function BookingReviewInvitations({ bookingReference }: Props) {
                 <span className="font-semibold text-white">{invitation.recipientName}</span>
                 {" · "}{invitation.status}
               </p>
-              {!["Expired", "Review received", "Revoked"].includes(invitation.status) && (
-                <button
-                  className="text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] hover:text-white disabled:opacity-50"
-                  disabled={busy === "copy"}
-                  onClick={() => void copyExisting(invitation.id)}
-                  type="button"
-                >
-                  Copy Link
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                {!["Expired", "Review received", "Revoked"].includes(invitation.status) && (
+                  <button
+                    className="text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] hover:text-white disabled:opacity-50"
+                    disabled={busy !== ""}
+                    onClick={() => void copyExisting(invitation.id)}
+                    type="button"
+                  >
+                    Copy Link
+                  </button>
+                )}
+                {!["Review received", "Revoked"].includes(invitation.status) && (
+                  <button
+                    className="text-xs font-semibold uppercase tracking-[0.08em] text-rose-300 hover:text-white disabled:opacity-50"
+                    disabled={busy !== ""}
+                    onClick={() => void revoke(invitation)}
+                    type="button"
+                  >
+                    Revoke
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
