@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { isReviewPerformanceAfterActivation } from "./automatedWorkflows.ts";
+import {
+  collectWorkflowRows,
+  isReviewPerformanceAfterActivation,
+} from "./automatedWorkflows.ts";
 
 const root = process.cwd();
 const workflowPath = `${root}/src/lib/workflows/automatedWorkflows.ts`;
@@ -23,6 +26,35 @@ test("review activation boundary is based on performance time, not a later ticke
       activatedAt,
     ),
     true,
+  );
+});
+
+test("workflow datasets page beyond the Supabase 1,000-row response limit", async () => {
+  const source = Array.from({ length: 2_105 }, (_, index) => index + 1);
+  const requests: Array<[number, number]> = [];
+  const rows = await collectWorkflowRows(async (from, to) => {
+    requests.push([from, to]);
+    return {
+      data: source.slice(from, to + 1),
+      error: null,
+    };
+  });
+
+  assert.deepEqual(requests, [
+    [0, 999],
+    [1000, 1999],
+    [2000, 2999],
+  ]);
+  assert.deepEqual(rows, source);
+});
+
+test("workflow dataset pagination fails closed when any page fails", async () => {
+  await assert.rejects(
+    collectWorkflowRows(async (from) => ({
+      data: from === 0 ? Array.from({ length: 1000 }, () => "row") : null,
+      error: from === 0 ? null : { message: "page failed" },
+    })),
+    /page failed/,
   );
 });
 

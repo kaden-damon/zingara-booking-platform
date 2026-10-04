@@ -126,6 +126,30 @@ type EligibleWorkflowBooking = {
 
 export const workflowTimezone = "Africa/Johannesburg" as const;
 export const controlledWorkflowRecipient = "kaden@kaden.co.za";
+export const workflowDatasetPageSize = 1000;
+
+export async function collectWorkflowRows<T>(
+  fetchPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message?: string } | null }>,
+  pageSize = workflowDatasetPageSize,
+) {
+  const rows: T[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await fetchPage(from, from + pageSize - 1);
+
+    if (error) {
+      throw new Error(error.message ?? "Workflow dataset could not be loaded.");
+    }
+
+    const page = data ?? [];
+    rows.push(...page);
+
+    if (page.length < pageSize) return rows;
+  }
+}
 
 export const defaultWorkflowConfigurations: AutomatedWorkflowConfiguration[] = [
   {
@@ -627,47 +651,58 @@ function evaluateWorkflow(
 async function loadWorkflowDataset(supabase: SupabaseClient) {
   const [
     configurations,
-    { data: bookingRows, error: bookingsError },
-    { data: showRows, error: showsError },
-    { data: customerRows, error: customersError },
-    { data: communicationRows, error: communicationsError },
-    { data: reviewRows, error: reviewsError },
-    { data: ticketRows, error: ticketsError },
+    bookingRows,
+    showRows,
+    customerRows,
+    communicationRows,
+    reviewRows,
+    ticketRows,
   ] = await Promise.all([
     loadWorkflowConfigurations(supabase),
-    supabase
-      .from("bookings")
-      .select(
-        "id,customer_id,show_id,booking_reference,booking_status,payment_status,guest_count,section,total_amount,amount_paid,balance_outstanding,archived_at,table_id",
-      ),
-    supabase.from("shows").select("id,name,date,time,venue,status"),
-    supabase.from("customers").select("id,email,first_name,surname"),
-    supabase
-      .from("communications")
-      .select("booking_id,type,status")
-      .in("type", ["show_reminder", "post_show_review"]),
-    supabase.from("guest_reviews").select("booking_id"),
-    supabase.from("tickets").select("booking_id,ticket_status,updated_at"),
+    collectWorkflowRows<BookingRow>((from, to) =>
+      supabase
+        .from("bookings")
+        .select(
+          "id,customer_id,show_id,booking_reference,booking_status,payment_status,guest_count,section,total_amount,amount_paid,balance_outstanding,archived_at,table_id",
+        )
+        .range(from, to),
+    ),
+    collectWorkflowRows<ShowRow>((from, to) =>
+      supabase
+        .from("shows")
+        .select("id,name,date,time,venue,status")
+        .range(from, to),
+    ),
+    collectWorkflowRows<CustomerRow>((from, to) =>
+      supabase
+        .from("customers")
+        .select("id,email,first_name,surname")
+        .range(from, to),
+    ),
+    collectWorkflowRows<CommunicationRow>((from, to) =>
+      supabase
+        .from("communications")
+        .select("booking_id,type,status")
+        .in("type", ["show_reminder", "post_show_review"])
+        .range(from, to),
+    ),
+    collectWorkflowRows<{ booking_id: string }>((from, to) =>
+      supabase.from("guest_reviews").select("booking_id").range(from, to),
+    ),
+    collectWorkflowRows<TicketRow>((from, to) =>
+      supabase
+        .from("tickets")
+        .select("booking_id,ticket_status,updated_at")
+        .range(from, to),
+    ),
   ]);
 
-  const error =
-    bookingsError ??
-    showsError ??
-    customersError ??
-    communicationsError ??
-    reviewsError ??
-    ticketsError;
-
-  if (error) {
-    throw error;
-  }
-
   return {
-    bookings: (bookingRows ?? []) as BookingRow[],
-    communications: (communicationRows ?? []) as CommunicationRow[],
+    bookings: bookingRows,
+    communications: communicationRows,
     configurations,
     customers: new Map(
-      ((customerRows ?? []) as CustomerRow[]).map((customer) => [
+      customerRows.map((customer) => [
         customer.id,
         customer,
       ]),
@@ -675,8 +710,8 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
     reviewedBookingIds: new Set(
       (reviewRows ?? []).map((review) => review.booking_id as string),
     ),
-    shows: new Map(((showRows ?? []) as ShowRow[]).map((show) => [show.id, show])),
-    tickets: (ticketRows ?? []) as TicketRow[],
+    shows: new Map(showRows.map((show) => [show.id, show])),
+    tickets: ticketRows,
   };
 }
 
