@@ -4,16 +4,19 @@ import {
   type DemoVenueSettings,
   type GuestTicket,
   createGuestTicketCode,
-  defaultVenueSettings,
   getDisplayZoneTitle,
   getZoneSectionLookupTitles,
   getGuestTicketsForBooking,
   getTicketUrl,
-  normalizeVenueSettings,
   normalizeShowLocation,
   normalizeTicketReference,
   seatingZones,
 } from "@/lib/zingaraDemo";
+import {
+  resolveTicketTableColour,
+  resolveTicketVenueSettings,
+  type TicketVenueSettingsRow,
+} from "@/lib/ticketPresentation";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -64,12 +67,6 @@ type SupabaseTicketRow = {
   ticket_status: "cancelled" | "checked_in" | "expired" | "issued" | "refunded" | "valid" | "void";
   ticket_url: string | null;
   updated_at?: string;
-};
-
-type SupabaseVenueSettingsRow = {
-  name: string;
-  settings: DemoVenueSettings | null;
-  venue_key: string;
 };
 
 const terminalTicketStatuses = new Set<SupabaseTicketRow["ticket_status"]>([
@@ -149,78 +146,6 @@ function getGuestFacingTicketPayload(payload: TicketPayload) {
       tableNumber,
     },
   };
-}
-
-function toVenueSettings(row: SupabaseVenueSettingsRow | null | undefined) {
-  const normalizedSettings = normalizeVenueSettings(row?.settings);
-
-  return {
-    ...normalizedSettings,
-    venueId:
-      row?.venue_key ??
-      normalizedSettings.venueId ??
-      defaultVenueSettings.venueId,
-    venueName:
-      row?.name ??
-      normalizedSettings.venueName ??
-      defaultVenueSettings.venueName,
-  };
-}
-
-function getTableColour(booking: DemoBooking) {
-  const zone =
-    seatingZones.find((item) => item.id === booking.zoneId) ??
-    seatingZones.find((item) => {
-      const normalizedBookingZoneTitle = booking.zoneTitle.trim().toLowerCase();
-
-      return getZoneSectionLookupTitles(item.id, item.title)
-        .map((title) => title.toLowerCase())
-        .includes(normalizedBookingZoneTitle);
-    });
-
-  if (!zone) {
-    return {
-      background: "#111111",
-      border: "#D8C36A",
-      label: "Zingara Gold",
-    };
-  }
-
-  const colourMap: Record<string, { background: string; border: string; label: string }> = {
-    "elevated-stage": {
-      background: "#4D4213",
-      border: "#8D7A2F",
-      label: "Elevated Stage Gold",
-    },
-    "golden-circle": {
-      background: "#4A0D2B",
-      border: "#8F4B68",
-      label: "Golden Circle Plum",
-    },
-    "middle-ring": {
-      background: "#0F5C4D",
-      border: "#3A9D8B",
-      label: "Middle Ring Emerald",
-    },
-    "royal-balcony": {
-      background: "#3B1B52",
-      border: "#8C62A8",
-      label: "Royal Balcony Violet",
-    },
-    "royal-booths": {
-      background: "#5B001B",
-      border: "#A34063",
-      label: "Private Booths Ruby",
-    },
-  };
-
-  return (
-    colourMap[zone.id] ?? {
-      background: "#111111",
-      border: "#D8C36A",
-      label: zone.title,
-    }
-  );
 }
 
 function ensureBookingGuestTickets(
@@ -482,8 +407,8 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
   const showLocation = normalizeShowLocation(
     show?.location ?? show?.venue ?? show?.venueName,
   );
-  const venueSettings = toVenueSettings(
-    venueRow as SupabaseVenueSettingsRow | null,
+  const venueSettings = resolveTicketVenueSettings(
+    venueRow as TicketVenueSettingsRow | null,
   );
   const secretPassword =
     show && showLocation
@@ -511,7 +436,7 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
           location: showLocation ?? show.location,
         }
       : null,
-    tableColour: getTableColour(booking),
+    tableColour: resolveTicketTableColour(booking),
     secretPassword,
     venueSettings,
   };

@@ -7,6 +7,11 @@ import YourEvening from "../../components/YourEvening";
 import type { ResolvedSecretPassword } from "../../../lib/secretPassword";
 import AgeRestrictionNotice from "../../components/AgeRestrictionNotice";
 import { registerZingaraPushSubscription } from "../../../lib/browserNotifications";
+import { isAuthoritativeCorporateBooking } from "../../../lib/bookingClassification";
+import {
+  fetchSupabaseApi,
+  fetchSupabaseBlob,
+} from "../../../lib/supabase/apiClient";
 import {
   createDownloadableTicketPdf,
   resolveDownloadableTicketPdfInput,
@@ -111,6 +116,8 @@ export default function LiveTicketClient({
     useState<Record<string, string>>({});
   const [hasAutoDownloaded, setHasAutoDownloaded] = useState(false);
   const [bookingUpdatesStatus, setBookingUpdatesStatus] = useState("");
+  const [bulkTicketCount, setBulkTicketCount] = useState(0);
+  const [bulkDownloadStatus, setBulkDownloadStatus] = useState("");
   const venueConfig = payload?.venueSettings ?? defaultVenueSettings;
   const booking = payload?.booking ?? null;
   const activeTicket = payload?.activeTicket ?? null;
@@ -161,6 +168,8 @@ export default function LiveTicketClient({
   async function loadTicketData(nextReference = reference) {
     setIsLoading(true);
     setError("");
+    setBulkTicketCount(0);
+    setBulkDownloadStatus("");
 
     try {
       const response = await fetch(
@@ -232,6 +241,48 @@ export default function LiveTicketClient({
     // Downloading is intentionally triggered only by the explicit URL flag.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTicket?.ticketCode, hasAutoDownloaded]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (
+      !booking ||
+      !isAuthoritativeCorporateBooking({
+        bookingOrigin: booking.bookingOrigin,
+        bookingSource: booking.source,
+        corporateRequestId: booking.corporateRequestId,
+      }) ||
+      (booking.guestTickets?.length ?? 0) < 2
+    ) {
+      return () => {
+        active = false;
+      };
+    }
+
+    void fetchSupabaseApi<{ available: boolean; count: number }>(
+      `/api/admin/tickets/${encodeURIComponent(booking.reference)}/download-all?manifest=1`,
+      { cache: "no-store" },
+    )
+      .then((manifest) => {
+        if (active) {
+          setBulkTicketCount(manifest.available ? manifest.count : 0);
+          setBulkDownloadStatus(
+            manifest.available
+              ? ""
+              : "No valid tickets are available to download.",
+          );
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setBulkTicketCount(0);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [booking]);
 
   const handleTicketExit = () => {
     const safeReturnTo =
@@ -440,6 +491,38 @@ export default function LiveTicketClient({
     }
   }
 
+  async function downloadAllTickets() {
+    if (!booking || bulkTicketCount < 1) {
+      return;
+    }
+
+    setBulkDownloadStatus("Preparing ticket ZIP...");
+
+    try {
+      const zip = await fetchSupabaseBlob(
+        `/api/admin/tickets/${encodeURIComponent(booking.reference)}/download-all`,
+      );
+      const url = URL.createObjectURL(zip);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = `${booking.reference}-All-Tickets.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+      setBulkDownloadStatus(
+        `${bulkTicketCount} valid ${bulkTicketCount === 1 ? "ticket" : "tickets"} downloaded.`,
+      );
+    } catch (downloadError) {
+      setBulkDownloadStatus(
+        downloadError instanceof Error
+          ? downloadError.message
+          : "Tickets could not be prepared for download.",
+      );
+    }
+  }
+
   return (
     <main className="min-h-screen bg-black px-5 py-10 text-white">
       <header className="mx-auto mb-6 flex max-w-4xl justify-start">
@@ -478,28 +561,45 @@ export default function LiveTicketClient({
                 Individual guest tickets for attendance and check-in.
               </p>
             </div>
-            {booking && booking.partySize > 1 && (
-              <button
-                type="button"
-                onClick={() => setIsCustomising((current) => !current)}
-                className="rounded-full border border-[#D8C36A]/40 px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
-              >
-                Customise Tickets
-              </button>
-            )}
-            {booking && (
-              <button
-                type="button"
-                onClick={() => void enableBookingUpdates()}
-                className="rounded-full border border-[#D8C36A]/40 px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
-              >
-                Get Booking Updates
-              </button>
-            )}
+            <div className="flex flex-wrap gap-3 sm:max-w-md sm:justify-end">
+              {booking && booking.partySize > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setIsCustomising((current) => !current)}
+                  className="rounded-full border border-[#D8C36A]/40 px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                >
+                  Customise Tickets
+                </button>
+              )}
+              {bulkTicketCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void downloadAllTickets()}
+                  disabled={bulkDownloadStatus === "Preparing ticket ZIP..."}
+                  className="rounded-full border border-[#D8C36A]/40 px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-wait disabled:opacity-50"
+                >
+                  Download All Tickets
+                </button>
+              )}
+              {booking && (
+                <button
+                  type="button"
+                  onClick={() => void enableBookingUpdates()}
+                  className="rounded-full border border-[#D8C36A]/40 px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                >
+                  Get Booking Updates
+                </button>
+              )}
+            </div>
           </div>
           {bookingUpdatesStatus && (
             <p className="mt-4 text-sm font-semibold text-emerald-300">
               {bookingUpdatesStatus}
+            </p>
+          )}
+          {bulkDownloadStatus && (
+            <p className="mt-4 text-sm font-semibold text-[#F3E5A0]">
+              {bulkDownloadStatus}
             </p>
           )}
         </div>

@@ -92,7 +92,7 @@ export function formatTicketDisplayDate(dateValue: string | undefined) {
 
 function dataUrlToBytes(dataUrl: string) {
   const base64 = dataUrl.split(",")[1] ?? "";
-  const binary = window.atob(base64);
+  const binary = globalThis.atob(base64);
   const bytes = new Uint8Array(binary.length);
 
   for (let index = 0; index < binary.length; index += 1) {
@@ -102,7 +102,7 @@ function dataUrlToBytes(dataUrl: string) {
   return bytes;
 }
 
-function createImagePdfBlob({
+function createImagePdfBytes({
   imageDataUrl,
   imageHeight,
   imageWidth,
@@ -117,15 +117,12 @@ function createImagePdfBlob({
 }) {
   const encoder = new TextEncoder();
   const imageBytes = dataUrlToBytes(imageDataUrl);
-  const chunks: BlobPart[] = [];
+  const chunks: Uint8Array[] = [];
   const offsets: number[] = [];
   let byteLength = 0;
 
   function addChunk(bytes: Uint8Array) {
-    const chunk = new ArrayBuffer(bytes.byteLength);
-
-    new Uint8Array(chunk).set(bytes);
-    chunks.push(chunk);
+    chunks.push(bytes);
     byteLength += bytes.length;
   }
 
@@ -175,10 +172,35 @@ function createImagePdfBlob({
     `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`,
   );
 
-  return new Blob(chunks, { type: "application/pdf" });
+  const pdf = new Uint8Array(byteLength);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    pdf.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return pdf;
 }
 
-function loadImage(src: string) {
+export type TicketPdfRenderImage = CanvasImageSource & {
+  height: number;
+  width: number;
+};
+
+export type TicketPdfRenderCanvas = {
+  getContext(contextId: "2d"): CanvasRenderingContext2D | null;
+  height: number;
+  toDataURL(type?: string, quality?: number): string;
+  width: number;
+};
+
+export type TicketPdfRenderRuntime = {
+  createCanvas(width: number, height: number): TicketPdfRenderCanvas;
+  loadImage(src: string): Promise<TicketPdfRenderImage | null>;
+};
+
+function loadBrowserImage(src: string) {
   return new Promise<HTMLImageElement | null>((resolve) => {
     const image = new Image();
 
@@ -191,7 +213,7 @@ function loadImage(src: string) {
 
 function drawContainImage(
   context: CanvasRenderingContext2D,
-  image: HTMLImageElement,
+  image: TicketPdfRenderImage,
   x: number,
   y: number,
   width: number,
@@ -448,18 +470,16 @@ export function resolveDownloadableTicketPdfInput(
   };
 }
 
-export async function createDownloadableTicketPdf(
+export async function createDownloadableTicketPdfBytes(
   input: DownloadableTicketPdfInput,
+  runtime: TicketPdfRenderRuntime,
 ) {
-  const canvas = document.createElement("canvas");
+  const canvas = runtime.createCanvas(ticketCanvas.width, ticketCanvas.height);
   const context = canvas.getContext("2d");
 
   if (!context) {
     throw new Error("Ticket renderer is unavailable.");
   }
-
-  canvas.width = ticketCanvas.width;
-  canvas.height = ticketCanvas.height;
 
   const venueCopy = getVenueCopy(input.location);
   const guestName = requireTicketText("guest name", input.guestName);
@@ -483,8 +503,8 @@ export async function createDownloadableTicketPdf(
     throw new Error("Ticket PDF is missing valid ticket numbering.");
   }
 
-  const artwork = await loadImage(venueCopy.artworkUrl);
-  const stamp = await loadImage(zingaraStampUrl);
+  const artwork = await runtime.loadImage(venueCopy.artworkUrl);
+  const stamp = await runtime.loadImage(zingaraStampUrl);
   const qrDataUrl = await QRCode.toDataURL(ticketCode, {
     color: { dark: "#000000", light: "#FFFFFF" },
     errorCorrectionLevel: "M",
@@ -493,7 +513,7 @@ export async function createDownloadableTicketPdf(
     type: "image/png",
     width: 350,
   });
-  const qrImage = await loadImage(qrDataUrl);
+  const qrImage = await runtime.loadImage(qrDataUrl);
   const centre = ticketCanvas.width / 2;
 
   context.imageSmoothingEnabled = true;
@@ -725,11 +745,28 @@ export async function createDownloadableTicketPdf(
 
   const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.96);
 
-  return createImagePdfBlob({
+  return createImagePdfBytes({
     imageDataUrl: jpegDataUrl,
     imageHeight: ticketCanvas.height,
     imageWidth: ticketCanvas.width,
     pageHeight: ticketPdfPage.height,
     pageWidth: ticketPdfPage.width,
   });
+}
+
+export async function createDownloadableTicketPdf(
+  input: DownloadableTicketPdfInput,
+) {
+  const bytes = await createDownloadableTicketPdfBytes(input, {
+    createCanvas(width, height) {
+      const canvas = document.createElement("canvas");
+
+      canvas.width = width;
+      canvas.height = height;
+      return canvas;
+    },
+    loadImage: loadBrowserImage,
+  });
+
+  return new Blob([bytes], { type: "application/pdf" });
 }

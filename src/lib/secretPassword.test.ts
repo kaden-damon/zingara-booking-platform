@@ -251,6 +251,10 @@ test("guest delivery uses non-blocking enrichment and does not alter QR, serial,
 test("legacy venue settings and resolver errors cannot block guest delivery", () => {
   const resolver = readFileSync("src/lib/secretPassword.ts", "utf8");
   const ticketRoute = readFileSync("src/app/api/tickets/[reference]/route.ts", "utf8");
+  const ticketPresentation = readFileSync(
+    "src/lib/ticketPresentation.ts",
+    "utf8",
+  );
   assert.match(
     resolver,
     /operationalSettings\?\.secretPasswordExperience\?\.\[/,
@@ -259,7 +263,10 @@ test("legacy venue settings and resolver errors cannot block guest delivery", ()
     resolver,
     /resolveOptionalServerSecretPassword[\s\S]*try[\s\S]*catch[\s\S]*return null/,
   );
-  assert.match(ticketRoute, /normalizeVenueSettings\(row\?\.settings\)/);
+  assert.match(
+    `${ticketRoute}\n${ticketPresentation}`,
+    /normalizeVenueSettings\(row\?\.settings\)/,
+  );
 });
 
 test("secret password remains theatrical and isolated from booking business state", () => {

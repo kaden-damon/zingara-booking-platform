@@ -27,6 +27,9 @@ const nextConfig: NextConfig = {
     ];
   },
   outputFileTracingIncludes: {
+    "/api/admin/tickets/[reference]/download-all": [
+      "public/brand/tickets/*.png",
+    ],
     "/api/admin/analytics/daily": [
       "src/templates/Zingara_Daily_Analytics_Master_Template.xlsx",
     ],
@@ -42,7 +45,12 @@ const nextConfig: NextConfig = {
   },
   poweredByHeader: false,
   reactCompiler: true,
-  serverExternalPackages: ["exceljs", "passkit-generator", "pdf-parse"],
+  serverExternalPackages: [
+    "@napi-rs/canvas",
+    "exceljs",
+    "passkit-generator",
+    "pdf-parse",
+  ],
 };
 
 export default nextConfig;
