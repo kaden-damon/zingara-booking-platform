@@ -130,14 +130,14 @@ test("assignment RPC is service-role-only, atomic, capacity-safe, and preserves 
   );
 });
 
-test("release clears the complete claim set and returns the booking to Floor Assignment", () => {
+test("release clears the complete claim set and returns the booking to Needs a table", () => {
   assert.match(
     migration,
     /update public\.show_tables set booking_id=null[\s\S]*where booking_id=v_booking\.id/,
   );
   assert.match(migration, /update public\.bookings set table_id=null/);
-  assert.match(adminPage, /RELEASE COMPLETE ASSIGNMENT/);
-  assert.match(adminPage, /return to Floor Assignment/);
+  assert.match(adminPage, /REMOVE TABLE ASSIGNMENT/);
+  assert.match(adminPage, /returns to Needs a table/);
 });
 
 test("Admin hydration and reports treat all claims as one booking", () => {
@@ -156,8 +156,8 @@ test("reviewed suggestion, stale state, and duplicate submission are guarded", (
   assert.match(route, /isExactIdempotentReplay/);
   assert.match(route, /FLOOR PLAN CHANGED - REVIEW AGAIN/);
   assert.match(adminPage, /floorAssignmentInFlightRef\.current\.has/);
-  assert.match(adminPage, /ASSIGN SUGGESTED TABLES/);
-  assert.match(adminPage, /CONFIRM ASSIGNMENT/);
+  assert.match(adminPage, /ASSIGN TABLES/);
+  assert.match(adminPage, /getAssignmentSafetyCopy/);
   assert.match(adminPage, /ASSIGNING TABLES\.\.\./);
   assert.match(adminPage, /ASSIGNED ✓/);
   assert.match(adminPage, /corporateTableAssignmentError/);

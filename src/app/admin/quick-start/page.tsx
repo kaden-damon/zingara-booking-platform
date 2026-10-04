@@ -183,9 +183,12 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
       content: (
         <div className="space-y-3 text-sm leading-6 text-zinc-300">
           <p><strong className="text-white">Needs a table:</strong> confirmed guests who have not been assigned a table.</p>
-          <p><strong className="text-white">Assign recommended tables:</strong> uses compatible tables and keeps valid staff assignments.</p>
+          <p><strong className="text-white">Find tables:</strong> reviews the current Floor and suggests compatible tables.</p>
+          <p><strong className="text-white">Recommended tables:</strong> uses the existing table-fit and availability checks.</p>
           <p><strong className="text-white">Extra seating:</strong> approved seating for staff-created bookings. It does not increase website availability.</p>
-          <p><strong className="text-white">Merged table:</strong> compatible tables combined for a larger group.</p>
+          <p><strong className="text-white">Temporary table:</strong> a table added for one show only. It does not create public booking capacity.</p>
+          <p><strong className="text-white">Merged tables:</strong> compatible tables combined for a larger group.</p>
+          <p><strong className="text-white">Remove table assignment:</strong> keeps the booking confirmed and returns it to Needs a table.</p>
           <Note critical>Recommended tables never move guests to another seating section automatically.</Note>
         </div>
       ),
@@ -300,7 +303,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
             <li>Confirm the current zone genuinely cannot accommodate the booking.</li>
             <li>Check for an existing operational or merged table.</li>
             <li>If physically appropriate, create a temporary table in the destination zone.</li>
-            <li>Open the booking and use Move to Table / Zone.</li>
+            <li>Open the booking and use Move to table.</li>
             <li>Select the new table and review the seating-zone warning.</li>
             <li>Confirm only when the move is operationally required.</li>
           </Steps>

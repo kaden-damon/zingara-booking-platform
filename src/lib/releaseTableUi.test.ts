@@ -25,23 +25,23 @@ const releaseMigration = readFileSync(
   "utf8",
 );
 
-test("assigned Standard and Corporate operational claims render Release Table", () => {
+test("assigned Standard and Corporate operational claims render Remove Table Assignment", () => {
   const releaseControl = adminPage.slice(
     adminPage.indexOf("{isAllocatedTableClaim && ("),
     adminPage.indexOf("{table.mergedFrom?.length && (", adminPage.indexOf("{isAllocatedTableClaim && (")),
   );
 
   assert.match(releaseControl, /releaseOperationalTable/);
-  assert.match(releaseControl, /RELEASE TABLE/);
+  assert.match(releaseControl, /REMOVE TABLE ASSIGNMENT/);
   assert.doesNotMatch(releaseControl, /source === "corporate-direct"/);
 });
 
 test("confirmation distinguishes one-table release and preserves active temporary tables", () => {
   assert.match(
     adminPage,
-    /The booking will remain active and return to the Floor Assignment queue/,
+    /The booking stays confirmed and returns to Needs a table/,
   );
-  assert.match(adminPage, /will remain \$\{isTemporaryTable \? "active and " : ""\}available/);
+  assert.match(adminPage, /remains \$\{isTemporaryTable \? "active and " : ""\}available/);
   assert.match(adminPage, /This table is part of a \$\{tableIds\.length\}-table assignment/);
 });
 

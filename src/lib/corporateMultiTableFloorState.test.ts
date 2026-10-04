@@ -119,11 +119,10 @@ test("per-table release is authenticated, stale-safe, audited, and financially i
   );
 });
 
-test("Floor cards expose complete ownership context and both release controls", () => {
+test("Floor cards expose complete ownership context and plain release controls", () => {
   assert.match(adminPage, /bookingClaimsTable\(currentBooking, table\.id\)/);
   assert.match(adminPage, /Complete assignment:/);
   assert.match(adminPage, /This table: \{table\.seatCapacity\} seats/);
-  assert.match(adminPage, /RELEASE TABLE/);
-  assert.match(adminPage, /RELEASE COMPLETE ASSIGNMENT/);
+  assert.match(adminPage, /REMOVE TABLE ASSIGNMENT/);
   assert.match(adminPage, /refreshAssignedShowState\(booking\.showId\)/);
 });

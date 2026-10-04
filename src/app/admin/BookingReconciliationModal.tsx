@@ -421,7 +421,7 @@ export function GuestCountReconciliationModal(
           <p className="text-sm font-semibold text-emerald-200">UPDATED ✓</p>
           {props.result.floor_assignment_required ? (
             <p className="mt-1 text-xs text-zinc-300">
-              Guest count updated. The previous table no longer fits this booking, so it has been returned to Floor Assignment.
+              Guest count updated. The previous table no longer fits this booking, so it now needs a table.
             </p>
           ) : props.result.added_guests > 0 ? <p className="mt-1 text-xs text-zinc-300">R{props.result.additional_amount.toFixed(2)} added · R{props.result.balance_outstanding.toFixed(2)} outstanding</p> : <p className="mt-1 text-xs text-zinc-300">Guest count updated. The agreed financial obligation is unchanged.</p>}
           {props.result.added_guests > 0 && (!link ? (

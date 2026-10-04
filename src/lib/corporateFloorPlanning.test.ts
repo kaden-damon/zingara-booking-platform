@@ -296,7 +296,7 @@ test("Admin routes require authoritative permissions and reviewed creation", () 
   assert.match(planRoute, /FLOOR PLAN CHANGED - REVIEW AGAIN/);
 });
 
-test("Booking Details exposes separate Corporate zone and Floor controls", () => {
+test("Booking Details exposes separate Corporate zone and table controls", () => {
   const adminPage = readFileSync(
     new URL("../app/admin/page.tsx", import.meta.url),
     "utf8",
@@ -307,11 +307,11 @@ test("Booking Details exposes separate Corporate zone and Floor controls", () =>
   );
 
   assert.match(entitlementEditor, /Seating Zones/);
-  assert.match(adminPage, /Table \/ Floor Assignment/);
+  assert.match(adminPage, /Table \/ seating/);
   assert.match(entitlementEditor, /SAVE SEATING ALLOCATION/);
   assert.match(entitlementEditor, /SAVING\.\.\./);
   assert.match(entitlementEditor, /SAVED ✓/);
-  assert.match(adminPage, /Plan Unallocated Tables/);
+  assert.match(adminPage, /Find tables/);
   assert.match(adminPage, /REVIEW & CREATE/);
   assert.match(adminPage, /CAPACITY REQUIRED/i);
 });

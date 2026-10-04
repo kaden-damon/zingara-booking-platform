@@ -36,6 +36,7 @@ export const staffCapacityTerms = {
   floorQueue: "Needs a table",
   operationalRemaining: "Approved seats left",
   physicalRepresentation: "Table seats set up",
+  publicRemaining: "Public seats left",
   temporaryCapacity: "Extra seating",
 } as const;
 
@@ -44,6 +45,8 @@ export const staffCapacityHelp = {
   baseCapacity: "Seats available for public booking.",
   effectiveCapacity: "Public seats plus approved extra seating for this show.",
   operationalRemaining: "Seats remaining against total approved seating.",
+  physicalRepresentation:
+    "Physical table seats help seat booked guests. They do not create booking capacity.",
   temporaryCapacity:
     "For staff-created bookings only. Does not increase website availability.",
 } as const;

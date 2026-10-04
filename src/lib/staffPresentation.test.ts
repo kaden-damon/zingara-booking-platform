@@ -21,6 +21,8 @@ test("staff labels simplify presentation without collapsing distinct stored stat
 
 test("public and approved operational seating remain explicit", () => {
   assert.equal(staffCapacityTerms.baseCapacity, "Public seats");
+  assert.equal(staffCapacityTerms.publicRemaining, "Public seats left");
   assert.equal(staffCapacityTerms.temporaryCapacity, "Extra seating");
   assert.match(staffCapacityHelp.temporaryCapacity, /Does not increase website availability/);
+  assert.match(staffCapacityHelp.physicalRepresentation, /do not create booking capacity/i);
 });

@@ -60,7 +60,7 @@ test("pax reduction messaging explains the automatic Floor release", async () =>
   ]);
 
   const wording =
-    /Guest count updated\. The previous table no longer fits this booking, so it has been returned to Floor Assignment\./;
+    /Guest count updated\. The previous table no longer fits this booking, so it now needs a table\./;
   assert.match(modal, wording);
   assert.match(page, wording);
 });
