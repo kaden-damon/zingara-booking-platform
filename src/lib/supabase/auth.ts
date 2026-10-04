@@ -1,4 +1,5 @@
 import { type Session, type User } from "@supabase/supabase-js";
+import { staffTourMetadataKey } from "@/lib/staffOnboarding";
 import { getSupabaseClient } from "./client";
 
 export type AdminAuthSession = {
@@ -73,6 +74,27 @@ export async function signOutAdmin() {
   if (error) {
     console.error("[Zingara Supabase Auth] Sign out failed", error);
   }
+}
+
+export async function acknowledgeStaffTour(version: string) {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    return { error: "Supabase is not configured for this environment." };
+  }
+
+  const { error } = await supabase.auth.updateUser({
+    data: {
+      [staffTourMetadataKey]: version,
+    },
+  });
+
+  if (error) {
+    console.error("[Zingara Supabase Auth] Staff tour acknowledgement failed", error);
+    return { error: error.message };
+  }
+
+  return { error: "" };
 }
 
 export async function requestAdminPasswordReset(email: string) {

@@ -164,7 +164,7 @@ export default function BoxOfficeFinancialReportPanel({
         <div className="mt-6 space-y-5">
           {report.reconciliation.warning && (
             <div className="rounded-xl border border-red-400/40 bg-red-950/30 p-4 text-sm text-red-100">
-              <strong className="block uppercase">Reconciliation Warning</strong>
+              <strong className="block uppercase">Totals do not match</strong>
               Cash detail differs from the management total by {rand(report.reconciliation.difference)}.
             </div>
           )}

@@ -220,7 +220,7 @@ export function FinancialReconciliationModal(
       </label>
       {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
       <button type="button" disabled={props.isSaving || Boolean(validation) || (requiresImportedEvidence && (!draft.sourceDocument.trim() || toMoney(draft.sourceTicketAmount + draft.sourceGratuityAmount) !== toMoney(draft.totalAmount)))} onClick={() => props.onSave({ amountPaid: draft.amountPaid, reason: draft.reason, totalAmount: draft.totalAmount, legacyInvoiceEvidence: requiresImportedEvidence ? { sourceDocument: draft.sourceDocument, sourceGratuityAmount: draft.sourceGratuityAmount, sourceTicketAmount: draft.sourceTicketAmount } : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
-        {props.isSaving ? "Saving..." : "Confirm Financial Reconciliation"}
+        {props.isSaving ? "Saving..." : "Save payment correction"}
       </button>
     </ModalFrame>
   );
@@ -329,7 +329,7 @@ export function GuestCountReconciliationModal(
           <input type="number" min="1" step="1" value={draft.guestCount} onChange={(event) => setDraft((current) => ({ ...current, guestCount: Number(event.target.value) }))} className="mt-2 w-full bg-transparent text-2xl font-semibold text-white outline-none" />
         </label>
       </div>
-      <p className="mt-4 text-sm text-zinc-300">Current table: {booking.tableCode ?? "Floor Assignment Queue"} · {booking.zone}</p>
+      <p className="mt-4 text-sm text-zinc-300">Current table: {booking.tableCode ?? "Needs a table"} · {booking.zone}</p>
       {financials.addedGuests > 0 ? (
         <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
           <p>Added guests: {financials.addedGuests}</p>
@@ -343,7 +343,7 @@ export function GuestCountReconciliationModal(
       )}
       {requiresManualFinancialBasis && (
         <section className="mt-4 rounded-xl border border-amber-300/30 bg-amber-950/15 p-4">
-          <p className="text-xs font-semibold uppercase text-amber-200">Financial Reconciliation Required</p>
+          <p className="text-xs font-semibold uppercase text-amber-200">Payment details need review</p>
           <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-zinc-200">
             <p>Existing payment<br /><strong>R{booking.amountPaid.toFixed(2)}</strong></p>
             <p>Existing outstanding<br /><strong>R{booking.balanceOutstanding.toFixed(2)}</strong></p>
@@ -383,7 +383,7 @@ export function GuestCountReconciliationModal(
               <p>Current outstanding<br /><strong>R{booking.balanceOutstanding.toFixed(2)}</strong></p>
               <p>New obligation<br /><strong>{manualFinancials.newTotal === null ? "Unavailable" : `R${manualFinancials.newTotal.toFixed(2)}`}</strong></p>
               <p>New outstanding<br /><strong>{manualFinancials.newOutstanding === null ? "Unavailable" : `R${manualFinancials.newOutstanding.toFixed(2)}`}</strong></p>
-              <p className="col-span-2">Table<br /><strong>{booking.tableCode ? `${booking.tableCode} · ${booking.tableCapacity !== null && draft.guestCount <= booking.tableCapacity ? `Fits ${draft.guestCount} guests` : "Moves safely to Floor Assignment Queue if undersized"}` : "Floor Assignment Queue"}</strong></p>
+              <p className="col-span-2">Table<br /><strong>{booking.tableCode ? `${booking.tableCode} · ${booking.tableCapacity !== null && draft.guestCount <= booking.tableCapacity ? `Fits ${draft.guestCount} guests` : "Moves safely to Needs a table if undersized"}` : "Needs a table"}</strong></p>
             </div>
           </div>
           <p className="mt-3 text-xs text-zinc-500">The entered basis is recorded as staff-authorised legacy reconciliation. Current venue pricing is not inferred.</p>
@@ -407,7 +407,7 @@ export function GuestCountReconciliationModal(
           </button>
         </section>
       )}
-      <p className="mt-2 text-xs text-zinc-500">If the table no longer fits, the booking will move safely to the Floor Assignment Queue.</p>
+      <p className="mt-2 text-xs text-zinc-500">If the table no longer fits, the booking will move safely to Needs a table.</p>
       <label className="mt-4 block">
         <span className="mb-2 block text-xs font-semibold uppercase text-zinc-400">Reason for change *</span>
         <textarea rows={3} value={draft.reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} className="w-full rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]" />

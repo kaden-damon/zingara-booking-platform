@@ -10,6 +10,7 @@ import {
   maintenanceUnavailableResponse,
 } from "@/lib/platformMaintenance";
 import { adminIpUndertaking } from "@/lib/adminIpUndertaking";
+import { isStaffSessionCurrent } from "@/lib/staffSessionCutoff";
 
 export type RoleRow = {
   description?: string | null;
@@ -303,6 +304,21 @@ export async function requireActiveStaff(
       serviceClient,
       staffProfile: null,
       user: null,
+    };
+  }
+
+  if (!isStaffSessionCurrent(request, user)) {
+    return {
+      error: Response.json(
+        {
+          code: "STAFF_SESSION_REFRESH_REQUIRED",
+          error: "Please sign in again to continue.",
+        },
+        { status: 401 },
+      ),
+      serviceClient,
+      staffProfile: null,
+      user,
     };
   }
 

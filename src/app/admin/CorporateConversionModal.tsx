@@ -155,7 +155,7 @@ export default function CorporateConversionModal({
         {financialEvidence && (
           <div className="mt-5 rounded-xl border border-emerald-300/25 bg-emerald-950/15 px-4 py-3 text-sm text-emerald-100">
             <p className="font-semibold uppercase tracking-[0.1em]">
-              Authoritative Historical Reconciliation
+              Imported payment details
             </p>
             <p className="mt-2 leading-6 text-emerald-100/80">
               Ticket {financialEvidence.ticketObligation.toFixed(2)} · Gratuity{" "}

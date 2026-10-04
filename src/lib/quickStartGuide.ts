@@ -11,6 +11,7 @@ export type QuickStartSectionId =
   | "payment-controls"
   | "payments"
   | "refunds"
+  | "reviews"
   | "table-plan"
   | "tickets"
   | "zone-full";
@@ -28,6 +29,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
     "tickets",
     "customers",
     "communications",
+    "reviews",
     "payments",
     "payment-controls",
     "floor",
@@ -43,6 +45,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
     "tickets",
     "customers",
     "communications",
+    "reviews",
     "payments",
     "payment-controls",
     "floor",
@@ -59,6 +62,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
     "payment-controls",
     "customers",
     "communications",
+    "reviews",
     "tickets",
     "floor",
     "zone-full",
@@ -78,6 +82,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
     "corporate",
     "customers",
     "communications",
+    "reviews",
     "help",
   ],
   "floor-manager": [
@@ -100,6 +105,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
     "zone-full",
     "tickets",
     "communications",
+    "reviews",
     "table-plan",
     "help",
   ],
@@ -115,6 +121,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
     "payment-controls",
     "refunds",
     "communications",
+    "reviews",
     "table-plan",
     "help",
   ],
@@ -161,6 +168,7 @@ export function getQuickStartSectionIds({
 
   if (permissionSet.has("communications:manage")) {
     visibleSections.add("communications");
+    visibleSections.add("reviews");
   }
 
   if (permissionSet.has("analytics:read")) {

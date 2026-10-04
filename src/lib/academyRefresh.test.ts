@@ -28,6 +28,8 @@ const originalAcademyModuleIds = [
   "faq",
 ];
 
+const currentAcademyModuleIds = ["recent-changes", ...originalAcademyModuleIds];
+
 test("calendar checkout keeps the location pill in normal flow below the lock banner", () => {
   assert.match(
     booking,
@@ -36,7 +38,7 @@ test("calendar checkout keeps the location pill in normal flow below the lock ba
 });
 
 test("existing Academy modules and personal history keys remain intact", () => {
-  for (const moduleId of originalAcademyModuleIds) {
+  for (const moduleId of currentAcademyModuleIds) {
     assert.match(admin, new RegExp(`id: "${moduleId.replaceAll("-", "\\-")}"`));
   }
 
@@ -82,7 +84,7 @@ test("Academy covers payment links, pricing, and amendment protections", () => {
 
 test("Academy covers Floor, CRM, tickets, sales gating, and maintenance", () => {
   assert.match(admin, /Temporary-Table Custom Pricing/);
-  assert.match(admin, /Floor Assignment Queue/);
+  assert.match(admin, /Needs a table/);
   assert.match(admin, /Email and Push may be paused independently/);
   assert.match(admin, /Apple Wallet uses the same ticket QR identity/);
   assert.match(admin, /public Cape Town sales are scheduled to open on 9 September 2026/);
@@ -90,4 +92,21 @@ test("Academy covers Floor, CRM, tickets, sales gating, and maintenance", () => 
   assert.match(admin, /System > Operations/);
   assert.match(admin, /System > Issues/);
   assert.match(admin, /System > Preferences/);
+});
+
+test("Academy keeps a permanent plain-language Recent Changes reference", () => {
+  for (const lessonId of [
+    "plain-language-release",
+    "recent-booking-and-corporate-tools",
+    "recent-floor-ticket-and-checkin-tools",
+    "recent-reviews-reports-and-communications",
+  ]) {
+    assert.equal(admin.split(`id: "${lessonId}"`).length - 1, 1);
+  }
+
+  assert.match(admin, /Corporate bookings do not automatically expire because payment is outstanding/);
+  assert.match(admin, /Download All Tickets/);
+  assert.match(admin, /Send Review/);
+  assert.match(admin, /Website & Booking Conversion/);
+  assert.match(admin, /Guest Reviews & Experience/);
 });

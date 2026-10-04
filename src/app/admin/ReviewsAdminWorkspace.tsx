@@ -205,7 +205,7 @@ export default function ReviewsAdminWorkspace() {
           {loading ? (
             <p className="py-10 text-sm text-zinc-500">Loading verified reviews...</p>
           ) : result.rows.length === 0 ? (
-            <p className="py-10 text-sm text-zinc-500">No reviews in this queue.</p>
+            <p className="py-10 text-sm text-zinc-500">No reviews are waiting.</p>
           ) : (
             result.rows.map((review) => (
               <button

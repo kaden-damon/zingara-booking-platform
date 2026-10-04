@@ -106,14 +106,14 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
       action: { href: "/admin?section=analytics", label: "Open Dashboard & Analytics" },
       content: (
         <ul className="space-y-2 text-sm leading-6 text-zinc-300">
-          <li>Review show status, occupancy and revenue.</li>
+          <li>Review show status, occupancy, booking value and payments collected.</li>
           <li>Monitor booking activity and operational signals.</li>
           <li>Use Live Platform Activity only as the safe operational view provided.</li>
         </ul>
       ),
       id: "analytics",
-      purpose: "Monitor performance, demand and operational activity.",
-      title: "Dashboard & Analytics",
+      purpose: "Find reports and monitor show performance.",
+      title: "Reports & Analytics",
     },
     bookings: {
       action: { href: "/admin?section=bookings", label: "Open Bookings" },
@@ -121,14 +121,13 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
         <div className="space-y-4">
           <Steps>
             <li>Open Bookings.</li>
+            <li>Use Create Booking for a new staff booking.</li>
             <li>Search by guest, booking reference, email or another supported field.</li>
             <li>Open Booking Details.</li>
             <li>Review booking, payment, table and ticket status before changing anything.</li>
             <li>Save only the required changes.</li>
           </Steps>
-          <Note>
-            Source / Created By identifies where the booking originated and, where applicable, which staff member created or imported it.
-          </Note>
+          <Note>Source / Created By shows where the booking came from.</Note>
         </div>
       ),
       id: "bookings",
@@ -139,7 +138,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
       action: { href: "/admin?section=communications", label: "Open Communications" },
       content: (
         <div className="space-y-4 text-sm leading-6 text-zinc-300">
-          <p>Use Booking Communication History, resend ticket, custom messaging and payment-link communication only where authorised.</p>
+          <p>Check Communication History before sending a ticket, message, payment link, or review invitation.</p>
           <Note>Review Communication History before resending something unnecessarily.</Note>
         </div>
       ),
@@ -169,28 +168,27 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
       action: { href: "/admin?section=customers", label: "Open Customers" },
       content: (
         <div className="space-y-4 text-sm leading-6 text-zinc-300">
-          <p>Search Customer CRM, review booking history, attendance, spend, notes and preferences, then edit details only where permitted.</p>
+          <p>Search Customers and Companies to review contact details, booking history, attendance, spend, notes, and preferences.</p>
           <Note>Customer records and staff accounts are separate identities.</Note>
         </div>
       ),
       id: "customers",
-      purpose: "Understand and maintain the authoritative guest profile.",
-      title: "Customers",
+      purpose: "Find customers, companies, and their booking history.",
+      title: "Customers & Companies",
     },
     floor: {
       action: { href: "/admin?section=floor", label: "Open Floor" },
       content: (
         <div className="space-y-3 text-sm leading-6 text-zinc-300">
-          <p><strong className="text-white">Floor Assignment Queue:</strong> bookings still requiring operational placement.</p>
-          <p><strong className="text-white">Initial Floor Auto-Allocator:</strong> creates a safe initial floor for unresolved same-zone bookings and preserves valid staff allocations.</p>
-          <p><strong className="text-white">Temporary Table:</strong> a show-specific operational table used only where physical capacity is genuinely available.</p>
-          <p><strong className="text-white">Merged Table:</strong> compatible operational tables combined for a larger party.</p>
-          <p><strong className="text-white">Cross-Zone Move:</strong> a deliberate staff move to another seating section.</p>
-          <Note critical>The Auto-Allocator never moves guests between seating zones automatically.</Note>
+          <p><strong className="text-white">Needs a table:</strong> confirmed guests who have not been assigned a table.</p>
+          <p><strong className="text-white">Assign recommended tables:</strong> uses compatible tables and keeps valid staff assignments.</p>
+          <p><strong className="text-white">Extra seating:</strong> approved seating for staff-created bookings. It does not increase website availability.</p>
+          <p><strong className="text-white">Merged table:</strong> compatible tables combined for a larger group.</p>
+          <Note critical>Recommended tables never move guests to another seating section automatically.</Note>
         </div>
       ),
       id: "floor",
-      purpose: "Allocate confirmed bookings to operational tables.",
+      purpose: "Assign tables and find confirmed guests needing a table.",
       title: "Floor & Tables",
     },
     help: {
@@ -220,7 +218,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
         </div>
       ),
       id: "payment-controls",
-      purpose: "Use deliberate, authorised controls for a booking balance.",
+      purpose: "Take or record a verified payment.",
       title: "Payment Controls",
     },
     payments: {
@@ -237,7 +235,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
         </div>
       ),
       id: "payments",
-      purpose: "Understand the authoritative balance and payment workflow.",
+      purpose: "Understand booking totals, payments, and outstanding balances.",
       title: "Payments",
     },
     refunds: {
@@ -255,26 +253,42 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
       action: { href: "/admin?section=analytics", label: "Open Table Plan" },
       content: (
         <div className="space-y-4 text-sm leading-6 text-zinc-300">
-          <p>Generate the operational Table Plan for one selected show through the existing Admin reporting workflow.</p>
-          <p>It includes operational table allocations, guest names, pax, currently deployed payment information, outstanding balances, notes and the Final Checklist.</p>
-          <Note>Phase 39.17 financial classification is still being finalised. Use only the payment information currently present in the deployed export.</Note>
+          <p>Generate the Table Plan for one show from Reports.</p>
+          <p>It includes table assignments, guest names, guest counts, payment details, notes, and the Final Checklist.</p>
         </div>
       ),
       id: "table-plan",
-      purpose: "Prepare the existing operational workbook for a selected show.",
+      purpose: "Download the current Table Plan for a selected show.",
       title: "Table Plan",
     },
     tickets: {
       action: { href: "/admin?section=check-in", label: "Scan Tickets" },
       content: (
         <div className="space-y-4 text-sm leading-6 text-zinc-300">
-          <p>Use Scan Tickets for QR validation, then confirm the booking, table, zone and validation result. Use guest lookup or Resend Ticket only where authorised.</p>
+          <p>Use Scan Tickets to check guests in. Open Booking Details to download one ticket or Download All Tickets for eligible Corporate bookings.</p>
           <Note critical>If a ticket does not validate, do not simply admit the guest or recreate the ticket. Verify the booking first.</Note>
         </div>
       ),
       id: "tickets",
       purpose: "Validate a guest ticket and confirm the correct arrival details.",
       title: "Tickets & Door",
+    },
+    reviews: {
+      action: { href: "/admin?section=reviews", label: "Open Reviews" },
+      content: (
+        <div className="space-y-4">
+          <Steps>
+            <li>Open an eligible booking.</li>
+            <li>Use Send Review to email an invitation, or Copy Review Link when appropriate.</li>
+            <li>Open Reviews to check guest feedback.</li>
+            <li>Choose Publish, Do Not Publish, or Unpublish.</li>
+          </Steps>
+          <Note>Only publish review wording the guest agreed may be shared.</Note>
+        </div>
+      ),
+      id: "reviews",
+      purpose: "Invite a guest to review and moderate submitted feedback.",
+      title: "Reviews",
     },
     "zone-full": {
       action: { href: "/admin?section=floor", label: "Open Floor" },
@@ -440,6 +454,7 @@ export default function QuickStartPage() {
                 {cards[sectionId].title}
               </a>
             ))}
+            <Link href="/admin?section=academy" className={secondaryButtonClass}>Recent Changes</Link>
             <a href="#quick-reference" className={secondaryButtonClass}>Reference</a>
           </div>
         </section>
@@ -513,7 +528,7 @@ export default function QuickStartPage() {
                 </Link>
               ))}
             <Link href="/admin?section=academy" className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-[#D8C36A]/50 hover:text-white focus-visible:outline-2 focus-visible:outline-[#F2D66C]">
-              <span>Detailed Training</span>
+              <span>Academy & Recent Changes</span>
               <span aria-hidden="true" className="text-[#D8C36A]">&gt;</span>
             </Link>
           </div>

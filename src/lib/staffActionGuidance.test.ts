@@ -24,7 +24,7 @@ test("structured authoritative outcomes map to concise staff guidance", () => {
   assert.match(guidance.nextStep ?? "", /Floor operations remain available/);
 });
 
-test("capacity guidance preserves the authoritative explanation", () => {
+test("capacity guidance keeps technical evidence out of ordinary staff copy", () => {
   const explanation =
     "Golden Circle represents 153 of 155 operational seats. This change would raise the representation to 157.";
   const guidance = resolveStaffActionGuidance(
@@ -38,8 +38,9 @@ test("capacity guidance preserves the authoritative explanation", () => {
     { message: "Capacity update failed.", title: "Capacity update failed" },
   );
 
-  assert.equal(guidance.title, "Operational capacity prevents this action");
-  assert.equal(guidance.message, explanation);
+  assert.equal(guidance.title, "Not enough approved seats");
+  assert.equal(guidance.message, "There aren't enough approved seats available for this change.");
+  assert.equal(guidance.technicalCode, undefined);
 });
 
 test("public capacity, table fit, and inactive show remain distinct", () => {
@@ -48,14 +49,14 @@ test("public capacity, table fit, and inactive show remain distinct", () => {
       message: "Failed.",
       title: "Failed",
     }).title,
-    "Public capacity prevents this action",
+    "Not enough Public seats",
   );
   assert.equal(
     resolveStaffActionGuidance(new Error("No suitable existing table is available."), {
       message: "Failed.",
       title: "Failed",
     }).title,
-    "No suitable table is available",
+    "No table fits this group",
   );
   assert.equal(
     resolveStaffActionGuidance(new Error("The inactive show status prevents this action."), {

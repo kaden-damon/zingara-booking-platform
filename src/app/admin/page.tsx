@@ -25,6 +25,7 @@ import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
 import DineplanReconciliation from "./DineplanReconciliation";
 import ShowZoneSalesControls from "./ShowZoneSalesControls";
 import { StaffActionGuidanceAlert } from "./StaffActionGuidanceAlert";
+import { StaffOnboardingTour } from "./StaffOnboardingTour";
 import { StaffIssueAttachments } from "./StaffIssueAttachments";
 import { StaffIssueMediaPicker } from "./StaffIssueMediaPicker";
 import ZingaraDatePicker from "./ZingaraDatePicker";
@@ -75,6 +76,11 @@ import {
   type StaffActionGuidance,
 } from "../../lib/staffActionGuidance";
 import type { StaffIssueAttachmentUpload } from "../../lib/staffIssueMedia";
+import {
+  staffBookingStatusLabels,
+  staffPaymentStatusLabels,
+  staffShowStatusLabels,
+} from "../../lib/staffPresentation";
 import {
   uploadAndFinalizeStaffIssueMedia,
   type StaffIssueSelectedFile,
@@ -729,16 +735,7 @@ const bookingStatuses: BookingStatus[] = [
 ];
 
 const bookingStatusLabels: Record<BookingStatus, string> = {
-  cancelled: "Cancelled",
-  completed: "Completed",
-  confirmed: "Confirmed",
-  new: "New Booking",
-  "no-show": "No Show",
-  pending: "Pending",
-  "pending-payment": "Pending Payment",
-  refunded: "Refunded",
-  waitlisted: "Waitlisted",
-  "checked-in": "Checked In",
+  ...staffBookingStatusLabels,
 };
 
 const bookingStatusClasses: Record<BookingStatus, string> = {
@@ -770,11 +767,7 @@ const cancellationReasons = [
 ] as const;
 
 const paymentStatusLabels: Record<PaymentStatus, string> = {
-  "comp-vip": "Comp/VIP",
-  "deposit-paid": "Deposit Paid",
-  "fully-paid": "Fully Paid",
-  "pending-payment": "Pending Payment",
-  refunded: "Refunded",
+  ...staffPaymentStatusLabels,
 };
 
 const paymentStatusClasses: Record<PaymentStatus, string> = {
@@ -1738,6 +1731,7 @@ const academyActionLabels: Record<AcademyActionId, string> = {
 };
 
 const academyModules: AcademyModule[] = [
+  { difficulty: "beginner", estimatedMinutes: 8, id: "recent-changes", title: "Recent Changes" },
   { difficulty: "beginner", estimatedMinutes: 30, id: "getting-started", title: "Getting Started" },
   { difficulty: "beginner", estimatedMinutes: 55, id: "bookings", title: "Bookings" },
   { difficulty: "beginner", estimatedMinutes: 18, id: "find-my-booking", title: "Find My Booking" },
@@ -4751,9 +4745,9 @@ const venueOperationsLessons: AcademyArticle[] = [
     howTo: [
       "Open Operations, then Floor, and select JHB or CPT and the correct performance.",
       "Start with the configured base zone capacity. Valid active temporary tables add show-specific operational capacity; physical and merged table representations do not add it again.",
-      "Set Capacity on physical tables that show Capacity Required.",
-      "Use the Floor Assignment Queue and Assign Suggested Table when a configured table fits the booking.",
-      "Use Add Temporary Table only for authorised extra seating on the selected show and zone. Temporary tables retain a visible Temporary label and increase effective operational capacity while active.",
+      "Set the seat count on tables that show Seats not set.",
+      "Use Needs a table and Assign recommended table when a configured table fits the booking.",
+      "Use Add Temporary Table only for approved Extra seating on the selected show and seating section. Temporary tables retain a visible Temporary label and increase Total approved seating while active.",
       "For a temporary table, leave Custom Price Per Person blank for STANDARD ZONE PRICE or enter an authorised show-specific CUSTOM PRICE.",
       "For a booking on an old placeholder table, use Map Physical Table to move it deliberately without contacting the guest.",
     ],
@@ -4783,7 +4777,7 @@ const venueOperationsLessons: AcademyArticle[] = [
       "Choose the show and guest count.",
       "Select a seating section.",
       "Review base capacity, temporary capacity, effective remaining seats, and the configured table inventory.",
-      "Ignore physical tables marked Capacity Required until a manager sets their show-specific capacity.",
+      "Ignore tables marked Seats not set until a manager records their seat count for this show.",
       "If no suitable table is available, choose another section or review availability.",
     ],
     id: "table-availability",
@@ -4811,7 +4805,7 @@ const venueOperationsLessons: AcademyArticle[] = [
       "Confirm the guest name, booking reference, and current table details.",
       "Choose a valid available target. Another-zone moves require the explicit seating-section confirmation.",
       "Review the updated booking details.",
-      "If the booking enters the Floor Assignment Queue, resolve its physical mapping there.",
+      "If the booking moves to Needs a table, assign it from Floor.",
       "Send communication only if the guest needs to be informed.",
     ],
     id: "table-changes",
@@ -6922,6 +6916,88 @@ const faqLessons: AcademyArticle[] = [
 ];
 
 const academyArticles: AcademyArticle[] = [
+  {
+    category: "Recent Changes",
+    commonMistakes: ["Assuming simpler labels changed how bookings, payments, or seating work."],
+    difficulty: "beginner",
+    howTo: [
+      "Use Guests booked for the active guest total.",
+      "Use Public seats for website availability.",
+      "Use Extra seating only for authorised staff-created bookings.",
+      "Use Needs a table to find confirmed guests who still need seating.",
+    ],
+    id: "plain-language-release",
+    keywords: ["recent changes", "plain language", "capacity", "status", "table needed"],
+    moduleId: "recent-changes",
+    purpose: "Understand the simpler wording now used across staff screens.",
+    relatedActions: ["bookings"],
+    related: ["Zingara Platform Overview"],
+    tips: ["Public seats and Extra seating remain separate safety limits.", "Technical detail remains available in Audit and System tools."],
+    title: "Simpler Words and Clearer Statuses",
+    whenToUse: "Use this when a familiar staff label looks different.",
+  },
+  {
+    category: "Recent Changes",
+    commonMistakes: ["Treating a payment follow-up date as an automatic Corporate cancellation date.", "Creating replacement bookings instead of using the supported booking tools."],
+    difficulty: "beginner",
+    howTo: [
+      "Open Booking Details to review booking, payment, seating, ticket, and communication status separately.",
+      "Use Companies and Customers for linked CRM history.",
+      "Use the Corporate enquiry conversion flow for approved enquiries.",
+      "Record verified payments through Payment Controls.",
+    ],
+    id: "recent-booking-and-corporate-tools",
+    keywords: ["corporate", "companies", "customers", "payment follow-up", "guest count", "show move"],
+    moduleId: "recent-changes",
+    purpose: "Find the current booking, Corporate, CRM, and payment tools.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Creating a Booking", "Moving a Booking to Another Show"],
+    tips: ["Corporate bookings do not automatically expire because payment is outstanding.", "Guest-count and show changes keep their existing confirmations and safety checks."],
+    title: "Bookings, Corporate and CRM",
+    whenToUse: "Use this before creating, converting, moving, or financially updating a booking.",
+  },
+  {
+    category: "Recent Changes",
+    commonMistakes: ["Using table seats as permission to create more guest bookings.", "Downloading historical or void ticket identities."],
+    difficulty: "beginner",
+    howTo: [
+      "Open Floor to find bookings marked Needs a table.",
+      "Use recommended tables, multi-table assignment, or approved temporary tables where appropriate.",
+      "Respect minimum and maximum table occupancy.",
+      "Use Download All Tickets for the currently valid individual tickets on an eligible Corporate booking.",
+      "Use ticket scanning to check guests in.",
+    ],
+    id: "recent-floor-ticket-and-checkin-tools",
+    keywords: ["floor", "temporary tables", "multi-table", "download all tickets", "check-in", "table plan"],
+    moduleId: "recent-changes",
+    purpose: "Use the current seating, ticket, check-in, and Table Plan tools safely.",
+    relatedActions: ["bookings", "tickets"],
+    related: ["Floor Assignment", "Tickets and Check-In Overview"],
+    tips: ["Guests booked includes confirmed guests who still need a table.", "Table Plan remains the operational export for one selected show."],
+    title: "Seating, Tickets and Check-In",
+    whenToUse: "Use this while preparing Floor, tickets, or guest arrival.",
+  },
+  {
+    category: "Recent Changes",
+    commonMistakes: ["Publishing a review before checking consent and wording.", "Using Dineplan payment wording as Zingara payment proof."],
+    difficulty: "beginner",
+    howTo: [
+      "Use Dineplan Reconciliation to compare a trusted snapshot with the selected Zingara show.",
+      "Use Send Review or Copy Review Link from an eligible booking when a manual invitation is needed.",
+      "Use Reviews to publish, not publish, unpublish, or revoke invitations where available.",
+      "Use Management Analytics for Website & Booking Conversion and Guest Reviews & Experience.",
+      "Use Automated Workflows to review current scheduled staff and guest communications.",
+    ],
+    id: "recent-reviews-reports-and-communications",
+    keywords: ["Dineplan", "reviews", "Verified Guest", "Invited Guest", "analytics", "automated workflows", "reports"],
+    moduleId: "recent-changes",
+    purpose: "Find the current reconciliation, review, reporting, and communication tools.",
+    relatedActions: ["communications", "bookings"],
+    related: ["Communications Overview", "Analytics and Reporting Overview"],
+    tips: ["Automatic review requests use attendance evidence and the configured workflow.", "Published reviews remain controlled from Zingara."],
+    title: "Reviews, Reports and Communications",
+    whenToUse: "Use this when reconciling shows, inviting reviews, moderating feedback, or reviewing reports.",
+  },
   ...gettingStartedLessons,
   ...bookingLessons,
   ...findMyBookingLessons,
@@ -7028,12 +7104,7 @@ const showOperationalStatusLabels: Record<
   NonNullable<DemoShow["operationalStatus"]>,
   string
 > = {
-  active: "Active",
-  blackout: "Blackout",
-  inactive: "Inactive",
-  "sold-out": "Sold Out",
-  "special-event": "Special Event",
-  "venue-closure": "Venue Closure",
+  ...staffShowStatusLabels,
 };
 const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "staff", label: "Staff" },
@@ -16365,7 +16436,7 @@ export default function AdminDashboardPage() {
     if (!selectedConversionShow || !zone) {
       setCorporateConversionActionState("error");
       setCorporateConversionStatus(
-        "The selected performance or seating zone is no longer available.",
+        "This show or seating section is no longer available. Choose another.",
       );
       return;
     }
@@ -17139,7 +17210,7 @@ export default function AdminDashboardPage() {
             ),
           );
           showWorkflowToast(
-            "No active push subscription is available for this guest.",
+            "Push is unavailable. Use email instead.",
           );
         })
         .catch((error) => {
@@ -17349,13 +17420,13 @@ export default function AdminDashboardPage() {
         },
       }));
       showWorkflowToast(
-        `${tableNumber} was added as a temporary operational table for this performance.`,
+        `${tableNumber} was added as a temporary table for this show.`,
       );
       completeOperationalTableAction(`create-${zoneId}`);
     } catch (error) {
       showStaffGuidance(
         resolveStaffActionGuidance(error, {
-          message: "The temporary operational table could not be added.",
+          message: "The temporary table could not be added.",
           nextStep: "Review the current Floor capacity state before retrying.",
           status: "error",
           title: "Temporary table wasn't added",
@@ -17405,7 +17476,7 @@ export default function AdminDashboardPage() {
         showStaffGuidance(
           resolveStaffActionGuidance(
             new Error(
-              `${zone.title} represents ${preview.representedPhysicalCapacity} of ${preview.effectiveOperationalCapacity} operational seats. Setting table ${table.tableNumber} to ${capacity} would raise the physical/merged representation to ${preview.projectedPhysicalRepresentation}. Add temporary operational capacity or reduce another physical table first.`,
+              `${zone.title} has ${preview.representedPhysicalCapacity} table seats set up against ${preview.effectiveOperationalCapacity} Total approved seating. Setting table ${table.tableNumber} to ${capacity} would raise table seats set up to ${preview.projectedPhysicalRepresentation}. Add approved Extra seating or reduce another table first.`,
             ),
             {
               message: "The physical table capacity cannot be changed.",
@@ -21119,7 +21190,7 @@ export default function AdminDashboardPage() {
             },
             {
               count: requiresFloorAssignmentRows ?? 0,
-              label: "Requires Floor Assignment",
+              label: "Table needed",
               tone:
                 (requiresFloorAssignmentRows ?? 0) > 0
                   ? ("warning" as const)
@@ -22924,7 +22995,7 @@ export default function AdminDashboardPage() {
       showWorkflowToast(
         result.tableAssigned
           ? `${booking.reference} moved successfully and assigned to table ${result.tableCode}.`
-          : `${booking.reference} moved successfully and added to the Floor Assignment Queue.`,
+          : `${booking.reference} moved successfully and now Needs a table.`,
       );
     } catch (error) {
       setBookingShowTransferError(
@@ -23491,7 +23562,7 @@ export default function AdminDashboardPage() {
           );
           showWorkflowToast(
             (pushResult.subscriptionCount ?? 0) === 0
-              ? "No active push subscription is available for this guest."
+              ? "Push is unavailable. Use email instead."
               : "Push notification could not be sent.",
           );
           return;
@@ -24221,7 +24292,7 @@ export default function AdminDashboardPage() {
               message: pushResult.suppressed
                 ? "Push updates are temporarily paused for this customer."
                 : (pushResult.subscriptionCount ?? 0) === 0
-                  ? "No active push subscription is available for this guest."
+                  ? "Push is unavailable. Use email instead."
                   : "Push notification could not be sent.",
               tone: "error",
             },
@@ -25839,9 +25910,11 @@ export default function AdminDashboardPage() {
   const visibleAcademyModules = academyBrowseAllModules
     ? academyModules
     : academyModules.filter((module) =>
+        module.id === "recent-changes" ||
         activeAcademyLearningPath.moduleIds.includes(module.id),
       );
   const pathAcademyArticles = academyArticles.filter((article) =>
+    article.moduleId === "recent-changes" ||
     activeAcademyLearningPath.moduleIds.includes(article.moduleId),
   );
   const academyQuery = academySearch.trim().toLowerCase();
@@ -25914,8 +25987,10 @@ export default function AdminDashboardPage() {
   const academyProgressPercent = Math.round(
     (academyReadCount / Math.max(pathAcademyArticles.length, 1)) * 100,
   );
-  const academyPathModules = academyModules.filter((module) =>
-    activeAcademyLearningPath.moduleIds.includes(module.id),
+  const academyPathModules = academyModules.filter(
+    (module) =>
+      module.id === "recent-changes" ||
+      activeAcademyLearningPath.moduleIds.includes(module.id),
   );
   const academyTotalMinutes = academyPathModules.reduce(
     (total, module) => total + module.estimatedMinutes,
@@ -30940,7 +31015,7 @@ export default function AdminDashboardPage() {
                   className="rounded-full border border-sky-300/40 bg-sky-300 px-5 py-3 font-semibold text-black transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   {splitMergeReview.booking
-                      ? "Reallocate Booking First"
+                      ? "Move the booking first"
                     : operationalTableAction ===
                         `unmerge-${splitMergeReview.table.id}`
                       ? "RESTORING..."
@@ -31528,7 +31603,7 @@ export default function AdminDashboardPage() {
                       {unallocatedZoneBookings.length > 0 && (
                         <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-950/10 p-4 print:border-zinc-300 print:bg-white">
                           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-200 print:text-zinc-700">
-                            Requires Floor Assignment
+                            Table needed
                           </p>
                           <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-2">
                             {unallocatedZoneBookings.map((booking) => {
@@ -35370,7 +35445,7 @@ export default function AdminDashboardPage() {
                       <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
                         Public Bookings
                       </p>
-                      <p className="mt-1 text-xs leading-5 text-zinc-400">
+                      <p className="mt-1 text-xs leading-5 text-zinc-400" title="Public seats plus approved extra seating for this show.">
                         Server-authoritative public sales windows. Staff and existing booking workflows remain available.
                       </p>
                     </div>
@@ -41227,8 +41302,8 @@ export default function AdminDashboardPage() {
                       <p className="mt-2 text-2xl font-bold">
                         {stats.baseSellableRemaining}
                       </p>
-                      <p className="text-xs text-zinc-500">
-                        publicly sellable seats remaining
+                      <p className="text-xs text-zinc-500" title="Seats available for public booking.">
+                        Public seats left
                       </p>
                       {stats.overCapacitySeats > 0 && (
                         <p className="mt-2 text-xs font-semibold text-red-300">
@@ -41237,17 +41312,17 @@ export default function AdminDashboardPage() {
                       )}
                       <p className="mt-3 text-xs leading-5 text-zinc-300">
                         {physicalZoneTables.length} physical · max {getConfiguredZoneMaxTables(venueConfig, zone)} planned ·{" "}
-                        {stats.configuredPhysicalTableCount} configured ·{" "}
-                        {zoneOccupancyCounts.capacityRequired} capacity required
+                        {stats.configuredPhysicalTableCount} set up ·{" "}
+                        {zoneOccupancyCounts.capacityRequired} seats not set
                       </p>
-                      <p className="mt-1 text-xs leading-5 text-zinc-400">
-                        Base/public {stats.baseCapacity} · temporary operational +{stats.temporaryCapacity} · effective operational {stats.effectiveOperationalCapacity}
+                      <p className="mt-1 text-xs leading-5 text-zinc-400" title="Seats remaining against total approved seating.">
+                        Public seats {stats.baseCapacity} · Extra seating +{stats.temporaryCapacity} · Total approved seating {stats.effectiveOperationalCapacity}
                       </p>
                       <p className="mt-1 text-xs leading-5 text-zinc-400">
                         {zoneOccupancyCounts.available} available ·{" "}
                         {zoneOccupancyCounts.reserved} reserved ·{" "}
                         {zoneOccupancyCounts["checked-in"]} arrived ·{" "}
-                        {stats.remainingSeats} operational remaining · {stats.assignableTableCapacity} assignable table seats
+                        {stats.remainingSeats} Approved seats left · {stats.assignableTableCapacity} Available table seats
                       </p>
                     </button>
                   );
@@ -41260,15 +41335,13 @@ export default function AdminDashboardPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
-                  Floor Assignment Queue
+                  Needs a table
                 </p>
                 <h3 className="mt-2 text-2xl font-bold text-white">
                   Confirmed bookings needing a table
                 </h3>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-300">
-                  These guests are confirmed for the selected performance
-                  but do not yet have a physical table assignment. Assignments
-                  are manual and never treated as public waitlist entries.
+                  Confirmed guests needing a table.
                 </p>
               </div>
               <div className="flex flex-col items-stretch gap-3 sm:min-w-[260px]">
@@ -41286,7 +41359,7 @@ export default function AdminDashboardPage() {
                 >
                   {isFloorCapacityPlanning
                     ? "Planning unallocated tables…"
-                    : "Plan Unallocated Tables"}
+                    : "Find tables"}
                 </button>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
@@ -41353,7 +41426,7 @@ export default function AdminDashboardPage() {
                           ["Assignable Seats", zonePlan.currentAssignableSeats],
                           ["Reserved Capacity", zonePlan.claimedReservedCapacity],
                           ["Operational Shortfall", zonePlan.operationalShortfall],
-                          ["Capacity Required", zonePlan.capacityRequiredPhysicalTables],
+                          ["Seats not set", zonePlan.capacityRequiredPhysicalTables],
                         ].map(([label, value]) => (
                           <div key={String(label)} className="rounded-xl border border-white/10 bg-black/30 p-2.5">
                             <dt className="uppercase tracking-[0.08em] text-zinc-500">{label}</dt>
@@ -41556,7 +41629,7 @@ export default function AdminDashboardPage() {
                                 ? `${allocation.table.tableNumber} (merge required)`
                                 : allocation.table.tableNumber
                                 : isCorporate
-                                  ? "Run Plan Unallocated Tables"
+                                  ? "Find tables"
                                   : "No suitable table"}
                           </span>
                         </p>
@@ -41590,7 +41663,7 @@ export default function AdminDashboardPage() {
                               ? floorAssignmentAction.status === "assigning" ? "ASSIGNING..." : "ASSIGNED ✓"
                               : isCorporate || usesReviewedPlanAssignment
                                 ? `ASSIGN ${getZoneById(zoneId)?.title?.toUpperCase() ?? zoneId} TABLES`
-                                : "Assign Suggested Table"}
+                                : "Assign recommended table"}
                           </button>
                         ))}
                         {!allocation && !bookingPlan && (
@@ -41830,49 +41903,49 @@ export default function AdminDashboardPage() {
 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:min-w-[680px] lg:grid-cols-4">
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                        Base / Public Capacity
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400" title="Seats available for public booking.">
+                        Public seats
                       </p>
                       <p className="mt-2 text-3xl font-bold">
                         {stats.baseCapacity}
                       </p>
                       <p className="mt-1 text-xs text-zinc-300">
-                        Public sellable remaining {stats.baseSellableRemaining}
+                        {stats.baseSellableRemaining} left for public booking
                       </p>
                     </div>
 
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                        Temporary Operational
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400" title="For staff-created bookings only. Does not increase website availability.">
+                        Extra seating
                       </p>
                       <p className="mt-2 text-3xl font-bold">
                         +{stats.temporaryCapacity}
                       </p>
                       <p className="mt-1 text-xs text-zinc-300">
-                        Effective operational {stats.effectiveOperationalCapacity}
+                        Total approved seating {stats.effectiveOperationalCapacity}
                       </p>
                     </div>
 
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                        Active Entitlement
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400" title="Includes confirmed guests who still need a table.">
+                        Guests booked
                       </p>
                       <p className="mt-2 text-3xl font-bold">
                         {stats.bookedSeats}
                       </p>
                       <p className="mt-1 text-xs text-zinc-300">
-                        Operational remaining {stats.remainingSeats}
+                        Approved seats left {stats.remainingSeats}
                       </p>
                       {stats.overCapacitySeats > 0 && (
                         <p className="mt-2 text-xs font-semibold text-red-300">
-                          Over operational capacity by {stats.overCapacitySeats}
+                          Over approved seating by {stats.overCapacitySeats}
                         </p>
                       )}
                     </div>
 
                     <div className="rounded-xl border border-white/15 bg-black/30 p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                        Operational Tables
+                        Tables
                       </p>
                       <p className="mt-2 text-sm font-semibold text-white">
                         {stats.physicalTableCount} physical ·{" "}
@@ -41880,10 +41953,10 @@ export default function AdminDashboardPage() {
                         {stats.mergedOperationalTableCount} merged
                       </p>
                       <p className="mt-1 text-xs text-zinc-300">
-                        Physical/merged {stats.representedPhysicalCapacity} · temporary {stats.temporaryCapacity} · raw table seats {stats.rawOperationalTableCapacity}
+                        Table seats set up {stats.representedPhysicalCapacity} · Extra seating {stats.temporaryCapacity} · Raw table seats {stats.rawOperationalTableCapacity}
                       </p>
                       <p className="mt-1 text-xs text-zinc-400">
-                        {stats.assignableTableCapacity} assignable table seats · {stats.representationHeadroom} physical representation headroom
+                        {stats.assignableTableCapacity} Available table seats · {stats.representationHeadroom} table setup headroom
                       </p>
                       {stats.tableFitSlack > 0 && (
                         <p className="mt-1 text-xs text-zinc-400">
@@ -41892,7 +41965,7 @@ export default function AdminDashboardPage() {
                       )}
                       {stats.unconfiguredPhysicalTableCount > 0 && (
                         <p className="mt-1 text-xs text-amber-100">
-                          {stats.unconfiguredPhysicalTableCount} capacity required
+                          {stats.unconfiguredPhysicalTableCount} seats not set
                         </p>
                       )}
                       <p className="mt-2 text-sm leading-6 text-zinc-300">
@@ -42153,7 +42226,7 @@ export default function AdminDashboardPage() {
                               >
                                 {table.physicalTable === true &&
                                 table.capacityConfigured === false
-                                  ? "Capacity Required"
+                                  ? "Seats not set"
                                   : tableOccupancyLabels[tableOccupancy.state]}
                               </span>
                               {hasOverride && (
@@ -42370,7 +42443,7 @@ export default function AdminDashboardPage() {
                               <option value="disabled">
                                 {table.physicalTable === true &&
                                 table.capacityConfigured === false
-                                  ? "Capacity Required"
+                                  ? "Seats not set"
                                   : "Blocked"}
                               </option>
                             </select>
@@ -42388,7 +42461,7 @@ export default function AdminDashboardPage() {
 
                           <label>
                             <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                              Temporary Operational Notes
+                              Extra seating notes
                             </span>
                             <input
                               value={table.guestNotes}
@@ -43403,7 +43476,7 @@ export default function AdminDashboardPage() {
                       className="min-h-11 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       <span className="whitespace-nowrap">
-                        Archive All Non-Archived ({allArchivableBookings.length})
+                        Archive all active results ({allArchivableBookings.length})
                       </span>
                     </button>
                   </div>
@@ -44999,7 +45072,7 @@ export default function AdminDashboardPage() {
                         ) : (
 	                        <div className="mt-6">
                             <div className="mb-3 rounded-2xl border border-amber-300/25 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
-                              No linked live customer profile was found. These
+                              No customer profile linked. These
                               fields update this booking snapshot only.
                             </div>
                             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -45321,7 +45394,7 @@ export default function AdminDashboardPage() {
                                     {selectedTransferShow.label} · {formatSouthAfricanDate(selectedTransferShow.date)} · {getSouthAfricaShowTime(selectedTransferShow)}
                                   </p>
                                   <p className="mt-2 text-xs leading-relaxed text-amber-100/85">
-                                    The current table will be released. An exact same-code physical table is assigned only if it is configured, free, and large enough; otherwise this booking will enter the Floor Assignment Queue. Existing pricing, payment history, ticket reference, UUID, and QR remain unchanged.
+                                    The current table will be removed. The same table number is used only if it is set up, free, and large enough; otherwise this booking will move to Needs a table. Pricing, payment history, ticket identity, and QR remain unchanged.
                                   </p>
                                 </div>
                               )}
@@ -45554,6 +45627,8 @@ export default function AdminDashboardPage() {
         )}
         </div>
       </div>
+
+      {adminUndertakingState === "accepted" && <StaffOnboardingTour />}
 
       {corporateConversionReviewRequest && (
         <CorporateConversionModal

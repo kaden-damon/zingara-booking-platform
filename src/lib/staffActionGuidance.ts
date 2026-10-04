@@ -108,35 +108,33 @@ export function resolveStaffActionGuidance(
     if (/effective operational capacity|operational capacity|zone_capacity_exceeded/.test(searchable)) {
       return {
         ...fallback,
-        message,
-        nextStep: outcome.explanation
-          ? undefined
-          : "Add operational capacity from Floor or choose another seating zone.",
+        message: "There aren't enough approved seats available for this change.",
+        nextStep: "Choose another seating section or ask an authorised manager to review Extra seating.",
         status: "blocked",
         technicalCode: outcome.code,
-        title: "Operational capacity prevents this action",
+        title: "Not enough approved seats",
       };
     }
 
     if (/public sellable|public capacity/.test(searchable)) {
       return {
         ...fallback,
-        message,
+        message: "There aren't enough Public seats available for this booking.",
         nextStep: "Choose another seating zone or review public availability for the performance.",
         status: "blocked",
         technicalCode: outcome.code,
-        title: "Public capacity prevents this action",
+        title: "Not enough Public seats",
       };
     }
 
     if (/no suitable existing table|table fit|cannot seat|can't seat|combined-table capacity/.test(searchable)) {
       return {
         ...fallback,
-        message,
-        nextStep: "Create, merge, or select an operational table that can seat the complete party.",
+        message: "This table doesn't fit this booking.",
+        nextStep: "Choose another table or use Find tables.",
         status: "blocked",
         technicalCode: outcome.code,
-        title: "No suitable table is available",
+        title: "No table fits this group",
       };
     }
 
@@ -195,14 +193,36 @@ export function resolveStaffActionGuidance(
       };
     }
 
+    if (/payment.*changed|stale.*payment|payment.*revision/.test(searchable)) {
+      return {
+        ...fallback,
+        message: "The payment details changed while you were working.",
+        nextStep: "Refresh before continuing.",
+        status: "warning",
+        technicalCode: outcome.code,
+        title: "Payment details changed",
+      };
+    }
+
+    if (/permission|forbidden|not authorised|not authorized|access denied/.test(searchable)) {
+      return {
+        ...fallback,
+        message: "You don't have access to do this.",
+        nextStep: "Ask an authorised manager if this action is required.",
+        status: "blocked",
+        technicalCode: outcome.code,
+        title: "Access needed",
+      };
+    }
+
     if (/stale|changed before|refresh and retry|already claimed|not available/.test(searchable)) {
       return {
         ...fallback,
-        message,
-        nextStep: "Refresh the current record, review the latest state, and retry if it is still valid.",
+        message: "Someone else changed this record while you were working.",
+        nextStep: "Refresh, check the latest details, and try again.",
         status: "warning",
         technicalCode: outcome.code,
-        title: "The record changed before it was saved",
+        title: "Changed elsewhere",
       };
     }
 
@@ -267,7 +287,7 @@ export function getCommunicationFailureGuidance(
 
 export function getUnverifiedBulkDeliveryGuidance(): StaffActionGuidance {
   return {
-    message: "This bulk control does not have authoritative customer-delivery confirmation, so no message was recorded as sent.",
+    message: "Delivery could not be confirmed, so no message was recorded as sent.",
     nextStep: "Use the communication action in Booking Details, where delivery is confirmed by the existing provider pathway.",
     status: "blocked",
     technicalCode: "AUTHORITATIVE_DELIVERY_UNAVAILABLE",

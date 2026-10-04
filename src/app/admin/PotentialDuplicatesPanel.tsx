@@ -96,7 +96,7 @@ export default function PotentialDuplicatesPanel() {
                 <span>Potential capacity impact {data.summary.capacityImpact} pax</span>
               </div>
               {data.groups.length === 0 ? (
-                <p className="text-sm text-[#c8bda8]">No candidate groups found.</p>
+                <p className="text-sm text-[#c8bda8]">No possible duplicates found.</p>
               ) : (
                 data.groups.map((group) => (
                   <article
