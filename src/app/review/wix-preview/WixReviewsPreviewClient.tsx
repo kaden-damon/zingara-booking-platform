@@ -50,9 +50,9 @@ function ReviewCard({ review }: { review: PublicReviewPayload }) {
       <div className="mt-auto pt-6">
         <p className="font-semibold text-white">{review.displayName || "Zingara Guest"}</p>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
-          {review.verifiedGuest && (
-            <span className="text-emerald-300">Verified Guest</span>
-          )}
+          <span className={review.guestType === "verified" ? "text-emerald-300" : "text-sky-300"}>
+            {review.guestType === "verified" ? "Verified Guest" : "Invited Guest"}
+          </span>
           <span>{reviewVenue(review.venue)}</span>
         </div>
       </div>

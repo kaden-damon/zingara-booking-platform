@@ -15,6 +15,7 @@ import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
 import { AdminIpUndertakingGate } from "./AdminIpUndertakingGate";
 import { AdminSearchInput } from "./AdminSearchInput";
 import { BookingMetadataDraftEditor } from "./BookingMetadataDraftEditor";
+import BookingReviewInvitations from "./BookingReviewInvitations";
 import { CorporateZoneEntitlementEditor } from "./CorporateZoneEntitlementEditor";
 import { CompactBookingList } from "./CompactBookingList";
 import PotentialDuplicatesPanel from "./PotentialDuplicatesPanel";
@@ -44573,6 +44574,12 @@ export default function AdminDashboardPage() {
                         )}
                       </AdminCollapsibleSection>
                     </div>
+
+                    {canManageCommunications && !bookingIsReadOnly && (
+                      <BookingReviewInvitations
+                        bookingReference={booking.reference}
+                      />
+                    )}
 
                     {canManageCommunications && !bookingIsReadOnly && (
                       <AdminCollapsibleSection

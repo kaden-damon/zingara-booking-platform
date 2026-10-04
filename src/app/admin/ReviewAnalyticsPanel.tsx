@@ -219,10 +219,13 @@ export default function ReviewAnalyticsPanel({
         Review Submitted uses its own submitted-date range. Performance reporting uses the Performance date range and selected performance. All dates use Africa/Johannesburg.
       </p>
 
-      <div className="grid grid-cols-2 gap-y-4 md:grid-cols-4 xl:grid-cols-7">
-        <Kpi helper="All verified submissions" label="Guest Rating" value={rating(report.kpis.guestRating)} />
+      <div className="grid grid-cols-2 gap-y-4 md:grid-cols-4 xl:grid-cols-10">
+        <Kpi helper="All legitimate submissions" label="Guest Rating" value={rating(report.kpis.guestRating)} />
         <Kpi label="Reviews Received" value={integer.format(report.kpis.reviewsReceived)} />
-        <Kpi helper="Submitted ÷ mailer accepted" label="Response Rate" value={rate(report.kpis.responseRate)} />
+        <Kpi helper="Automated verified responses ÷ automated mailer accepted" label="Response Rate" value={rate(report.kpis.responseRate)} />
+        <Kpi label="Automated Responses" value={integer.format(report.kpis.automatedReviews)} />
+        <Kpi label="Manual Email" value={integer.format(report.kpis.manualEmailReviews)} />
+        <Kpi label="Manual Link" value={integer.format(report.kpis.manualLinkReviews)} />
         <Kpi helper="Published + consented" label="Public Rating" value={rating(report.kpis.publicRating)} />
         <Kpi label="Published Reviews" value={integer.format(report.kpis.publishedReviews)} />
         <Kpi label="Needs Review" value={integer.format(report.kpis.needsReview)} />
@@ -291,7 +294,7 @@ export default function ReviewAnalyticsPanel({
           <Kpi label="Published" value={integer.format(report.funnel.published)} />
         </div>
         <p className="mt-3 text-xs leading-5 text-zinc-500">
-          Response Rate = submitted reviews from accepted invitations ÷ accepted invitations. Publication Rate {rate(report.kpis.publicationRate)} · Public Consent Rate {rate(report.kpis.consentRate)}. Zingara does not claim email opens, clicks or inbox delivery.
+          Response Rate = automated verified responses from accepted invitations ÷ accepted automated invitations. Publication Rate {rate(report.kpis.publicationRate)} · Public Consent Rate {rate(report.kpis.consentRate)}. Zingara does not claim email opens, clicks or inbox delivery.
         </p>
       </div>
 

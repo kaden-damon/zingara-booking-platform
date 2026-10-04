@@ -60,6 +60,7 @@ export type PublicReviewPayload = {
   reviewText: string;
   venue: string;
   verifiedGuest: boolean;
+  guestType: "invited" | "verified";
 };
 
 export type PublicReviewsResponse = {
@@ -75,6 +76,8 @@ export type PublicReviewsResponse = {
   reviews: PublicReviewPayload[];
 };
 
+// guestType is an additive field; retain 1.0 so the installed Wix backend
+// continues accepting the feed without a Wix deployment.
 export const publicReviewContractVersion = "1.0";
 export const publicReviewDefaultLimit = 12;
 export const publicReviewMaximumLimit = 24;
@@ -111,6 +114,14 @@ export function getSafePublicDisplayName(input: {
   if (!surname) return firstName.slice(0, 60);
 
   return `${firstName.slice(0, 60)} ${surname.charAt(0).toUpperCase()}.`;
+}
+
+export function getSafePublicDisplayNameFromFullName(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length === 0) return "Zingara Guest";
+  if (parts.length === 1) return parts[0].slice(0, 60);
+  return `${parts[0].slice(0, 60)} ${parts.at(-1)!.charAt(0).toUpperCase()}.`;
 }
 
 export function validateReviewSubmission(input: {
@@ -235,6 +246,7 @@ export function toPublicReviewPayload(record: PublicReviewRecord): PublicReviewP
     reviewText: record.reviewText,
     venue: record.venue,
     verifiedGuest: record.verifiedGuest,
+    guestType: record.verifiedGuest ? "verified" : "invited",
   };
 }
 

@@ -79,6 +79,7 @@ type ReviewRow = {
   contact_requested: boolean;
   featured: boolean;
   id: string;
+  invitation_id: string;
   moderation_status: "needs_review" | "not_published" | "published";
   public_display_name: string;
   publication_consent: boolean;
@@ -87,6 +88,7 @@ type ReviewRow = {
   submitted_at: string;
   unpublished_at: string | null;
   venue: AnalyticsVenue;
+  verified_guest: boolean;
 };
 
 type BookingRow = {
@@ -178,18 +180,18 @@ export async function loadReviewAnalyticsReport(
       serviceClient
         .from("guest_reviews")
         .select(
-          "id,booking_id,show_id,venue,public_display_name,rating,contact_requested,publication_consent,moderation_status,submitted_at,unpublished_at,featured",
+          "id,invitation_id,booking_id,show_id,venue,public_display_name,rating,contact_requested,publication_consent,moderation_status,submitted_at,unpublished_at,featured,verified_guest",
         )
         .in("show_id", ids)
         .order("submitted_at", { ascending: false })
         .range(from, to),
     ),
-    loadRowsForIds<{ booking_id: string; created_at: string; show_id: string }>(
+    loadRowsForIds<{ booking_id: string; created_at: string; id: string; invitation_type: "automated_verified" | "manual_email" | "manual_link"; show_id: string }>(
       showIds,
       (ids, from, to) =>
         serviceClient
           .from("review_invitations")
-          .select("booking_id,show_id,created_at")
+          .select("id,booking_id,show_id,created_at,invitation_type")
           .in("show_id", ids)
           .order("created_at")
           .range(from, to),
@@ -266,12 +268,16 @@ export async function loadReviewAnalyticsReport(
       row.review_text as string,
     ]),
   );
+  const invitationTypes = new Map(
+    invitationRows.map((invitation) => [invitation.id, invitation.invitation_type]),
+  );
   const reviews: ReviewAnalyticsReview[] = reviewRows.map((review) => ({
     bookingId: review.booking_id,
     contactRequested: review.contact_requested,
     displayName: review.public_display_name,
     featured: review.featured,
     id: review.id,
+    invitationType: invitationTypes.get(review.invitation_id) ?? (review.verified_guest ? "automated_verified" : "manual_link"),
     moderationStatus: review.moderation_status,
     publicationConsent: review.publication_consent,
     rating: review.rating,
@@ -280,6 +286,7 @@ export async function loadReviewAnalyticsReport(
     submittedAt: review.submitted_at,
     unpublishedAt: review.unpublished_at,
     venue: review.venue,
+    verifiedGuest: review.verified_guest,
   }));
   const submittedRange = (timestamp: string) =>
     inRange(
@@ -310,6 +317,7 @@ export async function loadReviewAnalyticsReport(
     evidence: {
       attended,
       invitations: invitationRows
+        .filter((row) => row.invitation_type === "automated_verified")
         .filter((row) => submittedRange(row.created_at))
         .map((row) => ({ bookingId: row.booking_id, showId: row.show_id })),
       sent: communicationRows.flatMap((row) => {

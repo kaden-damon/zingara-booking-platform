@@ -4,6 +4,7 @@ import {
   createReviewToken,
   getReviewEligibilityReason,
   getSafePublicDisplayName,
+  getSafePublicDisplayNameFromFullName,
   hashReviewToken,
   reviewInvitationLifetimeDays,
 } from "@/lib/reviews/reviews";
@@ -37,6 +38,8 @@ type InvitationRow = {
   booking_id: string;
   expires_at: string;
   id: string;
+  invitation_type: "automated_verified" | "manual_email" | "manual_link";
+  recipient_name: string;
   status: string;
   token_envelope: unknown;
 };
@@ -135,8 +138,9 @@ export async function getOrCreateVerifiedReviewLink(
 
   const { data: existing, error: invitationError } = await supabase
     .from("review_invitations")
-    .select("id,booking_id,status,expires_at,token_envelope")
+    .select("id,booking_id,status,expires_at,token_envelope,invitation_type,recipient_name")
     .eq("booking_id", bookingId)
+    .eq("invitation_type", "automated_verified")
     .maybeSingle();
 
   if (invitationError) throw invitationError;
@@ -164,6 +168,14 @@ export async function getOrCreateVerifiedReviewLink(
     expires_at: expiresAt,
     revoked_at: null,
     show_id: evidence.show.id,
+    invitation_type: "automated_verified",
+    recipient_email: null,
+    normalized_email: null,
+    recipient_name:
+      [evidence.customer.first_name, evidence.customer.surname]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || "Zingara Guest",
     status: "active",
     submitted_at: null,
     token_envelope: sealReviewToken(token),
@@ -184,6 +196,7 @@ export async function getOrCreateVerifiedReviewLink(
         .from("review_invitations")
         .select("id,expires_at,token_envelope")
         .eq("booking_id", bookingId)
+        .eq("invitation_type", "automated_verified")
         .single();
       if (raceError) throw raceError;
       const racedToken = openReviewToken(racedInvitation.token_envelope);
@@ -220,7 +233,7 @@ export async function resolveVerifiedReviewContext(
 
   const { data: invitation, error } = await supabase
     .from("review_invitations")
-    .select("id,booking_id,status,expires_at,submitted_at")
+    .select("id,booking_id,status,expires_at,submitted_at,invitation_type,recipient_name")
     .eq("token_hash", hashReviewToken(token))
     .maybeSingle();
 
@@ -236,12 +249,13 @@ export async function resolveVerifiedReviewContext(
   }
 
   const evidence = await loadReviewEvidence(supabase, invitation.booking_id);
+  const isVerified = invitation.invitation_type === "automated_verified";
   const exclusion = getReviewEligibilityReason(
     {
       archivedAt: evidence.booking.archived_at,
       bookingReference: evidence.booking.booking_reference,
       bookingStatus: evidence.booking.booking_status,
-      checkedIn: evidence.checkedIn,
+      checkedIn: isVerified ? evidence.checkedIn : true,
       paymentStatus: evidence.booking.payment_status,
       showDate: evidence.show.date,
       showTime: evidence.show.time,
@@ -255,11 +269,16 @@ export async function resolveVerifiedReviewContext(
 
   return {
     expiresAt: invitation.expires_at as string,
-    firstName: evidence.customer.first_name?.trim() || "Guest",
-    publicDisplayName: getSafePublicDisplayName({
-      firstName: evidence.customer.first_name,
-      surname: evidence.customer.surname,
-    }),
+    firstName: isVerified
+      ? evidence.customer.first_name?.trim() || "Guest"
+      : invitation.recipient_name.trim().split(/\s+/)[0] || "Guest",
+    guestType: isVerified ? "verified" : "invited",
+    publicDisplayName: isVerified
+      ? getSafePublicDisplayName({
+          firstName: evidence.customer.first_name,
+          surname: evidence.customer.surname,
+        })
+      : getSafePublicDisplayNameFromFullName(invitation.recipient_name),
     performanceDate: evidence.show.date,
     performanceName: evidence.show.name,
     performanceTime: evidence.show.time.slice(0, 5),

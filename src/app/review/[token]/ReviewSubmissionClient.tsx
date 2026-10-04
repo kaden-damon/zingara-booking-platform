@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 type ReviewContext = {
   firstName: string;
+  guestType: "invited" | "verified";
   performanceDate: string;
   performanceName: string;
   performanceTime: string;
@@ -37,6 +38,7 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
     preview
       ? {
           firstName: "Guest",
+          guestType: "verified",
           performanceDate: "2026-09-30",
           performanceName: "The Royal Countess",
           performanceTime: "17:00",
@@ -154,7 +156,7 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
           </p>
         </header>
 
-        {status === "loading" && <p className="py-14 text-center text-sm text-zinc-400">Opening your verified review invitation...</p>}
+        {status === "loading" && <p className="py-14 text-center text-sm text-zinc-400">Opening your review invitation...</p>}
 
         {status === "unavailable" && (
           <section className="mt-8 rounded-[1.5rem] border border-white/10 bg-black/45 p-6 text-center shadow-2xl shadow-black/30 sm:p-8" aria-live="polite">
@@ -175,7 +177,9 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
           <form className="mt-8 space-y-6 rounded-[1.5rem] border border-[#D8C36A]/25 bg-[#080808]/95 p-5 shadow-2xl shadow-[#8D7A2F]/10 sm:p-7" onSubmit={submitReview}>
             <section className="rounded-2xl border border-[#D8C36A]/30 bg-[#D8C36A]/[0.07] px-4 py-3.5 sm:flex sm:items-center sm:justify-between sm:gap-5 sm:px-5">
               <div>
-                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Verified guest invitation</p>
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                  {context.guestType === "verified" ? "Verified guest invitation" : "Invited guest invitation"}
+                </p>
                 <p className="mt-1 text-lg font-medium text-white">{context.performanceName}</p>
               </div>
               <p className="mt-1.5 text-sm leading-6 text-zinc-400 sm:mt-0 sm:text-right">

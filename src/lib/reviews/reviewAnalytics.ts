@@ -11,6 +11,7 @@ export type ReviewAnalyticsReview = {
   displayName: string;
   featured: boolean;
   id: string;
+  invitationType: "automated_verified" | "manual_email" | "manual_link";
   moderationStatus: ReviewAnalyticsStatus;
   publicationConsent: boolean;
   rating: number;
@@ -19,6 +20,7 @@ export type ReviewAnalyticsReview = {
   submittedAt: string;
   unpublishedAt: string | null;
   venue: AnalyticsVenue;
+  verifiedGuest: boolean;
 };
 
 export type ReviewAnalyticsShow = {
@@ -85,6 +87,10 @@ export type ReviewAnalyticsReport = {
     responseRate: number | null;
     reviewsReceived: number;
     unpublished: number;
+    automatedReviews: number;
+    manualEmailReviews: number;
+    manualLinkReviews: number;
+    manualReviews: number;
   };
   lowRatings: ReviewAnalyticsFeedbackRow[];
   moderation: {
@@ -254,7 +260,9 @@ export function calculateReviewAnalytics(input: {
     invitations: input.evidence.invitations.filter((item) => filteredShowIds.has(item.showId)),
     sent: input.evidence.sent.filter((item) => filteredShowIds.has(item.showId)),
   };
-  const reviewBookingIds = new Set(reviews.map((review) => review.bookingId));
+  const reviewBookingIds = new Set(
+    reviews.filter((review) => review.verifiedGuest).map((review) => review.bookingId),
+  );
   const sentBookingIds = new Set(evidence.sent.map((item) => item.bookingId));
   const submittedFromSentInvitations = [...reviewBookingIds].filter((bookingId) =>
     sentBookingIds.has(bookingId),
@@ -287,7 +295,7 @@ export function calculateReviewAnalytics(input: {
       const venueSentSet = new Set(venueSent.map((item) => item.bookingId));
       const venueResponses = new Set(
         venueReviews
-          .filter((review) => venueSentSet.has(review.bookingId))
+          .filter((review) => review.verifiedGuest && venueSentSet.has(review.bookingId))
           .map((review) => review.bookingId),
       ).size;
       return {
@@ -312,7 +320,7 @@ export function calculateReviewAnalytics(input: {
       );
       const responses = new Set(
         showReviews
-          .filter((review) => showSentSet.has(review.bookingId))
+          .filter((review) => review.verifiedGuest && showSentSet.has(review.bookingId))
           .map((review) => review.bookingId),
       ).size;
       return {
@@ -360,6 +368,10 @@ export function calculateReviewAnalytics(input: {
       responseRate: rate(submittedFromSentInvitations, sentBookingIds.size),
       reviewsReceived: reviews.length,
       unpublished: moderation.unpublished,
+      automatedReviews: reviews.filter((review) => review.verifiedGuest).length,
+      manualEmailReviews: reviews.filter((review) => review.invitationType === "manual_email").length,
+      manualLinkReviews: reviews.filter((review) => review.invitationType === "manual_link").length,
+      manualReviews: reviews.filter((review) => !review.verifiedGuest).length,
     },
     lowRatings: sortedReviews
       .filter((review) => review.rating <= 2)

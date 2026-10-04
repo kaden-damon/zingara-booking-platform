@@ -153,7 +153,7 @@ export default function ReviewsAdminWorkspace() {
     <section className="space-y-5">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-300">Guest feedback</p>
-        <h2 className="mt-1 text-2xl font-semibold text-white">Verified Reviews</h2>
+        <h2 className="mt-1 text-2xl font-semibold text-white">Guest Reviews</h2>
       </div>
 
       <div className="flex flex-col gap-3 border-y border-white/10 py-4 lg:flex-row lg:items-center lg:justify-between">
@@ -228,7 +228,9 @@ export default function ReviewsAdminWorkspace() {
                 </div>
                 <p className="mt-3 line-clamp-2 text-sm leading-5 text-zinc-400">{review.reviewText}</p>
                 <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.08em]">
-                  {review.verifiedGuest && <span className="rounded-full border border-emerald-400/30 px-2 py-1 text-emerald-300">Verified guest</span>}
+                  <span className={`rounded-full border px-2 py-1 ${review.verifiedGuest ? "border-emerald-400/30 text-emerald-300" : "border-sky-400/30 text-sky-300"}`}>
+                    {review.verifiedGuest ? "Verified guest" : "Invited guest"}
+                  </span>
                   {review.featured && <span className="rounded-full border border-amber-300/30 px-2 py-1 text-amber-200">Featured</span>}
                   {review.contactRequested && <span className="rounded-full border border-sky-400/30 px-2 py-1 text-sky-300">Contact requested</span>}
                   {!review.publicationConsent && <span className="rounded-full border border-white/15 px-2 py-1 text-zinc-400">Private only</span>}
@@ -273,7 +275,7 @@ export default function ReviewsAdminWorkspace() {
               <div className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-xl font-semibold text-white">{selected.displayName}</p>
-                  <p className="mt-1 text-sm text-zinc-400">{selected.bookingReference} · {selected.guestCount ?? "-"} guests</p>
+                  <p className="mt-1 text-sm text-zinc-400">{selected.bookingReference} · {selected.guestCount ?? "-"} guests · {selected.verifiedGuest ? "Verified Guest" : "Invited Guest"}</p>
                 </div>
                 <span className="self-start rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold uppercase text-zinc-300">{statusLabel(selected.status)}</span>
               </div>

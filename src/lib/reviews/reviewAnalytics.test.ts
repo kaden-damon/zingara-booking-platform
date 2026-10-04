@@ -30,6 +30,7 @@ function review(overrides: Partial<ReviewAnalyticsReview> = {}): ReviewAnalytics
     displayName: "Verified Guest",
     featured: false,
     id: "review-one",
+    invitationType: "automated_verified",
     moderationStatus: "needs_review",
     publicationConsent: false,
     rating: 1,
@@ -38,6 +39,7 @@ function review(overrides: Partial<ReviewAnalyticsReview> = {}): ReviewAnalytics
     submittedAt: "2026-10-01T00:30:00+02:00",
     unpublishedAt: null,
     venue: "johannesburg",
+    verifiedGuest: true,
     ...overrides,
   };
 }
@@ -116,6 +118,23 @@ test("response, publication, consent and contact metrics use explicit denominato
   assert.equal(result.funnel.attended, 2);
   assert.equal(result.funnel.invitationCreated, 2);
   assert.equal(result.funnel.mailerAccepted, 2);
+});
+
+test("manual submissions count in ratings without inflating automated response rates", () => {
+  const result = calculate([
+    review({ bookingId: "booking-one", id: "verified", rating: 5 }),
+    review({ bookingId: "booking-two", id: "manual", invitationType: "manual_email", rating: 1, verifiedGuest: false }),
+  ]);
+
+  assert.equal(result.kpis.reviewsReceived, 2);
+  assert.equal(result.kpis.automatedReviews, 1);
+  assert.equal(result.kpis.manualReviews, 1);
+  assert.equal(result.kpis.manualEmailReviews, 1);
+  assert.equal(result.kpis.manualLinkReviews, 0);
+  assert.equal(result.kpis.guestRating, 3);
+  assert.equal(result.kpis.responseRate, 0.5);
+  assert.equal(result.venueComparison[0]?.responseRate, 1);
+  assert.equal(result.performance[0]?.responseRate, 1);
 });
 
 test("venue and show filters scope reviews plus attendance and invitation evidence", () => {

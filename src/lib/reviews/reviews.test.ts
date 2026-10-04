@@ -8,6 +8,7 @@ import {
   getPublishedReviewAggregates,
   getReviewEligibilityReason,
   getSafePublicDisplayName,
+  getSafePublicDisplayNameFromFullName,
   getVisiblePublicReviews,
   hashReviewToken,
   parsePublicReviewFilters,
@@ -30,6 +31,8 @@ const adminPagePath = `${root}/src/app/admin/page.tsx`;
 const wixBackendPath = `${root}/docs/wix-reviews/reviews.web.js`;
 const wixFrontendPath = `${root}/docs/wix-reviews/reviews-page.js`;
 const wixPreviewPath = `${root}/src/app/review/wix-preview/page.tsx`;
+const manualMigrationPath = `${root}/supabase/migrations/20261004210000_phase_43_5_manual_review_invitations.sql`;
+const manualInvitationRoutePath = `${root}/src/app/api/admin/bookings/review-invitations/route.ts`;
 
 const eligible = {
   archivedAt: null,
@@ -135,6 +138,7 @@ test("public display names never require full identity", () => {
   assert.equal(getSafePublicDisplayName({ firstName: "Chanel", surname: "Dawson" }), "Chanel D.");
   assert.equal(getSafePublicDisplayName({ firstName: "Chanel", surname: null }), "Chanel");
   assert.equal(getSafePublicDisplayName({ firstName: null, surname: "Dawson" }), "Zingara Guest");
+  assert.equal(getSafePublicDisplayNameFromFullName("Sarah Marie Molefe"), "Sarah M.");
 });
 
 test("publication requires consent and low ratings follow the same rule", () => {
@@ -148,6 +152,7 @@ test("public payload contains only approved presentation fields", () => {
   assert.deepEqual(Object.keys(payload ?? {}).sort(), [
     "displayName",
     "featured",
+    "guestType",
     "publicReviewId",
     "publishedAt",
     "rating",
@@ -241,6 +246,7 @@ test("serialized public reviews contain no linked customer, booking, payment, mo
   assert.deepEqual(Object.keys(JSON.parse(serialized)).sort(), [
     "displayName",
     "featured",
+    "guestType",
     "publicReviewId",
     "publishedAt",
     "rating",
@@ -368,6 +374,26 @@ test("existing post-show workflow resolves recipient-specific links and remains 
   assert.match(mailer, /createZingaraEmailCta/);
 });
 
+test("manual invitations extend review grain while automated invitations stay one per booking", async () => {
+  const [sql, route, server] = await Promise.all([
+    readFile(manualMigrationPath, "utf8"),
+    readFile(manualInvitationRoutePath, "utf8"),
+    readFile(`${root}/src/lib/reviews/reviewServer.ts`, "utf8"),
+  ]);
+  assert.match(sql, /review_invitations_one_automated_per_booking_idx/);
+  assert.match(sql, /review_invitations_manual_email_identity_idx/);
+  assert.match(sql, /drop constraint if exists guest_reviews_booking_id_key/);
+  assert.match(route, /normalized_email/);
+  assert.match(route, /createReviewToken/);
+  assert.match(route, /sealReviewToken/);
+  assert.match(route, /manualReviewInvitationLimitPerHour/);
+  assert.match(route, /communications:manage/);
+  assert.match(route, /bookings:manage/);
+  assert.match(route, /hasVenueAccess/);
+  assert.match(server, /eq\("invitation_type", "automated_verified"\)/);
+  assert.match(server, /guestType: isVerified \? "verified" : "invited"/);
+});
+
 test("review pages preserve explicit consent, contact choice and mobile layout", async () => {
   const [source, server] = await Promise.all([
     readFile(`${root}/src/app/review/[token]/ReviewSubmissionClient.tsx`, "utf8"),
@@ -388,7 +414,7 @@ test("review pages preserve explicit consent, contact choice and mobile layout",
   assert.match(source, /rounded-full bg-\[#D8C36A\]/);
   assert.match(source, /Guest D\./);
   assert.match(source, /Preview only\. No review was submitted\./);
-  assert.match(server, /publicDisplayName: getSafePublicDisplayName/);
+  assert.match(server, /publicDisplayName: isVerified[\s\S]*getSafePublicDisplayName/);
   assert.match(source, /sm:/);
   assert.doesNotMatch(source, /useState<number>\(5\)/);
   assert.doesNotMatch(source, /context\.firstName\} and my surname initial/);
