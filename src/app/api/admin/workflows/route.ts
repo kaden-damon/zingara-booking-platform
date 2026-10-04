@@ -2,6 +2,7 @@ import {
   defaultWorkflowConfigurations,
   isHttpsUrl,
   loadWorkflowConfigurations,
+  renderConfiguredWorkflowEmail,
   saveWorkflowConfigurations,
   type AutomatedWorkflowConfiguration,
   type AutomatedWorkflowKey,
@@ -133,6 +134,90 @@ export async function GET(request: Request) {
       { error: "Workflow configuration could not be loaded." },
       { status: 500 },
     );
+  }
+}
+
+export async function POST(request: Request) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+    return auth.error;
+  }
+
+  if (getStaffRole(auth.staffProfile) !== "super-admin") {
+    return Response.json(
+      { error: "Automated workflow configuration is restricted to Super Admin." },
+      { status: 403 },
+    );
+  }
+
+  try {
+    const body = (await request.json()) as {
+      workflow?: Partial<AutomatedWorkflowConfiguration>;
+    };
+    const existing = await loadWorkflowConfigurations(auth.serviceClient);
+    const workflowKey = body.workflow?.workflowKey;
+    const current = existing.find((workflow) => workflow.workflowKey === workflowKey);
+
+    if (!workflowKey || !current) {
+      return Response.json({ error: "Choose a valid workflow to preview." }, { status: 400 });
+    }
+
+    const configuration = normaliseConfiguration(
+      body.workflow ?? current,
+      current,
+      new Date().toISOString(),
+    );
+    const reviewUrl = `${new URL(request.url).origin}/review/preview`;
+    const preview = await renderConfiguredWorkflowEmail({
+      booking: {
+        amount_paid: 3080,
+        archived_at: null,
+        balance_outstanding: 0,
+        booking_reference: "ZNG-7K4P2Q",
+        booking_status: "confirmed",
+        customer_id: "workflow-preview",
+        guest_count: 2,
+        id: "workflow-preview",
+        payment_status: "fully_paid",
+        section: "Private Booths",
+        show_id: "workflow-preview",
+        table_id: null,
+        total_amount: 3080,
+      },
+      configuration,
+      recipientName: "Sample Guest",
+      reviewUrl,
+      show: {
+        date: "2026-08-09",
+        id: "workflow-preview",
+        name: "The Royal Countess",
+        status: "active",
+        time: "19:30:00",
+        venue: "cape-town",
+      },
+    });
+    const previewHtml = preview.attachments.reduce(
+      (html, attachment) =>
+        html.replaceAll(
+          `cid:${attachment.cid}`,
+          `data:${attachment.contentType ?? "application/octet-stream"};base64,${attachment.content.toString("base64")}`,
+        ),
+      preview.html,
+    );
+
+    return Response.json({
+      body: previewHtml,
+      from: `${preview.from.name} <${preview.from.address}>`,
+      subject: preview.subject,
+      title:
+        configuration.workflowKey === "post_show_review"
+          ? "Post-Show Review Request"
+          : "Pre-Show Reminder",
+    });
+  } catch (error) {
+    console.error("[Zingara Workflows] Failed to render workflow preview", error);
+    return Response.json({ error: "Workflow preview could not be rendered." }, { status: 400 });
   }
 }
 

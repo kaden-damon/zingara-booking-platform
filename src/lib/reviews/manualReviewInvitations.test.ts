@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
-  createManualReviewEmailContent,
   getManualReviewEligibilityReason,
   manualReviewInvitationLimitPerHour,
   normalizeReviewRecipientEmail,
@@ -65,16 +64,7 @@ test("manual invitations require a legitimate completed booking without requirin
   );
 });
 
-test("manual email content keeps the approved subject and recipient-specific URL", () => {
-  const reviewUrl = "https://book.zingara.co.za/review/opaque-token-1234567890123456789012345678901234567890";
-  const result = createManualReviewEmailContent({
-    name: "Sarah Molefe",
-    reviewUrl,
-    showName: "The Royal Countess",
-  });
-  assert.equal(result.subject, "Rate your Zingara experience");
-  assert.match(result.message, /Dear Sarah Molefe/);
-  assert.match(result.message, new RegExp(reviewUrl));
+test("manual invitation limits remain bounded", () => {
   assert.equal(manualReviewInvitationLimitPerHour, 12);
 });
 
@@ -84,8 +74,10 @@ test("manual invitation route reuses security, branded mail and communication ev
   assert.match(route, /communications:manage/);
   assert.match(route, /hasVenueAccess/);
   assert.match(route, /checkRateLimit/);
-  assert.match(route, /createBrandedCustomerEmail/);
-  assert.match(route, /RATE YOUR EXPERIENCE/);
+  assert.match(route, /loadWorkflowConfigurations/);
+  assert.match(route, /renderConfiguredWorkflowEmail/);
+  assert.match(route, /workflowKey === "post_show_review"/);
+  assert.match(route, /sender: "review"/);
   assert.match(route, /insertCommunicationPayload/);
   assert.match(route, /post_show_review_manual/);
   assert.match(route, /manual_email/);
@@ -94,6 +86,7 @@ test("manual invitation route reuses security, branded mail and communication ev
   assert.match(route, /REVIEW_ALREADY_SUBMITTED/);
   assert.match(route, /recordInvitationEvent/);
   assert.doesNotMatch(route, /metadata:\s*\{[^}]*token/i);
+  assert.doesNotMatch(route, /createManualReviewEmailContent/);
 });
 
 test("manual review sends have an authoritative communication type", async () => {

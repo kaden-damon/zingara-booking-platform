@@ -4,7 +4,12 @@ import {
   htmlToPlainText,
   sanitizeEmailHtml,
 } from "@/lib/email/html";
-import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
+import { createBrandedCustomerEmail } from "@/lib/email/customerEmail";
+import {
+  getZingaraEmailSender,
+  sendOperationalCustomerEmail,
+  type EmailAttachment,
+} from "@/lib/email/smtp";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -67,7 +72,7 @@ type WorkflowConfigRow = {
   workflow_key: AutomatedWorkflowKey;
 };
 
-type BookingRow = {
+export type WorkflowBookingTemplateContext = {
   amount_paid: number;
   archived_at: string | null;
   balance_outstanding: number;
@@ -96,7 +101,7 @@ type CustomerRow = {
   surname: string | null;
 };
 
-type ShowRow = {
+export type WorkflowShowTemplateContext = {
   date: string;
   id: string;
   name: string;
@@ -105,6 +110,9 @@ type ShowRow = {
   venue: string;
 };
 
+type BookingRow = WorkflowBookingTemplateContext;
+type ShowRow = WorkflowShowTemplateContext;
+
 type TicketRow = {
   booking_id: string;
   ticket_status: string;
@@ -112,6 +120,7 @@ type TicketRow = {
 };
 
 type EligibleWorkflowBooking = {
+  attachments?: EmailAttachment[];
   booking: BookingRow;
   configuration: AutomatedWorkflowConfiguration;
   customer: CustomerRow;
@@ -456,6 +465,62 @@ function renderWorkflowEmailContent(
   return {
     html,
     message: htmlToPlainText(html),
+  };
+}
+
+export async function renderConfiguredWorkflowEmail(input: {
+  booking: WorkflowBookingTemplateContext;
+  configuration: AutomatedWorkflowConfiguration;
+  recipientName: string;
+  reviewUrl?: string;
+  show: WorkflowShowTemplateContext;
+}) {
+  const customer: CustomerRow = {
+    email: null,
+    first_name: null,
+    id: input.booking.customer_id ?? "workflow-preview",
+    surname: null,
+  };
+  const extras: Record<string, string> = {
+    customerName: input.recipientName,
+  };
+
+  if (input.configuration.workflowKey === "post_show_review") {
+    extras.reviewUrl = input.reviewUrl ?? "";
+  }
+
+  const content = renderWorkflowEmailContent(
+    input.configuration.body,
+    input.booking,
+    customer,
+    input.show,
+    extras,
+  );
+  const subject = renderWorkflowTemplate(
+    input.configuration.subject,
+    input.booking,
+    customer,
+    input.show,
+    extras,
+  );
+  const isReview = input.configuration.workflowKey === "post_show_review";
+  const branded = await createBrandedCustomerEmail({
+    ctaLabel: isReview ? "RATE YOUR EXPERIENCE" : undefined,
+    ctaUrl: isReview ? input.reviewUrl : undefined,
+    heading: subject,
+    hidePrimaryUrlInHtml: isReview,
+    html: content.html,
+    includeAgePolicy: !isReview,
+    message: content.message,
+    subject,
+  });
+
+  return {
+    attachments: branded.attachments,
+    from: getZingaraEmailSender(isReview ? "review" : "application"),
+    html: branded.html,
+    message: branded.message,
+    subject,
   };
 }
 
@@ -810,25 +875,19 @@ export async function runAutomatedWorkflows(
             item.booking.id,
             { now, origin: options.reviewOrigin },
           );
-          const extras = { reviewUrl: invitation.url };
-          const rendered = renderWorkflowEmailContent(
-            item.configuration.body,
-            item.booking,
-            item.customer,
-            item.show,
-            extras,
-          );
+          const rendered = await renderConfiguredWorkflowEmail({
+            booking: item.booking,
+            configuration: item.configuration,
+            recipientName: getCustomerName(item.customer),
+            reviewUrl: invitation.url,
+            show: item.show,
+          });
           deliveryItem = {
             ...item,
+            attachments: rendered.attachments,
             html: rendered.html,
             message: rendered.message,
-            subject: renderWorkflowTemplate(
-              item.configuration.subject,
-              item.booking,
-              item.customer,
-              item.show,
-              extras,
-            ),
+            subject: rendered.subject,
           };
         } catch (error) {
           console.error("[Zingara Workflows] Verified review link could not be created", {
@@ -871,6 +930,7 @@ export async function runAutomatedWorkflows(
       }
 
       const sendResult = await sendOperationalCustomerEmail({
+        attachments: deliveryItem.attachments,
         ctaLabel:
           deliveryItem.workflowKey === "post_show_review"
             ? "RATE YOUR EXPERIENCE"

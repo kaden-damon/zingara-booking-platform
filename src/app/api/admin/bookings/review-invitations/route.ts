@@ -1,14 +1,16 @@
-import { createBrandedCustomerEmail } from "@/lib/email/customerEmail";
 import { insertCommunicationPayload } from "@/lib/email/communicationIdempotency";
 import { sendZingaraEmail } from "@/lib/email/smtp";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rateLimit";
 import {
-  createManualReviewEmailContent,
   getManualReviewEligibilityReason,
   manualReviewInvitationLimitPerHour,
   normalizeReviewRecipientEmail,
   validateManualReviewRecipient,
 } from "@/lib/reviews/manualReviewInvitations";
+import {
+  loadWorkflowConfigurations,
+  renderConfiguredWorkflowEmail,
+} from "@/lib/workflows/automatedWorkflows";
 import {
   getReviewApplicationOrigin,
 } from "@/lib/reviews/reviewServer";
@@ -81,7 +83,7 @@ async function loadBooking(
 ) {
   const { data: booking, error } = await serviceClient
     .from("bookings")
-    .select("id,booking_reference,booking_status,payment_status,archived_at,customer_id,show_id")
+    .select("id,booking_reference,booking_status,payment_status,archived_at,customer_id,show_id,guest_count,section,total_amount,amount_paid,balance_outstanding,table_id")
     .eq("booking_reference", reference)
     .maybeSingle();
   if (error) throw error;
@@ -89,7 +91,7 @@ async function loadBooking(
 
   const { data: show, error: showError } = await serviceClient
     .from("shows")
-    .select("id,name,date,time,venue")
+    .select("id,name,date,time,venue,status")
     .eq("id", booking.show_id)
     .maybeSingle();
   if (showError) throw showError;
@@ -434,36 +436,36 @@ export async function POST(request: Request) {
       return Response.json({ invitation: publicInvitation(saved.invitation), reviewUrl }, { status: 201 });
     }
 
-    const content = createManualReviewEmailContent({
-      name: validated.value.name,
+    const reviewWorkflow = (await loadWorkflowConfigurations(auth.serviceClient)).find(
+      (workflow) => workflow.workflowKey === "post_show_review",
+    );
+    if (!reviewWorkflow) {
+      throw new Error("REVIEW_WORKFLOW_UNAVAILABLE");
+    }
+    const email = await renderConfiguredWorkflowEmail({
+      booking: context.booking,
+      configuration: reviewWorkflow,
+      recipientName: validated.value.name,
       reviewUrl,
-      showName: context.show.name,
-    });
-    const branded = await createBrandedCustomerEmail({
-      ctaLabel: "RATE YOUR EXPERIENCE",
-      ctaUrl: reviewUrl,
-      heading: "Rate your Zingara experience",
-      hidePrimaryUrlInHtml: true,
-      includeAgePolicy: false,
-      message: content.message,
-      subject: content.subject,
+      show: context.show,
     });
     const sendResult = await sendZingaraEmail({
-      attachments: branded.attachments,
-      html: branded.html,
-      message: branded.message,
-      subject: content.subject,
+      attachments: email.attachments,
+      html: email.html,
+      message: email.message,
+      sender: "review",
+      subject: email.subject,
       to: validated.value.email,
     });
     await insertCommunicationPayload(auth.serviceClient, {
       booking_id: context.booking.id,
       channel: "email",
       customer_id: context.booking.customer_id,
-      message: content.message,
+      message: email.message,
       sent_at: sendResult.ok ? new Date().toISOString() : null,
       show_id: context.show.id,
       status: sendResult.ok ? "sent" : "failed",
-      subject: content.subject,
+      subject: email.subject,
       type: "post_show_review_manual",
     });
     await recordInvitationEvent(

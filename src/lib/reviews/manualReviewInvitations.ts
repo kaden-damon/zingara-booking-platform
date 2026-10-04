@@ -53,24 +53,3 @@ export function getManualReviewEligibilityReason(input: {
     now,
   );
 }
-
-export function createManualReviewEmailContent(input: {
-  name: string;
-  reviewUrl: string;
-  showName: string;
-}) {
-  return {
-    message: `Dear ${input.name},
-
-Thank you for joining us for ${input.showName}.
-
-We'd love to hear about your Zingara experience. Your feedback helps our team continue creating unforgettable evenings for our guests.
-
-Rate your Zingara experience:
-
-${input.reviewUrl}
-
-The Zingara Team`,
-    subject: "Rate your Zingara experience",
-  };
-}

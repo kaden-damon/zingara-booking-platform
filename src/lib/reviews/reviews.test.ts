@@ -33,6 +33,7 @@ const wixFrontendPath = `${root}/docs/wix-reviews/reviews-page.js`;
 const wixPreviewPath = `${root}/src/app/review/wix-preview/page.tsx`;
 const manualMigrationPath = `${root}/supabase/migrations/20261004210000_phase_43_5_manual_review_invitations.sql`;
 const manualInvitationRoutePath = `${root}/src/app/api/admin/bookings/review-invitations/route.ts`;
+const workflowAdminRoutePath = `${root}/src/app/api/admin/workflows/route.ts`;
 
 const eligible = {
   archivedAt: null,
@@ -358,10 +359,11 @@ test("Wix handoff uses a backend web module without a second review store or bro
 });
 
 test("existing post-show workflow resolves recipient-specific links and remains disabled by default", async () => {
-  const [workflow, admin, mailer] = await Promise.all([
+  const [workflow, admin, mailer, workflowAdminRoute] = await Promise.all([
     readFile(workflowPath, "utf8"),
     readFile(adminPagePath, "utf8"),
     readFile(customerEmailPath, "utf8"),
+    readFile(workflowAdminRoutePath, "utf8"),
   ]);
   assert.match(workflow, /getOrCreateVerifiedReviewLink/);
   assert.match(workflow, /getReviewPreviewUrl/);
@@ -369,7 +371,8 @@ test("existing post-show workflow resolves recipient-specific links and remains 
   assert.match(workflow, /sendOperationalCustomerEmail/);
   assert.match(admin, /workflowKey: "post_show_review"/);
   assert.match(admin, /enabled: false/);
-  assert.match(admin, /window\.location\.origin.*review\/preview/s);
+  assert.match(admin, /\/api\/admin\/workflows/);
+  assert.match(workflowAdminRoute, /new URL\(request\.url\)\.origin.*review\/preview/s);
   assert.match(mailer, /ticket\|payment\|find-booking\|book\|review/);
   assert.match(mailer, /createZingaraEmailCta/);
 });

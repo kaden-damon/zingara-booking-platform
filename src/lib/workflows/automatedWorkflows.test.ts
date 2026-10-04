@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   collectWorkflowRows,
+  defaultWorkflowConfigurations,
   isReviewPerformanceAfterActivation,
+  renderConfiguredWorkflowEmail,
 } from "./automatedWorkflows.ts";
 
 const root = process.cwd();
@@ -89,4 +91,80 @@ test("legacy venue URLs are preserved in configuration but removed from normal r
   assert.match(admin, /No venue review URL needs to be maintained/);
   assert.match(route, /capeTownReviewUrl/);
   assert.match(route, /johannesburgReviewUrl/);
+});
+
+test("saved review workflow content renders identically for automated and manual recipients", async () => {
+  const configuration = {
+    ...defaultWorkflowConfigurations.find((item) => item.workflowKey === "post_show_review")!,
+    body: "Dear {{customerName}},\n\nBooking {{bookingRef}} for {{showName}}.\n\n{{reviewUrl}}",
+    subject: "Review {{showName}}",
+  };
+  const booking = {
+    amount_paid: 3080,
+    archived_at: null,
+    balance_outstanding: 0,
+    booking_reference: "ZNG-PARITY",
+    booking_status: "confirmed",
+    customer_id: "customer-1",
+    guest_count: 2,
+    id: "booking-1",
+    payment_status: "fully_paid",
+    section: "Private Booths",
+    show_id: "show-1",
+    table_id: null,
+    total_amount: 3080,
+  };
+  const show = {
+    date: "2026-10-03",
+    id: "show-1",
+    name: "The Royal Countess",
+    status: "active",
+    time: "17:00:00",
+    venue: "johannesburg",
+  };
+  const automated = await renderConfiguredWorkflowEmail({
+    booking,
+    configuration,
+    recipientName: "Booking Contact",
+    reviewUrl: "https://book.zingara.co.za/review/automated-token",
+    show,
+  });
+  const manual = await renderConfiguredWorkflowEmail({
+    booking,
+    configuration,
+    recipientName: "Invited Attendee",
+    reviewUrl: "https://book.zingara.co.za/review/manual-token",
+    show,
+  });
+
+  assert.equal(automated.subject, manual.subject);
+  assert.match(automated.message, /Dear Booking Contact/);
+  assert.match(manual.message, /Dear Invited Attendee/);
+  assert.match(automated.message, /automated-token/);
+  assert.match(manual.message, /manual-token/);
+  assert.doesNotMatch(automated.message, /\{\{\w+\}\}/);
+  assert.doesNotMatch(manual.message, /\{\{\w+\}\}/);
+  assert.match(automated.html, /data-zingara-customer-email="true"/);
+  assert.match(manual.html, /data-zingara-customer-email="true"/);
+  assert.deepEqual(automated.from, { address: "noreply@zingara.co.za", name: "Zingara" });
+  assert.deepEqual(manual.from, automated.from);
+});
+
+test("workflow edits flow through the one shared review renderer", async () => {
+  const configuration = defaultWorkflowConfigurations.find(
+    (item) => item.workflowKey === "post_show_review",
+  )!;
+  const source = await readFile(workflowPath, "utf8");
+  const route = await readFile(
+    `${root}/src/app/api/admin/bookings/review-invitations/route.ts`,
+    "utf8",
+  );
+  const previewRoute = await readFile(workflowRoutePath, "utf8");
+
+  assert.ok(configuration.body.includes("{{reviewUrl}}"));
+  assert.match(source, /renderConfiguredWorkflowEmail/);
+  assert.match(route, /loadWorkflowConfigurations/);
+  assert.match(route, /renderConfiguredWorkflowEmail/);
+  assert.match(previewRoute, /renderConfiguredWorkflowEmail/);
+  assert.doesNotMatch(route, /We'd love to hear about your Zingara experience/);
 });

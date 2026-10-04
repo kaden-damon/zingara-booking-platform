@@ -113,10 +113,6 @@ import {
   requestBookingEditTakeover,
 } from "../../lib/supabase/bookingLocks";
 import {
-  containsHtmlMarkup,
-  sanitizeEmailHtml,
-} from "../../lib/email/html";
-import {
   assignBookingTable,
   archiveBookings,
   getBooking,
@@ -1505,6 +1501,7 @@ type WorkflowStatusConfirmation = {
 };
 type WorkflowEmailPreview = {
   body: string;
+  from: string;
   isHtml: boolean;
   subject: string;
   title: string;
@@ -1522,19 +1519,6 @@ const automatedWorkflowVariableHints = [
   "ticketUrl",
   "reviewUrl",
 ] as const;
-
-const automatedWorkflowSampleVariables: Record<string, string> = {
-  bookingRef: "ZNG-7K4P2Q",
-  customerName: "Sample Guest",
-  guest_count: "2",
-  location: "Cape Town — The Night Court",
-  reviewUrl: "/review/preview",
-  seatingZone: "Private Booths",
-  showDate: "09/08/2026",
-  showName: "The Royal Countess",
-  showTime: "19:30",
-  ticketUrl: "https://book.zingara.co.za/ticket/ZNG-7K4P2Q",
-};
 
 const defaultAutomatedWorkflowConfigurations: AutomatedWorkflowConfiguration[] = [
   {
@@ -14517,36 +14501,32 @@ export default function AdminDashboardPage() {
     }
   }
 
-  function renderAutomatedWorkflowSample(value: string) {
-    const sampleVariables: Record<string, string> = {
-      ...automatedWorkflowSampleVariables,
-      reviewUrl: `${window.location.origin}/review/preview`,
-    };
-
-    return value.replaceAll(
-      /\{\{\s*([\w]+)\s*\}\}/g,
-      (match, variableName: string) =>
-        sampleVariables[variableName] ?? match,
-    );
-  }
-
   function getWorkflowDisplayTitle(workflowKey: AutomatedWorkflowKey) {
     return workflowKey === "post_show_review"
       ? "Post-Show Review Request"
       : "Pre-Show Reminder";
   }
 
-  function previewAutomatedWorkflow(workflow: AutomatedWorkflowConfiguration) {
-    const renderedBody = renderAutomatedWorkflowSample(workflow.body);
+  async function previewAutomatedWorkflow(workflow: AutomatedWorkflowConfiguration) {
+    try {
+      const preview = await fetchSupabaseApi<{
+        body: string;
+        from: string;
+        subject: string;
+        title: string;
+      }>("/api/admin/workflows", {
+        body: { workflow },
+        method: "POST",
+      });
 
-    setWorkflowEmailPreview({
-      body: containsHtmlMarkup(renderedBody)
-        ? sanitizeEmailHtml(renderedBody)
-        : renderedBody,
-      isHtml: containsHtmlMarkup(renderedBody),
-      subject: renderAutomatedWorkflowSample(workflow.subject),
-      title: getWorkflowDisplayTitle(workflow.workflowKey),
-    });
+      setWorkflowEmailPreview({
+        ...preview,
+        isHtml: true,
+      });
+    } catch (error) {
+      console.error("[Zingara admin] Failed to preview workflow email", error);
+      showWorkflowToast("⚠ Could not preview email");
+    }
   }
 
   async function login(event: FormEvent<HTMLFormElement>) {
@@ -40148,7 +40128,7 @@ export default function AdminDashboardPage() {
                           </div>
                           <button
                             type="button"
-                            onClick={() => previewAutomatedWorkflow(workflow)}
+                            onClick={() => void previewAutomatedWorkflow(workflow)}
                             className="inline-flex w-fit rounded-full border border-white/15 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white hover:text-black"
                           >
                             Preview Email
@@ -40245,6 +40225,9 @@ export default function AdminDashboardPage() {
                     </p>
                     <p className="mt-2 text-sm text-white">
                       Subject: {workflowEmailPreview.subject}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-300">
+                      From: {workflowEmailPreview.from}
                     </p>
                   </div>
                   <button

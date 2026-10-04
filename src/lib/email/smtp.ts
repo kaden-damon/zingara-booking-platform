@@ -16,6 +16,17 @@ const APPLICATION_EMAIL_SENDER = {
   name: "Zingara Bookings",
 } as const;
 
+const REVIEW_EMAIL_SENDER = {
+  address: "noreply@zingara.co.za",
+  name: "Zingara",
+} as const;
+
+export type ZingaraEmailSender = "application" | "review";
+
+export function getZingaraEmailSender(sender: ZingaraEmailSender = "application") {
+  return sender === "review" ? REVIEW_EMAIL_SENDER : APPLICATION_EMAIL_SENDER;
+}
+
 export type { EmailAttachment } from "@/lib/email/customerEmail";
 
 type EmailSendInput = {
@@ -23,6 +34,7 @@ type EmailSendInput = {
   cc?: string | string[] | null;
   html?: string | null;
   message: string;
+  sender?: ZingaraEmailSender;
   subject?: string | null;
   to?: string | string[] | null;
 };
@@ -71,14 +83,13 @@ function toHtmlMessage(message: string) {
   return escapeHtml(message).replace(/\r?\n/g, "<br />");
 }
 
-function getEmailConfig() {
+function getEmailConfig(sender: ZingaraEmailSender = "application") {
   const host = process.env.EMAIL_HOST || "smtp.office365.com";
   const port = Number(process.env.EMAIL_PORT || 587);
   const secure = parseBoolean(process.env.EMAIL_SECURE, false);
   const username = process.env.EMAIL_USERNAME;
   const password = process.env.EMAIL_PASSWORD;
-  const fromName = APPLICATION_EMAIL_SENDER.name;
-  const fromAddress = APPLICATION_EMAIL_SENDER.address;
+  const { address: fromAddress, name: fromName } = getZingaraEmailSender(sender);
 
   return {
     configured: Boolean(host && port && username && password && fromAddress),
@@ -97,10 +108,11 @@ export async function sendZingaraEmail({
   cc,
   html,
   message,
+  sender,
   subject,
   to,
 }: EmailSendInput): Promise<EmailSendResult> {
-  const config = getEmailConfig();
+  const config = getEmailConfig(sender);
   const recipient = Array.isArray(to) ? to.map((value) => value.trim()).filter(Boolean) : to?.trim();
 
   if (!recipient) {
@@ -206,7 +218,10 @@ export async function sendOperationalCustomerEmail({
   }
 
   if (email.html?.includes(brandedCustomerEmailMarker)) {
-    return sendZingaraEmail(email);
+    return sendZingaraEmail({
+      ...email,
+      sender: kind === "post_show_review" ? "review" : email.sender,
+    });
   }
 
   const branded = await createBrandedCustomerEmail({
@@ -220,5 +235,6 @@ export async function sendOperationalCustomerEmail({
     attachments: [...branded.attachments, ...(email.attachments ?? [])],
     html: branded.html,
     message: branded.message,
+    sender: kind === "post_show_review" ? "review" : email.sender,
   });
 }
