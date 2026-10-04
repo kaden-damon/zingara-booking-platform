@@ -13,6 +13,17 @@ Zingara Admin moderation
 
 This uses the current Wix Web Modules API (`.web.js`) and backend `wix-fetch`. The browser does not call Zingara directly, so no CORS exception or browser-visible secret is required. Reviews are not copied into Wix CMS. The web module deliberately has no Wix cache configuration, so a later Zingara unpublish is reflected on the next Wix request.
 
+## Phase 43.4 installation boundary
+
+Install `reviews.web.js` in the Wix backend only. Do not add or render a Reviews section on either live homepage until approved reviews exist and visible placement is separately approved.
+
+Reserved future placement:
+
+- Cape Town (`/capetownhome`): after Gallery and before Contact Details / newsletter.
+- Johannesburg (`/joburghome`): after Our Brand Partners and before Contact Details / newsletter.
+
+The reusable presentation code below is the handoff for that later phase. An empty feed must not create a visible homepage section.
+
 ## Files
 
 - `reviews.web.js`: install in Wix under `Backend/reviews.web.js`.

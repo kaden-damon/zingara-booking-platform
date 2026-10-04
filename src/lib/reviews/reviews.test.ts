@@ -324,10 +324,11 @@ test("public feed cannot expose private context or unapproved reviews", async ()
 });
 
 test("Wix handoff uses a backend web module without a second review store or browser secret", async () => {
-  const [backend, frontend, preview] = await Promise.all([
+  const [backend, frontend, preview, handoff] = await Promise.all([
     readFile(wixBackendPath, "utf8"),
     readFile(wixFrontendPath, "utf8"),
     readFile(wixPreviewPath, "utf8"),
+    readFile(`${root}/docs/wix-reviews/README.md`, "utf8"),
   ]);
   assert.match(backend, /wix-web-module/);
   assert.match(backend, /webMethod/);
@@ -344,6 +345,10 @@ test("Wix handoff uses a backend web module without a second review store or bro
   assert.match(frontend, /reviewsError/);
   assert.match(preview, /process\.env\.NODE_ENV === "production"/);
   assert.match(preview, /notFound\(\)/);
+  assert.match(handoff, /backend only/i);
+  assert.match(handoff, /Cape Town \(`\/capetownhome`\): after Gallery and before Contact Details \/ newsletter/);
+  assert.match(handoff, /Johannesburg \(`\/joburghome`\): after Our Brand Partners and before Contact Details \/ newsletter/);
+  assert.match(handoff, /Do not add or render a Reviews section on either live homepage/);
 });
 
 test("existing post-show workflow resolves recipient-specific links and remains disabled by default", async () => {
