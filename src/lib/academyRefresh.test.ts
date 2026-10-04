@@ -117,4 +117,7 @@ test("Academy keeps a permanent plain-language Recent Changes reference", () => 
   assert.match(admin, /Physical tables do not automatically create additional booking capacity/);
   assert.match(admin, /Creating Bookings Is Simpler/);
   assert.match(admin, /Corporate payment follow-up does not auto-expire the booking/);
+  assert.equal(admin.split('id: "recent-navigation-simplified"').length - 1, 1);
+  assert.match(admin, /Zingara Is Easier to Navigate/);
+  assert.match(admin, /Open More for Reviews, Settings, System, Quick Start and Academy/);
 });

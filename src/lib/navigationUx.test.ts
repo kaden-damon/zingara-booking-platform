@@ -33,10 +33,36 @@ test("System submenu uses the established Settings visual treatment", () => {
   assert.match(admin, /aria-label="System sections"[\s\S]*sm:grid-cols-3/);
 });
 
-test("System labels and state behavior remain unchanged", () => {
-  assert.match(admin, /id: "operations", label: "Operations"/);
+test("System labels are simplified without changing state behavior", () => {
+  assert.match(admin, /id: "operations", label: "Platform"/);
+  assert.match(admin, /id: "dineplan", label: "Dineplan"/);
   assert.match(admin, /id: "issues", label: "Issues"/);
   assert.match(admin, /id: "preferences", label: "Preferences"/);
   assert.match(admin, /onClick=\{\(\) => setActiveSystemTab\(tab\.id\)\}/);
   assert.match(admin, /aria-current=\{activeSystemTab === tab\.id \? "page"/);
+});
+
+test("Admin navigation keeps daily work primary and secondary tools under More", () => {
+  assert.match(admin, /aria-label="Admin sections"/);
+  assert.match(admin, /<span>More<\/span>/);
+  assert.match(admin, />\s*Quick Start\s*<\/a>/);
+  assert.match(admin, /getAdminNavigation/);
+  assert.match(admin, /aria-current=\{isActive \? "page" : undefined\}/);
+});
+
+test("existing and simplified Admin deep links remain supported", () => {
+  for (const section of [
+    "bookings",
+    "operations",
+    "floor-arrivals",
+    "customers",
+    "analytics",
+    "reports",
+    "reviews",
+    "settings",
+    "academy",
+    "platform-operations",
+  ]) {
+    assert.match(admin, new RegExp(`section === "${section}"`));
+  }
 });

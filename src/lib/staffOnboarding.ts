@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 
-export const latestStaffTourVersion = "booking-creation-simplified-2026-10";
+export const latestStaffTourVersion = "navigation-simplified-2026-10";
 export const staffTourMetadataKey = "zingara_staff_tour_version";
 
 export type StaffTourPage = {
@@ -13,21 +13,21 @@ export type StaffTourPage = {
 
 export const staffTourPages: StaffTourPage[] = [
   {
-    body: "Standard and Corporate bookings now follow a clearer step-by-step journey.",
-    examples: ["Show", "Guests", "Seating", "Payment", "Review"],
-    id: "booking-journey",
-    title: "Creating bookings is simpler",
+    body: "The tools you use most are now easier to find.",
+    id: "navigation",
+    title: "Zingara is easier to navigate",
   },
   {
-    body: "Choose the guest or company, show, number of guests, seating and payment without unnecessary technical information.",
-    id: "booking-essentials",
-    title: "Only what you need",
+    body: "Bookings, Floor & Arrivals, Customers and Reports stay easy to reach.",
+    examples: ["Bookings", "Floor & Arrivals", "Customers", "Reports"],
+    id: "daily-work",
+    title: "Everyday work comes first",
   },
   {
-    body: "Availability, pricing, payments and capacity checks still work exactly as before.",
-    id: "booking-safety",
+    body: "Reviews, Settings, System, Quick Start and Academy are grouped under More.",
+    id: "everything-remains",
     supporting: "See Academy > Recent Changes for a quick refresher.",
-    title: "The same safeguards remain",
+    title: "Everything is still here",
   },
 ];
 

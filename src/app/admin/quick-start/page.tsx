@@ -103,7 +103,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
 
   return {
     analytics: {
-      action: { href: "/admin?section=analytics", label: "Open Dashboard & Analytics" },
+      action: { href: "/admin?section=analytics", label: "Open Reports" },
       content: (
         <ul className="space-y-2 text-sm leading-6 text-zinc-300">
           <li>Review show status, occupancy, booking value and payments collected.</li>
@@ -113,7 +113,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
       ),
       id: "analytics",
       purpose: "Find reports and monitor show performance.",
-      title: "Reports & Analytics",
+      title: "Reports",
     },
     bookings: {
       action: { href: "/admin?section=bookings", label: "Open Bookings" },
@@ -181,7 +181,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
       title: "Customers & Companies",
     },
     floor: {
-      action: { href: "/admin?section=floor", label: "Open Floor" },
+      action: { href: "/admin?section=floor", label: "Open Floor & Arrivals" },
       content: (
         <div className="space-y-3 text-sm leading-6 text-zinc-300">
           <p><strong className="text-white">Needs a table:</strong> confirmed guests who have not been assigned a table.</p>
@@ -196,7 +196,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
       ),
       id: "floor",
       purpose: "Assign tables and find confirmed guests needing a table.",
-      title: "Floor & Tables",
+      title: "Floor & Arrivals",
     },
     help: {
       action: { href: "/admin?section=platform-operations", label: "Report an Issue" },

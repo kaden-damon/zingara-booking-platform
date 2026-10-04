@@ -89,6 +89,10 @@ import {
   getTableFitLabel,
 } from "../../lib/floorPresentation";
 import {
+  getAdminHomeCopy,
+  getAdminNavigation,
+} from "../../lib/adminNavigation";
+import {
   uploadAndFinalizeStaffIssueMedia,
   type StaffIssueSelectedFile,
 } from "../../lib/staffIssueMediaClient";
@@ -1588,18 +1592,6 @@ The Zingara Team`,
   },
 ];
 
-const adminTabs: Array<{ id: AdminTab; label: string }> = [
-  { id: "overview", label: "Dashboard" },
-  { id: "bookings", label: "Bookings" },
-  { id: "operations", label: "Operations" },
-  { id: "customers", label: "Customers" },
-  { id: "reviews", label: "Reviews" },
-  { id: "analytics", label: "Analytics" },
-  { id: "platform-operations", label: "System" },
-  { id: "settings", label: "Settings" },
-  { id: "academy", label: "🎓 Academy" },
-];
-
 const adminPresenceAreas: Record<AdminTab, string> = {
   academy: "Dashboard",
   analytics: "Reports",
@@ -1971,13 +1963,13 @@ const gettingStartedLessons: AcademyArticle[] = [
       "Guests choose Cape Town or Johannesburg before entering the booking or lookup journey.",
       "Book Your Experience opens the standard booking flow for the selected location.",
       "Find My Booking opens the secure lookup flow for an existing booking.",
-      "Use Dashboard for the live overview, notifications, quick actions, and search.",
-      "Use Bookings to view, update, cancel, archive, and open guest reservations.",
-      "Use Operations for Dashboard, Floor, Check-In, Waitlist, Daily Manifest, Floor Manifest, Financial Reports, and Exports.",
-      "Use Customers to view CRM profiles, preferences, notes, spend, booking history, and customer archive status.",
-      "Use Settings for Staff, Venue, Promo Codes, Automated Guest Journeys, Notification Preferences, Audit Trail, and Data Portability.",
-      "Use System > Operations for platform health, activity, maintenance, and operational enquiries; Issues for the Bug & Issue Register; and Preferences for platform preferences.",
-      "Use Academy for training, refresher lessons, and workflow guidance.",
+      "Use Home for the live overview, notifications and role-appropriate quick actions.",
+      "Use Bookings for Standard bookings, Corporate bookings, Corporate enquiries, search and filters.",
+      "Use Floor & Arrivals for Floor, guests needing a table, check-in, waitlist and manifests available to your role.",
+      "Use Customers for people and Companies for master organisations.",
+      "Use Reports for sales, revenue, demand, website conversion, guest reviews and operational reports available to your role.",
+      "Open More for Reviews, Settings, System, Quick Start and Academy where your role allows them.",
+      "Use Quick Start for everyday guidance and Academy for detailed help and Recent Changes.",
     ],
     id: "navigating-the-platform",
     keywords: ["navigation", "tabs", "admin", "sections", "workflow", "find booking"],
@@ -1994,6 +1986,28 @@ const gettingStartedLessons: AcademyArticle[] = [
     ],
     title: "Navigating the Platform",
     whenToUse: "Use this when learning the Admin layout or when you are unsure where to complete a task.",
+  },
+  {
+    category: "Recent Changes",
+    commonMistakes: [
+      "Looking for less-used management tools in the primary menu.",
+      "Assuming a missing destination is available to every role.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Use Home, Bookings, Floor & Arrivals, Customers and Reports for everyday work available to your role.",
+      "Open More for Reviews, Settings, System, Quick Start and Academy.",
+      "Use Academy search if you know the task but not where it lives.",
+    ],
+    id: "recent-navigation-simplified",
+    keywords: ["recent changes", "navigation", "more", "home", "reports", "floor", "academy"],
+    moduleId: "recent-changes",
+    purpose: "Everyday tools are easier to find and less-used management tools are grouped under More.",
+    relatedActions: ["bookings", "crm", "waitlist"],
+    related: ["Navigating the Platform", "Dashboard Overview"],
+    tips: ["The tools available still follow your existing staff role and venue access."],
+    title: "Zingara Is Easier to Navigate",
+    whenToUse: "Use this after the navigation update or whenever you need to find a moved staff tool.",
   },
   {
     category: "Getting Started",
@@ -7191,15 +7205,15 @@ const showOperationalStatusLabels: Record<
   ...staffShowStatusLabels,
 };
 const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
-  { id: "staff", label: "Staff" },
-  { id: "venue", label: "Venue Configuration" },
-  { id: "promo-codes", label: "Promo Codes" },
-  { id: "workflows", label: "Automated Workflows" },
+  { id: "staff", label: "People" },
+  { id: "venue", label: "Venue" },
+  { id: "promo-codes", label: "Promotions" },
+  { id: "workflows", label: "Communications" },
   { id: "audit", label: "Audit Trail" },
 ];
 const systemTabs: Array<{ id: SystemTab; label: string }> = [
-  { id: "operations", label: "Operations" },
-  { id: "dineplan", label: "Dineplan Reconciliation" },
+  { id: "operations", label: "Platform" },
+  { id: "dineplan", label: "Dineplan" },
   { id: "issues", label: "Issues" },
   { id: "preferences", label: "Preferences" },
 ];
@@ -10322,6 +10336,7 @@ export default function AdminDashboardPage() {
     useState<AdminSession | null>(null);
   const [activeAdminTab, setActiveAdminTab] =
     useState<AdminTab>("overview");
+  const adminMoreMenuRef = useRef<HTMLDetailsElement>(null);
   const [activeSystemTab, setActiveSystemTab] =
     useState<SystemTab>("operations");
   const [openFloorTableManagementZones, setOpenFloorTableManagementZones] =
@@ -11570,8 +11585,7 @@ export default function AdminDashboardPage() {
 
       upsertPlatformPresence({
         currentArea: adminPresenceAreas[activeAdminTab],
-        currentStage:
-          adminTabs.find((tab) => tab.id === activeAdminTab)?.label ?? "Active",
+        currentStage: adminPresenceAreas[activeAdminTab] ?? "Active",
         sessionId,
         sessionType: "staff",
       });
@@ -12012,6 +12026,7 @@ export default function AdminDashboardPage() {
     if (!currentStaff) {
       return;
     }
+    const staff = currentStaff;
 
     function handleAdminDeepLink(rawUrl = window.location.href) {
       const url = new URL(rawUrl, window.location.origin);
@@ -12065,6 +12080,10 @@ export default function AdminDashboardPage() {
         setActiveSystemTab("dineplan");
       } else if (section === "bookings") {
         setActiveAdminTab("bookings");
+      } else if (section === "overview" || section === "home") {
+        setActiveAdminTab("overview");
+      } else if (section === "operations" || section === "floor-arrivals") {
+        setActiveAdminTab("operations");
       } else if (section === "waitlist") {
         setActiveAdminTab("operations");
         setActiveOperationsTab("waitlist");
@@ -12081,6 +12100,12 @@ export default function AdminDashboardPage() {
         setActiveAdminTab("customers");
       } else if (section === "analytics") {
         setActiveAdminTab("analytics");
+      } else if (section === "reports") {
+        setActiveAdminTab("analytics");
+      } else if (section === "reviews") {
+        setActiveAdminTab("reviews");
+      } else if (section === "settings") {
+        setActiveAdminTab("settings");
       } else if (section === "communications") {
         setActiveAdminTab("settings");
         setActiveSettingsTab("workflows");
@@ -12088,7 +12113,16 @@ export default function AdminDashboardPage() {
         setActiveAdminTab("academy");
       } else if (section === "platform-operations") {
         setActiveAdminTab("platform-operations");
-        setActiveSystemTab("issues");
+        setActiveSystemTab(
+          staff.role === "super-admin"
+            ? "operations"
+            : canManageStaffIssues(staff.role)
+              ? "issues"
+              : hasPermission(staff, "bookings:reconcile") ||
+                  hasPermission(staff, "settings:manage")
+                ? "dineplan"
+                : "preferences",
+        );
       }
 
       handledAdminDeepLinkRef.current = deepLinkKey;
@@ -13420,6 +13454,53 @@ export default function AdminDashboardPage() {
       isBoxOfficeStaff ||
       isFloorManager,
   );
+  const adminNavigation = getAdminNavigation({
+    canManageCommunications,
+    canManageSettings,
+    canManageWaitlist,
+    canViewAnalytics,
+    canViewBookingManagement,
+    canViewCrm,
+    canViewOperationsWorkspace,
+  });
+  const adminMoreIsActive = adminNavigation.more.some(
+    (item) => item.id === activeAdminTab,
+  );
+  const homeIntroduction = getAdminHomeCopy(currentStaff?.role ?? "concierge");
+
+  function selectAdminSection(tabId: AdminTab) {
+    setActiveAdminTab(tabId);
+    if (adminMoreMenuRef.current) {
+      adminMoreMenuRef.current.open = false;
+    }
+
+    if (tabId === "platform-operations") {
+      setActiveSystemTab(
+        isSuperAdmin
+          ? "operations"
+          : canManageIssueRegister
+            ? "issues"
+            : canReconcileBookings || canManageSettings
+              ? "dineplan"
+              : "preferences",
+      );
+      return;
+    }
+
+    if (tabId !== "operations") {
+      return;
+    }
+
+    if (canViewOperationsWorkspace) {
+      setActiveOperationsTab("dashboard");
+    } else if (canManageTables) {
+      setActiveOperationsTab("floor");
+    } else if (canViewStaffOperations) {
+      setActiveOperationsTab("check-in");
+    } else if (canManageWaitlist) {
+      setActiveOperationsTab("waitlist");
+    }
+  }
   const canViewOperationsFinancials =
     isSuperAdmin || isVenueManager;
   const operationsFrameworkTabDefinitions = [
@@ -28662,17 +28743,9 @@ export default function AdminDashboardPage() {
 
         <nav
           aria-label="Admin sections"
-          className="mb-6 grid grid-cols-2 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-10 lg:rounded-[2rem]"
+          className="relative mb-6 grid grid-cols-3 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-6 lg:rounded-[2rem]"
         >
-          <a
-            href="/admin/quick-start"
-            className="flex min-h-11 items-center justify-center rounded-2xl border border-[#D8C36A]/45 bg-[#D8C36A]/10 px-2 py-2.5 text-center text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition duration-300 hover:bg-[#D8C36A] hover:text-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C] sm:px-3 sm:py-3 sm:text-xs sm:tracking-[0.12em]"
-          >
-            Quick Start
-          </a>
-          {adminTabs
-            .filter((tab) => tab.id !== "reviews" || canManageCommunications)
-            .map((tab) => {
+          {adminNavigation.primary.map((tab) => {
             const isActive =
               activeAdminTab === tab.id ||
               (tab.id === "bookings" && activeAdminTab === "corporate");
@@ -28681,22 +28754,9 @@ export default function AdminDashboardPage() {
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => {
-                  setActiveAdminTab(tab.id);
-
-                  if (tab.id === "operations") {
-                    if (canViewOperationsWorkspace) {
-                      setActiveOperationsTab("dashboard");
-                    } else if (canManageTables) {
-                      setActiveOperationsTab("floor");
-                    } else if (canViewStaffOperations) {
-                      setActiveOperationsTab("check-in");
-                    } else if (canManageWaitlist) {
-                      setActiveOperationsTab("waitlist");
-                    }
-                  }
-                }}
-                className={`rounded-2xl px-2 py-2.5 text-center text-[0.68rem] font-semibold uppercase tracking-[0.08em] transition duration-300 sm:px-3 sm:py-3 sm:text-xs sm:tracking-[0.12em] ${
+                aria-current={isActive ? "page" : undefined}
+                onClick={() => selectAdminSection(tab.id)}
+                className={`min-h-11 rounded-xl px-2 py-2.5 text-center text-[0.68rem] font-semibold uppercase tracking-[0.06em] transition duration-300 sm:px-3 sm:py-3 sm:text-xs sm:tracking-[0.1em] ${
                   isActive
                     ? "bg-[#D8C36A] text-black shadow-[0_0_28px_rgba(216,195,106,0.22)]"
                     : "border border-white/10 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
@@ -28706,6 +28766,62 @@ export default function AdminDashboardPage() {
               </button>
             );
           })}
+          <details
+            ref={adminMoreMenuRef}
+            className="group relative"
+            onKeyDown={(event) => {
+              if (event.key !== "Escape" || !adminMoreMenuRef.current?.open) {
+                return;
+              }
+              adminMoreMenuRef.current.open = false;
+              adminMoreMenuRef.current
+                .querySelector<HTMLElement>("summary")
+                ?.focus();
+            }}
+          >
+            <summary
+              aria-current={adminMoreIsActive ? "page" : undefined}
+              className={`flex min-h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-center text-[0.68rem] font-semibold uppercase tracking-[0.06em] transition duration-300 marker:hidden sm:px-3 sm:py-3 sm:text-xs sm:tracking-[0.1em] ${
+                adminMoreIsActive
+                  ? "bg-[#D8C36A] text-black shadow-[0_0_28px_rgba(216,195,106,0.22)]"
+                  : "border border-white/10 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
+              }`}
+            >
+              <span>More</span>
+              <span
+                aria-hidden="true"
+                className="text-[0.7rem] transition group-open:rotate-180"
+              >
+                ⌄
+              </span>
+            </summary>
+            <div
+              className="absolute right-0 top-[calc(100%+0.5rem)] z-[130] grid gap-1 rounded-xl border border-[#D8C36A]/30 bg-zinc-950 p-2 shadow-2xl shadow-black/60"
+              style={{ minWidth: "14rem" }}
+            >
+              {adminNavigation.more.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-current={activeAdminTab === item.id ? "page" : undefined}
+                  onClick={() => selectAdminSection(item.id)}
+                  className={`min-h-11 rounded-lg px-4 py-3 text-left text-sm font-semibold transition ${
+                    activeAdminTab === item.id
+                      ? "bg-[#D8C36A] text-black"
+                      : "text-zinc-200 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <a
+                href="/admin/quick-start"
+                className="flex min-h-11 items-center rounded-lg px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white"
+              >
+                Quick Start
+              </a>
+            </div>
+          </details>
         </nav>
 
         {shouldShowPushOnboarding && (
@@ -31140,9 +31256,9 @@ export default function AdminDashboardPage() {
             <div className="flex gap-2 overflow-x-auto pb-1 lg:justify-center lg:overflow-visible">
               {(
                 [
-                  ["dashboard", "Dashboard", canViewOperationsWorkspace],
+                  ["dashboard", "Overview", canViewOperationsWorkspace],
                   ["floor", "Floor", canManageTables],
-                  ["check-in", "Check-In", canViewStaffOperations],
+                  ["check-in", "Arrivals & Check-In", canViewStaffOperations],
                   ["waitlist", "Waitlist", canManageWaitlist],
                   [
                     "daily-booking-manifest",
@@ -36559,14 +36675,13 @@ export default function AdminDashboardPage() {
             <div className="mb-5 flex flex-col gap-4 lg:mb-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
-                  Dashboard
+                  Home
                 </p>
                 <h2 className="text-3xl font-bold sm:text-4xl">
-                  Operational Command Centre
+                  Today at Zingara
                 </h2>
                 <p className="mt-2 text-sm text-zinc-400 sm:text-base">
-                  Live venue control for shows, guests, revenue,
-                  floor alerts, and availability.
+                  {homeIntroduction}
                 </p>
               </div>
 
@@ -36796,33 +36911,58 @@ export default function AdminDashboardPage() {
                   {!isMinimized && widgetId === "quick-actions" && (
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
                       {[
-                        ["Scan Tickets", () => setIsScannerOpen(true)],
-                        ["Open Bookings", () => setActiveAdminTab("bookings")],
-                        [
-                          "Floor Operations",
-                          () => {
-                            setActiveAdminTab("operations");
-                            setActiveOperationsTab("floor");
-                          },
-                        ],
-                        ["Create Booking", undefined],
-                        [
-                          "Tonight's Show",
-                          () => setActiveAdminTab("overview"),
-                        ],
-                        [
-                          "Waitlist",
-                          () => {
-                            setActiveAdminTab("operations");
-                            setActiveOperationsTab("waitlist");
-                          },
-                        ],
-                        ["Customers", () => setActiveAdminTab("customers")],
-                      ].map((actionItem) => {
-                        const label = actionItem[0] as string;
-                        const action = actionItem[1] as
-                          | (() => void)
-                          | undefined;
+                        canCheckInGuests
+                          ? { label: "Scan Tickets", action: () => setIsScannerOpen(true) }
+                          : null,
+                        canViewBookingManagement
+                          ? {
+                              label: "Open Bookings",
+                              action: () => setActiveAdminTab("bookings"),
+                            }
+                          : null,
+                        canViewOperationsWorkspace
+                          ? {
+                              label: "Floor & Arrivals",
+                              action: () => {
+                                setActiveAdminTab("operations");
+                                setActiveOperationsTab(
+                                  canManageTables ? "floor" : "check-in",
+                                );
+                              },
+                            }
+                          : null,
+                        canManageBookings ? { label: "Create Booking" } : null,
+                        {
+                          label: "Today's Show",
+                          action: () => setActiveAdminTab("overview"),
+                        },
+                        canManageWaitlist
+                          ? {
+                              label: "Waitlist",
+                              action: () => {
+                                setActiveAdminTab("operations");
+                                setActiveOperationsTab("waitlist");
+                              },
+                            }
+                          : null,
+                        canViewCrm
+                          ? {
+                              label: "Customers",
+                              action: () => setActiveAdminTab("customers"),
+                            }
+                          : null,
+                        canViewAnalytics
+                          ? {
+                              label: "Reports",
+                              action: () => setActiveAdminTab("analytics"),
+                            }
+                          : null,
+                      ]
+                        .filter(
+                          (item): item is { label: string; action?: () => void } =>
+                            Boolean(item),
+                        )
+                        .map(({ action, label }) => {
 
                         return label === "Create Booking" ? (
                           <a
@@ -38106,9 +38246,9 @@ export default function AdminDashboardPage() {
             >
               {(
                 [
-                  ["sales", "Sales & Performance Demand"],
-                  ["revenue", "Revenue & Demand Reporting"],
-                  ["reports", "Manifests, Check-In Sheets & Floor Reports"],
+                  ["sales", "Sales & Demand"],
+                  ["revenue", "Revenue"],
+                  ["reports", "Operations Reports"],
                 ] as Array<[AnalyticsWorkspace, string]>
               ).map(([workspace, label]) => (
                 <button
