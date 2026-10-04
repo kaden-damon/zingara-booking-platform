@@ -6,6 +6,10 @@ const migration = readFileSync(
   "supabase/migrations/20261004150000_per_guest_ticket_population_integrity.sql",
   "utf8",
 );
+const cleanupMigration = readFileSync(
+  "supabase/migrations/20261004170000_historical_surplus_guest_ticket_cleanup.sql",
+  "utf8",
+);
 
 test("40 to 28 preserves canonical tickets and voids only 29 to 40", () => {
   assert.match(migration, /generate_series\(1, 28\) ticket_index/);
@@ -63,4 +67,54 @@ test("cleanup is revision protected, idempotent, audited, and service-only", () 
   assert.match(migration, /request_id = trim\(p_request_id\)/);
   assert.match(migration, /revoke all on function[\s\S]+from public, anon, authenticated/);
   assert.match(migration, /grant execute on function[\s\S]+to service_role/);
+});
+
+test("historical cleanup is hard-bound to the five proven surplus bookings", () => {
+  for (const reference of [
+    "ZNG-98R23K",
+    "ZNG-KEE532",
+    "DP-76BGPC",
+    "ZNG-YNHL4M",
+    "ZNG-6BBP4D",
+  ]) {
+    assert.match(cleanupMigration, new RegExp(reference));
+  }
+  assert.match(cleanupMigration, /TICKET_CLEANUP_BOOKING_NOT_AUTHORIZED/);
+  assert.match(cleanupMigration, /BOOKING_REVISION_CHANGED/);
+});
+
+test("cleanup keeps canonical first N identities and voids only proven surplus", () => {
+  assert.match(cleanupMigration, /generate_series\(1, v_expected_guest_count\)/);
+  assert.match(
+    cleanupMigration,
+    /v_expected_guest_count \+ 1,[\s\S]*v_expected_historical_count/,
+  );
+  assert.match(cleanupMigration, /ticket_status = 'void'/);
+  assert.doesNotMatch(cleanupMigration, /delete\s+from\s+public\.tickets/i);
+  assert.doesNotMatch(cleanupMigration, /insert\s+into\s+public\.tickets/i);
+});
+
+test("legacy booking-level ticket is explicitly preserved", () => {
+  assert.match(cleanupMigration, /v_expected_booking_level_code := 'DP-76BGPC-01'/);
+  assert.match(cleanupMigration, /booking_level_ticket_preserved/);
+  assert.match(
+    cleanupMigration,
+    /ticket\.ticket_code = v_expected_booking_level_code[\s\S]*ticket\.ticket_status::text = 'valid'/,
+  );
+});
+
+test("cleanup fails closed for scans, Wallet registrations, or state drift", () => {
+  assert.match(cleanupMigration, /public\.ticket_validations/);
+  assert.match(cleanupMigration, /public\.apple_wallet_registrations/);
+  assert.match(cleanupMigration, /TICKET_CLEANUP_TICKET_STATE_CHANGED/);
+  assert.match(cleanupMigration, /TICKET_CLEANUP_COUNT_MISMATCH/);
+});
+
+test("cleanup changes no booking, payment, show, table, or capacity records", () => {
+  assert.doesNotMatch(cleanupMigration, /update\s+public\.bookings/i);
+  assert.doesNotMatch(cleanupMigration, /update\s+public\.payments/i);
+  assert.doesNotMatch(cleanupMigration, /update\s+public\.shows/i);
+  assert.doesNotMatch(cleanupMigration, /update\s+public\.show_tables/i);
+  assert.match(cleanupMigration, /booking\.surplus-guest-tickets-invalidated/);
+  assert.match(cleanupMigration, /request_id = trim\(p_request_id\)/);
 });
