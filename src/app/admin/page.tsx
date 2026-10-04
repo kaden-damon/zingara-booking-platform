@@ -2378,7 +2378,8 @@ const bookingLessons: AcademyArticle[] = [
     howTo: [
       "Open Show & Availability and select the correct location and month.",
       "Use + on the required performance, then choose Standard Booking or Corporate Booking.",
-      "When SHOW READY appears, continue with the fixed show, date, location, and booking type.",
+      "When SHOW READY appears, follow Show, Guests, Seating, Guest or Company, Payment and Review.",
+      "Review the booking once, then use the single primary create or payment action.",
       "If Show Currently In Use appears, read the staff and timing details and wait for the active booking-creation lock to be released or expire.",
       "Use Cancel to leave the flow and release your lock immediately.",
       "A Super Admin may take over only when the operational situation requires it.",
@@ -6924,6 +6925,33 @@ const faqLessons: AcademyArticle[] = [
 ];
 
 const academyArticles: AcademyArticle[] = [
+  {
+    category: "Recent Changes",
+    commonMistakes: [
+      "Treating staff availability as public website availability.",
+      "Creating a second booking instead of returning to edit an earlier step.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Choose the show and enter the number of guests.",
+      "Choose the seating section using the availability shown for that staff workflow.",
+      "Enter the guest, or the company and contact person for a Corporate booking.",
+      "Choose payment and review the concise booking summary.",
+      "Use Create Booking, Pay Now, or the existing authorised payment-link action.",
+    ],
+    id: "simpler-booking-creation",
+    keywords: ["recent changes", "create booking", "standard booking", "corporate booking", "staff availability"],
+    moduleId: "recent-changes",
+    purpose: "Create Standard and Corporate bookings in a clearer step-by-step order.",
+    relatedActions: ["bookings"],
+    related: ["Calendar Staff Booking Creation", "Corporate Booking Overview"],
+    tips: [
+      "Extra seating remains staff-only and does not increase website availability.",
+      "Corporate payment follow-up does not auto-expire the booking.",
+    ],
+    title: "Creating Bookings Is Simpler",
+    whenToUse: "Use this when creating a new Standard or Corporate booking.",
+  },
   {
     category: "Recent Changes",
     commonMistakes: [

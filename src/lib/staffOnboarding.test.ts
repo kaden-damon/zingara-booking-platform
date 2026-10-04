@@ -9,7 +9,7 @@ import {
 } from "./staffOnboarding.ts";
 
 test("staff onboarding is versioned and concise", () => {
-  assert.equal(latestStaffTourVersion, "floor-simplified-2026-10");
+  assert.equal(latestStaffTourVersion, "booking-creation-simplified-2026-10");
   assert.equal(staffTourPages.length, 3);
   assert.equal(new Set(staffTourPages.map((page) => page.id)).size, 3);
 });

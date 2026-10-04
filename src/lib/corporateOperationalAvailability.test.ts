@@ -56,10 +56,11 @@ test("public and authorised internal bookings use distinct authoritative ceiling
 });
 
 test("operational availability is staff-authenticated and wired into internal checkout", async () => {
-  const [route, availability, page, bookingRoute, guard] = await Promise.all([
+  const [route, availability, page, presentation, bookingRoute, guard] = await Promise.all([
     source("../app/api/shows/availability/route.ts"),
     source("./supabase/publicShowAvailability.ts"),
     source("../app/book/page.tsx"),
+    source("./staffBookingCreationPresentation.ts"),
     source("../app/api/bookings/route.ts"),
     source("../../supabase/migrations/20260925130000_phase_41_2x_p0_b_financial_only_capacity_guard.sql"),
   ]);
@@ -72,21 +73,29 @@ test("operational availability is staff-authenticated and wired into internal ch
   assert.match(availability, /baseSellableRemaining/);
   assert.match(page, /manualCheckoutRole !== "none"\s*\? "operational"\s*: "base"/);
   assert.match(page, /remainingSeatsByZone\[option\.id\]/);
-  assert.match(page, /Operational Seats Available/);
+  assert.match(page, /getStaffAvailabilityPresentation/);
+  assert.match(presentation, /Corporate staff availability/);
+  assert.match(presentation, /operationalRemaining/);
   assert.match(bookingRoute, /capacityScope: isTrustedStaff \? "operational" : "base"/);
   assert.match(guard, /booking_origin = 'customer_public'[\s\S]*booking_source = 'online'[\s\S]*booking_capacity_zone_limit/);
   assert.match(guard, /else\s+v_limit := public\.booking_capacity_zone_effective_limit/);
 });
 
 test("public availability remains base-capped and cannot request operational capacity anonymously", async () => {
-  const [route, page] = await Promise.all([
+  const [route, page, presentation] = await Promise.all([
     source("../app/api/shows/availability/route.ts"),
     source("../app/book/page.tsx"),
+    source("./staffBookingCreationPresentation.ts"),
   ]);
 
   assert.match(route, /capacityScope = searchParams\.get\("capacityScope"\) === "operational"/);
   assert.match(route, /return auth\.error/);
   assert.match(page, /manualCheckoutRole !== "none"/);
   assert.match(page, /: "base"/);
-  assert.match(page, /: "Seats Available"/);
+  assert.match(page, /availability\.remainingSeats\} Seats Available/);
+  assert.match(presentation, /baseRemaining/);
+  assert.match(
+    presentation,
+    /does not increase website availability/,
+  );
 });

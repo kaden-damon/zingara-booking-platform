@@ -96,6 +96,7 @@ test("Academy covers Floor, CRM, tickets, sales gating, and maintenance", () => 
 
 test("Academy keeps a permanent plain-language Recent Changes reference", () => {
   for (const lessonId of [
+    "simpler-booking-creation",
     "simpler-floor-and-tables",
     "compact-bookings-and-simplified-details",
     "plain-language-release",
@@ -114,4 +115,6 @@ test("Academy keeps a permanent plain-language Recent Changes reference", () => 
   assert.match(admin, /Compact is the default only when no view choice exists for the current session/);
   assert.match(admin, /Extra seating does not increase website availability/);
   assert.match(admin, /Physical tables do not automatically create additional booking capacity/);
+  assert.match(admin, /Creating Bookings Is Simpler/);
+  assert.match(admin, /Corporate payment follow-up does not auto-expire the booking/);
 });

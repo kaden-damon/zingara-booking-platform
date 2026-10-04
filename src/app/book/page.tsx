@@ -116,6 +116,11 @@ import {
   isShowPubliclyBookable,
   isShowPubliclyVisible,
 } from "../../lib/publicShowSales";
+import {
+  getStaffAvailabilityPresentation,
+  staffBookingExtraSeatingHelp,
+  staffBookingJourneyLabels,
+} from "../../lib/staffBookingCreationPresentation";
 
 type SeatingOption = SeatingZone;
 
@@ -1107,6 +1112,7 @@ export default function BookingPage() {
       })[0];
   }
   const isTrustedManualCheckout = manualCheckoutRole !== "none";
+  const isStaffBookingJourney = isTrustedManualCheckout;
   const requiresPublicAgeAcknowledgement = !isTrustedManualCheckout;
   const currentCustomerValidationErrors = validateBookingCreate({
     bookingSource: isCorporateCalendarCheckout
@@ -1342,17 +1348,20 @@ export default function BookingPage() {
   }
 
   const telemetryStage = getTelemetryStage();
+  const staffJourneyLabels = isCorporateCalendarCheckout
+    ? staffBookingJourneyLabels.corporate
+    : staffBookingJourneyLabels.standard;
   const bookingProgressSteps = [
     {
       isActive: activeProgressIndex === 0,
       isComplete: Boolean(selectedShowId),
-      label: "Show",
+      label: isStaffBookingJourney ? staffJourneyLabels[0] : "Show",
       summary: showStepSummary,
     },
     {
       isActive: activeProgressIndex === 1,
       isComplete: Boolean(selectedShowId && partySize),
-      label: "Guests",
+      label: isStaffBookingJourney ? staffJourneyLabels[1] : "Guests",
       summary: selectedShowId
         ? `${partySize} ${partySize === 1 ? "Guest" : "Guests"}`
         : "",
@@ -1360,27 +1369,27 @@ export default function BookingPage() {
     {
       isActive: activeProgressIndex === 2,
       isComplete: Boolean(selectedZone),
-      label: "Seating",
+      label: isStaffBookingJourney ? staffJourneyLabels[2] : "Seating",
       mobileSummary: mobileSeatingStepSummary,
       summary: seatingStepSummary,
     },
     {
       isActive: activeProgressIndex === 3,
       isComplete: customerDetailsComplete,
-      label: "Details",
+      label: isStaffBookingJourney ? staffJourneyLabels[3] : "Details",
       summary: getCompactCustomerName(customerInfo.name),
     },
     {
       isActive: activeProgressIndex === 4,
       isComplete: Boolean(bookingReference),
-      label: "Payment",
+      label: isStaffBookingJourney ? staffJourneyLabels[4] : "Payment",
       summary: paymentStepSummary,
     },
     {
       isActive: activeProgressIndex === 5,
       isComplete: Boolean(bookingReference),
       isSuccessSummary: Boolean(bookingReference),
-      label: "Complete",
+      label: isStaffBookingJourney ? staffJourneyLabels[5] : "Complete",
       summary: bookingReference ?? "",
     },
   ];
@@ -1391,6 +1400,14 @@ export default function BookingPage() {
     "order-6",
     "order-5",
     "order-4",
+  ];
+  const staffMobileTimelineOrderClasses = [
+    "order-1",
+    "order-2",
+    "order-3",
+    "order-4",
+    "order-5",
+    "order-6",
   ];
 
   function canNavigateBookingStep(stepIndex: number) {
@@ -2851,6 +2868,18 @@ export default function BookingPage() {
     };
   }
 
+  function getStaffZoneAvailability(option: SeatingOption, operationalRemaining: number) {
+    return getStaffAvailabilityPresentation({
+      baseRemaining: getRemainingVenueSeatsForZone(
+        option,
+        occupiedSeatsByZone[option.id] ?? 0,
+        venueConfig,
+      ),
+      isCorporate: isCorporateCalendarCheckout,
+      operationalRemaining,
+    });
+  }
+
   function selectSeatingZone(option: SeatingOption) {
     setPreviewSeatingZone(option);
   }
@@ -3051,7 +3080,7 @@ export default function BookingPage() {
 
           {isConfirming && (
             <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-zinc-300 sm:text-lg sm:leading-8">
-              We're securely confirming your payment with PayFast. This
+              We&apos;re securely confirming your payment with PayFast. This
               usually takes only a few seconds. Please do not refresh or
               close this page.
             </p>
@@ -3117,10 +3146,10 @@ export default function BookingPage() {
         <div className="space-y-5 rounded-[1.5rem] border border-[#8D7A2F]/50 bg-[radial-gradient(circle_at_top,#2A1710_0%,#111_46%,#050505_100%)] p-3.5 shadow-[0_0_80px_rgba(216,195,106,0.18)] sm:space-y-6 sm:rounded-[2rem] sm:p-6">
           <div className="rounded-xl border border-emerald-400/40 bg-emerald-950/30 p-3.5 sm:rounded-2xl sm:p-5">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300 sm:text-sm">
-              Step 6 · Complete
+              {isStaffBookingJourney ? "Created" : "Step 6 · Complete"}
             </p>
             <p className="mt-1 text-2xl font-bold text-white sm:text-3xl">
-              Booking Confirmed
+              {isStaffBookingJourney ? "Booking created" : "Booking Confirmed"}
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3">
               <div>
@@ -3133,7 +3162,7 @@ export default function BookingPage() {
               </div>
               <div>
                 <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
-                  Guests
+                  {isStaffBookingJourney ? "Guests" : "Party Size"}
                 </p>
                 <p className="mt-1 text-base font-bold sm:text-lg">
                   {partySize}
@@ -3144,7 +3173,11 @@ export default function BookingPage() {
                   Status
                 </p>
                 <p className="mt-1 text-base font-bold sm:text-lg">
-                  Confirmed
+                  {isStaffBookingJourney
+                    ? isCorporateInvoiceOutstanding
+                      ? "Awaiting payment"
+                      : "Confirmed"
+                    : "Confirmed"}
                 </p>
               </div>
               <div>
@@ -3152,7 +3185,17 @@ export default function BookingPage() {
                   Payment
                 </p>
                 <p className="mt-1 text-base font-bold sm:text-lg">
-                  Confirmed
+                  {isStaffBookingJourney
+                    ? isComplimentary
+                      ? "Complimentary"
+                      : isCorporateInvoiceOutstanding
+                        ? "Unpaid"
+                        : isCorporateInvoicePaid
+                          ? "Paid"
+                          : paymentOption === "deposit"
+                            ? "Deposit paid"
+                            : "Paid"
+                    : "Confirmed"}
                 </p>
               </div>
             </div>
@@ -3227,7 +3270,7 @@ export default function BookingPage() {
                       Table
                     </span>
                     <span className="mt-1 block font-semibold text-white">
-                      {allocatedTableNumber ?? "Assigned"}
+                      {allocatedTableNumber ?? (isStaffBookingJourney ? "Table needed" : "Assigned")}
                     </span>
                   </p>
                   <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
@@ -3365,11 +3408,15 @@ export default function BookingPage() {
       ) : (
       <div className="relative z-10 mx-auto max-w-5xl">
         <h1 className="mb-3.5 text-left text-2xl font-bold min-[390px]:text-3xl sm:mb-4 sm:text-5xl lg:text-6xl">
-          Book Your Experience
+          {isStaffBookingJourney
+            ? `Create ${isCorporateCalendarCheckout ? "Corporate" : "Standard"} Booking`
+            : "Book Your Experience"}
         </h1>
 
         <p className="mb-9 max-w-3xl text-left text-base leading-6 text-zinc-400 sm:mb-14 sm:text-2xl">
-          {venueConfig.subtitle}
+          {isStaffBookingJourney
+            ? `Show · Guests · Seating · ${isCorporateCalendarCheckout ? "Company" : "Guest"} · Payment · Review`
+            : venueConfig.subtitle}
         </p>
 
         {isLockedCalendarCheckout && (
@@ -3385,7 +3432,9 @@ export default function BookingPage() {
                   {calendarLockStatus || "ACQUIRING SHOW..."}
                 </p>
                 <p className="mt-1 text-xs leading-5 text-zinc-400">
-                  The performance is fixed from the Admin calendar. Live availability is checked again when the booking is created.
+                  {isStaffBookingJourney
+                    ? "Show fixed. Availability is checked again when you create the booking."
+                    : "The performance is fixed from the Admin calendar. Live availability is checked again when the booking is created."}
                 </p>
               </div>
               <button
@@ -3422,7 +3471,7 @@ export default function BookingPage() {
           </div>
         )}
 
-		        {!isLockedCalendarCheckout && <section className="mb-8 sm:mb-10">
+		        {!isLockedCalendarCheckout && !isStaffBookingJourney && <section className="mb-8 sm:mb-10">
 	          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">
 	            Select your booking type
 	          </p>
@@ -3476,13 +3525,30 @@ export default function BookingPage() {
             {bookingProgressSteps.map((step, index) => (
               <div
                 key={step.label}
-                className={`relative rounded-2xl px-0.5 text-center transition sm:px-2 ${mobileTimelineOrderClasses[index]} sm:order-none ${
+                className={`relative rounded-2xl px-0.5 text-center transition sm:px-2 ${
+                  isStaffBookingJourney
+                    ? staffMobileTimelineOrderClasses[index]
+                    : mobileTimelineOrderClasses[index]
+                } sm:order-none ${
                   step.isComplete || step.isActive
                     ? "text-[#F2D66C]"
                     : "text-zinc-500"
                 }`}
               >
-                {(index === 0 || index === 1) && (
+                {isStaffBookingJourney &&
+                  (index === 0 ||
+                    index === 1 ||
+                    index === 3 ||
+                    index === 4) && (
+                    <span
+                      className={`pointer-events-none absolute left-[calc(50%+1.25rem)] right-[calc(-50%-0.5rem+1.25rem)] top-5 h-px sm:hidden ${
+                        index < activeProgressIndex
+                          ? "bg-[#D8C36A]/70 shadow-[0_0_14px_rgba(216,195,106,0.35)]"
+                          : "bg-white/10"
+                      }`}
+                    />
+                  )}
+                {!isStaffBookingJourney && (index === 0 || index === 1) && (
                   <span
                     className={`pointer-events-none absolute left-[calc(50%+1.25rem)] right-[calc(-50%-0.5rem+1.25rem)] top-5 h-px sm:hidden ${
                       index < activeProgressIndex
@@ -3491,7 +3557,7 @@ export default function BookingPage() {
                     }`}
                   />
                 )}
-                {(index === 3 || index === 4) && (
+                {!isStaffBookingJourney && (index === 3 || index === 4) && (
                   <span
                     className={`pointer-events-none absolute left-[calc(-50%-0.5rem+1.25rem)] ${
                       index === 3
@@ -3504,7 +3570,7 @@ export default function BookingPage() {
                     }`}
                   />
                 )}
-                {index === 2 && (
+                {!isStaffBookingJourney && index === 2 && (
                   <>
                     <span
                       className={`pointer-events-none absolute left-[calc(50%+1.25rem)] right-[-0.25rem] top-5 h-px sm:hidden ${
@@ -3522,7 +3588,7 @@ export default function BookingPage() {
                     />
                   </>
                 )}
-                {index === 3 && (
+                {!isStaffBookingJourney && index === 3 && (
                   <span
                     className={`pointer-events-none absolute left-[calc(50%+1rem)] right-[-0.25rem] top-5 h-px sm:hidden ${
                       index < activeProgressIndex
@@ -3592,10 +3658,12 @@ export default function BookingPage() {
           {activeBookingStep === 0 && (
           <div className="relative text-left">
             <p className="zingara-heading text-xl font-bold text-white min-[390px]:text-2xl sm:text-3xl">
-              Step 1 · Select Your Date
+              {isStaffBookingJourney ? "Show" : "Step 1 · Select Your Date"}
             </p>
             <p className="zingara-subheading mt-1.5 max-w-2xl text-sm leading-5 text-zinc-300 sm:mt-2 sm:text-lg sm:leading-6">
-              Choose your preferred experience date to view live seating availability.
+              {isStaffBookingJourney
+                ? "Choose the performance."
+                : "Choose your preferred experience date to view live seating availability."}
             </p>
 
             <button
@@ -3799,7 +3867,7 @@ export default function BookingPage() {
           {selectedShowDate && (activeBookingStep === 0 || !selectedShowId) && (
             <div className="text-left">
               <p className="zingara-subheading mb-3 text-lg text-zinc-300">
-                Select Your Experience Date
+                {isStaffBookingJourney ? "Show time" : "Select Your Experience Date"}
               </p>
 
               <div className="flex max-w-md flex-wrap justify-start gap-3">
@@ -3829,13 +3897,13 @@ export default function BookingPage() {
                       </span>
                       <span className="mt-3 grid grid-cols-2 gap-3 text-xs uppercase tracking-[0.1em]">
                         <span>
-                          <span className="block opacity-65">Grounds Open</span>
+                          <span className="block opacity-65">{isStaffBookingJourney ? "Doors" : "Grounds Open"}</span>
                           <span className="mt-1 block text-base font-bold normal-case tracking-normal">
                             {getCustomerExperienceTimes(venueConfig, getShowVenueKey(show))?.groundsOpen}
                           </span>
                         </span>
                         <span>
-                          <span className="block opacity-65">Show Starts</span>
+                          <span className="block opacity-65">{isStaffBookingJourney ? "Show" : "Show Starts"}</span>
                           <span className="mt-1 block text-base font-bold normal-case tracking-normal">
                             {getCustomerExperienceTimes(venueConfig, getShowVenueKey(show))?.showStarts}
                           </span>
@@ -3880,12 +3948,14 @@ export default function BookingPage() {
             <div className="flex flex-col gap-3">
               <div className="min-w-0">
                 <p className="zingara-heading text-xl font-bold text-white sm:text-3xl">
-                  Step 2 · Guests
+                  {isStaffBookingJourney ? "Guests" : "Step 2 · Guests"}
                 </p>
                 <p className="zingara-subheading mt-1.5 max-w-3xl text-sm leading-5 text-zinc-300 sm:mt-2 sm:text-lg sm:leading-6">
                   {isCorporateCalendarCheckout
-                    ? "Enter the agreed Corporate guest count for this performance."
-                    : "Choose 1 to 19 guests. Parties of 20 or more are handled through Corporate Booking."}
+                    ? "Enter the agreed number of guests."
+                    : isStaffBookingJourney
+                      ? "Enter the number of guests."
+                      : "Choose 1 to 19 guests. Parties of 20 or more are handled through Corporate Booking."}
                 </p>
               </div>
 
@@ -3944,13 +4014,24 @@ export default function BookingPage() {
                 </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setActiveBookingStep(2)}
-                  className="whitespace-nowrap rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 sm:px-6 sm:py-3"
-                >
-                  Continue To Seating
-                </button>
+                <div className="flex gap-2">
+                  {isStaffBookingJourney && !isLockedCalendarCheckout && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveBookingStep(0)}
+                      className="min-h-11 rounded-full border border-white/15 px-4 py-2.5 text-sm font-semibold text-zinc-300 transition hover:border-white/35 hover:text-white"
+                    >
+                      Back
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setActiveBookingStep(2)}
+                    className="min-h-11 whitespace-nowrap rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 sm:px-6 sm:py-3"
+                  >
+                    Continue
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -3961,12 +4042,12 @@ export default function BookingPage() {
             <div className="mb-3 flex flex-col gap-3 lg:mb-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="zingara-heading text-xl font-bold text-white sm:text-3xl">
-                  Step 3 · Seating Experience
+                  {isStaffBookingJourney ? "Seating section" : "Step 3 · Seating Experience"}
                 </p>
                 <p className="zingara-subheading mt-1.5 max-w-2xl text-xs leading-5 text-zinc-300 min-[390px]:text-sm sm:mt-2 sm:text-lg sm:leading-7">
-                  Choose a section from the Zingara venue map.
-                  Availability is based on party size and remaining
-                  seats in each section.
+                  {isStaffBookingJourney
+                    ? "Choose a section."
+                    : "Choose a section from the Zingara venue map. Availability is based on party size and remaining seats in each section."}
                 </p>
               </div>
               <div className="flex flex-nowrap gap-1 text-[8px] font-semibold uppercase tracking-[0.04em] text-zinc-400 sm:gap-1.5 sm:text-[9px]">
@@ -4075,6 +4156,9 @@ export default function BookingPage() {
               {selectedZone ? (
                 (() => {
                   const availability = getZoneAvailability(selectedZone);
+                  const staffAvailability = isStaffBookingJourney
+                    ? getStaffZoneAvailability(selectedZone, availability.remainingSeats)
+                    : null;
                   const status = availability.availabilityMessage;
                   const statusClass = availability.requiresFloorAssignment
                     ? "border-sky-300/45 bg-sky-950/25 text-sky-100"
@@ -4100,12 +4184,18 @@ export default function BookingPage() {
                       <p className="mt-2 text-sm font-semibold text-[#F2D66C]">
                         {formatCurrency(
                           getConfiguredZonePrice(venueConfig, selectedZone),
-                        )}{" "}
-                        pp · {availability.remainingSeats}{" "}
-                        {manualCheckoutRole !== "none"
-                          ? "Operational Seats Available"
-                          : "Seats Available"}
+                        )}{isStaffBookingJourney ? " per guest" : ` pp · ${availability.remainingSeats} Seats Available`}
                       </p>
+                      {staffAvailability && (
+                        <p className="mt-1 text-sm font-semibold text-white">
+                          {staffAvailability.label} · {staffAvailability.seatsLabel}
+                        </p>
+                      )}
+                      {staffAvailability?.extraSeatsLabel && (
+                        <p className="mt-1 text-xs leading-5 text-zinc-400" title={staffBookingExtraSeatingHelp}>
+                          {staffAvailability.extraSeatsLabel}. {staffBookingExtraSeatingHelp}
+                        </p>
+                      )}
                       {!isCorporateCalendarCheckout && selectedZone.id === "royal-booths" && (
                         <p className="mt-1.5 text-xs font-semibold uppercase text-zinc-300">
                           From 4 Guests · Larger Groups Use Multiple Booths
@@ -4113,8 +4203,9 @@ export default function BookingPage() {
                       )}
                       {availability.requiresFloorAssignment && (
                         <p className="mt-2 text-sm text-sky-100">
-                          Zone capacity is available. Physical table allocation
-                          will be completed in Floor Operations.
+                          {isStaffBookingJourney
+                            ? "Table needed. Assign a table later in Floor."
+                            : "Zone capacity is available. Physical table allocation will be completed in Floor Operations."}
                         </p>
                       )}
                       {manualCheckoutRole !== "none" &&
@@ -4129,14 +4220,14 @@ export default function BookingPage() {
                           onClick={() => setSelectedZone(null)}
                           className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                         >
-                          Change Seating
+                          {isStaffBookingJourney ? "Choose another" : "Change Seating"}
                         </button>
                         <button
                           type="button"
                           onClick={() => setActiveBookingStep(3)}
                           className="rounded-full bg-white px-4 py-2 text-xs font-semibold text-black transition hover:bg-zinc-300"
                         >
-                          Continue To Guest Details
+                          Continue
                         </button>
                       </div>
                     </>
@@ -4153,7 +4244,7 @@ export default function BookingPage() {
                     disabled
                     className="mt-4 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black opacity-40"
                   >
-                    Continue To Guest Details
+                          Continue
                   </button>
                 </>
               )}
@@ -4161,13 +4252,12 @@ export default function BookingPage() {
             {canJoinWaitlist && (
               <div className="mt-6 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-5 text-amber-100">
                 <p className="text-sm font-semibold uppercase tracking-[0.16em]">
-                  No Seating Capacity Available
+                  {isStaffBookingJourney ? "Not enough seats" : "No Seating Capacity Available"}
                 </p>
                 <p className="mt-2 text-sm leading-6">
-                  The selected show currently has no seating that can
-                  safely host {partySize} guests. You can adjust party
-                  size, choose another show time, or join the waitlist
-                  below.
+                  {isStaffBookingJourney
+                    ? `Not enough seats for ${partySize} guests. Choose another section, guest count or show.`
+                    : `The selected show currently has no seating that can safely host ${partySize} guests. You can adjust party size, choose another show time, or join the waitlist below.`}
                 </p>
               </div>
             )}
@@ -4316,13 +4406,21 @@ export default function BookingPage() {
             <section className="mt-5 rounded-[1.25rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#18100A_0%,#111_48%,#050505_100%)] p-3.5 shadow-2xl shadow-black/25 sm:mt-10 sm:rounded-[2rem] sm:p-6">
               <div className="mb-4 sm:mb-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A] sm:text-sm">
-                  Step 4
+                  {isStaffBookingJourney ? (isCorporateCalendarCheckout ? "Company" : "Guest") : "Step 4"}
                 </p>
                 <h2 className="mt-1.5 text-2xl font-bold sm:mt-2 sm:text-3xl">
-                  Guest Details
+                  {isStaffBookingJourney
+                    ? isCorporateCalendarCheckout
+                      ? "Company & contact"
+                      : "Find or create customer"
+                    : "Guest Details"}
                 </h2>
                 <p className="mt-2 text-sm leading-5 text-zinc-300 sm:mt-3 sm:text-base sm:leading-6">
-                  Add the lead guest details before moving to payment.
+                  {isStaffBookingJourney
+                    ? isCorporateCalendarCheckout
+                      ? "Enter the company and contact person."
+                      : "Enter the guest's name, email and mobile number."
+                    : "Add the lead guest details before moving to payment."}
                 </p>
               </div>
 
@@ -4341,7 +4439,7 @@ export default function BookingPage() {
                 )}
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
-                    Full Name <span aria-hidden="true">*</span>
+                      {isCorporateCalendarCheckout ? "Contact person" : "Name"} <span aria-hidden="true">*</span>
                   </span>
                   <input
                     required
@@ -4453,7 +4551,7 @@ export default function BookingPage() {
               {isTrustedManualCheckout && customerMatches.length > 0 && (
                 <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-black/35 p-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
-                    Existing Customer Match
+                    {isStaffBookingJourney ? "Select existing customer" : "Existing Customer Match"}
                   </p>
                   <div className="mt-2 space-y-2">
                     {customerMatches.map((customer) => (
@@ -4494,17 +4592,28 @@ export default function BookingPage() {
                 </p>
               )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (validateCheckoutCustomerDetails()) {
-                    setActiveBookingStep(4);
-                  }
-                }}
-                className="mt-5 rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:mt-6 sm:py-3 sm:text-base"
-              >
-                Continue To Payment
-              </button>
+              <div className="mt-5 flex flex-wrap gap-2 sm:mt-6">
+                {isStaffBookingJourney && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveBookingStep(2)}
+                    className="min-h-11 rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold text-zinc-300 transition hover:border-white/35 hover:text-white"
+                  >
+                    Back
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (validateCheckoutCustomerDetails()) {
+                      setActiveBookingStep(4);
+                    }
+                  }}
+                  className="min-h-11 rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:py-3 sm:text-base"
+                >
+                  Continue
+                </button>
+              </div>
             </section>
           )}
 
@@ -4513,17 +4622,19 @@ export default function BookingPage() {
               <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A] sm:text-sm">
-                    Step 5
+                    {isStaffBookingJourney ? "Payment" : "Step 5"}
                   </p>
                   <h2 className="mt-1.5 text-2xl font-bold sm:mt-2 sm:text-3xl">
-                    Payment Summary
+                    {isStaffBookingJourney ? "Payment & review" : "Payment Summary"}
                   </h2>
                   <p className="mt-2 text-sm leading-5 text-zinc-300 sm:mt-3 sm:text-base sm:leading-6">
                     {isComplimentary
                       ? "Review the complimentary booking details, then confirm the reservation."
                       : isCorporateInvoice
                         ? "Review the Corporate booking and invoice / EFT settlement state. No online checkout or payment link will be created."
-                      : "Review the amount due today, choose full payment or deposit, then continue to secure checkout."}
+                      : isStaffBookingJourney
+                        ? "Choose how payment will be handled, then review the booking."
+                        : "Review the amount due today, choose full payment or deposit, then continue to secure checkout."}
                   </p>
                 </div>
                 <span className="w-fit rounded-full border border-[#D8C36A]/30 bg-black/30 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] sm:px-4 sm:py-2 sm:text-sm">
@@ -4705,7 +4816,7 @@ export default function BookingPage() {
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                        Price Per Person
+                    Price per guest
                       </p>
                       <p className="mt-1 text-lg font-bold sm:text-xl">
                         {formatCurrency(pricePerPerson)}
@@ -4930,13 +5041,24 @@ export default function BookingPage() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleContinueBooking}
-                className="mt-5 w-full rounded-full bg-white px-6 py-2.5 text-base font-semibold text-black transition hover:scale-[1.01] hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:mt-8 sm:w-auto sm:px-8 sm:py-4 sm:text-xl"
-              >
-                Continue To Payment
-              </button>
+              <div className="mt-5 flex flex-col-reverse gap-2 sm:mt-8 sm:flex-row">
+                {isStaffBookingJourney && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveBookingStep(3)}
+                    className="min-h-12 rounded-full border border-white/15 px-6 py-2.5 text-base font-semibold text-zinc-300 transition hover:border-white/35 hover:text-white sm:px-7 sm:py-4"
+                  >
+                    Back
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleContinueBooking}
+                  className="min-h-12 w-full rounded-full bg-white px-6 py-2.5 text-base font-semibold text-black transition hover:scale-[1.01] hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:px-8 sm:py-4 sm:text-xl"
+                >
+                  {isStaffBookingJourney ? "Review booking" : "Continue To Payment"}
+                </button>
+              </div>
               {!customerDetailsComplete && (
                 <p className="mt-3 text-sm text-amber-200">
                   Complete guest details before continuing.
@@ -4962,6 +5084,12 @@ export default function BookingPage() {
                 manualCheckoutRole !== "none" || publicSalesOpenByZone[previewSeatingZone.id] !== false,
                 remainingSeatsByZone[previewSeatingZone.id],
               );
+              const staffAvailability = isStaffBookingJourney
+                ? getStaffZoneAvailability(
+                    previewSeatingZone,
+                    availability.remainingSeats,
+                  )
+                : null;
               const status = availability.availabilityMessage;
               const statusClass = !availability.isAvailable
                 ? "border-zinc-600 bg-black/40 text-zinc-300"
@@ -5006,12 +5134,20 @@ export default function BookingPage() {
                           venueConfig,
                           previewSeatingZone,
                         ),
-                      )}{" "}
-                      pp · {availability.remainingSeats}{" "}
-                      {manualCheckoutRole !== "none"
-                        ? "Operational Seats Available"
-                        : "Seats Available"}
+                      )}{isStaffBookingJourney ? " per guest" : ` pp · ${availability.remainingSeats} Seats Available`}
                     </p>
+                    {staffAvailability && (
+                      <>
+                        <p className="mt-1 text-sm font-semibold text-white">
+                          {staffAvailability.label} · {staffAvailability.seatsLabel}
+                        </p>
+                        {staffAvailability.extraSeatsLabel && (
+                          <p className="mt-1 text-xs leading-5 text-zinc-400" title={staffBookingExtraSeatingHelp}>
+                            {staffAvailability.extraSeatsLabel}. {staffBookingExtraSeatingHelp}
+                          </p>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   <p className="mt-4 text-sm leading-6 text-zinc-300">
@@ -5020,8 +5156,9 @@ export default function BookingPage() {
 
                   {availability.requiresFloorAssignment && (
                     <p className="mt-3 text-sm leading-6 text-sky-100">
-                      Zone capacity is available. Physical table allocation
-                      will be completed in Floor Operations.
+                      {isStaffBookingJourney
+                        ? "Table needed. Assign a table later in Floor."
+                        : "Zone capacity is available. Physical table allocation will be completed in Floor Operations."}
                     </p>
                   )}
 
@@ -5064,7 +5201,7 @@ export default function BookingPage() {
                     onClick={confirmSeatingSelection}
                     className="mt-6 w-full rounded-full bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    Select Seating
+                    {isStaffBookingJourney ? "Choose section" : "Select Seating"}
                   </button>
                 </>
               );
@@ -5079,16 +5216,16 @@ export default function BookingPage() {
             <div className="flex flex-row items-start justify-between gap-3 border-b border-[#8D7A2F]/30 pb-4 sm:pb-6">
               <div>
                 <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A] sm:mb-2 sm:text-sm sm:tracking-[0.24em]">
-                  Step 5 · Payment
+                  {isStaffBookingJourney ? "Review" : "Step 5 · Payment"}
                 </p>
 
                 <h2 className="text-2xl font-bold sm:text-3xl">
-                  Payment Summary
+                  {isStaffBookingJourney ? "Review booking" : "Payment Summary"}
                 </h2>
                 <p className="mt-2 max-w-xl text-sm leading-5 text-zinc-300 sm:text-base sm:leading-6">
-                  Confirm your details and continue to secure PayFast
-                  checkout. Tickets are issued after payment is
-                  confirmed.
+                  {isStaffBookingJourney
+                    ? "Check the booking before you create it."
+                    : "Confirm your details and continue to secure PayFast checkout. Tickets are issued after payment is confirmed."}
                 </p>
               </div>
 
@@ -5131,7 +5268,7 @@ export default function BookingPage() {
 
               <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-5">
                 <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-zinc-500 sm:text-xs">
-                  Party Size
+                  Guests
                 </p>
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
                   {partySize} Guests
@@ -5140,16 +5277,18 @@ export default function BookingPage() {
 
               <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-5">
                 <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-zinc-500 sm:text-xs">
-                  Seating Assignment
+                  {isStaffBookingJourney ? "Table" : "Seating Assignment"}
                 </p>
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
-                  Section selected
+                  {isStaffBookingJourney
+                    ? selectedTemporaryTable?.tableCode ?? "Table needed"
+                    : "Section selected"}
                 </p>
               </div>
 
               <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-5">
                 <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-zinc-500 sm:text-xs">
-                  Total Price
+                  {isStaffBookingJourney ? "Booking value" : "Total Price"}
                 </p>
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
                   {formatCurrency(total)}
@@ -5173,7 +5312,7 @@ export default function BookingPage() {
 
               <div className="col-span-2 rounded-xl border border-white/10 bg-black/30 p-3 sm:rounded-2xl sm:p-5">
                 <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-zinc-500 sm:text-xs">
-                  Payment Plan
+                  {isStaffBookingJourney ? "Payment" : "Payment Plan"}
                 </p>
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
                   {isComplimentary
@@ -5822,12 +5961,17 @@ export default function BookingPage() {
                     )}
                     {isPayFastRedirecting
                       ? isComplimentary
-                        ? "Creating Complimentary Booking..."
+                        ? "Creating booking..."
                         : isCorporateInvoice
-                          ? "Creating Invoice Booking..."
+                          ? "Creating booking..."
                         : getCurrencyCents(amountDueNow) === 0
-                        ? "Completing Booking..."
+                        ? "Creating booking..."
                         : "PREPARING PAYMENT..."
+                      : isStaffBookingJourney &&
+                          (isComplimentary ||
+                            isCorporateInvoice ||
+                            getCurrencyCents(amountDueNow) === 0)
+                        ? "CREATE BOOKING"
                       : isComplimentary
                         ? "Create Complimentary Booking"
                         : isCorporateInvoiceOutstanding
@@ -5898,14 +6042,20 @@ export default function BookingPage() {
                 </p>
               )}
               <p className="text-center text-xs leading-5 text-zinc-500">
-                {manualPaymentLinkResult
+                {isStaffBookingJourney && manualPaymentLinkResult
+                  ? "Payment is recorded only after PayFast confirms it."
+                  : manualPaymentLinkResult
                   ? "No payment is recorded until the authoritative PayFast ITN succeeds."
                   : isComplimentary
                   ? "This reservation is settled as complimentary. No payment or payment link is created."
                   : isCorporateInvoiceOutstanding
-                    ? "This Corporate reservation remains Awaiting Payment. Reconcile the EFT after POP is received, or create a managed payment link later from Booking Details."
+                    ? isStaffBookingJourney
+                      ? "Payment can be recorded from Booking Details when the EFT or POP is received. The booking does not auto-expire."
+                      : "This Corporate reservation remains Awaiting Payment. Reconcile the EFT after POP is received, or create a managed payment link later from Booking Details."
                     : isCorporateInvoicePaid
-                      ? "This Corporate reservation is settled by manual EFT evidence. PayFast and payment links are not used."
+                      ? isStaffBookingJourney
+                        ? "Paid by EFT. No online payment or payment link is created."
+                        : "This Corporate reservation is settled by manual EFT evidence. PayFast and payment links are not used."
                   : getCurrencyCents(amountDueNow) === 0
                   ? "Your booking will be completed securely. Digital tickets and confirmation email are sent after confirmation."
                   : "Secure online payment. Digital tickets and confirmation email are sent after PayFast confirms payment."}
@@ -5921,7 +6071,8 @@ export default function BookingPage() {
           window.scrollTo({ top: 0, behavior: "smooth" })
         }
         className={`mobile-portrait-back-to-top fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-50 hidden h-12 w-12 place-items-center rounded-full border border-[#D8C36A]/45 bg-black/75 text-xl font-bold text-[#F2D66C] shadow-[0_0_26px_rgba(216,195,106,0.28)] backdrop-blur-xl transition duration-300 ${
-          isBackToTopVisible
+          isBackToTopVisible &&
+          !(isStaffBookingJourney && isConfirmationOpen)
             ? "translate-y-0 scale-100 opacity-100"
             : "pointer-events-none translate-y-3 scale-95 opacity-0"
         }`}

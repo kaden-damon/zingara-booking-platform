@@ -121,7 +121,9 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
         <div className="space-y-4">
           <Steps>
             <li>Open Bookings.</li>
-            <li>Use Create Booking for a new staff booking.</li>
+            <li>Use Create Booking, then choose the show.</li>
+            <li>Enter the guests, seating section and customer.</li>
+            <li>Choose payment, review the summary and create the booking.</li>
             <li>Compact view is the default. Switch to List or Grid when either view suits the task better.</li>
             <li>Search by guest, booking reference, email or another supported field.</li>
             <li>Open Filters for show, date, source, creator, status or promo choices.</li>
@@ -154,12 +156,12 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
         <div className="space-y-4">
           <Steps>
             <li>Open Corporate Bookings.</li>
-            <li>Search by contact or company.</li>
-            <li>Confirm requested date, pax and seating.</li>
-            <li>Review quote and payment status.</li>
+            <li>Find the company and contact person.</li>
+            <li>Confirm the show, guests and seating section.</li>
+            <li>Choose the payment option, review the summary and create the booking.</li>
             <li>Check for an existing record before creating anything new.</li>
           </Steps>
-          <Note>Avoid duplicate Corporate enquiries or bookings.</Note>
+          <Note>Corporate payment follows separately and an unpaid Corporate booking does not auto-expire.</Note>
         </div>
       ),
       id: "corporate",
