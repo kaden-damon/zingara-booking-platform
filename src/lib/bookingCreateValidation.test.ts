@@ -44,6 +44,42 @@ test("accepts complete South African public contact details", () => {
   );
 });
 
+test("accepts one guest for public and trusted staff Standard creates", () => {
+  assert.deepEqual(
+    validateBookingCreate({
+      customer: completeCustomer,
+      isCreate: true,
+      isTrustedStaff: false,
+      partySize: 1,
+    }),
+    {},
+  );
+  assert.deepEqual(
+    validateBookingCreate({
+      bookingSource: "admin",
+      customer: { email: "", name: "Solo Staff Guest", phone: "" },
+      isCreate: true,
+      isTrustedStaff: true,
+      partySize: 1,
+    }),
+    {},
+  );
+});
+
+test("rejects zero, negative, and non-integer guest counts", () => {
+  for (const partySize of [0, -1, 1.5]) {
+    assert.equal(
+      validateBookingCreate({
+        customer: completeCustomer,
+        isCreate: true,
+        isTrustedStaff: false,
+        partySize,
+      }).partySize,
+      "Enter a valid number of guests.",
+    );
+  }
+});
+
 test("rejects malformed public email and mobile values", () => {
   assert.deepEqual(
     validateBookingCreate({

@@ -15,7 +15,7 @@ export function applyAuthoritativeComplimentaryBooking(input: {
 }): DemoBooking {
   const createdAt = input.createdAt ?? new Date().toISOString();
   const { booking, staffProfileId } = input;
-  const message = `Dear ${booking.customer.name}, your complimentary Zingara reservation for ${booking.partySize} guests on ${booking.bookingDate} has been confirmed. Section: ${booking.zoneTitle}. Live ticket: /ticket/${encodeURIComponent(booking.reference)}`;
+  const message = `Dear ${booking.customer.name}, your complimentary Zingara reservation for ${booking.partySize} ${booking.partySize === 1 ? "guest" : "guests"} on ${booking.bookingDate} has been confirmed. Section: ${booking.zoneTitle}. Live ticket: /ticket/${encodeURIComponent(booking.reference)}`;
 
   return {
     ...booking,

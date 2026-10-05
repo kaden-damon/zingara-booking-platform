@@ -207,7 +207,7 @@ export default function ManageBookingPanel(props: {
               </label>
               {selected && (
                 <div className="mt-3 text-sm text-zinc-300">
-                  <p>{selected.partySize} guests · {selected.seatingZone}</p>
+                  <p>{selected.partySize} {selected.partySize === 1 ? "guest" : "guests"} · {selected.seatingZone}</p>
                   <p className="mt-1">Current value {money(selected.currentValue)} · New value {money(selected.newValue)} · Difference {money(selected.difference)}</p>
                 </div>
               )}

@@ -20,6 +20,7 @@ import {
   getReviewApplicationOrigin,
 } from "@/lib/reviews/reviewServer";
 import { getReviewPreviewUrl } from "@/lib/reviews/reviews";
+import { normalizeGuestCountGrammar } from "@/lib/guestCountPresentation";
 
 export type AutomatedWorkflowKey = "pre_show_reminder" | "post_show_review";
 
@@ -431,12 +432,15 @@ function renderWorkflowTemplate(
     ...extras,
   };
 
-  return template.replaceAll(
-    /\{\{\s*([\w]+)\s*\}\}/g,
-    (match, variableName: string) =>
-      variables[variableName] === undefined
-        ? match
-        : String(variables[variableName]),
+  return normalizeGuestCountGrammar(
+    template.replaceAll(
+      /\{\{\s*([\w]+)\s*\}\}/g,
+      (match, variableName: string) =>
+        variables[variableName] === undefined
+          ? match
+          : String(variables[variableName]),
+    ),
+    booking.guest_count,
   );
 }
 

@@ -2574,7 +2574,7 @@ export default function BookingPage() {
           amount: amountDueNow,
           bookingReference: reference,
           customer: customerInfo,
-          itemDescription: `${selectedShow.label} · ${selectedZone.title} · ${partySize} guests`,
+          itemDescription: `${selectedShow.label} · ${selectedZone.title} · ${partySize} ${partySize === 1 ? "guest" : "guests"}`,
           itemName: "The Royal Countess Zingara Booking",
           journeyId,
           section: selectedZone.title,
@@ -4273,8 +4273,8 @@ export default function BookingPage() {
                 </p>
                 <p className="mt-2 text-sm leading-6">
                   {isStaffBookingJourney
-                    ? `Not enough seats for ${partySize} guests. Choose another section, guest count or show.`
-                    : `The selected show currently has no seating that can safely host ${partySize} guests. You can adjust party size, choose another show time, or join the waitlist below.`}
+                    ? `Not enough seats for ${partySize} ${partySize === 1 ? "guest" : "guests"}. Choose another section, guest count or show.`
+                    : `The selected show currently has no seating that can safely host ${partySize} ${partySize === 1 ? "guest" : "guests"}. You can adjust party size, choose another show time, or join the waitlist below.`}
                 </p>
               </div>
             )}
@@ -5288,7 +5288,7 @@ export default function BookingPage() {
                   Guests
                 </p>
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
-                  {partySize} Guests
+                  {partySize} {partySize === 1 ? "Guest" : "Guests"}
                 </p>
               </div>
 

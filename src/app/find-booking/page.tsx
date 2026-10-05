@@ -294,7 +294,7 @@ export default function FindBookingPage() {
             name: result.booking.customer.name,
             phone: result.booking.customer.phone,
           },
-          itemDescription: `${result.booking.show} · ${result.booking.seatingZone} · ${result.booking.partySize} guests`,
+          itemDescription: `${result.booking.show} · ${result.booking.seatingZone} · ${result.booking.partySize} ${result.booking.partySize === 1 ? "guest" : "guests"}`,
           itemName: "The Royal Countess Zingara Booking",
           section: result.booking.seatingZone,
         }),
@@ -486,7 +486,7 @@ export default function FindBookingPage() {
                     ["Date", formatDate(result.booking.date)],
                     ["Seating Zone", result.booking.seatingZone],
                     ["Table", result.booking.table],
-                    ["Party Size", `${result.booking.partySize} guests`],
+                    ["Party Size", `${result.booking.partySize} ${result.booking.partySize === 1 ? "guest" : "guests"}`],
                     ["Ticket Status", result.booking.ticketStatus],
                   ].map(([label, value]) => (
                     <div

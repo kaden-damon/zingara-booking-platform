@@ -26,13 +26,15 @@ export const standardPrivateBoothGuestLimits = {
   minGuests: 4,
 } as const;
 
+export const standardBookingMinimumGuests = 1;
+
 export function getStandardBookingZoneGuestLimits(
   zoneId: string,
   defaults: { maxGuests: number; minGuests: number },
 ) {
   return zoneId === "royal-booths"
     ? standardPrivateBoothGuestLimits
-    : defaults;
+    : { ...defaults, minGuests: standardBookingMinimumGuests };
 }
 
 export function isStandardBookingZoneGuestCountAllowed(

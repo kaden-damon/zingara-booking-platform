@@ -3,6 +3,7 @@ import {
   isLegacyPlaceholderTableCode,
 } from "@/lib/physicalTables";
 import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
+import { normalizeGuestCountGrammar } from "@/lib/guestCountPresentation";
 import { bookingClaimsTable } from "./bookingTableClaims";
 import { includedBookingFeeAmount } from "./bookingFees";
 import {
@@ -1131,12 +1132,15 @@ export function renderCommunicationTemplate(
     ...extras,
   };
 
-  return templateText.replaceAll(
-    /\{\{\s*([\w]+)\s*\}\}/g,
-    (match, variableName: string) =>
-      variables[variableName] === undefined
-        ? match
-        : String(variables[variableName]),
+  return normalizeGuestCountGrammar(
+    templateText.replaceAll(
+      /\{\{\s*([\w]+)\s*\}\}/g,
+      (match, variableName: string) =>
+        variables[variableName] === undefined
+          ? match
+          : String(variables[variableName]),
+    ),
+    booking.partySize,
   );
 }
 

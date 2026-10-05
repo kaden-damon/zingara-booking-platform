@@ -6,6 +6,8 @@ import {
   getBookingSeatingEligibility,
   getStandardBookingZoneGuestLimits,
   isStandardBookingZoneGuestCountAllowed,
+  standardBookingMinimumGuests,
+  standardPrivateBoothGuestLimits,
   supportsMultiTableBookingFulfilment,
 } from "./bookingSeatingAvailability.ts";
 
@@ -14,6 +16,75 @@ const middleRing = {
   minGuests: 2,
   partySize: 65,
 };
+
+test("Standard bookings allow one guest in ordinary seating sections", () => {
+  assert.equal(standardBookingMinimumGuests, 1);
+
+  for (const zoneId of [
+    "elevated-stage",
+    "golden-circle",
+    "middle-ring",
+    "royal-balcony",
+  ]) {
+    assert.equal(isStandardBookingZoneGuestCountAllowed(zoneId, 1), true);
+    const limits = getStandardBookingZoneGuestLimits(zoneId, {
+      maxGuests: 20,
+      minGuests: 2,
+    });
+    assert.equal(limits.minGuests, 1);
+    assert.equal(
+      getBookingSeatingEligibility({
+        ...limits,
+        partySize: 1,
+        remainingSeats: 1,
+        supportsMultiTableFulfilment:
+          supportsMultiTableBookingFulfilment(zoneId),
+      }).isAvailable,
+      true,
+    );
+  }
+});
+
+test("one remaining public seat accepts one guest and rejects two", () => {
+  const limits = getStandardBookingZoneGuestLimits("middle-ring", {
+    maxGuests: 20,
+    minGuests: 2,
+  });
+
+  assert.equal(
+    getBookingSeatingEligibility({
+      ...limits,
+      partySize: 1,
+      remainingSeats: 1,
+      supportsMultiTableFulfilment: true,
+    }).isAvailable,
+    true,
+  );
+  assert.equal(
+    getBookingSeatingEligibility({
+      ...limits,
+      partySize: 2,
+      remainingSeats: 1,
+      supportsMultiTableFulfilment: true,
+    }).isAvailable,
+    false,
+  );
+});
+
+test("Corporate configured minimum and Standard Private Booth minimum remain unchanged", () => {
+  assert.equal(
+    getBookingSeatingEligibility({
+      isInternalCorporate: true,
+      maxGuests: 20,
+      minGuests: 2,
+      partySize: 1,
+      remainingSeats: 10,
+    }).isAvailable,
+    false,
+  );
+  assert.equal(isStandardBookingZoneGuestCountAllowed("royal-booths", 1), false);
+  assert.equal(standardPrivateBoothGuestLimits.minGuests, 4);
+});
 
 test("internal Corporate booking uses fixed zone entitlement, not public group ceiling", () => {
   const result = getBookingSeatingEligibility({
@@ -82,7 +153,7 @@ test("Standard Private Booth bookings can exceed one booth while Corporate routi
     );
   }
 
-  for (const partySize of [3, 20, 24]) {
+  for (const partySize of [1, 2, 3, 20, 24]) {
     assert.equal(
       isStandardBookingZoneGuestCountAllowed("royal-booths", partySize),
       false,
