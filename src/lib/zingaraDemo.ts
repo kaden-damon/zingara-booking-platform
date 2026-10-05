@@ -605,7 +605,8 @@ export function normalizeShowLocation(
   if (
     normalisedValue === "cape-town" ||
     normalisedValue === "cape town" ||
-    normalisedValue === "capetown"
+    normalisedValue === "capetown" ||
+    normalisedValue === "cpt"
   ) {
     return "cape-town";
   }

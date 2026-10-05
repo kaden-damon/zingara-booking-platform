@@ -217,8 +217,21 @@ export async function getShows() {
 }
 
 export async function getPublicShows(options: { operational?: boolean } = {}) {
+  if (options.operational) {
+    const payload = await fetchSupabaseApi<{ shows?: DemoShow[] }>(
+      "/api/shows?scope=operational",
+      { cache: "no-store" },
+    );
+
+    if (!Array.isArray(payload.shows)) {
+      throw new Error("Shows could not be loaded.");
+    }
+
+    return payload.shows;
+  }
+
   const response = await fetch(
-    options.operational ? "/api/shows?scope=operational" : "/api/shows",
+    "/api/shows",
     {
       headers: { Accept: "application/json" },
     },

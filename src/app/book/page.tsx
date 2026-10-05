@@ -592,25 +592,6 @@ function isStaffBookableShow(show: DemoShow | undefined) {
   );
 }
 
-function normalizeEntryLocation(
-  value: string | null | undefined,
-): EntryLocationKey | null {
-  const normalisedValue = value?.trim().toLowerCase();
-
-  if (
-    normalisedValue === "johannesburg" ||
-    normalisedValue === "joburg"
-  ) {
-    return "johannesburg";
-  }
-
-  if (normalisedValue === "cape-town" || normalisedValue === "cape town") {
-    return "cape-town";
-  }
-
-  return null;
-}
-
 function getEntryLocationLabel(location: EntryLocationKey | null) {
   return location === "johannesburg" ? "Johannesburg" : "Cape Town";
 }
@@ -1702,9 +1683,9 @@ export default function BookingPage() {
         });
 
         if (!active) return;
-        setCalendarLockStatus(
+        setCalendarLockStatus((currentStatus) =>
           result.status === "acquired"
-            ? "SHOW READY ✓"
+            ? currentStatus
             : "Your booking-creation lock is no longer active. Cancel and reopen this show from the Admin calendar.",
         );
       } catch {
@@ -1918,13 +1899,12 @@ export default function BookingPage() {
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
-    const locationFromQuery = normalizeEntryLocation(
-      searchParams.get("location"),
-    );
-    const locationFromStorage = normalizeEntryLocation(
-      window.localStorage.getItem("zingara-selected-location"),
-    );
-    const nextLocation = locationFromQuery ?? locationFromStorage;
+    const nextLocation =
+      normalizeShowLocation(searchParams.get("expectedLocation")) ??
+      normalizeShowLocation(searchParams.get("location")) ??
+      normalizeShowLocation(
+        window.localStorage.getItem("zingara-selected-location"),
+      );
     const paymentState = searchParams.get("payment");
     const booking = searchParams.get("booking");
 

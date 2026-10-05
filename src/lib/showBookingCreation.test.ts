@@ -92,6 +92,67 @@ test("incomplete calendar lock context fails closed", () => {
   );
 });
 
+test("explicit locked-show location overrides query and stored venue context", async () => {
+  const page = await readFile(
+    new URL("../app/book/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const expectedLocation = page.indexOf(
+    'normalizeShowLocation(searchParams.get("expectedLocation"))',
+  );
+  const queryLocation = page.indexOf(
+    'normalizeShowLocation(searchParams.get("location"))',
+  );
+  const storedLocation = page.indexOf(
+    'window.localStorage.getItem("zingara-selected-location")',
+  );
+
+  assert.ok(expectedLocation > -1);
+  assert.ok(queryLocation > expectedLocation);
+  assert.ok(storedLocation > queryLocation);
+});
+
+test("booking entry location uses the shared venue normalizer", async () => {
+  const demo = await readFile(
+    new URL("./zingaraDemo.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(demo, /normalisedValue === "jhb"/);
+  assert.match(demo, /normalisedValue === "cpt"/);
+  assert.match(demo, /normalisedValue === "cape-town"/);
+  assert.match(demo, /normalisedValue === "johannesburg"/);
+});
+
+test("staff operational show inventory uses the authenticated API client", async () => {
+  const shows = await readFile(
+    new URL("./supabase/shows.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    shows,
+    /if \(options\.operational\)[\s\S]+fetchSupabaseApi<[\s\S]+\/api\/shows\?scope=operational/,
+  );
+  assert.match(shows, /fetch\(\s*"\/api\/shows"/);
+});
+
+test("lock heartbeat cannot declare the show ready before exact show resolution", async () => {
+  const page = await readFile(
+    new URL("../app/book/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    page,
+    /result\.status === "acquired"\s*\? currentStatus/,
+  );
+  assert.match(
+    page,
+    /lockedShow\.date !== lockContext\.expectedDate[\s\S]+lockedShow\.time !== lockContext\.expectedTime[\s\S]+lockedLocation !== lockContext\.expectedLocation/,
+  );
+});
+
 test("server verifies purpose, owner, freshness, show snapshot and releases on success", async () => {
   const route = await readFile(
     new URL("../app/api/admin/bookings/route.ts", import.meta.url),

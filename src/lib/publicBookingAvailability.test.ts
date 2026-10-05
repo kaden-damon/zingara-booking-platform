@@ -18,8 +18,9 @@ test("public booking loads shows and venue settings from public endpoints", asyn
   assert.match(page, /getPublicVenueSettings\(\)/);
   assert.match(
     shows,
-    /options\.operational \? "\/api\/shows\?scope=operational" : "\/api\/shows"/,
+    /if \(options\.operational\)[\s\S]+fetchSupabaseApi<[\s\S]+\/api\/shows\?scope=operational/,
   );
+  assert.match(shows, /fetch\(\s*"\/api\/shows"/);
   assert.match(settings, /fetch\("\/api\/venue-settings"/);
   assert.doesNotMatch(page, /getShowsWithTables\(\{ metadataOnly: true \}\)/);
 });
