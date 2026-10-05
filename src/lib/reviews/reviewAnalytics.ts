@@ -1,4 +1,7 @@
 import { getJohannesburgDateKey, type AnalyticsVenue } from "@/lib/managementAnalytics";
+import { calculateReviewRatingAverage } from "@/lib/reviews/reviewRating";
+
+export { calculateReviewRatingAverage } from "@/lib/reviews/reviewRating";
 
 export type ReviewAnalyticsStatus =
   | "needs_review"
@@ -151,12 +154,6 @@ export function hasPersistedReviewAttendance(
   );
 }
 
-function average(values: number[]) {
-  return values.length
-    ? values.reduce((total, value) => total + value, 0) / values.length
-    : null;
-}
-
 function rate(numerator: number, denominator: number) {
   return denominator > 0 ? numerator / denominator : null;
 }
@@ -267,8 +264,8 @@ export function calculateReviewAnalytics(input: {
   const submittedFromSentInvitations = [...reviewBookingIds].filter((bookingId) =>
     sentBookingIds.has(bookingId),
   ).length;
-  const guestRating = average(reviews.map((review) => review.rating));
-  const publicRating = average(publicReviews.map((review) => review.rating));
+  const guestRating = calculateReviewRatingAverage(reviews.map((review) => review.rating));
+  const publicRating = calculateReviewRatingAverage(publicReviews.map((review) => review.rating));
   const published = publicReviews.length;
   const moderation = {
     needsReview: reviews.filter((review) => review.moderationStatus === "needs_review").length,
@@ -300,8 +297,8 @@ export function calculateReviewAnalytics(input: {
       ).size;
       return {
         contactRequested: venueReviews.filter((review) => review.contactRequested).length,
-        guestRating: average(venueReviews.map((review) => review.rating)),
-        publicRating: average(venuePublic.map((review) => review.rating)),
+        guestRating: calculateReviewRatingAverage(venueReviews.map((review) => review.rating)),
+        publicRating: calculateReviewRatingAverage(venuePublic.map((review) => review.rating)),
         published: venuePublic.length,
         responseRate: rate(venueResponses, venueSentSet.size),
         reviewsReceived: venueReviews.length,
@@ -326,7 +323,7 @@ export function calculateReviewAnalytics(input: {
       return {
         contactRequested: showReviews.filter((review) => review.contactRequested).length,
         date: show.date,
-        guestRating: average(showReviews.map((review) => review.rating)),
+        guestRating: calculateReviewRatingAverage(showReviews.map((review) => review.rating)),
         id: show.id,
         name: show.name,
         responseRate: rate(responses, showSentSet.size),
@@ -387,7 +384,7 @@ export function calculateReviewAnalytics(input: {
     trend: [...trendGroups.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([period, periodReviews]) => ({
-        guestRating: average(periodReviews.map((review) => review.rating)),
+        guestRating: calculateReviewRatingAverage(periodReviews.map((review) => review.rating)),
         period,
         reviewsReceived: periodReviews.length,
       })),

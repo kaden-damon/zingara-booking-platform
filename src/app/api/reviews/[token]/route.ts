@@ -5,6 +5,7 @@ import {
 } from "@/lib/reviews/reviewServer";
 import { hashReviewToken, validateReviewSubmission } from "@/lib/reviews/reviews";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { sendImmediateReviewAlert } from "@/lib/workflows/reviewManagement";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -73,6 +74,17 @@ export async function POST(request: Request, context: RouteContext) {
     });
 
     if (error) throw error;
+    const submitted = data as { id?: string; idempotent?: boolean } | null;
+    if (submitted?.id && !submitted.idempotent) {
+      try {
+        await sendImmediateReviewAlert(supabase, submitted.id);
+      } catch (notificationError) {
+        console.error("[Reviews] Management alert failed after review persisted", {
+          error: notificationError instanceof Error ? notificationError.message : "Unknown alert failure",
+          reviewId: submitted.id,
+        });
+      }
+    }
     return Response.json({ review: data }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";

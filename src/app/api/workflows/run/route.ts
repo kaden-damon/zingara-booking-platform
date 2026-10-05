@@ -8,6 +8,7 @@ import { runCorporatePaymentHolds } from "@/lib/workflows/corporatePaymentHolds"
 import { runDailyBookingReview } from "@/lib/workflows/dailyBookingReview";
 import { runDineplanScheduledEmails } from "@/lib/workflows/dineplanScheduledEmails";
 import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
+import { runReviewManagementWorkflows } from "@/lib/workflows/reviewManagement";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -81,6 +82,13 @@ export async function GET(request: Request) {
       dailyBookingReview = { reason: "failed", sent: 0, skipped: 0 };
     }
     const publicPaymentHolds = await runPublicPaymentHoldCleanup(serviceClient);
+    let reviewManagement: Awaited<ReturnType<typeof runReviewManagementWorkflows>> | { reason: "failed" };
+    try {
+      reviewManagement = await runReviewManagementWorkflows(serviceClient);
+    } catch (reviewError) {
+      console.error("[Zingara Workflows] Review management notifications failed", reviewError);
+      reviewManagement = { reason: "failed" };
+    }
     let dineplanScheduledEmails: Awaited<ReturnType<typeof runDineplanScheduledEmails>> | { delivered: 0; reason: "failed" };
     try {
       dineplanScheduledEmails = await runDineplanScheduledEmails(serviceClient);
@@ -110,6 +118,7 @@ export async function GET(request: Request) {
       dailyBookingReview,
       dineplanScheduledEmails,
       publicPaymentHolds,
+      reviewManagement,
       telemetryCleanup,
     });
   } catch (error) {

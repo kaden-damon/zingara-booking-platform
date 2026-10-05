@@ -80,6 +80,16 @@ export default function ReviewsAdminWorkspace() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
+        const query = new URLSearchParams(window.location.search);
+        const queryReviewId = query.get("reviewId");
+        const queryStatus = query.get("reviewStatus") as ReviewStatus | null;
+        if (queryReviewId && queryStatus && statusOptions.some((option) => option.value === queryStatus)) {
+          setStatus(queryStatus);
+          setPage(1);
+          setSearch("");
+          setTargetReviewId(queryReviewId);
+          return;
+        }
         const stored = sessionStorage.getItem(reviewAnalyticsTargetKey);
         if (!stored) return;
         const target = JSON.parse(stored) as { reviewId?: string; status?: ReviewStatus };

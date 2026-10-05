@@ -27,6 +27,7 @@ import ShowZoneSalesControls from "./ShowZoneSalesControls";
 import { StaffActionGuidanceAlert } from "./StaffActionGuidanceAlert";
 import { StaffOnboardingTour } from "./StaffOnboardingTour";
 import { DailyBookingReviewWorkflowCard } from "./DailyBookingReviewWorkflowCard";
+import { ReviewManagementWorkflowCard } from "./ReviewManagementWorkflowCard";
 import { StaffIssueAttachments } from "./StaffIssueAttachments";
 import { StaffIssueMediaPicker } from "./StaffIssueMediaPicker";
 import ZingaraDatePicker from "./ZingaraDatePicker";
@@ -1988,6 +1989,26 @@ const gettingStartedLessons: AcademyArticle[] = [
     ],
     title: "Navigating the Platform",
     whenToUse: "Use this when learning the Admin layout or when you are unsure where to complete a task.",
+  },
+  {
+    category: "Recent Changes",
+    commonMistakes: ["Waiting for the daily summary before checking a low rating.", "Sending a customer response from an internal alert."],
+    difficulty: "beginner",
+    howTo: [
+      "Open More, then Settings and Automated Workflows.",
+      "Use New Review Alert for prompt management awareness.",
+      "Use Daily Review Summary for the 08:00 SAST review of newly submitted feedback.",
+      "Open the authenticated review link and moderate in Guest Reviews.",
+    ],
+    id: "review-management-notifications",
+    keywords: ["new review alert", "daily review summary", "needs attention", "guest reviews"],
+    moduleId: "recent-changes",
+    purpose: "Management can receive prompt review alerts and one compact daily summary.",
+    relatedActions: ["communications"],
+    related: ["Guest Reviews", "Automated Workflows"],
+    tips: ["Ratings of 1–2 are marked Needs attention.", "Empty daily summaries are skipped."],
+    title: "Review Management Notifications",
+    whenToUse: "Use this to configure or understand internal review notifications.",
   },
   {
     category: "Recent Changes",
@@ -40503,6 +40524,7 @@ export default function AdminDashboardPage() {
             </div>
 
             <DailyBookingReviewWorkflowCard isSuperAdmin={isSuperAdmin} />
+            <ReviewManagementWorkflowCard isSuperAdmin={isSuperAdmin} />
 
             {workflowStatusConfirmation && (
               <div className="mb-5 rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-5 shadow-2xl shadow-black/40">
