@@ -5,6 +5,7 @@ import {
   type SeatingZoneId,
   getOperationalTableMinimumOccupancy,
 } from "./zingaraDemo";
+import { comparePhysicalTableCodes } from "./physicalTables";
 
 const manualMoveZoneOrder: SeatingZoneId[] = [
   "golden-circle",
@@ -96,9 +97,7 @@ export function groupManualBookingMoveTargets(tables: DemoTable[]) {
         .sort(
           (left, right) =>
             left.seatCapacity - right.seatCapacity ||
-            left.tableNumber.localeCompare(right.tableNumber, undefined, {
-              numeric: true,
-            }),
+            comparePhysicalTableCodes(left.tableNumber, right.tableNumber),
         ),
       zoneId,
     }))

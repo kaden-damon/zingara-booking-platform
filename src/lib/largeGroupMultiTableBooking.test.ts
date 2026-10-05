@@ -38,13 +38,13 @@ test("public reservation creates one booking entitlement without choosing tables
   );
 });
 
-test("individual booth capacity stays 4 to 6 and entitlement pax is counted once", async () => {
+test("individual booth fit is 4 to 8 and entitlement pax is counted once", async () => {
   const physicalTables = await source("./physicalTables.ts");
   const adminPage = await source("../app/admin/page.tsx");
 
   assert.match(
     physicalTables,
-    /createDefinitions\(\s*"royal-booths",[\s\S]*?\n\s*4,\s*\n\s*6,\s*\n\s*6,/,
+    /createDefinitions\(\s*"royal-booths",[\s\S]*?\n\s*4,\s*\n\s*8,\s*\n\s*6,/,
   );
   assert.match(adminPage, /booking pax counted once/);
   assert.match(

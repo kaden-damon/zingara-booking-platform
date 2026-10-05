@@ -344,6 +344,7 @@ import {
   replaceAffectedRecord,
 } from "../../lib/adminActionState";
 import {
+  comparePhysicalTableCodes,
   getPhysicalTableDefinition,
 } from "../../lib/physicalTables";
 import {
@@ -7541,9 +7542,11 @@ function getZoneTables(
   showId: string,
   zoneId: SeatingZoneId,
 ) {
-  return tables.filter(
-    (table) => table.showId === showId && table.zoneId === zoneId,
-  );
+  return tables
+    .filter((table) => table.showId === showId && table.zoneId === zoneId)
+    .sort((left, right) =>
+      comparePhysicalTableCodes(left.tableNumber, right.tableNumber),
+    );
 }
 
 function getZoneStats(

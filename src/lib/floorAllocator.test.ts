@@ -147,6 +147,51 @@ test("temporary operational capacity can fit a smaller party", () => {
   assert.equal(result.allocations[0]?.targetType, "temporary");
 });
 
+test("a smaller party can use a larger configured permanent table within its fit range", () => {
+  const result = plan(
+    [booking("four-pax", 4, "golden-circle")],
+    [
+      table("400", "golden-circle", {
+        capacity: 12,
+        maximumCapacity: 12,
+        minimumCapacity: 2,
+      }),
+    ],
+  );
+
+  assert.equal(result.allocations.length, 1);
+  assert.equal(result.allocations[0]?.targetTableId, "400");
+  assert.equal(result.allocations[0]?.unusedSeats, 8);
+});
+
+test("permanent table minimum and maximum remain authoritative", () => {
+  const belowMinimum = plan(
+    [booking("three-pax", 3, "royal-booths")],
+    [
+      table("1", "royal-booths", {
+        capacity: 8,
+        maximumCapacity: 8,
+        minimumCapacity: 4,
+      }),
+    ],
+  );
+  const atMaximum = plan(
+    [booking("eight-pax", 8, "royal-booths")],
+    [
+      table("1", "royal-booths", {
+        capacity: 8,
+        maximumCapacity: 8,
+        minimumCapacity: 4,
+      }),
+    ],
+  );
+
+  assert.equal(belowMinimum.allocations.length, 0);
+  assert.equal(belowMinimum.unresolved.length, 1);
+  assert.equal(atMaximum.allocations.length, 1);
+  assert.equal(atMaximum.allocations[0]?.targetTableId, "1");
+});
+
 test("never invents capacity for a CAPACITY REQUIRED physical table", () => {
   const result = plan(
     [booking("gc", 10, "golden-circle")],

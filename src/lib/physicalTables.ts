@@ -29,7 +29,7 @@ export const physicalTableDefinitions: PhysicalTableDefinition[] = [
     "royal-booths",
     [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24],
     4,
-    6,
+    8,
     6,
   ),
   ...createDefinitions(
@@ -42,7 +42,7 @@ export const physicalTableDefinitions: PhysicalTableDefinition[] = [
   ...createDefinitions(
     "golden-circle",
     [400, 401, 402, 403, 404, 405, 500, 501, 502, 503, 504, 505],
-    8,
+    2,
     12,
   ),
   ...createDefinitions(
@@ -54,11 +54,18 @@ export const physicalTableDefinitions: PhysicalTableDefinition[] = [
   ...createDefinitions(
     "royal-balcony",
     [800, 801, 900, 901],
-    10,
+    2,
     10,
     10,
   ),
 ];
+
+export function comparePhysicalTableCodes(left: string, right: string) {
+  return left.trim().localeCompare(right.trim(), "en", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
 
 const definitionsByKey = new Map(
   physicalTableDefinitions.map((definition) => [
