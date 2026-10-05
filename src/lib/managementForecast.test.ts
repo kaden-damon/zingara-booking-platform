@@ -7,6 +7,8 @@ import ExcelJS from "exceljs";
 import {
   calculateManagementAnalytics,
   defaultManagementAnalyticsFilters,
+  filtersFromSearchParams,
+  filtersToSearchParams,
   selectManagementForecastRows,
   type ManagementAnalyticsBooking,
   type ManagementAnalyticsDataset,
@@ -205,6 +207,73 @@ test("workbook population matches all, CPT and JHB screen populations", async ()
       report.rows.every((row) => venue === "all" || row.venue === venue),
     );
   }
+});
+
+test("an omitted weekday filter remains unfiltered instead of becoming Sunday", () => {
+  const filters = {
+    ...defaultManagementAnalyticsFilters,
+    performanceFrom: "2026-10-11",
+    performanceTo: "2026-12-27",
+    venue: "cape-town" as const,
+  };
+  const params = filtersToSearchParams(filters);
+
+  assert.equal(params.has("dayOfWeek"), false);
+  assert.deepEqual(filtersFromSearchParams(params).dayOfWeek, []);
+  assert.deepEqual(
+    filtersFromSearchParams(new URLSearchParams("dayOfWeek=0")).dayOfWeek,
+    [0],
+  );
+});
+
+test("export retains every matching weekday, zero-booking show and same-date performance", async () => {
+  const shows: ManagementAnalyticsDataset["shows"] = [
+    { date: "2026-10-11", id: "cpt-sun", name: "Sunday", status: "active", time: "18:00:00", venue: "cape-town" },
+    { date: "2026-10-14", id: "cpt-wed", name: "Wednesday", status: "active", time: "18:00:00", venue: "cape-town" },
+    { date: "2026-10-15", id: "cpt-thu", name: "Thursday", status: "active", time: "18:00:00", venue: "cape-town" },
+    { date: "2026-10-16", id: "cpt-fri", name: "Friday", status: "active", time: "18:00:00", venue: "cape-town" },
+    { date: "2026-10-17", id: "cpt-sat-early", name: "Saturday Early", status: "active", time: "14:00:00", venue: "cape-town" },
+    { date: "2026-10-17", id: "cpt-sat-late", name: "Saturday Late", status: "special_event", time: "19:00:00", venue: "cape-town" },
+    { date: "2026-10-14", id: "jhb-wed", name: "JHB Wednesday", status: "active", time: "17:00:00", venue: "johannesburg" },
+  ];
+  const bookings = shows
+    .filter((show) => show.id !== "cpt-thu")
+    .map((show, index) => booking(`weekday-${index}`, { showId: show.id }));
+  const data: ManagementAnalyticsDataset = {
+    asOf: "2026-10-05T10:00:00+02:00",
+    bookings,
+    capacityByVenue: { "cape-town": 100, johannesburg: 100 },
+    customers: bookings.map((row) => ({
+      createdAt: row.createdAt,
+      hasCompleteContact: true,
+      id: row.customerId,
+    })),
+    payments: [],
+    shows,
+  };
+  const clientFilters = {
+    ...defaultManagementAnalyticsFilters,
+    performanceFrom: "2026-10-11",
+    performanceTo: "2026-10-17",
+    venue: "cape-town" as const,
+  };
+  const serverFilters = filtersFromSearchParams(filtersToSearchParams(clientFilters));
+  const screenRows = selectManagementForecastRows(
+    calculateManagementAnalytics(data, clientFilters).performanceDemand,
+    data.asOf,
+    "future",
+  );
+  const report = await buildManagementForecastWorkbook(data, serverFilters, "future");
+
+  assert.equal(screenRows.length, 6);
+  assert.deepEqual(report.rows, screenRows);
+  assert.deepEqual(
+    report.rows.map((row) => row.date),
+    ["2026-10-11", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17", "2026-10-17"],
+  );
+  assert.equal(report.rows.find((row) => row.id === "cpt-thu")?.bookings, 0);
+  assert.equal(report.rows.filter((row) => row.date === "2026-10-17").length, 2);
+  assert.ok(report.rows.every((row) => row.venue === "cape-town"));
 });
 
 test("management forecast remains self-service and permission protected", async () => {

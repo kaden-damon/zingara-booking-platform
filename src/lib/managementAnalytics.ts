@@ -712,10 +712,13 @@ export function getManagementForecastAttention(row: {
 }
 
 export function filtersFromSearchParams(searchParams: URLSearchParams) {
-  const dayOfWeek = (searchParams.get("dayOfWeek") ?? "")
-    .split(",")
-    .map(Number)
-    .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
+  const serializedDayOfWeek = searchParams.get("dayOfWeek");
+  const dayOfWeek = serializedDayOfWeek
+    ? serializedDayOfWeek
+        .split(",")
+        .map(Number)
+        .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+    : [];
   const venue = searchParams.get("venue");
   const bookingType = searchParams.get("bookingType");
   const source = searchParams.get("source");
