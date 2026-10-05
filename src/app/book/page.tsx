@@ -115,6 +115,7 @@ import { getCustomerExperienceTimes } from "../../lib/experienceTimes";
 import {
   isShowPubliclyBookable,
   isShowPubliclyVisible,
+  isShowStaffBookable,
 } from "../../lib/publicShowSales";
 import {
   getStaffAvailabilityPresentation,
@@ -583,6 +584,14 @@ function isGuestBookableShow(show: DemoShow | undefined) {
   return isShowPubliclyBookable(status);
 }
 
+function isStaffBookableShow(show: DemoShow | undefined) {
+  return Boolean(
+    show &&
+      !show.archivedAt &&
+      isShowStaffBookable(show.operationalStatus ?? "active"),
+  );
+}
+
 function normalizeEntryLocation(
   value: string | null | undefined,
 ): EntryLocationKey | null {
@@ -1048,7 +1057,9 @@ export default function BookingPage() {
     };
   }, [promoCodeInput, selectedEntryLocation, selectedShow, subtotal]);
 
-  const guestVisibleShows = shows.filter(isGuestVisibleShow);
+  const guestVisibleShows = shows.filter(
+    isLockedCalendarCheckout ? isStaffBookableShow : isGuestVisibleShow,
+  );
   const locationVisibleShows = selectedEntryLocation
     ? guestVisibleShows.filter(
         (show) => getShowVenueKey(show) === selectedEntryLocation,
@@ -1071,8 +1082,9 @@ export default function BookingPage() {
       settings: venueConfig,
     }).closed;
   };
-  const selectedShowIsBookable =
-    isGuestBookableShow(selectedShow) && !isShowPastPublicCutoff(selectedShow);
+  const selectedShowIsBookable = isLockedCalendarCheckout
+    ? isStaffBookableShow(selectedShow)
+    : isGuestBookableShow(selectedShow) && !isShowPastPublicCutoff(selectedShow);
   const hasBookableSeatingOption =
     selectedShowId &&
     selectedShowIsBookable &&
@@ -1538,7 +1550,7 @@ export default function BookingPage() {
 
       try {
         const [nextShows, nextVenueSettings] = await Promise.all([
-          getPublicShows(),
+          getPublicShows({ operational: Boolean(calendarBookingContext) }),
           getPublicVenueSettings(),
         ]);
 
@@ -1546,14 +1558,19 @@ export default function BookingPage() {
           return;
         }
 
-        const nextGuestVisibleShows = nextShows.filter(isGuestVisibleShow);
+        const nextGuestVisibleShows = nextShows.filter(
+          calendarBookingContext ? isStaffBookableShow : isGuestVisibleShow,
+        );
 
         setShows(nextShows);
         setVenueSettings(nextVenueSettings);
         setSelectedShowId((currentShowId) =>
           nextGuestVisibleShows.some(
             (show) =>
-              show.id === currentShowId && isGuestBookableShow(show),
+              show.id === currentShowId &&
+              (calendarBookingContext
+                ? isStaffBookableShow(show)
+                : isGuestBookableShow(show)),
           )
             ? currentShowId
             : "",
@@ -1608,7 +1625,7 @@ export default function BookingPage() {
       );
       window.clearTimeout(hydrationTimer);
     };
-  }, [showLoadRetryToken]);
+  }, [calendarBookingContext, showLoadRetryToken]);
 
   useEffect(() => {
     const mobilePortraitQuery = window.matchMedia(
@@ -1651,7 +1668,7 @@ export default function BookingPage() {
 
     if (
       !lockedShow ||
-      !isGuestBookableShow(lockedShow) ||
+      !isStaffBookableShow(lockedShow) ||
       lockedShow.date !== lockContext.expectedDate ||
       lockedShow.time !== lockContext.expectedTime ||
       lockedLocation !== lockContext.expectedLocation

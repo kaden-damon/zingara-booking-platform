@@ -2,8 +2,15 @@ import {
   normalizeShowLocation,
   type DemoShow,
 } from "@/lib/zingaraDemo";
-import { getServiceClient } from "@/lib/supabase/serverAdmin";
-import { isShowPubliclyVisible } from "@/lib/publicShowSales";
+import {
+  getRolePermissions,
+  getServiceClient,
+  requireActiveStaff,
+} from "@/lib/supabase/serverAdmin";
+import {
+  isShowPubliclyVisible,
+  isShowStaffBookable,
+} from "@/lib/publicShowSales";
 
 export const dynamic = "force-dynamic";
 
@@ -77,8 +84,30 @@ function toPublicShow(row: PublicShowRow): DemoShow {
   };
 }
 
-export async function GET() {
-  const serviceClient = getServiceClient();
+export async function GET(request: Request) {
+  const operationalScope =
+    new URL(request.url).searchParams.get("scope") === "operational";
+  let serviceClient = getServiceClient();
+
+  if (operationalScope) {
+    const auth = await requireActiveStaff(request);
+    if (auth.error || !auth.serviceClient || !auth.staffProfile) {
+      return auth.error ?? Response.json(
+        { error: "Active staff access is required." },
+        { status: 403 },
+      );
+    }
+    const role = Array.isArray(auth.staffProfile.roles)
+      ? auth.staffProfile.roles[0]
+      : auth.staffProfile.roles;
+    if (!getRolePermissions(role).includes("bookings:manage")) {
+      return Response.json(
+        { error: "Booking management access is required." },
+        { status: 403 },
+      );
+    }
+    serviceClient = auth.serviceClient;
+  }
 
   if (!serviceClient) {
     return Response.json(
@@ -105,7 +134,11 @@ export async function GET() {
 
   return Response.json({
     shows: ((data ?? []) as PublicShowRow[])
-      .filter((show) => isShowPubliclyVisible(show.status))
+      .filter((show) =>
+        operationalScope
+          ? isShowStaffBookable(show.status)
+          : isShowPubliclyVisible(show.status),
+      )
       .map(toPublicShow),
   });
 }

@@ -216,10 +216,13 @@ export async function getShows() {
   return (await getShowsWithTables({ metadataOnly: true })).shows;
 }
 
-export async function getPublicShows() {
-  const response = await fetch("/api/shows", {
-    headers: { Accept: "application/json" },
-  });
+export async function getPublicShows(options: { operational?: boolean } = {}) {
+  const response = await fetch(
+    options.operational ? "/api/shows?scope=operational" : "/api/shows",
+    {
+      headers: { Accept: "application/json" },
+    },
+  );
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as {

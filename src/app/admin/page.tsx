@@ -476,6 +476,7 @@ import {
   getSouthAfricaOperationalDate,
   isInternallyManageableShow,
 } from "../../lib/operationsData";
+import { isShowStaffBookable } from "../../lib/publicShowSales";
 import BookingPaginationControls from "./BookingPaginationControls";
 import CorporateBookingOperationsPanel from "./CorporateBookingOperationsPanel";
 
@@ -16623,7 +16624,9 @@ export default function AdminDashboardPage() {
       (show) =>
         show.id === review.showId &&
         !show.archivedAt &&
-        ["active", "sold-out"].includes(show.operationalStatus ?? "active") &&
+        ["active", "sold-out", "special-event"].includes(
+          show.operationalStatus ?? "active",
+        ) &&
         normalizeShowLocation(show.location ?? show.venueName) === review.venue,
     );
     const zone = getZoneById(review.zoneId);
@@ -37753,7 +37756,10 @@ export default function AdminDashboardPage() {
                                       type="button"
                                       aria-label={`Create booking for ${show.label}`}
                                       title="Create booking"
-                                      disabled={isCalendarBookingLocking}
+                                      disabled={
+                                        isCalendarBookingLocking ||
+                                        !isShowStaffBookable(status)
+                                      }
                                       onClick={(event) => {
                                         event.stopPropagation();
                                         void beginCalendarBooking(show);

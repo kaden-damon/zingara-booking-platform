@@ -49,7 +49,9 @@ export default function CorporateConversionModal({
   const venue = initialVenue(request);
   const initialShow = shows.find(
     (show) =>
-      ["active", "sold-out"].includes(show.operationalStatus ?? "active") &&
+      ["active", "sold-out", "special-event"].includes(
+        show.operationalStatus ?? "active",
+      ) &&
       show.date === request.preferredDate &&
       normalizeShowLocation(show.location ?? show.venueName) === venue,
   );
@@ -84,7 +86,9 @@ export default function CorporateConversionModal({
       shows.filter(
         (show) =>
           !show.archivedAt &&
-          ["active", "sold-out"].includes(show.operationalStatus ?? "active") &&
+          ["active", "sold-out", "special-event"].includes(
+            show.operationalStatus ?? "active",
+          ) &&
           normalizeShowLocation(show.location ?? show.venueName) === draft.venue,
       ),
     [draft.venue, shows],

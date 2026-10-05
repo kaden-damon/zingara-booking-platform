@@ -11,9 +11,15 @@ test("public booking loads shows and venue settings from public endpoints", asyn
   const shows = await source("./supabase/shows.ts");
   const settings = await source("./supabase/venueSettings.ts");
 
-  assert.match(page, /getPublicShows\(\)/);
+  assert.match(
+    page,
+    /getPublicShows\(\{ operational: Boolean\(calendarBookingContext\) \}\)/,
+  );
   assert.match(page, /getPublicVenueSettings\(\)/);
-  assert.match(shows, /fetch\("\/api\/shows"/);
+  assert.match(
+    shows,
+    /options\.operational \? "\/api\/shows\?scope=operational" : "\/api\/shows"/,
+  );
   assert.match(settings, /fetch\("\/api\/venue-settings"/);
   assert.doesNotMatch(page, /getShowsWithTables\(\{ metadataOnly: true \}\)/);
 });
@@ -53,7 +59,10 @@ test("calendar loading is independent from optional cookie consent", async () =>
   const loadEnd = page.indexOf("const hydrationTimer", loadStart);
   const loader = page.slice(loadStart, loadEnd);
 
-  assert.match(loader, /getPublicShows\(\)/);
+  assert.match(
+    loader,
+    /getPublicShows\(\{ operational: Boolean\(calendarBookingContext\) \}\)/,
+  );
   assert.doesNotMatch(loader, /hasAnalyticsConsent|hasMarketingConsent|cookie/i);
 });
 
@@ -61,5 +70,8 @@ test("Retry reissues the show inventory request", async () => {
   const page = await source("../app/book/page.tsx");
 
   assert.match(page, /setShowLoadRetryToken\(\(currentToken\) => currentToken \+ 1\)/);
-  assert.match(page, /\}, \[showLoadRetryToken\]\);/);
+  assert.match(
+    page,
+    /\}, \[calendarBookingContext, showLoadRetryToken\]\);/,
+  );
 });
