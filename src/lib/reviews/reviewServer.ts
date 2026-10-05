@@ -3,6 +3,7 @@ import {
   buildVerifiedReviewUrl,
   createReviewToken,
   getReviewEligibilityReason,
+  getReviewGuestType,
   getSafePublicDisplayName,
   getSafePublicDisplayNameFromFullName,
   hashReviewToken,
@@ -124,7 +125,6 @@ export async function getOrCreateVerifiedReviewLink(
       archivedAt: evidence.booking.archived_at,
       bookingReference: evidence.booking.booking_reference,
       bookingStatus: evidence.booking.booking_status,
-      checkedIn: evidence.checkedIn,
       paymentStatus: evidence.booking.payment_status,
       showDate: evidence.show.date,
       showTime: evidence.show.time,
@@ -249,13 +249,16 @@ export async function resolveVerifiedReviewContext(
   }
 
   const evidence = await loadReviewEvidence(supabase, invitation.booking_id);
-  const isVerified = invitation.invitation_type === "automated_verified";
+  const isAutomated = invitation.invitation_type === "automated_verified";
+  const guestType = getReviewGuestType({
+    checkedIn: evidence.checkedIn,
+    invitationType: invitation.invitation_type,
+  });
   const exclusion = getReviewEligibilityReason(
     {
       archivedAt: evidence.booking.archived_at,
       bookingReference: evidence.booking.booking_reference,
       bookingStatus: evidence.booking.booking_status,
-      checkedIn: isVerified ? evidence.checkedIn : true,
       paymentStatus: evidence.booking.payment_status,
       showDate: evidence.show.date,
       showTime: evidence.show.time,
@@ -269,11 +272,11 @@ export async function resolveVerifiedReviewContext(
 
   return {
     expiresAt: invitation.expires_at as string,
-    firstName: isVerified
+    firstName: isAutomated
       ? evidence.customer.first_name?.trim() || "Guest"
       : invitation.recipient_name.trim().split(/\s+/)[0] || "Guest",
-    guestType: isVerified ? "verified" : "invited",
-    publicDisplayName: isVerified
+    guestType,
+    publicDisplayName: isAutomated
       ? getSafePublicDisplayName({
           firstName: evidence.customer.first_name,
           surname: evidence.customer.surname,

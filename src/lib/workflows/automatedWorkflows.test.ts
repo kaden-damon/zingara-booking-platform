@@ -60,7 +60,7 @@ test("workflow dataset pagination fails closed when any page fails", async () =>
   );
 });
 
-test("review recipient evaluation suppresses historical, synthetic and already-reviewed bookings", async () => {
+test("review recipient evaluation suppresses historical, synthetic and already-reviewed bookings without requiring check-in", async () => {
   const source = await readFile(workflowPath, "utf8");
   assert.match(source, /\^\(qa\|test\|demo\)\[-_\]/i);
   assert.match(source, /reviewedBookingIds\.has\(booking\.id\)/);
@@ -68,6 +68,8 @@ test("review recipient evaluation suppresses historical, synthetic and already-r
   assert.match(source, /from\("guest_reviews"\)\.select\("booking_id"\)/);
   assert.match(source, /isReviewPerformanceAfterActivation\(showDateTime, activationDate\)/);
   assert.doesNotMatch(source, /new Date\(checkedInTicket\.updated_at\) < activationDate/);
+  assert.doesNotMatch(source, /increment\(summary\.reasons, "not_checked_in"\)/);
+  assert.doesNotMatch(source, /hasPersistedReviewAttendance/);
 });
 
 test("review workflow remains disabled by default and uses one-day timing", async () => {

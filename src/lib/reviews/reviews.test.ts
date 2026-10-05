@@ -7,6 +7,7 @@ import {
   createReviewToken,
   getPublishedReviewAggregates,
   getReviewEligibilityReason,
+  getReviewGuestType,
   getSafePublicDisplayName,
   getSafePublicDisplayNameFromFullName,
   getVisiblePublicReviews,
@@ -32,6 +33,7 @@ const wixBackendPath = `${root}/docs/wix-reviews/reviews.web.js`;
 const wixFrontendPath = `${root}/docs/wix-reviews/reviews-page.js`;
 const wixPreviewPath = `${root}/src/app/review/wix-preview/page.tsx`;
 const manualMigrationPath = `${root}/supabase/migrations/20261004210000_phase_43_5_manual_review_invitations.sql`;
+const bookingEligibilityMigrationPath = `${root}/supabase/migrations/20261005073000_phase_43_review_eligibility_without_checkin.sql`;
 const manualInvitationRoutePath = `${root}/src/app/api/admin/bookings/review-invitations/route.ts`;
 const workflowAdminRoutePath = `${root}/src/app/api/admin/workflows/route.ts`;
 
@@ -39,7 +41,6 @@ const eligible = {
   archivedAt: null,
   bookingReference: "ZNG-ABC123",
   bookingStatus: "confirmed",
-  checkedIn: true,
   paymentStatus: "fully_paid",
   showDate: "2026-09-20",
   showTime: "17:00:00",
@@ -81,13 +82,9 @@ test("review token envelopes can be reused without storing a plaintext token", (
   assert.equal(openReviewToken(envelope, "wrong-secret"), null);
 });
 
-test("eligible attended bookings pass while future, cancelled and synthetic bookings fail", () => {
+test("legitimate completed bookings do not require check-in while invalid bookings fail", () => {
   const now = new Date("2026-10-01T12:00:00+02:00");
   assert.equal(getReviewEligibilityReason(eligible, now), null);
-  assert.equal(
-    getReviewEligibilityReason({ ...eligible, checkedIn: false }, now),
-    "not_checked_in",
-  );
   assert.equal(
     getReviewEligibilityReason({ ...eligible, bookingStatus: "cancelled" }, now),
     "cancelled",
@@ -99,6 +96,21 @@ test("eligible attended bookings pass while future, cancelled and synthetic book
   assert.equal(
     getReviewEligibilityReason({ ...eligible, bookingReference: "TEST-REVIEW" }, now),
     "synthetic_booking",
+  );
+});
+
+test("automated review classification stays truthful to persisted check-in evidence", () => {
+  assert.equal(
+    getReviewGuestType({ checkedIn: true, invitationType: "automated_verified" }),
+    "verified",
+  );
+  assert.equal(
+    getReviewGuestType({ checkedIn: false, invitationType: "automated_verified" }),
+    "invited",
+  );
+  assert.equal(
+    getReviewGuestType({ checkedIn: true, invitationType: "manual_email" }),
+    "invited",
   );
 });
 
@@ -394,7 +406,20 @@ test("manual invitations extend review grain while automated invitations stay on
   assert.match(route, /bookings:manage/);
   assert.match(route, /hasVenueAccess/);
   assert.match(server, /eq\("invitation_type", "automated_verified"\)/);
-  assert.match(server, /guestType: isVerified \? "verified" : "invited"/);
+  assert.match(server, /getReviewGuestType/);
+});
+
+test("database review submission accepts booking-only invitations and verifies only attended automated guests", async () => {
+  const sql = await readFile(bookingEligibilityMigrationPath, "utf8");
+  assert.match(
+    sql,
+    /v_verified :=[\s\S]*invitation_type = 'automated_verified'[\s\S]*ticket_status::text = 'checked_in'/,
+  );
+  assert.doesNotMatch(
+    sql,
+    /or\s*\(\s*v_verified\s+and\s+not exists/i,
+  );
+  assert.match(sql, /verified_guest[\s\S]*v_verified/);
 });
 
 test("review pages preserve explicit consent, contact choice and mobile layout", async () => {
@@ -417,7 +442,7 @@ test("review pages preserve explicit consent, contact choice and mobile layout",
   assert.match(source, /rounded-full bg-\[#D8C36A\]/);
   assert.match(source, /Guest D\./);
   assert.match(source, /Preview only\. No review was submitted\./);
-  assert.match(server, /publicDisplayName: isVerified[\s\S]*getSafePublicDisplayName/);
+  assert.match(server, /publicDisplayName: isAutomated[\s\S]*getSafePublicDisplayName/);
   assert.match(source, /sm:/);
   assert.doesNotMatch(source, /useState<number>\(5\)/);
   assert.doesNotMatch(source, /context\.firstName\} and my surname initial/);

@@ -302,7 +302,6 @@ export async function loadReviewAnalyticsReport(
         archivedAt: booking.archived_at,
         bookingReference: booking.booking_reference,
         bookingStatus: booking.booking_status,
-        checkedIn: true,
         paymentStatus: booking.payment_status,
         showDate: show.date,
         showTime: show.time,

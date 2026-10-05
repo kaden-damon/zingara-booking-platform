@@ -45,11 +45,5 @@ export function getManualReviewEligibilityReason(input: {
   showDate: string;
   showTime: string;
 }, now = new Date()) {
-  return getReviewEligibilityReason(
-    {
-      ...input,
-      checkedIn: true,
-    },
-    now,
-  );
+  return getReviewEligibilityReason(input, now);
 }

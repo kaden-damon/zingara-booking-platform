@@ -19,7 +19,6 @@ import {
   getOrCreateVerifiedReviewLink,
   getReviewApplicationOrigin,
 } from "@/lib/reviews/reviewServer";
-import { hasPersistedReviewAttendance } from "@/lib/reviews/reviewAnalytics";
 import { getReviewPreviewUrl } from "@/lib/reviews/reviews";
 
 export type AutomatedWorkflowKey = "pre_show_reminder" | "post_show_review";
@@ -112,12 +111,6 @@ export type WorkflowShowTemplateContext = {
 
 type BookingRow = WorkflowBookingTemplateContext;
 type ShowRow = WorkflowShowTemplateContext;
-
-type TicketRow = {
-  booking_id: string;
-  ticket_status: string;
-  updated_at: string | null;
-};
 
 type EligibleWorkflowBooking = {
   attachments?: EmailAttachment[];
@@ -546,7 +539,6 @@ function evaluateWorkflow(
   customers: Map<string, CustomerRow>,
   communications: CommunicationRow[],
   reviewedBookingIds: Set<string>,
-  tickets: TicketRow[],
   now: Date,
 ) {
   const config = configs.get(workflowKey);
@@ -649,17 +641,6 @@ function evaluateWorkflow(
         continue;
       }
 
-      const checkedInTicket = hasPersistedReviewAttendance(
-        booking.id,
-        tickets,
-      );
-
-      if (!checkedInTicket) {
-        summary.excluded += 1;
-        increment(summary.reasons, "not_checked_in");
-        continue;
-      }
-
       if (differenceInDays(now, showDateTime) !== config.timingOffsetDays) {
         summary.excluded += 1;
         increment(summary.reasons, "outside_review_window");
@@ -721,7 +702,6 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
     customerRows,
     communicationRows,
     reviewRows,
-    ticketRows,
   ] = await Promise.all([
     loadWorkflowConfigurations(supabase),
     collectWorkflowRows<BookingRow>((from, to) =>
@@ -754,12 +734,6 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
     collectWorkflowRows<{ booking_id: string }>((from, to) =>
       supabase.from("guest_reviews").select("booking_id").range(from, to),
     ),
-    collectWorkflowRows<TicketRow>((from, to) =>
-      supabase
-        .from("tickets")
-        .select("booking_id,ticket_status,updated_at")
-        .range(from, to),
-    ),
   ]);
 
   return {
@@ -776,7 +750,6 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
       (reviewRows ?? []).map((review) => review.booking_id as string),
     ),
     shows: new Map(showRows.map((show) => [show.id, show])),
-    tickets: ticketRows,
   };
 }
 
@@ -845,7 +818,6 @@ export async function runAutomatedWorkflows(
       dataset.customers,
       dataset.communications,
       dataset.reviewedBookingIds,
-      dataset.tickets,
       now,
     );
 

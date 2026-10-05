@@ -18,7 +18,6 @@ export type ReviewEligibilityInput = {
   archivedAt: string | null;
   bookingReference: string;
   bookingStatus: string;
-  checkedIn: boolean;
   paymentStatus: string;
   showDate: string;
   showTime: string;
@@ -75,6 +74,15 @@ export type PublicReviewsResponse = {
   };
   reviews: PublicReviewPayload[];
 };
+
+export function getReviewGuestType(input: {
+  checkedIn: boolean;
+  invitationType: "automated_verified" | "manual_email" | "manual_link";
+}) {
+  return input.invitationType === "automated_verified" && input.checkedIn
+    ? "verified" as const
+    : "invited" as const;
+}
 
 // guestType is an additive field; retain 1.0 so the installed Wix backend
 // continues accepting the feed without a Wix deployment.
@@ -181,8 +189,6 @@ export function getReviewEligibilityReason(
   if (Number.isNaN(performance.getTime()) || performance >= now) {
     return "show_not_completed";
   }
-  if (!input.checkedIn) return "not_checked_in";
-
   return null;
 }
 
