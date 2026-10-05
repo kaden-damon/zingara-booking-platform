@@ -38,6 +38,13 @@ test("current booking, payment, show and table state are resolved at generation 
   assert.match(workflow, /Payment, seating and booking status are refreshed/);
 });
 
+test("large creator portfolios hydrate related records in bounded batches", () => {
+  assert.match(workflow, /for \(const batch of chunks\(showIds\)\)/);
+  assert.match(workflow, /for \(const batch of chunks\(customerIds\)\)/);
+  assert.match(workflow, /for \(const batch of chunks\(replacementIds\)\)/);
+  assert.match(workflow, /for \(const batch of chunks\(candidateIds\)\)/);
+});
+
 test("moved, cancelled, duplicate and authoritative replacement states are explicit", () => {
   assert.match(workflow, /booking\.show-transfer/);
   assert.match(workflow, /Booking cancelled/);

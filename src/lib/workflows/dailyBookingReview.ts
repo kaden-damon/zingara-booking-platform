@@ -349,15 +349,24 @@ async function loadReports(client: SupabaseClient, now = new Date()): Promise<Re
   }))];
   const candidateIds = candidates.map((booking) => booking.id);
 
-  const [showsResult, customersResult, replacementsResult] = await Promise.all([
-    showIds.length ? client.from("shows").select("id,date,time,venue,name").in("id", showIds) : Promise.resolve({ data: [], error: null }),
-    customerIds.length ? client.from("customers").select("id,first_name,surname").in("id", customerIds) : Promise.resolve({ data: [], error: null }),
-    replacementIds.length ? client.from("bookings").select("id,booking_reference").in("id", replacementIds) : Promise.resolve({ data: [], error: null }),
-  ]);
-  for (const result of [showsResult, customersResult, replacementsResult]) if (result.error) throw result.error;
-  const showMap = new Map((showsResult.data ?? []).map((row) => [row.id, row]));
-  const customerMap = new Map((customersResult.data ?? []).map((row) => [row.id, [row.first_name, row.surname].filter(Boolean).join(" ").trim()]));
-  const referenceMap = new Map((replacementsResult.data ?? []).map((row) => [row.id, row.booking_reference]));
+  const showMap = new Map<string, { date: string; id: string; name: string; time: string; venue: string }>();
+  for (const batch of chunks(showIds)) {
+    const { data, error } = await client.from("shows").select("id,date,time,venue,name").in("id", batch);
+    if (error) throw new Error(`Daily Booking Review shows could not be loaded: ${error.message}`);
+    (data ?? []).forEach((row) => showMap.set(row.id, row));
+  }
+  const customerMap = new Map<string, string>();
+  for (const batch of chunks(customerIds)) {
+    const { data, error } = await client.from("customers").select("id,first_name,surname").in("id", batch);
+    if (error) throw new Error(`Daily Booking Review customers could not be loaded: ${error.message}`);
+    (data ?? []).forEach((row) => customerMap.set(row.id, [row.first_name, row.surname].filter(Boolean).join(" ").trim()));
+  }
+  const referenceMap = new Map<string, string>();
+  for (const batch of chunks(replacementIds)) {
+    const { data, error } = await client.from("bookings").select("id,booking_reference").in("id", batch);
+    if (error) throw new Error(`Daily Booking Review replacements could not be loaded: ${error.message}`);
+    (data ?? []).forEach((row) => referenceMap.set(row.id, row.booking_reference));
+  }
   const tableCodes = new Map<string, string[]>();
   for (const batch of chunks(candidateIds)) {
     if (!batch.length) continue;
