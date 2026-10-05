@@ -128,6 +128,14 @@ function reviewMeta(review: ReviewContext) {
   return `${venueLabel(review.venue)} · ${show}`;
 }
 
+function submittedLabel(value: string) {
+  return new Intl.DateTimeFormat("en-ZA", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone,
+  }).format(new Date(value));
+}
+
 function renderReviewCard(review: ReviewContext) {
   const attention = isReviewAttentionRating(review.rating);
   const excerpt = review.review_text.replace(/\s+/g, " ").trim().slice(0, 360);
@@ -135,8 +143,10 @@ function renderReviewCard(review: ReviewContext) {
     <div style="color:${attention ? "#fbbf24" : "#f2d66c"};font-size:12px;font-weight:700;letter-spacing:1px;">${attention ? "NEEDS ATTENTION · " : ""}${escapeHtml(review.rating)} / 5</div>
     <div style="margin-top:7px;color:#fffaf0;font-size:16px;font-weight:700;">${escapeHtml(review.public_display_name)}</div>
     <div style="margin-top:5px;color:#a8a29e;font-size:12px;">${escapeHtml(reviewMeta(review))} · ${escapeHtml(invitationLabel(review.invitationType))} · ${escapeHtml(statusLabel(review.moderation_status))}</div>
+    <div style="margin-top:5px;color:#a8a29e;font-size:12px;">Submitted ${escapeHtml(submittedLabel(review.submitted_at))} SAST</div>
     <div style="margin-top:12px;color:#e7e5e4;font-size:14px;line-height:1.55;">${escapeHtml(excerpt)}${review.review_text.length > 360 ? "…" : ""}</div>
     ${review.contact_requested ? '<div style="margin-top:10px;color:#fbbf24;font-size:12px;font-weight:700;">Guest requested contact</div>' : ""}
+    <div style="margin-top:12px;"><a href="${escapeHtml(reviewUrl(review))}" style="color:#f2d66c;font-size:12px;font-weight:700;text-decoration:underline;">VIEW REVIEW</a></div>
   </div>`;
 }
 
@@ -153,11 +163,15 @@ async function renderDaily(reviews: ReviewContext[], periodStart: string, period
   const cpt = reviews.filter((review) => review.venue === "cape-town");
   const jhb = reviews.filter((review) => review.venue === "johannesburg");
   const average = calculateReviewRatingAverage(reviews.map((review) => review.rating));
+  const cptAverage = calculateReviewRatingAverage(cpt.map((review) => review.rating));
+  const jhbAverage = calculateReviewRatingAverage(jhb.map((review) => review.rating));
+  const published = reviews.filter((review) => review.moderation_status === "published").length;
+  const awaiting = reviews.filter((review) => review.moderation_status === "needs_review").length;
   const subject = `Daily Review Summary - ${reviews.length} new ${reviews.length === 1 ? "review" : "reviews"}`;
   const url = `${adminOrigin}/admin?section=reviews`;
-  const summary = `Reviews: ${reviews.length}\nAverage rating: ${average?.toFixed(1) ?? "-"}\nNeeds attention: ${attention.length}\nCape Town: ${cpt.length}\nJohannesburg: ${jhb.length}`;
+  const summary = `Reviews: ${reviews.length}\nAverage rating: ${average?.toFixed(1) ?? "-"}\nNeeds attention: ${attention.length}\nPublished: ${published}\nAwaiting review: ${awaiting}\nCape Town: ${cpt.length} · ${cptAverage?.toFixed(1) ?? "-"} average\nJohannesburg: ${jhb.length} · ${jhbAverage?.toFixed(1) ?? "-"} average`;
   const message = `${subject}\n\n${summary}\nReporting period: ${periodStart} to ${periodEnd}\n\n${reviews.map((review) => `${review.rating}/5 · ${review.public_display_name} · ${reviewMeta(review)}\n${review.review_text}`).join("\n\n")}\n\n${url}`;
-  const html = `<div style="margin:0 0 18px;padding:16px;border:1px solid #4f4525;border-radius:12px;background:#0e0c0a;color:#fffaf0;font-size:14px;line-height:1.7;"><strong>${reviews.length}</strong> reviews &nbsp;·&nbsp; <strong>${average?.toFixed(1) ?? "-"}</strong> average &nbsp;·&nbsp; <strong>${attention.length}</strong> need attention<br />Cape Town ${cpt.length} &nbsp;·&nbsp; Johannesburg ${jhb.length}</div>${reviews.slice(0, 20).map(renderReviewCard).join("")}${reviews.length > 20 ? `<p style="color:#a8a29e;font-size:13px;">${reviews.length - 20} more reviews are available in Admin.</p>` : ""}`;
+  const html = `<div style="margin:0 0 18px;padding:16px;border:1px solid #4f4525;border-radius:12px;background:#0e0c0a;color:#fffaf0;font-size:14px;line-height:1.7;"><strong>${reviews.length}</strong> reviews &nbsp;·&nbsp; <strong>${average?.toFixed(1) ?? "-"}</strong> average &nbsp;·&nbsp; <strong>${attention.length}</strong> need attention<br />Published ${published} &nbsp;·&nbsp; Awaiting review ${awaiting}<br />Cape Town ${cpt.length} · ${cptAverage?.toFixed(1) ?? "-"} average<br />Johannesburg ${jhb.length} · ${jhbAverage?.toFixed(1) ?? "-"} average</div>${reviews.slice(0, 20).map(renderReviewCard).join("")}${reviews.length > 20 ? `<p style="color:#a8a29e;font-size:13px;">${reviews.length - 20} more reviews are available in Admin.</p>` : ""}`;
   const branded = await createBrandedCustomerEmail({ ctaLabel: "OPEN REVIEWS", ctaUrl: url, heading: "Daily Review Summary", html, includeAgePolicy: false, message, subject });
   return { ...branded, subject };
 }

@@ -22,6 +22,10 @@ test("daily summary shares the authoritative analytics average", () => {
   assert.equal(calculateReviewRatingAverage([1, 3, 5]), 3);
   assert.equal(calculateReviewRatingAverage([]), null);
   assert.match(workflow, /calculateReviewRatingAverage/);
+  assert.match(workflow, /Published: \$\{published\}/);
+  assert.match(workflow, /Awaiting review: \$\{awaiting\}/);
+  assert.match(workflow, /cptAverage/);
+  assert.match(workflow, /jhbAverage/);
 });
 
 test("submission persistence triggers one retry-safe internal alert without failing the guest response", () => {
@@ -52,6 +56,8 @@ test("both workflows use configured active staff plus the shared Kaden managemen
 test("emails are branded, contain safe Admin links and omit review tokens and booking contact data", () => {
   assert.match(workflow, /createBrandedCustomerEmail/);
   assert.match(workflow, /\/admin\?section=reviews&reviewId=/);
+  assert.match(workflow, /Submitted .*SAST/);
+  assert.match(workflow, />VIEW REVIEW</);
   assert.doesNotMatch(workflow, /review_token|token_hash|customer_email|customer_phone|booking_reference/);
   assert.match(reviewWorkspace, /query\.get\("reviewId"\)/);
 });
