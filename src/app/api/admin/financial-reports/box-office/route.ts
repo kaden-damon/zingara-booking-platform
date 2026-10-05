@@ -4,15 +4,21 @@ import {
   type BoxOfficeAuditRow,
   type BoxOfficeBookingRow,
   type BoxOfficeBookingType,
+  type BoxOfficeLegacyPaymentEvidenceRow,
   type BoxOfficeLocation,
   type BoxOfficePaymentRow,
   type BoxOfficeRefundRow,
 } from "@/lib/boxOfficeFinancialReport";
+import {
+  buildSuccessfulPaymentsWorkbook,
+  successfulPaymentsFilename,
+} from "@/lib/exports/successfulPaymentsWorkbook";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
 import { normalizeShowLocation } from "@/lib/zingaraDemo";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const pageSize = 1000;
 
@@ -61,6 +67,8 @@ export async function GET(request: Request) {
   const requestedShowId = params.get("showId") ?? "all";
   const requestedPaymentStatus = (params.get("paymentStatus") ?? "all")
     .replaceAll("-", "_");
+  const format = params.get("format") === "xlsx" ? "xlsx" : "json";
+  const search = (params.get("search") ?? "").trim().slice(0, 120);
   let range: ReturnType<typeof getSastDateRange>;
   try {
     range = getSastDateRange(from, to);
@@ -95,7 +103,7 @@ export async function GET(request: Request) {
     const [periodBookingRows, paymentRows, auditRows, refundRows, showRows] = await Promise.all([
       loadAllRows<Record<string, unknown>>((fromRow, toRow) => client
         .from("bookings")
-        .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
+        .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,section,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
         .gte("created_at", range.start).lt("created_at", range.endExclusive)
         .order("id").range(fromRow, toRow)),
       loadAllRows<Record<string, unknown>>((fromRow, toRow) => client
@@ -130,20 +138,30 @@ export async function GET(request: Request) {
       const references = linkedReferences.slice(index, index + 100);
       if (ids.length > 0) {
         const { data, error } = await client.from("bookings")
-          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
+          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,section,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
           .in("id", ids);
         if (error) throw error;
         extraRows.push(...((data ?? []) as Record<string, unknown>[]));
       }
       if (references.length > 0) {
         const { data, error } = await client.from("bookings")
-          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
+          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,section,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
           .in("booking_reference", references);
         if (error) throw error;
         extraRows.push(...((data ?? []) as Record<string, unknown>[]));
       }
     }
     const rawBookings = [...new Map([...periodBookingRows, ...extraRows].map((row) => [String(row.id), row])).values()];
+    const legacyEvidenceRows: Record<string, unknown>[] = [];
+    const rawBookingIds = rawBookings.map((row) => String(row.id));
+    for (let index = 0; index < rawBookingIds.length; index += 100) {
+      const { data, error } = await client
+        .from("legacy_booking_payment_evidence")
+        .select("booking_id,source_ticket_amount,ticket_gratuity_amount")
+        .in("booking_id", rawBookingIds.slice(index, index + 100));
+      if (error) throw error;
+      legacyEvidenceRows.push(...((data ?? []) as Record<string, unknown>[]));
+    }
     const bookingIdByReference = new Map(
       rawBookings.map((row) => [String(row.booking_reference), String(row.id)]),
     );
@@ -192,7 +210,7 @@ export async function GET(request: Request) {
         paymentStatus: String(row.payment_status ?? ""),
         corporateRequestId: row.corporate_request_id ? String(row.corporate_request_id) : null, createdAt: String(row.created_at), customerId: String(row.customer_id),
         customerName, discountAmount: number(row.discount_amount), guestCount: number(row.guest_count), id: String(row.id), location,
-        serviceFee: number(row.service_fee), showId: String(row.show_id), subtotalAmount: number(row.subtotal_amount), totalAmount: number(row.total_amount),
+        section: String(row.section ?? ""), serviceFee: number(row.service_fee), showId: String(row.show_id), subtotalAmount: number(row.subtotal_amount), totalAmount: number(row.total_amount),
       }];
     });
     const report = buildBoxOfficeFinancialReport({
@@ -206,9 +224,15 @@ export async function GET(request: Request) {
         from,
         location: effectiveLocation as "all" | BoxOfficeLocation,
         paymentStatus: requestedPaymentStatus,
+        search,
         showId: requestedShowId,
         to,
       },
+      legacyPaymentEvidence: legacyEvidenceRows.map((row): BoxOfficeLegacyPaymentEvidenceRow => ({
+        bookingId: String(row.booking_id),
+        sourceTicketAmount: number(row.source_ticket_amount),
+        ticketGratuityAmount: number(row.ticket_gratuity_amount),
+      })),
       payments: resolvedPaymentRows.map((row): BoxOfficePaymentRow => ({
         amount: number(row.amount), bookingId: String(row.booking_id), createdAt: String(row.created_at), id: String(row.id), method: row.method ? String(row.method) : null,
         paymentStatus: String(row.payment_status), paymentType: String(row.payment_type), processedAt: row.processed_at ? String(row.processed_at) : null,
@@ -220,6 +244,24 @@ export async function GET(request: Request) {
         createdAt: String(row.created_at), id: String(row.id), refundAmount: number(row.refund_amount), refundStatus: String(row.refund_status),
       })),
     });
+    if (format === "xlsx") {
+      const workbook = await buildSuccessfulPaymentsWorkbook(report, {
+        bookingType: requestedType as "all" | BoxOfficeBookingType,
+        from,
+        location: effectiveLocation as "all" | BoxOfficeLocation,
+        paymentStatus: requestedPaymentStatus,
+        search,
+        showId: requestedShowId,
+        to,
+      });
+      return new Response(new Uint8Array(workbook), {
+        headers: {
+          "Cache-Control": "private, no-store",
+          "Content-Disposition": `attachment; filename="${successfulPaymentsFilename({ from, to })}"`,
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
+      });
+    }
     return Response.json({ permittedLocations: [...permittedLocations], report }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("[Zingara Financial Reports] Box Office report failed", error);

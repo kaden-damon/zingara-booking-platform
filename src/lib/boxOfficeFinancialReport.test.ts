@@ -33,6 +33,7 @@ function booking(
     guestCount: 0,
     id: `booking-${index}`,
     location: "johannesburg",
+    section: "Middle Ring",
     serviceFee: 0,
     showId: "show-jhb",
     subtotalAmount: 0,
@@ -341,6 +342,134 @@ test("pending, failed, cancelled holds and unpaid links cannot become receipts",
   assert.equal(report.bookings.some((row) => row.bookingReference === "ZNG-LW7E8B"), false);
 });
 
+test("successful payments are selected by receipt date rather than booking creation date", () => {
+  const fixture = weekendFixture();
+  fixture.filters = { ...fixture.filters, from: "2026-09-02", to: "2026-09-02" };
+  fixture.bookings[0].createdAt = "2026-08-01T08:00:00+02:00";
+  fixture.bookings[0].bookingReference = "DP-OLDER";
+  fixture.bookings[0].bookingOrigin = "data_import";
+  fixture.bookings[0].subtotalAmount = 8_880;
+  fixture.bookings[0].totalAmount = 8_880;
+  fixture.payments = [{
+    ...fixture.payments[0],
+    amount: 5_580,
+    paymentType: "balance",
+    processedAt: "2026-09-02T15:41:52+02:00",
+    providerGrossAmount: 5_590,
+    providerTransactionId: "325745645",
+    transactionFeeAmount: 10,
+  }];
+  fixture.audits = [];
+  const report = buildBoxOfficeFinancialReport(fixture);
+  assert.equal(report.bookings.length, 0);
+  assert.deepEqual(report.successfulPayments.rows[0], {
+    amountPaid: 5_590,
+    bookingFee: 10,
+    bookingReference: "DP-OLDER",
+    customerName: "Guest 1",
+    guestCount: 218,
+    id: "payfast",
+    location: "johannesburg",
+    paymentDate: "2026-09-02T15:41:52+02:00",
+    paymentType: "Balance Payment",
+    providerTransactionId: "325745645",
+    seatingSection: "Middle Ring",
+    showGratuity: 0,
+    ticketSaleAmount: 8_880,
+  });
+});
+
+test("2 September regression includes staff-created deposit and older imported balances", () => {
+  const staff = booking(201, {
+    bookingOrigin: "admin_staff",
+    bookingReference: "ZNG-LAYU3D",
+    bookingSource: "admin",
+    createdAt: "2026-09-02T09:53:59+02:00",
+    guestCount: 2,
+    id: "staff-deposit",
+    subtotalAmount: 2_720,
+    totalAmount: 2_720,
+  });
+  const importedOne = booking(202, {
+    bookingOrigin: "data_import",
+    bookingReference: "DP-XSDGPC",
+    bookingSource: "admin",
+    createdAt: "2026-06-01T17:47:38+02:00",
+    guestCount: 6,
+    id: "imported-balance-one",
+    section: "Private Booths",
+    subtotalAmount: 8_880,
+    totalAmount: 8_880,
+  });
+  const importedTwo = booking(203, {
+    bookingOrigin: "data_import",
+    bookingReference: "DP-NHTCQC",
+    bookingSource: "admin",
+    createdAt: "2026-07-24T11:19:19+02:00",
+    guestCount: 15,
+    id: "imported-balance-two",
+    section: "Private Booths",
+    subtotalAmount: 8_250,
+    totalAmount: 8_250,
+  });
+  const report = buildBoxOfficeFinancialReport({
+    audits: [],
+    bookings: [staff, importedOne, importedTwo],
+    filters: { bookingType: "all", from: "2026-09-02", location: "all", to: "2026-09-02" },
+    payments: [
+      { amount: 1_100, bookingId: staff.id, createdAt: "2026-09-02T20:37:06+02:00", id: "p-staff", method: "payfast", paymentStatus: "deposit_paid", paymentType: "deposit", processedAt: "2026-09-02T20:37:09+02:00", providerGrossAmount: 1_110, providerTransactionId: "325817599", transactionFeeAmount: 10 },
+      { amount: 5_580, bookingId: importedOne.id, createdAt: "2026-09-02T15:41:50+02:00", id: "p-import-one", method: "payfast", paymentStatus: "fully_paid", paymentType: "balance", processedAt: "2026-09-02T15:41:52+02:00", providerGrossAmount: 5_590, providerTransactionId: "325745645", transactionFeeAmount: 10 },
+      { amount: 550, bookingId: importedTwo.id, createdAt: "2026-09-02T14:26:09+02:00", id: "p-import-two", method: "payfast", paymentStatus: "fully_paid", paymentType: "balance", processedAt: "2026-09-02T14:26:12+02:00", providerGrossAmount: 560, providerTransactionId: "325723573", transactionFeeAmount: 10 },
+      { amount: 99, bookingId: staff.id, createdAt: "2026-09-02T21:00:00+02:00", id: "pending-attempt", method: "payfast", paymentStatus: "pending_payment", paymentType: "balance", processedAt: null, providerGrossAmount: 109, providerTransactionId: null, transactionFeeAmount: 10 },
+    ],
+    refunds: [],
+  });
+  assert.deepEqual(
+    report.successfulPayments.rows.map((row) => [row.bookingReference, row.paymentType, row.amountPaid]),
+    [
+      ["DP-NHTCQC", "Balance Payment", 560],
+      ["DP-XSDGPC", "Balance Payment", 5_590],
+      ["ZNG-LAYU3D", "Deposit", 1_110],
+    ],
+  );
+  assert.equal(report.successfulPayments.amountReceived, 7_260);
+});
+
+test("multiple successful payments remain separate and duplicate provider identities count once", () => {
+  const fixture = weekendFixture();
+  fixture.payments = [
+    { ...fixture.payments[0], id: "deposit", paymentType: "deposit", amount: 500, providerGrossAmount: 510, providerTransactionId: "provider-deposit", transactionFeeAmount: 10 },
+    { ...fixture.payments[0], id: "balance", paymentType: "balance", amount: 600, providerGrossAmount: 610, providerTransactionId: "provider-balance", transactionFeeAmount: 10 },
+    { ...fixture.payments[0], id: "duplicate", paymentType: "balance", amount: 600, providerGrossAmount: 610, providerTransactionId: "provider-balance", transactionFeeAmount: 10 },
+    { ...fixture.payments[2], id: "pending", paymentStatus: "pending_payment" },
+  ];
+  fixture.audits = [];
+  const report = buildBoxOfficeFinancialReport(fixture);
+  assert.equal(report.successfulPayments.count, 2);
+  assert.equal(report.successfulPayments.amountReceived, 1_120);
+  assert.deepEqual(report.successfulPayments.rows.map((row) => row.paymentType), ["Deposit", "Balance Payment"]);
+});
+
+test("sale components use authoritative legacy evidence without treating provider fees as booking fees", () => {
+  const fixture = weekendFixture();
+  fixture.payments = [fixture.payments[0]];
+  fixture.audits = [];
+  fixture.legacyPaymentEvidence = [{ bookingId: "booking-1", sourceTicketAmount: 49_280, ticketGratuityAmount: 7_315 }];
+  const row = buildBoxOfficeFinancialReport(fixture).successfulPayments.rows[0];
+  assert.equal(row.ticketSaleAmount, 49_280);
+  assert.equal(row.showGratuity, 7_315);
+  assert.equal(row.bookingFee, 440);
+  assert.equal(row.amountPaid, 179_540);
+});
+
+test("successful-payment search scopes customer and booking reference", () => {
+  const fixture = weekendFixture();
+  fixture.filters = { ...fixture.filters, search: "dp-wyxcpc" };
+  const report = buildBoxOfficeFinancialReport(fixture);
+  assert.equal(report.successfulPayments.rows.length, 1);
+  assert.equal(report.successfulPayments.rows[0].bookingReference, "DP-WYXCPC");
+});
+
 test("last weekend is the immediately preceding Saturday and Sunday", () => {
   assert.deepEqual(getLastWeekend(new Date("2026-09-08T10:00:00+02:00")), {
     from: "2026-09-05",
@@ -359,8 +488,14 @@ test("route is authenticated, scoped, bounded and read-only", async () => {
   assert.match(route, /gte\("created_at", range\.start\)\.lt\("created_at", range\.endExclusive\)/);
   assert.match(route, /eq\("action", "booking\.financial-reconciliation"\)/);
   assert.doesNotMatch(route, /\.insert\(|\.update\(|\.delete\(|\.upsert\(|PayFast|sendCommunication/);
-  assert.match(panel, /sm:grid-cols-2 xl:grid-cols-5/);
+  assert.match(panel, /sm:grid-cols-2 xl:grid-cols-6/);
+  assert.match(panel, /Successful Payments/);
+  assert.match(panel, /Download Excel/);
+  assert.match(route, /buildSuccessfulPaymentsWorkbook/);
+  assert.match(route, /format === "xlsx"/);
   assert.match(panel, /overflow-x-auto/);
   assert.match(panel, /<details/);
-  assert.doesNotMatch(panel, /Export|Download|CSV|XLSX/);
+  assert.match(panel, /getAdminAuthSession/);
+  assert.match(panel, /Authorization: `Bearer/);
+  assert.doesNotMatch(panel, /CSV/);
 });

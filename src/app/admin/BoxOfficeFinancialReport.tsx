@@ -10,11 +10,20 @@ import {
   type BoxOfficeReportFilters,
 } from "@/lib/boxOfficeFinancialReport";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
+import { getAdminAuthSession } from "@/lib/supabase/auth";
 
 function rand(value: number) {
   return new Intl.NumberFormat("en-ZA", {
     currency: "ZAR",
     maximumFractionDigits: 0,
+    style: "currency",
+  }).format(value);
+}
+
+function randExact(value: number) {
+  return new Intl.NumberFormat("en-ZA", {
+    currency: "ZAR",
+    minimumFractionDigits: 2,
     style: "currency",
   }).format(value);
 }
@@ -70,6 +79,7 @@ export default function BoxOfficeFinancialReportPanel({
     bookingType: "all",
     from: initialWeekend.from,
     location: canSelectAll ? "all" : permittedLocations[0] ?? "johannesburg",
+    search: "",
     to: initialWeekend.to,
   });
   const [report, setReport] = useState<BoxOfficeFinancialReport | null>(null);
@@ -91,6 +101,7 @@ export default function BoxOfficeFinancialReportPanel({
         bookingType: filters.bookingType,
         from: filters.from,
         location: filters.location,
+        search: filters.search ?? "",
         to: filters.to,
       });
       const payload = await fetchSupabaseApi<{ report: BoxOfficeFinancialReport }>(
@@ -106,13 +117,53 @@ export default function BoxOfficeFinancialReportPanel({
     }
   }
 
+  async function downloadSuccessfulPayments() {
+    if (loading || !report) return;
+    setLoading(true);
+    setStatus("");
+    try {
+      const auth = await getAdminAuthSession();
+      if (!auth) throw new Error("Your Admin session has expired. Please sign in again.");
+      const query = new URLSearchParams({
+        bookingType: filters.bookingType,
+        format: "xlsx",
+        from: filters.from,
+        location: filters.location,
+        search: filters.search ?? "",
+        to: filters.to,
+      });
+      const response = await fetch(`/api/admin/financial-reports/box-office?${query}`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${auth.session.access_token}` },
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? "The Successful Payments workbook could not be downloaded.");
+      }
+      const blob = await response.blob();
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = `Zingara_Successful_Payments_${filters.from}_to_${filters.to}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+      setStatus("EXCEL DOWNLOADED");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "The workbook could not be downloaded.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <section className="mb-8 rounded-[2rem] border border-[#8D7A2F]/35 bg-black/55 p-4 sm:p-6">
       <div className="border-b border-white/10 pb-5">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">Operations · Financial Reports</p>
-        <h2 className="mt-2 font-serif text-3xl font-bold text-white">Box Office Financial Report</h2>
+        <h2 className="mt-2 font-serif text-3xl font-bold text-white">Successful Payments</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-          Sales created and cash received are reported independently. Reporting boundaries use Africa/Johannesburg.
+          One row per successful payment received in the selected SAST date range. Pending and failed attempts are excluded.
         </p>
       </div>
 
@@ -128,7 +179,7 @@ export default function BoxOfficeFinancialReportPanel({
         ))}
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <label className="text-sm text-zinc-400">From Date
           <input type="date" value={filters.from} onChange={(event) => patchFilters({ from: event.target.value })}
             className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white" />
@@ -151,6 +202,11 @@ export default function BoxOfficeFinancialReportPanel({
             <option value="all">All</option><option value="standard">Standard</option><option value="corporate">Corporate</option>
           </select>
         </label>
+        <label className="text-sm text-zinc-400">Reference / Customer
+          <input type="search" value={filters.search ?? ""} onChange={(event) => patchFilters({ search: event.target.value })}
+            placeholder="Search"
+            className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white" />
+        </label>
         <div className="flex items-end">
           <button type="button" disabled={loading || !filters.from || !filters.to} onClick={() => void generateReport()}
             className="min-h-12 w-full rounded-xl bg-[#D8C36A] px-4 py-3 text-sm font-bold uppercase text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45">
@@ -162,6 +218,44 @@ export default function BoxOfficeFinancialReportPanel({
 
       {report && (
         <div className="mt-6 space-y-5">
+          <div className="rounded-xl border border-[#D8C36A]/35 bg-[#D8C36A]/[0.06] p-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="font-serif text-2xl text-white">Successful Payments</h3>
+                <p className="mt-1 text-sm text-zinc-400">Payment date is the date the successful payment or deposit was received, not the booking creation date.</p>
+              </div>
+              <button type="button" disabled={loading} onClick={() => void downloadSuccessfulPayments()}
+                className="min-h-11 rounded-xl border border-[#D8C36A]/60 px-4 py-2 text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-45">
+                Download Excel
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                ["Successful Payments", report.successfulPayments.count],
+                ["Amount Received", randExact(report.successfulPayments.amountReceived)],
+                ["Refunds", randExact(report.successfulPayments.refunds)],
+                ["Net Receipts", randExact(report.successfulPayments.netReceived)],
+              ].map(([label, value]) => <div key={String(label)} className="border-l-2 border-[#D8C36A] pl-3"><p className="text-xs uppercase text-zinc-500">{label}</p><p className="mt-1 text-lg font-semibold text-white">{value}</p></div>)}
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-white/10">
+            <table className="w-full min-w-[1080px] text-left text-sm"><thead className="bg-[#D8C36A]/10 text-xs uppercase text-[#F2D66C]"><tr>
+              {['Payment Date','Customer Name','Booking Reference','Location','Pax','Ticket Sale Amount','Show Gratuity','Booking Fee','Payment Type','Amount Paid'].map((heading) => <th key={heading} className="px-3 py-3">{heading}</th>)}
+            </tr></thead><tbody className="divide-y divide-white/10">{report.successfulPayments.rows.map((row) => <tr key={row.id}>
+              <td className="px-3 py-3">{new Date(row.paymentDate).toLocaleString("en-ZA", { timeZone: boxOfficeReportTimezone })}</td>
+              <td className="px-3 py-3">{row.customerName}</td>
+              <td className="px-3 py-3 font-mono text-[#F2D66C]">{row.bookingReference}</td>
+              <td className="px-3 py-3">{row.location === "johannesburg" ? "JHB" : "CPT"}</td>
+              <td className="px-3 py-3">{row.guestCount}</td>
+              <td className="px-3 py-3">{randExact(row.ticketSaleAmount)}</td>
+              <td className="px-3 py-3">{randExact(row.showGratuity)}</td>
+              <td className="px-3 py-3">{randExact(row.bookingFee)}</td>
+              <td className="px-3 py-3">{row.paymentType}</td>
+              <td className="px-3 py-3 font-semibold">{randExact(row.amountPaid)}</td>
+            </tr>)}</tbody></table>
+            {report.successfulPayments.rows.length === 0 && <p className="px-4 py-6 text-sm text-zinc-500">No successful payments were received in this date range.</p>}
+            <p className="border-t border-white/10 px-4 py-3 text-xs text-zinc-500">Ticket Sale Amount and Show Gratuity are booking-level sale context and may repeat when a booking has multiple payment events. Amount Paid and Booking Fee belong to the individual payment event. PayFast processing fees are not shown as Zingara Booking Fees.</p>
+          </div>
           {report.reconciliation.warning && (
             <div className="rounded-xl border border-red-400/40 bg-red-950/30 p-4 text-sm text-red-100">
               <strong className="block uppercase">Totals do not match</strong>

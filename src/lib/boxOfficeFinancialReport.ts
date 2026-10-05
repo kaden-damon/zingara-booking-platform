@@ -10,6 +10,7 @@ export type BoxOfficeReportFilters = {
   from: string;
   location: "all" | BoxOfficeLocation;
   paymentStatus?: string;
+  search?: string;
   showId?: string;
   to: string;
 };
@@ -32,6 +33,7 @@ export type BoxOfficeBookingRow = {
   guestCount: number;
   id: string;
   location: BoxOfficeLocation;
+  section: string;
   serviceFee: number;
   showId: string;
   subtotalAmount: number;
@@ -50,6 +52,12 @@ export type BoxOfficePaymentRow = {
   providerGrossAmount: number;
   providerTransactionId: string | null;
   transactionFeeAmount: number;
+};
+
+export type BoxOfficeLegacyPaymentEvidenceRow = {
+  bookingId: string;
+  sourceTicketAmount: number;
+  ticketGratuityAmount: number;
 };
 
 export type BoxOfficeAuditRow = {
@@ -85,10 +93,27 @@ export type BoxOfficeReceipt = {
   id: string;
   location: BoxOfficeLocation;
   method: string;
+  providerTransactionId: string | null;
   requiresReview: boolean;
   reviewReason?: string;
   showId: string;
   transactionFee: number;
+};
+
+export type SuccessfulPaymentRow = {
+  amountPaid: number;
+  bookingFee: number;
+  bookingReference: string;
+  customerName: string;
+  guestCount: number;
+  id: string;
+  location: BoxOfficeLocation;
+  paymentDate: string;
+  paymentType: string;
+  providerTransactionId: string | null;
+  seatingSection: string;
+  showGratuity: number;
+  ticketSaleAmount: number;
 };
 
 type MoneySummary = {
@@ -124,6 +149,14 @@ export type BoxOfficeFinancialReport = {
     bookings: number;
     guests: number;
     outstanding: number;
+  };
+  successfulPayments: {
+    amountReceived: number;
+    bookingFees: number;
+    count: number;
+    netReceived: number;
+    refunds: number;
+    rows: SuccessfulPaymentRow[];
   };
   cash: {
     bookingAppliedReceipts: number;
@@ -245,6 +278,7 @@ function buildAuditEvidence(
           id: `${audit.id}-evidence-${index}`,
           location: booking.location,
           method,
+          providerTransactionId: null,
           requiresReview: method === "Manual / Method Not Recorded",
           reviewReason: method === "Manual / Method Not Recorded"
             ? "Payment received during period but payment method was not persisted."
@@ -280,6 +314,7 @@ function buildAuditEvidence(
       id: `${audit.id}-audit-delta`,
       location: booking.location,
       method,
+      providerTransactionId: null,
       requiresReview: method === "Manual / Method Not Recorded",
       reviewReason: method === "Manual / Method Not Recorded"
         ? "Payment received during period but payment method was not persisted."
@@ -311,6 +346,7 @@ export function buildBoxOfficeFinancialReport(input: {
   bookings: BoxOfficeBookingRow[];
   filters: BoxOfficeReportFilters;
   generatedAt?: string;
+  legacyPaymentEvidence?: BoxOfficeLegacyPaymentEvidenceRow[];
   payments: BoxOfficePaymentRow[];
   refunds: BoxOfficeRefundRow[];
 }): BoxOfficeFinancialReport {
@@ -321,7 +357,11 @@ export function buildBoxOfficeFinancialReport(input: {
     (input.filters.location === "all" || booking.location === input.filters.location) &&
     (input.filters.bookingType === "all" || getBoxOfficeBookingType(booking) === input.filters.bookingType) &&
     (!input.filters.showId || input.filters.showId === "all" || booking.showId === input.filters.showId) &&
-    (!input.filters.paymentStatus || input.filters.paymentStatus === "all" || booking.paymentStatus === input.filters.paymentStatus);
+    (!input.filters.paymentStatus || input.filters.paymentStatus === "all" || booking.paymentStatus === input.filters.paymentStatus) &&
+    (!input.filters.search ||
+      `${booking.bookingReference} ${booking.customerName}`
+        .toLowerCase()
+        .includes(input.filters.search.trim().toLowerCase()));
   const periodBookings = input.bookings.filter(
     (booking) =>
       isWithin(booking.createdAt, start, endExclusive) &&
@@ -396,6 +436,7 @@ export function buildBoxOfficeFinancialReport(input: {
       id: payment.id,
       location: booking.location,
       method,
+      providerTransactionId: payment.providerTransactionId,
       requiresReview: method === "Manual / Method Not Recorded",
       reviewReason: method === "Manual / Method Not Recorded"
         ? "Payment received during period but payment method was not persisted."
@@ -410,10 +451,75 @@ export function buildBoxOfficeFinancialReport(input: {
     const date = refund.completedAt ?? refund.createdAt;
     return refund.refundStatus === "accepted" && Boolean(booking && matchesScope(booking)) && isWithin(date, start, endExclusive);
   });
-  const bookingAppliedReceipts = money(receipts.reduce((sum, receipt) => sum + receipt.amount, 0));
-  const transactionFees = money(receipts.reduce((sum, receipt) => sum + receipt.transactionFee, 0));
-  const grossCashReceived = money(receipts.reduce((sum, receipt) => sum + receipt.grossCash, 0));
   const refundTotal = money(refunds.reduce((sum, refund) => sum + refund.refundAmount, 0));
+  const evidenceByBooking = new Map(
+    (input.legacyPaymentEvidence ?? []).map((row) => [row.bookingId, row]),
+  );
+  const uniqueReceipts = [
+    ...new Map(
+      receipts.map((receipt) => [
+        receipt.providerTransactionId
+          ? `provider:${receipt.providerTransactionId}`
+          : `receipt:${receipt.id}`,
+        receipt,
+      ]),
+    ).values(),
+  ];
+  const bookingAppliedReceipts = money(
+    uniqueReceipts.reduce((sum, receipt) => sum + receipt.amount, 0),
+  );
+  const transactionFees = money(
+    uniqueReceipts.reduce((sum, receipt) => sum + receipt.transactionFee, 0),
+  );
+  const grossCashReceived = money(
+    uniqueReceipts.reduce((sum, receipt) => sum + receipt.grossCash, 0),
+  );
+  const successfulPaymentRows = uniqueReceipts.flatMap((receipt): SuccessfulPaymentRow[] => {
+    const booking = bookingByReference.get(receipt.bookingReference);
+    if (!booking) return [];
+    const evidence = evidenceByBooking.get(booking.id);
+    const showGratuity = money(
+      evidence && evidence.ticketGratuityAmount > 0
+        ? evidence.ticketGratuityAmount
+        : booking.serviceFee,
+    );
+    const embeddedBookingFee =
+      booking.bookingOrigin !== "data_import" &&
+      booking.subtotalAmount - booking.addonsTotal > 0
+        ? includedBookingFeeAmount
+        : 0;
+    const ticketSaleAmount = money(
+      evidence && evidence.sourceTicketAmount > 0
+        ? evidence.sourceTicketAmount
+        : Math.max(
+            booking.bookingOrigin === "data_import"
+              ? booking.totalAmount - showGratuity - booking.addonsTotal
+              : booking.subtotalAmount - booking.addonsTotal - booking.discountAmount - embeddedBookingFee,
+            0,
+          ),
+    );
+    return [{
+      amountPaid: receipt.grossCash,
+      bookingFee: receipt.transactionFee,
+      bookingReference: receipt.bookingReference,
+      customerName: receipt.customerName,
+      guestCount: receipt.guestCount,
+      id: receipt.id,
+      location: receipt.location,
+      paymentDate: receipt.date,
+      paymentType: receipt.classification,
+      providerTransactionId: receipt.providerTransactionId,
+      seatingSection: booking.section || "Not recorded",
+      showGratuity,
+      ticketSaleAmount,
+    }];
+  }).sort((left, right) => left.paymentDate.localeCompare(right.paymentDate));
+  const successfulAmountReceived = money(
+    successfulPaymentRows.reduce((sum, row) => sum + row.amountPaid, 0),
+  );
+  const successfulBookingFees = money(
+    successfulPaymentRows.reduce((sum, row) => sum + row.bookingFee, 0),
+  );
   const sales = {
     amountPaid: money(periodBookings.reduce((sum, booking) => sum + booking.amountPaid, 0)),
     bookingValue: money(periodBookings.reduce((sum, booking) => sum + booking.totalAmount, 0)),
@@ -427,7 +533,7 @@ export function buildBoxOfficeFinancialReport(input: {
   const summarize = (location?: BoxOfficeLocation, type?: BoxOfficeBookingType): MoneySummary => {
     const bookings = periodBookings.filter((booking) =>
       (!location || booking.location === location) && (!type || getBoxOfficeBookingType(booking) === type));
-    const scopedReceipts = receipts.filter((receipt) =>
+    const scopedReceipts = uniqueReceipts.filter((receipt) =>
       (!location || receipt.location === location) && (!type || receipt.bookingType === type));
     const scopedRefunds = refunds.filter((refund) => {
       const booking = bookingById.get(refund.bookingId) ?? bookingByReference.get(refund.bookingReference);
@@ -444,7 +550,7 @@ export function buildBoxOfficeFinancialReport(input: {
       refunds: refundAmount,
     };
   };
-  const detailGross = money(receipts.reduce((sum, receipt) => sum + receipt.amount + receipt.transactionFee, 0));
+  const detailGross = money(uniqueReceipts.reduce((sum, receipt) => sum + receipt.amount + receipt.transactionFee, 0));
   const bookingFees = money(periodBookings.reduce(
     (sum, booking) => sum + (
       booking.subtotalAmount - booking.addonsTotal > 0
@@ -471,15 +577,15 @@ export function buildBoxOfficeFinancialReport(input: {
       johannesburg: summarize("johannesburg"),
       total: summarize(),
     },
-    paymentClassifications: summarizeGroups(receipts, (receipt) => receipt.classification, (receipt) => receipt.amount),
-    paymentMethods: summarizeGroups(receipts, (receipt) => receipt.method, (receipt) => receipt.grossCash),
-    receipts: receipts.sort((left, right) => left.date.localeCompare(right.date)),
+    paymentClassifications: summarizeGroups(uniqueReceipts, (receipt) => receipt.classification, (receipt) => receipt.amount),
+    paymentMethods: summarizeGroups(uniqueReceipts, (receipt) => receipt.method, (receipt) => receipt.grossCash),
+    receipts: uniqueReceipts.sort((left, right) => left.date.localeCompare(right.date)),
     reconciliation: {
       difference: money(grossCashReceived - detailGross),
       warning: Math.abs(grossCashReceived - detailGross) >= 0.01,
     },
     refunds,
-    requiresReview: receipts.filter((receipt) => receipt.requiresReview),
+    requiresReview: uniqueReceipts.filter((receipt) => receipt.requiresReview),
     revenue: {
       addons: money(periodBookings.reduce((sum, booking) => sum + booking.addonsTotal, 0)),
       bookingFees,
@@ -498,6 +604,14 @@ export function buildBoxOfficeFinancialReport(input: {
       )),
     },
     sales,
+    successfulPayments: {
+      amountReceived: successfulAmountReceived,
+      bookingFees: successfulBookingFees,
+      count: successfulPaymentRows.length,
+      netReceived: money(successfulAmountReceived - refundTotal),
+      refunds: refundTotal,
+      rows: successfulPaymentRows,
+    },
   };
 }
 
