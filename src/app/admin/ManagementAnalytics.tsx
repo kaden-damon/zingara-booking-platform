@@ -405,6 +405,8 @@ export default function ManagementAnalytics({
   );
   const maxTrendGuests = Math.max(1, ...demandRows.map((row) => row.guests));
   const update = <Key extends keyof ManagementAnalyticsFilters>(key: Key, value: ManagementAnalyticsFilters[Key]) => setFilters((current) => ({ ...current, [key]: value }));
+  const changeVenue = (value: ManagementAnalyticsFilters["venue"]) =>
+    setFilters((current) => ({ ...current, performanceId: "", venue: value }));
   const quickRange = (range: "today" | "yesterday" | "7" | "30" | "mtd") => {
     const today = dateOffset(0);
     const from = range === "today" ? today : range === "yesterday" ? dateOffset(-1) : range === "7" ? dateOffset(-6) : range === "30" ? dateOffset(-29) : `${today.slice(0, 7)}-01`;
@@ -482,7 +484,7 @@ export default function ManagementAnalytics({
         <h3 id="analytics-filters" className="text-xs font-bold uppercase tracking-[0.18em] text-[#D8C36A]">Filters</h3>
         <div className="mt-3 flex flex-wrap gap-2">{[["Today", "today"], ["Yesterday", "yesterday"], ["Last 7 Days", "7"], ["Last 30 Days", "30"], ["Month To Date", "mtd"]].map(([label, value]) => <button key={value} type="button" onClick={() => quickRange(value as "today" | "yesterday" | "7" | "30" | "mtd")} className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase text-zinc-300 hover:border-[#D8C36A]/60 hover:text-white">{label}</button>)}<button type="button" onClick={() => setFilters(defaultManagementAnalyticsFilters)} className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase text-zinc-500 hover:text-white">Clear</button></div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-          <FilterSelect label="Venue" value={filters.venue} onChange={(value) => setFilters((current) => ({ ...current, performanceId: "", venue: value as ManagementAnalyticsFilters["venue"] }))}><option value="all">All</option><option value="johannesburg">Johannesburg</option><option value="cape-town">Cape Town</option></FilterSelect>
+          <FilterSelect label="Venue" value={filters.venue} onChange={(value) => changeVenue(value as ManagementAnalyticsFilters["venue"])}><option value="all">All venues</option><option value="cape-town">Cape Town</option><option value="johannesburg">Johannesburg</option></FilterSelect>
           <FilterSelect label="Performance" value={filters.performanceId} onChange={(value) => update("performanceId", value)}><option value="">All Performances</option>{performanceOptions.map((show) => <option key={show.id} value={show.id}>{show.date} · {show.venue === "johannesburg" ? "Johannesburg" : "Cape Town"} · {show.time.slice(0, 5)}</option>)}</FilterSelect>
           <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Booking Created From<input type="date" value={filters.bookingCreatedFrom} onChange={(event) => update("bookingCreatedFrom", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
           <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Booking Created To<input type="date" value={filters.bookingCreatedTo} onChange={(event) => update("bookingCreatedTo", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
@@ -529,14 +531,17 @@ export default function ManagementAnalytics({
                 <button key={view} type="button" aria-pressed={performanceView === view} onClick={() => setPerformanceView(view)} className={`min-h-10 flex-1 rounded-md px-4 text-xs font-bold uppercase tracking-[0.1em] transition sm:flex-none ${performanceView === view ? "bg-[#D8C36A] text-black" : "text-zinc-400 hover:text-white"}`}>{view === "management" ? "Management" : "Detailed"}</button>
               ))}
             </div>
-            {performanceView === "management" ? (
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500">Venue<select aria-label="Forward Forecast venue" value={filters.venue} onChange={(event) => changeVenue(event.target.value as ManagementAnalyticsFilters["venue"])} className="mt-1 h-10 w-full rounded-lg border border-white/15 bg-black px-3 text-sm font-medium normal-case tracking-normal text-white sm:ml-2 sm:mt-0 sm:w-auto"><option value="all">All venues</option><option value="cape-town">Cape Town</option><option value="johannesburg">Johannesburg</option></select></label>
+              {performanceView === "management" ? (
+                <>
                 <label className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500">Show scope<select value={forecastScope} onChange={(event) => setForecastScope(event.target.value as ManagementForecastScope)} className="mt-1 h-10 w-full rounded-lg border border-white/15 bg-black px-3 text-sm font-medium normal-case tracking-normal text-white sm:ml-2 sm:mt-0 sm:w-auto"><option value="future">Current & future</option><option value="all">All matching dates</option></select></label>
                 <button type="button" onClick={() => void downloadManagementForecast()} disabled={forecastDownloadState === "downloading"} className="min-h-10 rounded-full bg-[#D8C36A] px-5 text-xs font-bold uppercase tracking-[0.1em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50">{forecastDownloadState === "downloading" ? "Preparing Excel..." : "Download Excel"}</button>
-              </div>
-            ) : (
-              <label className="text-xs uppercase text-zinc-500">Sort by<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="ml-2 rounded-lg border border-white/15 bg-black px-3 py-2 text-white"><option value="date">Date</option><option value="guests">Guests</option><option value="occupancy">Occupancy</option><option value="bookingValue">Booking Value</option></select></label>
-            )}
+                </>
+              ) : (
+                <label className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500">Sort by<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="mt-1 h-10 w-full rounded-lg border border-white/15 bg-black px-3 text-sm font-medium normal-case tracking-normal text-white sm:ml-2 sm:mt-0 sm:w-auto"><option value="date">Date</option><option value="guests">Guests</option><option value="occupancy">Occupancy</option><option value="bookingValue">Booking Value</option></select></label>
+              )}
+            </div>
           </div>
           {forecastDownloadState === "error" ? <p role="alert" className="mt-3 text-sm text-red-200">The Management Forecast workbook could not be downloaded. Check your connection and try again.</p> : null}
           {performanceView === "management" ? (
@@ -549,6 +554,7 @@ export default function ManagementAnalytics({
           ) : (
             <>
               <div className="mt-4 max-h-[32rem] overflow-auto rounded-lg border border-white/10"><table className="min-w-[980px] w-full text-left text-sm"><thead className="sticky top-0 bg-[#17140e] text-xs uppercase text-[#D8C36A]"><tr>{["Date", "Day", "Venue", "Time", "Bookings", "Guests", "Value", "Paid", "Outstanding", "Capacity", "Occupancy"].map((heading) => <th key={heading} className="px-3 py-3">{heading}</th>)}</tr></thead><tbody>{demandRows.map((row) => <tr key={row.id} className="border-t border-white/8"><td className="px-3 py-3 font-semibold">{row.date}</td><td className="px-3 py-3">{row.dayOfWeek}</td><td className="px-3 py-3 capitalize">{row.venue.replace("-", " ")}</td><td className="px-3 py-3">{row.showTime}</td><td className="px-3 py-3">{row.bookings}</td><td className="px-3 py-3">{row.guests}</td><td className="px-3 py-3">{money.format(row.bookingValue)}</td><td className="px-3 py-3">{money.format(row.amountPaid)}</td><td className="px-3 py-3">{money.format(row.outstanding)}</td><td className="px-3 py-3">{row.capacity}</td><td className="px-3 py-3"><span className="font-semibold text-[#F2D66C]">{row.occupancy.toFixed(1)}%</span><span className="ml-2 text-xs text-zinc-500">{row.occupancyLabel}</span></td></tr>)}</tbody></table></div>
+              {demandRows.length === 0 ? <p className="mt-4 rounded-lg border border-white/10 px-4 py-6 text-center text-sm text-zinc-400">No performances match these filters.</p> : null}
               <h4 className="mt-6 text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">Guests / Bookings by Performance Date</h4><div className="mt-4 max-h-80 space-y-3 overflow-y-auto pr-2">{demandRows.filter((row) => row.bookings > 0).map((row) => <div key={`trend-${row.id}`} className="grid grid-cols-[6rem_1fr] items-center gap-3 text-xs sm:grid-cols-[7rem_1fr_auto]"><span className="text-zinc-400">{row.date}</span><div className="h-3 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-[#D8C36A]" style={{ width: `${Math.max(2, row.guests / maxTrendGuests * 100)}%` }} /></div><span className="col-span-2 text-right font-semibold sm:col-span-1 sm:w-24">{row.guests} guests · {row.bookings}</span></div>)}</div>
             </>
           )}

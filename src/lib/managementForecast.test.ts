@@ -145,6 +145,68 @@ test("date and venue filters drive both forecast rows and workbook", async () =>
   assert.match(report.filename, /2026-10-07_to_2026-10-07/);
 });
 
+test("venue filtering uses the canonical show venue for all, CPT and JHB", () => {
+  const data = fixture();
+  const allRows = calculateManagementAnalytics(data, {
+    ...defaultManagementAnalyticsFilters,
+  }).performanceDemand;
+  const capeTownRows = calculateManagementAnalytics(data, {
+    ...defaultManagementAnalyticsFilters,
+    venue: "cape-town",
+  }).performanceDemand;
+  const johannesburgRows = calculateManagementAnalytics(data, {
+    ...defaultManagementAnalyticsFilters,
+    venue: "johannesburg",
+  }).performanceDemand;
+
+  assert.deepEqual(allRows.map((row) => row.venue).sort(), ["cape-town", "johannesburg"]);
+  assert.deepEqual(capeTownRows.map((row) => row.venue), ["cape-town"]);
+  assert.deepEqual(johannesburgRows.map((row) => row.venue), ["johannesburg"]);
+});
+
+test("venue, date and scope combine without changing forecast values", () => {
+  const data = fixture();
+  const unfiltered = calculateManagementAnalytics(
+    data,
+    defaultManagementAnalyticsFilters,
+  ).performanceDemand.find((row) => row.id === "future-jhb");
+  const filtered = selectManagementForecastRows(
+    calculateManagementAnalytics(data, {
+      ...defaultManagementAnalyticsFilters,
+      performanceFrom: "2026-10-07",
+      performanceTo: "2026-10-07",
+      venue: "johannesburg",
+    }).performanceDemand,
+    data.asOf,
+    "future",
+  );
+
+  assert.ok(unfiltered);
+  assert.equal(filtered.length, 1);
+  assert.deepEqual(filtered[0], unfiltered);
+});
+
+test("workbook population matches all, CPT and JHB screen populations", async () => {
+  const data = fixture();
+  for (const venue of ["all", "cape-town", "johannesburg"] as const) {
+    const filters = { ...defaultManagementAnalyticsFilters, venue };
+    const screenRows = selectManagementForecastRows(
+      calculateManagementAnalytics(data, filters).performanceDemand,
+      data.asOf,
+      "all",
+    );
+    const report = await buildManagementForecastWorkbook(data, filters, "all");
+
+    assert.deepEqual(
+      report.rows.map((row) => row.id),
+      screenRows.map((row) => row.id),
+    );
+    assert.ok(
+      report.rows.every((row) => venue === "all" || row.venue === venue),
+    );
+  }
+});
+
 test("management forecast remains self-service and permission protected", async () => {
   const component = await readFile(
     new URL("../app/admin/ManagementAnalytics.tsx", import.meta.url),
@@ -158,6 +220,9 @@ test("management forecast remains self-service and permission protected", async 
   assert.match(component, /Management/);
   assert.match(component, /Detailed/);
   assert.match(component, /Download Excel/);
+  assert.match(component, /Forward Forecast venue/);
+  assert.match(component, /All venues/);
+  assert.match(component, /No performances match these filters\./);
   assert.match(component, /filtersToSearchParams\(filters\)/);
   assert.match(component, /selectManagementForecastRows/);
   assert.match(route, /requireActiveStaff\(request\)/);
