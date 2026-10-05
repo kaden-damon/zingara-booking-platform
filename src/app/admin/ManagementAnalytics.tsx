@@ -5,8 +5,12 @@ import {
   analyticsTimezone,
   calculateManagementAnalytics,
   defaultManagementAnalyticsFilters,
+  filtersToSearchParams,
+  getManagementForecastAttention,
+  selectManagementForecastRows,
   type ManagementAnalyticsDataset,
   type ManagementAnalyticsFilters,
+  type ManagementForecastScope,
   weekdayNames,
 } from "@/lib/managementAnalytics";
 import { dailyAnalyticsSeriesStart } from "@/lib/dailyAnalytics";
@@ -70,6 +74,19 @@ function dateOffset(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return dateKey(date);
+}
+
+function forecastDate(value: string) {
+  return new Date(`${value}T12:00:00+02:00`).toLocaleDateString("en-ZA", {
+    day: "2-digit",
+    month: "short",
+    timeZone: analyticsTimezone,
+    year: "numeric",
+  });
+}
+
+function forecastVenue(venue: "cape-town" | "johannesburg") {
+  return venue === "cape-town" ? "CPT" : "JHB";
 }
 
 function completedDailyReportDates() {
@@ -309,6 +326,11 @@ export default function ManagementAnalytics({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<"date" | "guests" | "occupancy" | "bookingValue">("date");
+  const [performanceView, setPerformanceView] = useState<"detailed" | "management">("management");
+  const [forecastScope, setForecastScope] = useState<ManagementForecastScope>("future");
+  const [forecastDownloadState, setForecastDownloadState] = useState<
+    "idle" | "downloading" | "error"
+  >("idle");
   const [openSections, setOpenSections] = useState<AnalyticsSectionId[]>([
     "booking-activity",
     "performance-demand",
@@ -370,6 +392,17 @@ export default function ManagementAnalytics({
       ? `${left.date}${left.showTime}`.localeCompare(`${right.date}${right.showTime}`)
       : right[sort] - left[sort]);
   }, [analytics, sort]);
+  const forecastRows = useMemo(
+    () =>
+      analytics
+        ? selectManagementForecastRows(
+            analytics.performanceDemand,
+            dataset?.asOf ?? new Date().toISOString(),
+            forecastScope,
+          )
+        : [],
+    [analytics, dataset?.asOf, forecastScope],
+  );
   const maxTrendGuests = Math.max(1, ...demandRows.map((row) => row.guests));
   const update = <Key extends keyof ManagementAnalyticsFilters>(key: Key, value: ManagementAnalyticsFilters[Key]) => setFilters((current) => ({ ...current, [key]: value }));
   const quickRange = (range: "today" | "yesterday" | "7" | "30" | "mtd") => {
@@ -384,6 +417,49 @@ export default function ManagementAnalytics({
       : [...current, sectionId],
   );
   const sectionProps = (id: AnalyticsSectionId) => ({ id, isOpen: openSections.includes(id), onToggle: toggleSection });
+
+  async function downloadManagementForecast() {
+    setForecastDownloadState("downloading");
+    try {
+      const auth = await getAdminAuthSession();
+      if (!auth) throw new Error("Your Admin session has expired. Please sign in again.");
+      const params = filtersToSearchParams(filters);
+      params.set("view", "management-forecast");
+      params.set("scope", forecastScope);
+      const response = await fetch(
+        `/api/admin/analytics/management/export?${params.toString()}`,
+        {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${auth.session.access_token}` },
+        },
+      );
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(
+          payload.error ?? "The Management Forecast workbook could not be downloaded.",
+        );
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const filename =
+        disposition.match(/filename="([^"]+)"/)?.[1] ??
+        "Zingara_Management_Forecast.xlsx";
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+      setForecastDownloadState("idle");
+    } catch (downloadError) {
+      console.error("[Zingara Analytics] Management Forecast download failed", downloadError);
+      setForecastDownloadState("error");
+    }
+  }
 
   if (loading) return <section className="mb-8 border-y border-[#D8C36A]/25 py-12 text-center text-zinc-400" aria-busy="true">Loading Management Analytics...</section>;
   if (error || !dataset || !analytics) return <section className="mb-8 border-y border-red-300/25 py-10 text-center"><p className="text-red-200">{error || "Management analytics could not be loaded."}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-full border border-white/20 px-5 py-2 text-sm font-semibold">Retry</button></section>;
@@ -446,10 +522,36 @@ export default function ManagementAnalytics({
           <div className="grid grid-cols-2 gap-y-3 md:grid-cols-3 xl:grid-cols-6"><Metric label="Bookings" value={integer.format(core.bookings)} emphasis /><Metric label="Guests" value={integer.format(core.guests)} emphasis /><Metric label="Booking Value" value={money.format(core.bookingValue)} emphasis /><Metric label="Amount Paid" value={money.format(core.amountPaid)} /><Metric label="Outstanding" value={money.format(core.outstanding)} /><Metric label="Average Booking" value={money.format(core.averageBookingValue)} /><Metric label="Average Party" value={core.averagePartySize.toFixed(2)} /><Metric label="Confirmed" value={integer.format(core.confirmed)} /><Metric label="Pending Payment" value={integer.format(core.pendingPayment)} /><Metric label="Cancelled" value={integer.format(core.cancelled)} /><Metric label="Deposits" value={integer.format(analytics.payments.deposits)} /><Metric label="Full Payments" value={integer.format(analytics.payments.fullPayments)} /><Metric label="Complimentary" value={integer.format(core.complimentaryBookings)} /><Metric label="Corporate" value={integer.format(core.corporateBookings)} /><Metric label="New Customers" value={integer.format(core.newCustomers)} /><Metric label="Returning" value={integer.format(core.returningCustomers)} /></div>
         </AnalyticsSection>
 
-        <AnalyticsSection {...sectionProps("performance-demand")} title="Performance Demand" description="Actual show-date demand, including legitimate active imported bookings.">
-          <div className="flex justify-end"><label className="text-xs uppercase text-zinc-500">Sort by<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="ml-2 rounded-lg border border-white/15 bg-black px-3 py-2 text-white"><option value="date">Date</option><option value="guests">Guests</option><option value="occupancy">Occupancy</option><option value="bookingValue">Booking Value</option></select></label></div>
-          <div className="mt-4 max-h-[32rem] overflow-auto rounded-lg border border-white/10"><table className="min-w-[980px] w-full text-left text-sm"><thead className="sticky top-0 bg-[#17140e] text-xs uppercase text-[#D8C36A]"><tr>{["Date", "Day", "Venue", "Time", "Bookings", "Guests", "Value", "Paid", "Outstanding", "Capacity", "Occupancy"].map((heading) => <th key={heading} className="px-3 py-3">{heading}</th>)}</tr></thead><tbody>{demandRows.map((row) => <tr key={row.id} className="border-t border-white/8"><td className="px-3 py-3 font-semibold">{row.date}</td><td className="px-3 py-3">{row.dayOfWeek}</td><td className="px-3 py-3 capitalize">{row.venue.replace("-", " ")}</td><td className="px-3 py-3">{row.showTime}</td><td className="px-3 py-3">{row.bookings}</td><td className="px-3 py-3">{row.guests}</td><td className="px-3 py-3">{money.format(row.bookingValue)}</td><td className="px-3 py-3">{money.format(row.amountPaid)}</td><td className="px-3 py-3">{money.format(row.outstanding)}</td><td className="px-3 py-3">{row.capacity}</td><td className="px-3 py-3"><span className="font-semibold text-[#F2D66C]">{row.occupancy.toFixed(1)}%</span><span className="ml-2 text-xs text-zinc-500">{row.occupancyLabel}</span></td></tr>)}</tbody></table></div>
-          <h4 className="mt-6 text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">Guests / Bookings by Performance Date</h4><div className="mt-4 max-h-80 space-y-3 overflow-y-auto pr-2">{demandRows.filter((row) => row.bookings > 0).map((row) => <div key={`trend-${row.id}`} className="grid grid-cols-[6rem_1fr] items-center gap-3 text-xs sm:grid-cols-[7rem_1fr_auto]"><span className="text-zinc-400">{row.date}</span><div className="h-3 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-[#D8C36A]" style={{ width: `${Math.max(2, row.guests / maxTrendGuests * 100)}%` }} /></div><span className="col-span-2 text-right font-semibold sm:col-span-1 sm:w-24">{row.guests} guests · {row.bookings}</span></div>)}</div>
+        <AnalyticsSection {...sectionProps("performance-demand")} title="Forward Forecast" description="Current performance demand from the existing authoritative Management Analytics dataset.">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="inline-flex w-full rounded-lg border border-white/15 bg-black p-1 sm:w-auto" aria-label="Forecast view">
+              {(["management", "detailed"] as const).map((view) => (
+                <button key={view} type="button" aria-pressed={performanceView === view} onClick={() => setPerformanceView(view)} className={`min-h-10 flex-1 rounded-md px-4 text-xs font-bold uppercase tracking-[0.1em] transition sm:flex-none ${performanceView === view ? "bg-[#D8C36A] text-black" : "text-zinc-400 hover:text-white"}`}>{view === "management" ? "Management" : "Detailed"}</button>
+              ))}
+            </div>
+            {performanceView === "management" ? (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <label className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500">Show scope<select value={forecastScope} onChange={(event) => setForecastScope(event.target.value as ManagementForecastScope)} className="mt-1 h-10 w-full rounded-lg border border-white/15 bg-black px-3 text-sm font-medium normal-case tracking-normal text-white sm:ml-2 sm:mt-0 sm:w-auto"><option value="future">Current & future</option><option value="all">All matching dates</option></select></label>
+                <button type="button" onClick={() => void downloadManagementForecast()} disabled={forecastDownloadState === "downloading"} className="min-h-10 rounded-full bg-[#D8C36A] px-5 text-xs font-bold uppercase tracking-[0.1em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50">{forecastDownloadState === "downloading" ? "Preparing Excel..." : "Download Excel"}</button>
+              </div>
+            ) : (
+              <label className="text-xs uppercase text-zinc-500">Sort by<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="ml-2 rounded-lg border border-white/15 bg-black px-3 py-2 text-white"><option value="date">Date</option><option value="guests">Guests</option><option value="occupancy">Occupancy</option><option value="bookingValue">Booking Value</option></select></label>
+            )}
+          </div>
+          {forecastDownloadState === "error" ? <p role="alert" className="mt-3 text-sm text-red-200">The Management Forecast workbook could not be downloaded. Check your connection and try again.</p> : null}
+          {performanceView === "management" ? (
+            <>
+              <p className="mt-3 text-xs text-zinc-500">Confirmed, Deposit-paid, Fully-paid and Complimentary are booking counts. Attention marks only performances where guests booked exceed approved capacity.</p>
+              <div className="mt-4 hidden max-h-[32rem] overflow-auto rounded-lg border border-white/10 xl:block"><table className="min-w-[1120px] w-full text-left text-sm"><thead className="sticky top-0 bg-[#17140e] text-xs uppercase text-[#D8C36A]"><tr>{["Date", "Venue", "Guests Booked", "Occupancy %", "Amount Paid", "Confirmed", "Deposit-Paid", "Fully-Paid", "Complimentary", "Attention"].map((heading) => <th key={heading} className="px-3 py-3">{heading}</th>)}</tr></thead><tbody>{forecastRows.map((row) => { const attention = getManagementForecastAttention(row); return <tr key={row.id} className="border-t border-white/8"><td className="px-3 py-3 font-semibold">{forecastDate(row.date)}</td><td className="px-3 py-3">{forecastVenue(row.venue)}</td><td className="px-3 py-3">{row.guests}</td><td className="px-3 py-3 font-semibold text-[#F2D66C]">{row.occupancy.toFixed(1)}%</td><td className="px-3 py-3">{money.format(row.amountPaid)}</td><td className="px-3 py-3">{row.confirmed}</td><td className="px-3 py-3">{row.depositPaid}</td><td className="px-3 py-3">{row.fullyPaid}</td><td className="px-3 py-3">{row.complimentary}</td><td className={`px-3 py-3 ${attention ? "font-semibold text-amber-200" : "text-zinc-600"}`}>{attention || "—"}</td></tr>; })}</tbody></table></div>
+              <div className="mt-4 grid gap-3 xl:hidden">{forecastRows.map((row) => { const attention = getManagementForecastAttention(row); return <article key={row.id} className="rounded-lg border border-white/10 bg-black/25 p-4"><div className="flex items-start justify-between gap-4"><div><p className="font-semibold text-white">{forecastDate(row.date)}</p><p className="mt-1 text-sm text-zinc-400">{forecastVenue(row.venue)} · {row.guests} guests booked</p></div><p className="shrink-0 font-semibold text-[#F2D66C]">{row.occupancy.toFixed(1)}%</p></div><dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3"><div><dt className="text-xs uppercase text-zinc-500">Amount Paid</dt><dd className="mt-1 font-semibold">{money.format(row.amountPaid)}</dd></div><div><dt className="text-xs uppercase text-zinc-500">Confirmed</dt><dd className="mt-1">{row.confirmed}</dd></div><div><dt className="text-xs uppercase text-zinc-500">Deposit-Paid</dt><dd className="mt-1">{row.depositPaid}</dd></div><div><dt className="text-xs uppercase text-zinc-500">Fully-Paid</dt><dd className="mt-1">{row.fullyPaid}</dd></div><div><dt className="text-xs uppercase text-zinc-500">Complimentary</dt><dd className="mt-1">{row.complimentary}</dd></div><div><dt className="text-xs uppercase text-zinc-500">Attention</dt><dd className={`mt-1 ${attention ? "font-semibold text-amber-200" : "text-zinc-500"}`}>{attention || "—"}</dd></div></dl></article>; })}</div>
+              {forecastRows.length === 0 ? <p className="mt-4 rounded-lg border border-white/10 px-4 py-6 text-center text-sm text-zinc-400">No performances match the selected filters.</p> : null}
+            </>
+          ) : (
+            <>
+              <div className="mt-4 max-h-[32rem] overflow-auto rounded-lg border border-white/10"><table className="min-w-[980px] w-full text-left text-sm"><thead className="sticky top-0 bg-[#17140e] text-xs uppercase text-[#D8C36A]"><tr>{["Date", "Day", "Venue", "Time", "Bookings", "Guests", "Value", "Paid", "Outstanding", "Capacity", "Occupancy"].map((heading) => <th key={heading} className="px-3 py-3">{heading}</th>)}</tr></thead><tbody>{demandRows.map((row) => <tr key={row.id} className="border-t border-white/8"><td className="px-3 py-3 font-semibold">{row.date}</td><td className="px-3 py-3">{row.dayOfWeek}</td><td className="px-3 py-3 capitalize">{row.venue.replace("-", " ")}</td><td className="px-3 py-3">{row.showTime}</td><td className="px-3 py-3">{row.bookings}</td><td className="px-3 py-3">{row.guests}</td><td className="px-3 py-3">{money.format(row.bookingValue)}</td><td className="px-3 py-3">{money.format(row.amountPaid)}</td><td className="px-3 py-3">{money.format(row.outstanding)}</td><td className="px-3 py-3">{row.capacity}</td><td className="px-3 py-3"><span className="font-semibold text-[#F2D66C]">{row.occupancy.toFixed(1)}%</span><span className="ml-2 text-xs text-zinc-500">{row.occupancyLabel}</span></td></tr>)}</tbody></table></div>
+              <h4 className="mt-6 text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">Guests / Bookings by Performance Date</h4><div className="mt-4 max-h-80 space-y-3 overflow-y-auto pr-2">{demandRows.filter((row) => row.bookings > 0).map((row) => <div key={`trend-${row.id}`} className="grid grid-cols-[6rem_1fr] items-center gap-3 text-xs sm:grid-cols-[7rem_1fr_auto]"><span className="text-zinc-400">{row.date}</span><div className="h-3 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-[#D8C36A]" style={{ width: `${Math.max(2, row.guests / maxTrendGuests * 100)}%` }} /></div><span className="col-span-2 text-right font-semibold sm:col-span-1 sm:w-24">{row.guests} guests · {row.bookings}</span></div>)}</div>
+            </>
+          )}
         </AnalyticsSection>
 
         <AnalyticsSection {...sectionProps("day-of-week")} title="Day of Week Performance" description="Tuesday remains visible as its own management planning category.">

@@ -79,6 +79,8 @@ export type ManagementAnalyticsFilters = {
   venue: "all" | AnalyticsVenue;
 };
 
+export type ManagementForecastScope = "all" | "future";
+
 export const defaultManagementAnalyticsFilters: ManagementAnalyticsFilters = {
   bookingCreatedFrom: "",
   bookingCreatedTo: "",
@@ -112,6 +114,7 @@ const activeBookingStatuses = new Set([
   "pending_payment",
 ]);
 const successfulPaymentStatuses = new Set(["fully_paid", "deposit_paid"]);
+const forecastShowStatuses = new Set(["active", "sold_out", "special_event"]);
 
 export function getJohannesburgDateKey(value: string | Date) {
   const date = typeof value === "string" ? new Date(value) : value;
@@ -357,8 +360,20 @@ export function calculateManagementAnalytics(
       return {
         ...summary,
         capacity,
+        complimentary: bookings.filter(
+          (booking) => booking.paymentStatus === "comp_vip",
+        ).length,
+        confirmed: bookings.filter(
+          (booking) => booking.bookingStatus === "confirmed",
+        ).length,
         date: show.date,
         dayOfWeek: weekdayNames[getShowWeekday(show.date)],
+        depositPaid: bookings.filter(
+          (booking) => booking.paymentStatus === "deposit_paid",
+        ).length,
+        fullyPaid: bookings.filter(
+          (booking) => booking.paymentStatus === "fully_paid",
+        ).length,
         id: show.id,
         occupancy,
         occupancyLabel: occupancyLabel(occupancy),
@@ -673,6 +688,27 @@ export function calculateManagementAnalytics(
     seatingDemand,
     sourceAnalysis,
   };
+}
+
+export function selectManagementForecastRows(
+  rows: ReturnType<typeof calculateManagementAnalytics>["performanceDemand"],
+  asOf: string,
+  scope: ManagementForecastScope = "future",
+) {
+  const today = getJohannesburgDateKey(asOf);
+
+  return rows.filter(
+    (row) =>
+      forecastShowStatuses.has(row.status) &&
+      (scope === "all" || row.date >= today),
+  );
+}
+
+export function getManagementForecastAttention(row: {
+  capacity: number;
+  guests: number;
+}) {
+  return row.guests > row.capacity ? "Capacity issue" : "";
 }
 
 export function filtersFromSearchParams(searchParams: URLSearchParams) {
