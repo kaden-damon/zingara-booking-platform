@@ -143,6 +143,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
       content: (
         <div className="space-y-4 text-sm leading-6 text-zinc-300">
           <p>Check Communication History before sending a ticket, message, payment link, or review invitation.</p>
+          <p><strong className="text-white">Daily Booking Review:</strong> every morning, eligible staff receive the current payment, table and booking state for the bookings they created. Moved, cancelled or replaced bookings show their latest disposition.</p>
           <Note>Review Communication History before resending something unnecessarily.</Note>
         </div>
       ),

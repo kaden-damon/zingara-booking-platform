@@ -26,6 +26,7 @@ import DineplanReconciliation from "./DineplanReconciliation";
 import ShowZoneSalesControls from "./ShowZoneSalesControls";
 import { StaffActionGuidanceAlert } from "./StaffActionGuidanceAlert";
 import { StaffOnboardingTour } from "./StaffOnboardingTour";
+import { DailyBookingReviewWorkflowCard } from "./DailyBookingReviewWorkflowCard";
 import { StaffIssueAttachments } from "./StaffIssueAttachments";
 import { StaffIssueMediaPicker } from "./StaffIssueMediaPicker";
 import ZingaraDatePicker from "./ZingaraDatePicker";
@@ -1986,6 +1987,26 @@ const gettingStartedLessons: AcademyArticle[] = [
     ],
     title: "Navigating the Platform",
     whenToUse: "Use this when learning the Admin layout or when you are unsure where to complete a task.",
+  },
+  {
+    category: "Recent Changes",
+    commonMistakes: ["Searching only for an old reference after a booking was moved or replaced.", "Assuming the report changes a booking."],
+    difficulty: "beginner",
+    howTo: [
+      "Review your Daily Booking Review each morning.",
+      "Start with Needs Attention for payment, table, move, cancellation or replacement updates.",
+      "Open the booking reference to review the current Booking Details record.",
+      "Use the current reference where a confirmed replacement is shown.",
+    ],
+    id: "daily-booking-review",
+    keywords: ["daily booking review", "created bookings", "moved", "cancelled", "replaced", "table needed"],
+    moduleId: "recent-changes",
+    purpose: "Review the current state of bookings you originally created.",
+    relatedActions: ["communications", "bookings"],
+    related: ["Bookings Overview", "Communications Overview"],
+    tips: ["The report is read-only and uses the latest booking, payment and table state.", "Empty reports are skipped."],
+    title: "Daily Booking Review",
+    whenToUse: "Use this each morning to spot a booking that needs follow-up.",
   },
   {
     category: "Recent Changes",
@@ -7092,7 +7113,7 @@ const academyArticles: AcademyArticle[] = [
     purpose: "Find the current reconciliation, review, reporting, and communication tools.",
     relatedActions: ["communications", "bookings"],
     related: ["Communications Overview", "Analytics and Reporting Overview"],
-    tips: ["Automatic review requests use attendance evidence and the configured workflow.", "Published reviews remain controlled from Zingara."],
+    tips: ["Automatic review requests use the configured eligibility and workflow safeguards.", "Published reviews remain controlled from Zingara."],
     title: "Reviews, Reports and Communications",
     whenToUse: "Use this when reconciling shows, inviting reviews, moderating feedback, or reviewing reports.",
   },
@@ -40474,6 +40495,8 @@ export default function AdminDashboardPage() {
                 })}
               </div>
             </div>
+
+            <DailyBookingReviewWorkflowCard isSuperAdmin={isSuperAdmin} />
 
             {workflowStatusConfirmation && (
               <div className="mb-5 rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-5 shadow-2xl shadow-black/40">

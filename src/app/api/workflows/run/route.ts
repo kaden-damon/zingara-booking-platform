@@ -5,6 +5,7 @@ import {
   type AutomatedWorkflowKey,
 } from "@/lib/workflows/automatedWorkflows";
 import { runCorporatePaymentHolds } from "@/lib/workflows/corporatePaymentHolds";
+import { runDailyBookingReview } from "@/lib/workflows/dailyBookingReview";
 import { runDineplanScheduledEmails } from "@/lib/workflows/dineplanScheduledEmails";
 import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
 
@@ -72,6 +73,13 @@ export async function GET(request: Request) {
       workflowKey,
     });
     const corporatePaymentHolds = await runCorporatePaymentHolds(serviceClient);
+    let dailyBookingReview: Awaited<ReturnType<typeof runDailyBookingReview>> | { reason: "failed"; sent: 0; skipped: 0 };
+    try {
+      dailyBookingReview = await runDailyBookingReview(serviceClient);
+    } catch (dailyReviewError) {
+      console.error("[Zingara Workflows] Daily Booking Review failed", dailyReviewError);
+      dailyBookingReview = { reason: "failed", sent: 0, skipped: 0 };
+    }
     const publicPaymentHolds = await runPublicPaymentHoldCleanup(serviceClient);
     let dineplanScheduledEmails: Awaited<ReturnType<typeof runDineplanScheduledEmails>> | { delivered: 0; reason: "failed" };
     try {
@@ -99,6 +107,7 @@ export async function GET(request: Request) {
     return Response.json({
       ...result,
       corporatePaymentHolds,
+      dailyBookingReview,
       dineplanScheduledEmails,
       publicPaymentHolds,
       telemetryCleanup,
