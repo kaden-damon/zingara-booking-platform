@@ -11,6 +11,7 @@ import {
 } from "@/lib/boxOfficeFinancialReport";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 import { getAdminAuthSession } from "@/lib/supabase/auth";
+import ZingaraDatePicker from "./ZingaraDatePicker";
 
 function rand(value: number) {
   return new Intl.NumberFormat("en-ZA", {
@@ -180,14 +181,12 @@ export default function BoxOfficeFinancialReportPanel({
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <label className="text-sm text-zinc-400">From Date
-          <input type="date" value={filters.from} onChange={(event) => patchFilters({ from: event.target.value })}
-            className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white" />
-        </label>
-        <label className="text-sm text-zinc-400">To Date
-          <input type="date" value={filters.to} onChange={(event) => patchFilters({ to: event.target.value })}
-            className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white" />
-        </label>
+        <div className="text-sm text-zinc-400">From Date
+          <span className="mt-2 block"><ZingaraDatePicker label="Successful Payments from date" placeholder="Select start date" value={filters.from} onChange={(value) => patchFilters({ from: value })} /></span>
+        </div>
+        <div className="text-sm text-zinc-400">To Date
+          <span className="mt-2 block"><ZingaraDatePicker label="Successful Payments to date" placeholder="Select end date" value={filters.to} onChange={(value) => patchFilters({ to: value })} /></span>
+        </div>
         <label className="text-sm text-zinc-400">Location
           <select value={filters.location} onChange={(event) => patchFilters({ location: event.target.value as BoxOfficeReportFilters["location"] })}
             className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white">

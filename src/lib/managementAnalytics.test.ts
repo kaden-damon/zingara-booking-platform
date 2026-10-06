@@ -169,6 +169,7 @@ test("Management Analytics collapses presentation without changing shared select
   assert.match(component, /AnalyticsSection/);
   assert.match(component, /useState<AnalyticsSectionId\[]>\(\[\]\)/);
   assert.match(component, /sectionProps\("sales-performance"\)/);
+  assert.match(component, /sectionProps\("filters"\)/);
   assert.match(component, /aria-expanded=\{isOpen\}/);
   assert.match(component, /\{isOpen \? <div id=\{contentId\}/);
   assert.match(component, /params\.get\("report"\) === "sales-performance"/);
@@ -191,7 +192,10 @@ test("Management Analytics collapses presentation without changing shared select
     assert.match(component, new RegExp(`sectionProps\\(\"${sectionId}\"\\)`));
   }
   assert.match(component, /DailyAnalyticsReportPanel/);
-  assert.match(component, /id="analytics-filters"/);
+  assert.match(component, /title="Filters"/);
+  assert.match(component, /activeFilterCount/);
+  assert.match(component, /<ZingaraDatePicker/);
+  assert.doesNotMatch(component, /<input type="date"/);
   assert.match(component, /calculateManagementAnalytics\(dataset, filters\)/);
   assert.match(component, /WebsiteConversionPanel/);
 });

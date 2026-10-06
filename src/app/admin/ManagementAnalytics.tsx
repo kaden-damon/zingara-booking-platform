@@ -269,6 +269,7 @@ function FilterSelect({ label, value, onChange, children }: { label: string; val
 
 type AnalyticsSectionId =
   | "sales-performance"
+  | "filters"
   | "website-conversion"
   | "guest-reviews"
   | "booking-activity"
@@ -476,6 +477,22 @@ export default function ManagementAnalytics({
   if (error || !dataset || !analytics) return <section className="mb-8 border-y border-red-300/25 py-10 text-center"><p className="text-red-200">{error || "Management analytics could not be loaded."}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-full border border-white/20 px-5 py-2 text-sm font-semibold">Retry</button></section>;
 
   const core = analytics.core;
+  const activeFilterCount = [
+    filters.bookingCreatedFrom,
+    filters.bookingCreatedTo,
+    filters.performanceFrom,
+    filters.performanceId,
+    filters.performanceTo,
+    filters.reviewSubmittedFrom,
+    filters.reviewSubmittedTo,
+    filters.seatingZone !== "all" ? filters.seatingZone : "",
+    filters.bookingType !== "all" ? filters.bookingType : "",
+    filters.bookingStatus !== "all" ? filters.bookingStatus : "",
+    filters.paymentStatus !== "all" ? filters.paymentStatus : "",
+    filters.source !== "all" ? filters.source : "",
+    filters.venue !== "all" ? filters.venue : "",
+    filters.dayOfWeek.length > 0 ? "weekday" : "",
+  ].filter(Boolean).length;
   const showMonth = (month: string) => new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-ZA", { month: "long", year: "numeric", timeZone: "UTC" });
 
   return (
@@ -490,18 +507,20 @@ export default function ManagementAnalytics({
 
       <DailyAnalyticsReportPanel />
 
-      <section aria-labelledby="analytics-filters">
-        <h3 id="analytics-filters" className="text-xs font-bold uppercase tracking-[0.18em] text-[#D8C36A]">Filters</h3>
+      <AnalyticsSection
+        {...sectionProps("filters")}
+        title="Filters"
+        description={activeFilterCount > 0 ? `${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}` : "Optional date, venue, booking and performance filters."}
+      >
         <div className="mt-3 flex flex-wrap gap-2">{[["Today", "today"], ["Yesterday", "yesterday"], ["Last 7 Days", "7"], ["Last 30 Days", "30"], ["Month To Date", "mtd"]].map(([label, value]) => <button key={value} type="button" onClick={() => quickRange(value as "today" | "yesterday" | "7" | "30" | "mtd")} className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase text-zinc-300 hover:border-[#D8C36A]/60 hover:text-white">{label}</button>)}<button type="button" onClick={() => setFilters(defaultManagementAnalyticsFilters)} className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase text-zinc-500 hover:text-white">Clear</button></div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
           <FilterSelect label="Venue" value={filters.venue} onChange={(value) => changeVenue(value as ManagementAnalyticsFilters["venue"])}><option value="all">All venues</option><option value="cape-town">Cape Town</option><option value="johannesburg">Johannesburg</option></FilterSelect>
           <FilterSelect label="Performance" value={filters.performanceId} onChange={(value) => update("performanceId", value)}><option value="">All Performances</option>{performanceOptions.map((show) => <option key={show.id} value={show.id}>{show.date} · {show.venue === "johannesburg" ? "Johannesburg" : "Cape Town"} · {show.time.slice(0, 5)}</option>)}</FilterSelect>
-          <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Booking Created From<input type="date" value={filters.bookingCreatedFrom} onChange={(event) => update("bookingCreatedFrom", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
-          <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Booking Created To<input type="date" value={filters.bookingCreatedTo} onChange={(event) => update("bookingCreatedTo", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
-          <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Performance From<input type="date" value={filters.performanceFrom} onChange={(event) => update("performanceFrom", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
-          <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Performance To<input type="date" value={filters.performanceTo} onChange={(event) => update("performanceTo", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
-          <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Review Submitted From<input type="date" value={filters.reviewSubmittedFrom} onChange={(event) => update("reviewSubmittedFrom", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
-          <label className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Review Submitted To<input type="date" value={filters.reviewSubmittedTo} onChange={(event) => update("reviewSubmittedTo", event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm text-white" /></label>
+          {([
+            ["Booking Created From", "bookingCreatedFrom"], ["Booking Created To", "bookingCreatedTo"],
+            ["Performance From", "performanceFrom"], ["Performance To", "performanceTo"],
+            ["Review Submitted From", "reviewSubmittedFrom"], ["Review Submitted To", "reviewSubmittedTo"],
+          ] as const).map(([label, key]) => <label key={key} className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">{label}<span className="mt-2 block"><ZingaraDatePicker label={label} placeholder="Select date" value={filters[key]} onChange={(value) => update(key, value)} /></span></label>)}
           <FilterSelect label="Seating Zone" value={filters.seatingZone} onChange={(value) => update("seatingZone", value)}><option value="all">All</option>{["Golden Circle", "Middle Ring", "Private Booths", "Royal Balcony"].map((zone) => <option key={zone}>{zone}</option>)}</FilterSelect>
           <FilterSelect label="Booking Type" value={filters.bookingType} onChange={(value) => update("bookingType", value as ManagementAnalyticsFilters["bookingType"])}><option value="all">All</option><option value="standard">Standard</option><option value="corporate">Corporate</option></FilterSelect>
           <FilterSelect label="Booking Status" value={filters.bookingStatus} onChange={(value) => update("bookingStatus", value)}><option value="all">All</option><option value="confirmed">Confirmed</option><option value="pending_payment">Pending Payment</option><option value="cancelled">Cancelled</option></FilterSelect>
@@ -509,7 +528,7 @@ export default function ManagementAnalytics({
           <FilterSelect label="Booking Source" value={filters.source} onChange={(value) => update("source", value as ManagementAnalyticsFilters["source"])}><option value="all">All Genuine Activity</option><option value="public">Public Online</option><option value="staff">Staff / Manual</option><option value="corporate">Corporate</option><option value="imported">Imported Legacy</option></FilterSelect>
         </div>
         <div className="mt-4 flex flex-wrap gap-2" aria-label="Day of week filter">{weekdayOrder.map((day) => { const selected = filters.dayOfWeek.includes(day); return <button type="button" key={day} aria-pressed={selected} onClick={() => update("dayOfWeek", selected ? filters.dayOfWeek.filter((value) => value !== day) : [...filters.dayOfWeek, day])} className={`rounded-full border px-3 py-2 text-xs font-semibold ${selected ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-400"}`}>{weekdayNames[day]}</button>; })}</div>
-      </section>
+      </AnalyticsSection>
 
       <div className="space-y-4">
         <AnalyticsSection

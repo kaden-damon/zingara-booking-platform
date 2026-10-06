@@ -490,6 +490,8 @@ test("route is authenticated, scoped, bounded and read-only", async () => {
   assert.doesNotMatch(route, /\.insert\(|\.update\(|\.delete\(|\.upsert\(|PayFast|sendCommunication/);
   assert.match(panel, /sm:grid-cols-2 xl:grid-cols-6/);
   assert.match(panel, /Successful Payments/);
+  assert.match(panel, /ZingaraDatePicker/);
+  assert.doesNotMatch(panel, /<input type="date"/);
   assert.match(panel, /Download Excel/);
   assert.match(route, /buildSuccessfulPaymentsWorkbook/);
   assert.match(route, /format === "xlsx"/);
