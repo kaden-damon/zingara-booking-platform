@@ -119,11 +119,13 @@ test("month helpers preserve SAST calendar boundaries", () => {
 
 test("calendar remains read-only and reuses the management reporting boundary", async () => {
   const component = await readFile(new URL("../app/admin/SalesPerformanceCalendar.tsx", import.meta.url), "utf8");
+  const managementAnalytics = await readFile(new URL("../app/admin/ManagementAnalytics.tsx", import.meta.url), "utf8");
   const route = await readFile(new URL("../app/api/admin/analytics/management/route.ts", import.meta.url), "utf8");
 
   assert.match(component, /calculateManagementAnalytics/);
   assert.match(component, /performanceDemand/);
-  assert.match(component, /Sales &amp; Performance/);
+  assert.match(managementAnalytics, /title="Sales & Performance"/);
+  assert.match(managementAnalytics, /A month-at-a-time view of performances, guests, occupancy and sales\./);
   assert.doesNotMatch(component, /fetch\(|POST|PATCH|DELETE|updateBooking/);
   assert.match(route, /analytics:read/);
   assert.match(route, /staffProfile\.venue_scope/);

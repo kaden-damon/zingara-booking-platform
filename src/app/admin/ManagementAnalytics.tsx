@@ -268,6 +268,7 @@ function FilterSelect({ label, value, onChange, children }: { label: string; val
 }
 
 type AnalyticsSectionId =
+  | "sales-performance"
   | "website-conversion"
   | "guest-reviews"
   | "booking-activity"
@@ -332,10 +333,17 @@ export default function ManagementAnalytics({
   const [forecastDownloadState, setForecastDownloadState] = useState<
     "idle" | "downloading" | "error"
   >("idle");
-  const [openSections, setOpenSections] = useState<AnalyticsSectionId[]>([
-    "booking-activity",
-    "performance-demand",
-  ]);
+  const [openSections, setOpenSections] = useState<AnalyticsSectionId[]>([]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("report") === "sales-performance") {
+        setOpenSections(["sales-performance"]);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -472,14 +480,13 @@ export default function ManagementAnalytics({
 
   return (
     <div className="mb-10 space-y-9 text-white">
-      <SalesPerformanceCalendar dataset={dataset} />
-
-      <header className="border-b border-[#D8C36A]/30 pb-6 pt-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">Detailed Reports</p><h2 className="zingara-heading mt-2 text-3xl font-bold">Analytics &amp; Performance Demand</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Use the detailed reports below for booking activity, conversion, guest feedback and Forward Forecast.</p></div>
-        </div>
-        <p className="mt-3 text-xs text-zinc-500">Authoritative cutoff {new Date(dataset.asOf).toLocaleString("en-ZA", { timeZone: analyticsTimezone })} SAST</p>
-      </header>
+      <AnalyticsSection
+        {...sectionProps("sales-performance")}
+        title="Sales & Performance"
+        description="A month-at-a-time view of performances, guests, occupancy and sales."
+      >
+        <SalesPerformanceCalendar dataset={dataset} />
+      </AnalyticsSection>
 
       <DailyAnalyticsReportPanel />
 

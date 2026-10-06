@@ -133,13 +133,7 @@ export default function SalesPerformanceCalendar({
       : "No performances this month.";
 
   return (
-    <section aria-labelledby="sales-performance-calendar-title" className="space-y-5">
-      <header className="border-b border-[#D8C36A]/30 pb-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">Reports</p>
-        <h2 id="sales-performance-calendar-title" className="zingara-heading mt-2 text-3xl font-bold">Sales &amp; Performance</h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">A month-at-a-time view of performances, guests, occupancy and sales.</p>
-      </header>
-
+    <div className="space-y-5">
       <div className="flex flex-col gap-3 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex items-center gap-2">
           <button type="button" aria-label="Previous month" onClick={() => setMonth((value) => shiftCalendarMonth(value, -1))} className="h-11 w-11 rounded-lg border border-white/15 text-xl text-zinc-200 hover:border-[#D8C36A]/60">‹</button>
@@ -195,7 +189,7 @@ export default function SalesPerformanceCalendar({
       )}
 
       <p className="text-xs leading-5 text-zinc-500">Occupancy uses the same approved capacity denominator as Forward Forecast. Detailed Forecast and Excel remain available below.</p>
-    </section>
+    </div>
   );
 }
 

@@ -158,7 +158,7 @@ test("management routes require analytics permission and export eight named shee
 
 test("Analytics UI is isolated from Admin root state and offers required management controls", async () => {
   const component = await readFile(new URL("../app/admin/ManagementAnalytics.tsx", import.meta.url), "utf8");
-  assert.match(component, /Performance Demand/); assert.match(component, /Tuesday/); assert.match(component, /Midweek vs Weekend/); assert.match(component, /Performance Month \/ Season Demand/); assert.match(component, /Booking Lead Time/); assert.match(component, /Download Excel/); assert.match(component, /Website & Booking Conversion/);
+  assert.match(component, /Forward Forecast/); assert.match(component, /Tuesday/); assert.match(component, /Midweek vs Weekend/); assert.match(component, /Performance Month \/ Season Demand/); assert.match(component, /Booking Lead Time/); assert.match(component, /Download Excel/); assert.match(component, /Website & Booking Conversion/);
   assert.match(component, /Guest Reviews & Experience/); assert.match(component, /Review Submitted From/); assert.match(component, /Performance/);
   assert.match(component, /fetchSupabaseApi/); assert.match(component, /Authorization: `Bearer/);
   assert.doesNotMatch(component, /setBookings|setCustomers|saveBookings/);
@@ -167,7 +167,31 @@ test("Analytics UI is isolated from Admin root state and offers required managem
 test("Management Analytics collapses presentation without changing shared selectors", async () => {
   const component = await readFile(new URL("../app/admin/ManagementAnalytics.tsx", import.meta.url), "utf8");
   assert.match(component, /AnalyticsSection/);
-  assert.match(component, /"booking-activity",\s*"performance-demand"/);
+  assert.match(component, /useState<AnalyticsSectionId\[]>\(\[\]\)/);
+  assert.match(component, /sectionProps\("sales-performance"\)/);
+  assert.match(component, /aria-expanded=\{isOpen\}/);
+  assert.match(component, /\{isOpen \? <div id=\{contentId\}/);
+  assert.match(component, /params\.get\("report"\) === "sales-performance"/);
+  assert.doesNotMatch(component, /Detailed Reports/);
+  assert.doesNotMatch(component, /Analytics &amp; Performance Demand/);
+  assert.doesNotMatch(component, /Authoritative cutoff/);
+  for (const sectionId of [
+    "website-conversion",
+    "guest-reviews",
+    "booking-activity",
+    "performance-demand",
+    "day-of-week",
+    "midweek-weekend",
+    "performance-month",
+    "lead-time",
+    "seating-demand",
+    "payment-analytics",
+    "management-highlights",
+  ]) {
+    assert.match(component, new RegExp(`sectionProps\\(\"${sectionId}\"\\)`));
+  }
+  assert.match(component, /DailyAnalyticsReportPanel/);
+  assert.match(component, /id="analytics-filters"/);
   assert.match(component, /calculateManagementAnalytics\(dataset, filters\)/);
   assert.match(component, /WebsiteConversionPanel/);
 });
