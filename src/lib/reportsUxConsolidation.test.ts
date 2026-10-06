@@ -17,7 +17,8 @@ test("Reports categories start compact and preserve legacy tools", async () => {
 test("Sales calendar uses the compact desktop presentation", async () => {
   const calendar = await readFile(new URL("../app/admin/SalesPerformanceCalendar.tsx", import.meta.url), "utf8");
 
-  assert.match(calendar, /min-h-32/);
+  assert.match(calendar, /min-h-20/);
+  assert.doesNotMatch(calendar, /min-h-32/);
   assert.doesNotMatch(calendar, /min-h-44/);
   for (const field of ["guests", "occupancy", "Booked", "Paid", "Outstanding"]) {
     assert.match(calendar, new RegExp(field));

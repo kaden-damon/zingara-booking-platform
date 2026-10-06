@@ -103,4 +103,8 @@ textarea {
   .zingara-header-logo {
     width: 6rem;
   }
+
+  .zingara-site-header.zingara-admin-header .zingara-header-logo {
+    width: 3rem;
+  }
 }

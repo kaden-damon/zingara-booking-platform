@@ -284,8 +284,14 @@ export default function ZingaraHeader() {
   return (
     <header
       ref={headerRef}
-      className={`zingara-site-header pointer-events-none border-b border-[#8D7A2F]/25 bg-black/50 px-4 pb-3 text-white shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl sm:px-5 sm:pb-4 ${
-        needsOperationalTopSpace ? "pt-[62px]" : "pt-3 sm:pt-4"
+      className={`zingara-site-header pointer-events-none border-b border-[#8D7A2F]/25 bg-black/50 px-4 text-white shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl sm:px-5 ${
+        isAdminRoute ? "zingara-admin-header" : ""
+      } ${
+        isAdminRoute
+          ? "py-2"
+          : needsOperationalTopSpace
+            ? "pb-3 pt-[62px] sm:pb-4"
+            : "pb-3 pt-3 sm:pb-4 sm:pt-4"
       } ${
         isAdminRoute
           ? `sticky top-0 z-40 transition-[transform,background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out will-change-transform sm:relative sm:top-auto sm:z-20 sm:translate-y-0 ${
@@ -300,23 +306,37 @@ export default function ZingaraHeader() {
           : "relative z-20 sm:border-transparent sm:bg-transparent sm:shadow-none sm:backdrop-blur-0"
       }`}
     >
-      <div className="relative mx-auto flex max-w-7xl flex-col items-center gap-3">
+      <div
+        className={`relative mx-auto flex max-w-7xl items-center ${
+          isAdminRoute
+            ? "flex-row justify-between gap-3"
+            : "flex-col gap-3"
+        }`}
+      >
         <Link
           href="/book"
-          className="pointer-events-auto group mx-auto flex w-fit flex-col items-center text-center"
+          className={`pointer-events-auto group flex w-fit items-center ${
+            isAdminRoute
+              ? "flex-row gap-3 text-left"
+              : "mx-auto flex-col text-center"
+          }`}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={venueConfig.logoUrl}
             alt={venueConfig.brandTitle}
-            className="zingara-header-logo h-auto w-28 shrink-0 object-contain drop-shadow-[0_0_18px_rgba(216,195,106,0.2)] transition duration-300 group-hover:drop-shadow-[0_0_24px_rgba(216,195,106,0.34)] min-[390px]:w-32 sm:w-44"
+            className={`zingara-header-logo h-auto shrink-0 object-contain drop-shadow-[0_0_18px_rgba(216,195,106,0.2)] transition duration-300 group-hover:drop-shadow-[0_0_24px_rgba(216,195,106,0.34)] ${
+              isAdminRoute
+                ? "w-12 sm:w-14"
+                : "w-28 min-[390px]:w-32 sm:w-44"
+            }`}
             decoding="async"
           />
-          <span className="mt-1.5 block">
-            <span className="block text-base font-bold leading-tight tracking-[0.08em] text-white transition group-hover:text-[#F2D66C] sm:text-lg">
+          <span className={isAdminRoute ? "block" : "mt-1.5 block"}>
+            <span className={`block font-bold leading-tight tracking-[0.08em] text-white transition group-hover:text-[#F2D66C] ${isAdminRoute ? "text-sm sm:text-base" : "text-base sm:text-lg"}`}>
               {venueConfig.brandTitle}
             </span>
-            <span className="mt-0.5 block text-[0.58rem] font-semibold uppercase tracking-[0.18em] text-[#D8C36A] sm:text-[0.68rem] sm:tracking-[0.22em]">
+            <span className={`mt-0.5 block font-semibold uppercase text-[#D8C36A] ${isAdminRoute ? "text-[0.55rem] tracking-[0.14em] sm:text-[0.62rem]" : "text-[0.58rem] tracking-[0.18em] sm:text-[0.68rem] sm:tracking-[0.22em]"}`}>
               {venueConfig.showTitle}
             </span>
           </span>
@@ -330,7 +350,7 @@ export default function ZingaraHeader() {
             }
             setIsMenuOpen((currentValue) => !currentValue);
           }}
-          className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-[#D8C36A]/30 bg-black/35 text-[#F2D66C] shadow-[0_0_24px_rgba(216,195,106,0.14)] backdrop-blur-xl transition hover:border-[#F2D66C] sm:h-12 sm:w-12"
+          className={`pointer-events-auto grid place-items-center rounded-full border border-[#D8C36A]/30 bg-black/35 text-[#F2D66C] shadow-[0_0_24px_rgba(216,195,106,0.14)] backdrop-blur-xl transition hover:border-[#F2D66C] ${isAdminRoute ? "h-10 w-10" : "h-11 w-11 sm:h-12 sm:w-12"}`}
           aria-expanded={isMenuOpen}
           aria-controls="zingara-primary-navigation"
           aria-label={

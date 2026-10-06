@@ -10277,6 +10277,31 @@ async function getSupabaseAdminSession() {
   return getOrCreateStaffProfileSession(authSession.user);
 }
 
+function TicketScanIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">
+      <path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M7 12h10" />
+    </svg>
+  );
+}
+
+function NotificationBellIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+    </svg>
+  );
+}
+
+function StaffAccountIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21a8 8 0 0 1 16 0" />
+    </svg>
+  );
+}
+
 export default function AdminDashboardPage() {
   const scannerVideoRef = useRef<HTMLVideoElement | null>(null);
   const [bookings, setBookings] = useState<DemoBooking[]>([]);
@@ -10436,6 +10461,7 @@ export default function AdminDashboardPage() {
   const [activeAdminTab, setActiveAdminTab] =
     useState<AdminTab>("overview");
   const adminMoreMenuRef = useRef<HTMLDetailsElement>(null);
+  const staffAccountMenuRef = useRef<HTMLDetailsElement>(null);
   const [activeSystemTab, setActiveSystemTab] =
     useState<SystemTab>("operations");
   const [openFloorTableManagementZones, setOpenFloorTableManagementZones] =
@@ -28395,23 +28421,23 @@ export default function AdminDashboardPage() {
 
   if (!hasHydrated || isSessionRestoring) {
     return (
-      <main className="relative isolate z-10 flex min-h-screen items-center justify-center bg-black px-4 py-10 text-white sm:px-6 sm:py-16">
-        <section className="relative z-10 w-full max-w-3xl rounded-[1.5rem] border border-[#8D7A2F]/40 bg-[radial-gradient(circle_at_top,#2A1A0D_0%,#101010_46%,#050505_100%)] p-5 text-center shadow-2xl shadow-[#8D7A2F]/10 sm:rounded-[2rem] sm:p-8">
+      <main className="relative isolate z-10 flex min-h-[calc(100dvh-5rem)] items-center justify-center bg-black px-4 py-5 text-white sm:px-6 sm:py-8">
+        <section className="relative z-10 w-full max-w-md rounded-[1.25rem] border border-[#8D7A2F]/40 bg-[radial-gradient(circle_at_top,#2A1A0D_0%,#101010_46%,#050505_100%)] p-5 text-center shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
           <div
             aria-label={venueConfig.brandTitle}
-            className="mx-auto h-16 w-44 bg-contain bg-center bg-no-repeat sm:h-20 sm:w-56"
+            className="mx-auto h-11 w-32 bg-contain bg-center bg-no-repeat sm:h-12 sm:w-36"
             style={{
               backgroundImage: `url("${venueConfig.logoUrl}")`,
             }}
           />
-          <h1 className="mt-6 text-3xl font-bold uppercase sm:text-5xl">
+          <h1 className="mt-4 text-2xl font-bold uppercase sm:text-3xl">
             Restoring Session
           </h1>
-          <p className="mt-3 text-sm font-semibold uppercase tracking-[0.28em] text-[#D8C36A]">
+          <p className="mt-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
             Staff Access
           </p>
-          <div className="mx-auto mt-8 h-10 w-10 animate-spin rounded-full border-2 border-[#D8C36A]/30 border-t-[#D8C36A]" />
-          <p className="mt-4 text-sm text-zinc-400">
+          <div className="mx-auto mt-5 h-8 w-8 animate-spin rounded-full border-2 border-[#D8C36A]/30 border-t-[#D8C36A]" />
+          <p className="mt-3 text-sm text-zinc-400">
             Validating your staff session...
           </p>
         </section>
@@ -28421,26 +28447,26 @@ export default function AdminDashboardPage() {
 
   if (!currentStaff) {
     return (
-      <main className="relative isolate z-10 flex min-h-screen items-center justify-center bg-black px-4 py-10 text-white sm:px-6 sm:py-16">
-        <section className="relative z-10 w-full max-w-3xl rounded-[1.5rem] border border-[#8D7A2F]/40 bg-[radial-gradient(circle_at_top,#2A1A0D_0%,#101010_46%,#050505_100%)] p-5 text-center shadow-2xl shadow-[#8D7A2F]/10 sm:rounded-[2rem] sm:p-8">
+      <main className="relative isolate z-10 flex min-h-[calc(100dvh-5rem)] items-center justify-center bg-black px-4 py-5 text-white sm:px-6 sm:py-8">
+        <section className="relative z-10 w-full max-w-md rounded-[1.25rem] border border-[#8D7A2F]/40 bg-[radial-gradient(circle_at_top,#2A1A0D_0%,#101010_46%,#050505_100%)] p-5 text-center shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
           <div
             aria-label={venueConfig.brandTitle}
-            className="mx-auto h-16 w-44 bg-contain bg-center bg-no-repeat sm:h-20 sm:w-56"
+            className="mx-auto h-11 w-32 bg-contain bg-center bg-no-repeat sm:h-12 sm:w-36"
             style={{
               backgroundImage: `url("${venueConfig.logoUrl}")`,
             }}
           />
-          <h1 className="mt-6 text-3xl font-bold uppercase sm:text-5xl">
+          <h1 className="mt-4 text-2xl font-bold uppercase sm:text-3xl">
             {isPasswordResetOpen ? "Reset Password" : "Admin Login"}
           </h1>
-          <p className="mt-3 text-sm font-semibold uppercase tracking-[0.28em] text-[#D8C36A]">
+          <p className="mt-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
             Staff Access
           </p>
 
           {isPasswordResetOpen ? (
             <form
               onSubmit={sendPasswordReset}
-              className="mt-8 grid grid-cols-1 gap-4 text-left"
+              className="mt-5 grid grid-cols-1 gap-3 text-left"
             >
               <p className="text-center text-sm leading-6 text-zinc-400">
                 Enter your staff email address and we&apos;ll send you a
@@ -28499,7 +28525,7 @@ export default function AdminDashboardPage() {
           ) : (
             <form
               onSubmit={login}
-              className="mt-8 grid grid-cols-1 gap-4 text-left"
+              className="mt-5 grid grid-cols-1 gap-3 text-left"
             >
               <label>
                 <span className="mb-2 block text-center text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -28596,18 +28622,18 @@ export default function AdminDashboardPage() {
 
   if (adminUndertakingState === "checking") {
     return (
-      <main className="relative isolate z-10 flex min-h-screen items-center justify-center bg-black px-4 py-10 text-white sm:px-6 sm:py-16">
+      <main className="relative isolate z-10 flex min-h-[calc(100dvh-5rem)] items-center justify-center bg-black px-4 py-5 text-white sm:px-6 sm:py-8">
         <section
           aria-live="polite"
           aria-labelledby="platform-access-check-heading"
-          className="relative z-10 w-full max-w-2xl rounded-[1.5rem] border border-[#8D7A2F]/40 bg-zinc-950 p-5 text-center shadow-2xl shadow-[#8D7A2F]/10 sm:p-8"
+          className="relative z-10 w-full max-w-md rounded-[1.25rem] border border-[#8D7A2F]/40 bg-zinc-950 p-5 text-center shadow-2xl shadow-[#8D7A2F]/10 sm:p-6"
         >
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
             Staff Access
           </p>
           <h1
             id="platform-access-check-heading"
-            className="mt-3 text-2xl font-bold uppercase text-white sm:text-3xl"
+            className="mt-2 text-xl font-bold uppercase text-white sm:text-2xl"
           >
             Verifying Platform Access
           </h1>
@@ -28626,8 +28652,8 @@ export default function AdminDashboardPage() {
             </>
           ) : (
             <>
-              <div className="mx-auto mt-6 h-9 w-9 animate-spin rounded-full border-2 border-[#D8C36A]/30 border-t-[#D8C36A]" />
-              <p className="mt-4 text-sm text-zinc-400">
+              <div className="mx-auto mt-4 h-8 w-8 animate-spin rounded-full border-2 border-[#D8C36A]/30 border-t-[#D8C36A]" />
+              <p className="mt-3 text-sm text-zinc-400">
                 Checking the current access terms for this staff account...
               </p>
             </>
@@ -28675,7 +28701,7 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <main className="relative isolate z-10 min-h-screen overflow-x-hidden bg-black px-3 py-8 text-white sm:px-6 sm:py-14 lg:py-16">
+    <main className="relative isolate z-10 min-h-screen overflow-x-hidden bg-black px-3 py-4 text-white sm:px-6 sm:py-6 lg:py-7">
       {platformMaintenance.staff.enabled && isSuperAdmin && (
         <div className="fixed inset-x-3 top-3 z-[170] mx-auto flex max-w-5xl flex-col gap-3 rounded-lg border border-amber-300/55 bg-amber-950/95 p-4 text-amber-50 shadow-2xl backdrop-blur sm:inset-x-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -28716,28 +28742,30 @@ export default function AdminDashboardPage() {
         </div>
       )}
       <div className="relative z-10 mx-auto max-w-7xl">
-        <div className="mb-8 flex flex-col gap-5 border-b border-zinc-800 pb-6 print:hidden lg:mb-12 lg:flex-row lg:items-end lg:justify-between lg:pb-8">
+        <div className="mb-4 flex flex-col gap-3 border-b border-zinc-800 pb-4 print:hidden sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="mb-3 text-sm font-semibold uppercase tracking-[0.28em] text-zinc-500">
+            <p className="mb-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-zinc-500">
               Admin
             </p>
 
-            <h1 className="text-3xl font-bold sm:text-5xl">
+            <h1 className="text-2xl font-bold sm:text-3xl">
               {venueConfig.brandTitle} Box Office
             </h1>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch lg:shrink-0">
+          <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
             {canCheckInGuests && (
               <button
                 type="button"
+                aria-label="Scan Tickets"
                 onClick={() => {
                   setIsScannerOpen(true);
                   setTicketValidationResult(null);
                   setTicketValidationInput("");
                 }}
-                className="rounded-2xl border border-emerald-300/45 bg-emerald-300 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-black shadow-[0_0_34px_rgba(110,231,183,0.18)] transition hover:bg-emerald-200 sm:px-6 sm:py-4 sm:text-sm sm:tracking-[0.18em]"
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-300/45 bg-emerald-300 px-3 py-2 text-xs font-bold uppercase tracking-[0.08em] text-black shadow-[0_0_22px_rgba(110,231,183,0.14)] transition hover:bg-emerald-200"
               >
+                <TicketScanIcon />
                 Scan Tickets
               </button>
             )}
@@ -28745,22 +28773,20 @@ export default function AdminDashboardPage() {
             <div className="relative">
               <button
                 type="button"
+                aria-label={`Notifications, ${unreadNotificationCount} unread`}
+                aria-expanded={isNotificationCentreOpen}
                 onClick={() => {
                   setIsNotificationCentreOpen(
                     (currentState) => !currentState,
                   );
                   void refreshStaffNotifications();
                 }}
-                className="relative h-full min-h-[4.5rem] rounded-2xl border border-[#D8C36A]/30 bg-zinc-950 px-5 py-3 text-left transition hover:border-[#D8C36A]/60 sm:py-4"
+                className="relative inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#D8C36A]/30 bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:border-[#D8C36A]/60"
               >
-                <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
-                  Notifications
-                </span>
-                <span className="mt-2 block text-sm font-semibold text-white">
-                  {unreadNotificationCount} unread
-                </span>
+                <NotificationBellIcon />
+                <span>Notifications</span>
                 {unreadNotificationCount > 0 && (
-                  <span className="absolute right-3 top-3 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#D8C36A] px-1.5 text-[0.65rem] font-bold text-black">
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#D8C36A] px-1.5 text-[0.65rem] font-bold text-black">
                     {unreadNotificationCount}
                   </span>
                 )}
@@ -28847,30 +28873,43 @@ export default function AdminDashboardPage() {
               )}
             </div>
 
-            <div className="rounded-2xl border border-[#D8C36A]/30 bg-zinc-950 px-4 py-3 sm:px-5 sm:py-4">
-              <p className="text-sm font-semibold text-white">
-                {currentStaff.name}
-              </p>
-              <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                {adminRoleLabels[currentStaff.role] ?? "Staff"}
-              </p>
-              <p className="mt-1 text-xs text-zinc-500">
-                Location: {getStaffVenueScopeLabel([currentStaff.venueId])}
-              </p>
-              <button
-                type="button"
-                onClick={logout}
-                className="mt-3 rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300 transition hover:bg-white hover:text-black"
-              >
-                Sign Out
-              </button>
-            </div>
+            <details
+              ref={staffAccountMenuRef}
+              className="group relative"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape" || !staffAccountMenuRef.current?.open) return;
+                staffAccountMenuRef.current.open = false;
+                staffAccountMenuRef.current.querySelector<HTMLElement>("summary")?.focus();
+              }}
+            >
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg border border-[#D8C36A]/30 bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition marker:hidden hover:border-[#D8C36A]/60">
+                <StaffAccountIcon />
+                <span className="max-w-32 truncate">{currentStaff.name}</span>
+                <span aria-hidden="true" className="text-[#D8C36A] transition group-open:rotate-180">⌄</span>
+              </summary>
+              <div className="absolute right-0 top-[calc(100%+0.5rem)] z-[130] w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-[#D8C36A]/30 bg-zinc-950 p-3 shadow-2xl shadow-black/60">
+                <p className="text-sm font-semibold text-white">{currentStaff.name}</p>
+                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#D8C36A]">
+                  {adminRoleLabels[currentStaff.role] ?? "Staff"}
+                </p>
+                <p className="mt-1 text-xs text-zinc-400">
+                  Location: {getStaffVenueScopeLabel([currentStaff.venueId])}
+                </p>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="mt-3 min-h-10 w-full rounded-lg border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-300 transition hover:bg-white hover:text-black"
+                >
+                  Sign Out
+                </button>
+              </div>
+            </details>
           </div>
         </div>
 
         <nav
           aria-label="Admin sections"
-          className="relative mb-6 grid grid-cols-3 gap-2 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-2 shadow-2xl shadow-black/25 print:hidden sm:mb-8 sm:grid-cols-3 lg:grid-cols-6 lg:rounded-[2rem]"
+          className="relative mb-5 grid grid-cols-3 gap-1.5 rounded-xl border border-[#8D7A2F]/25 bg-zinc-950/80 p-1.5 shadow-2xl shadow-black/25 print:hidden sm:grid-cols-3 lg:grid-cols-6"
         >
           {adminNavigation.primary.map((tab) => {
             const isActive =
@@ -28883,7 +28922,7 @@ export default function AdminDashboardPage() {
                 type="button"
                 aria-current={isActive ? "page" : undefined}
                 onClick={() => selectAdminSection(tab.id)}
-                className={`min-h-11 rounded-xl px-2 py-2.5 text-center text-[0.68rem] font-semibold uppercase tracking-[0.06em] transition duration-300 sm:px-3 sm:py-3 sm:text-xs sm:tracking-[0.1em] ${
+                className={`min-h-11 rounded-lg px-2 py-2 text-center text-[0.68rem] font-semibold uppercase tracking-[0.06em] transition duration-300 sm:px-3 sm:text-xs sm:tracking-[0.08em] ${
                   isActive
                     ? "bg-[#D8C36A] text-black shadow-[0_0_28px_rgba(216,195,106,0.22)]"
                     : "border border-white/10 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"
@@ -28908,7 +28947,7 @@ export default function AdminDashboardPage() {
           >
             <summary
               aria-current={adminMoreIsActive ? "page" : undefined}
-              className={`flex min-h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-center text-[0.68rem] font-semibold uppercase tracking-[0.06em] transition duration-300 marker:hidden sm:px-3 sm:py-3 sm:text-xs sm:tracking-[0.1em] ${
+              className={`flex min-h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-lg px-2 py-2 text-center text-[0.68rem] font-semibold uppercase tracking-[0.06em] transition duration-300 marker:hidden sm:px-3 sm:text-xs sm:tracking-[0.08em] ${
                 adminMoreIsActive
                   ? "bg-[#D8C36A] text-black shadow-[0_0_28px_rgba(216,195,106,0.22)]"
                   : "border border-white/10 bg-black/35 text-zinc-300 hover:border-[#D8C36A]/50 hover:text-white"

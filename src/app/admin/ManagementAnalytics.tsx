@@ -497,14 +497,6 @@ export default function ManagementAnalytics({
 
   return (
     <div className="mb-10 space-y-9 text-white">
-      <AnalyticsSection
-        {...sectionProps("sales-performance")}
-        title="Sales & Performance"
-        description="A month-at-a-time view of performances, guests, occupancy and sales."
-      >
-        <SalesPerformanceCalendar dataset={dataset} />
-      </AnalyticsSection>
-
       <DailyAnalyticsReportPanel />
 
       <AnalyticsSection
@@ -531,6 +523,13 @@ export default function ManagementAnalytics({
       </AnalyticsSection>
 
       <div className="space-y-4">
+        <AnalyticsSection
+          {...sectionProps("sales-performance")}
+          title="Sales & Performance"
+          description="A month-at-a-time view of performances, guests, occupancy and sales."
+        >
+          <SalesPerformanceCalendar dataset={dataset} />
+        </AnalyticsSection>
         <AnalyticsSection
           {...sectionProps("website-conversion")}
           title="Website & Booking Conversion"
