@@ -54,6 +54,10 @@ type BookingRow = {
   section: string | null;
   show_id: string;
   total_amount: number | string | null;
+  zone_entitlements: Array<{
+    pax?: number | string;
+    zoneId?: string;
+  }> | null;
 };
 
 type CustomerRow = {
@@ -105,7 +109,7 @@ export async function loadManagementAnalyticsDataset(
         serviceClient
           .from("bookings")
           .select(
-            "id,customer_id,show_id,corporate_request_id,booking_reference,booking_source,booking_origin,guest_count,booking_status,payment_status,section,total_amount,amount_paid,balance_outstanding,created_at,archived_at",
+            "id,customer_id,show_id,corporate_request_id,booking_reference,booking_source,booking_origin,guest_count,booking_status,payment_status,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,created_at,archived_at",
           )
           .order("id")
           .range(from, to),
@@ -188,6 +192,10 @@ export async function loadManagementAnalyticsDataset(
         section: booking.section,
         showId: booking.show_id,
         totalAmount: amount(booking.total_amount),
+        zoneEntitlements: booking.zone_entitlements?.map((entitlement) => ({
+          pax: amount(entitlement.pax ?? null),
+          zoneId: entitlement.zoneId ?? "",
+        })) ?? null,
       }),
     );
   const bookingIds = new Set(bookings.map((booking) => booking.id));

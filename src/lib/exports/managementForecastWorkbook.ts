@@ -21,6 +21,10 @@ export const managementForecastHeaders = [
   "DATE",
   "VENUE",
   "GUESTS BOOKED",
+  "GC",
+  "MR",
+  "PB",
+  "RB",
   "OCCUPANCY %",
   "AMOUNT PAID",
   "CONFIRMED",
@@ -60,7 +64,7 @@ export async function buildManagementForecastWorkbook(
   workbook.created = new Date(dataset.asOf);
   const sheet = workbook.addWorksheet("MANAGEMENT FORECAST");
 
-  sheet.mergeCells("A1:J1");
+  sheet.mergeCells("A1:N1");
   sheet.getCell("A1").value = "ZINGARA / THE ROYAL COUNTESS · MANAGEMENT FORECAST";
   sheet.getCell("A1").font = { bold: true, color: { argb: ivory }, size: 18 };
   sheet.getCell("A1").fill = {
@@ -71,7 +75,7 @@ export async function buildManagementForecastWorkbook(
   sheet.getCell("A1").alignment = { vertical: "middle" };
   sheet.getRow(1).height = 30;
 
-  sheet.mergeCells("A2:J2");
+  sheet.mergeCells("A2:N2");
   sheet.getCell("A2").value =
     `${filters.performanceFrom || "Current"} to ${filters.performanceTo || "future"} · ` +
     `${filters.venue === "all" ? "All venues" : venueLabel(filters.venue)} · ${analyticsTimezone}`;
@@ -91,6 +95,10 @@ export async function buildManagementForecastWorkbook(
       new Date(`${row.date}T12:00:00+02:00`),
       venueLabel(row.venue),
       row.guests,
+      row.zoneGuests.gc,
+      row.zoneGuests.mr,
+      row.zoneGuests.pb,
+      row.zoneGuests.rb,
       row.occupancy / 100,
       row.amountPaid,
       row.confirmed,
@@ -103,9 +111,9 @@ export async function buildManagementForecastWorkbook(
   }
 
   sheet.getColumn(1).numFmt = "dd mmm yyyy";
-  sheet.getColumn(4).numFmt = percentageFormat;
-  sheet.getColumn(5).numFmt = currencyFormat;
-  [18, 10, 16, 15, 18, 14, 16, 14, 18, 22].forEach((width, index) => {
+  sheet.getColumn(8).numFmt = percentageFormat;
+  sheet.getColumn(9).numFmt = currencyFormat;
+  [18, 10, 16, 8, 8, 8, 8, 15, 18, 14, 16, 14, 18, 22].forEach((width, index) => {
     sheet.getColumn(index + 1).width = width;
   });
   sheet.views = [{ state: "frozen", ySplit: 4 }];

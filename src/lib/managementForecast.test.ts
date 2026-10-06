@@ -45,7 +45,14 @@ function booking(
 
 function fixture(): ManagementAnalyticsDataset {
   const bookings = [
-    booking("confirmed"),
+    booking("confirmed", {
+      bookingOrigin: "corporate",
+      bookingSource: "corporate-direct",
+      zoneEntitlements: [
+        { pax: 1, zoneId: "golden-circle" },
+        { pax: 3, zoneId: "middle-ring" },
+      ],
+    }),
     booking("deposit", {
       amountPaid: 500,
       balanceOutstanding: 500,
@@ -116,6 +123,73 @@ test("management forecast is a projection of authoritative performance demand", 
   assert.equal(rows[0].fullyPaid, 1);
   assert.equal(rows[0].complimentary, 1);
   assert.equal(rows[0].occupancy, 130);
+  assert.deepEqual(rows[0].zoneGuests, { gc: 10, mr: 3, pb: 0, rb: 0 });
+  assert.equal(
+    Object.values(rows[0].zoneGuests).reduce((total, guests) => total + guests, 0),
+    rows[0].guests,
+  );
+});
+
+test("management forecast splits authoritative multi-zone entitlement without duplicating guests", () => {
+  const data = fixture();
+  data.bookings.push(
+    booking("multi-zone", {
+      bookingOrigin: "corporate",
+      bookingSource: "corporate-direct",
+      guestCount: 10,
+      section: "Golden Circle",
+      zoneEntitlements: [
+        { pax: 4, zoneId: "golden-circle" },
+        { pax: 6, zoneId: "royal-booths" },
+      ],
+    }),
+    booking("balcony", {
+      guestCount: 1,
+      section: "Royal Balcony",
+    }),
+  );
+
+  const row = calculateManagementAnalytics(
+    data,
+    defaultManagementAnalyticsFilters,
+  ).performanceDemand.find((performance) => performance.id === "future-jhb");
+
+  assert.ok(row);
+  assert.equal(row.guests, 24);
+  assert.deepEqual(row.zoneGuests, { gc: 14, mr: 3, pb: 6, rb: 1 });
+  assert.equal(
+    Object.values(row.zoneGuests).reduce((total, guests) => total + guests, 0),
+    row.guests,
+  );
+});
+
+test("section counts include each canonical zone and exclude inactive entitlement", () => {
+  const data = fixture();
+  data.bookings = [
+    booking("gc", { guestCount: 1, section: "Golden Circle" }),
+    booking("mr", { guestCount: 1, section: "Middle Ring" }),
+    booking("pb", { guestCount: 1, section: "Private Booths" }),
+    booking("rb", { guestCount: 1, section: "Royal Balcony" }),
+    booking("cancelled", {
+      bookingStatus: "cancelled",
+      guestCount: 20,
+      section: "Golden Circle",
+    }),
+    booking("superseded", {
+      bookingStatus: "superseded",
+      guestCount: 20,
+      section: "Middle Ring",
+    }),
+  ];
+
+  const row = calculateManagementAnalytics(
+    data,
+    defaultManagementAnalyticsFilters,
+  ).performanceDemand.find((performance) => performance.id === "future-jhb");
+
+  assert.ok(row);
+  assert.equal(row.guests, 4);
+  assert.deepEqual(row.zoneGuests, { gc: 1, mr: 1, pb: 1, rb: 1 });
 });
 
 test("date and venue filters drive both forecast rows and workbook", async () => {
@@ -139,11 +213,15 @@ test("date and venue filters drive both forecast rows and workbook", async () =>
   assert.equal(sheet.rowCount, 5);
   assert.equal(sheet.getCell("B5").value, "JHB");
   assert.equal(sheet.getCell("C5").value, 13);
-  assert.equal(sheet.getCell("D5").value, 1.3);
-  assert.equal(sheet.getCell("E5").value, 2_500);
-  assert.equal(sheet.getCell("J5").value, "Capacity issue");
-  assert.equal(sheet.getColumn(4).numFmt, "0.0%");
-  assert.equal(sheet.getColumn(5).numFmt, '"R"#,##0.00');
+  assert.deepEqual(
+    ["D5", "E5", "F5", "G5"].map((cell) => sheet.getCell(cell).value),
+    [10, 3, 0, 0],
+  );
+  assert.equal(sheet.getCell("H5").value, 1.3);
+  assert.equal(sheet.getCell("I5").value, 2_500);
+  assert.equal(sheet.getCell("N5").value, "Capacity issue");
+  assert.equal(sheet.getColumn(8).numFmt, "0.0%");
+  assert.equal(sheet.getColumn(9).numFmt, '"R"#,##0.00');
   assert.match(report.filename, /2026-10-07_to_2026-10-07/);
 });
 
@@ -294,6 +372,8 @@ test("management forecast remains self-service and permission protected", async 
   assert.match(component, /No performances match these filters\./);
   assert.match(component, /filtersToSearchParams\(filters\)/);
   assert.match(component, /selectManagementForecastRows/);
+  assert.match(component, /Golden Circle.*Middle Ring.*Private Booths.*Royal Balcony/s);
+  assert.match(component, /row\.zoneGuests\.gc/);
   assert.match(route, /requireActiveStaff\(request\)/);
   assert.match(route, /analytics:read/);
   assert.match(route, /management-forecast/);

@@ -1,3 +1,5 @@
+import { getCorporateSeatingZoneId } from "./corporateZoneMapping.ts";
+
 export const analyticsTimezone = "Africa/Johannesburg";
 
 export type AnalyticsVenue = "cape-town" | "johannesburg";
@@ -24,6 +26,17 @@ export type ManagementAnalyticsBooking = {
   section: string | null;
   showId: string;
   totalAmount: number;
+  zoneEntitlements?: Array<{
+    pax: number;
+    zoneId: string;
+  }> | null;
+};
+
+export type ManagementForecastZoneGuests = {
+  gc: number;
+  mr: number;
+  pb: number;
+  rb: number;
 };
 
 export type ManagementAnalyticsCustomer = {
@@ -250,6 +263,44 @@ function bookingSummary(bookings: ManagementAnalyticsBooking[]) {
   };
 }
 
+function emptyForecastZoneGuests(): ManagementForecastZoneGuests {
+  return { gc: 0, mr: 0, pb: 0, rb: 0 };
+}
+
+function addForecastZoneGuests(
+  totals: ManagementForecastZoneGuests,
+  booking: ManagementAnalyticsBooking,
+) {
+  const allocations = booking.zoneEntitlements?.length
+    ? booking.zoneEntitlements
+    : [{ pax: booking.guestCount, zoneId: booking.section ?? "" }];
+
+  for (const allocation of allocations) {
+    switch (getCorporateSeatingZoneId(allocation.zoneId)) {
+      case "golden-circle":
+        totals.gc += allocation.pax;
+        break;
+      case "middle-ring":
+        totals.mr += allocation.pax;
+        break;
+      case "royal-booths":
+        totals.pb += allocation.pax;
+        break;
+      case "royal-balcony":
+        totals.rb += allocation.pax;
+        break;
+    }
+  }
+
+  return totals;
+}
+
+export function getManagementForecastZoneGuests(
+  bookings: ManagementAnalyticsBooking[],
+) {
+  return bookings.reduce(addForecastZoneGuests, emptyForecastZoneGuests());
+}
+
 function getActivityBookings(
   dataset: ManagementAnalyticsDataset,
   filters: ManagementAnalyticsFilters,
@@ -354,6 +405,7 @@ export function calculateManagementAnalytics(
     .map((show) => {
       const bookings = demandByShowId.get(show.id) ?? [];
       const summary = bookingSummary(bookings);
+      const zoneGuests = getManagementForecastZoneGuests(bookings);
       const capacity = dataset.capacityByVenue[show.venue] ?? 0;
       const occupancy = capacity > 0 ? (summary.guests / capacity) * 100 : 0;
 
@@ -380,6 +432,7 @@ export function calculateManagementAnalytics(
         showTime: show.time.slice(0, 5),
         status: show.status,
         venue: show.venue,
+        zoneGuests,
       };
     })
     .sort((left, right) =>
