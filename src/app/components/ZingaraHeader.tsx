@@ -325,7 +325,7 @@ export default function ZingaraHeader() {
           <img
             src={venueConfig.logoUrl}
             alt={venueConfig.brandTitle}
-            className={`zingara-header-logo h-auto shrink-0 object-contain drop-shadow-[0_0_18px_rgba(216,195,106,0.2)] transition duration-300 group-hover:drop-shadow-[0_0_24px_rgba(216,195,106,0.34)] ${
+            className={`${isAdminRoute ? "" : "zingara-header-logo"} h-auto shrink-0 object-contain drop-shadow-[0_0_18px_rgba(216,195,106,0.2)] transition duration-300 group-hover:drop-shadow-[0_0_24px_rgba(216,195,106,0.34)] ${
               isAdminRoute
                 ? "w-12 sm:w-14"
                 : "w-28 min-[390px]:w-32 sm:w-44"

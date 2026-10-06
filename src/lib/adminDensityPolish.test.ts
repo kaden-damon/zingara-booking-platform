@@ -62,6 +62,7 @@ test("shared branding is compact only on Admin routes", async () => {
   assert.match(header, /isAdminRoute\s*\? "py-2"/);
   assert.match(header, /isAdminRoute\s*\? "w-12 sm:w-14"/);
   assert.match(header, /: "w-28 min-\[390px\]:w-32 sm:w-44"/);
+  assert.match(header, /isAdminRoute \? "" : "zingara-header-logo"/);
   assert.match(header, /isAdminRoute\s*\? "h-10 w-10"/);
 });
 
