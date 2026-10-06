@@ -103,10 +103,11 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
 
   return {
     analytics: {
-      action: { href: "/admin?section=analytics", label: "Open Reports" },
+      action: { href: "/admin?section=reports&report=sales-performance", label: "Open Reports" },
       content: (
         <ul className="space-y-2 text-sm leading-6 text-zinc-300">
-          <li>Review show status, occupancy, booking value and payments collected.</li>
+          <li>Open Sales &amp; Performance to see a month of shows, guests, occupancy, booking value, paid and outstanding amounts.</li>
+          <li>Choose All venues, Cape Town or Johannesburg.</li>
           <li>Monitor booking activity and operational signals.</li>
           <li>Use Live Platform Activity only as the safe operational view provided.</li>
         </ul>

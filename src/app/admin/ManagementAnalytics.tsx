@@ -19,6 +19,7 @@ import { getAdminAuthSession } from "@/lib/supabase/auth";
 import ZingaraDatePicker from "./ZingaraDatePicker";
 import ReviewAnalyticsPanel from "./ReviewAnalyticsPanel";
 import WebsiteConversionPanel from "./WebsiteConversionPanel";
+import SalesPerformanceCalendar from "./SalesPerformanceCalendar";
 
 const money = new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" });
 const integer = new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 0 });
@@ -471,9 +472,11 @@ export default function ManagementAnalytics({
 
   return (
     <div className="mb-10 space-y-9 text-white">
-      <header className="border-b border-[#D8C36A]/30 pb-6">
+      <SalesPerformanceCalendar dataset={dataset} />
+
+      <header className="border-b border-[#D8C36A]/30 pb-6 pt-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">Management Analytics</p><h2 className="zingara-heading mt-2 text-3xl font-bold">Sales & Performance Demand</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Booking activity measures genuine acquisition. Performance demand measures every legitimate active guest occupying a show, including imported legacy bookings.</p></div>
+          <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#D8C36A]">Detailed Reports</p><h2 className="zingara-heading mt-2 text-3xl font-bold">Analytics &amp; Performance Demand</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Use the detailed reports below for booking activity, conversion, guest feedback and Forward Forecast.</p></div>
         </div>
         <p className="mt-3 text-xs text-zinc-500">Authoritative cutoff {new Date(dataset.asOf).toLocaleString("en-ZA", { timeZone: analyticsTimezone })} SAST</p>
       </header>

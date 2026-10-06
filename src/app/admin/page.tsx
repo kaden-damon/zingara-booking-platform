@@ -6987,6 +6987,32 @@ const academyArticles: AcademyArticle[] = [
   {
     category: "Recent Changes",
     commonMistakes: [
+      "Looking only at paid amounts when a performance also has outstanding value.",
+      "Forgetting to check the selected month and venue.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Reports, then Sales & Performance.",
+      "Choose the month and All venues, Cape Town or Johannesburg.",
+      "Review every performance with guests, occupancy, booking value, paid and outstanding amounts.",
+      "Use Forward Forecast below when you need the detailed management table or Excel export.",
+    ],
+    id: "sales-performance-calendar",
+    keywords: ["sales", "performance", "calendar", "occupancy", "booking value", "paid", "outstanding"],
+    moduleId: "recent-changes",
+    purpose: "See an entire month of performances, guests and sales performance at a glance.",
+    relatedActions: ["bookings"],
+    related: ["Analytics Overview", "Booking Reports"],
+    tips: [
+      "Guests booked includes legitimate bookings that still need a table.",
+      "The calendar is read-only and follows your existing venue access.",
+    ],
+    title: "New Sales & Performance Calendar",
+    whenToUse: "Use this for a month-at-a-time sales view.",
+  },
+  {
+    category: "Recent Changes",
+    commonMistakes: [
       "Changing normal venue prices when only one performance needs a different price.",
       "Expecting a pricing change to reprice bookings already created.",
     ],
@@ -38447,7 +38473,7 @@ export default function AdminDashboardPage() {
             >
               {(
                 [
-                  ["sales", "Sales & Demand"],
+                  ["sales", "Sales & Performance"],
                   ["revenue", "Revenue"],
                   ["reports", "Operations Reports"],
                 ] as Array<[AnalyticsWorkspace, string]>
