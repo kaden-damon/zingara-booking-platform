@@ -7,6 +7,8 @@ test("Reports categories start compact and preserve legacy tools", async () => {
 
   assert.match(admin, /useState<\s*AnalyticsSectionId\[\]\s*>\(\[\]\)/);
   assert.match(admin, /title="Legacy Reports"/);
+  assert.match(admin, /open=\{legacyReportsOpen\}/);
+  assert.match(admin, /\{legacyReportsOpen \? \(/);
   assert.match(admin, /Older reporting tools retained for historical reference\./);
   assert.match(admin, /Per-Show Booking Value/);
   assert.match(admin, /Table Plan/);

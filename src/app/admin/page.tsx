@@ -10522,6 +10522,7 @@ export default function AdminDashboardPage() {
   const [openAnalyticsSections, setOpenAnalyticsSections] = useState<
     AnalyticsSectionId[]
   >([]);
+  const [legacyReportsOpen, setLegacyReportsOpen] = useState(false);
   const [analyticsWorkspace, setAnalyticsWorkspace] =
     useState<AnalyticsWorkspace>("sales");
   const [analyticsWorkspaceLoaded, setAnalyticsWorkspaceLoaded] = useState(false);
@@ -38790,7 +38791,8 @@ export default function AdminDashboardPage() {
             )}
 
             {analyticsWorkspace === "revenue" && (
-            <AdminCollapsibleSection title="Legacy Reports" summary="Older reporting tools retained for historical reference." contentClassName="p-4 sm:p-5">
+            <AdminCollapsibleSection open={legacyReportsOpen} onOpenChange={setLegacyReportsOpen} title="Legacy Reports" summary="Older reporting tools retained for historical reference." contentClassName="p-4 sm:p-5">
+            {legacyReportsOpen ? (
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
                 <button
@@ -39199,6 +39201,7 @@ export default function AdminDashboardPage() {
                 )}
               </div>
             </div>
+            ) : null}
             </AdminCollapsibleSection>
             )}
           </section>
