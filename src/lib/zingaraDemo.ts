@@ -556,6 +556,7 @@ export type DemoShow = {
   address?: string;
   archivedAt?: string;
   description?: string;
+  customPricing?: import("@/lib/showSpecificPricing").ShowCustomPricing;
   internalNotes?: string;
   location?: EntryLocationKey;
   operationalStatus?:
@@ -700,6 +701,7 @@ export type DemoBooking = {
   agreedPriceSource?:
     | "complimentary"
     | "friends-family"
+    | "show-specific"
     | "standard-zone"
     | "temporary-table";
   pricingProvenance?: {
@@ -710,6 +712,7 @@ export type DemoBooking = {
     source:
       | "complimentary"
       | "friends-family"
+      | "show-specific"
       | "standard-zone"
       | "temporary-table";
   };

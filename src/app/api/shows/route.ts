@@ -11,6 +11,8 @@ import {
   isShowPubliclyVisible,
   isShowStaffBookable,
 } from "@/lib/publicShowSales";
+import type { ShowCustomPricing } from "@/lib/showSpecificPricing";
+import { loadShowCustomPricingMap } from "@/lib/supabase/showSpecificPricingServer";
 
 export const dynamic = "force-dynamic";
 
@@ -65,13 +67,17 @@ function getPublicShowStatus(
   return status;
 }
 
-function toPublicShow(row: PublicShowRow): DemoShow {
+function toPublicShow(
+  row: PublicShowRow,
+  customPricing?: ShowCustomPricing,
+): DemoShow {
   const metadata = getPublicShowMetadata(row.notes);
   const location = normalizeShowLocation(row.venue);
 
   return {
     address: metadata.address || (location ? "" : row.venue),
     archivedAt: row.status === "archived" ? row.updated_at : undefined,
+    customPricing,
     date: row.date,
     description: row.description ?? "",
     id: metadata.legacyId || row.id,
@@ -132,13 +138,19 @@ export async function GET(request: Request) {
     );
   }
 
+  const showRows = (data ?? []) as PublicShowRow[];
+  const customPricingByShowId = await loadShowCustomPricingMap(
+    serviceClient,
+    showRows.map((show) => show.id),
+  );
+
   return Response.json({
-    shows: ((data ?? []) as PublicShowRow[])
+    shows: showRows
       .filter((show) =>
         operationalScope
           ? isShowStaffBookable(show.status)
           : isShowPubliclyVisible(show.status),
       )
-      .map(toPublicShow),
+      .map((show) => toPublicShow(show, customPricingByShowId.get(show.id))),
   });
 }

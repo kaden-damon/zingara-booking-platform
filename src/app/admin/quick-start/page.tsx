@@ -131,7 +131,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
             <li>Review booking, payment, table and ticket status before changing anything.</li>
             <li>Save only the required changes.</li>
           </Steps>
-          <Note>Source / Created By shows where the booking came from.</Note>
+          <Note>Source / Created By shows where the booking came from. A show with Custom Pricing displays that performance&apos;s approved price automatically.</Note>
         </div>
       ),
       id: "bookings",
@@ -163,7 +163,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
             <li>Choose the payment option, review the summary and create the booking.</li>
             <li>Check for an existing record before creating anything new.</li>
           </Steps>
-          <Note>Corporate payment follows separately and an unpaid Corporate booking does not auto-expire.</Note>
+          <Note>Corporate payment follows separately and an unpaid Corporate booking does not auto-expire. An explicit agreed Corporate price remains authoritative.</Note>
         </div>
       ),
       id: "corporate",

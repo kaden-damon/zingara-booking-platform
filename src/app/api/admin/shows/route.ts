@@ -22,6 +22,8 @@ import {
 } from "@/lib/supabase/serverAudit";
 import { notifyAppleWalletShow } from "@/lib/appleWalletSync";
 import { after } from "next/server";
+import type { ShowCustomPricing } from "@/lib/showSpecificPricing";
+import { loadShowCustomPricingMap } from "@/lib/supabase/showSpecificPricingServer";
 
 export const dynamic = "force-dynamic";
 
@@ -187,7 +189,10 @@ function serializeShowNotes(show: DemoShow) {
   })}`;
 }
 
-function toDemoShow(row: SupabaseShowRow): DemoShow {
+function toDemoShow(
+  row: SupabaseShowRow,
+  customPricing?: ShowCustomPricing,
+): DemoShow {
   const notes = parseShowNotes(row.notes);
   const location = normalizeShowLocation(row.venue);
   const legacyAddress = location ? "" : row.venue;
@@ -195,6 +200,7 @@ function toDemoShow(row: SupabaseShowRow): DemoShow {
   return {
     archivedAt: row.status === "archived" ? row.updated_at : undefined,
     address: notes.address || legacyAddress,
+    customPricing,
     date: row.date,
     description: row.description ?? "",
     id: notes.legacyId || row.id,
@@ -576,7 +582,13 @@ export async function GET(request: Request) {
     const tableShow = url.searchParams.get("tableShow");
     const metadataOnly = url.searchParams.get("metadataOnly") === "1";
     const showRows = await loadShowRows();
-    const shows = showRows.map(toDemoShow);
+    const customPricingByShowId = await loadShowCustomPricingMap(
+      auth.serviceClient,
+      showRows.map((row) => row.id),
+    );
+    const shows = showRows.map((row) =>
+      toDemoShow(row, customPricingByShowId.get(row.id)),
+    );
 
     if (metadataOnly) {
       return Response.json({ shows, tables: [] });
@@ -775,7 +787,13 @@ export async function PUT(request: Request) {
     }
 
     const persistedRows = await loadShowRows();
-    const persistedShows = persistedRows.map(toDemoShow);
+    const customPricingByShowId = await loadShowCustomPricingMap(
+      auth.serviceClient,
+      persistedRows.map((row) => row.id),
+    );
+    const persistedShows = persistedRows.map((row) =>
+      toDemoShow(row, customPricingByShowId.get(row.id)),
+    );
     const existingRowsById = new Map(existingRows.map((row) => [row.id, row]));
     const persistedRowsByDemoId = new Map(
       persistedRows.map((row) => [getShowReference(row), row]),
@@ -989,7 +1007,14 @@ export async function PATCH(request: Request) {
       });
     }
 
-    return Response.json({ show: toDemoShow(afterRow) });
+    const customPricingByShowId = await loadShowCustomPricingMap(
+      auth.serviceClient,
+      [afterRow.id],
+    );
+
+    return Response.json({
+      show: toDemoShow(afterRow, customPricingByShowId.get(afterRow.id)),
+    });
   } catch (error) {
     console.error("[Zingara API] Failed to update show", error);
     return Response.json({ error: "Show could not be saved." }, { status: 500 });

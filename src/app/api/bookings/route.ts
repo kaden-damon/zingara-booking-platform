@@ -98,6 +98,8 @@ import {
   validateCorporateZoneEntitlements,
 } from "@/lib/corporateZoneEntitlements";
 import { findPotentialInternalBookingDuplicates } from "@/lib/supabase/duplicateIntegrityServer";
+import { getShowSpecificZonePrice } from "@/lib/showSpecificPricing";
+import { loadShowCustomPricing } from "@/lib/supabase/showSpecificPricingServer";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 import { isPublicZoneSalesOpen } from "@/lib/supabase/publicShowAvailability";
 import {
@@ -1363,6 +1365,21 @@ async function withAuthoritativePublicPricing(
   }
 
   const settings = await loadVenueSettings(supabase);
+  let resolvedPricePerPerson = authoritativePricePerPerson;
+  let resolvedPriceSource = agreedPriceSource;
+
+  if (resolvedPricePerPerson === undefined) {
+    const customPricing = await loadShowCustomPricing(supabase, show.id);
+    const showSpecificPrice = getShowSpecificZonePrice(
+      { customPricing },
+      booking.zoneId,
+    );
+
+    if (showSpecificPrice !== null) {
+      resolvedPricePerPerson = showSpecificPrice;
+      resolvedPriceSource = "show-specific";
+    }
+  }
   const remainingSeats = await getRemainingSeatsForServerPricing(
     supabase,
     show.id,
@@ -1371,7 +1388,7 @@ async function withAuthoritativePublicPricing(
   );
   const preliminaryPricing = calculatePublicBookingPricing({
     addons: booking.addons,
-    authoritativePricePerPerson,
+    authoritativePricePerPerson: resolvedPricePerPerson,
     partySize: booking.partySize,
     paymentOption: booking.paymentOption,
     remainingSeats,
@@ -1387,7 +1404,7 @@ async function withAuthoritativePublicPricing(
   });
   const pricing = calculatePublicBookingPricing({
     addons: booking.addons,
-    authoritativePricePerPerson,
+    authoritativePricePerPerson: resolvedPricePerPerson,
     partySize: booking.partySize,
     paymentOption: booking.paymentOption,
     promo: promo.status === "valid" ? promo : null,
@@ -1405,7 +1422,7 @@ async function withAuthoritativePublicPricing(
 
   return {
     ...booking,
-    agreedPriceSource,
+    agreedPriceSource: resolvedPriceSource,
     addons: pricing.addons,
     addonsTotal: pricing.addonsTotal,
     balanceDue: pricing.total,
@@ -1420,7 +1437,7 @@ async function withAuthoritativePublicPricing(
       depositPerPerson:
         booking.partySize > 0 ? pricing.depositAmount / booking.partySize : 0,
       paymentModel: booking.paymentOption === "deposit" ? "deposit" : "full",
-      source: agreedPriceSource,
+      source: resolvedPriceSource,
     },
     promoCode: promo.status === "valid" ? promo.code : undefined,
     promoCodeId: promo.status === "valid" ? promo.promoCodeId : undefined,
@@ -2097,6 +2114,10 @@ export async function POST(request: Request) {
       (isAwaitingExternalPayment(booking) ||
         isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis))
     ) {
+      const submittedPricePerPerson = Number(booking.pricePerPerson);
+      const hasExplicitStaffRate = Boolean(
+        staffPricingRate || customPricedTemporaryTable?.customPricePerPerson,
+      );
       booking = await withAuthoritativePublicPricing(
         supabase,
         booking,
@@ -2105,6 +2126,22 @@ export async function POST(request: Request) {
         agreedPriceSource,
         staffProfileId ?? undefined,
       );
+
+      if (
+        !hasExplicitStaffRate &&
+        Number.isFinite(submittedPricePerPerson) &&
+        submittedPricePerPerson > 0 &&
+        Math.abs(submittedPricePerPerson - booking.pricePerPerson) >= 0.01
+      ) {
+        return Response.json(
+          {
+            code: "BOOKING_PRICE_CHANGED",
+            error:
+              "The price changed while you were booking. Review the latest total and try again.",
+          },
+          { status: 409 },
+        );
+      }
     }
 
     if (isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis)) {

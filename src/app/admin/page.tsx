@@ -24,6 +24,7 @@ import SecretPasswordSettings from "./SecretPasswordSettings";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
 import DineplanReconciliation from "./DineplanReconciliation";
 import ShowZoneSalesControls from "./ShowZoneSalesControls";
+import ShowCustomPricingControls from "./ShowCustomPricingControls";
 import { StaffActionGuidanceAlert } from "./StaffActionGuidanceAlert";
 import { StaffOnboardingTour } from "./StaffOnboardingTour";
 import { DailyBookingReviewWorkflowCard } from "./DailyBookingReviewWorkflowCard";
@@ -6983,6 +6984,32 @@ const faqLessons: AcademyArticle[] = [
 ];
 
 const academyArticles: AcademyArticle[] = [
+  {
+    category: "Recent Changes",
+    commonMistakes: [
+      "Changing normal venue prices when only one performance needs a different price.",
+      "Expecting a pricing change to reprice bookings already created.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Show & Availability Management and edit the performance.",
+      "Turn on Custom Pricing and enter only the seating-section prices that differ.",
+      "Review the performance, date, time and final prices.",
+      "Confirm Pricing. New bookings use the new price; existing bookings keep their saved price.",
+    ],
+    id: "show-specific-custom-pricing",
+    keywords: ["custom pricing", "show price", "performance price", "special date", "existing bookings"],
+    moduleId: "recent-changes",
+    purpose: "Set approved seating prices for one performance without changing normal venue pricing.",
+    relatedActions: ["bookings"],
+    related: ["Creating Bookings Is Simpler", "Venue Configuration"],
+    tips: [
+      "A blank seating section continues using its normal price.",
+      "Pricing does not change show status, capacity or website availability.",
+    ],
+    title: "Custom Pricing for One Show",
+    whenToUse: "Use this for approved premium or special-performance pricing.",
+  },
   {
     category: "Recent Changes",
     commonMistakes: [
@@ -38272,6 +38299,27 @@ export default function AdminDashboardPage() {
                     />
                   </label>
                 </div>
+
+                <ShowCustomPricingControls
+                  key={`${editingShow.id}:${editingShow.customPricing?.updatedAt ?? "new"}`}
+                  defaultPrices={Object.fromEntries(
+                    seatingZones.map((zone) => [
+                      zone.id,
+                      getConfiguredZonePrice(venueSettings, zone),
+                    ]),
+                  ) as Record<SeatingZoneId, number>}
+                  disabled={isEditingShowReadOnly || !activeShowEditLock}
+                  show={editingShow}
+                  onSaved={(customPricing) => {
+                    setShows((currentShows) =>
+                      currentShows.map((show) =>
+                        show.id === editingShow.id
+                          ? { ...show, customPricing }
+                          : show,
+                      ),
+                    );
+                  }}
+                />
 
                 <ShowZoneSalesControls
                   disabled={isEditingShowReadOnly || !activeShowEditLock}

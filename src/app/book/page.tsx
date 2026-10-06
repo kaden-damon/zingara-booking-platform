@@ -89,6 +89,10 @@ import {
 import { calculatePayFastTransactionAmounts } from "../../lib/payfast/transactionFee";
 import { getTemporaryTablePricePerPerson } from "../../lib/temporaryTablePricing";
 import {
+  getShowSpecificZonePrice,
+  resolveShowZonePrice,
+} from "../../lib/showSpecificPricing";
+import {
   hasValidCalendarBookingContext,
   type CalendarBookingLockContext,
 } from "../../lib/showBookingCreation";
@@ -830,8 +834,17 @@ export default function BookingPage() {
     }
   }, [enabledSeatingZoneIds, previewSeatingZone, selectedZone]);
 
+  const selectedShow = shows.find(
+    (show) => show.id === selectedShowId,
+  );
+  const getDisplayedZonePrice = (zone: SeatingZone) =>
+    resolveShowZonePrice({
+      defaultPrice: getConfiguredZonePrice(venueConfig, zone),
+      show: selectedShow,
+      zoneId: zone.id,
+    });
   const configuredZonePrice = selectedZone
-    ? getConfiguredZonePrice(venueConfig, selectedZone)
+    ? getDisplayedZonePrice(selectedZone)
     : 0;
   const selectedTemporaryTable = customPricedTemporaryTables.find(
     (table) => table.id === selectedTemporaryTableId,
@@ -941,10 +954,6 @@ export default function BookingPage() {
     : isCorporateInvoicePaid
       ? 0
       : Math.max(total - amountDueNow, 0);
-  const selectedShow = shows.find(
-    (show) => show.id === selectedShowId,
-  );
-
   useEffect(() => {
     if (!selectedShow) {
       setOccupiedSeatsByZone({});
@@ -2310,6 +2319,8 @@ export default function BookingPage() {
         ? ("temporary-table" as const)
         : isFriendsAndFamily
           ? ("friends-family" as const)
+          : getShowSpecificZonePrice(selectedShow, selectedZone.id) !== null
+            ? ("show-specific" as const)
           : ("standard-zone" as const),
       reservationTableClaims: selectedTemporaryTable
         ? [
@@ -2414,6 +2425,24 @@ export default function BookingPage() {
         true,
       );
     }
+  }
+
+  async function refreshShowPricingAfterConflict(error: unknown) {
+    const message = error instanceof Error ? error.message : "";
+    if (!message.toLowerCase().includes("price changed")) {
+      return false;
+    }
+
+    try {
+      const refreshedShows = await getPublicShows({
+        operational: Boolean(calendarBookingContext),
+      });
+      setShows(refreshedShows);
+    } catch (refreshError) {
+      console.error("[Zingara Booking] Failed to refresh changed pricing", refreshError);
+    }
+
+    return true;
   }
 
   async function handlePayFastCheckout() {
@@ -2591,9 +2620,10 @@ export default function BookingPage() {
       const isAvailabilityConflict = message
         .toLowerCase()
         .includes("reserved by another guest");
+      const isPriceConflict = await refreshShowPricingAfterConflict(error);
 
       setPaymentRedirectStatus(
-        isAvailabilityConflict
+        isAvailabilityConflict || isPriceConflict
           ? message
           : `Payment could not be started. ${message}`,
       );
@@ -2652,6 +2682,7 @@ export default function BookingPage() {
       setIsConfirmationOpen(true);
       setActiveBookingStep(4);
     } catch (error) {
+      await refreshShowPricingAfterConflict(error);
       setPaymentRedirectStatus(
         error instanceof Error
           ? error.message
@@ -2742,6 +2773,7 @@ export default function BookingPage() {
       });
       setManualPaymentLinkStatus("PAYMENT LINK CREATED ✓");
     } catch (error) {
+      await refreshShowPricingAfterConflict(error);
       setManualPaymentLinkStatus(
         error instanceof Error
           ? error.message
@@ -4180,7 +4212,7 @@ export default function BookingPage() {
                       </p>
                       <p className="mt-2 text-sm font-semibold text-[#F2D66C]">
                         {formatCurrency(
-                          getConfiguredZonePrice(venueConfig, selectedZone),
+                          getDisplayedZonePrice(selectedZone),
                         )}{isStaffBookingJourney ? " per guest" : ` pp · ${availability.remainingSeats} Seats Available`}
                       </p>
                       {staffAvailability && (
@@ -5127,10 +5159,7 @@ export default function BookingPage() {
                     </span>
                     <p className="mt-3 text-sm font-semibold text-[#F2D66C]">
                       {formatCurrency(
-                        getConfiguredZonePrice(
-                          venueConfig,
-                          previewSeatingZone,
-                        ),
+                        getDisplayedZonePrice(previewSeatingZone),
                       )}{isStaffBookingJourney ? " per guest" : ` pp · ${availability.remainingSeats} Seats Available`}
                     </p>
                     {staffAvailability && (
