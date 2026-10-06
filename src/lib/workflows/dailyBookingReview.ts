@@ -388,9 +388,10 @@ async function loadReports(client: SupabaseClient, now = new Date()): Promise<Re
       const tables = [...new Set(tableCodes.get(booking.id) ?? [])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       const attention: string[] = [];
       const moved = recentMoveIds.has(booking.id);
+      const historicalDisposition = Boolean(replacementReference) || ["cancelled", "refunded"].includes(booking.booking_status);
       if (replacementReference) attention.push(`Replaced by ${replacementReference}`);
-      else if (booking.booking_status === "cancelled") attention.push("Booking cancelled");
-      else if (booking.booking_status === "refunded") attention.push("Booking refunded");
+      else if (booking.booking_status === "cancelled") attention.push("Cancelled record");
+      else if (booking.booking_status === "refunded") attention.push("Refunded record");
       if (moved) attention.push("Booking moved");
       if (active && tables.length === 0) attention.push(booking.table_id ? "Table issue" : "Table needed");
       if (active && Number(booking.balance_outstanding) > 0) {
@@ -399,12 +400,22 @@ async function loadReports(client: SupabaseClient, now = new Date()): Promise<Re
       }
       const currentReference = replacementReference ?? booking.booking_reference;
       const guestName = booking.customer_id ? customerMap.get(booking.customer_id) : null;
-      const tableState = tables.length === 0 ? (booking.table_id ? "Table issue" : "Table needed") : `${tables.length === 1 ? "Table" : "Tables"} ${tables.join(" + ")}`;
+      const tableState = historicalDisposition
+        ? "Not required"
+        : tables.length === 0
+          ? (booking.table_id ? "Table issue" : "Table needed")
+          : `${tables.length === 1 ? "Table" : "Tables"} ${tables.join(" + ")}`;
       return [{
         attention,
         bookingId: booking.id,
         bookingReference: booking.booking_reference,
-        bookingState: replacementReference ? `Replaced by ${replacementReference}` : bookingLabel(booking.booking_status),
+        bookingState: replacementReference
+          ? `Replaced by ${replacementReference}`
+          : booking.booking_status === "cancelled"
+            ? "Cancelled record"
+            : booking.booking_status === "refunded"
+              ? "Refunded record"
+              : bookingLabel(booking.booking_status),
         currentReference,
         guestCount: booking.guest_count,
         guestOrCompany: booking.company_name?.trim() || guestName || "Guest",

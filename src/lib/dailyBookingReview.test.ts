@@ -47,10 +47,18 @@ test("large creator portfolios hydrate related records in bounded batches", () =
 
 test("moved, cancelled, duplicate and authoritative replacement states are explicit", () => {
   assert.match(workflow, /booking\.show-transfer/);
-  assert.match(workflow, /Booking cancelled/);
+  assert.match(workflow, /Cancelled record/);
   assert.match(workflow, /duplicate_booking_review_dispositions/);
   assert.match(workflow, /public_checkout_superseded_by/);
   assert.match(workflow, /Replaced by/);
+});
+
+test("historical dispositions cannot look like current bookings needing a table", () => {
+  assert.match(workflow, /historicalDisposition/);
+  assert.match(workflow, /\["cancelled", "refunded"\]/);
+  assert.match(workflow, /historicalDisposition\s*\? "Not required"/);
+  assert.match(workflow, /booking\.booking_status === "cancelled"[\s\S]*"Cancelled record"/);
+  assert.match(workflow, /booking\.booking_status === "refunded"[\s\S]*"Refunded record"/);
 });
 
 test("Corporate outstanding balances use follow-up semantics rather than expiry warnings", () => {
