@@ -31,22 +31,22 @@ test("active link lookup is authenticated and permission protected", async () =>
   assert.match(getBranch, /loadLatestPaymentLinkForBooking/);
 });
 
-test("managed lookup returns authoritative bounded outstanding and booking linkage", async () => {
+test("managed lookup preserves the historical configured amount and booking linkage", async () => {
   const route = await source("../app/api/admin/bookings/payment-link/route.ts");
   const helper = await source("./payment-links/customerPaymentLinks.ts");
 
   assert.match(route, /getPaymentLinkCheckoutAmount\(link, booking\)/);
   assert.match(route, /loadBookingForPaymentLink\(serviceClient, bookingReference\)/);
-  assert.match(helper, /Math\.min\(configuredAmount, outstandingAmount\)/);
+  assert.match(helper, /return configuredAmount/);
   assert.match(helper, /\.eq\("booking_id", bookingId\)/);
 });
 
-test("expired revoked and paid links are not exposed as usable URLs", async () => {
+test("revoked links stay revoked and used links are the only paid link state", async () => {
   const route = await source("../app/api/admin/bookings/payment-link/route.ts");
   const helper = await source("./payment-links/customerPaymentLinks.ts");
 
-  assert.match(helper, /link\.status === "used".*getOutstandingAmount\(booking\) <= 0/s);
-  assert.match(helper, /link\.status === "revoked"/);
+  assert.ok(helper.indexOf('link.status === "revoked"') < helper.indexOf('link.status === "used"'));
+  assert.doesNotMatch(helper, /getOutstandingAmount\(booking\) <= 0/);
   assert.match(helper, /link\.status === "expired"/);
   assert.match(route, /status === "active"[\s\S]*getManagedLinkToken\(link, booking\.notes\)/);
   assert.match(route, /function getManagedLinkToken[\s\S]*openPaymentLinkToken/);

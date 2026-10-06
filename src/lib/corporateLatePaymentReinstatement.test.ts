@@ -130,11 +130,15 @@ test("expired payment does not send guest communications before reinstatement", 
   assert.match(page, /Recording this EFT payment does not restore booking entitlement/);
 });
 
-test("Mark Paid reuses the original RPC for every non-expired workflow", async () => {
+test("all future manual EFT payments use the structured evidence-backed RPC", async () => {
   const route = await source("src/app/api/admin/bookings/mark-paid/route.ts");
-  assert.match(route, /isSystemExpiredCorporate/);
-  assert.match(route, /record_expired_corporate_payment_atomic/);
-  assert.match(route, /: await auth\.serviceClient\.rpc\("mark_booking_paid_atomic"/);
+  assert.match(route, /record_manual_eft_payment_atomic/);
+  assert.match(route, /p_amount_received: amountReceived/);
+  assert.match(route, /p_received_on: receivedOn/);
+  assert.match(route, /p_bank_reference: bankReference/);
+  assert.match(route, /p_confirmed: true/);
+  assert.doesNotMatch(route, /record_expired_corporate_payment_atomic/);
+  assert.doesNotMatch(route, /mark_booking_paid_atomic/);
 });
 
 test("the existing seven-day policy and Standard expiry migrations are untouched", async () => {

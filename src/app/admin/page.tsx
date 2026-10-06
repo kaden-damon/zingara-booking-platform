@@ -11010,8 +11010,12 @@ export default function AdminDashboardPage() {
   const [isCompBookingProcessing, setIsCompBookingProcessing] =
     useState(false);
   const [markPaidConfirmation, setMarkPaidConfirmation] = useState<{
+    amountReceived: string;
+    bankReference: string;
+    confirmed: boolean;
+    evidenceNote: string;
     idempotencyKey: string;
-    reason: string;
+    receivedOn: string;
     reference: string;
   } | null>(null);
   const [isMarkPaidProcessing, setIsMarkPaidProcessing] = useState(false);
@@ -18772,7 +18776,7 @@ export default function AdminDashboardPage() {
   }
 
   function openMarkPaidConfirmation(booking: DemoBooking) {
-    if (!canManageBookings || isBookingReadOnly(booking.reference)) {
+    if (!canReconcileBookings || isBookingReadOnly(booking.reference)) {
       if (isBookingReadOnly(booking.reference)) {
         showWorkflowToast("This booking is currently being edited.");
       }
@@ -18808,11 +18812,18 @@ export default function AdminDashboardPage() {
     }
 
     setMarkPaidConfirmation({
+      amountReceived: calculateOutstandingAmount(
+        financials.totalPrice,
+        financials.amountPaid,
+      ).toFixed(2),
+      bankReference: "",
+      confirmed: false,
+      evidenceNote: "",
       idempotencyKey:
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : `mark-paid-${booking.reference}-${Date.now()}`,
-      reason: "",
+      receivedOn: getJohannesburgDateKey(new Date()),
       reference: booking.reference,
     });
   }
@@ -18829,8 +18840,18 @@ export default function AdminDashboardPage() {
     const booking = bookings.find(
       (candidate) => candidate.reference === markPaidConfirmation.reference,
     );
-    const reason = markPaidConfirmation.reason.trim();
-    if (!booking?.updatedAt || reason.length < 3) return;
+    const amountReceived = Number(markPaidConfirmation.amountReceived);
+    const bankReference = markPaidConfirmation.bankReference.trim();
+    const evidenceNote = markPaidConfirmation.evidenceNote.trim();
+    if (
+      !booking?.updatedAt ||
+      !Number.isFinite(amountReceived) ||
+      amountReceived <= 0 ||
+      !markPaidConfirmation.receivedOn ||
+      bankReference.length < 3 ||
+      evidenceNote.length < 3 ||
+      !markPaidConfirmation.confirmed
+    ) return;
 
     setIsMarkPaidProcessing(true);
     try {
@@ -18846,10 +18867,14 @@ export default function AdminDashboardPage() {
         };
       }>("/api/admin/bookings/mark-paid", {
         body: {
+          amountReceived,
+          bankReference,
           bookingReference: booking.reference,
+          confirmed: true,
+          evidenceNote,
           expectedUpdatedAt: booking.updatedAt,
           idempotencyKey: markPaidConfirmation.idempotencyKey,
-          reason,
+          receivedOn: markPaidConfirmation.receivedOn,
         },
         method: "POST",
       });
@@ -30417,20 +30442,19 @@ export default function AdminDashboardPage() {
 
             return (
               <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
-                <section className="w-full max-w-xl rounded-[2rem] border border-emerald-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
+                <section className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[2rem] border border-emerald-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
                   <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-200">
                     {markPaidBooking?.status === "cancelled" &&
                     markPaidBooking.corporatePaymentExpiredAt
                       ? "Record Late Corporate EFT"
-                      : "Record Manual Full Payment"}
+                      : "Record Manual EFT"}
                   </p>
                   <h2 className="mt-3 text-2xl font-bold">
                     {markPaidBooking?.customer.name ?? "Mark Booking Paid"}
                   </h2>
                   <p className="mt-3 text-sm leading-6 text-zinc-300">
-                    Use this only when the full outstanding balance was received
-                    outside the normal PayFast confirmation flow. The payment is
-                    recorded only after the authoritative transaction commits.
+                    Record only money confirmed in the bank. A proof of payment
+                    on its own is not proof that the money was received.
                   </p>
                   {markPaidBooking?.status === "cancelled" &&
                     markPaidBooking.corporatePaymentExpiredAt && (
@@ -30457,27 +30481,100 @@ export default function AdminDashboardPage() {
                       </div>
                       <div>
                         <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Method</p>
-                        <p className="mt-1 font-semibold text-white">Manual / EFT</p>
+                        <p className="mt-1 font-semibold text-white">EFT</p>
                       </div>
                     </div>
                   )}
 
-                  <label className="mt-5 block">
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                        Amount received
+                      </span>
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={markPaidConfirmation.amountReceived}
+                        onChange={(event) =>
+                          setMarkPaidConfirmation((current) =>
+                            current ? { ...current, amountReceived: event.target.value } : current,
+                          )
+                        }
+                        disabled={isMarkPaidProcessing}
+                        className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                        Date received
+                      </span>
+                      <input
+                        type="date"
+                        value={markPaidConfirmation.receivedOn}
+                        onChange={(event) =>
+                          setMarkPaidConfirmation((current) =>
+                            current ? { ...current, receivedOn: event.target.value } : current,
+                          )
+                        }
+                        disabled={isMarkPaidProcessing}
+                        className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="mt-4 block">
                     <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Payment evidence / reason
+                      Bank reference
                     </span>
-                    <textarea
-                      value={markPaidConfirmation.reason}
+                    <input
+                      value={markPaidConfirmation.bankReference}
                       onChange={(event) =>
                         setMarkPaidConfirmation((current) =>
-                          current ? { ...current, reason: event.target.value } : current,
+                          current ? { ...current, bankReference: event.target.value } : current,
+                        )
+                      }
+                      maxLength={120}
+                      disabled={isMarkPaidProcessing}
+                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Bank transaction or statement reference"
+                    />
+                  </label>
+
+                  <label className="mt-4 block">
+                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Evidence note
+                    </span>
+                    <textarea
+                      value={markPaidConfirmation.evidenceNote}
+                      onChange={(event) =>
+                        setMarkPaidConfirmation((current) =>
+                          current ? { ...current, evidenceNote: event.target.value } : current,
                         )
                       }
                       rows={3}
                       disabled={isMarkPaidProcessing}
                       className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
-                      placeholder="Record the authorised EFT, invoice, cash or other manual payment evidence."
+                      placeholder="Where the bank receipt was verified and any useful context."
                     />
+                  </label>
+
+                  <label className="mt-4 flex items-start gap-3 rounded-2xl border border-emerald-300/25 bg-emerald-950/15 p-4 text-sm leading-6 text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={markPaidConfirmation.confirmed}
+                      onChange={(event) =>
+                        setMarkPaidConfirmation((current) =>
+                          current ? { ...current, confirmed: event.target.checked } : current,
+                        )
+                      }
+                      disabled={isMarkPaidProcessing}
+                      className="mt-1 h-4 w-4 accent-emerald-300"
+                    />
+                    <span>
+                      I confirm {markPaidBooking?.customer.name ?? "this customer"}&apos;s EFT of {formatCurrency(Number(markPaidConfirmation.amountReceived) || 0)} was received on {markPaidConfirmation.receivedOn || "the selected date"} with bank reference {markPaidConfirmation.bankReference.trim() || "not entered"}.
+                      This will reduce the booking&apos;s outstanding balance.
+                    </span>
                   </label>
 
                   <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -30494,7 +30591,12 @@ export default function AdminDashboardPage() {
                       onClick={() => void confirmMarkPaid()}
                       disabled={
                         isMarkPaidProcessing ||
-                        markPaidConfirmation.reason.trim().length < 3
+                        !Number.isFinite(Number(markPaidConfirmation.amountReceived)) ||
+                        Number(markPaidConfirmation.amountReceived) <= 0 ||
+                        !markPaidConfirmation.receivedOn ||
+                        markPaidConfirmation.bankReference.trim().length < 3 ||
+                        markPaidConfirmation.evidenceNote.trim().length < 3 ||
+                        !markPaidConfirmation.confirmed
                       }
                       className="rounded-full border border-emerald-300/45 bg-emerald-300 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -30503,7 +30605,7 @@ export default function AdminDashboardPage() {
                         : markPaidBooking?.status === "cancelled" &&
                             markPaidBooking.corporatePaymentExpiredAt
                           ? "Confirm Late EFT"
-                          : "Confirm Mark Paid"}
+                          : "Confirm EFT Received"}
                     </button>
                   </div>
                 </section>
@@ -45104,18 +45206,6 @@ export default function AdminDashboardPage() {
                               )}
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateBookingPayment(
-                                    booking,
-                                    "deposit-paid",
-                                  )
-                                }
-                                className="rounded-full border border-amber-300/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-amber-100 transition hover:bg-amber-300 hover:text-black"
-                              >
-                                Mark Deposit Paid
-                              </button>
                               {canReconcileBookings && (
                                 <>
                                   <button
@@ -45213,26 +45303,28 @@ export default function AdminDashboardPage() {
                                   )}
                                 </>
                               )}
-                              <button
-                                type="button"
-                                onClick={() => openMarkPaidConfirmation(booking)}
-                                disabled={
-                                  isMarkPaidProcessing ||
-                                  financials.paymentStatus === "fully-paid" ||
-                                  calculateOutstandingAmount(
-                                    financials.totalPrice,
-                                    financials.amountPaid,
-                                  ) <= 0
-                                }
-                                className="rounded-full border border-emerald-300/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-emerald-100 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {isMarkPaidProcessing &&
-                                markPaidConfirmation?.reference === booking.reference
-                                  ? "Recording..."
-                                  : isSystemExpiredCorporate
-                                    ? "Record Late EFT"
-                                    : "Mark Paid"}
-                              </button>
+                              {canReconcileBookings && (
+                                <button
+                                  type="button"
+                                  onClick={() => openMarkPaidConfirmation(booking)}
+                                  disabled={
+                                    isMarkPaidProcessing ||
+                                    financials.paymentStatus === "fully-paid" ||
+                                    calculateOutstandingAmount(
+                                      financials.totalPrice,
+                                      financials.amountPaid,
+                                    ) <= 0
+                                  }
+                                  className="rounded-full border border-emerald-300/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-emerald-100 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {isMarkPaidProcessing &&
+                                  markPaidConfirmation?.reference === booking.reference
+                                    ? "Recording..."
+                                    : isSystemExpiredCorporate
+                                      ? "Record Late EFT"
+                                      : "Record EFT"}
+                                </button>
+                              )}
 	                              {isSystemExpiredCorporate && (
 	                                <button
 	                                  type="button"

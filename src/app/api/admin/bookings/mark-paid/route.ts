@@ -12,10 +12,14 @@ import {
 export const dynamic = "force-dynamic";
 
 type MarkPaidBody = {
+  amountReceived?: number;
+  bankReference?: string;
   bookingReference?: string;
+  confirmed?: boolean;
+  evidenceNote?: string;
   expectedUpdatedAt?: string;
   idempotencyKey?: string;
-  reason?: string;
+  receivedOn?: string;
 };
 
 type MarkPaidResult = {
@@ -59,6 +63,28 @@ function rpcErrorResponse(error: { message?: string }) {
     );
   }
 
+  if (message.includes("MANUAL_EFT_REFERENCE_DUPLICATE")) {
+    return Response.json(
+      {
+        code: "MANUAL_EFT_REFERENCE_DUPLICATE",
+        error: "This bank reference has already been recorded.",
+        explanation: "Review the existing payment before recording anything else.",
+      },
+      { status: 409 },
+    );
+  }
+
+  if (message.includes("MANUAL_EFT_EXCEEDS_OUTSTANDING")) {
+    return Response.json(
+      {
+        code: "MANUAL_EFT_EXCEEDS_OUTSTANDING",
+        error: "The amount received is more than the outstanding balance.",
+        explanation: "Check the amount and the latest booking balance before continuing.",
+      },
+      { status: 409 },
+    );
+  }
+
   if (message.includes("SHOW_OUTSIDE_STAFF_SCOPE")) {
     return Response.json(
       { code: "SHOW_OUTSIDE_STAFF_SCOPE", error: "This booking is outside your assigned location." },
@@ -66,24 +92,12 @@ function rpcErrorResponse(error: { message?: string }) {
     );
   }
 
-  if (message.includes("MARK_PAID_NOT_ALLOWED")) {
+  if (message.includes("MANUAL_EFT_NOT_ALLOWED")) {
     return Response.json(
       {
         code: "MARK_PAID_NOT_ALLOWED",
-        error: "This booking cannot be manually marked paid in its current state.",
+        error: "A manual EFT cannot be recorded for this booking in its current state.",
         explanation: "Review the booking lifecycle and payment controls before trying another action.",
-      },
-      { status: 409 },
-    );
-  }
-
-  if (message.includes("EXPIRED_CORPORATE_PAYMENT_NOT_ALLOWED")) {
-    return Response.json(
-      {
-        code: "EXPIRED_CORPORATE_PAYMENT_NOT_ALLOWED",
-        error: "Late EFT recording is not available for this cancellation.",
-        explanation:
-          "Only Corporate bookings released by the automated payment-deadline workflow can use this payment path.",
       },
       { status: 409 },
     );
@@ -93,8 +107,8 @@ function rpcErrorResponse(error: { message?: string }) {
     return Response.json({ code: "BOOKING_NOT_FOUND", error: "Booking could not be resolved." }, { status: 404 });
   }
 
-  if (message.includes("MARK_PAID_PERMISSION_REQUIRED")) {
-    return Response.json({ error: "Booking management access is required." }, { status: 403 });
+  if (message.includes("MANUAL_EFT_PERMISSION_REQUIRED")) {
+    return Response.json({ error: "Booking reconciliation access is required." }, { status: 403 });
   }
 
   return null;
@@ -109,27 +123,36 @@ export async function POST(request: Request) {
   const role = Array.isArray(auth.staffProfile.roles)
     ? auth.staffProfile.roles[0]
     : auth.staffProfile.roles;
-  if (!getRolePermissions(role).includes("bookings:manage")) {
-    return Response.json({ error: "Booking management access is required." }, { status: 403 });
+  if (!getRolePermissions(role).includes("bookings:reconcile")) {
+    return Response.json({ error: "Booking reconciliation access is required." }, { status: 403 });
   }
 
   try {
     const body = (await request.json().catch(() => ({}))) as MarkPaidBody;
     const bookingReference = body.bookingReference?.trim().toUpperCase() ?? "";
+    const amountReceived = Number(body.amountReceived);
+    const bankReference = body.bankReference?.trim() ?? "";
+    const evidenceNote = body.evidenceNote?.trim() ?? "";
     const expectedUpdatedAt = body.expectedUpdatedAt?.trim() ?? "";
     const idempotencyKey = body.idempotencyKey?.trim() ?? "";
-    const reason = body.reason?.trim() ?? "";
+    const receivedOn = body.receivedOn?.trim() ?? "";
 
     if (
       !bookingReference ||
+      !Number.isFinite(amountReceived) ||
+      amountReceived <= 0 ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(receivedOn) ||
+      bankReference.length < 3 ||
+      bankReference.length > 120 ||
+      evidenceNote.length < 3 ||
+      evidenceNote.length > 500 ||
+      body.confirmed !== true ||
       !expectedUpdatedAt ||
       !idempotencyKey ||
-      idempotencyKey.length > 128 ||
-      reason.length < 3 ||
-      reason.length > 500
+      idempotencyKey.length > 128
     ) {
       return Response.json(
-        { error: "Booking, current revision, payment reason and request identity are required." },
+        { error: "Amount received, date received, bank reference, note and confirmation are required." },
         { status: 400 },
       );
     }
@@ -156,33 +179,25 @@ export async function POST(request: Request) {
       return Response.json({ error: "This booking is outside your assigned location." }, { status: 403 });
     }
 
-    const isSystemExpiredCorporate =
-      booking.booking_origin === "corporate" &&
-      booking.booking_source === "corporate-direct" &&
-      booking.booking_status === "cancelled" &&
-      Boolean(booking.corporate_payment_expired_at);
     const ticketCode = createTicketCode(bookingReference);
-    const { data, error } = isSystemExpiredCorporate
-      ? await auth.serviceClient.rpc("record_expired_corporate_payment_atomic", {
-          p_actor_auth_user_id: auth.user.id,
-          p_actor_staff_profile_id: auth.staffProfile.id,
-          p_booking_reference: bookingReference,
-          p_expected_updated_at: expectedUpdatedAt,
-          p_idempotency_key: idempotencyKey,
-          p_reason: reason,
-          p_user_agent: request.headers.get("user-agent"),
-        })
-      : await auth.serviceClient.rpc("mark_booking_paid_atomic", {
-          p_actor_auth_user_id: auth.user.id,
-          p_actor_staff_profile_id: auth.staffProfile.id,
-          p_booking_reference: bookingReference,
-          p_expected_updated_at: expectedUpdatedAt,
-          p_idempotency_key: idempotencyKey,
-          p_reason: reason,
-          p_ticket_code: ticketCode,
-          p_ticket_url: getTicketUrl(bookingReference),
-          p_user_agent: request.headers.get("user-agent"),
-        });
+    const { data, error } = await auth.serviceClient.rpc(
+      "record_manual_eft_payment_atomic",
+      {
+        p_actor_auth_user_id: auth.user.id,
+        p_actor_staff_profile_id: auth.staffProfile.id,
+        p_amount_received: amountReceived,
+        p_bank_reference: bankReference,
+        p_booking_reference: bookingReference,
+        p_confirmed: true,
+        p_evidence_note: evidenceNote,
+        p_expected_updated_at: expectedUpdatedAt,
+        p_idempotency_key: idempotencyKey,
+        p_received_on: receivedOn,
+        p_ticket_code: ticketCode,
+        p_ticket_url: getTicketUrl(bookingReference),
+        p_user_agent: request.headers.get("user-agent"),
+      },
+    );
 
     if (error) {
       const response = rpcErrorResponse(error);
@@ -193,10 +208,10 @@ export async function POST(request: Request) {
     const result = data as MarkPaidResult;
     return Response.json({
       message: result.idempotent
-        ? "This manual payment was already recorded."
-        : isSystemExpiredCorporate
-          ? "Manual EFT payment recorded. The booking remains released until reinstatement is confirmed."
-          : "Manual payment recorded successfully.",
+        ? "This EFT payment was already recorded."
+        : result.booking_status === "cancelled"
+          ? "EFT payment recorded. The booking remains cancelled until an authorised reinstatement."
+          : "EFT payment recorded successfully.",
       result,
     });
   } catch (error) {

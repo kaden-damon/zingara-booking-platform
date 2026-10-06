@@ -151,7 +151,7 @@ export function getPaymentLinkCheckoutAmount(
     return outstandingAmount;
   }
 
-  return Math.min(configuredAmount, outstandingAmount);
+  return configuredAmount;
 }
 
 export function isPaymentLinkAmountCurrent(
@@ -301,12 +301,12 @@ export function getManagedPaymentLinkStatus(
   booking: PaymentLinkBookingRow,
   now = new Date(),
 ): ManagedPaymentLinkStatus {
-  if (link.status === "used" || getOutstandingAmount(booking) <= 0) {
-    return "paid";
-  }
-
   if (link.status === "revoked") {
     return "revoked";
+  }
+
+  if (link.status === "used") {
+    return "paid";
   }
 
   if (

@@ -69,6 +69,7 @@ type ExistingPayment = {
   id: string;
   method: string | null;
   notes: string | null;
+  payment_status: SupabasePaymentStatus;
   processed_at: string | null;
   provider_gross_amount?: number | null;
   provider_transaction_id?: string | null;
@@ -195,7 +196,7 @@ async function upsertPayment(
   const { data: existingRows, error: loadError } = await supabase
     .from("payments")
     .select(
-      "id,amount,method,notes,processed_at,provider_gross_amount,provider_transaction_id,transaction_fee_amount",
+      "id,amount,method,notes,payment_status,processed_at,provider_gross_amount,provider_transaction_id,transaction_fee_amount",
     )
     .eq("reference", booking.reference)
     .limit(1);
@@ -205,6 +206,22 @@ async function upsertPayment(
   }
 
   const existingPayment = existingRows?.[0] as ExistingPayment | undefined;
+  const incomingPaymentStatus = toSupabasePaymentStatus(booking.paymentStatus);
+  const unchangedSuccessfulManualPayment =
+    existingPayment &&
+    ["deposit_paid", "fully_paid"].includes(existingPayment.payment_status) &&
+    incomingPaymentStatus === existingPayment.payment_status &&
+    Math.abs(
+      getPaymentAmount(booking, existingPayment) -
+        Number(existingPayment.amount ?? 0),
+    ) < 0.005;
+  if (
+    ["deposit-paid", "fully-paid"].includes(booking.paymentStatus ?? "") &&
+    !existingPayment?.provider_transaction_id &&
+    !unchangedSuccessfulManualPayment
+  ) {
+    throw new Error("STRUCTURED_MANUAL_EFT_REQUIRED");
+  }
   const existingId = existingPayment?.id;
   const payload = getPaymentPayload(booking, bookingId, existingPayment);
   const query = existingId
@@ -256,6 +273,19 @@ export async function POST(request: Request) {
     return Response.json({ row });
   } catch (error) {
     console.error("[Zingara API] Failed to save payment", error);
+
+    if (
+      error instanceof Error &&
+      error.message.includes("STRUCTURED_MANUAL_EFT_REQUIRED")
+    ) {
+      return Response.json(
+        {
+          error:
+            "Record manual EFT payments through the evidence-backed payment control.",
+        },
+        { status: 409 },
+      );
+    }
 
     return Response.json(
       { error: "Payment could not be saved." },

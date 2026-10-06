@@ -90,12 +90,12 @@ test("the endpoint keeps authentication and authoritative outcome guidance at th
   const { route } = await sources();
 
   assert.match(route, /requireActiveStaff\(request\)/);
-  assert.match(route, /getRolePermissions\(role\)\.includes\("bookings:manage"\)/);
+  assert.match(route, /getRolePermissions\(role\)\.includes\("bookings:reconcile"\)/);
   assert.match(route, /normalizeStaffVenueScope/);
-  assert.match(route, /\.rpc\("mark_booking_paid_atomic"/);
+  assert.match(route, /record_manual_eft_payment_atomic/);
   assert.match(route, /BOOKING_REVISION_CHANGED/);
   assert.match(route, /BOOKING_ALREADY_PAID/);
-  assert.match(route, /MARK_PAID_NOT_ALLOWED/);
+  assert.match(route, /MANUAL_EFT_NOT_ALLOWED/);
   assert.match(route, /No partial financial change was retained/);
 });
 

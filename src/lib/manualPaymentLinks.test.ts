@@ -39,7 +39,7 @@ test("existing secure token is reused when Super Admin sends to the guest", asyn
   assert.match(route, /revokeOnFailure: false/);
 });
 
-test("payment-link checkout uses bounded link amount and existing PayFast path", async () => {
+test("payment-link checkout validates the current snapshot and uses the configured amount", async () => {
   const [lookup, checkout, helper] = await Promise.all([
     source("../app/api/payment-links/[token]/route.ts"),
     source("../app/api/payment-links/[token]/checkout/route.ts"),
@@ -50,7 +50,8 @@ test("payment-link checkout uses bounded link amount and existing PayFast path",
   assert.match(checkout, /getPaymentLinkCheckoutAmount\(link, booking\)/);
   assert.match(checkout, /preparePayFastCheckoutAttempt/);
   assert.match(checkout, /createPayFastCheckoutForBookingLink/);
-  assert.match(helper, /Math\.min\(configuredAmount, outstandingAmount\)/);
+  assert.match(helper, /return configuredAmount/);
+  assert.match(checkout, /getManagedPaymentLinkStatus\(link, booking\) === "stale"/);
 });
 
 test("manual checkout exposes Pay Now plus duplicate-safe link actions", async () => {
