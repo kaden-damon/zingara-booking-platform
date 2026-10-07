@@ -363,6 +363,7 @@ import {
   type BulkShowScheduleResult,
   createBulkShowSchedule,
   createOperationalShowTable,
+  getShowCalendarOccupancy,
   getShowsWithTables,
   mergeOperationalShowTables,
   previewBulkShowSchedule,
@@ -10972,6 +10973,14 @@ export default function AdminDashboardPage() {
   const [isShowsLoading, setIsShowsLoading] = useState(false);
   const [isCalendarSummariesLoading, setIsCalendarSummariesLoading] =
     useState(true);
+  const [isShowCalendarOccupancyLoading, setIsShowCalendarOccupancyLoading] =
+    useState(true);
+  const [showCalendarOccupancyError, setShowCalendarOccupancyError] =
+    useState("");
+  const [showCalendarOccupancyByShowZone, setShowCalendarOccupancyByShowZone] =
+    useState<Map<string, number>>(() => new Map());
+  const [showCalendarOccupancyRevision, setShowCalendarOccupancyRevision] =
+    useState(0);
   const [showLoadError, setShowLoadError] = useState("");
   const [showCalendarMonth, setShowCalendarMonth] = useState(
     getCurrentShowCalendarMonth,
@@ -12194,6 +12203,7 @@ export default function AdminDashboardPage() {
     }
 
     function reloadAdminData() {
+      setShowCalendarOccupancyRevision((revision) => revision + 1);
       void loadAdminData();
     }
 
@@ -12660,6 +12670,75 @@ export default function AdminDashboardPage() {
     currentStaff?.role === "box-office" ||
     currentStaff?.role === "box-office-staff";
   const isFloorManager = currentStaff?.role === "floor-manager";
+
+  useEffect(() => {
+    if (!currentStaff || activeAdminTab !== "overview") {
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsShowCalendarOccupancyLoading(true);
+    setShowCalendarOccupancyError("");
+
+    void getShowCalendarOccupancy(
+      {
+        month: showCalendarMonth,
+        venue: showCalendarLocationFilter,
+      },
+      controller.signal,
+    )
+      .then((payload) => {
+        const nextOccupancy = new Map<string, number>();
+
+        payload.summaries.forEach((summary) => {
+          nextOccupancy.set(
+            `${summary.showId}|golden-circle`,
+            summary.zoneGuests.gc,
+          );
+          nextOccupancy.set(
+            `${summary.showId}|middle-ring`,
+            summary.zoneGuests.mr,
+          );
+          nextOccupancy.set(
+            `${summary.showId}|royal-booths`,
+            summary.zoneGuests.pb,
+          );
+          nextOccupancy.set(
+            `${summary.showId}|royal-balcony`,
+            summary.zoneGuests.rb,
+          );
+        });
+
+        setShowCalendarOccupancyByShowZone(nextOccupancy);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
+        console.error(
+          "[Zingara admin] Show calendar occupancy failed",
+          error,
+        );
+        setShowCalendarOccupancyByShowZone(new Map());
+        setShowCalendarOccupancyError(
+          "Show occupancy couldn't be loaded. Try again.",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsShowCalendarOccupancyLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [
+    activeAdminTab,
+    currentStaff,
+    showCalendarLocationFilter,
+    showCalendarMonth,
+    showCalendarOccupancyRevision,
+  ]);
 
   useEffect(() => {
     if (!expandedBookingReference || !canReconcileBookings) {
@@ -26834,22 +26913,6 @@ export default function AdminDashboardPage() {
     visibleShowCalendarShows.filter(
       (show) => show.date === `${showCalendarMonthPrefix}${String(day).padStart(2, "0")}`,
     );
-  const showCalendarOccupancyByShowZone = useMemo(() => {
-    const occupancy = new Map<string, number>();
-
-    activeBookingsForOperations.forEach((booking) => {
-      if (!isOperationallyActiveBooking(booking)) {
-        return;
-      }
-
-      getBookingZoneEntitlements(booking).forEach((entitlement) => {
-        const key = `${booking.showId}|${entitlement.zoneId}`;
-        occupancy.set(key, (occupancy.get(key) ?? 0) + entitlement.pax);
-      });
-    });
-
-    return occupancy;
-  }, [activeBookingsForOperations]);
   const showCalendarFinancialsByShow = useMemo(() => {
     const summaries = new Map<
       string,
@@ -26932,7 +26995,9 @@ export default function AdminDashboardPage() {
   const getShowOccupancyChips = (show: DemoShow) =>
     floorManagementZones.map((zone) => {
       const occupiedSeats =
-        showCalendarOccupancyByShowZone.get(`${show.id}|${zone.id}`) ?? 0;
+        showCalendarOccupancyByShowZone.get(
+          `${show.supabaseId ?? show.id}|${zone.id}`,
+        ) ?? 0;
       const capacity = getConfiguredZoneMaxSeats(venueConfig, zone);
 
       return {
@@ -38041,6 +38106,25 @@ export default function AdminDashboardPage() {
               )}
 
               <div className="mt-5">
+                {showCalendarOccupancyError && !isShowsLoading && (
+                  <div
+                    role="alert"
+                    className="mb-4 flex flex-col gap-3 rounded-2xl border border-red-300/25 bg-red-950/20 p-4 text-sm text-red-100 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <span>{showCalendarOccupancyError}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowCalendarOccupancyRevision(
+                          (revision) => revision + 1,
+                        )
+                      }
+                      className="rounded-full border border-red-200/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-red-50 transition hover:bg-red-100 hover:text-red-950"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
                 {isShowsLoading ? (
                   <div className="rounded-2xl border border-white/10 bg-black/35 p-8 text-center text-sm text-zinc-300">
                     <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-[#D8C36A] border-t-transparent" />
@@ -38275,13 +38359,18 @@ export default function AdminDashboardPage() {
                                   ) : (
                                   <div className="mt-3 flex flex-wrap gap-1.5 pr-11">
                                     {getShowOccupancyChips(show).map((chip) => {
+                                      const occupancyUnavailable = Boolean(
+                                        showCalendarOccupancyError,
+                                      );
                                       const ratio =
-                                        !isCalendarSummariesLoading &&
+                                        !isShowCalendarOccupancyLoading &&
+                                        !occupancyUnavailable &&
                                         chip.capacity > 0
                                           ? chip.occupiedSeats / chip.capacity
                                           : 0;
                                       const chipTone =
-                                        isCalendarSummariesLoading
+                                        isShowCalendarOccupancyLoading ||
+                                        occupancyUnavailable
                                           ? "border-white/10 bg-black/35 text-zinc-500"
                                           : ratio > 1
                                           ? "border-red-300/40 bg-red-950/30 text-red-200"
@@ -38300,17 +38389,22 @@ export default function AdminDashboardPage() {
                                           key={`${show.id}-${chip.zoneId}`}
                                           className={`rounded-full border px-2 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.08em] ${chipTone}`}
                                           title={
-                                            isCalendarSummariesLoading
+                                            isShowCalendarOccupancyLoading
                                               ? `${chip.label} occupancy loading`
+                                              : occupancyUnavailable
+                                                ? `${chip.label} occupancy unavailable`
                                               : `${chip.label} ${chip.occupiedSeats}/${chip.capacity}${overCapacity > 0 ? ` · Over capacity by ${overCapacity}` : ""}`
                                           }
                                         >
                                           {showCalendarZoneAbbreviations[chip.zoneId] ??
                                             chip.label.split(" ").map((part) => part[0]).join("")}{" "}
-                                          {isCalendarSummariesLoading
+                                          {isShowCalendarOccupancyLoading
                                             ? `… / ${chip.capacity}`
-                                            : `${chip.occupiedSeats}/${chip.capacity}`}
-                                          {!isCalendarSummariesLoading &&
+                                            : occupancyUnavailable
+                                              ? `— / ${chip.capacity}`
+                                              : `${chip.occupiedSeats}/${chip.capacity}`}
+                                          {!isShowCalendarOccupancyLoading &&
+                                            !occupancyUnavailable &&
                                             overCapacity > 0 &&
                                             ` · +${overCapacity}`}
                                         </span>

@@ -7,6 +7,7 @@ import {
   storeDemoShows,
 } from "@/lib/zingaraDemo";
 import { fetchSupabaseApi } from "./apiClient";
+import type { ShowCalendarOccupancySummary } from "@/lib/showCalendarOccupancy";
 
 type SupabaseShowRow = {
   created_at?: string;
@@ -163,6 +164,31 @@ export type ShowTableScope = {
   tableMonth?: string;
   tableShow?: string;
 };
+
+export type ShowCalendarOccupancyPayload = {
+  bookingCount: number;
+  month: string;
+  showCount: number;
+  summaries: ShowCalendarOccupancySummary[];
+};
+
+export function getShowCalendarOccupancy(
+  input: {
+    month: string;
+    venue: EntryLocationKey | "all";
+  },
+  signal?: AbortSignal,
+) {
+  const searchParams = new URLSearchParams({
+    month: input.month,
+    venue: input.venue,
+  });
+
+  return fetchSupabaseApi<ShowCalendarOccupancyPayload>(
+    `/api/admin/shows/calendar-occupancy?${searchParams.toString()}`,
+    { cache: "no-store", signal },
+  );
+}
 
 export async function getShowsWithTables(
   scope: ShowTableScope = {},

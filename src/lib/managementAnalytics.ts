@@ -121,7 +121,7 @@ export const weekdayNames = [
   "Saturday",
 ] as const;
 
-const activeBookingStatuses = new Set([
+export const managementForecastActiveBookingStatuses = new Set([
   "checked_in",
   "confirmed",
   "pending_payment",
@@ -256,7 +256,7 @@ function bookingSummary(bookings: ManagementAnalyticsBooking[]) {
     bookings: bookings.length,
     guests: sum(bookings, (booking) => booking.guestCount),
     outstanding: sum(bookings, (booking) =>
-      activeBookingStatuses.has(booking.bookingStatus)
+      managementForecastActiveBookingStatuses.has(booking.bookingStatus)
         ? booking.balanceOutstanding
         : 0,
     ),
@@ -269,7 +269,10 @@ function emptyForecastZoneGuests(): ManagementForecastZoneGuests {
 
 function addForecastZoneGuests(
   totals: ManagementForecastZoneGuests,
-  booking: ManagementAnalyticsBooking,
+  booking: Pick<
+    ManagementAnalyticsBooking,
+    "guestCount" | "section" | "zoneEntitlements"
+  >,
 ) {
   const allocations = booking.zoneEntitlements?.length
     ? booking.zoneEntitlements
@@ -295,8 +298,22 @@ function addForecastZoneGuests(
   return totals;
 }
 
+export function isManagementForecastActiveBooking(
+  booking: Pick<ManagementAnalyticsBooking, "archivedAt" | "bookingStatus">,
+) {
+  return (
+    !booking.archivedAt &&
+    managementForecastActiveBookingStatuses.has(booking.bookingStatus)
+  );
+}
+
 export function getManagementForecastZoneGuests(
-  bookings: ManagementAnalyticsBooking[],
+  bookings: Array<
+    Pick<
+      ManagementAnalyticsBooking,
+      "guestCount" | "section" | "zoneEntitlements"
+    >
+  >,
 ) {
   return bookings.reduce(addForecastZoneGuests, emptyForecastZoneGuests());
 }
@@ -330,14 +347,14 @@ function getDemandBookings(
   showsById: Map<string, ManagementAnalyticsShow>,
 ) {
   return dataset.bookings.filter((booking) => {
-    if (booking.archivedAt) return false;
-
     if (
       filters.bookingStatus === "all" &&
-      !activeBookingStatuses.has(booking.bookingStatus)
+      !isManagementForecastActiveBooking(booking)
     ) {
       return false;
     }
+
+    if (booking.archivedAt) return false;
 
     return matchesDimensionFilters(booking, showsById.get(booking.showId), filters);
   });
@@ -362,9 +379,7 @@ export function calculateManagementAnalytics(
   const demandBookings = getDemandBookings(dataset, filters, showsById);
   const activitySummary = bookingSummary(activityBookings);
   const activeActivityBookings = activityBookings.filter(
-    (booking) =>
-      !booking.archivedAt &&
-      activeBookingStatuses.has(booking.bookingStatus),
+    isManagementForecastActiveBooking,
   );
   const activeActivitySummary = bookingSummary(activeActivityBookings);
   const activityCustomerIds = Array.from(

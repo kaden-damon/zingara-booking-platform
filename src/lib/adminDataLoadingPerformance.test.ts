@@ -23,7 +23,7 @@ test("Admin boot requests lean booking and show data without eager histories or 
   assert.doesNotMatch(loadAdminData, /refreshLiveCustomerRecords/);
 });
 
-test("Admin boot paints configured show metadata before booking and payment summaries", async () => {
+test("Admin boot paints configured show metadata before payment summaries", async () => {
   const page = await pageSource();
   const loadAdminData = page.slice(
     page.indexOf("async function loadAdminData"),
@@ -36,7 +36,7 @@ test("Admin boot paints configured show metadata before booking and payment summ
   );
   assert.ok(
     loadAdminData.indexOf("await showShellRequest") <
-      loadAdminData.indexOf("await Promise.all([dashboardDataRequest, bookingsRequest])"),
+      loadAdminData.indexOf("await dashboardDataRequest"),
   );
   assert.ok(
     loadAdminData.indexOf("setIsShowsLoading(false)") <
@@ -51,20 +51,24 @@ test("calendar never presents partial occupancy or financial summaries as author
   assert.match(page, /disabled=\{isCalendarSummariesLoading\}/);
   assert.match(page, /Financial summary loading/);
   assert.match(page, /occupancy loading/);
-  assert.match(page, /isCalendarSummariesLoading[\s\S]{0,180}`… \/ \$\{chip\.capacity\}`/);
+  assert.match(page, /isShowCalendarOccupancyLoading[\s\S]{0,240}`… \/ \$\{chip\.capacity\}`/);
+  assert.match(page, /occupancyUnavailable[\s\S]{0,120}`— \/ \$\{chip\.capacity\}`/);
 });
 
-test("calendar navigation reuses hydrated metadata and never reloads all bookings", async () => {
+test("selected-show operations load only that show's bookings", async () => {
   const page = await pageSource();
   const selectedShowEffect = page.slice(
     page.indexOf("async function refreshSelectedShowTables"),
-    page.indexOf("const canViewOperationsWorkspace"),
+    page.indexOf("async function refreshSelectedShowTables") + 5000,
   );
 
   assert.doesNotMatch(page, /async function refreshCalendarTables/);
   assert.match(selectedShowEffect, /tableShow: selectedShowId/);
-  assert.match(selectedShowEffect, /bookingsRef\.current/);
-  assert.doesNotMatch(selectedShowEffect, /getBookings\(/);
+  assert.match(
+    selectedShowEffect,
+    /getBookings\(\{ showId: selectedShowId, throwOnError: true \}\)/,
+  );
+  assert.doesNotMatch(selectedShowEffect, /getBookings\(\)/);
 });
 
 test("Booking Details paints authoritative core data before secondary table inventory", async () => {
@@ -95,14 +99,15 @@ test("customer CRM hydration is deferred until the authenticated Customers works
   );
 });
 
-test("calendar occupancy and financial summaries are aggregated once per dataset revision", async () => {
+test("calendar occupancy is server aggregated while financial summaries remain memoized", async () => {
   const page = await pageSource();
 
-  assert.match(page, /const showCalendarOccupancyByShowZone = useMemo\(/);
+  assert.match(page, /getShowCalendarOccupancy\(/);
+  assert.match(page, /setShowCalendarOccupancyByShowZone\(nextOccupancy\)/);
   assert.match(page, /const showCalendarFinancialsByShow = useMemo\(/);
   assert.match(
     page,
-    /showCalendarOccupancyByShowZone\.get\(`\$\{show\.id\}\|\$\{zone\.id\}`\)/,
+    /showCalendarOccupancyByShowZone\.get\([\s\S]{0,100}show\.supabaseId \?\? show\.id[\s\S]{0,100}zone\.id/,
   );
   assert.match(page, /showCalendarFinancialsByShow\.get\(show\.id\)/);
 });
