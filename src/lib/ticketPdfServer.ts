@@ -1,4 +1,5 @@
 import { createCanvas, GlobalFonts, loadImage } from "@napi-rs/canvas";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -33,9 +34,11 @@ export function ensureServerTicketFonts() {
   }
 
   for (const font of Object.values(serverTicketFonts)) {
+    const fontPath = join(process.cwd(), font.path);
+
     if (
       !GlobalFonts.has(font.family) &&
-      !GlobalFonts.registerFromPath(join(process.cwd(), font.path), font.family)
+      !GlobalFonts.register(readFileSync(fontPath), font.family)
     ) {
       throw new Error(`Ticket PDF font could not be loaded: ${font.family}.`);
     }
