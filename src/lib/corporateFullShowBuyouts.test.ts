@@ -146,6 +146,16 @@ test("payment-driven confirmation is state-safe and independently audited", asyn
   assert.match(migration, /insert into public\.audit_events/);
 });
 
+test("package configuration supports effective dates and audited version changes", async () => {
+  const migration = await source("../../supabase/migrations/20261007224500_phase_48_buyout_package_lifecycle_audit.sql");
+  assert.match(migration, /active_from timestamptz/);
+  assert.match(migration, /active_until timestamptz/);
+  assert.match(migration, /corporate_buyout_packages_active_window_check/);
+  assert.match(migration, /corporate\.buyout\.package\.updated/);
+  assert.match(migration, /corporate\.buyout\.package\.installed/);
+  assert.match(migration, /Disputed terms remain unset/);
+});
+
 test("staff UI keeps Group Booking and uses one zero-mutation confirmation", async () => {
   const ui = await source("../app/admin/CorporateBuyoutCreator.tsx");
   assert.match(ui, />Group Booking</);
