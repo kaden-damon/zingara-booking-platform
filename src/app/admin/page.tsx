@@ -43661,39 +43661,46 @@ export default function AdminDashboardPage() {
                   Filters{activeSecondaryBookingFilterCount > 0 ? ` · ${activeSecondaryBookingFilterCount}` : ""}
                   <span aria-hidden="true">{bookingFiltersExpanded ? "−" : "+"}</span>
                 </button>
-                <button
-                  aria-label="Download complete filtered bookings Excel workbook"
-                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#D8C36A] px-5 text-xs font-bold uppercase tracking-[0.08em] text-black shadow-[0_0_22px_rgba(216,195,106,0.2)] transition hover:bg-[#F2D66C] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
-                  disabled={
-                    compactSortedBookings.length === 0 ||
-                    bookingExportState === "loading"
-                  }
-                  onClick={() => void downloadFilteredBookingsExcel()}
-                  title={
-                    compactSortedBookings.length === 0
-                      ? "No bookings match the current filters."
-                      : `Download all ${compactSortedBookings.length} matching bookings`
-                  }
-                  type="button"
-                >
-                  <svg
-                    aria-hidden="true"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2.4"
-                    viewBox="0 0 24 24"
+                <span className="group relative inline-flex shrink-0">
+                  <button
+                    aria-busy={bookingExportState === "loading"}
+                    aria-describedby="bookings-excel-download-tooltip"
+                    aria-label="Download bookings to Excel"
+                    className="bookings-export-action inline-grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#D8C36A] p-0 text-black transition-colors hover:bg-[#F2D66C] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45"
+                    disabled={
+                      compactSortedBookings.length === 0 ||
+                      bookingExportState === "loading"
+                    }
+                    onClick={() => void downloadFilteredBookingsExcel()}
+                    type="button"
                   >
-                    <path d="M12 3v12" />
-                    <path d="m7 10 5 5 5-5" />
-                    <path d="M5 21h14" />
-                  </svg>
-                  {bookingExportState === "loading"
-                    ? "Preparing Excel..."
-                    : "Download Excel"}
-                </button>
+                    <svg
+                      aria-hidden="true"
+                      className={`h-5 w-5 ${
+                        bookingExportState === "loading"
+                          ? "motion-safe:animate-pulse"
+                          : ""
+                      }`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.4"
+                      viewBox="0 0 24 24"
+                    >
+                      <path d="M12 3v12" />
+                      <path d="m7 10 5 5 5-5" />
+                      <path d="M5 21h14" />
+                    </svg>
+                  </button>
+                  <span
+                    id="bookings-excel-download-tooltip"
+                    role="tooltip"
+                    className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 whitespace-nowrap rounded-md border border-[#D8C36A]/35 bg-[#090909] px-3 py-2 text-xs font-semibold text-zinc-100 opacity-0 shadow-xl shadow-black/60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                  >
+                    Download Excel
+                  </span>
+                </span>
               </div>
 
               {bookingExportMessage && (

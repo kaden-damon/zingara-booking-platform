@@ -76,6 +76,36 @@ textarea,
   }
 }
 
+@keyframes bookings-export-gold-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(216, 195, 106, 0.18),
+      0 0 16px rgba(216, 195, 106, 0.18);
+  }
+
+  50% {
+    box-shadow: 0 0 0 5px rgba(216, 195, 106, 0.08),
+      0 0 24px rgba(242, 214, 108, 0.32);
+  }
+}
+
+.bookings-export-action:not(:disabled) {
+  animation: bookings-export-gold-glow 2.8s ease-in-out infinite;
+}
+
+.bookings-export-action:not(:disabled):hover,
+.bookings-export-action:not(:disabled):focus-visible {
+  animation: none;
+  box-shadow: 0 0 0 5px rgba(216, 195, 106, 0.12),
+    0 0 28px rgba(242, 214, 108, 0.42);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bookings-export-action:not(:disabled) {
+    animation: none;
+  }
+}
+
 input,
 select,
 textarea {

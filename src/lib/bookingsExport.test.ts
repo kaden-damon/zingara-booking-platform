@@ -146,6 +146,35 @@ test("Bookings UI exports the exact full filtered set before pagination", async 
   assert.match(filters, /getBookingSearchText\(booking\)\.includes\(searchTerm\)/);
 });
 
+test("Bookings export uses the compact accessible presentation without changing its handler", async () => {
+  const [page, styles] = await Promise.all([
+    source("../app/admin/page.tsx"),
+    source("../app/globals.css"),
+  ]);
+  const controlStart = page.indexOf(
+    '<span className="group relative inline-flex shrink-0">',
+  );
+  const controlEnd = page.indexOf(
+    "</span>",
+    page.indexOf("</button>", controlStart),
+  );
+  const control = page.slice(controlStart, controlEnd + "</span>".length);
+
+  assert.ok(controlStart >= 0);
+  assert.match(control, /aria-label="Download bookings to Excel"/);
+  assert.match(control, /role="tooltip"/);
+  assert.match(control, />\s*Download Excel\s*<\/span>/);
+  assert.match(control, /h-12 w-12/);
+  assert.match(control, /rounded-full/);
+  assert.match(control, /bookings-export-action/);
+  assert.doesNotMatch(control, /Preparing Excel\.\.\./);
+  assert.doesNotMatch(control, /:\s*"Download Excel"/);
+  assert.match(page, /onClick=\{\(\) => void downloadFilteredBookingsExcel\(\)\}/);
+  assert.match(styles, /@keyframes bookings-export-gold-glow/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(styles, /\.bookings-export-action:not\(:disabled\)/);
+});
+
 test("server export re-loads references and enforces role and venue scope", async () => {
   const route = await source("../app/api/admin/bookings/export/route.ts");
   const server = await source("./supabase/bookingsExportServer.ts");
