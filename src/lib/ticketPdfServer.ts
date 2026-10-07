@@ -18,11 +18,11 @@ const publicAssetPaths = new Map([
 const serverTicketFonts = {
   sans: {
     family: "Zingara Ticket Sans",
-    path: "node_modules/next/dist/compiled/@vercel/og/Geist-Regular.ttf",
+    path: "public/brand/tickets/Geist-Regular.ttf",
   },
   serif: {
     family: "Zingara Ticket Serif",
-    path: "src/app/fonts/EBGaramond-Medium.ttf",
+    path: "public/brand/tickets/EBGaramond-Medium.ttf",
   },
 } as const;
 
