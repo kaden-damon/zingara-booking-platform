@@ -74,10 +74,7 @@ export function StaffOnboardingTour() {
           </button>
         </div>
 
-        <div className="mt-5 min-h-64">
-          <span aria-hidden="true" className="grid h-12 min-w-12 w-fit place-items-center rounded-full border border-[#D8C36A]/40 bg-[#171107] px-3 text-xs font-bold text-[#F2D66C]">
-            {page.icon}
-          </span>
+        <div className="mt-4 min-h-56 sm:mt-5">
           <h2 className="text-2xl font-bold sm:text-3xl" id="staff-tour-title">
             {page.title}
           </h2>

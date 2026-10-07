@@ -169,6 +169,12 @@ export async function GET(request: Request) {
                 currentGuestCount: operationalScope ? buyout.currentGuestCount : 0,
                 packageName: operationalScope ? buyout.packageName : "Full Show Buyout",
                 revision: operationalScope ? buyout.revision : 0,
+                reviewBookingCount: operationalScope
+                  ? buyout.reviewBookingCount
+                  : 0,
+                reviewGuestCount: operationalScope
+                  ? buyout.reviewGuestCount
+                  : 0,
                 unallocatedGuestCount: operationalScope
                   ? buyout.unallocatedGuestCount
                   : 0,

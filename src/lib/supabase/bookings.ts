@@ -137,6 +137,7 @@ type SupabaseLifecycleEventRow = {
 };
 
 type SupabaseBookingAggregateRow = SupabaseBookingRow & {
+  buyout_review_reason?: string | null;
   communication_rows?: SupabaseCommunicationRow[];
   customer_row?: {
     email: string | null;
@@ -721,6 +722,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       archivedBy: row.archived_by ?? metadataBooking.archivedBy,
       archiveReason: row.archive_reason ?? metadataBooking.archiveReason,
       balanceDue: row.balance_outstanding,
+      buyoutReviewReason: row.buyout_review_reason ?? undefined,
       bookingOrigin: row.booking_origin ?? "legacy_unknown",
       createdAt: row.created_at,
       corporateRequestId: row.corporate_request_id ?? undefined,
@@ -786,6 +788,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     archivedBy: row.archived_by ?? undefined,
     archiveReason: row.archive_reason ?? undefined,
     balanceDue: row.balance_outstanding,
+    buyoutReviewReason: row.buyout_review_reason ?? undefined,
     bookingOrigin: row.booking_origin ?? "legacy_unknown",
     bookingDate: "",
     communicationHistory: [],

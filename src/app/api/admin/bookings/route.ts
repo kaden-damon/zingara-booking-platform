@@ -46,6 +46,7 @@ import {
 } from "@/lib/corporateZoneEntitlements";
 import { mergeAdminBookingState } from "@/lib/adminBookingStateMerge";
 import { resolveBookingCreatedWindow } from "@/lib/bookingSalesFilters";
+import { loadCorporateBuyoutBookingReviewReasons } from "@/lib/supabase/corporateBuyoutsServer";
 
 export const dynamic = "force-dynamic";
 
@@ -708,6 +709,7 @@ export async function GET(request: Request) {
     { rows: tableClaims, error: tableClaimsError },
     { rows: shows, error: showsError },
     { rows: promoRedemptions, error: promoRedemptionsError },
+    buyoutReviewReasons,
   ] = await Promise.all([
     includeHistory
       ? fetchAggregateRows(
@@ -770,6 +772,12 @@ export async function GET(request: Request) {
       "booking_id",
       bookingIds,
     ),
+    loadCorporateBuyoutBookingReviewReasons(serviceClient, rows as Array<{
+      archived_at?: string | null;
+      booking_status?: string;
+      id: string;
+      show_id: string;
+    }>),
   ]);
 
   if (communicationsError) {
@@ -936,6 +944,7 @@ export async function GET(request: Request) {
     ...(pageMetadata ?? {}),
     rows: rows.map((booking) => ({
       ...booking,
+      buyout_review_reason: buyoutReviewReasons.get(booking.id) ?? null,
       communication_rows: communicationsByBookingId.get(booking.id) ?? [],
       customer_row: booking.customer_id
         ? customersById.get(booking.customer_id) ?? null

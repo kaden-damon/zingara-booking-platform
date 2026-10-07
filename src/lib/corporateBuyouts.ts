@@ -38,6 +38,8 @@ export type CorporateBuyoutSummary = {
   id: string;
   packageName: string;
   revision: number;
+  reviewBookingCount: number;
+  reviewGuestCount: number;
   state: CorporateBuyoutState;
   unallocatedGuestCount: number;
 };

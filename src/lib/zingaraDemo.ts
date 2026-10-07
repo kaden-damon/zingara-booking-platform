@@ -680,6 +680,7 @@ export type BookingLifecycleEvent = {
   createdAt: string;
 };
 export type DemoBooking = {
+  buyoutReviewReason?: string;
   supabaseBookingId?: string;
   customerId?: string;
   companyId?: string;

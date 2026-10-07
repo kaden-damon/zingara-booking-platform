@@ -89,10 +89,13 @@ test("migration creates one booking and one buyout with immutable snapshots", as
   assert.match(migration, /corporate_buyouts_idempotency_key_idx/);
 });
 
-test("creation blocks existing entitlement and validates total operational capacity", async () => {
-  const migration = await source("../../supabase/migrations/20261007220000_phase_48_corporate_full_show_buyouts.sql");
-  assert.match(migration, /BUYOUT_SHOW_HAS_BOOKINGS/);
+test("creation snapshots existing entitlement and validates Buyout operational capacity independently", async () => {
+  const migration = await source("../../supabase/migrations/20261008090000_phase_48_1a_buyout_existing_booking_review.sql");
+  assert.doesNotMatch(migration, /BUYOUT_SHOW_HAS_BOOKINGS/);
   assert.match(migration, /booking_status::text in \('new', 'confirmed', 'pending_payment', 'checked_in'\)/);
+  assert.match(migration, /'preExistingBookings', v_preexisting_bookings/);
+  assert.match(migration, /'preExistingBookingCount', v_active_booking_count/);
+  assert.match(migration, /'preExistingGuestCount', v_active_guest_count/);
   assert.match(migration, /booking_capacity_zone_effective_limit/);
   assert.match(migration, /BUYOUT_OPERATIONAL_CAPACITY_EXCEEDED/);
   assert.doesNotMatch(migration, /update public\.venue_settings/);
@@ -173,8 +176,10 @@ test("staff UI moves Buyout creation to the selected calendar show", async () =>
   assert.match(ui, /aria-label="Create Company and Contact"/);
   assert.match(ui, /Review Bookings/);
   assert.match(route, /\.eq\("show_id", showId\)/);
-  assert.match(ui, /Create this Full Show Buyout\?/);
+  assert.match(ui, /Create this Buyout\?/);
   assert.match(ui, /Public booking will close for this performance\. Existing bookings will not be changed\./);
+  assert.match(ui, /You can still create the Buyout\. These bookings will stay unchanged and need to be moved\./);
+  assert.match(ui, /Existing bookings need review/);
   assert.match(ui, /onClick=\{\(\) => setConfirming\(false\)\}/);
 });
 
@@ -188,8 +193,35 @@ test("selected-show bootstrap remains bounded and release management remains ava
   assert.match(route, /if \(showId\)[\s\S]*\.eq\("id", showId\)/);
   assert.match(route, /activeBookingCount: conflicts\.length/);
   assert.match(route, /activeGuestCount: conflicts\.reduce/);
+  assert.doesNotMatch(route, /conflicts\.length === 0/);
   assert.match(manager, /Active Full Show Buyouts/);
   assert.match(manager, /releaseCorporateBuyout/);
+});
+
+test("Buyout review remains derived, bounded, and separate from booking state", async () => {
+  const [server, bookingRoute, admin, migration] = await Promise.all([
+    source("./supabase/corporateBuyoutsServer.ts"),
+    source("../app/api/admin/bookings/route.ts"),
+    source("../app/admin/page.tsx"),
+    source("../../supabase/migrations/20261008090000_phase_48_1a_buyout_existing_booking_review.sql"),
+  ]);
+  assert.match(server, /preExistingBookings/);
+  assert.match(server, /candidate\?\.show_id === row\.show_id/);
+  assert.match(server, /activeBookingStatuses\.has/);
+  assert.match(bookingRoute, /loadCorporateBuyoutBookingReviewReasons/);
+  assert.match(server, /Existing booking on Buyout show — needs to be moved/);
+  assert.match(admin, /reviewCalendarBuyoutBookings/);
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /BUYOUT_SHOW_ALREADY_OWNED/);
+  assert.match(migration, /pre_existing_bookings/);
+  assert.doesNotMatch(migration, /update public\.bookings/);
+});
+
+test("Buyout modal bootstrap depends on stable show identity", async () => {
+  const ui = await source("../app/admin/CorporateBuyoutCreator.tsx");
+  assert.match(ui, /const selectedShowId = selectedShow\?\.id/);
+  assert.match(ui, /\[open, selectedShowId\]/);
+  assert.doesNotMatch(ui, /\[open, selectedShow\]/);
 });
 
 test("show and public calendar surfaces display the dedicated Buyout state", async () => {

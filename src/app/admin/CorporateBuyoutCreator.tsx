@@ -78,6 +78,7 @@ export default function CorporateBuyoutCreator({
   const [newContactEmail, setNewContactEmail] = useState("");
   const [newContactMobile, setNewContactMobile] = useState("");
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const selectedShowId = selectedShow?.id;
 
   async function load(showId: string, signal?: AbortSignal) {
     setLoading(true);
@@ -88,24 +89,24 @@ export default function CorporateBuyoutCreator({
       setPackageId((current) => current || next.packages[0]?.id || "");
     } catch (loadError) {
       if (loadError instanceof DOMException && loadError.name === "AbortError") return;
-      setError(loadError instanceof Error ? loadError.message : "Full Show Buyout details could not be loaded.");
+      setError(loadError instanceof Error ? loadError.message : "Buyout details could not be loaded.");
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (!open || !selectedShow) return;
+    if (!open || !selectedShowId) return;
     const controller = new AbortController();
     const frame = window.requestAnimationFrame(() => {
-      void load(selectedShow.id, controller.signal);
+      void load(selectedShowId, controller.signal);
       closeButtonRef.current?.focus();
     });
     return () => {
       controller.abort();
       window.cancelAnimationFrame(frame);
     };
-  }, [open, selectedShow]);
+  }, [open, selectedShowId]);
 
   useEffect(() => {
     if (!open) return;
@@ -200,10 +201,10 @@ export default function CorporateBuyoutCreator({
         showId: authoritativeShow.id,
       });
       setConfirming(false);
-      setStatus(`Full Show Buyout ${result.bookingReference} created.`);
+      setStatus(`Buyout ${result.bookingReference} created.`);
       await onCreated?.();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "The Full Show Buyout could not be created.");
+      setError(saveError instanceof Error ? saveError.message : "The Buyout could not be created.");
       setConfirming(false);
     } finally {
       setSaving(false);
@@ -219,8 +220,8 @@ export default function CorporateBuyoutCreator({
       <div className="fixed inset-0 z-[170] flex items-end justify-center bg-black/80 p-3 backdrop-blur-sm sm:items-center sm:p-6">
         <section aria-labelledby="buyout-creator-title" aria-modal="true" role="dialog" className="max-h-[94vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-[#D8C36A]/35 bg-[#080808] p-5 shadow-2xl sm:p-7">
           <div className="flex items-start justify-between gap-4">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">Create Booking</p><h2 id="buyout-creator-title" className="mt-1 text-2xl font-bold text-white">Full Show Buyout</h2></div>
-            <button ref={closeButtonRef} type="button" aria-label="Close Full Show Buyout" onClick={() => !saving && onClose()} className="grid h-11 w-11 place-items-center rounded-full border border-white/15 text-xl text-zinc-300 transition hover:border-white/35 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#D8C36A]">×</button>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">Create Booking</p><h2 id="buyout-creator-title" className="mt-1 text-2xl font-bold text-white">Buyout</h2></div>
+            <button ref={closeButtonRef} type="button" aria-label="Close Buyout" onClick={() => !saving && onClose()} className="grid h-11 w-11 place-items-center rounded-full border border-white/15 text-xl text-zinc-300 transition hover:border-white/35 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#D8C36A]">×</button>
           </div>
 
           <dl className="mt-5 grid grid-cols-1 gap-3 rounded-2xl border border-[#D8C36A]/25 bg-[#130e06] p-4 sm:grid-cols-3">
@@ -231,13 +232,20 @@ export default function CorporateBuyoutCreator({
           {status && <p role="status" className="mt-4 rounded-xl border border-emerald-400/35 bg-emerald-950/30 p-3 text-sm text-emerald-100">{status}</p>}
           {loading || !data ? <p className="mt-8 text-sm text-zinc-400">Loading Buyout details...</p> : (
             <div className="mt-6 space-y-6">
-              {!data.canCreate && <p className="rounded-xl border border-amber-300/30 bg-amber-950/25 p-3 text-sm text-amber-100">Booking and show management access is required to create a Full Show Buyout.</p>}
+              {!data.canCreate && <p className="rounded-xl border border-amber-300/30 bg-amber-950/25 p-3 text-sm text-amber-100">Booking and show management access is required to create a Buyout.</p>}
               {eligibility && !eligibility.available && (
                 <div className="rounded-xl border border-amber-300/30 bg-amber-950/25 p-4 text-sm text-amber-100">
-                  {eligibility.activeBookingCount > 0 ? <><p>This show already has {eligibility.activeBookingCount} booking{eligibility.activeBookingCount === 1 ? "" : "s"} for {eligibility.activeGuestCount} guest{eligibility.activeGuestCount === 1 ? "" : "s"}. Resolve these bookings before creating a Full Show Buyout.</p><button type="button" onClick={() => onReviewBookings(authoritativeShow?.id ?? selectedShow.id)} className="mt-3 min-h-11 rounded-full border border-[#D8C36A]/55 px-4 py-2 text-sm font-bold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black">Review Bookings</button></> : eligibility.buyoutState ? <p>This show already has an active Full Show Buyout.</p> : <p>This show is not currently available for a Full Show Buyout.</p>}
+                  {eligibility.buyoutState ? <p>This show already has an active Buyout.</p> : <p>This show is not currently available for a Buyout.</p>}
                 </div>
               )}
-              {eligibility?.available && <p className="rounded-xl border border-emerald-400/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">This show has no active bookings and is available for a Full Show Buyout.</p>}
+              {eligibility?.available && eligibility.activeBookingCount === 0 && <p className="rounded-xl border border-emerald-400/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">This show is available for a Buyout.</p>}
+              {eligibility && eligibility.activeBookingCount > 0 && (
+                <div className="rounded-xl border border-amber-300/35 bg-amber-950/25 p-4 text-sm text-amber-50">
+                  <p>This show already has {eligibility.activeBookingCount} booking{eligibility.activeBookingCount === 1 ? "" : "s"} for {eligibility.activeGuestCount} guest{eligibility.activeGuestCount === 1 ? "" : "s"}.</p>
+                  <p className="mt-2 text-amber-100">You can still create the Buyout. These bookings will stay unchanged and need to be moved.</p>
+                  <button type="button" onClick={() => onReviewBookings(authoritativeShow?.id ?? selectedShow.id)} className="mt-3 min-h-11 rounded-full border border-[#D8C36A]/55 px-4 py-2 text-sm font-bold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black">Review Bookings</button>
+                </div>
+              )}
 
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.75rem] sm:items-end">
                 <label className="text-sm font-semibold text-zinc-300">Company<select value={companyId} onChange={(event) => { setCompanyId(event.target.value); setContactId(""); }} className={fieldClass()}><option value="">Choose Company</option>{data.companies.map((company) => <option key={company.id} value={company.id}>{company.legalName}</option>)}</select></label>
@@ -249,13 +257,14 @@ export default function CorporateBuyoutCreator({
               <fieldset><legend className="text-sm font-semibold text-zinc-300">Package</legend><div className="mt-2 grid gap-3 lg:grid-cols-3">{packageCards.map((item) => <PackageCard key={item.id} item={item} selected={item.id === packageId} onSelect={() => setPackageId(item.id)} />)}</div></fieldset>
               <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-semibold text-zinc-300">Expected guests<input type="number" min="1" step="1" value={expectedGuests} onChange={(event) => setExpectedGuests(event.target.value)} className={fieldClass()} /></label><label className="text-sm font-semibold text-zinc-300">Final guests <span className="font-normal text-zinc-500">(optional)</span><input type="number" min="1" step="1" value={finalGuests} onChange={(event) => setFinalGuests(event.target.value)} className={fieldClass()} /></label></div>
               {guestError && <p className="text-sm text-amber-200">{guestError}</p>}
-              {selectedPackage && commercials && <div className="grid gap-4 rounded-2xl border border-[#D8C36A]/25 bg-[#130e06] p-5 lg:grid-cols-[1fr_auto]"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">Review</p><h3 className="mt-2 text-xl font-bold text-white">Full Show Buyout</h3><p className="mt-2 text-sm text-zinc-300">{selectedCompany?.legalName ?? "Choose Company"} · {selectedContact ? [selectedContact.firstName, selectedContact.surname].filter(Boolean).join(" ") : "Choose Contact"}</p><p className="mt-1 text-sm text-zinc-400">{displayShow.venue} · {formatShowDate(displayShow.date)} · {displayShow.time.slice(0, 5)} · {selectedPackage.displayName}</p><p className="mt-1 text-sm text-zinc-400">{currentGuestCount || 0} guests · Awaiting Payment</p><p className="mt-3 text-sm text-amber-100">Public booking will close for this performance. Guests remain unallocated until Floor planning is completed.</p></div><dl className="min-w-52 space-y-2 text-sm"><div className="flex justify-between gap-5"><dt className="text-zinc-400">Base</dt><dd>{money(commercials.baseAmount)}</dd></div><div className="flex justify-between gap-5"><dt className="text-zinc-400">Gratuity</dt><dd>{money(commercials.gratuityAmount)}</dd></div><div className="flex justify-between gap-5"><dt className="text-zinc-400">VAT</dt><dd>{money(commercials.vatAmount)}</dd></div>{commercials.additionalGuests > 0 && <div className="flex justify-between gap-5"><dt className="text-zinc-400">Extra guests</dt><dd>{money(commercials.additionalGuestAmount)}</dd></div>}<div className="flex justify-between gap-5 border-t border-white/10 pt-2 text-base font-bold"><dt>Total</dt><dd className="text-[#F2D66C]">{money(commercials.totalAmount)}</dd></div></dl></div>}
+              {eligibility && eligibility.activeBookingCount > 0 && <div className="rounded-2xl border border-amber-300/35 bg-amber-950/25 p-5"><p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-100">Existing bookings need review</p><p className="mt-2 text-base font-bold text-white">{eligibility.activeBookingCount} booking{eligibility.activeBookingCount === 1 ? "" : "s"} · {eligibility.activeGuestCount} guest{eligibility.activeGuestCount === 1 ? "" : "s"} need to be moved</p><p className="mt-2 text-sm text-amber-100">These bookings will stay unchanged until Box Office moves them.</p><button type="button" onClick={() => onReviewBookings(authoritativeShow?.id ?? selectedShow.id)} className="mt-3 min-h-11 rounded-full border border-[#D8C36A]/55 px-4 py-2 text-sm font-bold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black">Review Bookings</button></div>}
+              {selectedPackage && commercials && <div className="grid gap-4 rounded-2xl border border-[#D8C36A]/25 bg-[#130e06] p-5 lg:grid-cols-[1fr_auto]"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">Review</p><h3 className="mt-2 text-xl font-bold text-white">Buyout</h3><p className="mt-2 text-sm text-zinc-300">{selectedCompany?.legalName ?? "Choose Company"} · {selectedContact ? [selectedContact.firstName, selectedContact.surname].filter(Boolean).join(" ") : "Choose Contact"}</p><p className="mt-1 text-sm text-zinc-400">{displayShow.venue} · {formatShowDate(displayShow.date)} · {displayShow.time.slice(0, 5)} · {selectedPackage.displayName}</p><p className="mt-1 text-sm text-zinc-400">{currentGuestCount || 0} guests · Awaiting Payment</p><p className="mt-3 text-sm text-amber-100">Public booking will close for this performance. Guests remain unallocated until Floor planning is completed.</p></div><dl className="min-w-52 space-y-2 text-sm"><div className="flex justify-between gap-5"><dt className="text-zinc-400">Base</dt><dd>{money(commercials.baseAmount)}</dd></div><div className="flex justify-between gap-5"><dt className="text-zinc-400">Gratuity</dt><dd>{money(commercials.gratuityAmount)}</dd></div><div className="flex justify-between gap-5"><dt className="text-zinc-400">VAT</dt><dd>{money(commercials.vatAmount)}</dd></div>{commercials.additionalGuests > 0 && <div className="flex justify-between gap-5"><dt className="text-zinc-400">Extra guests</dt><dd>{money(commercials.additionalGuestAmount)}</dd></div>}<div className="flex justify-between gap-5 border-t border-white/10 pt-2 text-base font-bold"><dt>Total</dt><dd className="text-[#F2D66C]">{money(commercials.totalAmount)}</dd></div></dl></div>}
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={onClose} className="min-h-11 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-zinc-200">Cancel</button><button type="button" disabled={!ready || saving} onClick={() => setConfirming(true)} className="min-h-11 rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40">Review Buyout</button></div>
             </div>
           )}
         </section>
       </div>
-      {confirming && authoritativeShow && selectedCompany && selectedPackage && <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/85 p-4"><section aria-labelledby="confirm-buyout-title" aria-modal="true" role="alertdialog" className="w-full max-w-lg rounded-2xl border border-[#D8C36A]/40 bg-[#090909] p-6 shadow-2xl"><h2 id="confirm-buyout-title" className="text-xl font-bold text-white">Create this Full Show Buyout?</h2><p className="mt-3 text-sm leading-6 text-zinc-300">{selectedCompany.legalName} · {selectedPackage.displayName} · {currentGuestCount} guests</p><p className="mt-2 text-sm leading-6 text-zinc-400">{authoritativeShow.venue} · {formatShowDate(authoritativeShow.date)} · {authoritativeShow.time.slice(0, 5)}</p><p className="mt-2 text-sm leading-6 text-amber-100">Public booking will close for this performance. Existing bookings will not be changed.</p><div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" disabled={saving} onClick={() => setConfirming(false)} className="min-h-11 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-zinc-200">Cancel</button><button type="button" disabled={saving} onClick={() => void submit()} className="min-h-11 rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold text-black disabled:opacity-50">{saving ? "Creating..." : "Create Buyout"}</button></div></section></div>}
+      {confirming && authoritativeShow && selectedCompany && selectedPackage && <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/85 p-4"><section aria-labelledby="confirm-buyout-title" aria-modal="true" role="alertdialog" className="w-full max-w-lg rounded-2xl border border-[#D8C36A]/40 bg-[#090909] p-6 shadow-2xl"><h2 id="confirm-buyout-title" className="text-xl font-bold text-white">Create this Buyout?</h2><p className="mt-3 text-sm leading-6 text-zinc-300">{selectedCompany.legalName} · {selectedPackage.displayName} · {currentGuestCount} guests</p><p className="mt-2 text-sm leading-6 text-zinc-400">{authoritativeShow.venue} · {formatShowDate(authoritativeShow.date)} · {authoritativeShow.time.slice(0, 5)}</p>{eligibility && eligibility.activeBookingCount > 0 && <p className="mt-3 text-sm font-semibold leading-6 text-amber-100">Existing bookings need review · {eligibility.activeBookingCount} booking{eligibility.activeBookingCount === 1 ? "" : "s"} · {eligibility.activeGuestCount} guest{eligibility.activeGuestCount === 1 ? "" : "s"} need to be moved.</p>}<p className="mt-2 text-sm leading-6 text-amber-100">Public booking will close for this performance. Existing bookings will not be changed.</p><div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" disabled={saving} onClick={() => setConfirming(false)} className="min-h-11 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-zinc-200">Cancel</button><button type="button" disabled={saving} onClick={() => void submit()} className="min-h-11 rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold text-black disabled:opacity-50">{saving ? "Creating..." : "Create Buyout"}</button></div></section></div>}
     </>
   );
 }

@@ -28,6 +28,8 @@ export type CorporateBuyoutEligibility = {
   activeGuestCount: number;
   available: boolean;
   buyoutState: string | null;
+  reviewBookingCount: number;
+  reviewGuestCount: number;
   showStatus: string;
 };
 

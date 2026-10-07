@@ -76,13 +76,12 @@ function safeError(error: unknown) {
       : "";
 
   if (
-    message.includes("BUYOUT_SHOW_HAS_BOOKINGS") ||
     message.includes("BUYOUT_SHOW_ALREADY_OWNED") ||
     message.includes("duplicate key")
   ) {
     return {
       message:
-        "This performance already has bookings or a Full Show Buyout. Review it before continuing.",
+        "This performance already has an active Buyout.",
       status: 409,
     };
   }
@@ -140,7 +139,7 @@ function safeError(error: unknown) {
     };
   }
 
-  return { message: "The Full Show Buyout could not be saved.", status: 500 };
+  return { message: "The Buyout could not be saved.", status: 500 };
 }
 
 function canAccessShowVenue(
@@ -193,7 +192,7 @@ export async function GET(request: Request) {
           .in("booking_status", [...activeBookingStatuses]),
         auth.serviceClient
           .from("corporate_buyouts")
-          .select("id,state")
+          .select("id,state,booking_id")
           .eq("show_id", showId)
           .in("state", [
             "provisional",
@@ -216,7 +215,9 @@ export async function GET(request: Request) {
           { status: 403 },
         );
       }
-      const conflicts = bookingResult.data ?? [];
+      const conflicts = (bookingResult.data ?? []).filter(
+        (booking) => booking.id !== buyoutResult.data?.booking_id,
+      );
       const activeBuyout = buyoutResult.data
         ? (
             await loadActiveCorporateBuyoutSummaries(
@@ -236,9 +237,15 @@ export async function GET(request: Request) {
           ),
           available:
             show.status === "active" &&
-            conflicts.length === 0 &&
             !buyoutResult.data,
           buyoutState: buyoutResult.data?.state ?? null,
+          reviewBookingCount: activeBuyout?.reviewBookingCount ?? conflicts.length,
+          reviewGuestCount:
+            activeBuyout?.reviewGuestCount ??
+            conflicts.reduce(
+              (total, booking) => total + Number(booking.guest_count ?? 0),
+              0,
+            ),
           showStatus: show.status,
         },
         packages,
@@ -297,7 +304,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         error:
-          "Booking and show management access is required to create a Full Show Buyout.",
+          "Booking and show management access is required to create a Buyout.",
       },
       { status: 403 },
     );
@@ -432,7 +439,7 @@ export async function PATCH(request: Request) {
       .maybeSingle();
     if (buyoutError) throw buyoutError;
     if (!buyout) {
-      return Response.json({ error: "This Full Show Buyout could not be found." }, { status: 404 });
+      return Response.json({ error: "This Buyout could not be found." }, { status: 404 });
     }
     const { data: show, error: showError } = await auth.serviceClient
       .from("shows")

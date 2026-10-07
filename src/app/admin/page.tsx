@@ -10272,11 +10272,12 @@ function getCompactBookingRow(
 
   return {
     attentionLabel:
-      financials.balanceDue > 0
+      booking.buyoutReviewReason ||
+      (financials.balanceDue > 0
         ? "Payment outstanding"
         : !hasPhysicalTable && status !== "cancelled"
           ? "Table needed"
-          : undefined,
+          : undefined),
     amountPaid: financials.amountPaid,
     amountPaidLabel: formatCurrency(financials.amountPaid),
     balanceDue: financials.balanceDue,
@@ -38409,6 +38410,26 @@ export default function AdminDashboardPage() {
                                           {show.fullShowBuyout.unallocatedGuestCount} guests need section planning
                                         </p>
                                       )}
+                                      {show.fullShowBuyout.reviewBookingCount > 0 && (
+                                        <div className="mt-2 border-t border-amber-300/20 pt-2">
+                                          <p className="text-[0.62rem] font-bold uppercase tracking-[0.1em] text-amber-100">
+                                            Existing bookings need review
+                                          </p>
+                                          <p className="mt-1 text-[0.68rem] text-amber-100">
+                                            {show.fullShowBuyout.reviewBookingCount} booking{show.fullShowBuyout.reviewBookingCount === 1 ? "" : "s"} · {show.fullShowBuyout.reviewGuestCount} guest{show.fullShowBuyout.reviewGuestCount === 1 ? "" : "s"} need to be moved
+                                          </p>
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              reviewCalendarBuyoutBookings(show.supabaseId ?? show.id);
+                                            }}
+                                            className="mt-2 min-h-9 rounded-full border border-[#D8C36A]/55 px-3 py-1.5 text-[0.68rem] font-bold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                                          >
+                                            Review Bookings
+                                          </button>
+                                        </div>
+                                      )}
                                     </div>
                                   ) : (
                                   <div className="mt-3 flex flex-wrap gap-1.5 pr-11">
@@ -38529,7 +38550,7 @@ export default function AdminDashboardPage() {
                       onClick={() => setIsCalendarBuyoutOpen(true)}
                       className="min-h-12 rounded-full border border-[#D8C36A]/55 px-5 py-3 text-sm font-bold uppercase text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                     >
-                      Full Show Buyout
+                      Buyout
                     </button>
                   )}
                 </div>
@@ -45152,14 +45173,16 @@ export default function AdminDashboardPage() {
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#D8C36A]">Needs attention</p>
                           <p className="mt-1 text-sm font-semibold text-white">
-                            {financials.balanceDue > 0
+                            {booking.buyoutReviewReason
+                              ? booking.buyoutReviewReason
+                              : financials.balanceDue > 0
                               ? `${formatCurrency(financials.balanceDue)} payment outstanding`
                               : !currentTable && (booking.status ?? "confirmed") !== "cancelled"
                                 ? "This booking needs a table"
                                 : "No urgent action"}
                           </p>
                         </div>
-                        {financials.balanceDue > 0 ? (
+                        {booking.buyoutReviewReason ? null : financials.balanceDue > 0 ? (
                           <a href={`#payment-controls-${booking.reference}`} className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#D8C36A] px-4 text-xs font-bold uppercase text-black transition hover:bg-[#F2D66C]">
                             Review Payment
                           </a>

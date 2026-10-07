@@ -35,8 +35,36 @@ type SummaryRow = {
   revision: number;
   show_id: string;
   state: CorporateBuyoutState;
+  terms_snapshot: unknown;
   unallocated_guest_count: number;
 };
+
+type PreExistingBookingSnapshot = {
+  bookingId: string;
+  bookingReference: string;
+};
+
+const activeBookingStatuses = new Set([
+  "checked_in",
+  "confirmed",
+  "new",
+  "pending_payment",
+]);
+
+function preExistingBookings(value: unknown): PreExistingBookingSnapshot[] {
+  if (!value || typeof value !== "object") return [];
+  const items = (value as { preExistingBookings?: unknown }).preExistingBookings;
+  if (!Array.isArray(items)) return [];
+
+  return items.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const bookingId = (item as { bookingId?: unknown }).bookingId;
+    const bookingReference = (item as { bookingReference?: unknown }).bookingReference;
+    return typeof bookingId === "string" && typeof bookingReference === "string"
+      ? [{ bookingId, bookingReference }]
+      : [];
+  });
+}
 
 function stringArray(value: unknown) {
   return Array.isArray(value)
@@ -99,18 +127,24 @@ export async function loadActiveCorporateBuyoutSummaries(
   const { data, error } = await client
     .from("corporate_buyouts")
     .select(
-      "id,show_id,booking_id,state,current_guest_count,unallocated_guest_count,package_snapshot,revision",
+      "id,show_id,booking_id,state,current_guest_count,unallocated_guest_count,package_snapshot,terms_snapshot,revision",
     )
     .in("show_id", ids)
     .in("state", ["provisional", "awaiting_payment", "fully_paid", "confirmed"]);
   if (error) throw error;
 
   const rows = (data ?? []) as SummaryRow[];
-  const bookingIds = rows.map((row) => row.booking_id);
+  const reviewBookingIds = rows.flatMap((row) =>
+    preExistingBookings(row.terms_snapshot).map((booking) => booking.bookingId),
+  );
+  const bookingIds = [...new Set([
+    ...rows.map((row) => row.booking_id),
+    ...reviewBookingIds,
+  ])];
   const { data: bookings, error: bookingError } = bookingIds.length
     ? await client
         .from("bookings")
-        .select("id,booking_reference,company_name")
+        .select("id,booking_reference,company_name,show_id,guest_count,booking_status,archived_at")
         .in("id", bookingIds)
     : { data: [], error: null };
   if (bookingError) throw bookingError;
@@ -122,6 +156,13 @@ export async function loadActiveCorporateBuyoutSummaries(
   return new Map(
     rows.map((row) => {
       const booking = bookingById.get(row.booking_id);
+      const unresolved = preExistingBookings(row.terms_snapshot)
+        .map((snapshot) => bookingById.get(snapshot.bookingId))
+        .filter((candidate) =>
+          candidate?.show_id === row.show_id &&
+          candidate.archived_at === null &&
+          activeBookingStatuses.has(candidate.booking_status),
+        );
       return [
         row.show_id,
         {
@@ -132,10 +173,54 @@ export async function loadActiveCorporateBuyoutSummaries(
           packageName:
             row.package_snapshot?.displayName ?? "Full Show Buyout",
           revision: row.revision,
+          reviewBookingCount: unresolved.length,
+          reviewGuestCount: unresolved.reduce(
+            (total, candidate) => total + Number(candidate?.guest_count ?? 0),
+            0,
+          ),
           state: row.state,
           unallocatedGuestCount: row.unallocated_guest_count,
         },
       ];
     }),
+  );
+}
+
+export async function loadCorporateBuyoutBookingReviewReasons(
+  client: SupabaseClient,
+  bookings: Array<{
+    archived_at?: string | null;
+    booking_status?: string;
+    id: string;
+    show_id: string;
+  }>,
+) {
+  if (bookings.length === 0) return new Map<string, string>();
+  const showIds = [...new Set(bookings.map((booking) => booking.show_id))];
+  const { data, error } = await client
+    .from("corporate_buyouts")
+    .select("show_id,terms_snapshot")
+    .in("show_id", showIds)
+    .in("state", ["provisional", "awaiting_payment", "fully_paid", "confirmed"]);
+  if (error) throw error;
+
+  const recordedByShow = new Map<string, Set<string>>();
+  for (const row of data ?? []) {
+    recordedByShow.set(
+      row.show_id,
+      new Set(
+        preExistingBookings(row.terms_snapshot).map((booking) => booking.bookingId),
+      ),
+    );
+  }
+
+  return new Map(
+    bookings.flatMap((booking) =>
+      booking.archived_at === null &&
+      activeBookingStatuses.has(booking.booking_status ?? "") &&
+      recordedByShow.get(booking.show_id)?.has(booking.id)
+        ? [[booking.id, "Existing booking on Buyout show — needs to be moved"] as const]
+        : [],
+    ),
   );
 }
