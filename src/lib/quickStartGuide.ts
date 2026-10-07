@@ -7,6 +7,7 @@ export type QuickStartSectionId =
   | "corporate"
   | "customers"
   | "floor"
+  | "full-show-buyout"
   | "help"
   | "payment-controls"
   | "payments"
@@ -26,6 +27,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
   "box-office": [
     "bookings",
     "corporate",
+    "full-show-buyout",
     "tickets",
     "customers",
     "communications",
@@ -42,6 +44,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
   "box-office-staff": [
     "bookings",
     "corporate",
+    "full-show-buyout",
     "tickets",
     "customers",
     "communications",
@@ -58,6 +61,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
   "box-office-manager": [
     "bookings",
     "corporate",
+    "full-show-buyout",
     "payments",
     "payment-controls",
     "customers",
@@ -80,6 +84,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
     "bookings",
     "payment-controls",
     "corporate",
+    "full-show-buyout",
     "customers",
     "communications",
     "reviews",
@@ -97,6 +102,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
     "analytics",
     "bookings",
     "corporate",
+    "full-show-buyout",
     "customers",
     "payments",
     "payment-controls",
@@ -113,6 +119,7 @@ const rolePriority: Record<AdminRole, QuickStartSectionId[]> = {
     "analytics",
     "bookings",
     "corporate",
+    "full-show-buyout",
     "customers",
     "floor",
     "zone-full",
@@ -142,6 +149,10 @@ export function getQuickStartSectionIds({
     visibleSections.add("bookings");
     visibleSections.add("corporate");
     visibleSections.add("payment-controls");
+  }
+
+  if (canManageBookings && permissionSet.has("settings:manage")) {
+    visibleSections.add("full-show-buyout");
   }
 
   if (canViewPayments) {

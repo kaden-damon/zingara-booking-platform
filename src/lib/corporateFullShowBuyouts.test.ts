@@ -156,13 +156,40 @@ test("package configuration supports effective dates and audited version changes
   assert.match(migration, /Disputed terms remain unset/);
 });
 
-test("staff UI keeps Group Booking and uses one zero-mutation confirmation", async () => {
-  const ui = await source("../app/admin/CorporateBuyoutCreator.tsx");
-  assert.match(ui, />Group Booking</);
-  assert.match(ui, /Group Booking is unchanged/);
+test("staff UI moves Buyout creation to the selected calendar show", async () => {
+  const [ui, admin, route] = await Promise.all([
+    source("../app/admin/CorporateBuyoutCreator.tsx"),
+    source("../app/admin/page.tsx"),
+    source("../app/api/admin/corporate-buyouts/route.ts"),
+  ]);
+  assert.doesNotMatch(ui, /Choose performance/);
+  assert.doesNotMatch(ui, />Group Booking</);
+  assert.match(admin, /href="\/book\?staffCheckout=1&bookingType=corporate"/);
+  assert.match(admin, /setIsCalendarBuyoutOpen\(true\)/);
+  assert.match(admin, /id: calendarBookingShow\.supabaseId \?\? calendarBookingShow\.id/);
+  assert.match(ui, /Venue/);
+  assert.match(ui, /Date/);
+  assert.match(ui, /Time/);
+  assert.match(ui, /aria-label="Create Company and Contact"/);
+  assert.match(ui, /Review Bookings/);
+  assert.match(route, /\.eq\("show_id", showId\)/);
   assert.match(ui, /Create this Full Show Buyout\?/);
   assert.match(ui, /Public booking will close for this performance\. Existing bookings will not be changed\./);
   assert.match(ui, /onClick=\{\(\) => setConfirming\(false\)\}/);
+});
+
+test("selected-show bootstrap remains bounded and release management remains available", async () => {
+  const [route, client, manager] = await Promise.all([
+    source("../app/api/admin/corporate-buyouts/route.ts"),
+    source("./supabase/corporateBuyouts.ts"),
+    source("../app/admin/CorporateBuyoutManager.tsx"),
+  ]);
+  assert.match(client, /\?showId=/);
+  assert.match(route, /if \(showId\)[\s\S]*\.eq\("id", showId\)/);
+  assert.match(route, /activeBookingCount: conflicts\.length/);
+  assert.match(route, /activeGuestCount: conflicts\.reduce/);
+  assert.match(manager, /Active Full Show Buyouts/);
+  assert.match(manager, /releaseCorporateBuyout/);
 });
 
 test("show and public calendar surfaces display the dedicated Buyout state", async () => {

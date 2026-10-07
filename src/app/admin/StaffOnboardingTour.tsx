@@ -62,7 +62,7 @@ export function StaffOnboardingTour() {
       >
         <div className="flex items-start justify-between gap-4">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-            What&apos;s New
+            NEW: FULL SHOW BUYOUTS
           </p>
           <button
             aria-label="Close onboarding tour"
@@ -75,6 +75,9 @@ export function StaffOnboardingTour() {
         </div>
 
         <div className="mt-5 min-h-64">
+          <span aria-hidden="true" className="grid h-12 min-w-12 w-fit place-items-center rounded-full border border-[#D8C36A]/40 bg-[#171107] px-3 text-xs font-bold text-[#F2D66C]">
+            {page.icon}
+          </span>
           <h2 className="text-2xl font-bold sm:text-3xl" id="staff-tour-title">
             {page.title}
           </h2>
@@ -139,7 +142,7 @@ export function StaffOnboardingTour() {
             }}
             type="button"
           >
-            {isLastPage ? (isSaving ? "Saving..." : "Got it") : "Next"}
+            {isLastPage ? (isSaving ? "Saving..." : "GOT IT") : "Next"}
           </button>
         </div>
       </section>

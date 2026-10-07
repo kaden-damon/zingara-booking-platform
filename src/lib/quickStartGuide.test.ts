@@ -27,8 +27,9 @@ test("Super Admin receives broad guidance ordered for management", () => {
     "analytics",
     "bookings",
     "corporate",
-    "customers",
+    "full-show-buyout",
   ]);
+  assert.ok(sections.includes("customers"));
   assert.ok(sections.includes("refunds"));
   assert.ok(sections.includes("floor"));
 });
@@ -108,4 +109,20 @@ test("Only the three highest-priority available cards open by default", () => {
     [...getDefaultOpenQuickStartSections(["tickets", "bookings", "help"])],
     ["tickets", "bookings", "help"],
   );
+});
+
+test("Full Show Buyout guidance requires both booking and show management", () => {
+  const authorised = getQuickStartSectionIds({
+    canProcessRefund: false,
+    permissions: ["bookings:manage", "settings:manage"],
+    role: "venue-manager",
+  });
+  const bookingsOnly = getQuickStartSectionIds({
+    canProcessRefund: false,
+    permissions: ["bookings:manage"],
+    role: "box-office-manager",
+  });
+
+  assert.ok(authorised.includes("full-show-buyout"));
+  assert.ok(!bookingsOnly.includes("full-show-buyout"));
 });

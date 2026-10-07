@@ -57,6 +57,9 @@ const CorporateConversionModal = dynamic(
 const CorporateBuyoutCreator = dynamic(
   () => import("./CorporateBuyoutCreator"),
 );
+const CorporateBuyoutManager = dynamic(
+  () => import("./CorporateBuyoutManager"),
+);
 const CorporateFinancialReconciliationModal = dynamic(
   () => import("./CorporateFinancialReconciliationModal"),
 );
@@ -7025,6 +7028,35 @@ const academyArticles: AcademyArticle[] = [
   {
     category: "Recent Changes",
     commonMistakes: [
+      "Starting from Corporate Enquiries instead of the selected performance.",
+      "Expecting Zingara to remove existing bookings automatically.",
+    ],
+    difficulty: "beginner",
+    howTo: [
+      "Open Home, then Show & Availability Management.",
+      "Select the performance and choose +, then Full Show Buyout.",
+      "Choose the Company and Contact, or use the yellow + to create them.",
+      "Choose Private Salon, Speakeasy or Grand Society.",
+      "Enter the expected guest count and final count when known.",
+      "Review the performance, Company, package, guests and price, then create the Buyout.",
+      "If the show has bookings, use Review Bookings and resolve them before trying again.",
+    ],
+    id: "full-show-buyouts",
+    keywords: ["full show buyout", "buyout", "company", "package", "private event"],
+    moduleId: "recent-changes",
+    purpose: "Create a Full Show Buyout from the selected performance without changing existing bookings.",
+    relatedActions: ["bookings", "crm"],
+    related: ["Corporate Booking Overview", "Managing Corporate Enquiries"],
+    tips: [
+      "Zingara never removes existing bookings automatically.",
+      "A valid Buyout protects the show from ordinary public bookings and appears in Corporate Buyout management afterwards.",
+    ],
+    title: "Full Show Buyouts",
+    whenToUse: "Use this when one Company is buying the complete performance under an approved Buyout package.",
+  },
+  {
+    category: "Recent Changes",
+    commonMistakes: [
       "Looking only at paid amounts when a performance also has outstanding value.",
       "Forgetting to check the selected month and venue.",
     ],
@@ -11125,6 +11157,7 @@ export default function AdminDashboardPage() {
     useState<ShowEditLock | null>(null);
   const [calendarBookingSessionId, setCalendarBookingSessionId] = useState("");
   const [calendarBookingStatus, setCalendarBookingStatus] = useState("");
+  const [isCalendarBuyoutOpen, setIsCalendarBuyoutOpen] = useState(false);
   const [isCalendarBookingLocking, setIsCalendarBookingLocking] =
     useState(false);
   const [bookingReadOnlyReferences, setBookingReadOnlyReferences] =
@@ -12327,7 +12360,8 @@ export default function AdminDashboardPage() {
       const dineplanActionId = url.searchParams.get("action")?.trim();
       const section = url.searchParams.get("section")?.trim();
       const systemSection = url.searchParams.get("system")?.trim();
-      const deepLinkKey = `${bookingReference ?? ""}|${waitlistId ?? ""}|${corporateRequestId ?? ""}|${issueId ?? ""}|${dineplanActionId ?? ""}|${section ?? ""}|${systemSection ?? ""}`;
+      const bookingShow = url.searchParams.get("show")?.trim();
+      const deepLinkKey = `${bookingReference ?? ""}|${waitlistId ?? ""}|${corporateRequestId ?? ""}|${issueId ?? ""}|${dineplanActionId ?? ""}|${section ?? ""}|${systemSection ?? ""}|${bookingShow ?? ""}`;
 
       if (!deepLinkKey.replaceAll("|", "")) {
         return;
@@ -12370,6 +12404,11 @@ export default function AdminDashboardPage() {
         setActiveSystemTab("dineplan");
       } else if (section === "bookings") {
         setActiveAdminTab("bookings");
+        if (bookingShow) {
+          setBookingShowFilter(bookingShow);
+          setBookingFiltersExpanded(true);
+          setBookingPage(1);
+        }
       } else if (section === "overview" || section === "home") {
         setActiveAdminTab("overview");
       } else if (section === "operations" || section === "floor-arrivals") {
@@ -13227,6 +13266,7 @@ export default function AdminDashboardPage() {
     setCalendarBookingSessionId("");
     setCalendarBookingShow(null);
     setCalendarBookingStatus("");
+    setIsCalendarBuyoutOpen(false);
 
     if (!lock) return;
 
@@ -13351,6 +13391,20 @@ export default function AdminDashboardPage() {
     };
 
     window.location.assign(buildCalendarBookingHref({ bookingType, context }));
+  }
+
+  function reviewCalendarBuyoutBookings(showId: string) {
+    setIsCalendarBuyoutOpen(false);
+    setActiveAdminTab("bookings");
+    setBookingShowFilter(showId);
+    setBookingPage(1);
+    setBookingFiltersExpanded(true);
+    window.history.pushState(
+      null,
+      "",
+      `/admin?section=bookings&show=${encodeURIComponent(showId)}`,
+    );
+    void releaseCalendarBookingLock("review-bookings");
   }
 
   function forceCloseBookingDetails(reason = "closed") {
@@ -38426,7 +38480,7 @@ export default function AdminDashboardPage() {
           </section>
         )}
 
-        {calendarBookingShow && (
+        {calendarBookingShow && !isCalendarBuyoutOpen && (
           <div className="fixed inset-0 z-[145] flex items-end justify-center bg-black/75 p-3 backdrop-blur-md sm:items-center sm:p-6">
             <section
               aria-labelledby="calendar-booking-title"
@@ -38454,7 +38508,7 @@ export default function AdminDashboardPage() {
                 {calendarBookingStatus || "Checking show availability..."}
               </p>
               {calendarBookingLock && (
-                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className={`mt-5 grid grid-cols-1 gap-3 ${canManageShows ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
                   <button
                     type="button"
                     onClick={() => openCalendarBookingCheckout("standard")}
@@ -38469,6 +38523,15 @@ export default function AdminDashboardPage() {
                   >
                     Corporate
                   </button>
+                  {canManageShows && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCalendarBuyoutOpen(true)}
+                      className="min-h-12 rounded-full border border-[#D8C36A]/55 px-5 py-3 text-sm font-bold uppercase text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                    >
+                      Full Show Buyout
+                    </button>
+                  )}
                 </div>
               )}
               {!calendarBookingLock &&
@@ -38493,6 +38556,24 @@ export default function AdminDashboardPage() {
             </section>
           </div>
         )}
+
+        {calendarBookingShow && isCalendarBuyoutOpen && <CorporateBuyoutCreator
+          key={calendarBookingShow.supabaseId ?? calendarBookingShow.id}
+          open
+          selectedShow={calendarBookingShow ? {
+            date: calendarBookingShow.date,
+            id: calendarBookingShow.supabaseId ?? calendarBookingShow.id,
+            name: calendarBookingShow.label,
+            time: calendarBookingShow.time,
+            venue: calendarBookingShow.venueName ?? calendarBookingShow.location ?? "",
+          } : null}
+          onClose={() => void releaseCalendarBookingLock("cancelled")}
+          onReviewBookings={reviewCalendarBuyoutBookings}
+          onCreated={async () => {
+            setShowCalendarOccupancyRevision((revision) => revision + 1);
+            await releaseCalendarBookingLock("completed");
+          }}
+        />}
 
         {editingShow && canManageShows && (
           <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/75 p-3 backdrop-blur-md sm:items-center sm:p-6">
@@ -43677,7 +43758,15 @@ export default function AdminDashboardPage() {
                   matching enquir
                   {filteredCorporateRequests.length === 1 ? "y" : "ies"}
                 </div>
-                {canManageBookings && <CorporateBuyoutCreator />}
+                {canManageBookings && (
+                  <a
+                    href="/book?staffCheckout=1&bookingType=corporate"
+                    className="inline-flex min-h-11 items-center rounded-full bg-[#D8C36A] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#F2D66C]"
+                  >
+                    Create Booking
+                  </a>
+                )}
+                {canManageBookings && canManageShows && <CorporateBuyoutManager />}
               </div>
             </div>
 

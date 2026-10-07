@@ -9,9 +9,11 @@ import {
 } from "./staffOnboarding.ts";
 
 test("staff onboarding is versioned and concise", () => {
-  assert.equal(latestStaffTourVersion, "navigation-simplified-2026-10");
-  assert.equal(staffTourPages.length, 3);
-  assert.equal(new Set(staffTourPages.map((page) => page.id)).size, 3);
+  assert.equal(latestStaffTourVersion, "full-show-buyouts-2026-10");
+  assert.equal(staffTourPages.length, 7);
+  assert.equal(new Set(staffTourPages.map((page) => page.id)).size, 7);
+  assert.ok(staffTourPages.every((page) => page.icon));
+  assert.match(staffTourPages.at(-1)?.supporting ?? "", /will not remove them automatically/);
 });
 
 test("only the current release acknowledgement suppresses the tour", () => {

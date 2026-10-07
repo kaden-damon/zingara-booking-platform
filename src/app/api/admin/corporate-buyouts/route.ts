@@ -171,10 +171,18 @@ export async function GET(request: Request) {
     );
 
     if (showId) {
-      const [showResult, bookingResult, buyoutResult] = await Promise.all([
+      const [
+        packages,
+        companies,
+        showResult,
+        bookingResult,
+        buyoutResult,
+      ] = await Promise.all([
+        loadCorporateBuyoutPackages(auth.serviceClient),
+        loadCompanies(auth.serviceClient, false),
         auth.serviceClient
           .from("shows")
-          .select("id,date,time,venue,status")
+          .select("id,name,date,time,venue,status")
           .eq("id", showId)
           .maybeSingle(),
         auth.serviceClient
@@ -209,7 +217,17 @@ export async function GET(request: Request) {
         );
       }
       const conflicts = bookingResult.data ?? [];
+      const activeBuyout = buyoutResult.data
+        ? (
+            await loadActiveCorporateBuyoutSummaries(
+              auth.serviceClient,
+              [show.id],
+            )
+          ).get(show.id) ?? null
+        : null;
       return Response.json({
+        canCreate: canCreate(auth),
+        companies,
         eligibility: {
           activeBookingCount: conflicts.length,
           activeGuestCount: conflicts.reduce(
@@ -223,6 +241,8 @@ export async function GET(request: Request) {
           buyoutState: buyoutResult.data?.state ?? null,
           showStatus: show.status,
         },
+        packages,
+        shows: [{ ...show, activeBuyout }],
       });
     }
 

@@ -18,6 +18,7 @@ export type CorporateBuyoutShowOption = {
 export type CorporateBuyoutBootstrap = {
   canCreate: boolean;
   companies: CompanyRecord[];
+  eligibility?: CorporateBuyoutEligibility;
   packages: CorporateBuyoutPackage[];
   shows: CorporateBuyoutShowOption[];
 };
@@ -30,9 +31,13 @@ export type CorporateBuyoutEligibility = {
   showStatus: string;
 };
 
-export function getCorporateBuyoutBootstrap(signal?: AbortSignal) {
+export function getCorporateBuyoutBootstrap(
+  showId?: string,
+  signal?: AbortSignal,
+) {
+  const query = showId ? `?showId=${encodeURIComponent(showId)}` : "";
   return fetchSupabaseApi<CorporateBuyoutBootstrap>(
-    "/api/admin/corporate-buyouts",
+    `/api/admin/corporate-buyouts${query}`,
     { cache: "no-store", signal },
   );
 }

@@ -1,11 +1,12 @@
 import type { User } from "@supabase/supabase-js";
 
-export const latestStaffTourVersion = "navigation-simplified-2026-10";
+export const latestStaffTourVersion = "full-show-buyouts-2026-10";
 export const staffTourMetadataKey = "zingara_staff_tour_version";
 
 export type StaffTourPage = {
   body: string;
   examples?: string[];
+  icon: string;
   id: string;
   supporting?: string;
   title: string;
@@ -13,21 +14,47 @@ export type StaffTourPage = {
 
 export const staffTourPages: StaffTourPage[] = [
   {
-    body: "The tools you use most are now easier to find.",
-    id: "navigation",
-    title: "Zingara is easier to navigate",
+    body: "Go to Home → Show & Availability Management and select the performance.",
+    icon: "🗓",
+    id: "buyout-show",
+    title: "Choose the show",
   },
   {
-    body: "Bookings, Floor & Arrivals, Customers and Reports stay easy to reach.",
-    examples: ["Bookings", "Floor & Arrivals", "Customers", "Reports"],
-    id: "daily-work",
-    title: "Everyday work comes first",
+    body: "Select the + on the performance and choose Full Show Buyout.",
+    icon: "+",
+    id: "buyout-start",
+    title: "Start the Buyout",
   },
   {
-    body: "Reviews, Settings, System, Quick Start and Academy are grouped under More.",
-    id: "everything-remains",
-    supporting: "See Academy > Recent Changes for a quick refresher.",
-    title: "Everything is still here",
+    body: "Select the Company and Contact, or use the yellow + to create them.",
+    icon: "🏢",
+    id: "buyout-company",
+    title: "Choose the Company",
+  },
+  {
+    body: "Select Private Salon, Speakeasy or Grand Society.",
+    icon: "📦",
+    id: "buyout-package",
+    title: "Choose the package",
+  },
+  {
+    body: "Enter the expected guest count and final count when known.",
+    icon: "👥",
+    id: "buyout-guests",
+    title: "Add guest numbers",
+  },
+  {
+    body: "Check the show, Company, package, guests and price, then create the Buyout.",
+    icon: "✓",
+    id: "buyout-review",
+    title: "Review and create",
+  },
+  {
+    body: "Once the valid Buyout is created, Zingara protects the performance from ordinary public bookings.",
+    icon: "🔒",
+    id: "buyout-protection",
+    supporting: "If the show already has bookings, resolve those bookings first. Zingara will not remove them automatically.",
+    title: "The show is protected",
   },
 ];
 
