@@ -25,6 +25,7 @@ import { StaffActionGuidanceAlert } from "./StaffActionGuidanceAlert";
 import { StaffIssueAttachments } from "./StaffIssueAttachments";
 import { StaffIssueMediaPicker } from "./StaffIssueMediaPicker";
 import ZingaraDatePicker from "./ZingaraDatePicker";
+import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
   FinancialReconciliationModal,
   GuestCountReconciliationModal,
@@ -62,9 +63,6 @@ const DailyBookingReviewWorkflowCard = dynamic(() =>
 );
 const DineplanReconciliation = dynamic(
   () => import("./DineplanReconciliation"),
-);
-const InternationalPhoneInput = dynamic(
-  () => import("../components/InternationalPhoneInput"),
 );
 const ManagementAnalytics = dynamic(() => import("./ManagementAnalytics"));
 const PotentialDuplicatesPanel = dynamic(

@@ -27,8 +27,6 @@ test("rare Admin workspaces are split away from the everyday Admin bundle", asyn
       `${component} must not remain a static Admin dependency`,
     );
   }
-
-  assert.match(page, /const InternationalPhoneInput = dynamic\(/);
 });
 
 test("Booking Details prioritises the critical record over secondary history", async () => {
