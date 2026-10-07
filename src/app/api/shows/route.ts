@@ -13,6 +13,8 @@ import {
 } from "@/lib/publicShowSales";
 import type { ShowCustomPricing } from "@/lib/showSpecificPricing";
 import { loadShowCustomPricingMap } from "@/lib/supabase/showSpecificPricingServer";
+import { loadActiveCorporateBuyoutSummaries } from "@/lib/supabase/corporateBuyoutsServer";
+import type { CorporateBuyoutSummary } from "@/lib/corporateBuyouts";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +72,7 @@ function getPublicShowStatus(
 function toPublicShow(
   row: PublicShowRow,
   customPricing?: ShowCustomPricing,
+  fullShowBuyout?: CorporateBuyoutSummary,
 ): DemoShow {
   const metadata = getPublicShowMetadata(row.notes);
   const location = normalizeShowLocation(row.venue);
@@ -78,6 +81,7 @@ function toPublicShow(
     address: metadata.address || (location ? "" : row.venue),
     archivedAt: row.status === "archived" ? row.updated_at : undefined,
     customPricing,
+    fullShowBuyout,
     date: row.date,
     description: row.description ?? "",
     id: metadata.legacyId || row.id,
@@ -139,10 +143,11 @@ export async function GET(request: Request) {
   }
 
   const showRows = (data ?? []) as PublicShowRow[];
-  const customPricingByShowId = await loadShowCustomPricingMap(
-    serviceClient,
-    showRows.map((show) => show.id),
-  );
+  const showIds = showRows.map((show) => show.id);
+  const [customPricingByShowId, buyoutsByShowId] = await Promise.all([
+    loadShowCustomPricingMap(serviceClient, showIds),
+    loadActiveCorporateBuyoutSummaries(serviceClient, showIds),
+  ]);
 
   return Response.json({
     shows: showRows
@@ -151,6 +156,25 @@ export async function GET(request: Request) {
           ? isShowStaffBookable(show.status)
           : isShowPubliclyVisible(show.status),
       )
-      .map((show) => toPublicShow(show, customPricingByShowId.get(show.id))),
+      .map((show) => {
+        const buyout = buyoutsByShowId.get(show.id);
+        return toPublicShow(
+          show,
+          customPricingByShowId.get(show.id),
+          buyout
+            ? {
+                ...buyout,
+                bookingReference: operationalScope ? buyout.bookingReference : "",
+                companyName: operationalScope ? buyout.companyName : "Full Show Buyout",
+                currentGuestCount: operationalScope ? buyout.currentGuestCount : 0,
+                packageName: operationalScope ? buyout.packageName : "Full Show Buyout",
+                revision: operationalScope ? buyout.revision : 0,
+                unallocatedGuestCount: operationalScope
+                  ? buyout.unallocatedGuestCount
+                  : 0,
+              }
+            : undefined,
+        );
+      }),
   });
 }

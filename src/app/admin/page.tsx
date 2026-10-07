@@ -33,6 +33,7 @@ import {
   type GuestCountReconciliationResult,
 } from "./BookingReconciliationModal";
 import type { LegacyGuestIncreasePaymentBasis } from "@/lib/addedGuestFinancials";
+import { corporateBuyoutStateLabels } from "@/lib/corporateBuyouts";
 import {
   CustomerIdentityEditor,
   type CustomerIdentityDraft,
@@ -52,6 +53,9 @@ const BoxOfficeFinancialReportPanel = dynamic(
 const CompanyCrmWorkspace = dynamic(() => import("./CompanyCrmWorkspace"));
 const CorporateConversionModal = dynamic(
   () => import("./CorporateConversionModal"),
+);
+const CorporateBuyoutCreator = dynamic(
+  () => import("./CorporateBuyoutCreator"),
 );
 const CorporateFinancialReconciliationModal = dynamic(
   () => import("./CorporateFinancialReconciliationModal"),
@@ -38251,6 +38255,24 @@ export default function AdminDashboardPage() {
                                       +
                                     </button>
                                   )}
+                                  {show.fullShowBuyout ? (
+                                    <div className="mt-3 mr-11 rounded-xl border border-[#D8C36A]/35 bg-[#1A1208] p-3">
+                                      <p className="text-[0.62rem] font-bold uppercase tracking-[0.12em] text-[#F2D66C]">
+                                        Full Show Buyout
+                                      </p>
+                                      <p className="mt-1 truncate text-xs font-semibold text-white">
+                                        {show.fullShowBuyout.companyName}
+                                      </p>
+                                      <p className="mt-1 text-[0.68rem] leading-5 text-zinc-300">
+                                        {show.fullShowBuyout.packageName} · {show.fullShowBuyout.currentGuestCount} guests · {corporateBuyoutStateLabels[show.fullShowBuyout.state]}
+                                      </p>
+                                      {show.fullShowBuyout.unallocatedGuestCount > 0 && (
+                                        <p className="text-[0.68rem] text-amber-100">
+                                          {show.fullShowBuyout.unallocatedGuestCount} guests need section planning
+                                        </p>
+                                      )}
+                                    </div>
+                                  ) : (
                                   <div className="mt-3 flex flex-wrap gap-1.5 pr-11">
                                     {getShowOccupancyChips(show).map((chip) => {
                                       const ratio =
@@ -38295,6 +38317,7 @@ export default function AdminDashboardPage() {
                                       );
                                     })}
                                   </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -43552,12 +43575,15 @@ export default function AdminDashboardPage() {
                   are converted into confirmed bookings.
                 </p>
               </div>
-              <div className="rounded-2xl border border-[#D8C36A]/25 bg-black/35 px-4 py-3 text-sm text-zinc-300">
-                <span className="font-semibold text-white">
-                  {filteredCorporateRequests.length}
-                </span>{" "}
-                matching enquir
-                {filteredCorporateRequests.length === 1 ? "y" : "ies"}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="rounded-2xl border border-[#D8C36A]/25 bg-black/35 px-4 py-3 text-sm text-zinc-300">
+                  <span className="font-semibold text-white">
+                    {filteredCorporateRequests.length}
+                  </span>{" "}
+                  matching enquir
+                  {filteredCorporateRequests.length === 1 ? "y" : "ies"}
+                </div>
+                {canManageBookings && <CorporateBuyoutCreator />}
               </div>
             </div>
 

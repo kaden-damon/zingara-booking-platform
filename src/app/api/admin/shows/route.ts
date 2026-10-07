@@ -24,6 +24,8 @@ import { notifyAppleWalletShow } from "@/lib/appleWalletSync";
 import { after } from "next/server";
 import type { ShowCustomPricing } from "@/lib/showSpecificPricing";
 import { loadShowCustomPricingMap } from "@/lib/supabase/showSpecificPricingServer";
+import { loadActiveCorporateBuyoutSummaries } from "@/lib/supabase/corporateBuyoutsServer";
+import type { CorporateBuyoutSummary } from "@/lib/corporateBuyouts";
 
 export const dynamic = "force-dynamic";
 
@@ -192,6 +194,7 @@ function serializeShowNotes(show: DemoShow) {
 function toDemoShow(
   row: SupabaseShowRow,
   customPricing?: ShowCustomPricing,
+  fullShowBuyout?: CorporateBuyoutSummary,
 ): DemoShow {
   const notes = parseShowNotes(row.notes);
   const location = normalizeShowLocation(row.venue);
@@ -201,6 +204,7 @@ function toDemoShow(
     archivedAt: row.status === "archived" ? row.updated_at : undefined,
     address: notes.address || legacyAddress,
     customPricing,
+    fullShowBuyout,
     date: row.date,
     description: row.description ?? "",
     id: notes.legacyId || row.id,
@@ -582,12 +586,17 @@ export async function GET(request: Request) {
     const tableShow = url.searchParams.get("tableShow");
     const metadataOnly = url.searchParams.get("metadataOnly") === "1";
     const showRows = await loadShowRows();
-    const customPricingByShowId = await loadShowCustomPricingMap(
-      auth.serviceClient,
-      showRows.map((row) => row.id),
-    );
+    const showIds = showRows.map((row) => row.id);
+    const [customPricingByShowId, buyoutsByShowId] = await Promise.all([
+      loadShowCustomPricingMap(auth.serviceClient, showIds),
+      loadActiveCorporateBuyoutSummaries(auth.serviceClient, showIds),
+    ]);
     const shows = showRows.map((row) =>
-      toDemoShow(row, customPricingByShowId.get(row.id)),
+      toDemoShow(
+        row,
+        customPricingByShowId.get(row.id),
+        buyoutsByShowId.get(row.id),
+      ),
     );
 
     if (metadataOnly) {

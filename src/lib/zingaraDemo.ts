@@ -557,6 +557,7 @@ export type DemoShow = {
   archivedAt?: string;
   description?: string;
   customPricing?: import("@/lib/showSpecificPricing").ShowCustomPricing;
+  fullShowBuyout?: import("@/lib/corporateBuyouts").CorporateBuyoutSummary;
   internalNotes?: string;
   location?: EntryLocationKey;
   operationalStatus?:

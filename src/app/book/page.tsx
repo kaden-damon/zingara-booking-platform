@@ -310,6 +310,7 @@ function getCurrentCalendarMonth() {
 }
 const bookingCalendarStatusOrder = [
   "special-event",
+  "full-show-buyout",
   "active",
   "sold-out",
   "blackout",
@@ -325,6 +326,7 @@ const bookingCalendarStatusLabels: Record<
   blackout: "Blackout",
   "sold-out": "Sold Out",
   "special-event": "Special Event",
+  "full-show-buyout": "Full Show Buyout",
   "venue-closure": "Venue Closed",
 };
 const bookingCalendarStatusClasses: Record<
@@ -339,6 +341,8 @@ const bookingCalendarStatusClasses: Record<
     "border-red-300/35 bg-red-950/25 text-red-200",
   "special-event":
     "border-purple-300/45 bg-purple-950/30 text-purple-100 hover:scale-[1.03] hover:border-purple-200",
+  "full-show-buyout":
+    "border-[#D8C36A]/55 bg-[#2A1D08] text-[#F7E6A2]",
   "venue-closure":
     "border-zinc-500/35 bg-zinc-900/65 text-zinc-400",
 };
@@ -555,6 +559,7 @@ function getDateDisplay(dateValue: string) {
 }
 
 function getGuestShowStatus(show: DemoShow): BookingCalendarStatus {
+  if (show.fullShowBuyout) return "full-show-buyout";
   const status = show.operationalStatus ?? "active";
 
   if (
@@ -579,7 +584,7 @@ function isGuestVisibleShow(show: DemoShow) {
 }
 
 function isGuestBookableShow(show: DemoShow | undefined) {
-  if (!show || !isGuestVisibleShow(show)) {
+  if (!show || !isGuestVisibleShow(show) || show.fullShowBuyout) {
     return false;
   }
 
@@ -3873,6 +3878,8 @@ export default function BookingPage() {
                         className={`h-1.5 w-1.5 rounded-full ${
                           status === "active"
                             ? "bg-[#D8C36A]"
+                            : status === "full-show-buyout"
+                              ? "bg-[#F2D66C]"
                             : status === "special-event"
                               ? "bg-purple-300"
                               : status === "sold-out"
@@ -3942,6 +3949,8 @@ export default function BookingPage() {
                         className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[0.58rem] font-semibold uppercase tracking-[0.12em] ${
                           showStatus === "active"
                             ? "border-[#D8C36A]/35 text-[#F2D66C]"
+                            : showStatus === "full-show-buyout"
+                              ? "border-[#D8C36A]/55 text-[#F7E6A2]"
                             : showStatus === "special-event"
                               ? "border-purple-300/40 text-purple-100"
                               : showStatus === "sold-out"

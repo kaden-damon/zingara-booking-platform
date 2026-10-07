@@ -99,6 +99,7 @@ export async function loadPublicShowAvailabilityBatch(
     salesResult,
     showsResult,
     operationalTablesResult,
+    buyoutsResult,
   ] = await Promise.all([
     serviceClient
       .from("bookings")
@@ -120,6 +121,11 @@ export async function loadPublicShowAvailabilityBatch(
       .select("id,status")
       .in("id", uniqueShowIds),
     operationalTablesPromise,
+    serviceClient
+      .from("corporate_buyouts")
+      .select("show_id")
+      .in("show_id", uniqueShowIds)
+      .in("state", ["provisional", "awaiting_payment", "fully_paid", "confirmed"]),
   ]);
 
   if (bookingResult.error) throw bookingResult.error;
@@ -127,6 +133,7 @@ export async function loadPublicShowAvailabilityBatch(
   if (salesResult.error) throw salesResult.error;
   if (showsResult.error) throw showsResult.error;
   if (operationalTablesResult.error) throw operationalTablesResult.error;
+  if (buyoutsResult.error) throw buyoutsResult.error;
 
   const settings = normalizeVenueSettings(
     (settingsResult.data as {
@@ -137,9 +144,14 @@ export async function loadPublicShowAvailabilityBatch(
   const showStatuses = new Map(
     (showsResult.data ?? []).map((show) => [show.id, show.status]),
   );
+  const buyoutShowIds = new Set(
+    (buyoutsResult.data ?? []).map((buyout) => buyout.show_id),
+  );
   const results = new Map<string, PublicShowAvailability>();
   for (const showId of uniqueShowIds) {
-    const showPubliclyBookable = isShowPubliclyBookable(showStatuses.get(showId));
+    const hasFullShowBuyout = buyoutShowIds.has(showId);
+    const showPubliclyBookable =
+      isShowPubliclyBookable(showStatuses.get(showId)) && !hasFullShowBuyout;
     const capacityBookings = (bookingResult.data ?? []).flatMap((row) => {
       if (row.show_id !== showId) return [];
       const zoneId = getZoneIdForSection(row.section);
@@ -214,7 +226,9 @@ export async function loadPublicShowAvailabilityBatch(
               showPubliclyBookable && control?.public_sales_open !== false,
             reason: showPubliclyBookable
               ? control?.reason ?? null
-              : publicShowUnavailableMessage,
+              : hasFullShowBuyout
+                ? "This performance is reserved for a Full Show Buyout."
+                : publicShowUnavailableMessage,
             updatedAt: control?.updated_at ?? null,
             zoneId: zone.id,
             zoneTitle: zone.title,
