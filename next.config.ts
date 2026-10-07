@@ -28,7 +28,9 @@ const nextConfig: NextConfig = {
   },
   outputFileTracingIncludes: {
     "/api/admin/tickets/[reference]/download-all": [
+      "node_modules/next/dist/compiled/@vercel/og/Geist-Regular.ttf",
       "public/brand/tickets/*.png",
+      "src/app/fonts/EBGaramond-Medium.ttf",
     ],
     "/api/admin/analytics/daily": [
       "src/templates/Zingara_Daily_Analytics_Master_Template.xlsx",

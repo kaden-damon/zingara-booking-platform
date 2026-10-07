@@ -197,6 +197,10 @@ export type TicketPdfRenderCanvas = {
 
 export type TicketPdfRenderRuntime = {
   createCanvas(width: number, height: number): TicketPdfRenderCanvas;
+  fontFamilies?: {
+    sans: string;
+    serif: string;
+  };
   loadImage(src: string): Promise<TicketPdfRenderImage | null>;
 };
 
@@ -577,15 +581,18 @@ export async function createDownloadableTicketPdfBytes(
 
   context.textAlign = "center";
   context.textBaseline = "middle";
+  const serifFont =
+    runtime.fontFamilies?.serif ?? "Georgia, 'Times New Roman', serif";
+  const sansFont =
+    runtime.fontFamilies?.sans ?? "Arial, Helvetica, sans-serif";
+
   context.fillStyle = "#FFFFFF";
   fitText(context, zoneTitle, centre, 949, 760, {
-    family: "Georgia, 'Times New Roman', serif",
+    family: serifFont,
     maxSize: 58,
     minSize: 34,
     weight: "700",
   });
-
-  const sansFont = "Arial, Helvetica, sans-serif";
 
   context.fillStyle = "#FFFFFF";
   fitText(context, guestName, centre, 1136, 680, {
@@ -658,7 +665,7 @@ export async function createDownloadableTicketPdfBytes(
     );
     context.fillStyle = "#FFF4C4";
     fitText(context, input.secretPassword.phrase, centre, 1616, 720, {
-      family: "Georgia, 'Times New Roman', serif",
+      family: serifFont,
       maxSize: 27,
       minSize: 18,
       weight: "700",
@@ -721,7 +728,7 @@ export async function createDownloadableTicketPdfBytes(
     2128,
     620,
     {
-      family: "Georgia, 'Times New Roman', serif",
+      family: serifFont,
       maxSize: 42,
       minSize: 28,
       weight: "700",

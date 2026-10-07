@@ -1,4 +1,4 @@
-import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { createCanvas, GlobalFonts, loadImage } from "@napi-rs/canvas";
 import { join } from "node:path";
 
 import {
@@ -13,6 +13,36 @@ const publicAssetPaths = new Map([
   ["/brand/tickets/joburg-card.png", "brand/tickets/joburg-card.png"],
   ["/brand/tickets/zingara-stamp.png", "brand/tickets/zingara-stamp.png"],
 ]);
+
+const serverTicketFonts = {
+  sans: {
+    family: "Zingara Ticket Sans",
+    path: "node_modules/next/dist/compiled/@vercel/og/Geist-Regular.ttf",
+  },
+  serif: {
+    family: "Zingara Ticket Serif",
+    path: "src/app/fonts/EBGaramond-Medium.ttf",
+  },
+} as const;
+
+let ticketFontsRegistered = false;
+
+export function ensureServerTicketFonts() {
+  if (ticketFontsRegistered) {
+    return;
+  }
+
+  for (const font of Object.values(serverTicketFonts)) {
+    if (
+      !GlobalFonts.has(font.family) &&
+      !GlobalFonts.registerFromPath(join(process.cwd(), font.path), font.family)
+    ) {
+      throw new Error(`Ticket PDF font could not be loaded: ${font.family}.`);
+    }
+  }
+
+  ticketFontsRegistered = true;
+}
 
 function resolveServerImageSource(source: string) {
   if (source.startsWith("data:image/")) {
@@ -31,9 +61,15 @@ function resolveServerImageSource(source: string) {
 export function createServerDownloadableTicketPdf(
   input: DownloadableTicketPdfInput,
 ) {
+  ensureServerTicketFonts();
+
   return createDownloadableTicketPdfBytes(input, {
     createCanvas(width, height) {
       return createCanvas(width, height) as unknown as TicketPdfRenderCanvas;
+    },
+    fontFamilies: {
+      sans: `"${serverTicketFonts.sans.family}"`,
+      serif: `"${serverTicketFonts.serif.family}"`,
     },
     async loadImage(source) {
       try {
