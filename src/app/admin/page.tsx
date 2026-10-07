@@ -13663,7 +13663,9 @@ export default function AdminDashboardPage() {
       !(
         activeAdminTab === "overview" ||
         (activeAdminTab === "operations" &&
-          (activeOperationsTab === "floor" ||
+          (activeOperationsTab === "dashboard" ||
+            activeOperationsTab === "floor" ||
+            activeOperationsTab === "check-in" ||
             activeOperationsTab === "waitlist"))
       ) ||
       !selectedShowId
