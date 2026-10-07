@@ -438,6 +438,7 @@ import {
   getConfiguredZoneMaxSeats,
   getConfiguredZoneMaxTables,
   getConfiguredZonePrice,
+  getDisplayZoneTitle,
   getShowLabel,
   getShowLocationOption,
   getVenueZoneSeatCapacity,
@@ -10866,6 +10867,8 @@ export default function AdminDashboardPage() {
   const [bookingLocationFilter, setBookingLocationFilter] =
     useState<BookingLocationFilter>("all");
   const [bookingDateFilter, setBookingDateFilter] = useState("all");
+  const [bookingPerformanceFrom, setBookingPerformanceFrom] = useState("");
+  const [bookingPerformanceTo, setBookingPerformanceTo] = useState("");
   const [bookingFiltersExpanded, setBookingFiltersExpanded] = useState(false);
   const [bookingSourceFilter, setBookingSourceFilter] =
     useState<BookingSalesSourceFilter>("all");
@@ -10877,8 +10880,15 @@ export default function AdminDashboardPage() {
     useState("");
   const [bookingCreatedFrom, setBookingCreatedFrom] = useState("");
   const [bookingCreatedTo, setBookingCreatedTo] = useState("");
+  const [bookingPaymentStatusFilter, setBookingPaymentStatusFilter] =
+    useState<PaymentStatus | "all">("all");
+  const [bookingZoneFilter, setBookingZoneFilter] =
+    useState<SeatingZoneId | "all">("all");
   const [bookingPromoFilter, setBookingPromoFilter] =
     useState<BookingPromoFilter>("all");
+  const [bookingExportState, setBookingExportState] =
+    useState<"error" | "idle" | "loading" | "success">("idle");
+  const [bookingExportMessage, setBookingExportMessage] = useState("");
   const [hideCancelledConcierge, setHideCancelledConcierge] =
     useState(true);
   const [conciergeStatusFilter, setConciergeStatusFilter] =
@@ -25609,6 +25619,20 @@ export default function AdminDashboardPage() {
       }
     }
 
+    if (
+      bookingPerformanceFrom &&
+      (!bookingShow?.date || bookingShow.date < bookingPerformanceFrom)
+    ) {
+      return false;
+    }
+
+    if (
+      bookingPerformanceTo &&
+      (!bookingShow?.date || bookingShow.date > bookingPerformanceTo)
+    ) {
+      return false;
+    }
+
     if (!bookingMatchesCreatedWindow(booking.createdAt, bookingCreatedWindow)) {
       return false;
     }
@@ -25625,6 +25649,22 @@ export default function AdminDashboardPage() {
     if (
       bookingStatusFilter !== "all" &&
       (booking.status ?? "confirmed") !== bookingStatusFilter
+    ) {
+      return false;
+    }
+
+    if (
+      bookingPaymentStatusFilter !== "all" &&
+      getBookingPaymentStatus(booking) !== bookingPaymentStatusFilter
+    ) {
+      return false;
+    }
+
+    if (
+      bookingZoneFilter !== "all" &&
+      !getBookingZoneEntitlements(booking).some(
+        (entitlement) => entitlement.zoneId === bookingZoneFilter,
+      )
     ) {
       return false;
     }
@@ -25695,6 +25735,14 @@ export default function AdminDashboardPage() {
         : bookingPromoFilter === "none"
           ? "No promo code"
           : `Promo: ${bookingPromoFilter}`;
+    const selectedPaymentStatus =
+      bookingPaymentStatusFilter === "all"
+        ? "All payment states"
+        : paymentStatusLabels[bookingPaymentStatusFilter];
+    const selectedZone =
+      bookingZoneFilter === "all"
+        ? "All seating sections"
+        : getDisplayZoneTitle(bookingZoneFilter);
     const selectedArchiveView =
       bookingArchiveFilter === "active"
         ? "Active view"
@@ -25707,7 +25755,15 @@ export default function AdminDashboardPage() {
       selectedShow,
       selectedLocation,
       bookingDateFilter === "all" ? "All dates" : bookingDateFilter,
+      bookingPerformanceFrom
+        ? `Performance from ${bookingPerformanceFrom}`
+        : "No performance start date",
+      bookingPerformanceTo
+        ? `Performance to ${bookingPerformanceTo}`
+        : "No performance end date",
       selectedStatus,
+      selectedPaymentStatus,
+      selectedZone,
       selectedSource,
       selectedCreator,
       selectedCreatedDate,
@@ -25881,11 +25937,15 @@ export default function AdminDashboardPage() {
       bookingCreatedTo,
       bookingDateFilter,
       bookingLocationFilter,
+      bookingPaymentStatusFilter,
+      bookingPerformanceFrom,
+      bookingPerformanceTo,
       bookingPromoFilter,
       bookingSearch,
       bookingShowFilter,
       bookingSourceFilter,
       bookingStatusFilter,
+      bookingZoneFilter,
       bookings,
       corporateRequests,
       corporateWorkspace,
@@ -25941,8 +26001,11 @@ export default function AdminDashboardPage() {
     bookingCreatedByFilter !== "all",
     bookingCreatedDateFilter !== "all",
     bookingStatusFilter !== "all",
+    bookingPaymentStatusFilter !== "all",
+    bookingZoneFilter !== "all",
     bookingPromoFilter !== "all",
     bookingDateFilter !== "all",
+    Boolean(bookingPerformanceFrom || bookingPerformanceTo),
   ].filter(Boolean).length;
   function setActiveCompactBookingSort(
     key: CompactBookingSortKey,
@@ -25979,6 +26042,51 @@ export default function AdminDashboardPage() {
     compactBookingSortKey,
     filteredBookings,
   ]);
+  async function downloadFilteredBookingsExcel() {
+    if (compactSortedBookings.length === 0 || bookingExportState === "loading") {
+      return;
+    }
+
+    setBookingExportState("loading");
+    setBookingExportMessage("Preparing complete workbook...");
+
+    try {
+      const response = await fetch("/api/admin/bookings/export", {
+        body: JSON.stringify({
+          filterSummary: getBookingArchiveFilterSummary(),
+          references: compactSortedBookings.map((booking) => booking.reference),
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(
+          payload?.error ?? "The bookings workbook could not be downloaded.",
+        );
+      }
+
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const filename =
+        disposition.match(/filename="([^"]+)"/)?.[1] ??
+        `Zingara_Bookings_${southAfricaToday}.xlsx`;
+      downloadBlobFile(filename, await response.blob());
+      setBookingExportState("success");
+      setBookingExportMessage(
+        `Downloaded ${compactSortedBookings.length} matching booking${compactSortedBookings.length === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      setBookingExportState("error");
+      setBookingExportMessage(
+        error instanceof Error
+          ? error.message
+          : "The bookings workbook could not be downloaded.",
+      );
+    }
+  }
   const bookingPagination = paginateItems(
     compactSortedBookings,
     bookingPage,
@@ -43565,7 +43673,56 @@ export default function AdminDashboardPage() {
                   Filters{activeSecondaryBookingFilterCount > 0 ? ` · ${activeSecondaryBookingFilterCount}` : ""}
                   <span aria-hidden="true">{bookingFiltersExpanded ? "−" : "+"}</span>
                 </button>
+                <button
+                  aria-label="Download complete filtered bookings Excel workbook"
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#D8C36A] px-5 text-xs font-bold uppercase tracking-[0.08em] text-black shadow-[0_0_22px_rgba(216,195,106,0.2)] transition hover:bg-[#F2D66C] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
+                  disabled={
+                    compactSortedBookings.length === 0 ||
+                    bookingExportState === "loading"
+                  }
+                  onClick={() => void downloadFilteredBookingsExcel()}
+                  title={
+                    compactSortedBookings.length === 0
+                      ? "No bookings match the current filters."
+                      : `Download all ${compactSortedBookings.length} matching bookings`
+                  }
+                  type="button"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2.4"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M12 3v12" />
+                    <path d="m7 10 5 5 5-5" />
+                    <path d="M5 21h14" />
+                  </svg>
+                  {bookingExportState === "loading"
+                    ? "Preparing Excel..."
+                    : "Download Excel"}
+                </button>
               </div>
+
+              {bookingExportMessage && (
+                <p
+                  aria-live="polite"
+                  className={`text-sm ${
+                    bookingExportState === "error"
+                      ? "text-red-200"
+                      : bookingExportState === "success"
+                        ? "text-emerald-200"
+                        : "text-zinc-400"
+                  }`}
+                  role={bookingExportState === "error" ? "alert" : "status"}
+                >
+                  {bookingExportMessage}
+                </p>
+              )}
 
               {bookingFiltersExpanded && (
               <div className="grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -43709,6 +43866,56 @@ export default function AdminDashboardPage() {
                 </label>
 
                 <label className="relative block min-w-0">
+                  <span className="sr-only">Filter bookings by payment status</span>
+                  <select
+                    aria-label="Payment Status"
+                    value={bookingPaymentStatusFilter}
+                    onChange={(event) => {
+                      setBookingPaymentStatusFilter(
+                        event.target.value as PaymentStatus | "all",
+                      );
+                      setBookingPage(1);
+                    }}
+                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                  >
+                    <option value="all">Payment · All States</option>
+                    {Object.entries(paymentStatusLabels).map(([status, label]) => (
+                      <option key={status} value={status}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    ▾
+                  </span>
+                </label>
+
+                <label className="relative block min-w-0">
+                  <span className="sr-only">Filter bookings by seating section</span>
+                  <select
+                    aria-label="Seating Section"
+                    value={bookingZoneFilter}
+                    onChange={(event) => {
+                      setBookingZoneFilter(
+                        event.target.value as SeatingZoneId | "all",
+                      );
+                      setBookingPage(1);
+                    }}
+                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                  >
+                    <option value="all">Seating · All Sections</option>
+                    {seatingZones.map((zone) => (
+                      <option key={zone.id} value={zone.id}>
+                        {zone.title}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    ▾
+                  </span>
+                </label>
+
+                <label className="relative block min-w-0">
                   <span className="sr-only">Filter bookings by promo code</span>
                   <select
                     value={bookingPromoFilter}
@@ -43740,6 +43947,27 @@ export default function AdminDashboardPage() {
                   }}
                   placeholder="Show Date · All Dates"
                   value={bookingDateFilter === "all" ? "" : bookingDateFilter}
+                />
+
+                <ZingaraDatePicker
+                  label="Performance From"
+                  onChange={(date) => {
+                    setBookingPerformanceFrom(date);
+                    setBookingPage(1);
+                  }}
+                  placeholder="Performance From"
+                  value={bookingPerformanceFrom}
+                />
+
+                <ZingaraDatePicker
+                  align="right"
+                  label="Performance To"
+                  onChange={(date) => {
+                    setBookingPerformanceTo(date);
+                    setBookingPage(1);
+                  }}
+                  placeholder="Performance To"
+                  value={bookingPerformanceTo}
                 />
 
               </div>
@@ -44035,8 +44263,12 @@ export default function AdminDashboardPage() {
                   bookingCreatedByFilter === "all" &&
                   bookingCreatedDateFilter === "all" &&
                   bookingStatusFilter === "all" &&
+                  bookingPaymentStatusFilter === "all" &&
+                  bookingZoneFilter === "all" &&
                   bookingPromoFilter === "all" &&
                   bookingDateFilter === "all" &&
+                  !bookingPerformanceFrom &&
+                  !bookingPerformanceTo &&
                   hideCancelledBookings
                 }
                 onClick={() => {
@@ -44051,7 +44283,11 @@ export default function AdminDashboardPage() {
                   setBookingCreatedFrom("");
                   setBookingCreatedTo("");
                   setBookingStatusFilter("all");
+                  setBookingPaymentStatusFilter("all");
+                  setBookingZoneFilter("all");
                   setBookingDateFilter("all");
+                  setBookingPerformanceFrom("");
+                  setBookingPerformanceTo("");
                   setHideCancelledBookings(true);
                   setBookingPage(1);
                 }}
