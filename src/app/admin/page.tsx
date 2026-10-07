@@ -11340,6 +11340,7 @@ export default function AdminDashboardPage() {
     bookingHistoriesLoadedRef.current = false;
     setIsBookingsLoading(true);
     setBookingLoadError("");
+    setBookings([]);
 
     try {
       const result = await getBookingsPage(getActiveBookingListFilters());
@@ -11578,6 +11579,56 @@ export default function AdminDashboardPage() {
     crmDirectoryView,
     currentStaff,
     customerDataLoadStatus,
+    hasHydrated,
+  ]);
+
+  useEffect(() => {
+    const requiresCompleteBookingPopulation =
+      (activeAdminTab === "customers" && crmDirectoryView === "customers") ||
+      (activeAdminTab === "corporate" && corporateWorkspace === "enquiries") ||
+      (activeAdminTab === "analytics" && analyticsWorkspace === "revenue") ||
+      (activeAdminTab === "settings" && activeSettingsTab === "workflows");
+
+    if (
+      !hasHydrated ||
+      !currentStaff ||
+      !requiresCompleteBookingPopulation
+    ) {
+      return;
+    }
+
+    const requestId = bookingLoadRequestRef.current + 1;
+    bookingLoadRequestRef.current = requestId;
+    let isCancelled = false;
+
+    void getBookings({ throwOnError: true })
+      .then((nextBookings) => {
+        if (
+          isCancelled ||
+          requestId !== bookingLoadRequestRef.current
+        ) {
+          return;
+        }
+
+        setBookings(nextBookings);
+      })
+      .catch((error) => {
+        console.error(
+          "[Zingara admin] Failed to load supporting booking data",
+          error,
+        );
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    activeAdminTab,
+    activeSettingsTab,
+    analyticsWorkspace,
+    corporateWorkspace,
+    crmDirectoryView,
+    currentStaff,
     hasHydrated,
   ]);
 

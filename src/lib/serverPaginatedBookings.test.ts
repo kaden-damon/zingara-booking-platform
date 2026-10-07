@@ -18,7 +18,10 @@ test("ordinary Bookings uses a bounded server page while export remains complete
   assert.doesNotMatch(page, /const bookingsRequest = loadBookingList\(\)/);
   assert.match(route, /Math\.min\(100,/);
   assert.match(route, /pageMetadata\.ids\.length === 0/);
-  assert.match(migration, /offset \(\(i\.page_number - 1\) \* i\.page_size\)/);
+  assert.match(
+    migration,
+    /offset \(select \(page_number - 1\) \* page_size from input\)/,
+  );
   assert.match(migration, /count\(\*\) from candidates/);
   assert.match(exportRoute, /p_page_size: 10000/);
 });
