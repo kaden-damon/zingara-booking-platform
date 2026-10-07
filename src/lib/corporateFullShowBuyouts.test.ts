@@ -211,6 +211,8 @@ test("Buyout review remains derived, bounded, and separate from booking state", 
   assert.match(bookingRoute, /loadCorporateBuyoutBookingReviewReasons/);
   assert.match(server, /Existing booking on Buyout show — needs to be moved/);
   assert.match(admin, /reviewCalendarBuyoutBookings/);
+  assert.match(admin, /setIsBuyoutReviewMode\(true\)/);
+  assert.match(admin, /isBuyoutReviewMode[\s\S]*\? "all"/);
   assert.match(migration, /pg_advisory_xact_lock/);
   assert.match(migration, /BUYOUT_SHOW_ALREADY_OWNED/);
   assert.match(migration, /pre_existing_bookings/);

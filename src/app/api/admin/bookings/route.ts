@@ -597,7 +597,12 @@ export async function GET(request: Request) {
         ? ""
         : new Date(createdWindow.endExclusiveMs).toISOString(),
       hideCancelled: url.searchParams.get("hideCancelled") !== "0",
-      kind: url.searchParams.get("kind") === "corporate" ? "corporate" : "standard",
+      kind:
+        url.searchParams.get("kind") === "all"
+          ? "all"
+          : url.searchParams.get("kind") === "corporate"
+            ? "corporate"
+            : "standard",
       location: url.searchParams.get("location") ?? "all",
       paymentStatus: url.searchParams.get("paymentStatus") ?? "all",
       performanceFrom: url.searchParams.get("performanceFrom") ?? "",

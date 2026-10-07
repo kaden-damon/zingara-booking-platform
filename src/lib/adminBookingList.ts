@@ -5,7 +5,7 @@ import type {
 import type { BookingPromoFilter } from "@/lib/bookingPromoUsage";
 import type { CompactBookingSortDirection, CompactBookingSortKey } from "@/lib/compactBookingView";
 
-export type AdminBookingListKind = "corporate" | "standard";
+export type AdminBookingListKind = "all" | "corporate" | "standard";
 
 export type AdminBookingListFilters = {
   archive: "active" | "all" | "archived";

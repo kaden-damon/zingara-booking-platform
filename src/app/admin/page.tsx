@@ -10868,6 +10868,7 @@ export default function AdminDashboardPage() {
   ] = useState("");
   const [bookingViewMode, setBookingViewMode] =
     useState<BookingViewMode>("compact");
+  const [isBuyoutReviewMode, setIsBuyoutReviewMode] = useState(false);
   const [bookingViewModeSessionLoaded, setBookingViewModeSessionLoaded] =
     useState(false);
   const [standardCompactBookingSort, setStandardCompactBookingSort] = useState<{
@@ -13398,6 +13399,7 @@ export default function AdminDashboardPage() {
     setIsCalendarBuyoutOpen(false);
     setActiveAdminTab("bookings");
     setBookingShowFilter(showId);
+    setIsBuyoutReviewMode(true);
     setBookingPage(1);
     setBookingFiltersExpanded(true);
     window.history.pushState(
@@ -26277,7 +26279,11 @@ export default function AdminDashboardPage() {
       bookingStatus: bookingStatusFilter,
       createdBy: bookingCreatedByFilter,
       hideCancelled: hideCancelledBookings,
-      kind: activeAdminTab === "corporate" ? "corporate" : "standard",
+      kind: isBuyoutReviewMode
+        ? "all"
+        : activeAdminTab === "corporate"
+          ? "corporate"
+          : "standard",
       location: bookingLocationFilter,
       page: bookingPage,
       pageSize: activeBookingPageSize,
@@ -26319,6 +26325,7 @@ export default function AdminDashboardPage() {
     bookingPromoFilter,
     bookingSearch,
     bookingShowFilter,
+    isBuyoutReviewMode,
     bookingSourceFilter,
     bookingStatusFilter,
     bookingZoneFilter,
@@ -29432,17 +29439,26 @@ export default function AdminDashboardPage() {
             aria-label="Booking sections"
             className="mb-8 flex flex-col gap-2 rounded-[1.25rem] border border-white/10 bg-black/35 p-2 sm:w-fit sm:flex-row"
           >
+            {isBuyoutReviewMode && (
+              <span className="flex min-h-9 items-center rounded-full border border-amber-300/35 bg-amber-950/25 px-4 text-xs font-bold uppercase tracking-[0.1em] text-amber-100">
+                Buyout review · All bookings
+              </span>
+            )}
             {[
               ["bookings", "Standard"],
               ["corporate", "Corporate"],
             ].map(([tabId, label]) => {
-              const isActiveBookingSection = activeAdminTab === tabId;
+              const isActiveBookingSection =
+                !isBuyoutReviewMode && activeAdminTab === tabId;
 
               return (
                 <button
                   key={tabId}
                   type="button"
-                  onClick={() => setActiveAdminTab(tabId as AdminTab)}
+                  onClick={() => {
+                    setIsBuyoutReviewMode(false);
+                    setActiveAdminTab(tabId as AdminTab);
+                  }}
                   className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
                     isActiveBookingSection
                       ? "bg-[#D8C36A] text-black"
