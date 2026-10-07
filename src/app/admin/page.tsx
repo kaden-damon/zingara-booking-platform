@@ -10,29 +10,21 @@ import {
   useState,
   useTransition,
 } from "react";
+import dynamic from "next/dynamic";
 
 import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
 import { AdminIpUndertakingGate } from "./AdminIpUndertakingGate";
 import { AdminSearchInput } from "./AdminSearchInput";
 import { BookingMetadataDraftEditor } from "./BookingMetadataDraftEditor";
-import BookingReviewInvitations from "./BookingReviewInvitations";
 import { CorporateZoneEntitlementEditor } from "./CorporateZoneEntitlementEditor";
 import { CompactBookingList } from "./CompactBookingList";
-import PotentialDuplicatesPanel from "./PotentialDuplicatesPanel";
-import ReviewsAdminWorkspace from "./ReviewsAdminWorkspace";
-import SecretPasswordSettings from "./SecretPasswordSettings";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
-import DineplanReconciliation from "./DineplanReconciliation";
 import ShowZoneSalesControls from "./ShowZoneSalesControls";
 import ShowCustomPricingControls from "./ShowCustomPricingControls";
 import { StaffActionGuidanceAlert } from "./StaffActionGuidanceAlert";
-import { StaffOnboardingTour } from "./StaffOnboardingTour";
-import { DailyBookingReviewWorkflowCard } from "./DailyBookingReviewWorkflowCard";
-import { ReviewManagementWorkflowCard } from "./ReviewManagementWorkflowCard";
 import { StaffIssueAttachments } from "./StaffIssueAttachments";
 import { StaffIssueMediaPicker } from "./StaffIssueMediaPicker";
 import ZingaraDatePicker from "./ZingaraDatePicker";
-import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
   FinancialReconciliationModal,
   GuestCountReconciliationModal,
@@ -44,18 +36,58 @@ import {
   CustomerIdentityEditor,
   type CustomerIdentityDraft,
 } from "./CustomerIdentityEditor";
-import SystemPreferences from "./SystemPreferences";
-import ManagementAnalytics from "./ManagementAnalytics";
-import BoxOfficeFinancialReportPanel from "./BoxOfficeFinancialReport";
 import type { BoxOfficeFinancialReport } from "@/lib/boxOfficeFinancialReport";
 import { getJohannesburgDateKey } from "@/lib/managementAnalytics";
 import { createPdfBytesFromPageContent } from "@/lib/exports/zingaraTextPdf";
 import { useReportGenerationLock } from "./useReportGenerationLock";
-import SystemMaintenancePanel from "./SystemMaintenancePanel";
-import CorporateConversionModal from "./CorporateConversionModal";
-import CorporateFinancialReconciliationModal from "./CorporateFinancialReconciliationModal";
-import CompanyCrmWorkspace from "./CompanyCrmWorkspace";
 import { getReportGenerationLockMessage } from "../../lib/reportGenerationLock";
+
+const BookingReviewInvitations = dynamic(
+  () => import("./BookingReviewInvitations"),
+);
+const BoxOfficeFinancialReportPanel = dynamic(
+  () => import("./BoxOfficeFinancialReport"),
+);
+const CompanyCrmWorkspace = dynamic(() => import("./CompanyCrmWorkspace"));
+const CorporateConversionModal = dynamic(
+  () => import("./CorporateConversionModal"),
+);
+const CorporateFinancialReconciliationModal = dynamic(
+  () => import("./CorporateFinancialReconciliationModal"),
+);
+const DailyBookingReviewWorkflowCard = dynamic(() =>
+  import("./DailyBookingReviewWorkflowCard").then(
+    (module) => module.DailyBookingReviewWorkflowCard,
+  ),
+);
+const DineplanReconciliation = dynamic(
+  () => import("./DineplanReconciliation"),
+);
+const InternationalPhoneInput = dynamic(
+  () => import("../components/InternationalPhoneInput"),
+);
+const ManagementAnalytics = dynamic(() => import("./ManagementAnalytics"));
+const PotentialDuplicatesPanel = dynamic(
+  () => import("./PotentialDuplicatesPanel"),
+);
+const ReviewManagementWorkflowCard = dynamic(() =>
+  import("./ReviewManagementWorkflowCard").then(
+    (module) => module.ReviewManagementWorkflowCard,
+  ),
+);
+const ReviewsAdminWorkspace = dynamic(
+  () => import("./ReviewsAdminWorkspace"),
+);
+const SecretPasswordSettings = dynamic(
+  () => import("./SecretPasswordSettings"),
+);
+const StaffOnboardingTour = dynamic(() =>
+  import("./StaffOnboardingTour").then((module) => module.StaffOnboardingTour),
+);
+const SystemMaintenancePanel = dynamic(
+  () => import("./SystemMaintenancePanel"),
+);
+const SystemPreferences = dynamic(() => import("./SystemPreferences"));
 import {
   adminIpUndertaking,
   adminIpUndertakingRequiredEvent,
@@ -11329,6 +11361,29 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function refreshBookingInState(reference: string) {
+    const booking = await getBooking(reference, { includeHistory: false });
+
+    if (!booking) {
+      throw new Error("Booking details were not returned.");
+    }
+
+    setBookings((currentBookings) =>
+      currentBookings.map((currentBooking) =>
+        currentBooking.reference === reference
+          ? {
+              ...booking,
+              communicationHistory:
+                currentBooking.communicationHistory ?? [],
+              lifecycleHistory: currentBooking.lifecycleHistory ?? [],
+            }
+          : currentBooking,
+      ),
+    );
+
+    return booking;
+  }
+
   async function loadBookingDetails(reference: string) {
     if (bookingDetailLoadingReference === reference) {
       return;
@@ -11338,7 +11393,9 @@ export default function AdminDashboardPage() {
     setBookingDetailError(null);
 
     try {
-      const detailedBooking = await getBooking(reference);
+      const detailedBooking = await getBooking(reference, {
+        includeHistory: false,
+      });
 
       if (!detailedBooking) {
         throw new Error("Booking details were not returned.");
@@ -11354,6 +11411,31 @@ export default function AdminDashboardPage() {
       const tableLoadRequestId =
         bookingDetailTableLoadRequestRef.current + 1;
       bookingDetailTableLoadRequestRef.current = tableLoadRequestId;
+
+      void getBookingHistories(reference)
+        .then((historiesByReference) => {
+          const histories = historiesByReference.get(reference);
+          if (!histories) return;
+
+          setBookings((currentBookings) =>
+            currentBookings.map((booking) =>
+              booking.reference === reference
+                ? {
+                    ...booking,
+                    communicationHistory: histories.communicationHistory,
+                    lifecycleHistory: histories.lifecycleHistory,
+                  }
+                : booking,
+            ),
+          );
+        })
+        .catch((error) => {
+          console.error(
+            "[Zingara admin] Failed to hydrate Booking Details history",
+            error,
+          );
+        });
+
       void getShowsWithTables({ tableShow: detailedBooking.showId })
         .then((bookingShowPayload) => {
           if (
@@ -24067,7 +24149,7 @@ export default function AdminDashboardPage() {
     });
     await updatePayment(booking);
     await updateTicket(booking);
-    setBookings(await getBookings());
+    await refreshBookingInState(booking.reference);
   }
 
   async function loadBookingReconciliationDetails(booking: DemoBooking) {
@@ -24149,7 +24231,9 @@ export default function AdminDashboardPage() {
         },
         method: "POST",
       });
-      setBookings(await getBookings());
+      await refreshBookingInState(
+        financialReconciliation.details.booking.bookingReference,
+      );
       setFinancialReconciliation(null);
       showWorkflowToast("Payment details updated.");
     } catch (error) {
@@ -24203,7 +24287,9 @@ export default function AdminDashboardPage() {
         },
         method: "POST",
       });
-      setBookings(await getBookings());
+      await refreshBookingInState(
+        guestCountReconciliation.details.booking.bookingReference,
+      );
       setGuestCountReconciliation((current) =>
         current
           ? { ...current, error: "", isSaving: false, result: response.result }

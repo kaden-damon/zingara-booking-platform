@@ -888,8 +888,12 @@ export async function getBookings(options: GetBookingsOptions = {}) {
   return Promise.all(rows.map(toDemoBooking));
 }
 
-export async function getBooking(id: string) {
+export async function getBooking(
+  id: string,
+  options: Pick<GetBookingsOptions, "includeHistory"> = {},
+) {
   const bookings = await getBookings({
+    includeHistory: options.includeHistory,
     reference: id,
     throwOnError: true,
   });
@@ -899,14 +903,18 @@ export async function getBooking(id: string) {
   );
 }
 
-export async function getBookingHistories() {
+export async function getBookingHistories(reference?: string) {
+  const searchParams = new URLSearchParams({ historyOnly: "1" });
+  if (reference) {
+    searchParams.set("reference", reference);
+  }
   const payload = await fetchSupabaseApi<{
     rows: Array<{
       booking_reference: string;
       communication_rows?: SupabaseCommunicationRow[];
       lifecycle_event_rows?: SupabaseLifecycleEventRow[];
     }>;
-  }>("/api/admin/bookings?historyOnly=1");
+  }>(`/api/admin/bookings?${searchParams.toString()}`);
 
   return new Map(
     (payload.rows ?? []).map((row) => [

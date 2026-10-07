@@ -100,13 +100,22 @@ type AdminBookingRow = {
   [key: string]: unknown;
 };
 
-async function fetchAdminBookingIdentityRows(serviceClient: SupabaseClient) {
+async function fetchAdminBookingIdentityRows(
+  serviceClient: SupabaseClient,
+  reference: string | null = null,
+) {
   const rows: Array<{ booking_reference: string; id: string }> = [];
 
   for (let from = 0; ; from += bookingQueryBatchSize) {
-    const { data, error } = await serviceClient
+    let query = serviceClient
       .from("bookings")
-      .select("id,booking_reference")
+      .select("id,booking_reference");
+
+    if (reference) {
+      query = query.eq("booking_reference", reference);
+    }
+
+    const { data, error } = await query
       .order("created_at", { ascending: false })
       .range(from, from + bookingQueryBatchSize - 1);
 
@@ -436,7 +445,7 @@ export async function GET(request: Request) {
 
   if (historyOnly) {
     const { rows: bookingRows, error: bookingRowsError } =
-      await fetchAdminBookingIdentityRows(serviceClient);
+      await fetchAdminBookingIdentityRows(serviceClient, reference);
 
     if (bookingRowsError) {
       console.error(
