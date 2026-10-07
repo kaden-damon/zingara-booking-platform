@@ -142,7 +142,7 @@ export default function CorporateFinancialReconciliationModal({
               rows={4}
               value={draft.notes}
               onChange={(event) => update({ notes: event.target.value })}
-              placeholder="Record the invoice, workbook, remittance or other authoritative source used."
+              placeholder="Record the invoice, workbook, remittance or other document checked."
               className="resize-y rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
             />
             {errors.notes && <span className="text-xs text-red-300">{errors.notes}</span>}

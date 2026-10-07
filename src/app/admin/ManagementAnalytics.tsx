@@ -533,7 +533,7 @@ export default function ManagementAnalytics({
         <AnalyticsSection
           {...sectionProps("website-conversion")}
           title="Website & Booking Conversion"
-          description="Anonymous website traffic, booking funnel activity and authoritative public online bookings."
+          description="Anonymous website visits, booking steps and completed public online bookings."
         >
           <WebsiteConversionPanel
             from={filters.bookingCreatedFrom}
@@ -552,7 +552,7 @@ export default function ManagementAnalytics({
           <div className="grid grid-cols-2 gap-y-3 md:grid-cols-3 xl:grid-cols-6"><Metric label="Bookings" value={integer.format(core.bookings)} emphasis /><Metric label="Guests" value={integer.format(core.guests)} emphasis /><Metric label="Booking Value" value={money.format(core.bookingValue)} emphasis /><Metric label="Amount Paid" value={money.format(core.amountPaid)} /><Metric label="Outstanding" value={money.format(core.outstanding)} /><Metric label="Average Booking" value={money.format(core.averageBookingValue)} /><Metric label="Average Party" value={core.averagePartySize.toFixed(2)} /><Metric label="Confirmed" value={integer.format(core.confirmed)} /><Metric label="Pending Payment" value={integer.format(core.pendingPayment)} /><Metric label="Cancelled" value={integer.format(core.cancelled)} /><Metric label="Deposits" value={integer.format(analytics.payments.deposits)} /><Metric label="Full Payments" value={integer.format(analytics.payments.fullPayments)} /><Metric label="Complimentary" value={integer.format(core.complimentaryBookings)} /><Metric label="Corporate" value={integer.format(core.corporateBookings)} /><Metric label="New Customers" value={integer.format(core.newCustomers)} /><Metric label="Returning" value={integer.format(core.returningCustomers)} /></div>
         </AnalyticsSection>
 
-        <AnalyticsSection {...sectionProps("performance-demand")} title="Forward Forecast" description="Current performance demand from the existing authoritative Management Analytics dataset.">
+        <AnalyticsSection {...sectionProps("performance-demand")} title="Forward Forecast" description="Current performance demand, guest counts and payment position.">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="inline-flex w-full rounded-lg border border-white/15 bg-black p-1 sm:w-auto" aria-label="Forecast view">
               {(["management", "detailed"] as const).map((view) => (

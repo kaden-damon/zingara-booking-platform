@@ -53,14 +53,27 @@ function positiveMoney(value: unknown) {
 }
 
 export function resolveAddedGuestPricingBasis(input: {
+  amountPaid?: number | null;
+  balanceOutstanding?: number | null;
   bookingOrigin?: BookingOrigin | null;
   metadata: Partial<DemoBooking> | null;
+  paymentStatus?: string | null;
+  subtotalAmount?: number | null;
+  totalAmount?: number | null;
 }) : AddedGuestPricingBasis {
   const provenance = input.metadata?.pricingProvenance;
   const provenanceRate = positiveMoney(provenance?.agreedPricePerPerson);
   const provenanceDeposit = positiveMoney(provenance?.depositPerPerson);
 
-  if (provenance?.source === "complimentary") {
+  const isAuthoritativeComplimentary =
+    input.paymentStatus === "comp_vip" &&
+    provenance?.source === "complimentary" &&
+    Number(input.subtotalAmount) === 0 &&
+    Number(input.totalAmount) === 0 &&
+    Number(input.amountPaid) === 0 &&
+    Number(input.balanceOutstanding) === 0;
+
+  if (isAuthoritativeComplimentary) {
     return {
       paymentBasis: "full",
       source: "complimentary",

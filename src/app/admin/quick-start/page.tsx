@@ -133,6 +133,7 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
             <li>Save only the required changes.</li>
           </Steps>
           <Note>Source / Created By shows where the booking came from. A show with Custom Pricing displays that performance&apos;s approved price automatically.</Note>
+          <Note>Complimentary bookings can be increased or reduced and remain R0. Normal capacity and table rules still apply.</Note>
         </div>
       ),
       id: "bookings",

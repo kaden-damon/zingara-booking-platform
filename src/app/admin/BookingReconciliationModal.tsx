@@ -285,6 +285,11 @@ export function GuestCountReconciliationModal(
     Boolean(retainedValueAllocation) &&
     booking.amountPaid >= booking.totalAmount &&
     booking.totalAmount > 0;
+  const isComplimentaryIncrease =
+    financials.addedGuests > 0 &&
+    booking.paymentStatus === "comp_vip" &&
+    props.details.addedGuestPricingBasis.source === "complimentary" &&
+    props.details.addedGuestPricingBasis.unitAmount === 0;
   const [link, setLink] = useState<{ canSend: boolean; paymentUrl: string; token: string } | null>(null);
   const [linkStatus, setLinkStatus] = useState("");
 
@@ -333,13 +338,13 @@ export function GuestCountReconciliationModal(
       {financials.addedGuests > 0 ? (
         <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
           <p>Added guests: {financials.addedGuests}</p>
-          <p>Basis: {props.details.addedGuestPricingBasis.paymentBasis === "deposit" ? "Original deposit" : props.details.addedGuestPricingBasis.paymentBasis === "full" ? "Original agreed ticket rate" : "Not authoritative"}</p>
-          <p>Rate: {props.details.addedGuestPricingBasis.unitAmount === null ? "Requires financial reconciliation" : `R${props.details.addedGuestPricingBasis.unitAmount.toFixed(2)} pp`}</p>
-          <p>Additional obligation: {financials.additionalAmount === null ? "Unavailable" : `R${financials.additionalAmount.toFixed(2)}`}</p>
+          <p>Pricing: {isComplimentaryIncrease ? "Complimentary" : props.details.addedGuestPricingBasis.paymentBasis === "deposit" ? "Original deposit" : props.details.addedGuestPricingBasis.paymentBasis === "full" ? "Original ticket price" : "Payment details need review"}</p>
+          <p>Rate: {isComplimentaryIncrease ? "Complimentary · R0.00 pp" : props.details.addedGuestPricingBasis.unitAmount === null ? "Check payment details" : `R${props.details.addedGuestPricingBasis.unitAmount.toFixed(2)} pp`}</p>
+          <p>Additional amount: {financials.additionalAmount === null ? "Unavailable" : `R${financials.additionalAmount.toFixed(2)}`}</p>
           <p>New outstanding: {financials.newOutstanding === null ? "Unavailable" : `R${financials.newOutstanding.toFixed(2)}`}</p>
         </div>
       ) : (
-        <p className="mt-1 text-xs text-zinc-500">Reducing guests does not reduce the agreed obligation or create a refund. Use financial reconciliation for a separate approved adjustment.</p>
+        <p className="mt-1 text-xs text-zinc-500">Reducing the guest count does not change the booking price or create a refund. Update payment details separately if needed.</p>
       )}
       {requiresManualFinancialBasis && (
         <section className="mt-4 rounded-xl border border-amber-300/30 bg-amber-950/15 p-4">
@@ -349,8 +354,8 @@ export function GuestCountReconciliationModal(
             <p>Existing outstanding<br /><strong>R{booking.balanceOutstanding.toFixed(2)}</strong></p>
             <p>Added guests<br /><strong>{financials.addedGuests}</strong></p>
           </div>
-          <p className="mt-4 text-xs font-semibold uppercase text-zinc-400">Payment basis *</p>
-          <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="Payment basis">
+          <p className="mt-4 text-xs font-semibold uppercase text-zinc-400">How was this booking priced? *</p>
+          <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="How this booking was priced">
             {(["full", "deposit"] as const).map((basis) => (
               <button
                 key={basis}
@@ -371,22 +376,22 @@ export function GuestCountReconciliationModal(
             />
           </div>
           <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-300">
-            <p className="font-semibold uppercase text-[#F2D66C]">Confirmation Preview</p>
+            <p className="font-semibold uppercase text-[#F2D66C]">Review change</p>
             <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
               <p>Current guests<br /><strong>{booking.guestCount}</strong></p>
               <p>New guests<br /><strong>{draft.guestCount}</strong></p>
               <p>Added guests<br /><strong>{financials.addedGuests}</strong></p>
-              <p>Payment basis<br /><strong>{draft.manualPaymentBasis === "full" ? "Full Ticket Rate" : draft.manualPaymentBasis === "deposit" ? "Deposit Basis" : "Select basis"}</strong></p>
+              <p>Pricing<br /><strong>{draft.manualPaymentBasis === "full" ? "Full Ticket Rate" : draft.manualPaymentBasis === "deposit" ? "Deposit Basis" : "Select pricing"}</strong></p>
               <p>Rate per added guest<br /><strong>{draft.manualUnitAmount > 0 ? `R${draft.manualUnitAmount.toFixed(2)}` : "Required"}</strong></p>
-              <p>Additional obligation<br /><strong>{manualFinancials.additionalAmount === null ? "Unavailable" : `R${manualFinancials.additionalAmount.toFixed(2)}`}</strong></p>
+              <p>Additional amount<br /><strong>{manualFinancials.additionalAmount === null ? "Unavailable" : `R${manualFinancials.additionalAmount.toFixed(2)}`}</strong></p>
               <p>Current paid<br /><strong>R{booking.amountPaid.toFixed(2)}</strong></p>
               <p>Current outstanding<br /><strong>R{booking.balanceOutstanding.toFixed(2)}</strong></p>
-              <p>New obligation<br /><strong>{manualFinancials.newTotal === null ? "Unavailable" : `R${manualFinancials.newTotal.toFixed(2)}`}</strong></p>
+              <p>New booking total<br /><strong>{manualFinancials.newTotal === null ? "Unavailable" : `R${manualFinancials.newTotal.toFixed(2)}`}</strong></p>
               <p>New outstanding<br /><strong>{manualFinancials.newOutstanding === null ? "Unavailable" : `R${manualFinancials.newOutstanding.toFixed(2)}`}</strong></p>
-              <p className="col-span-2">Table<br /><strong>{booking.tableCode ? `${booking.tableCode} · ${booking.tableCapacity !== null && draft.guestCount <= booking.tableCapacity ? `Fits ${draft.guestCount} guests` : "Moves safely to Needs a table if undersized"}` : "Needs a table"}</strong></p>
+              <p className="col-span-2">Table<br /><strong>{booking.tableCode ? `${booking.tableCode} · ${booking.tableCapacity !== null && draft.guestCount <= booking.tableCapacity ? `Fits ${draft.guestCount} guests` : "Needs a table after this change"}` : "Needs a table"}</strong></p>
             </div>
           </div>
-          <p className="mt-3 text-xs text-zinc-500">The entered basis is recorded as staff-authorised legacy reconciliation. Current venue pricing is not inferred.</p>
+          <p className="mt-3 text-xs text-zinc-500">We can&apos;t confirm the original price for this booking. Check the payment details before adding guests. The price entered here applies only to the added guests.</p>
         </section>
       )}
       {requiresRetainedValueTransfer && retainedValueAllocation && (
@@ -423,8 +428,8 @@ export function GuestCountReconciliationModal(
             <p className="mt-1 text-xs text-zinc-300">
               Guest count updated. The previous table no longer fits this booking, so it now needs a table.
             </p>
-          ) : props.result.added_guests > 0 ? <p className="mt-1 text-xs text-zinc-300">R{props.result.additional_amount.toFixed(2)} added · R{props.result.balance_outstanding.toFixed(2)} outstanding</p> : <p className="mt-1 text-xs text-zinc-300">Guest count updated. The agreed financial obligation is unchanged.</p>}
-          {props.result.added_guests > 0 && (!link ? (
+          ) : isComplimentaryIncrease ? <p className="mt-1 text-xs text-zinc-300">Guest count updated. The booking remains complimentary.</p> : props.result.added_guests > 0 ? <p className="mt-1 text-xs text-zinc-300">R{props.result.additional_amount.toFixed(2)} added · R{props.result.balance_outstanding.toFixed(2)} outstanding</p> : <p className="mt-1 text-xs text-zinc-300">Guest count updated. The booking price is unchanged.</p>}
+          {props.result.added_guests > 0 && props.result.additional_amount > 0 && (!link ? (
             <button type="button" onClick={() => void createPaymentLink()} className="mt-3 min-h-11 w-full rounded-full bg-[#D8C36A] px-4 text-xs font-semibold uppercase text-black">Create Payment Link</button>
           ) : (
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -432,7 +437,7 @@ export function GuestCountReconciliationModal(
               <button type="button" onClick={() => { void navigator.clipboard.writeText(link.paymentUrl); setLinkStatus("PAYMENT LINK COPIED ✓"); }} className="min-h-11 rounded-full bg-[#D8C36A] px-3 text-xs font-semibold uppercase text-black">Copy Link</button>
             </div>
           ))}
-          {props.result.added_guests > 0 && link && !link.canSend && <p className="mt-2 text-xs text-amber-200">No customer email is available. Copy Link remains available.</p>}
+          {props.result.added_guests > 0 && props.result.additional_amount > 0 && link && !link.canSend && <p className="mt-2 text-xs text-amber-200">No customer email is available. Copy Link remains available.</p>}
           {linkStatus && <p aria-live="polite" className="mt-2 text-xs text-zinc-300">{linkStatus}</p>}
         </div>
       ) : null}

@@ -78,7 +78,7 @@ export async function GET(request: Request) {
   }
 
   if (!canReconcile(auth.staffProfile)) {
-    return Response.json({ error: "Booking reconciliation access is required." }, { status: 403 });
+    return Response.json({ error: "You don't have permission to edit this booking." }, { status: 403 });
   }
 
   const bookingReference = new URL(request.url).searchParams
@@ -140,8 +140,13 @@ export async function GET(request: Request) {
       ? booking.show_tables[0]
       : booking.show_tables;
     const addedGuestPricingBasis = resolveAddedGuestPricingBasis({
+      amountPaid: Number(booking.amount_paid),
+      balanceOutstanding: Number(booking.balance_outstanding),
       bookingOrigin: booking.booking_origin,
       metadata: parseBookingMetadata(booking.notes),
+      paymentStatus: booking.payment_status,
+      subtotalAmount: Number(booking.subtotal_amount),
+      totalAmount: Number(booking.total_amount),
     });
     const allocationEvidence = legacyRows.find(
       (row) => row.source_system === "manual_invoice",
@@ -183,7 +188,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("[Zingara Reconciliation] Load failed", error);
-    return Response.json({ error: "Booking reconciliation details could not be loaded." }, { status: 500 });
+    return Response.json({ error: "Booking details couldn't be loaded. Try again." }, { status: 500 });
   }
 }
 
@@ -200,7 +205,7 @@ export async function POST(request: Request) {
   }
 
   if (!canReconcile(auth.staffProfile)) {
-    return Response.json({ error: "Booking reconciliation access is required." }, { status: 403 });
+    return Response.json({ error: "You don't have permission to edit this booking." }, { status: 403 });
   }
 
   try {
@@ -385,19 +390,19 @@ export async function POST(request: Request) {
         return Response.json({ error: "Enter a different guest count before confirming." }, { status: 400 });
       }
       if (message.includes("ZONE_CAPACITY_EXCEEDED")) {
-        return Response.json({ error: "The show does not have enough capacity in this seating zone." }, { status: 409 });
+        return Response.json({ error: "This seating section does not have enough approved space for the added guests." }, { status: 409 });
       }
       if (message.includes("BOOKING_TABLE_STATE_INVALID")) {
-        return Response.json({ error: "The current table assignment must be repaired before changing guest count." }, { status: 409 });
+        return Response.json({ error: "Check this booking's table before changing the guest count." }, { status: 409 });
       }
       if (message.includes("SHOW_NOT_FOUND")) {
         return Response.json({ error: "The booking's performance could not be found." }, { status: 409 });
       }
       if (message.includes("ADDED_GUEST_FINANCIAL_BASIS_REQUIRED")) {
-        return Response.json({ error: "The original payment basis is not authoritative for this legacy booking. Reconcile its financials separately before adding guests." }, { status: 409 });
+        return Response.json({ error: "We can't confirm the original price for this booking. Check the payment details before adding guests." }, { status: 409 });
       }
       if (message.includes("LEGACY_MANUAL_BASIS_NOT_ALLOWED")) {
-        return Response.json({ error: "Manual legacy pricing is only available for imported bookings without authoritative pricing metadata." }, { status: 409 });
+        return Response.json({ error: "This booking already has confirmed pricing. Use its saved payment details." }, { status: 409 });
       }
       if (message.includes("LEGACY_INCREASE_REQUIRED")) {
         return Response.json({ error: "Manual legacy pricing can only be used when adding guests." }, { status: 400 });
@@ -409,17 +414,17 @@ export async function POST(request: Request) {
         return Response.json({ error: "Confirm the retained value transfer to Bar Tab." }, { status: 400 });
       }
       if (message.includes("LEGACY_FINANCIAL_EVIDENCE_REQUIRED")) {
-        return Response.json({ error: "Record the authoritative imported invoice evidence before reducing this paid booking." }, { status: 409 });
+        return Response.json({ error: "Add the original invoice details before reducing this paid booking." }, { status: 409 });
       }
       if (message.includes("LEGACY_TICKET_RATE_INVALID") || message.includes("RETAINED_VALUE_ALLOCATION_MISMATCH")) {
         return Response.json({ error: "The imported ticket, gratuity and Bar Tab values do not reconcile exactly. Review the evidence before continuing." }, { status: 409 });
       }
       if (message.includes("BOOKING_RECONCILIATION_NOT_ALLOWED")) {
-        return Response.json({ error: "This booking is not eligible for reconciliation." }, { status: 409 });
+        return Response.json({ error: "This booking can't be edited in its current state." }, { status: 409 });
       }
       if (message.includes("AMOUNT_PAID_BELOW_IMMUTABLE_EVIDENCE")) {
         return Response.json(
-          { error: "Amount paid cannot be reduced below verified provider or legacy payment evidence." },
+          { error: "The paid amount can't be lower than the confirmed payment records." },
           { status: 409 },
         );
       }
@@ -430,7 +435,7 @@ export async function POST(request: Request) {
         );
       }
       if (message.includes("RECONCILIATION_PERMISSION_REQUIRED")) {
-        return Response.json({ error: "Booking reconciliation access is required." }, { status: 403 });
+        return Response.json({ error: "You don't have permission to edit this booking." }, { status: 403 });
       }
       throw error;
     }
@@ -445,6 +450,6 @@ export async function POST(request: Request) {
     return Response.json({ result: data });
   } catch (error) {
     console.error("[Zingara Reconciliation] Save failed", error);
-    return Response.json({ error: "Booking reconciliation could not be saved." }, { status: 500 });
+    return Response.json({ error: "The booking couldn't be updated. Try again." }, { status: 500 });
   }
 }

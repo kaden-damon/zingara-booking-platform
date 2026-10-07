@@ -81,6 +81,8 @@ test("decreases never reduce financials", () => {
 
 test("complimentary provenance keeps added guests at R0", () => {
   const basis = resolveAddedGuestPricingBasis({
+    amountPaid: 0,
+    balanceOutstanding: 0,
     bookingOrigin: "admin_staff",
     metadata: {
       pricingProvenance: {
@@ -90,6 +92,9 @@ test("complimentary provenance keeps added guests at R0", () => {
         source: "complimentary",
       },
     },
+    paymentStatus: "comp_vip",
+    subtotalAmount: 0,
+    totalAmount: 0,
   });
 
   assert.deepEqual(basis, {
@@ -158,7 +163,7 @@ test("outstanding payment links reuse the existing secure link architecture", as
 
 test("reconciliation UI previews the increment and offers send or copy", async () => {
   const modal = await source("../app/admin/BookingReconciliationModal.tsx");
-  assert.match(modal, /Additional obligation/);
+  assert.match(modal, /Additional amount/);
   assert.match(modal, /New outstanding/);
   assert.match(modal, /Send To Guest/);
   assert.match(modal, /Copy Link/);

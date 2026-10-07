@@ -3274,7 +3274,7 @@ const crmGuestLessons: AcademyArticle[] = [
     related: ["Searching for Guests", "Viewing Guest History"],
     tips: [
       "CRM is the best place to understand returning guests.",
-      "Complete and Incomplete labels show whether the authoritative customer name needs attention.",
+      "Complete and Incomplete labels show whether the customer name needs attention.",
       "Archived customers are hidden from normal CRM work but remain linked to bookings and history.",
       "Email and Push may be paused independently without changing marketing consent or deleting communication history.",
       "Check the profile before adding new notes or sending follow-up.",
@@ -3726,7 +3726,7 @@ const waitlistLessons: AcademyArticle[] = [
     howTo: [
       "Open the waitlist entry.",
       "Confirm the guest details, show, guest count, and notes.",
-      "Select JHB or CPT and check authoritative configured-table availability for that performance.",
+      "Select JHB or CPT and check the available configured tables for that performance.",
       "Use the promote action when the guest should move forward.",
       "Confirm the entry status and follow-up activity are updated.",
     ],
@@ -3820,7 +3820,7 @@ const waitlistLessons: AcademyArticle[] = [
     tips: [
       "Status should always reflect the next operational action.",
       "Promoted means an opportunity exists; it does not replace booking confirmation.",
-      "Converted means the normal booking flow has completed with suitable authoritative seating.",
+      "Converted means the normal booking flow has completed with confirmed seating.",
     ],
     title: "Waitlist Statuses",
     whenToUse: "Use this whenever reviewing or updating waitlist entries.",
@@ -4299,9 +4299,9 @@ const ticketCheckInLessons: AcademyArticle[] = [
       "Digital tickets should match the current booking record.",
       "The table colour helps staff recognise the guest's seating zone quickly.",
       "The guest live ticket hides the table number before check-in; do not promise an exact table before the guest is checked in.",
-      "Apple Wallet shows TABLE as TBC until check-in, then the installed pass can update automatically to the authoritative table without being reinstalled.",
+      "Apple Wallet shows TABLE as TBC until check-in, then the installed pass can update automatically to the confirmed table without being reinstalled.",
       "Apple Wallet uses the same ticket QR identity as the live ticket; cancelled or invalid tickets continue to follow the normal ticket lifecycle.",
-      "Booking changes update ticket presentation while the ticket reference, QR, and individual ticket identity remain authoritative.",
+      "Booking changes update the ticket details while the ticket reference, QR, and individual ticket identity stay unchanged.",
       "Apple Wallet pass updates are separate from browser push notifications.",
       "If details look wrong, review the booking before sharing the ticket.",
     ],
@@ -5637,7 +5637,7 @@ const settingsLessons: AcademyArticle[] = [
     id: "promo-code-management",
     keywords: ["promo codes", "discount", "percentage", "fixed rand", "usage limits", "redemption"],
     moduleId: "settings",
-    purpose: "Use Promo Codes to manage approved discounts while keeping booking pricing authoritative and consistent.",
+    purpose: "Use Promo Codes to manage approved discounts while keeping booking prices consistent.",
     relatedActions: ["bookings"],
     related: ["Payment Gateway Settings", "Analytics Overview"],
     tips: [
@@ -6352,7 +6352,7 @@ const platformAdministrationLessons: AcademyArticle[] = [
     id: "data-portability-overview",
     keywords: ["data portability", "export", "import preview", "dry run", "csv", "xlsx"],
     moduleId: "platform-administration",
-    purpose: "Use Settings > Data Portability as the authoritative place for booking and customer export, preview, validation, import, and restore workflows.",
+    purpose: "Use Settings > Data Portability for booking and customer exports, previews, checks, imports, and restores.",
     relatedActions: [],
     related: ["Transactional Import", "Restore Points & Import History"],
     tips: [
@@ -16657,7 +16657,7 @@ export default function AdminDashboardPage() {
         setCorporateConversionStatusRequestId(request.id);
         setCorporateConversionActionState("error");
         setCorporateConversionStatus(
-          "FINANCIAL RECONCILIATION REQUIRED: Save authoritative historical evidence before conversion.",
+          "PAYMENT DETAILS NEED REVIEW: Add the original payment records before conversion.",
         );
       }
       return;
@@ -16698,7 +16698,7 @@ export default function AdminDashboardPage() {
 
     corporateFinancialInFlightRef.current.add(request.id);
     setCorporateFinancialActionState("pending");
-    setCorporateFinancialStatus("Saving authoritative financial evidence...");
+    setCorporateFinancialStatus("Saving payment details...");
 
     try {
       const updatedRequest = await reconcileImportedCorporateFinancials(
@@ -19120,7 +19120,7 @@ export default function AdminDashboardPage() {
             },
           },
           message: "The Corporate booking was not reinstated.",
-          nextStep: "Review the authoritative payment, lifecycle, and capacity state before retrying.",
+          nextStep: "Check the payment, booking status and available capacity before trying again.",
           status: "blocked",
           title: "Reinstatement blocked",
         }),
@@ -21311,7 +21311,7 @@ export default function AdminDashboardPage() {
         if (isDineplanRecord) {
           addIssue(
             "Table",
-            `Source table ${table || "not recorded"} retained as legacy metadata; Zingara allocation uses authoritative table inventory only.`,
+            `Original table ${table || "not recorded"} is kept for reference. Zingara will use its current table list.`,
             "warning",
           );
         }
@@ -23402,7 +23402,7 @@ export default function AdminDashboardPage() {
 
     if (!targetZoneCapacity.eligible) {
       setCompatibilityWarning(
-        `${nextZone.title} has ${targetZoneCapacity.availablePax} sellable seat${targetZoneCapacity.availablePax === 1 ? "" : "s"} available. This ${booking.partySize}-guest booking cannot be moved there without exceeding the authoritative zone capacity.`,
+        `${nextZone.title} has ${targetZoneCapacity.availablePax} seat${targetZoneCapacity.availablePax === 1 ? "" : "s"} available. This ${booking.partySize}-guest booking will not fit.`,
       );
       return false;
     }
@@ -24072,7 +24072,7 @@ export default function AdminDashboardPage() {
 
   async function loadBookingReconciliationDetails(booking: DemoBooking) {
     if (!canReconcileBookings || isBookingReadOnly(booking.reference)) {
-      showWorkflowToast("Booking reconciliation is not available.");
+      showWorkflowToast("Booking editing is not available.");
       return null;
     }
 
@@ -24084,7 +24084,7 @@ export default function AdminDashboardPage() {
       showWorkflowToast(
         error instanceof Error
           ? error.message
-          : "Booking reconciliation details could not be loaded.",
+          : "Booking details could not be loaded.",
       );
       return null;
     }
@@ -24151,7 +24151,7 @@ export default function AdminDashboardPage() {
       });
       setBookings(await getBookings());
       setFinancialReconciliation(null);
-      showWorkflowToast("Payment details reconciled.");
+      showWorkflowToast("Payment details updated.");
     } catch (error) {
       setFinancialReconciliation((current) =>
         current
@@ -24160,7 +24160,7 @@ export default function AdminDashboardPage() {
               error:
                 error instanceof Error
                   ? error.message
-                  : "Payment details could not be reconciled.",
+                  : "Payment details could not be updated.",
               isSaving: false,
             }
           : current,
@@ -24212,7 +24212,7 @@ export default function AdminDashboardPage() {
       showWorkflowToast(
         response.result.floor_assignment_required
           ? "Guest count updated. The previous table no longer fits this booking, so it now needs a table."
-          : "Guest count reconciled.",
+          : "Guest count updated.",
       );
     } catch (error) {
       setGuestCountReconciliation((current) =>
@@ -24222,7 +24222,7 @@ export default function AdminDashboardPage() {
               error:
                 error instanceof Error
                   ? error.message
-                  : "Guest count could not be reconciled.",
+                  : "Guest count could not be updated.",
               isSaving: false,
             }
           : current,
@@ -30403,7 +30403,7 @@ export default function AdminDashboardPage() {
                       </p>
                       <p className="mt-3 rounded-2xl border border-emerald-300/15 bg-black/35 px-4 py-3 text-sm leading-6 text-emerald-100">
                         Review the venue, performance, guest count, seating zone,
-                        and authoritative financials before conversion. Large
+                        and payment details before conversion. Large
                         parties enter Floor Assignment for multi-table allocation.
                       </p>
                       {corporateConversionStatus &&
@@ -30520,7 +30520,7 @@ export default function AdminDashboardPage() {
                       Cancellation Policy Preview
                     </p>
                     {!cancellationPreview && !cancellationPreviewError && (
-                      <p className="mt-2 text-sm text-zinc-400">Calculating from authoritative payment and performance data...</p>
+                      <p className="mt-2 text-sm text-zinc-400">Checking payment and performance details...</p>
                     )}
                     {cancellationPreviewError && (
                       <p role="alert" className="mt-2 text-sm text-red-200">{cancellationPreviewError}</p>
@@ -33636,8 +33636,8 @@ export default function AdminDashboardPage() {
                                 <p className="mt-3 text-xs leading-5 text-zinc-400">
                                   Import Scope determines which source rows are
                                   included in validation, allocation
-                                  simulation, guest matching and eventual
-                                  Confirm Import payload. The filters below
+                                  preview, guest matching and the final
+                                  import. The filters below
                                   only review rows inside the selected scope.
                                 </p>
                               </div>
@@ -36006,7 +36006,7 @@ export default function AdminDashboardPage() {
                         Public Bookings
                       </p>
                       <p className="mt-1 text-xs leading-5 text-zinc-400" title="Public seats plus approved extra seating for this show.">
-                        Server-authoritative public sales windows. Staff and existing booking workflows remain available.
+                        Public booking dates and times. Staff and existing booking work remain available.
                       </p>
                     </div>
                     <span className="text-xs font-semibold text-zinc-500">
@@ -46127,7 +46127,7 @@ export default function AdminDashboardPage() {
                         {moveTables.length === 0 && (
                           <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4 text-sm text-amber-100">
                             {capacityBlockedMoveTargets.length > 0
-                              ? `A table physically fits this ${booking.partySize}-guest booking, but its seating zone does not have enough sellable capacity. Keep the current assignment or open authoritative zone capacity before moving.`
+                              ? `A table fits this ${booking.partySize}-guest booking, but the seating section does not have enough available space. Keep the current assignment or add approved capacity before moving.`
                               : `No compatible table is currently available for this ${booking.partySize}-guest booking. Keep the current assignment, open capacity, or place the guest on waitlist review before moving.`}
                           </div>
                         )}
