@@ -28887,7 +28887,7 @@ export default function AdminDashboardPage() {
                 <span className="max-w-32 truncate">{currentStaff.name}</span>
                 <span aria-hidden="true" className="text-[#D8C36A] transition group-open:rotate-180">⌄</span>
               </summary>
-              <div className="absolute right-0 top-[calc(100%+0.5rem)] z-[130] w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-[#D8C36A]/30 bg-zinc-950 p-3 shadow-2xl shadow-black/60">
+              <div className="absolute left-0 top-[calc(100%+0.5rem)] z-[130] w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-[#D8C36A]/30 bg-zinc-950 p-3 shadow-2xl shadow-black/60 sm:left-auto sm:right-0">
                 <p className="text-sm font-semibold text-white">{currentStaff.name}</p>
                 <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#D8C36A]">
                   {adminRoleLabels[currentStaff.role] ?? "Staff"}
@@ -36942,17 +36942,13 @@ export default function AdminDashboardPage() {
               />
             </div>
 
-            <div className="order-1 mb-6 overflow-hidden rounded-[1.5rem] border border-[#8D7A2F]/25 bg-[radial-gradient(circle_at_top,#17120A_0%,#080808_58%,#030303_100%)] p-3 shadow-2xl shadow-black/30 sm:mb-8 sm:rounded-[2rem] sm:p-5">
-              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
-                    Widget Canvas
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-400">
-                    Drag, drop, or nudge operational widgets into the
-                    working order your team prefers.
-                  </p>
-                </div>
+            <AdminCollapsibleSection
+              className="order-1 mb-6 border-[#8D7A2F]/25 bg-[radial-gradient(circle_at_top,#17120A_0%,#080808_58%,#030303_100%)] shadow-2xl shadow-black/30 sm:mb-8"
+              contentClassName="p-3 sm:p-5"
+              summary="Customise your Home dashboard widgets."
+              title="Widget Canvas"
+            >
+              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full border border-white/10 bg-black/35 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-400">
                     Modular Layout
@@ -37364,7 +37360,7 @@ export default function AdminDashboardPage() {
                 );
               })}
             </div>
-            </div>
+            </AdminCollapsibleSection>
 
             <section className="order-3 rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-5 shadow-2xl shadow-black/25">
               <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

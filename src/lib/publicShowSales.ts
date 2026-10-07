@@ -18,9 +18,7 @@ export function isShowPubliclyVisible(
 ) {
   return (
     status !== "inactive" &&
-    status !== "archived" &&
-    status !== "special_event" &&
-    status !== "special-event"
+    status !== "archived"
   );
 }
 

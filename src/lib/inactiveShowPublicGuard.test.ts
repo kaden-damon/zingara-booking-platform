@@ -32,8 +32,8 @@ test("public show lifecycle permits only active sales", () => {
   }
   assert.equal(isShowPubliclyVisible("inactive"), false);
   assert.equal(isShowPubliclyVisible("archived"), false);
-  assert.equal(isShowPubliclyVisible("special_event"), false);
-  assert.equal(isShowPubliclyVisible("special-event"), false);
+  assert.equal(isShowPubliclyVisible("special_event"), true);
+  assert.equal(isShowPubliclyVisible("special-event"), true);
   assert.equal(isShowPubliclyVisible("blackout"), true);
   assert.equal(isShowPubliclyVisible("sold_out"), true);
   assert.equal(isShowPubliclyVisible("venue_closure"), true);
