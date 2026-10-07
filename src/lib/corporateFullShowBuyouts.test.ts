@@ -136,6 +136,16 @@ test("release is explicit, revision checked, audited, and payment safe", async (
   assert.match(migration, /cancel_booking_atomic/);
 });
 
+test("payment-driven confirmation is state-safe and independently audited", async () => {
+  const migration = await source("../../supabase/migrations/20261007223000_phase_48_buyout_payment_state_audit.sql");
+  assert.match(migration, /new\.amount_paid >= new\.total_amount/);
+  assert.match(migration, /new\.balance_outstanding = 0/);
+  assert.match(migration, /new\.payment_status::text = 'fully_paid'/);
+  assert.match(migration, /state in \('provisional','awaiting_payment','fully_paid'\)/);
+  assert.match(migration, /corporate\.buyout\.payment_confirmed/);
+  assert.match(migration, /insert into public\.audit_events/);
+});
+
 test("staff UI keeps Group Booking and uses one zero-mutation confirmation", async () => {
   const ui = await source("../app/admin/CorporateBuyoutCreator.tsx");
   assert.match(ui, />Group Booking</);
