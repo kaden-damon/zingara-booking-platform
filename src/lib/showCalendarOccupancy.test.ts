@@ -81,6 +81,18 @@ test("calendar includes unassigned entitlement but excludes inactive lifecycle r
       section: "Golden Circle",
       showId: "show-a",
     }),
+    booking({
+      bookingStatus: "duplicate",
+      guestCount: 50,
+      section: "Middle Ring",
+      showId: "show-a",
+    }),
+    booking({
+      bookingStatus: "moved_out",
+      guestCount: 40,
+      section: "Private Booths",
+      showId: "show-a",
+    }),
   ];
   const summaries = buildShowCalendarOccupancySummaries(
     ["show-a", "zero-show"],
