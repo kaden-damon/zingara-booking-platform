@@ -89,15 +89,24 @@ export async function fetchSupabaseApi<T>(
   return (await response.json()) as T;
 }
 
-export async function fetchSupabaseBlob(path: string) {
+export async function fetchSupabaseBlob(
+  path: string,
+  options: Pick<ApiOptions, "body" | "method" | "signal"> = {},
+) {
   const supabase = getSupabaseClient();
   const session = supabase
     ? await supabase.auth.getSession()
     : { data: { session: null } };
   const accessToken = session.data.session?.access_token;
   const response = await fetch(path, {
+    body: options.body ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
-    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    headers: {
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+    },
+    method: options.method ?? "GET",
+    signal: options.signal,
   });
 
   if (!response.ok) {

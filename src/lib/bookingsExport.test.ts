@@ -130,6 +130,7 @@ test("Bookings UI exports the exact full filtered set before pagination", async 
   const filters = page.slice(filterStart, filterEnd);
 
   assert.match(page, /DOWNLOAD EXCEL/i);
+  assert.match(page, /fetchSupabaseBlob\("\/api\/admin\/bookings\/export"/);
   assert.match(page, /compactSortedBookings\.map\(\(booking\) => booking\.reference\)/);
   assert.match(page, /const bookingPagination = paginateItems\(\s*compactSortedBookings/);
   assert.ok(

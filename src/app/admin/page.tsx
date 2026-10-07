@@ -383,7 +383,10 @@ import {
 import { getStandardShowTime } from "../../lib/showScheduleDefaults";
 import { createTicketValidation } from "../../lib/supabase/ticketValidations";
 import { createTicket, updateTicket } from "../../lib/supabase/tickets";
-import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
+import {
+  fetchSupabaseApi,
+  fetchSupabaseBlob,
+} from "../../lib/supabase/apiClient";
 import { runCancellationUiFlow } from "../../lib/bookingCancellation";
 import {
   getVenueSettings,
@@ -26051,29 +26054,14 @@ export default function AdminDashboardPage() {
     setBookingExportMessage("Preparing complete workbook...");
 
     try {
-      const response = await fetch("/api/admin/bookings/export", {
-        body: JSON.stringify({
+      const workbook = await fetchSupabaseBlob("/api/admin/bookings/export", {
+        body: {
           filterSummary: getBookingArchiveFilterSummary(),
           references: compactSortedBookings.map((booking) => booking.reference),
-        }),
-        headers: { "Content-Type": "application/json" },
+        },
         method: "POST",
       });
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(
-          payload?.error ?? "The bookings workbook could not be downloaded.",
-        );
-      }
-
-      const disposition = response.headers.get("Content-Disposition") ?? "";
-      const filename =
-        disposition.match(/filename="([^"]+)"/)?.[1] ??
-        `Zingara_Bookings_${southAfricaToday}.xlsx`;
-      downloadBlobFile(filename, await response.blob());
+      downloadBlobFile(`Zingara_Bookings_${southAfricaToday}.xlsx`, workbook);
       setBookingExportState("success");
       setBookingExportMessage(
         `Downloaded ${compactSortedBookings.length} matching booking${compactSortedBookings.length === 1 ? "" : "s"}.`,
