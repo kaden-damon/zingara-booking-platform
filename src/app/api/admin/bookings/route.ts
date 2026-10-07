@@ -1,5 +1,6 @@
 import {
   getAdminRoleFromName,
+  getRolePermissions,
   getRequestingUser,
   getServiceClient,
   requireActiveStaff,
@@ -44,6 +45,7 @@ import {
   type CorporateZoneEntitlement,
 } from "@/lib/corporateZoneEntitlements";
 import { mergeAdminBookingState } from "@/lib/adminBookingStateMerge";
+import { resolveBookingCreatedWindow } from "@/lib/bookingSalesFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -198,6 +200,7 @@ async function fetchAdminBookingRows(
   serviceClient: SupabaseClient,
   reference: string | null,
   showId: string | null,
+  bookingIds: string[] = [],
 ) {
   const rows: AdminBookingRow[] = [];
 
@@ -210,6 +213,10 @@ async function fetchAdminBookingRows(
 
     if (showId) {
       query = query.eq("show_id", showId);
+    }
+
+    if (bookingIds.length > 0) {
+      query = query.in("id", bookingIds);
     }
 
     const { data, error } = await query
@@ -442,6 +449,7 @@ export async function GET(request: Request) {
   const showId = url.searchParams.get("showId");
   const includeHistory = url.searchParams.get("includeHistory") !== "0";
   const historyOnly = url.searchParams.get("historyOnly") === "1";
+  const listPage = Number(url.searchParams.get("listPage"));
 
   if (historyOnly) {
     const { rows: bookingRows, error: bookingRowsError } =
@@ -528,11 +536,140 @@ export async function GET(request: Request) {
       })),
     });
   }
-  const { rows, error } = await fetchAdminBookingRows(
+  let pageMetadata: {
+    archivedTotal: number;
+    ids: string[];
+    page: number;
+    pageSize: number;
+    promoOptions: string[];
+    total: number;
+  } | null = null;
+
+  if (Number.isInteger(listPage) && listPage > 0) {
+    if (!auth.staffProfile) {
+      return Response.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const roleRow = Array.isArray(auth.staffProfile.roles)
+      ? auth.staffProfile.roles[0]
+      : auth.staffProfile.roles;
+    const permissions = getRolePermissions(roleRow);
+
+    if (!permissions.some((permission) =>
+      permission === "bookings:manage" || permission === "tickets:validate"
+    )) {
+      return Response.json(
+        { error: "Bookings access is required." },
+        { status: 403 },
+      );
+    }
+
+    const pageSize = Math.max(
+      1,
+      Math.min(100, Number(url.searchParams.get("pageSize")) || 10),
+    );
+    const createdWindow = resolveBookingCreatedWindow({
+      filter: (url.searchParams.get("bookingCreatedDateFilter") ?? "all") as
+        | "all"
+        | "range"
+        | "specific"
+        | "today"
+        | "yesterday",
+      from: url.searchParams.get("bookingCreatedFrom") ?? "",
+      specificDate: url.searchParams.get("bookingCreatedSpecificDate") ?? "",
+      to: url.searchParams.get("bookingCreatedTo") ?? "",
+    });
+
+    if (createdWindow.error) {
+      return Response.json({ error: createdWindow.error }, { status: 400 });
+    }
+
+    const rpcFilters = {
+      archive: url.searchParams.get("archive") ?? "active",
+      bookingDate: url.searchParams.get("bookingDate") ?? "all",
+      bookingStatus: url.searchParams.get("bookingStatus") ?? "all",
+      createdBy: url.searchParams.get("createdBy") ?? "all",
+      createdFrom: createdWindow.startMs === null
+        ? ""
+        : new Date(createdWindow.startMs).toISOString(),
+      createdToExclusive: createdWindow.endExclusiveMs === null
+        ? ""
+        : new Date(createdWindow.endExclusiveMs).toISOString(),
+      hideCancelled: url.searchParams.get("hideCancelled") !== "0",
+      kind: url.searchParams.get("kind") === "corporate" ? "corporate" : "standard",
+      location: url.searchParams.get("location") ?? "all",
+      paymentStatus: url.searchParams.get("paymentStatus") ?? "all",
+      performanceFrom: url.searchParams.get("performanceFrom") ?? "",
+      performanceTo: url.searchParams.get("performanceTo") ?? "",
+      promo: url.searchParams.get("promo") ?? "all",
+      search: url.searchParams.get("search") ?? "",
+      seatingZone: url.searchParams.get("seatingZone") ?? "all",
+      show: url.searchParams.get("show") ?? "all",
+      sortDirection: url.searchParams.get("sortDirection") === "asc" ? "asc" : "desc",
+      sortKey: url.searchParams.get("sortKey") ?? "createdAt",
+      source: url.searchParams.get("source") ?? "all",
+    };
+    const venueScope = normalizeStaffVenueScope(auth.staffProfile.venue_scope ?? []);
+    const { data: pageResult, error: pageError } = await serviceClient.rpc(
+      "get_admin_booking_page",
+      {
+        p_authorized_venues: venueScope,
+        p_filters: rpcFilters,
+        p_page: listPage,
+        p_page_size: pageSize,
+      },
+    );
+
+    if (pageError) {
+      console.error("[Zingara API] Failed to load paginated bookings", pageError);
+      return Response.json(
+        { error: "Bookings couldn't be loaded. Try again." },
+        { status: 500 },
+      );
+    }
+
+    const result = (pageResult ?? {}) as {
+      archivedTotal?: number;
+      ids?: string[];
+      total?: number;
+    };
+    const { data: promoRows, error: promoError } = await serviceClient
+      .from("promo_codes")
+      .select("code")
+      .order("code", { ascending: true });
+    if (promoError) {
+      console.error("[Zingara API] Failed to load booking promo filters", promoError);
+    }
+
+    pageMetadata = {
+      archivedTotal: Number(result.archivedTotal ?? 0),
+      ids: Array.isArray(result.ids) ? result.ids : [],
+      page: listPage,
+      pageSize,
+      promoOptions: [...new Set(
+        (promoRows ?? [])
+          .map((row) => row.code?.trim().toUpperCase())
+          .filter((code): code is string => Boolean(code)),
+      )],
+      total: Number(result.total ?? 0),
+    };
+
+    if (pageMetadata.ids.length === 0) {
+      return Response.json({ ...pageMetadata, rows: [] });
+    }
+  }
+
+  const { rows: loadedRows, error } = await fetchAdminBookingRows(
     serviceClient,
     reference,
     showId,
+    pageMetadata?.ids,
   );
+  const rows = pageMetadata
+    ? pageMetadata.ids
+        .map((id) => loadedRows.find((row) => row.id === id))
+        .filter((row): row is AdminBookingRow => Boolean(row))
+    : loadedRows;
 
   if (error) {
     console.error("[Zingara API] Failed to load bookings", error);
@@ -557,7 +694,10 @@ export async function GET(request: Request) {
     .filter((id): id is string => Boolean(id));
 
   if (bookingIds.length === 0) {
-    return Response.json({ rows });
+    return Response.json({
+      ...(pageMetadata ?? {}),
+      rows,
+    });
   }
 
   const [
@@ -793,6 +933,7 @@ export async function GET(request: Request) {
   }
 
   return Response.json({
+    ...(pageMetadata ?? {}),
     rows: rows.map((booking) => ({
       ...booking,
       communication_rows: communicationsByBookingId.get(booking.id) ?? [],

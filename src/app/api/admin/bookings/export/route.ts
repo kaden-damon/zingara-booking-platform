@@ -5,6 +5,9 @@ import {
 } from "@/lib/supabase/bookingsExportServer";
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
+import { resolveBookingCreatedWindow } from "@/lib/bookingSalesFilters";
+import { normalizeStaffVenueScope } from "@/lib/staffLocations";
+import type { AdminBookingListFilters } from "@/lib/adminBookingList";
 
 export const dynamic = "force-dynamic";
 
@@ -43,10 +46,63 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as {
+      filters?: AdminBookingListFilters;
       filterSummary?: unknown;
       references?: unknown;
     };
-    const references = parseReferences(body.references);
+    let references = parseReferences(body.references);
+
+    if (body.filters) {
+      const createdWindow = resolveBookingCreatedWindow({
+        filter: body.filters.bookingCreatedDateFilter,
+        from: body.filters.bookingCreatedFrom,
+        specificDate: body.filters.bookingCreatedSpecificDate,
+        to: body.filters.bookingCreatedTo,
+      });
+      if (createdWindow.error) {
+        return Response.json({ error: createdWindow.error }, { status: 400 });
+      }
+
+      const { data, error } = await auth.serviceClient.rpc(
+        "get_admin_booking_page",
+        {
+          p_authorized_venues: normalizeStaffVenueScope(
+            auth.staffProfile.venue_scope ?? [],
+          ),
+          p_filters: {
+            archive: body.filters.archive,
+            bookingDate: body.filters.bookingDate,
+            bookingStatus: body.filters.bookingStatus,
+            createdBy: body.filters.createdBy,
+            createdFrom: createdWindow.startMs === null
+              ? ""
+              : new Date(createdWindow.startMs).toISOString(),
+            createdToExclusive: createdWindow.endExclusiveMs === null
+              ? ""
+              : new Date(createdWindow.endExclusiveMs).toISOString(),
+            hideCancelled: body.filters.hideCancelled,
+            kind: body.filters.kind,
+            location: body.filters.location,
+            paymentStatus: body.filters.paymentStatus,
+            performanceFrom: body.filters.performanceFrom,
+            performanceTo: body.filters.performanceTo,
+            promo: body.filters.promo,
+            search: body.filters.search,
+            seatingZone: body.filters.seatingZone,
+            show: body.filters.show,
+            sortDirection: body.filters.sortDirection,
+            sortKey: body.filters.sortKey,
+            source: body.filters.source,
+          },
+          p_page: 1,
+          p_page_size: 10000,
+        },
+      );
+      if (error) throw error;
+      references = ((data as { ids?: string[] } | null)?.ids ?? []).length > 0
+        ? await resolveBookingReferences(auth.serviceClient, (data as { ids: string[] }).ids)
+        : [];
+    }
     if (references.length === 0) {
       return Response.json(
         { error: "No bookings match the current filters." },
@@ -108,4 +164,25 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+async function resolveBookingReferences(
+  serviceClient: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]>,
+  ids: string[],
+) {
+  const references: string[] = [];
+  for (let index = 0; index < ids.length; index += 500) {
+    const { data, error } = await serviceClient
+      .from("bookings")
+      .select("id,booking_reference")
+      .in("id", ids.slice(index, index + 500));
+    if (error) throw error;
+    const byId = new Map((data ?? []).map((row) => [row.id, row.booking_reference]));
+    references.push(
+      ...ids.slice(index, index + 500)
+        .map((id) => byId.get(id))
+        .filter((reference): reference is string => Boolean(reference)),
+    );
+  }
+  return references;
 }

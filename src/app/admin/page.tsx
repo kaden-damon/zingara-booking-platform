@@ -136,7 +136,6 @@ import {
   type StaffSession,
   adminRoleLabels,
   hasPermission,
-  rolePermissions,
 } from "../../lib/zingaraAccess";
 import {
   getBrowserNotificationPermission,
@@ -168,6 +167,7 @@ import {
   getBooking,
   getBookingHistories,
   getBookings,
+  getBookingsPage,
   mapBookingPhysicalTable,
   persistManagedBookingCancellation,
   previewManagedBookingCancellation,
@@ -265,11 +265,11 @@ import {
 } from "../../lib/paymentControls";
 import {
   defaultPageSize,
+  paginateServerItems,
   paginateItems,
   parsePageSize,
 } from "../../lib/pagination";
 import {
-  sortCompactBookingRows,
   type CompactBookingRow,
   type CompactBookingSortDirection,
   type CompactBookingSortKey,
@@ -278,7 +278,6 @@ import {
   bookingMatchesPromoFilter,
   getPersistedBookingPromoCode,
   getPersistedPromoDiscountLabel,
-  getPersistedPromoFilterOptions,
   type BookingPromoFilter,
 } from "../../lib/bookingPromoUsage";
 import {
@@ -290,13 +289,13 @@ import {
   bookingMatchesCreator,
   bookingMatchesSalesSource,
   bookingSalesSourceLabels,
-  getBookingSalesSource,
   resolveBookingCreatedWindow,
   type BookingCreatedDateFilter,
   type BookingSalesSource,
   type BookingSalesSourceFilter,
 } from "../../lib/bookingSalesFilters";
 import { isExactBookingReferenceSearch } from "../../lib/bookingReferenceSearch";
+import type { AdminBookingListFilters } from "../../lib/adminBookingList";
 import {
   convertCorporateRequest,
   getCorporateRequests,
@@ -10341,6 +10340,9 @@ export default function AdminDashboardPage() {
   const [bookings, setBookings] = useState<DemoBooking[]>([]);
   const [isBookingsLoading, setIsBookingsLoading] = useState(false);
   const [bookingLoadError, setBookingLoadError] = useState("");
+  const [bookingTotal, setBookingTotal] = useState(0);
+  const [archivedBookingTotal, setArchivedBookingTotal] = useState(0);
+  const [bookingPromoOptions, setBookingPromoOptions] = useState<string[]>([]);
   const [bookingDetailLoadingReference, setBookingDetailLoadingReference] =
     useState("");
   const [bookingDetailError, setBookingDetailError] = useState<{
@@ -10377,11 +10379,11 @@ export default function AdminDashboardPage() {
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingPage, setBookingPage] = useState(1);
   const [standardBookingPageSize, setStandardBookingPageSize] =
-    useState(defaultPageSize);
+    useState(10);
   const [corporateEnquiryPageSize, setCorporateEnquiryPageSize] =
     useState(defaultPageSize);
   const [corporateBookingPageSize, setCorporateBookingPageSize] =
-    useState(defaultPageSize);
+    useState(10);
   const [corporateEnquiryPage, setCorporateEnquiryPage] = useState(1);
   const [paginationPreferencesLoaded, setPaginationPreferencesLoaded] =
     useState(false);
@@ -11038,6 +11040,13 @@ export default function AdminDashboardPage() {
     reference: string;
     status: "assigned" | "assigning";
   } | null>(null);
+  const [tableAssignmentConfirmation, setTableAssignmentConfirmation] =
+    useState<{
+      bookingReference: string;
+      guestCount: number;
+      tableId: string;
+      tableNumber: string;
+    } | null>(null);
   const [floorTableReleaseAction, setFloorTableReleaseAction] = useState<{
     status: "released" | "releasing";
     tableId: string;
@@ -11333,16 +11342,17 @@ export default function AdminDashboardPage() {
     setBookingLoadError("");
 
     try {
-      const nextBookings = await getBookings({
-        includeHistory: false,
-        throwOnError: true,
-      });
+      const result = await getBookingsPage(getActiveBookingListFilters());
+      const nextBookings = result.rows;
 
       if (requestId !== bookingLoadRequestRef.current) {
         return nextBookings;
       }
 
       setBookings(nextBookings);
+      setBookingTotal(result.total);
+      setArchivedBookingTotal(result.archivedTotal);
+      setBookingPromoOptions(result.promoOptions);
       return nextBookings;
     } catch (error) {
       console.error("[Zingara admin] Failed to load bookings", error);
@@ -11963,7 +11973,6 @@ export default function AdminDashboardPage() {
         }
       }
 
-      const bookingsRequest = loadBookingList();
       const showShellRequest = Promise.all([
         getShowsWithTables({ metadataOnly: true }),
         getVenueSettings(),
@@ -12043,31 +12052,24 @@ export default function AdminDashboardPage() {
 
       try {
         const [
-          [
             nextCorporateRequests,
             nextCommunicationTemplates,
             nextWaitlist,
             nextStaffProfiles,
             nextStaffRoles,
             nextPaymentRows,
-          ],
-          nextBookingsResult,
-        ] = await Promise.all([dashboardDataRequest, bookingsRequest]);
+        ] = await dashboardDataRequest;
 
         if (!isMounted || showLoadRequestId !== showLoadRequestRef.current) {
           return;
         }
 
-        const nextBookings = nextBookingsResult ?? [];
         setCorporateRequests(nextCorporateRequests);
         setCommunicationTemplates(nextCommunicationTemplates);
         setWaitlist(nextWaitlist);
         setStaffProfiles(nextStaffProfiles);
         setStaffRoles(nextStaffRoles);
         setPaymentRows(nextPaymentRows);
-        setTables((currentTables) =>
-          applyBookingOccupancyToTables(currentTables, nextBookings),
-        );
       } catch (error) {
         console.error("[Zingara admin] Failed to load dashboard data", error);
       } finally {
@@ -13625,9 +13627,10 @@ export default function AdminDashboardPage() {
 
     async function refreshSelectedShowTables() {
       try {
-        const nextShowPayload = await getShowsWithTables({
-          tableShow: selectedShowId,
-        });
+        const [nextShowPayload, nextShowBookings] = await Promise.all([
+          getShowsWithTables({ tableShow: selectedShowId }),
+          getBookings({ showId: selectedShowId, throwOnError: true }),
+        ]);
 
         if (
           isCancelled ||
@@ -13642,9 +13645,10 @@ export default function AdminDashboardPage() {
 
         const selectedShowTables = applyBookingOccupancyToTables(
           nextShowPayload.tables,
-          bookingsRef.current,
+          nextShowBookings,
         );
 
+        setBookings(nextShowBookings);
         setTables((currentTables) =>
           mergeTablesForShows(currentTables, selectedShowTables, [
             selectedShowId,
@@ -23851,7 +23855,7 @@ export default function AdminDashboardPage() {
     showWorkflowToast(`✓ ${booking.reference} seating allocation updated`);
   }
 
-  async function assignFloorQueuedBooking(booking: DemoBooking) {
+  function assignFloorQueuedBooking(booking: DemoBooking) {
     if (!canManageBookings || isBookingReadOnly(booking.reference)) {
       if (isBookingReadOnly(booking.reference)) {
         showWorkflowToast("This booking is currently being edited.");
@@ -23892,6 +23896,38 @@ export default function AdminDashboardPage() {
       return;
     }
 
+    setTableAssignmentConfirmation({
+      bookingReference: booking.reference,
+      guestCount: booking.partySize,
+      tableId: allocation.table.id,
+      tableNumber: allocation.table.tableNumber,
+    });
+  }
+
+  async function confirmFloorQueuedBooking() {
+    const confirmation = tableAssignmentConfirmation;
+    const booking = bookings.find(
+      (candidate) => candidate.reference === confirmation?.bookingReference,
+    );
+    if (!confirmation || !booking?.showId) return;
+
+    const allocation = findBestTableAllocation(
+      tables,
+      booking.showId,
+      booking.zoneId,
+      booking.partySize,
+    );
+    if (
+      !allocation ||
+      allocation.isCombination ||
+      allocation.table.id !== confirmation.tableId
+    ) {
+      setTableAssignmentConfirmation(null);
+      showWorkflowToast("That table is no longer available. Choose another table.");
+      return;
+    }
+    const nextZone = getZoneById(allocation.table.zoneId);
+    if (!nextZone) return;
     const assignedBooking = {
       ...booking,
       tableId: allocation.table.id,
@@ -23917,6 +23953,7 @@ export default function AdminDashboardPage() {
         `Assigned ${booking.reference} to ${allocation.table.tableNumber}.`,
       );
       completeFloorAssignment(booking.reference);
+      setTableAssignmentConfirmation(null);
     } catch (error) {
       await refreshAssignedShowState(booking.showId).catch(() => undefined);
       showStaffGuidance(
@@ -26009,40 +26046,8 @@ export default function AdminDashboardPage() {
   const isBookingManagementWorkspace =
     activeAdminTab === "bookings" ||
     (activeAdminTab === "corporate" && corporateWorkspace === "bookings");
-  const filteredBookings = useMemo(
-    () =>
-      isBookingManagementWorkspace
-        ? bookings.filter((booking) => bookingMatchesCurrentFilters(booking))
-        : [],
-    [
-      activeAdminTab,
-      bookingArchiveFilter,
-      bookingCreatedByFilter,
-      bookingCreatedDateFilter,
-      bookingCreatedFrom,
-      bookingCreatedSpecificDate,
-      bookingCreatedTo,
-      bookingDateFilter,
-      bookingLocationFilter,
-      bookingPaymentStatusFilter,
-      bookingPerformanceFrom,
-      bookingPerformanceTo,
-      bookingPromoFilter,
-      bookingSearch,
-      bookingShowFilter,
-      bookingSourceFilter,
-      bookingStatusFilter,
-      bookingZoneFilter,
-      bookings,
-      corporateRequests,
-      corporateWorkspace,
-      hideCancelledBookings,
-      isBookingManagementWorkspace,
-      shows,
-    ],
-  );
+  const filteredBookings = isBookingManagementWorkspace ? bookings : [];
   const bookingSalesSourceOptions = useMemo(() => {
-    const presentSources = new Set(bookings.map(getBookingSalesSource));
     const sourceOrder: BookingSalesSource[] = [
       "customer_public",
       "staff_internal",
@@ -26052,25 +26057,14 @@ export default function AdminDashboardPage() {
       "other",
     ];
 
-    return sourceOrder.filter((source) => presentSources.has(source));
-  }, [bookings]);
+    return sourceOrder;
+  }, []);
   const bookingCreatorOptions = useMemo(() => {
-    const creators = new Map<string, string>();
-
-    bookings.forEach((booking) => {
-      if (booking.createdByStaffId && booking.createdByStaffName) {
-        creators.set(booking.createdByStaffId, booking.createdByStaffName);
-      }
-    });
-
-    return [...creators.entries()]
-      .map(([id, name]) => ({ id, name }))
+    return staffProfiles
+      .map((profile) => ({ id: profile.id, name: profile.name }))
       .sort((left, right) => left.name.localeCompare(right.name));
-  }, [bookings]);
-  const persistedPromoFilterOptions = useMemo(
-    () => getPersistedPromoFilterOptions(bookings),
-    [bookings],
-  );
+  }, [staffProfiles]);
+  const persistedPromoFilterOptions = bookingPromoOptions;
   const activeBookingPageSize =
     activeAdminTab === "corporate"
       ? corporateBookingPageSize
@@ -26081,6 +26075,70 @@ export default function AdminDashboardPage() {
       : standardCompactBookingSort;
   const compactBookingSortKey = activeCompactBookingSort.key;
   const compactBookingSortDirection = activeCompactBookingSort.direction;
+  function getActiveBookingListFilters(): AdminBookingListFilters {
+    return {
+      archive: bookingArchiveFilter,
+      bookingCreatedDateFilter,
+      bookingCreatedFrom,
+      bookingCreatedSpecificDate,
+      bookingCreatedTo,
+      bookingDate: bookingDateFilter,
+      bookingStatus: bookingStatusFilter,
+      createdBy: bookingCreatedByFilter,
+      hideCancelled: hideCancelledBookings,
+      kind: activeAdminTab === "corporate" ? "corporate" : "standard",
+      location: bookingLocationFilter,
+      page: bookingPage,
+      pageSize: activeBookingPageSize,
+      paymentStatus: bookingPaymentStatusFilter,
+      performanceFrom: bookingPerformanceFrom,
+      performanceTo: bookingPerformanceTo,
+      promo: bookingPromoFilter,
+      search: bookingSearch,
+      seatingZone: bookingZoneFilter,
+      show: bookingShowFilter,
+      sortDirection: compactBookingSortDirection,
+      sortKey: compactBookingSortKey,
+      source: bookingSourceFilter,
+    };
+  }
+
+  useEffect(() => {
+    if (!currentStaff || !isBookingManagementWorkspace) return;
+
+    const timer = window.setTimeout(() => {
+      void loadBookingList();
+    }, bookingSearch.trim() ? 300 : 0);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeAdminTab,
+    bookingArchiveFilter,
+    bookingCreatedByFilter,
+    bookingCreatedDateFilter,
+    bookingCreatedFrom,
+    bookingCreatedSpecificDate,
+    bookingCreatedTo,
+    bookingDateFilter,
+    bookingLocationFilter,
+    bookingPage,
+    bookingPaymentStatusFilter,
+    bookingPerformanceFrom,
+    bookingPerformanceTo,
+    bookingPromoFilter,
+    bookingSearch,
+    bookingShowFilter,
+    bookingSourceFilter,
+    bookingStatusFilter,
+    bookingZoneFilter,
+    compactBookingSortDirection,
+    compactBookingSortKey,
+    corporateWorkspace,
+    currentStaff,
+    hideCancelledBookings,
+    activeBookingPageSize,
+    isBookingManagementWorkspace,
+  ]);
   const activeSecondaryBookingFilterCount = [
     bookingShowFilter !== "all",
     bookingLocationFilter !== "all",
@@ -26106,29 +26164,7 @@ export default function AdminDashboardPage() {
     setter({ direction, key });
     setBookingPage(1);
   }
-  const compactSortedBookings = useMemo(() => {
-    const bookingByReference = new Map(
-      filteredBookings.map((booking) => [booking.reference, booking]),
-    );
-
-    return sortCompactBookingRows(
-      filteredBookings.map((booking) =>
-        getCompactBookingRow(
-          booking,
-          getBookingShow(booking)?.date ?? booking.bookingDate,
-          getBookingPerformanceLabel(booking),
-        ),
-      ),
-      compactBookingSortKey,
-      compactBookingSortDirection,
-    )
-      .map((row) => bookingByReference.get(row.reference))
-      .filter((booking): booking is DemoBooking => Boolean(booking));
-  }, [
-    compactBookingSortDirection,
-    compactBookingSortKey,
-    filteredBookings,
-  ]);
+  const compactSortedBookings = filteredBookings;
   async function downloadFilteredBookingsExcel() {
     if (compactSortedBookings.length === 0 || bookingExportState === "loading") {
       return;
@@ -26140,15 +26176,15 @@ export default function AdminDashboardPage() {
     try {
       const workbook = await fetchSupabaseBlob("/api/admin/bookings/export", {
         body: {
+          filters: getActiveBookingListFilters(),
           filterSummary: getBookingArchiveFilterSummary(),
-          references: compactSortedBookings.map((booking) => booking.reference),
         },
         method: "POST",
       });
       downloadBlobFile(`Zingara_Bookings_${southAfricaToday}.xlsx`, workbook);
       setBookingExportState("success");
       setBookingExportMessage(
-        `Downloaded ${compactSortedBookings.length} matching booking${compactSortedBookings.length === 1 ? "" : "s"}.`,
+        `Downloaded ${bookingTotal} matching booking${bookingTotal === 1 ? "" : "s"}.`,
       );
     } catch (error) {
       setBookingExportState("error");
@@ -26159,8 +26195,9 @@ export default function AdminDashboardPage() {
       );
     }
   }
-  const bookingPagination = paginateItems(
+  const bookingPagination = paginateServerItems(
     compactSortedBookings,
+    bookingTotal,
     bookingPage,
     activeBookingPageSize,
   );
@@ -26171,12 +26208,8 @@ export default function AdminDashboardPage() {
     ? getAllNonArchivedBookings()
     : [];
   const archivedBookingCount = isBookingManagementWorkspace
-    ? bookings.filter(isArchivedBooking).length
+    ? archivedBookingTotal
     : 0;
-  const nonArchivedBookingCount = allArchivableBookings.length;
-  const nonArchivedCancelledBookingCount = allArchivableBookings.filter(
-    (booking) => (booking.status ?? "confirmed") === "cancelled",
-  ).length;
   const bookingArchiveFilterSummary = getBookingArchiveFilterSummary();
   const bookingArchiveModalBookings = bookingArchiveModal
     ? bookings.filter((booking) =>
@@ -43698,8 +43731,8 @@ export default function AdminDashboardPage() {
                 </h2>
                 {activeAdminTab === "corporate" && (
                   <span className="rounded-full border border-[#D8C36A]/25 bg-black/35 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C]">
-                    {filteredBookings.length} booking
-                    {filteredBookings.length === 1 ? "" : "s"}
+                    {bookingTotal} booking
+                    {bookingTotal === 1 ? "" : "s"}
                   </span>
                 )}
               </div>
@@ -44187,22 +44220,22 @@ export default function AdminDashboardPage() {
                       type="button"
                       onClick={() => openBookingArchiveModal("filtered")}
                       disabled={filteredArchivableBookings.length === 0}
-                      title="Archives every non-archived booking matching the current filters, across all pages."
+                      title="Archives the non-archived bookings shown on this page."
                       className="min-h-11 rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       <span className="whitespace-nowrap">
-                        Archive Filtered ({filteredArchivableBookings.length})
+                        Archive This Page ({filteredArchivableBookings.length})
                       </span>
                     </button>
                     <button
                       type="button"
                       onClick={() => openBookingArchiveModal("all")}
                       disabled={allArchivableBookings.length === 0}
-                      title="Archives all non-archived bookings in your authorised scope, regardless of the current filters."
+                      title="Archives all non-archived bookings shown on this page."
                       className="min-h-11 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       <span className="whitespace-nowrap">
-                        Archive all active results ({allArchivableBookings.length})
+                        Archive Active On This Page ({allArchivableBookings.length})
                       </span>
                     </button>
                   </div>
@@ -44324,7 +44357,7 @@ export default function AdminDashboardPage() {
               <p className="text-sm text-zinc-400">
                 Showing{" "}
                 <span className="font-semibold text-white">
-                  {filteredBookings.length}
+                  {bookingTotal}
                 </span>{" "}
                 matching bookings ·{" "}
                 <span className="font-semibold text-white">
@@ -44388,13 +44421,9 @@ export default function AdminDashboardPage() {
             ))}
           </div>
 
-          {bookings.length === 0 && isBookingsLoading ? null : bookings.length === 0 ? (
+          {bookings.length === 0 && isBookingsLoading ? null : bookingTotal === 0 ? (
             <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
-              No bookings yet.
-            </div>
-          ) : filteredBookings.length === 0 ? (
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">
-              No bookings match that search.
+              No bookings match these filters.
             </div>
           ) : (
             <>
@@ -46394,6 +46423,62 @@ export default function AdminDashboardPage() {
         )}
         </div>
       </div>
+
+      {tableAssignmentConfirmation && (
+        <div
+          className="fixed inset-0 z-[140] flex items-end justify-center bg-black/75 p-3 backdrop-blur-sm sm:items-center sm:p-5"
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && !floorAssignmentAction) {
+              setTableAssignmentConfirmation(null);
+            }
+          }}
+        >
+          <button
+            type="button"
+            aria-label="Cancel table assignment"
+            className="absolute inset-0 cursor-default"
+            onClick={() => !floorAssignmentAction && setTableAssignmentConfirmation(null)}
+          />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="table-assignment-confirmation-title"
+            className="relative z-10 w-full max-w-md rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-5 shadow-2xl shadow-black/60 sm:p-6"
+          >
+            <p className="text-xs font-semibold uppercase text-[#D8C36A]">
+              Table Assignment
+            </p>
+            <h2
+              id="table-assignment-confirmation-title"
+              className="mt-2 text-xl font-bold text-white"
+            >
+              Assign this table?
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-zinc-300">
+              Assign {tableAssignmentConfirmation.bookingReference} ({tableAssignmentConfirmation.guestCount} guests) to Table {tableAssignmentConfirmation.tableNumber}?
+            </p>
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                autoFocus
+                disabled={Boolean(floorAssignmentAction)}
+                onClick={() => setTableAssignmentConfirmation(null)}
+                className="min-h-11 rounded-full border border-white/20 px-5 py-2 text-sm font-semibold text-white transition hover:border-white/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C36A] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(floorAssignmentAction)}
+                onClick={() => void confirmFloorQueuedBooking()}
+                className="min-h-11 rounded-full bg-[#D8C36A] px-5 py-2 text-sm font-semibold text-black transition hover:bg-[#F2D66C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2D66C] disabled:opacity-50"
+              >
+                {floorAssignmentAction ? "Assigning..." : "Assign Table"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {adminUndertakingState === "accepted" && <StaffOnboardingTour />}
 

@@ -40,10 +40,10 @@ test("Compact shares the authoritative Standard and Corporate Bookings cohort", 
     page,
     /activeAdminTab === "bookings" \|\|[\s\S]{0,140}corporateWorkspace === "bookings"/,
   );
-  assert.match(page, /const filteredBookings = useMemo/);
+  assert.match(page, /const filteredBookings = isBookingManagementWorkspace \? bookings : \[\]/);
   assert.match(
     page,
-    /const bookingPagination = paginateItems\([\s\S]{0,100}compactSortedBookings/,
+    /const bookingPagination = paginateServerItems\([\s\S]{0,120}compactSortedBookings/,
   );
   assert.match(page, /rows=\{compactPaginatedRows\}/);
 });
@@ -140,9 +140,9 @@ test("Booking toolbar offers deterministic independent ordering", async () => {
 
 test("sorting composes after filters and is shared by all booking views", async () => {
   const page = await source("../app/admin/page.tsx");
-  const filterIndex = page.indexOf("const filteredBookings = useMemo");
-  const sortIndex = page.indexOf("const compactSortedBookings = useMemo");
-  const paginationIndex = page.indexOf("const bookingPagination = paginateItems");
+  const filterIndex = page.indexOf("function getActiveBookingListFilters");
+  const sortIndex = page.indexOf("sortKey: compactBookingSortKey");
+  const paginationIndex = page.indexOf("const bookingPagination = paginateServerItems");
 
   assert.ok(filterIndex >= 0 && filterIndex < sortIndex);
   assert.ok(sortIndex < paginationIndex);

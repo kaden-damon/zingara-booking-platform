@@ -161,7 +161,7 @@ test("Source and Created By compose without fabricated attribution", () => {
   assert.equal(bookingMatchesSalesSource(bookings[2], "staff_internal"), false);
 });
 
-test("Bookings UI composes new filters before shared pagination without extra requests", async () => {
+test("Bookings UI sends the composed filters to authoritative server pagination", async () => {
   const page = await readFile(
     new URL("../app/admin/page.tsx", import.meta.url),
     "utf8",
@@ -170,9 +170,9 @@ test("Bookings UI composes new filters before shared pagination without extra re
     page.indexOf("function bookingMatchesCurrentFilters"),
     page.indexOf("function getFilteredArchivableBookings"),
   );
-  const filteredCohort = page.slice(
-    page.indexOf("const filteredBookings = useMemo"),
-    page.indexOf("const persistedPromoFilterOptions"),
+  const client = await readFile(
+    new URL("supabase/bookings.ts", import.meta.url),
+    "utf8",
   );
 
   assert.match(page, /Booking Created/);
@@ -181,11 +181,9 @@ test("Bookings UI composes new filters before shared pagination without extra re
   assert.match(filterBody, /bookingMatchesSalesSource/);
   assert.match(filterBody, /bookingMatchesCreator/);
   assert.doesNotMatch(filterBody, /fetch\(|fetchSupabaseApi|await /);
-  assert.match(filteredCohort, /bookings\.filter/);
-  assert.ok(
-    page.indexOf("const filteredBookings = useMemo") <
-      page.indexOf("const bookingPagination = paginateItems"),
-  );
+  assert.match(page, /getBookingsPage\(getActiveBookingListFilters\(\)\)/);
+  assert.match(page, /const bookingPagination = paginateServerItems/);
+  assert.match(client, /adminBookingListSearchParams\(filters\)/);
   assert.match(page, /setBookingCreatedDateFilter\("all"\)/);
   assert.match(page, /setBookingCreatedSpecificDate\(""\)/);
   assert.match(page, /setBookingCreatedFrom\(""\)/);
@@ -213,4 +211,3 @@ test("booking-core hydration includes creator and Corporate conversion linkage i
   assert.match(client, /corporateRequestId: row\.corporate_request_id/);
   assert.doesNotMatch(client, /createdByStaffId[\s\S]{0,200}fetch\(/);
 });
-

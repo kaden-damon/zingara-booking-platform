@@ -17,6 +17,10 @@ import { fetchSupabaseApi } from "./apiClient";
 import { getOrCreateCustomerIdFromInfo } from "./customers";
 import { resolveStaffDisplayName } from "@/lib/staffDisplayName";
 import type { CalendarBookingLockContext } from "@/lib/showBookingCreation";
+import {
+  adminBookingListSearchParams,
+  type AdminBookingListFilters,
+} from "@/lib/adminBookingList";
 
 type SupabaseBookingStatus =
   | "cancelled"
@@ -886,6 +890,28 @@ export async function getBookings(options: GetBookingsOptions = {}) {
   }
 
   return Promise.all(rows.map(toDemoBooking));
+}
+
+export async function getBookingsPage(filters: AdminBookingListFilters) {
+  const searchParams = adminBookingListSearchParams(filters);
+  searchParams.set("includeHistory", "0");
+  const payload = await fetchSupabaseApi<{
+    archivedTotal: number;
+    page: number;
+    pageSize: number;
+    promoOptions: string[];
+    rows: SupabaseBookingAggregateRow[];
+    total: number;
+  }>(`/api/admin/bookings?${searchParams.toString()}`);
+
+  return {
+    archivedTotal: payload.archivedTotal ?? 0,
+    page: payload.page ?? filters.page,
+    pageSize: payload.pageSize ?? filters.pageSize,
+    promoOptions: payload.promoOptions ?? [],
+    rows: await Promise.all((payload.rows ?? []).map(toDemoBooking)),
+    total: payload.total ?? 0,
+  };
 }
 
 export async function getBooking(

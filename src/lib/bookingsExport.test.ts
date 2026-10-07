@@ -125,25 +125,15 @@ test("workbook exports every supplied matching row, beyond one UI page", async (
 
 test("Bookings UI exports the exact full filtered set before pagination", async () => {
   const page = await source("../app/admin/page.tsx");
-  const filterStart = page.indexOf("function bookingMatchesCurrentFilters");
-  const filterEnd = page.indexOf("function getFilteredArchivableBookings");
-  const filters = page.slice(filterStart, filterEnd);
+  const exportRoute = await source("../app/api/admin/bookings/export/route.ts");
 
   assert.match(page, /DOWNLOAD EXCEL/i);
   assert.match(page, /fetchSupabaseBlob\("\/api\/admin\/bookings\/export"/);
-  assert.match(page, /compactSortedBookings\.map\(\(booking\) => booking\.reference\)/);
-  assert.match(page, /const bookingPagination = paginateItems\(\s*compactSortedBookings/);
-  assert.ok(
-    page.indexOf("compactSortedBookings.map((booking) => booking.reference)") <
-      page.indexOf("const bookingPagination = paginateItems"),
-  );
-  assert.match(filters, /bookingMatchesCreator\(booking, bookingCreatedByFilter\)/);
-  assert.match(filters, /bookingMatchesCreatedWindow\(booking\.createdAt/);
-  assert.match(filters, /bookingPerformanceFrom/);
-  assert.match(filters, /bookingPerformanceTo/);
-  assert.match(filters, /bookingPaymentStatusFilter/);
-  assert.match(filters, /getBookingZoneEntitlements\(booking\)/);
-  assert.match(filters, /getBookingSearchText\(booking\)\.includes\(searchTerm\)/);
+  assert.match(page, /filters: getActiveBookingListFilters\(\)/);
+  assert.match(page, /const bookingPagination = paginateServerItems/);
+  assert.match(exportRoute, /p_page_size: 10000/);
+  assert.match(exportRoute, /get_admin_booking_page/);
+  assert.doesNotMatch(page, /references: compactSortedBookings/);
 });
 
 test("Bookings export uses the compact accessible presentation without changing its handler", async () => {

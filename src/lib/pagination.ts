@@ -70,6 +70,18 @@ export function paginateItems<T>(
   };
 }
 
+export function paginateServerItems<T>(
+  items: readonly T[],
+  total: number,
+  requestedPage: number,
+  pageSize: number,
+) {
+  return {
+    items: [...items],
+    window: getPaginationWindow(total, requestedPage, pageSize),
+  };
+}
+
 export function resetPageForCriteriaChange(pageSize: number) {
   return {
     page: 1,
