@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   analyticsTimezone,
   calculateManagementAnalytics,
@@ -13,7 +13,10 @@ import {
   type ManagementForecastScope,
   weekdayNames,
 } from "@/lib/managementAnalytics";
-import { dailyAnalyticsSeriesStart } from "@/lib/dailyAnalytics";
+import {
+  dailyAnalyticsSeriesStart,
+  type DailyAnalyticsVenue,
+} from "@/lib/dailyAnalytics";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 import { getAdminAuthSession } from "@/lib/supabase/auth";
 import ZingaraDatePicker from "./ZingaraDatePicker";
@@ -30,6 +33,7 @@ type DailyAnalyticsPreview = {
   dayNumber: number;
   filename: string;
   reportDate: string;
+  venue: DailyAnalyticsVenue;
   summary: {
     grossValue: number;
     guests: number;
@@ -103,26 +107,31 @@ function completedDailyReportDates() {
 
 function DailyAnalyticsReportPanel() {
   const [reportDate, setReportDate] = useState(dateOffset(-1));
+  const [venue, setVenue] = useState<DailyAnalyticsVenue>("all");
   const [preview, setPreview] = useState<DailyAnalyticsPreview | null>(null);
   const [error, setError] = useState("");
   const [status, setStatus] = useState<
     "idle" | "generating" | "ready" | "downloading"
   >("idle");
   const availableDates = useMemo(() => completedDailyReportDates(), []);
+  const requestVersion = useRef(0);
   const busy = status === "generating" || status === "downloading";
 
   async function generatePreview() {
+    const version = ++requestVersion.current;
     setStatus("generating");
     setError("");
     setPreview(null);
     try {
       const response = await fetchSupabaseApi<{ report: DailyAnalyticsPreview }>(
-        `/api/admin/analytics/daily?date=${encodeURIComponent(reportDate)}&format=json`,
+        `/api/admin/analytics/daily?date=${encodeURIComponent(reportDate)}&venue=${encodeURIComponent(venue)}&format=json`,
         { cache: "no-store" },
       );
+      if (version !== requestVersion.current) return;
       setPreview(response.report);
       setStatus("ready");
     } catch (reportError) {
+      if (version !== requestVersion.current) return;
       setError(
         reportError instanceof Error
           ? reportError.message
@@ -139,7 +148,7 @@ function DailyAnalyticsReportPanel() {
       const auth = await getAdminAuthSession();
       if (!auth) throw new Error("Your Admin session has expired. Please sign in again.");
       const response = await fetch(
-        `/api/admin/analytics/daily?date=${encodeURIComponent(reportDate)}&format=xlsx`,
+        `/api/admin/analytics/daily?date=${encodeURIComponent(reportDate)}&venue=${encodeURIComponent(venue)}&format=xlsx`,
         {
           cache: "no-store",
           headers: { Authorization: `Bearer ${auth.session.access_token}` },
@@ -174,7 +183,16 @@ function DailyAnalyticsReportPanel() {
   }
 
   function changeDate(value: string) {
+    requestVersion.current += 1;
     setReportDate(value);
+    setPreview(null);
+    setError("");
+    setStatus("idle");
+  }
+
+  function changeVenue(value: DailyAnalyticsVenue) {
+    requestVersion.current += 1;
+    setVenue(value);
     setPreview(null);
     setError("");
     setStatus("idle");
@@ -197,7 +215,7 @@ function DailyAnalyticsReportPanel() {
             Generate the five-sheet end-of-day report for a completed date in the established Day 1 onward series.
           </p>
         </div>
-        <div className="grid w-full gap-3 sm:grid-cols-[minmax(0,18rem)_auto_auto] xl:w-auto">
+        <div className="grid w-full gap-3 sm:grid-cols-2 xl:w-auto xl:grid-cols-[minmax(0,18rem)_minmax(0,12rem)_auto_auto]">
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
               Reporting Date
@@ -211,6 +229,22 @@ function DailyAnalyticsReportPanel() {
               value={reportDate}
             />
           </div>
+          <label className="block">
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+              Venue
+            </span>
+            <select
+              aria-label="Daily Analytics venue"
+              className="h-11 w-full rounded-lg border border-white/15 bg-black px-3 text-sm font-medium text-white outline-none transition focus:border-[#D8C36A] focus:ring-2 focus:ring-[#D8C36A]/25"
+              disabled={busy}
+              onChange={(event) => changeVenue(event.target.value as DailyAnalyticsVenue)}
+              value={venue}
+            >
+              <option value="all">All Venues</option>
+              <option value="cape-town">Cape Town</option>
+              <option value="johannesburg">Johannesburg</option>
+            </select>
+          </label>
           <button
             type="button"
             disabled={busy || !reportDate}

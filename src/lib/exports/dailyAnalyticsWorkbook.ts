@@ -109,6 +109,14 @@ function showLabel(show: DailyAnalyticsShowRow) {
   return `${formatDate(show.performanceDate)} | ${show.location}`;
 }
 
+function venueLabel(report: DailyAnalyticsReport) {
+  return report.venue === "cape-town"
+    ? "CAPE TOWN"
+    : report.venue === "johannesburg"
+      ? "JOHANNESBURG"
+      : "";
+}
+
 function bestShow(
   shows: DailyAnalyticsShowRow[],
   value: (show: DailyAnalyticsShowRow) => number,
@@ -164,7 +172,9 @@ function buildSummaryRows(report: DailyAnalyticsReport) {
       [
         stringCell(
           "A1",
-          `ZINGARA DAY ${report.dayNumber} | LIVE PLATFORM ANALYTICS`,
+          report.venue === "all"
+            ? `ZINGARA DAY ${report.dayNumber} | LIVE PLATFORM ANALYTICS`
+            : `ZINGARA DAY ${report.dayNumber} | ${venueLabel(report)} ANALYTICS`,
           3,
         ),
       ],
@@ -503,7 +513,7 @@ function buildSummaryRows(report: DailyAnalyticsReport) {
 function buildBookingRows(report: DailyAnalyticsReport) {
   const last = Math.max(7, report.bookingRows.length + 6);
   const rows = [
-    row(1, [stringCell("A1", `DAY ${report.dayNumber} BOOKINGS`, 3)], {
+    row(1, [stringCell("A1", `DAY ${report.dayNumber}${venueLabel(report) ? ` ${venueLabel(report)}` : ""} BOOKINGS`, 3)], {
       height: 32,
     }),
     row(
@@ -588,7 +598,7 @@ function buildBookingRows(report: DailyAnalyticsReport) {
 function buildPaymentRows(report: DailyAnalyticsReport) {
   const last = Math.max(12, report.paymentRows.length + 11);
   const rows = [
-    row(1, [stringCell("A1", `DAY ${report.dayNumber} PAYMENTS`, 3)], {
+    row(1, [stringCell("A1", `DAY ${report.dayNumber}${venueLabel(report) ? ` ${venueLabel(report)}` : ""} PAYMENTS`, 3)], {
       height: 32,
     }),
     row(
@@ -679,7 +689,7 @@ function buildPaymentRows(report: DailyAnalyticsReport) {
 
 function buildSeatingRows(report: DailyAnalyticsReport, lastBookingRow: number) {
   const rows = [
-    row(1, [stringCell("A1", "SEATING PERFORMANCE", 3)], { height: 32 }),
+    row(1, [stringCell("A1", `${venueLabel(report) ? `${venueLabel(report)} ` : ""}SEATING PERFORMANCE`, 3)], { height: 32 }),
     row(
       2,
       [
@@ -775,7 +785,7 @@ function buildShowRows(report: DailyAnalyticsReport) {
     cells.push(cell);
     rowsByNumber.set(rowNumber, cells);
   };
-  add(1, stringCell("A1", "PERFORMANCE DEMAND", 3));
+  add(1, stringCell("A1", `${venueLabel(report) ? `${venueLabel(report)} ` : ""}PERFORMANCE DEMAND`, 3));
   add(
     2,
     stringCell(

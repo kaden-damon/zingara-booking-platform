@@ -3,12 +3,17 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   calculateDailyAnalytics,
+  dailyAnalyticsFilename,
   getDailyAnalyticsWindow,
   type DailyAnalyticsBookingCandidate,
   type DailyAnalyticsInput,
   type DailyAnalyticsPaymentEvidence,
   type DailyAnalyticsShow,
 } from "./dailyAnalytics.ts";
+import {
+  DailyAnalyticsVenueAccessError,
+  resolveDailyAnalyticsVenueScope,
+} from "./supabase/dailyAnalyticsServer.ts";
 
 function booking(
   id: string,
@@ -89,6 +94,46 @@ test("selected Daily Analytics date uses completed SAST boundaries", () => {
     startInclusive: "2026-09-08T22:00:00.000Z",
   });
   assert.throws(() => getDailyAnalyticsWindow("2026-08-31"));
+});
+
+test("Daily Analytics venue scope intersects the selected venue with staff access", () => {
+  assert.deepEqual(
+    [...resolveDailyAnalyticsVenueScope(["all"], "all")].sort(),
+    ["cape-town", "johannesburg"],
+  );
+  assert.deepEqual(
+    [...resolveDailyAnalyticsVenueScope(["cape-town"], "all")],
+    ["cape-town"],
+  );
+  assert.deepEqual(
+    [...resolveDailyAnalyticsVenueScope(["all"], "johannesburg")],
+    ["johannesburg"],
+  );
+  assert.throws(
+    () => resolveDailyAnalyticsVenueScope(["cape-town"], "johannesburg"),
+    DailyAnalyticsVenueAccessError,
+  );
+});
+
+test("Daily Analytics filenames preserve All Venues and identify venue reports", () => {
+  const all = calculateDailyAnalytics(input([]));
+  const capeTown = calculateDailyAnalytics(input([], { venue: "cape-town" }));
+  const johannesburg = calculateDailyAnalytics(
+    input([], { venue: "johannesburg" }),
+  );
+
+  assert.equal(
+    dailyAnalyticsFilename(all),
+    "Zingara_Day_9_Analytics_2026-09-09.xlsx",
+  );
+  assert.equal(
+    dailyAnalyticsFilename(capeTown),
+    "Zingara_Day_9_Analytics_CPT_2026-09-09.xlsx",
+  );
+  assert.equal(
+    dailyAnalyticsFilename(johannesburg),
+    "Zingara_Day_9_Analytics_JHB_2026-09-09.xlsx",
+  );
 });
 
 test("historical payment state excludes a payment processed after cutoff", () => {
@@ -299,10 +344,15 @@ test("Daily Analytics is on-demand, protected, locked, and not loaded at Admin b
   ]);
   assert.match(component, /Daily Analytics Report/);
   assert.match(component, /ZingaraDatePicker/);
+  assert.match(component, /Daily Analytics venue/);
+  assert.match(component, /All Venues/);
+  assert.match(component, /changeVenue/);
   assert.match(component, /Generate Report/);
   assert.match(component, /Download Excel/);
   assert.match(route, /requireActiveStaff\(request\)/);
   assert.match(route, /analytics:read/);
+  assert.match(route, /resolveDailyAnalyticsVenueScope/);
+  assert.match(route, /venue,/);
   assert.match(route, /acquireReportGenerationLock/);
   assert.match(route, /releaseReportGenerationLock/);
   assert.doesNotMatch(admin, /api\/admin\/analytics\/daily/);

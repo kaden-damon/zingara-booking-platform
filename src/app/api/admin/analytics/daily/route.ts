@@ -2,13 +2,18 @@ import {
   dailyAnalyticsFilename,
   dailyAnalyticsReportType,
   getDailyAnalyticsWindow,
+  type DailyAnalyticsVenue,
 } from "@/lib/dailyAnalytics";
 import { buildDailyAnalyticsWorkbook } from "@/lib/exports/dailyAnalyticsWorkbook";
 import {
   acquireReportGenerationLock,
   releaseReportGenerationLock,
 } from "@/lib/supabase/reportGenerationLockServer";
-import { loadDailyAnalyticsReport } from "@/lib/supabase/dailyAnalyticsServer";
+import {
+  DailyAnalyticsVenueAccessError,
+  loadDailyAnalyticsReport,
+  resolveDailyAnalyticsVenueScope,
+} from "@/lib/supabase/dailyAnalyticsServer";
 import {
   getRolePermissions,
   requireActiveStaff,
@@ -45,9 +50,18 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const reportDate = url.searchParams.get("date")?.trim() ?? "";
   const format = url.searchParams.get("format") === "xlsx" ? "xlsx" : "json";
+  const venueValue = url.searchParams.get("venue")?.trim() || "all";
+  if (!(["all", "cape-town", "johannesburg"] as string[]).includes(venueValue)) {
+    return Response.json({ error: "Select a valid venue." }, { status: 400 });
+  }
+  const venue = venueValue as DailyAnalyticsVenue;
   try {
     getDailyAnalyticsWindow(reportDate);
+    resolveDailyAnalyticsVenueScope(auth.staffProfile.venue_scope, venue);
   } catch (error) {
+    if (error instanceof DailyAnalyticsVenueAccessError) {
+      return Response.json({ error: error.message }, { status: 403 });
+    }
     return Response.json(
       {
         error:
@@ -63,6 +77,7 @@ export async function GET(request: Request) {
     format,
     reportDate,
     timezone: "Africa/Johannesburg",
+    venue,
   };
   let lockToken = "";
   let outcome: "failed" | "success" = "failed";
@@ -93,6 +108,7 @@ export async function GET(request: Request) {
       auth.serviceClient,
       reportDate,
       auth.staffProfile.venue_scope,
+      venue,
     );
     if (format === "json") {
       outcome = "success";
@@ -103,6 +119,7 @@ export async function GET(request: Request) {
             filename: dailyAnalyticsFilename(report),
             payments: report.payments,
             reportDate: report.reportDate,
+            venue: report.venue,
             strongestPerformance:
               [...report.showRows].sort(
                 (left, right) =>

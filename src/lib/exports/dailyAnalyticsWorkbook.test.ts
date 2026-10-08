@@ -4,9 +4,10 @@ import test from "node:test";
 import JSZip from "jszip";
 import { SaxesParser } from "saxes";
 import { calculateDailyAnalytics } from "../dailyAnalytics.ts";
+import type { DailyAnalyticsVenue } from "../dailyAnalytics.ts";
 import { buildDailyAnalyticsWorkbook } from "./dailyAnalyticsWorkbook.ts";
 
-function report() {
+function report(venue: DailyAnalyticsVenue = "all") {
   return calculateDailyAnalytics({
     audits: [],
     bookings: [
@@ -58,12 +59,13 @@ function report() {
       },
     ],
     tickets: 4,
+    venue,
     walletRegistrations: 1,
   });
 }
 
-async function workbookParts() {
-  const zip = await JSZip.loadAsync(await buildDailyAnalyticsWorkbook(report()));
+async function workbookParts(venue: DailyAnalyticsVenue = "all") {
+  const zip = await JSZip.loadAsync(await buildDailyAnalyticsWorkbook(report(venue)));
   const read = async (path: string) => {
     const file = zip.file(path);
     assert.ok(file, `${path} should exist`);
@@ -74,6 +76,10 @@ async function workbookParts() {
     contentTypes: await read("[Content_Types].xml"),
     relationships: await read("xl/worksheets/_rels/sheet1.xml.rels"),
     styles: await read("xl/styles.xml"),
+    summary: await read("xl/worksheets/sheet1.xml"),
+    payments: await read("xl/worksheets/sheet3.xml"),
+    seating: await read("xl/worksheets/sheet4.xml"),
+    shows: await read("xl/worksheets/sheet5.xml"),
     workbook: await read("xl/workbook.xml"),
   };
 }
@@ -113,6 +119,39 @@ test("Daily Analytics workbook preserves the established five-sheet order", asyn
     "SEATING",
     "SHOWS",
   ]);
+});
+
+test("venue workbooks label all five sheets while All Venues headings remain unchanged", async () => {
+  const all = await workbookParts();
+  const capeTown = await workbookParts("cape-town");
+  const johannesburg = await workbookParts("johannesburg");
+
+  assert.match(all.summary, /ZINGARA DAY 9 \| LIVE PLATFORM ANALYTICS/);
+  assert.match(all.bookings, /DAY 9 BOOKINGS/);
+  assert.match(all.payments, /DAY 9 PAYMENTS/);
+  assert.match(all.seating, /SEATING PERFORMANCE/);
+  assert.match(all.shows, /PERFORMANCE DEMAND/);
+
+  for (const sheet of [
+    capeTown.summary,
+    capeTown.bookings,
+    capeTown.payments,
+    capeTown.seating,
+    capeTown.shows,
+  ]) {
+    assert.match(sheet, /CAPE TOWN/);
+    assert.doesNotMatch(sheet, /JOHANNESBURG/);
+  }
+  for (const sheet of [
+    johannesburg.summary,
+    johannesburg.bookings,
+    johannesburg.payments,
+    johannesburg.seating,
+    johannesburg.shows,
+  ]) {
+    assert.match(sheet, /JOHANNESBURG/);
+    assert.doesNotMatch(sheet, /CAPE TOWN/);
+  }
 });
 
 test("Daily Analytics workbook retains template styling, tables, charts, and valid formulas", async () => {

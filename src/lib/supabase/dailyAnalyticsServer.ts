@@ -9,6 +9,7 @@ import {
   type DailyAnalyticsLifecycleEvidence,
   type DailyAnalyticsPaymentEvidence,
   type DailyAnalyticsShow,
+  type DailyAnalyticsVenue,
 } from "../dailyAnalytics.ts";
 import {
   normalizeStaffLocation,
@@ -168,12 +169,41 @@ function firstJoinedBooking(row: ReceivedPaymentRow) {
   return Array.isArray(row.bookings) ? row.bookings[0] : row.bookings;
 }
 
+export class DailyAnalyticsVenueAccessError extends Error {}
+
+export function resolveDailyAnalyticsVenueScope(
+  venueScope: string[],
+  selectedVenue: DailyAnalyticsVenue,
+) {
+  const normalizedScope = normalizeStaffVenueScope(venueScope);
+  const authorisedVenues = new Set(
+    normalizedScope.includes("all")
+      ? ["cape-town", "johannesburg"]
+      : normalizedScope.filter((venue) => venue !== "all"),
+  );
+
+  if (selectedVenue !== "all" && !authorisedVenues.has(selectedVenue)) {
+    throw new DailyAnalyticsVenueAccessError(
+      "You do not have access to this venue.",
+    );
+  }
+
+  return selectedVenue === "all"
+    ? authorisedVenues
+    : new Set([selectedVenue]);
+}
+
 export async function loadDailyAnalyticsReport(
   serviceClient: SupabaseClient,
   reportDate: string,
   venueScope: string[],
+  selectedVenue: DailyAnalyticsVenue = "all",
 ) {
   const window = getDailyAnalyticsWindow(reportDate);
+  const permittedVenues = resolveDailyAnalyticsVenueScope(
+    venueScope,
+    selectedVenue,
+  );
   const bookingRows = await loadAllRows<BookingRow>((from, to) =>
     serviceClient
       .from("bookings")
@@ -259,14 +289,7 @@ export async function loadDailyAnalyticsReport(
       .select("id,name,date,time,venue")
       .in("id", ids),
   );
-  const normalizedScope = normalizeStaffVenueScope(venueScope);
-  const permittedVenues = new Set(
-    normalizedScope.includes("all")
-      ? ["cape-town", "johannesburg"]
-      : normalizedScope,
-  );
-  const hasAllVenueAccess =
-    normalizedScope.includes("all") || permittedVenues.size === 2;
+  const hasAllVenueAccess = permittedVenues.size === 2;
   const shows: DailyAnalyticsShow[] = showRows.flatMap((row) => {
       const venue = normalizeStaffLocation(row.venue);
       return venue && permittedVenues.has(venue)
@@ -382,6 +405,7 @@ export async function loadDailyAnalyticsReport(
     reportDate,
     shows,
     tickets: 0,
+    venue: selectedVenue,
     walletRegistrations: 0,
   };
   const preliminary = calculateDailyAnalytics(preliminaryInput);
@@ -471,7 +495,10 @@ export async function loadDailyAnalyticsReport(
     ...preliminaryInput,
     communications: communicationRows.length,
     excludedOtherActivity: Math.max(
-      (allActivityCount ?? 0) - bookingRows.length,
+      (allActivityCount ?? 0) -
+        (selectedVenue === "all" && hasAllVenueAccess
+          ? bookingRows.length
+          : customerBookings.length),
       0,
     ),
     tickets: ticketRows.length,

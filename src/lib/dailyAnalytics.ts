@@ -5,6 +5,7 @@ import {
 
 export const dailyAnalyticsSeriesStart = "2026-09-01";
 export const dailyAnalyticsReportType = "Daily Analytics Workbook";
+export type DailyAnalyticsVenue = "all" | "cape-town" | "johannesburg";
 
 export type DailyAnalyticsBookingCandidate = {
   archivedAt: string | null;
@@ -71,6 +72,7 @@ export type DailyAnalyticsInput = {
   reportDate: string;
   shows: DailyAnalyticsShow[];
   tickets: number;
+  venue?: DailyAnalyticsVenue;
   walletRegistrations: number;
 };
 
@@ -178,6 +180,7 @@ export type DailyAnalyticsReport = {
     totalBookings: number;
   };
   timezone: typeof analyticsTimezone;
+  venue: DailyAnalyticsVenue;
 };
 
 const successfulPaymentStatuses = new Set(["deposit_paid", "fully_paid"]);
@@ -690,9 +693,16 @@ export function calculateDailyAnalytics(
       totalBookings: bookingRows.length,
     },
     timezone: analyticsTimezone,
+    venue: input.venue ?? "all",
   };
 }
 
 export function dailyAnalyticsFilename(report: DailyAnalyticsReport) {
-  return `Zingara_Day_${report.dayNumber}_Analytics_${report.reportDate}.xlsx`;
+  const venueSuffix =
+    report.venue === "cape-town"
+      ? "_CPT"
+      : report.venue === "johannesburg"
+        ? "_JHB"
+        : "";
+  return `Zingara_Day_${report.dayNumber}_Analytics${venueSuffix}_${report.reportDate}.xlsx`;
 }
