@@ -644,6 +644,12 @@ function resolveTablePlanPaymentType(booking: TablePlanBooking) {
 
   if (paymentStatus === "comp_vip") return "Complimentary";
   if (paymentStatus === "fully_paid" || (amountPaid > 0 && outstanding <= 0)) {
+    if (booking.guest_count < 6) {
+      return "Full Payment for Show & Meal + Gratuity";
+    }
+    if (booking.guest_count > 6) {
+      return "Full Payment for Show & Meal";
+    }
     return "Full Payment";
   }
   if (
@@ -704,8 +710,12 @@ function populateBookingDataRow(
   row.getCell(bookingReferenceColumn).value = includeBookingDetails
     ? neutralizeSpreadsheetFormula(booking.booking_reference)
     : null;
-  row.getCell(notesColumn).value = includeBookingDetails && operationalNotes
-    ? neutralizeSpreadsheetFormula(operationalNotes)
+  row.getCell(notesColumn).value = includeBookingDetails
+    ? booking.payment_status.trim().toLowerCase() === "comp_vip"
+      ? "Dinner show comps, drinks and gratuity to be paid by client"
+      : operationalNotes
+        ? neutralizeSpreadsheetFormula(operationalNotes)
+        : null
     : null;
   row.getCell(paymentTypeColumn).value = includeBookingDetails
     ? resolveTablePlanPaymentType(booking)

@@ -340,14 +340,17 @@ test("Table Plan exports physical claims with singular booking totals", async ()
 test("Table Plan applies Jacques's approved operational columns to every seating area", async () => {
   const fixtures = [
     { id: "booth", code: "1", section: "private-booths", status: "deposit_paid", paid: 550, outstanding: 1_430, expected: "Deposit" },
-    { id: "middle", code: "200", section: "middle-ring", status: "fully_paid", paid: 2_000, outstanding: 0, expected: "Full Payment" },
+    { id: "full-five", code: "200", section: "middle-ring", status: "fully_paid", paid: 5_000, outstanding: 0, pax: 5, expected: "Full Payment for Show & Meal + Gratuity" },
+    { id: "full-six", code: "201", section: "middle-ring", status: "fully_paid", paid: 6_000, outstanding: 0, pax: 6, expected: "Full Payment" },
+    { id: "full-seven", code: "202", section: "middle-ring", status: "fully_paid", paid: 7_000, outstanding: 0, pax: 7, expected: "Full Payment for Show & Meal" },
     { id: "golden", code: "400", section: "golden-circle", status: "comp_vip", paid: 0, outstanding: 0, expected: "Complimentary" },
+    { id: "zero", code: "401", section: "golden-circle", status: "pending_payment", paid: 0, outstanding: 0, total: 0, expected: "Unpaid" },
     { id: "balcony", code: "800", section: "royal-balcony", status: "pending_payment", paid: 0, outstanding: 2_000, expected: "Unpaid" },
   ];
   const bookings = fixtures.map((fixture) => booking(
     fixture.id,
     `REF-${fixture.id.toUpperCase()}`,
-    2,
+    fixture.pax ?? 2,
     `table-${fixture.id}`,
     {
       amount_paid: fixture.paid,
@@ -356,7 +359,7 @@ test("Table Plan applies Jacques's approved operational columns to every seating
       notes: `Operational note for ${fixture.id}`,
       payment_status: fixture.status,
       section: fixture.section,
-      total_amount: 2_000,
+      total_amount: fixture.total ?? fixture.paid + fixture.outstanding,
     },
   ));
   const customers = fixtures.map((fixture) => ({
@@ -367,7 +370,7 @@ test("Table Plan applies Jacques's approved operational columns to every seating
     `table-${fixture.id}`,
     fixture.code,
     fixture.id,
-    { section: fixture.section },
+    { capacity: Math.max(fixture.pax ?? 2, 6), section: fixture.section },
   ));
   const buffer = await buildTablePlanWorkbook({
     bookings,
@@ -397,7 +400,12 @@ test("Table Plan applies Jacques's approved operational columns to every seating
     const row = Array.from({ length: sheet.rowCount }, (_, index) => sheet.getRow(index + 1))
       .find((candidate) => candidate.getCell(7).value === `REF-${fixture.id.toUpperCase()}`);
     assert.ok(row, fixture.id);
-    assert.equal(row.getCell(8).value, `Operational note for ${fixture.id}`);
+    assert.equal(
+      row.getCell(8).value,
+      fixture.status === "comp_vip"
+        ? "Dinner show comps, drinks and gratuity to be paid by client"
+        : `Operational note for ${fixture.id}`,
+    );
     assert.equal(row.getCell(9).value, fixture.expected);
     assert.doesNotMatch(String(row.getCell(9).value), /R\d|REF-|@|note/i);
     assert.match(String(row.getCell(10).value), /^Paid R/);
