@@ -647,10 +647,7 @@ function resolveTablePlanPaymentType(booking: TablePlanBooking) {
     if (booking.guest_count < 6) {
       return "Full Payment for Show & Meal + Gratuity";
     }
-    if (booking.guest_count > 6) {
-      return "Full Payment for Show & Meal";
-    }
-    return "Full Payment";
+    return "Full Payment for Show & Meal";
   }
   if (
     paymentStatus === "deposit_paid" ||

@@ -341,7 +341,7 @@ test("Table Plan applies Jacques's approved operational columns to every seating
   const fixtures = [
     { id: "booth", code: "1", section: "private-booths", status: "deposit_paid", paid: 550, outstanding: 1_430, expected: "Deposit" },
     { id: "full-five", code: "200", section: "middle-ring", status: "fully_paid", paid: 5_000, outstanding: 0, pax: 5, expected: "Full Payment for Show & Meal + Gratuity" },
-    { id: "full-six", code: "201", section: "middle-ring", status: "fully_paid", paid: 6_000, outstanding: 0, pax: 6, expected: "Full Payment" },
+    { id: "full-six", code: "201", section: "middle-ring", status: "fully_paid", paid: 6_000, outstanding: 0, pax: 6, expected: "Full Payment for Show & Meal" },
     { id: "full-seven", code: "202", section: "middle-ring", status: "fully_paid", paid: 7_000, outstanding: 0, pax: 7, expected: "Full Payment for Show & Meal" },
     { id: "golden", code: "400", section: "golden-circle", status: "comp_vip", paid: 0, outstanding: 0, expected: "Complimentary" },
     { id: "zero", code: "401", section: "golden-circle", status: "pending_payment", paid: 0, outstanding: 0, total: 0, expected: "Unpaid" },
