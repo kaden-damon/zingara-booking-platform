@@ -20,9 +20,9 @@ test("authoritative venue experience schedules use the approved times", () => {
     showStarts: "19:30",
   });
   assert.deepEqual(getCustomerExperienceTimes(defaultVenueSettings, "cape-town"), {
-    groundsOpen: "17:30",
-    guestSeating: "19:00",
-    showStarts: "20:00",
+    groundsOpen: "17:00",
+    guestSeating: "18:30",
+    showStarts: "19:30",
   });
 });
 
@@ -35,8 +35,8 @@ test("experience schedule validation requires strict chronological ordering", ()
 test("experience times remain independent of operational show time", () => {
   assert.equal(getStandardShowTime("johannesburg"), "17:00");
   assert.equal(getStandardShowTime("cape-town"), "18:00");
-  assert.equal(getCustomerExperienceTimes(defaultVenueSettings, "cape-town")?.groundsOpen, "17:30");
-  assert.equal(getCustomerExperienceTimes(defaultVenueSettings, "cape-town")?.showStarts, "20:00");
+  assert.equal(getCustomerExperienceTimes(defaultVenueSettings, "cape-town")?.groundsOpen, "17:00");
+  assert.equal(getCustomerExperienceTimes(defaultVenueSettings, "cape-town")?.showStarts, "19:30");
 });
 
 test("saved venue configuration overrides each customer time without changing defaults", () => {

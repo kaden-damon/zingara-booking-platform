@@ -5484,7 +5484,7 @@ const settingsLessons: AcademyArticle[] = [
     tips: [
       "Venue configuration affects more than one workflow.",
       "Review guest-facing areas after changing branding or venue details.",
-      "Experience Times update customer touchpoints without changing operational show.time. Cape Town can remain operationally anchored at 18:00 while Grounds Open is 17:30.",
+      "Experience Times update customer touchpoints without changing the operational show time.",
       "A Secret Password is venue-scoped guest-experience content. Changing it does not alter bookings, payments, capacity, tickets, or entry validation.",
     ],
     title: "Venue Configuration",

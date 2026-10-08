@@ -208,9 +208,9 @@ export const defaultVenueSettings: DemoVenueSettings = {
     },
     customerExperienceTimes: {
       "cape-town": {
-        groundsOpen: "17:30",
-        guestSeating: "19:00",
-        showStarts: "20:00",
+        groundsOpen: "17:00",
+        guestSeating: "18:30",
+        showStarts: "19:30",
       },
       johannesburg: {
         groundsOpen: "17:00",
