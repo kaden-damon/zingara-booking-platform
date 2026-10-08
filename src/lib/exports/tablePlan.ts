@@ -644,7 +644,9 @@ function resolveTablePlanPaymentType(booking: TablePlanBooking) {
 
   if (paymentStatus === "comp_vip") return "Complimentary";
   if (paymentStatus === "fully_paid" || (amountPaid > 0 && outstanding <= 0)) {
-    return "Full Payment for Show & Meal + Gratuity";
+    return booking.guest_count >= 6
+      ? "Full Payment for Show & Meal + Gratuity"
+      : "Full Payment for Show & Meal";
   }
   if (
     paymentStatus === "deposit_paid" ||
