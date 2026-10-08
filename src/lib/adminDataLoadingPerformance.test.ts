@@ -57,18 +57,46 @@ test("calendar never presents partial occupancy or financial summaries as author
 
 test("selected-show operations load only that show's bookings", async () => {
   const page = await pageSource();
+  const refreshStart = page.indexOf("async function refreshSelectedShowTables");
   const selectedShowEffect = page.slice(
-    page.indexOf("async function refreshSelectedShowTables"),
-    page.indexOf("async function refreshSelectedShowTables") + 5000,
+    refreshStart - 1000,
+    refreshStart + 5000,
   );
 
   assert.doesNotMatch(page, /async function refreshCalendarTables/);
+  assert.match(
+    page,
+    /const authoritativeSelectedShowId = useMemo\([\s\S]{0,260}getOperationalShowIdentityValues\(show\)\.includes\(selectedShowId\)/,
+  );
+  assert.match(
+    page,
+    /return selectedShow\?\.supabaseId \?\? selectedShowId/,
+  );
   assert.match(selectedShowEffect, /tableShow: selectedShowId/);
   assert.match(
     selectedShowEffect,
-    /getBookings\(\{ showId: selectedShowId, throwOnError: true \}\)/,
+    /getBookings\(\{[\s\S]{0,100}showId: authoritativeSelectedShowId,[\s\S]{0,100}throwOnError: true/,
   );
   assert.doesNotMatch(selectedShowEffect, /getBookings\(\)/);
+});
+
+test("Floor hides counts until authoritative selected-show data loads and exposes retry on failure", async () => {
+  const page = await pageSource();
+
+  assert.match(
+    page,
+    /selectedShowFloorLoadState\.showId === selectedShowId[\s\S]{0,160}selectedShowFloorLoadState\.status === "loaded"/,
+  );
+  assert.match(page, /Floor details couldn't be loaded\. Try again\./);
+  assert.match(page, /role=\{selectedShowFloorDataError \? "alert" : "status"\}/);
+  assert.match(
+    page,
+    /setSelectedShowFloorLoadState\(\{[\s\S]{0,180}status: "loading"[\s\S]{0,180}setSelectedShowFloorLoadRevision\(\(revision\) => revision \+ 1\)/,
+  );
+  assert.match(
+    page,
+    /selectedShowFloorDataReady && floorManagementZones/,
+  );
 });
 
 test("Booking Details paints authoritative core data before secondary table inventory", async () => {

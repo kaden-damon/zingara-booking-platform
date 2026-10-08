@@ -580,6 +580,11 @@ type LoginForm = {
   username: string;
 };
 type CustomerDataLoadStatus = "idle" | "loading" | "loaded" | "error";
+type SelectedShowFloorLoadState = {
+  error: string;
+  showId: string;
+  status: "idle" | "loading" | "loaded" | "error";
+};
 type TicketValidationResult = {
   booking?: DemoBooking;
   guestTicket?: GuestTicket;
@@ -11024,6 +11029,14 @@ export default function AdminDashboardPage() {
   const [showSearch, setShowSearch] = useState("");
   const [openShowFinancialPopupId, setOpenShowFinancialPopupId] = useState("");
   const [selectedShowId, setSelectedShowId] = useState("");
+  const [selectedShowFloorLoadState, setSelectedShowFloorLoadState] =
+    useState<SelectedShowFloorLoadState>({
+      error: "",
+      showId: "",
+      status: "idle",
+    });
+  const [selectedShowFloorLoadRevision, setSelectedShowFloorLoadRevision] =
+    useState(0);
   const [checkInSelectedShowId, setCheckInSelectedShowId] = useState("");
   const [workflowShowId, setWorkflowShowId] = useState(
     defaultShows[0]?.id ?? "",
@@ -13796,6 +13809,14 @@ export default function AdminDashboardPage() {
     void refreshDataPortabilityHistory();
   }, [canViewDataPortability, hasHydrated]);
 
+  const authoritativeSelectedShowId = useMemo(() => {
+    const selectedShow = shows.find((show) =>
+      getOperationalShowIdentityValues(show).includes(selectedShowId),
+    );
+
+    return selectedShow?.supabaseId ?? selectedShowId;
+  }, [selectedShowId, shows]);
+
   useEffect(() => {
     if (
       !hasHydrated ||
@@ -13822,7 +13843,10 @@ export default function AdminDashboardPage() {
       try {
         const [nextShowPayload, nextShowBookings] = await Promise.all([
           getShowsWithTables({ tableShow: selectedShowId }),
-          getBookings({ showId: selectedShowId, throwOnError: true }),
+          getBookings({
+            showId: authoritativeSelectedShowId,
+            throwOnError: true,
+          }),
         ]);
 
         if (
@@ -13833,7 +13857,7 @@ export default function AdminDashboardPage() {
         }
 
         if (!nextShowPayload.tablesLoaded) {
-          return;
+          throw new Error("Floor table inventory could not be loaded.");
         }
 
         const selectedShowTables = applyBookingOccupancyToTables(
@@ -13847,7 +13871,24 @@ export default function AdminDashboardPage() {
             selectedShowId,
           ]),
         );
+        setSelectedShowFloorLoadState({
+          error: "",
+          showId: selectedShowId,
+          status: "loaded",
+        });
       } catch (error) {
+        if (
+          isCancelled ||
+          tableLoadRequestId !== selectedShowTableLoadRequestRef.current
+        ) {
+          return;
+        }
+
+        setSelectedShowFloorLoadState({
+          error: "Floor details couldn't be loaded. Try again.",
+          showId: selectedShowId,
+          status: "error",
+        });
         console.error(
           "[Zingara admin] Failed to refresh selected show tables",
           error,
@@ -13863,9 +13904,11 @@ export default function AdminDashboardPage() {
   }, [
     activeAdminTab,
     activeOperationsTab,
+    authoritativeSelectedShowId,
     currentStaff,
     hasHydrated,
     selectedShowId,
+    selectedShowFloorLoadRevision,
   ]);
 
   const canViewOperationsWorkspace = Boolean(
@@ -14063,6 +14106,14 @@ export default function AdminDashboardPage() {
     return normalizeShowLocation(show?.location ?? show?.venueName);
   };
   const selectedShow = getShowByIdentity(selectedShowId);
+  const selectedShowFloorDataReady =
+    selectedShowFloorLoadState.showId === selectedShowId &&
+    selectedShowFloorLoadState.status === "loaded";
+  const selectedShowFloorDataError =
+    selectedShowFloorLoadState.showId === selectedShowId &&
+    selectedShowFloorLoadState.status === "error"
+      ? selectedShowFloorLoadState.error
+      : "";
   const selectedDashboardBookings = getOperationalShowBookings(
     bookings,
     selectedShow,
@@ -42151,10 +42202,42 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
-                  Floor Operations
+            {!selectedShowFloorDataReady ? (
+              <div
+                aria-live="polite"
+                className={`rounded-2xl border p-5 text-sm ${
+                  selectedShowFloorDataError
+                    ? "border-red-400/30 bg-red-950/20 text-red-100"
+                    : "border-white/10 bg-black/35 text-zinc-300"
+                }`}
+                role={selectedShowFloorDataError ? "alert" : "status"}
+              >
+                <p>
+                  {selectedShowFloorDataError || "Loading floor details..."}
+                </p>
+                {selectedShowFloorDataError && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedShowFloorLoadState({
+                        error: "",
+                        showId: selectedShowId,
+                        status: "loading",
+                      });
+                      setSelectedShowFloorLoadRevision((revision) => revision + 1);
+                    }}
+                    className="mt-4 rounded-full bg-[#D8C36A] px-4 py-2 font-semibold text-black transition hover:bg-[#F2D66C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2D66C] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                  >
+                    Try again
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
+                      Floor Operations
                 </p>
                 <h2 className="mt-2 text-3xl font-bold">
                   Floor layout
@@ -42323,9 +42406,12 @@ export default function AdminDashboardPage() {
                 })}
               </div>
             </div>
+              </>
+            )}
           </section>
 
-          <section className="mb-8 rounded-[2rem] border border-amber-300/25 bg-amber-950/10 p-5 shadow-xl shadow-black/20">
+          {selectedShowFloorDataReady && (
+            <section className="mb-8 rounded-[2rem] border border-amber-300/25 bg-amber-950/10 p-5 shadow-xl shadow-black/20">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
@@ -42702,9 +42788,10 @@ export default function AdminDashboardPage() {
                 })}
               </div>
             )}
-          </section>
+            </section>
+          )}
 
-          {selectedShowLegacyAssignments.length > 0 && (
+          {selectedShowFloorDataReady && selectedShowLegacyAssignments.length > 0 && (
             <section className="mb-8 rounded-[2rem] border border-amber-300/25 bg-amber-950/10 p-5 shadow-xl shadow-black/20">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
@@ -42815,7 +42902,7 @@ export default function AdminDashboardPage() {
             </section>
           )}
 
-          {floorManagementZones
+          {selectedShowFloorDataReady && floorManagementZones
             .filter(
               (zone) =>
                 floorZoneFilter === "all" ||
