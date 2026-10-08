@@ -6,6 +6,13 @@ import { encodePayFastValue } from "./signature";
 
 export type PayFastItnData = Record<string, string>;
 
+export class PayFastTransientValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PayFastTransientValidationError";
+  }
+}
+
 export const payFastValidHosts = [
   "www.payfast.co.za",
   "sandbox.payfast.co.za",
@@ -43,10 +50,15 @@ export async function verifyPayFastSourceIp(ipAddress?: string) {
   }
 
   const normalizedIp = ipAddress.replace(/^::ffff:/, "");
+  let resolvedHostCount = 0;
   const addresses = await Promise.all(
     payFastValidHosts.map(async (host) => {
       try {
         const records = await lookup(host, { all: true });
+
+        if (records.length > 0) {
+          resolvedHostCount += 1;
+        }
 
         return records.map((record) => record.address);
       } catch (error) {
@@ -58,6 +70,13 @@ export async function verifyPayFastSourceIp(ipAddress?: string) {
       }
     }),
   );
+
+  if (resolvedHostCount === 0) {
+    throw new PayFastTransientValidationError(
+      "PayFast source validation is temporarily unavailable",
+    );
+  }
+
   const validIps = new Set(addresses.flat());
 
   return validIps.has(normalizedIp);
@@ -74,7 +93,20 @@ export async function verifyPayFastServerConfirmation(
     },
     method: "POST",
   });
+
+  if (!response.ok) {
+    throw new PayFastTransientValidationError(
+      `PayFast validation returned HTTP ${response.status}`,
+    );
+  }
+
   const result = (await response.text()).trim();
+
+  if (result !== "VALID" && result !== "INVALID") {
+    throw new PayFastTransientValidationError(
+      "PayFast validation returned an unknown response",
+    );
+  }
 
   return result === "VALID";
 }

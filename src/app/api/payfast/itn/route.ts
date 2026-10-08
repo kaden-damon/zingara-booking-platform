@@ -24,11 +24,13 @@ import { getPayFastConfig } from "@/lib/payfast/config";
 import {
   createPayFastItnParamString,
   getPayFastRequestIp,
+  PayFastTransientValidationError,
   verifyPayFastItnSignature,
   verifyPayFastServerConfirmation,
   verifyPayFastSourceIp,
   type PayFastItnData,
 } from "@/lib/payfast/itn";
+import { createHash } from "node:crypto";
 import { recordPlatformEventBestEffort } from "@/lib/platformTelemetry";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import {
@@ -115,6 +117,11 @@ type CommunicationClaimResult = {
   status: "claimed" | "failed" | "sending" | "sent";
 };
 
+type PayFastReceiptRow = {
+  id: string;
+  processing_status: string;
+};
+
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
 
 function parseBookingMetadata(notes: string | null) {
@@ -147,6 +154,84 @@ function getBookingReference(data: PayFastItnData) {
 
 function getPaymentAmount(data: PayFastItnData) {
   return Number.parseFloat(data.amount_gross || data.amount_net || "0");
+}
+
+function getOptionalAmount(value: string | undefined) {
+  const amount = value === undefined ? Number.NaN : Number.parseFloat(value);
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function getReceiptEvidence(data: PayFastItnData) {
+  return {
+    customString1: data.custom_str1 ?? null,
+    customString2: data.custom_str2 ?? null,
+    itemDescription: data.item_description ?? null,
+    itemName: data.item_name ?? null,
+  };
+}
+
+async function recordItnReceipt(
+  supabase: SupabaseClient,
+  rawBody: string,
+  data: PayFastItnData,
+  requestIp: string | undefined,
+) {
+  const receiptHash = createHash("sha256").update(rawBody).digest("hex");
+  const { data: receipt, error } = await supabase.rpc(
+    "record_payfast_itn_receipt",
+    {
+      p_amount_fee: getOptionalAmount(data.amount_fee),
+      p_amount_gross: getOptionalAmount(data.amount_gross),
+      p_amount_net: getOptionalAmount(data.amount_net),
+      p_evidence: getReceiptEvidence(data),
+      p_merchant_id: data.merchant_id ?? null,
+      p_merchant_payment_id: getBookingReference(data) ?? null,
+      p_payment_status: data.payment_status ?? null,
+      p_provider_transaction_id: data.pf_payment_id ?? null,
+      p_receipt_hash: receiptHash,
+      p_request_ip: requestIp ?? null,
+      p_signature: data.signature ?? null,
+    },
+  );
+
+  if (error || !receipt) {
+    throw error ?? new Error("PayFast ITN receipt could not be persisted");
+  }
+
+  return receipt as PayFastReceiptRow;
+}
+
+async function markItnReceipt(
+  supabase: SupabaseClient,
+  receiptId: string,
+  input: {
+    amountValid?: boolean | null;
+    failureCode?: string | null;
+    failureDetail?: string | null;
+    merchantValid?: boolean | null;
+    paymentId?: string | null;
+    processingStatus: PayFastReceiptRow["processing_status"];
+    serverValidationValid?: boolean | null;
+    signatureValid?: boolean | null;
+    sourceValid?: boolean | null;
+  },
+) {
+  const { error } = await supabase.rpc("mark_payfast_itn_receipt", {
+    p_amount_valid: input.amountValid ?? null,
+    p_failure_code: input.failureCode ?? null,
+    p_failure_detail: input.failureDetail ?? null,
+    p_merchant_valid: input.merchantValid ?? null,
+    p_payment_id: input.paymentId ?? null,
+    p_processing_status: input.processingStatus,
+    p_receipt_id: receiptId,
+    p_server_validation_valid: input.serverValidationValid ?? null,
+    p_signature_valid: input.signatureValid ?? null,
+    p_source_valid: input.sourceValid ?? null,
+  });
+
+  if (error) {
+    throw error;
+  }
 }
 
 function toStoredTransactionAmounts(payment: PaymentAmountRow) {
@@ -855,6 +940,7 @@ async function confirmPayment(
 
     return {
       bookingReference: booking.reference,
+      paymentId: coreResult.payment_id,
       status: coreResult.status,
       ticketCode,
       wasConfirmed: Boolean(coreResult.was_confirmed),
@@ -899,6 +985,7 @@ async function confirmPayment(
 
     return {
       bookingReference: booking.reference,
+      paymentId: coreResult.payment_id,
       restorationStatus,
       status: coreResult.status,
       ticketCode,
@@ -963,6 +1050,7 @@ async function confirmPayment(
 
   return {
     bookingReference: authoritativeBooking.reference,
+    paymentId: coreResult.payment_id,
     restorationStatus,
     status: coreResult.status,
     ticketCode,
@@ -972,6 +1060,8 @@ async function confirmPayment(
 
 export async function POST(request: Request) {
   const startedAt = Date.now();
+  let receiptId: string | null = null;
+  let supabase: SupabaseClient | null = null;
 
   try {
     const rawBody = await request.text();
@@ -979,15 +1069,31 @@ export async function POST(request: Request) {
     const data = toItnData(entries);
     const bookingReference = getBookingReference(data);
     const config = getPayFastConfig();
-    const supabase = getServiceClient();
+    const requestIp = getPayFastRequestIp(request);
+    supabase = getServiceClient();
 
     if (!supabase) {
       console.error("[Zingara PayFast] ITN blocked: Supabase service client missing");
-      return Response.json({ ok: false }, { status: 200 });
+      return Response.json({ ok: false }, { status: 503 });
     }
+
+    const receipt = await recordItnReceipt(supabase, rawBody, data, requestIp);
+    receiptId = receipt.id;
+
+    if (receipt.processing_status === "processed") {
+      return Response.json({ duplicate: true, ok: true }, { status: 200 });
+    }
+
+    await markItnReceipt(supabase, receiptId, {
+      processingStatus: "processing",
+    });
 
     if (!bookingReference) {
       console.error("[Zingara PayFast] ITN blocked: booking reference missing");
+      await markItnReceipt(supabase, receiptId, {
+        failureCode: "booking_reference_missing",
+        processingStatus: "rejected",
+      });
       return Response.json({ ok: false }, { status: 200 });
     }
 
@@ -997,6 +1103,10 @@ export async function POST(request: Request) {
       console.error("[Zingara PayFast] ITN blocked: booking not found", {
         bookingReference,
       });
+      await markItnReceipt(supabase, receiptId, {
+        failureCode: "booking_not_found",
+        processingStatus: "rejected",
+      });
       return Response.json({ ok: false }, { status: 200 });
     }
 
@@ -1004,6 +1114,10 @@ export async function POST(request: Request) {
 
     if (!booking) {
       await recordFailedItn(supabase, bookingRow.id, "booking metadata missing");
+      await markItnReceipt(supabase, receiptId, {
+        failureCode: "booking_metadata_missing",
+        processingStatus: "rejected",
+      });
       return Response.json({ ok: false }, { status: 200 });
     }
 
@@ -1013,9 +1127,37 @@ export async function POST(request: Request) {
       pfParamString,
       config.passphrase || undefined,
     );
-    const sourceIpValid = await verifyPayFastSourceIp(
-      getPayFastRequestIp(request),
-    );
+    const merchantValid = data.merchant_id === config.merchantId;
+
+    if (!signatureValid || !merchantValid) {
+      await recordFailedItn(
+        supabase,
+        bookingRow.id,
+        !signatureValid ? "signature invalid" : "merchant invalid",
+      );
+      await markItnReceipt(supabase, receiptId, {
+        failureCode: !signatureValid ? "invalid_signature" : "invalid_merchant",
+        merchantValid,
+        processingStatus: "rejected",
+        signatureValid,
+      });
+      return Response.json({ ok: false }, { status: 200 });
+    }
+
+    const sourceIpValid = await verifyPayFastSourceIp(requestIp);
+
+    if (!sourceIpValid) {
+      await recordFailedItn(supabase, bookingRow.id, "source invalid");
+      await markItnReceipt(supabase, receiptId, {
+        failureCode: "invalid_source",
+        merchantValid,
+        processingStatus: "rejected",
+        signatureValid,
+        sourceValid: false,
+      });
+      return Response.json({ ok: false }, { status: 200 });
+    }
+
     const expectedTransaction = await getExpectedPayFastAmounts(
       supabase,
       data,
@@ -1033,6 +1175,7 @@ export async function POST(request: Request) {
       paymentAmount,
       paymentAmountValid,
       paymentStatus: data.payment_status ?? null,
+      merchantValid,
       serverValidationValid,
       signatureValid,
       sourceIpValid,
@@ -1047,6 +1190,7 @@ export async function POST(request: Request) {
     if (
       !signatureValid ||
       !sourceIpValid ||
+      !merchantValid ||
       !paymentAmountValid ||
       !serverValidationValid
     ) {
@@ -1055,6 +1199,17 @@ export async function POST(request: Request) {
         bookingRow.id,
         JSON.stringify(validation),
       );
+      await markItnReceipt(supabase, receiptId, {
+        amountValid: paymentAmountValid,
+        failureCode: !paymentAmountValid
+          ? "amount_mismatch"
+          : "provider_validation_rejected",
+        merchantValid,
+        processingStatus: "rejected",
+        serverValidationValid,
+        signatureValid,
+        sourceValid: sourceIpValid,
+      });
       return Response.json({ ok: false, validation }, { status: 200 });
     }
 
@@ -1069,6 +1224,15 @@ export async function POST(request: Request) {
         bookingReference,
         data.payment_status,
       );
+      await markItnReceipt(supabase, receiptId, {
+        amountValid: paymentAmountValid,
+        failureCode: `payment_status_${data.payment_status ?? "unknown"}`,
+        merchantValid,
+        processingStatus: "rejected",
+        serverValidationValid,
+        signatureValid,
+        sourceValid: sourceIpValid,
+      });
       return Response.json({ ok: false, validation }, { status: 200 });
     }
 
@@ -1090,8 +1254,32 @@ export async function POST(request: Request) {
         `PayFast core confirmation ${result.status}`,
       );
 
-      return Response.json({ ok: false, result, validation }, { status: 200 });
+      await markItnReceipt(supabase, receiptId, {
+        amountValid: paymentAmountValid,
+        failureCode: `core_${result.status}`,
+        merchantValid,
+        processingStatus:
+          result.status === "missing" ? "retryable_failure" : "rejected",
+        serverValidationValid,
+        signatureValid,
+        sourceValid: sourceIpValid,
+      });
+
+      return Response.json(
+        { ok: false, result, validation },
+        { status: result.status === "missing" ? 503 : 200 },
+      );
     }
+
+    await markItnReceipt(supabase, receiptId, {
+      amountValid: paymentAmountValid,
+      merchantValid,
+      paymentId: result.paymentId ?? null,
+      processingStatus: "processed",
+      serverValidationValid,
+      signatureValid,
+      sourceValid: sourceIpValid,
+    });
 
     const journeyId =
       typeof (booking as unknown as { journeyId?: unknown }).journeyId === "string"
@@ -1143,6 +1331,25 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[Zingara PayFast] ITN processing failed", error);
 
-    return Response.json({ ok: false }, { status: 200 });
+    if (supabase && receiptId) {
+      try {
+        await markItnReceipt(supabase, receiptId, {
+          failureCode:
+            error instanceof PayFastTransientValidationError
+              ? "provider_validation_unavailable"
+              : "processing_failed",
+          failureDetail:
+            error instanceof Error ? error.message : "Unknown processing failure",
+          processingStatus: "retryable_failure",
+        });
+      } catch (receiptError) {
+        console.error(
+          "[Zingara PayFast] Failed to update durable ITN receipt",
+          receiptError,
+        );
+      }
+    }
+
+    return Response.json({ ok: false }, { status: 503 });
   }
 }

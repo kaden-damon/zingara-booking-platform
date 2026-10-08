@@ -32,6 +32,7 @@ export type StaffPushTrigger =
   | "new-booking"
   | "new-corporate-request"
   | "operational-broadcast-sent"
+  | "payment-review"
   | "payment-received"
   | "waitlist-promotion";
 
@@ -130,6 +131,7 @@ const rolesByTrigger: Record<StaffPushTrigger, AdminRole[]> = {
     "box-office-staff",
   ],
   "operational-broadcast-sent": ["super-admin", "venue-manager"],
+  "payment-review": ["super-admin", "venue-manager"],
   "payment-received": ["super-admin", "venue-manager", "box-office-staff"],
   "waitlist-promotion": [
     "super-admin",
@@ -175,6 +177,12 @@ function getDefaultMessage(input: StaffPushInput) {
     return `Payment received: ${input.bookingReference ?? "Booking"}`;
   }
 
+  if (input.trigger === "payment-review") {
+    return input.bookingReference
+      ? `Payment needs review: ${input.bookingReference}`
+      : "Payment needs review.";
+  }
+
   return "Operational broadcast sent";
 }
 
@@ -207,6 +215,10 @@ function getDefaultTitle(input: StaffPushInput) {
     return "Payment Received";
   }
 
+  if (input.trigger === "payment-review") {
+    return "Payment Needs Review";
+  }
+
   return "Operational Broadcast";
 }
 
@@ -215,6 +227,7 @@ function getStaffNotificationUrl(input: StaffPushInput) {
     input.trigger === "new-booking" ||
     input.trigger === "booking-cancelled" ||
     input.trigger === "guest-checked-in" ||
+    input.trigger === "payment-review" ||
     input.trigger === "payment-received"
   ) {
     return input.bookingReference
