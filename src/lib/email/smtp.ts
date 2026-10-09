@@ -17,14 +17,20 @@ const APPLICATION_EMAIL_SENDER = {
 } as const;
 
 const REVIEW_EMAIL_SENDER = {
-  address: "noreply@zingara.co.za",
   name: "Zingara",
 } as const;
 
 export type ZingaraEmailSender = "application" | "review";
 
 export function getZingaraEmailSender(sender: ZingaraEmailSender = "application") {
-  return sender === "review" ? REVIEW_EMAIL_SENDER : APPLICATION_EMAIL_SENDER;
+  return sender === "review"
+    ? {
+        ...REVIEW_EMAIL_SENDER,
+        address:
+          process.env.EMAIL_FROM_ADDRESS?.trim() ||
+          APPLICATION_EMAIL_SENDER.address,
+      }
+    : APPLICATION_EMAIL_SENDER;
 }
 
 export type { EmailAttachment } from "@/lib/email/customerEmail";

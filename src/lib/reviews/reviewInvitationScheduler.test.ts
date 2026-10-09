@@ -33,6 +33,8 @@ test("review sends claim a booking before contacting the email provider", async 
   const claim = workflow.indexOf("claimOneTimeEmailCommunication");
   const send = workflow.indexOf("sendOperationalCustomerEmail", claim);
   assert.ok(claim > 0 && send > claim);
+  assert.match(workflow, /workflowDeliveryConcurrency = 3/);
+  assert.match(workflow, /runWithConcurrency/);
   assert.match(migration, /communications_post_show_review_once_uidx/);
   assert.match(migration, /status in \('sending', 'sent', 'suppressed'\)/);
   assert.match(migration, /type = 'post_show_review'/);

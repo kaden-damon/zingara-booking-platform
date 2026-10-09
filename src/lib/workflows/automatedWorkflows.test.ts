@@ -148,7 +148,7 @@ test("saved review workflow content renders identically for automated and manual
   assert.doesNotMatch(manual.message, /\{\{\w+\}\}/);
   assert.match(automated.html, /data-zingara-customer-email="true"/);
   assert.match(manual.html, /data-zingara-customer-email="true"/);
-  assert.deepEqual(automated.from, { address: "noreply@zingara.co.za", name: "Zingara" });
+  assert.deepEqual(automated.from, { address: "bookings@zingara.co.za", name: "Zingara" });
   assert.deepEqual(manual.from, automated.from);
 });
 

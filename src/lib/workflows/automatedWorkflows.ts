@@ -137,6 +137,28 @@ type EligibleWorkflowBooking = {
 export const workflowTimezone = "Africa/Johannesburg" as const;
 export const controlledWorkflowRecipient = "kaden@kaden.co.za";
 export const workflowDatasetPageSize = 1000;
+export const workflowDeliveryConcurrency = 3;
+
+async function runWithConcurrency<T>(
+  values: T[],
+  concurrency: number,
+  worker: (value: T) => Promise<void>,
+) {
+  let nextIndex = 0;
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(concurrency, values.length) },
+      async () => {
+        while (nextIndex < values.length) {
+          const value = values[nextIndex];
+          nextIndex += 1;
+          await worker(value);
+        }
+      },
+    ),
+  );
+}
 
 export async function collectWorkflowRows<T>(
   fetchPage: (
@@ -855,8 +877,11 @@ export async function runAutomatedWorkflows(
       );
     }
 
-    for (const item of eligibleItems) {
-      let deliveryItem = item;
+    await runWithConcurrency(
+      eligibleItems,
+      workflowDeliveryConcurrency,
+      async (item) => {
+        let deliveryItem = item;
 
       const duplicate = await findDuplicateSentCommunication(supabase, {
         booking_id: item.booking.id,
@@ -874,14 +899,14 @@ export async function runAutomatedWorkflows(
         results[item.workflowKey].alreadySent += 1;
         results[item.workflowKey].deduplicated += 1;
         results[item.workflowKey].skipped += 1;
-        continue;
+        return;
       }
 
       const customerId = item.booking.customer_id;
       if (!customerId) {
         await insertWorkflowCommunication(supabase, item, "failed");
         results[item.workflowKey].failed += 1;
-        continue;
+        return;
       }
 
       const reviewClaim = item.workflowKey === "post_show_review"
@@ -899,7 +924,7 @@ export async function runAutomatedWorkflows(
       if (item.workflowKey === "post_show_review" && !reviewClaim) {
         results[item.workflowKey].deduplicated += 1;
         results[item.workflowKey].skipped += 1;
-        continue;
+        return;
       }
 
       results[item.workflowKey].attempted += 1;
@@ -936,7 +961,7 @@ export async function runAutomatedWorkflows(
             subject: item.subject,
           });
           results[item.workflowKey].failed += 1;
-          continue;
+          return;
         }
       }
 
@@ -981,7 +1006,8 @@ export async function runAutomatedWorkflows(
       } else {
         results[item.workflowKey].failed += 1;
       }
-    }
+      },
+    );
   }
 
   return {

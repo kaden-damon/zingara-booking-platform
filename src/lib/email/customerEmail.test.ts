@@ -113,10 +113,10 @@ test("automatic reminders and reviews use the customer email boundary", async ()
   assert.match(workflows, /message: item\.message/);
 });
 
-test("review emails use noreply while unrelated email keeps the application sender", async () => {
+test("review emails use the configured authorised sender while unrelated email keeps the application sender", async () => {
   const smtp = await source("./smtp.ts");
 
-  assert.match(smtp, /address: "noreply@zingara\.co\.za"/);
+  assert.match(smtp, /process\.env\.EMAIL_FROM_ADDRESS/);
   assert.match(smtp, /kind === "post_show_review" \? "review"/);
   assert.match(smtp, /address: "bookings@zingara\.co\.za"/);
   assert.match(smtp, /sender: ZingaraEmailSender = "application"/);
