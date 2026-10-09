@@ -115,11 +115,11 @@ export async function GET(request: Request) {
   let query = supabase
     .from("guest_reviews")
     .select(
-      "public_id,public_display_name,rating,review_text,venue,published_at,publication_consent,publication_consent_mode,publication_mode,moderation_status,verified_guest,featured",
+      "public_id,public_display_name,rating,review_text,venue,published_at,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,verified_guest,featured",
       { count: "exact" },
     )
     .eq("moderation_status", "published")
-    .or("and(publication_consent_mode.eq.public,publication_mode.eq.named),and(publication_consent_mode.eq.anonymous,publication_mode.eq.anonymous)")
+    .or("and(publication_consent_mode.eq.public,publication_mode.eq.named,review_publication_policy_version.is.null),and(publication_consent_mode.eq.public,publication_mode.eq.named,review_privacy_requested.eq.false,review_publication_policy_version.eq.review-publication-2026-10-09-v1),and(publication_consent_mode.eq.anonymous,publication_mode.eq.anonymous),and(publication_consent_mode.eq.public,publication_mode.eq.anonymous,review_privacy_requested.eq.false,review_publication_policy_version.eq.review-publication-2026-10-09-v1)")
     .order("published_at", { ascending: false })
     .order("public_id", { ascending: false })
     .range(from, from + parsed.value.limit - 1);
@@ -151,6 +151,8 @@ export async function GET(request: Request) {
     publicationConsent: row.publication_consent,
     publicationConsentMode: row.publication_consent_mode,
     publicationMode: row.publication_mode,
+    publicationPolicyVersion: row.review_publication_policy_version,
+    privacyRequested: row.review_privacy_requested,
     publishedAt: row.published_at,
     rating: row.rating,
     reviewText: row.review_text,

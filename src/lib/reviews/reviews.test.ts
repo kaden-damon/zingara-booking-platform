@@ -429,7 +429,9 @@ test("review pages preserve explicit consent, contact choice and mobile layout",
     readFile(`${root}/src/app/review/[token]/ReviewSubmissionClient.tsx`, "utf8"),
     readFile(`${root}/src/lib/reviews/reviewServer.ts`, "utf8"),
   ]);
-  assert.match(source, /publicationConsent/);
+  assert.match(source, /privacyRequested/);
+  assert.match(source, /role="switch"/);
+  assert.match(source, /aria-checked=\{privacyRequested\}/);
   assert.match(source, /contactRequested/);
   assert.match(source, /aria-label="Star rating"/);
   assert.equal((source.match(/data-review-star="standalone"/g) ?? []).length, 1);

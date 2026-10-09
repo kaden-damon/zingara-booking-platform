@@ -58,6 +58,7 @@ export async function POST(request: Request, context: RouteContext) {
       contactRequested: body.contactRequested,
       publicationConsent: body.publicationConsent,
       publicationConsentMode: body.publicationConsentMode,
+      privacyRequested: body.privacyRequested,
       rating: body.rating,
       reviewText: body.reviewText,
     });
@@ -70,6 +71,8 @@ export async function POST(request: Request, context: RouteContext) {
       p_contact_requested: validated.value.contactRequested,
       p_publication_consent: validated.value.publicationConsent,
       p_publication_consent_mode: validated.value.publicationConsentMode,
+      p_publication_policy_version: validated.value.publicationPolicyVersion,
+      p_privacy_requested: validated.value.privacyRequested,
       p_rating: validated.value.rating,
       p_review_text: validated.value.reviewText,
       p_token_hash: hashReviewToken(token),

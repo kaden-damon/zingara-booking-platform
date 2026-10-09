@@ -5,12 +5,8 @@ import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
 type ReviewStatus = "needs_review" | "not_published" | "published";
 type ReviewRow = {
+  anonymousPublicationAllowed: boolean;
   anonymousIdentityWarnings: string[];
-  anonymousPermission: {
-    expires_at: string;
-    sent_at: string | null;
-    status: string;
-  } | null;
   bookingReference: string;
   contactRequested: boolean;
   displayName: string;
@@ -32,6 +28,8 @@ type ReviewRow = {
   publicationConsent: boolean;
   publicationConsentMode: "anonymous" | "private" | "public";
   publicationMode: "anonymous" | "named" | null;
+  publicationPolicyVersion: string | null;
+  privacyRequested: boolean | null;
   rating: number;
   reviewText: string;
   revision: number;
@@ -78,7 +76,7 @@ export default function ReviewsAdminWorkspace() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [result, setResult] = useState<ReviewPage>({ page: 1, pageSize: 20, rows: [], total: 0 });
+  const [result, setResult] = useState<ReviewPage>({ page: 1, pageSize: 10, rows: [], total: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<ReviewRow | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -126,7 +124,7 @@ export default function ReviewsAdminWorkspace() {
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ page: String(page), pageSize: "20", status });
+      const params = new URLSearchParams({ page: String(page), pageSize: "10", status });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (targetReviewId) params.set("reviewId", targetReviewId);
       const data = await fetchSupabaseApi<ReviewPage>(`/api/admin/reviews?${params.toString()}`, {
@@ -161,7 +159,7 @@ export default function ReviewsAdminWorkspace() {
     const params = new URLSearchParams({
       details: "true",
       page: "1",
-      pageSize: "20",
+      pageSize: "10",
       reviewId: selectedId,
       status,
     });
@@ -214,24 +212,6 @@ export default function ReviewsAdminWorkspace() {
           ? moderationError.message
           : "The review could not be updated.",
       );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function requestAnonymousPermission() {
-    if (!selected) return;
-    setBusy(true);
-    setError("");
-    try {
-      await fetchSupabaseApi("/api/admin/reviews/anonymous-permission", {
-        body: { reviewId: selected.id },
-        method: "POST",
-      });
-      setSelectedDetail(null);
-      await load();
-    } catch (permissionError) {
-      setError(permissionError instanceof Error ? permissionError.message : "The permission request could not be sent.");
     } finally {
       setBusy(false);
     }
@@ -328,31 +308,31 @@ export default function ReviewsAdminWorkspace() {
             ))
           )}
 
-          <div className="flex items-center justify-between pt-3 text-xs text-zinc-500">
-            <span>{result.total} review{result.total === 1 ? "" : "s"}</span>
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 pt-3 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+            <span aria-live="polite">{result.total} matching review{result.total === 1 ? "" : "s"}</span>
+            <nav aria-label="Reviews pagination" className="flex items-center gap-2">
               <button
                 aria-label="Previous page"
-                className="h-8 w-8 rounded-full border border-white/10 text-white disabled:opacity-30"
+                className="min-h-10 rounded-lg border border-white/10 px-3 font-semibold text-white transition hover:border-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:opacity-30"
                 disabled={page <= 1}
                 onClick={() => setPage((value) => Math.max(1, value - 1))}
                 title="Previous page"
                 type="button"
               >
-                ←
+                Previous
               </button>
-              <span>{page} / {pageCount}</span>
+              <span className="whitespace-nowrap" aria-current="page">Page {page} of {pageCount}</span>
               <button
                 aria-label="Next page"
-                className="h-8 w-8 rounded-full border border-white/10 text-white disabled:opacity-30"
+                className="min-h-10 rounded-lg border border-white/10 px-3 font-semibold text-white transition hover:border-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:opacity-30"
                 disabled={page >= pageCount}
                 onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
                 title="Next page"
                 type="button"
               >
-                →
+                Next
               </button>
-            </div>
+            </nav>
           </div>
         </div>
 
@@ -373,7 +353,7 @@ export default function ReviewsAdminWorkspace() {
                 <div><dt className="text-xs uppercase text-zinc-500">Performance</dt><dd className="mt-1 text-zinc-200">{selected.performanceName}</dd></div>
                 <div><dt className="text-xs uppercase text-zinc-500">Venue / date</dt><dd className="mt-1 text-zinc-200">{venueLabel(selected.venue)} · {dateLabel(selected.performanceDate)} · {selected.performanceTime ?? "-"}</dd></div>
                 <div><dt className="text-xs uppercase text-zinc-500">Submitted</dt><dd className="mt-1 text-zinc-200">{new Date(selected.submittedAt).toLocaleString("en-ZA")}</dd></div>
-                <div><dt className="text-xs uppercase text-zinc-500">Publication choice</dt><dd className="mt-1 text-zinc-200">{selected.publicationConsentMode === "public" ? `Publish as ${selected.displayName}` : selected.publicationConsentMode === "anonymous" ? "Publish as Anonymous" : "Private Only"}</dd></div>
+                <div><dt className="text-xs uppercase text-zinc-500">Publication choice</dt><dd className="mt-1 text-zinc-200">{selected.privacyRequested === true ? "Private requested · Anonymous only" : selected.privacyRequested === false ? "Normal publication" : selected.publicationConsentMode === "public" ? `Publish as ${selected.displayName}` : selected.publicationConsentMode === "anonymous" ? "Publish as Anonymous" : "Private Only"}</dd></div>
               </dl>
 
               <div>
@@ -385,14 +365,10 @@ export default function ReviewsAdminWorkspace() {
                 <p className="rounded-xl border border-sky-400/25 bg-sky-400/[0.06] px-4 py-3 text-sm text-sky-100">This guest asked to be contacted. Use the linked booking to follow up through the normal customer workflow.</p>
               )}
 
-              {selected.publicationConsentMode === "anonymous" && selected.anonymousIdentityWarnings.length > 0 ? (
+              {selected.anonymousPublicationAllowed && selected.anonymousIdentityWarnings.length > 0 ? (
                 <p className="rounded-xl border border-amber-300/30 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100" role="alert">
                   Check the review text before publishing anonymously. It may contain: {selected.anonymousIdentityWarnings.join(", ")}.
                 </p>
-              ) : null}
-
-              {selected.anonymousPermission ? (
-                <p className="text-sm text-zinc-400">Anonymous permission request: {statusLabel(selected.anonymousPermission.status)}</p>
               ) : null}
 
               <div>
@@ -408,7 +384,7 @@ export default function ReviewsAdminWorkspace() {
               </div>
 
               <div className="flex flex-wrap gap-3">
-                {selected.status !== "published" && selected.publicationConsentMode !== "private" && (
+                {selected.status !== "published" && selected.publicationConsentMode === "public" && (
                   <button
                     className="rounded-full bg-amber-300 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
                     disabled={busy || selected.publicationConsentMode !== "public"}
@@ -419,25 +395,15 @@ export default function ReviewsAdminWorkspace() {
                     Publish
                   </button>
                 )}
-                {selected.status !== "published" && selected.publicationConsentMode === "anonymous" ? (
+                {selected.status !== "published" && selected.anonymousPublicationAllowed ? (
                   <button
                     className="rounded-full bg-amber-300 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
                     disabled={busy || selected.anonymousIdentityWarnings.length > 0}
                     onClick={() => void moderate("publish_anonymous")}
-                    title={selected.anonymousIdentityWarnings.length > 0 ? "Check identifying details first" : "Publish as Anonymous"}
+                    title={selected.anonymousIdentityWarnings.length > 0 ? "Check identifying details first" : "Publish Anonymously"}
                     type="button"
                   >
-                    Publish as Anonymous
-                  </button>
-                ) : null}
-                {selected.status !== "published" && selected.publicationConsentMode === "private" ? (
-                  <button
-                    className="rounded-full border border-amber-300/35 px-4 py-2.5 text-sm font-semibold text-amber-200 disabled:opacity-40"
-                    disabled={busy || selected.anonymousPermission?.status === "pending" || selected.anonymousPermission?.status === "granted"}
-                    onClick={() => void requestAnonymousPermission()}
-                    type="button"
-                  >
-                    {selected.anonymousPermission?.status === "pending" ? "Permission requested" : "Request Anonymous Permission"}
+                    Publish Anonymously
                   </button>
                 ) : null}
                 {selected.status === "published" && (

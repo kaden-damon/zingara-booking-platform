@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   canPublishReview,
   getAnonymousReviewIdentityWarnings,
+  reviewPublicationPolicyVersion,
   toPublicReviewPayload,
   validateReviewSubmission,
   type PublicReviewRecord,
@@ -12,6 +13,7 @@ import {
 const root = process.cwd();
 const migrationPath = `${root}/supabase/migrations/20261009123000_phase_48_5_anonymous_reviews.sql`;
 const publicationFixMigrationPath = `${root}/supabase/migrations/20261009150000_phase_48_6_anonymous_publication_constraint.sql`;
+const privacyToggleMigrationPath = `${root}/supabase/migrations/20261009190000_review_privacy_toggle_policy.sql`;
 
 function review(overrides: Partial<PublicReviewRecord> = {}): PublicReviewRecord {
   return {
@@ -44,16 +46,67 @@ test("submission preserves explicit public, anonymous and private choices", () =
   }
 });
 
+test("privacy toggle defaults to normal publication and records the policy choice", () => {
+  const normal = validateReviewSubmission({
+    contactRequested: false,
+    privacyRequested: false,
+    publicationConsent: undefined,
+    rating: 5,
+    reviewText: "A detailed review that is long enough for safe submission.",
+  });
+  const privateRequested = validateReviewSubmission({
+    contactRequested: false,
+    privacyRequested: true,
+    publicationConsent: undefined,
+    rating: 5,
+    reviewText: "A detailed review that is long enough for safe submission.",
+  });
+  assert.deepEqual("value" in normal && {
+    mode: normal.value.publicationConsentMode,
+    policy: normal.value.publicationPolicyVersion,
+    privacy: normal.value.privacyRequested,
+  }, { mode: "public", policy: reviewPublicationPolicyVersion, privacy: false });
+  assert.deepEqual("value" in privateRequested && {
+    mode: privateRequested.value.publicationConsentMode,
+    policy: privateRequested.value.publicationPolicyVersion,
+    privacy: privateRequested.value.privacyRequested,
+  }, { mode: "anonymous", policy: reviewPublicationPolicyVersion, privacy: true });
+});
+
 test("anonymous moderation needs explicit anonymous consent and private stays blocked", () => {
   assert.equal(canPublishReview({ action: "publish_anonymous", publicationConsentMode: "anonymous", status: "needs_review" }), true);
   assert.equal(canPublishReview({ action: "publish_anonymous", publicationConsentMode: "private", status: "needs_review" }), false);
   assert.equal(canPublishReview({ action: "publish", publicationConsentMode: "anonymous", status: "needs_review" }), false);
+  assert.equal(canPublishReview({
+    action: "publish_anonymous",
+    publicationConsentMode: "public",
+    publicationPolicyVersion: reviewPublicationPolicyVersion,
+    privacyRequested: false,
+    status: "needs_review",
+  }), true);
+  assert.equal(canPublishReview({ action: "publish_anonymous", publicationConsentMode: "public", status: "needs_review" }), false);
+  assert.equal(canPublishReview({
+    action: "publish",
+    publicationConsent: true,
+    publicationConsentMode: "public",
+    publicationPolicyVersion: reviewPublicationPolicyVersion,
+    privacyRequested: true,
+    status: "needs_review",
+  }), false);
 });
 
 test("anonymous public payload never emits the stored guest display name", () => {
   const payload = toPublicReviewPayload(review());
   assert.equal(payload?.displayName, "Anonymous");
   assert.doesNotMatch(JSON.stringify(payload), /Nomsa D\./);
+  const currentPolicyPayload = toPublicReviewPayload(review({
+    publicationConsent: true,
+    publicationConsentMode: "public",
+    publicationPolicyVersion: reviewPublicationPolicyVersion,
+    privacyRequested: false,
+  }));
+  assert.equal(currentPolicyPayload?.displayName, "Anonymous");
+  assert.doesNotMatch(JSON.stringify(currentPolicyPayload), /Nomsa D\./);
   assert.equal(toPublicReviewPayload(review({ publicationConsentMode: "private", publicationMode: null })), null);
 });
 
@@ -87,30 +140,56 @@ test("anonymous publication removes the legacy named-consent constraint without 
   assert.match(sql, /moderation_status <> 'published'/);
 });
 
+test("privacy-toggle policy is immutable, versioned and preserves historical private reviews", async () => {
+  const [sql, form, workspace, terms] = await Promise.all([
+    readFile(privacyToggleMigrationPath, "utf8"),
+    readFile(`${root}/src/app/review/[token]/ReviewSubmissionClient.tsx`, "utf8"),
+    readFile(`${root}/src/app/admin/ReviewsAdminWorkspace.tsx`, "utf8"),
+    readFile(`${root}/src/lib/royalDecrees.ts`, "utf8"),
+  ]);
+  assert.match(sql, /review_privacy_requested boolean/);
+  assert.match(sql, /review_publication_policy_version text/);
+  assert.match(sql, /review-publication-2026-10-09-v1/);
+  assert.match(sql, /REVIEW_GUEST_CONTENT_IMMUTABLE/);
+  assert.doesNotMatch(sql, /update public\.guest_reviews[\s\S]*where review_privacy_requested is null/i);
+  assert.match(form, /Request Review Private/);
+  assert.match(form, /role="switch"/);
+  assert.match(form, /aria-checked=\{privacyRequested\}/);
+  assert.match(form, /useState\(false\)/);
+  assert.doesNotMatch(form, /Publish with name|Publish as Anonymous|Keep my review private|type="radio"/);
+  assert.match(workspace, /Publish Anonymously/);
+  assert.doesNotMatch(workspace, /Request Anonymous Permission|requestAnonymousPermission/);
+  assert.match(terms, /If Request Review Private is on, the review may only be published as Anonymous/);
+});
+
 test("Reviews uses bounded list data and loads selected history on demand", async () => {
   const [route, workspace] = await Promise.all([
     readFile(`${root}/src/app/api/admin/reviews/route.ts`, "utf8"),
     readFile(`${root}/src/app/admin/ReviewsAdminWorkspace.tsx`, "utf8"),
   ]);
-  assert.match(route, /pageSize.*20/);
+  assert.match(route, /pageSize.*10/);
   assert.match(route, /\.range\(from, from \+ input\.pageSize - 1\)/);
   assert.match(route, /input\.includeDetails && reviewIds\.length/);
   assert.match(route, /staff_profiles"\)\.select\("id,full_name"\)\.in\("id", actorIds\)/);
   assert.match(workspace, /details: "true"/);
   assert.match(workspace, /new AbortController\(\)/);
   assert.match(workspace, /setDebouncedSearch/);
+  assert.match(workspace, /pageSize: "10"/);
+  assert.match(workspace, /Page \{page\} of \{pageCount\}/);
+  assert.match(workspace, /\{result\.total\} matching review/);
+  assert.match(workspace, />\s*Previous\s*</);
+  assert.match(workspace, />\s*Next\s*</);
   assert.doesNotMatch(workspace, /getBookings\(/);
 });
 
-test("permission request is staff-authorised, guest-specific, audited and suppression-aware", async () => {
-  const route = await readFile(`${root}/src/app/api/admin/reviews/anonymous-permission/route.ts`, "utf8");
-  assert.match(route, /communications:manage/);
-  assert.match(route, /allowedVenues/);
-  assert.match(route, /publication_consent_mode !== "private"/);
-  assert.match(route, /sendOperationalCustomerEmail/);
-  assert.match(route, /kind: "post_show_review"/);
-  assert.match(route, /recordAuditEvent/);
+test("historical permission evidence remains available without an Admin request action", async () => {
+  const [route, workspace] = await Promise.all([
+    readFile(`${root}/src/app/api/admin/reviews/anonymous-permission/route.ts`, "utf8"),
+    readFile(`${root}/src/app/admin/ReviewsAdminWorkspace.tsx`, "utf8"),
+  ]);
   assert.match(route, /review_anonymous_permission_requests/);
+  assert.match(route, /recordAuditEvent/);
+  assert.doesNotMatch(workspace, /Request Anonymous Permission|requestAnonymousPermission/);
 });
 
 test("historical operation is dry by default, bounded, resumable and threshold protected", async () => {

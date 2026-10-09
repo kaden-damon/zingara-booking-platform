@@ -83,8 +83,8 @@ export const royalDecrees: RoyalDecree[] = [
       {
         heading: "Acceptance",
         body: [
-          "By using the platform, creating a booking, submitting an enquiry, making payment or attending an experience, guests agree to these Terms & Conditions and the related Royal Decrees displayed on this site, including the Privacy Policy and Cookie Policy.",
-          "If a guest does not agree with these terms, they should not continue with the booking or payment process.",
+          "By using the platform, creating a booking, submitting an enquiry or guest review, making payment or attending an experience, guests agree to these Terms & Conditions and the related Royal Decrees displayed on this site, including the Privacy Policy and Cookie Policy.",
+          "If a guest does not agree with these terms, they should not continue with the booking, payment or review-submission process.",
         ],
       },
       {
@@ -353,6 +353,13 @@ export const royalDecrees: RoyalDecree[] = [
         body: [
           "Personal information is used to manage bookings, process payments, issue digital tickets, support check-in, send service communications, respond to enquiries, manage corporate requests and keep accurate operational records.",
           "The Royal Countess may also process limited staff information for admin access, role management and platform security.",
+        ],
+      },
+      {
+        heading: "Guest Reviews",
+        body: [
+          "Guest reviews may be published after moderation. If Request Review Private is off when a review is submitted, Zingara may publish it with the guest's safe display name or anonymously.",
+          "If Request Review Private is on, the review may only be published as Anonymous. The guest's name, contact details, booking reference and customer identity are not published with an anonymous review.",
         ],
       },
       {

@@ -1,7 +1,7 @@
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
 import { recordAuditEvent } from "@/lib/supabase/serverAudit";
-import { getAnonymousReviewIdentityWarnings } from "@/lib/reviews/reviews";
+import { canPublishReview, getAnonymousReviewIdentityWarnings } from "@/lib/reviews/reviews";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,7 @@ async function loadReviewPage(
   let query = serviceClient
     .from("guest_reviews")
     .select(
-      "id,booking_id,show_id,venue,public_display_name,rating,review_text,contact_requested,publication_consent,publication_consent_mode,publication_mode,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision",
+      "id,booking_id,show_id,venue,public_display_name,rating,review_text,contact_requested,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision",
       { count: "exact" },
     )
     .eq("moderation_status", input.status)
@@ -79,21 +79,14 @@ async function loadReviewPage(
     if (result.error) throw result.error;
   }
 
-  const [eventsResult, permissionsResult] = input.includeDetails && reviewIds.length
-    ? await Promise.all([
-        serviceClient
-          .from("guest_review_events")
-          .select("id,review_id,event_type,actor_staff_profile_id,occurred_at,from_status,to_status,note")
-          .in("review_id", reviewIds)
-          .order("occurred_at", { ascending: false }),
-        serviceClient
-          .from("review_anonymous_permission_requests")
-          .select("review_id,status,sent_at,expires_at")
-          .in("review_id", reviewIds),
-      ])
-    : [{ data: [], error: null }, { data: [], error: null }];
+  const eventsResult = input.includeDetails && reviewIds.length
+    ? await serviceClient
+        .from("guest_review_events")
+        .select("id,review_id,event_type,actor_staff_profile_id,occurred_at,from_status,to_status,note")
+        .in("review_id", reviewIds)
+        .order("occurred_at", { ascending: false })
+    : { data: [], error: null };
   if (eventsResult.error) throw eventsResult.error;
-  if (permissionsResult.error) throw permissionsResult.error;
 
   const events = eventsResult.data ?? [];
   const actorIds = [
@@ -111,9 +104,6 @@ async function loadReviewPage(
   const bookingMap = new Map((bookingsResult.data ?? []).map((row) => [row.id, row]));
   const showMap = new Map((showsResult.data ?? []).map((row) => [row.id, row]));
   const staffMap = new Map((staffResult.data ?? []).map((row) => [row.id, row.full_name]));
-  const permissionMap = new Map(
-    (permissionsResult.data ?? []).map((row) => [row.review_id, row]),
-  );
 
   return {
     page: input.page,
@@ -122,6 +112,14 @@ async function loadReviewPage(
       const booking = bookingMap.get(row.booking_id);
       const show = showMap.get(row.show_id);
       return {
+        anonymousPublicationAllowed: canPublishReview({
+          action: "publish_anonymous",
+          publicationConsent: row.publication_consent,
+          publicationConsentMode: row.publication_consent_mode,
+          publicationPolicyVersion: row.review_publication_policy_version,
+          privacyRequested: row.review_privacy_requested,
+          status: row.moderation_status,
+        }),
         bookingReference: booking?.booking_reference ?? "Booking unavailable",
         contactRequested: row.contact_requested,
         displayName: row.public_display_name,
@@ -150,10 +148,11 @@ async function loadReviewPage(
           row.review_text,
           row.public_display_name,
         ),
-        anonymousPermission: permissionMap.get(row.id) ?? null,
         publicationConsent: row.publication_consent,
         publicationConsentMode: row.publication_consent_mode,
         publicationMode: row.publication_mode,
+        publicationPolicyVersion: row.review_publication_policy_version,
+        privacyRequested: row.review_privacy_requested,
         publishedAt: row.published_at,
         rating: row.rating,
         reviewText: row.review_text,
@@ -181,7 +180,7 @@ export async function GET(request: Request) {
     return Response.json({ error: "Invalid review status." }, { status: 400 });
   }
   const page = Math.max(1, Number(url.searchParams.get("page") ?? "1") || 1);
-  const pageSize = Math.min(50, Math.max(10, Number(url.searchParams.get("pageSize") ?? "20") || 20));
+  const pageSize = Math.min(50, Math.max(10, Number(url.searchParams.get("pageSize") ?? "10") || 10));
   const reviewId = url.searchParams.get("reviewId")?.trim() ?? "";
   if (reviewId && !/^[0-9a-f-]{36}$/i.test(reviewId)) {
     return Response.json({ error: "Invalid review identifier." }, { status: 400 });
@@ -239,7 +238,7 @@ export async function PATCH(request: Request) {
 
     const { data: before, error: beforeError } = await auth.serviceClient
       .from("guest_reviews")
-      .select("id,venue,moderation_status,publication_consent,publication_consent_mode,publication_mode,public_display_name,review_text,featured,revision")
+      .select("id,venue,moderation_status,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,public_display_name,review_text,featured,revision")
       .eq("id", body.reviewId)
       .maybeSingle();
     if (beforeError) throw beforeError;
@@ -247,11 +246,25 @@ export async function PATCH(request: Request) {
     if (!allowedVenues(auth.staffProfile.venue_scope).includes(before.venue)) {
       return Response.json({ error: "You do not have access to this venue." }, { status: 403 });
     }
-    if (body.action === "publish" && before.publication_consent_mode !== "public") {
+    if (body.action === "publish" && !canPublishReview({
+      action: "publish",
+      publicationConsent: before.publication_consent,
+      publicationConsentMode: before.publication_consent_mode,
+      publicationPolicyVersion: before.review_publication_policy_version,
+      privacyRequested: before.review_privacy_requested,
+      status: before.moderation_status,
+    })) {
       return Response.json({ error: "This guest did not consent to publication." }, { status: 409 });
     }
     if (body.action === "publish_anonymous") {
-      if (before.publication_consent_mode !== "anonymous") {
+      if (!canPublishReview({
+        action: "publish_anonymous",
+        publicationConsent: before.publication_consent,
+        publicationConsentMode: before.publication_consent_mode,
+        publicationPolicyVersion: before.review_publication_policy_version,
+        privacyRequested: before.review_privacy_requested,
+        status: before.moderation_status,
+      })) {
         return Response.json(
           { error: "The guest has not agreed to anonymous publication." },
           { status: 409 },

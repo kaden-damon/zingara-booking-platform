@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 export const reviewTextMinimumLength = 20;
 export const reviewTextMaximumLength = 2000;
 export const reviewInvitationLifetimeDays = 30;
+export const reviewPublicationPolicyVersion = "review-publication-2026-10-09-v1";
 
 export type ReviewModerationStatus =
   | "needs_review"
@@ -35,6 +36,8 @@ export type PublicReviewRecord = {
   publicationConsent: boolean;
   publicationConsentMode?: ReviewPublicationConsentMode;
   publicationMode?: ReviewPublicationMode;
+  publicationPolicyVersion?: string | null;
+  privacyRequested?: boolean | null;
   rating: number;
   reviewText: string;
   status: ReviewModerationStatus;
@@ -142,6 +145,7 @@ export function validateReviewSubmission(input: {
   contactRequested: unknown;
   publicationConsent: unknown;
   publicationConsentMode?: unknown;
+  privacyRequested?: unknown;
   rating: unknown;
   reviewText: unknown;
 }) {
@@ -165,10 +169,13 @@ export function validateReviewSubmission(input: {
     return { error: "Please enter your review as plain text." } as const;
   }
 
-  const publicationConsentMode =
-    input.publicationConsentMode === "anonymous" ||
-    input.publicationConsentMode === "private" ||
-    input.publicationConsentMode === "public"
+  const usesPrivacyToggle = typeof input.privacyRequested === "boolean";
+  const privacyRequested = usesPrivacyToggle ? input.privacyRequested : null;
+  const publicationConsentMode = usesPrivacyToggle
+    ? privacyRequested ? "anonymous" : "public"
+    : input.publicationConsentMode === "anonymous" ||
+        input.publicationConsentMode === "private" ||
+        input.publicationConsentMode === "public"
       ? input.publicationConsentMode
       : input.publicationConsent === true
         ? "public"
@@ -179,6 +186,8 @@ export function validateReviewSubmission(input: {
       contactRequested: input.contactRequested === true,
       publicationConsent: publicationConsentMode === "public",
       publicationConsentMode,
+      publicationPolicyVersion: usesPrivacyToggle ? reviewPublicationPolicyVersion : null,
+      privacyRequested,
       rating,
       reviewText,
     },
@@ -213,17 +222,28 @@ export function canPublishReview(input: {
   action: ReviewModerationAction;
   publicationConsent?: boolean;
   publicationConsentMode?: ReviewPublicationConsentMode;
+  publicationPolicyVersion?: string | null;
+  privacyRequested?: boolean | null;
   status: ReviewModerationStatus;
 }) {
   if (input.action === "publish") {
+    const policyPermitsNamedPublication =
+      input.publicationPolicyVersion == null ||
+      (input.publicationPolicyVersion === reviewPublicationPolicyVersion && input.privacyRequested === false);
     return (
       (input.publicationConsentMode === "public" ||
         (!input.publicationConsentMode && input.publicationConsent)) &&
+      policyPermitsNamedPublication &&
       input.status !== "published"
     );
   }
   if (input.action === "publish_anonymous") {
-    return input.publicationConsentMode === "anonymous" && input.status !== "published";
+    const permitsAnonymousPublication =
+      input.publicationConsentMode === "anonymous" ||
+      (input.publicationConsentMode === "public" &&
+        input.privacyRequested === false &&
+        input.publicationPolicyVersion === reviewPublicationPolicyVersion);
+    return permitsAnonymousPublication && input.status !== "published";
   }
   if (input.action === "unpublish") return input.status === "published";
   return input.status !== "not_published";
@@ -268,8 +288,16 @@ export function parsePublicReviewFilters(searchParams: URLSearchParams) {
 export function toPublicReviewPayload(record: PublicReviewRecord): PublicReviewPayload | null {
   const consentMode = record.publicationConsentMode ?? (record.publicationConsent ? "public" : "private");
   const publicationMode = record.publicationMode ?? (record.publicationConsent ? "named" : null);
-  const isNamed = consentMode === "public" && publicationMode === "named";
-  const isAnonymous = consentMode === "anonymous" && publicationMode === "anonymous";
+  const isNamed = consentMode === "public" && publicationMode === "named" && (
+    record.publicationPolicyVersion == null ||
+    (record.publicationPolicyVersion === reviewPublicationPolicyVersion && record.privacyRequested === false)
+  );
+  const isAnonymous = publicationMode === "anonymous" && (
+    consentMode === "anonymous" ||
+    (consentMode === "public" &&
+      record.privacyRequested === false &&
+      record.publicationPolicyVersion === reviewPublicationPolicyVersion)
+  );
   if (record.status !== "published" || (!isNamed && !isAnonymous)) return null;
 
   return {
