@@ -9,30 +9,10 @@ import { runDailyBookingReview } from "@/lib/workflows/dailyBookingReview";
 import { runDineplanScheduledEmails } from "@/lib/workflows/dineplanScheduledEmails";
 import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
 import { runReviewManagementWorkflows } from "@/lib/workflows/reviewManagement";
+import { isAuthorisedWorkflowCronRequest } from "@/lib/workflows/cronAuthorization";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-function getBearerToken(request: Request) {
-  return request.headers
-    .get("authorization")
-    ?.replace(/^Bearer\s+/i, "")
-    .trim();
-}
-
-function isAuthorisedCronRequest(request: Request) {
-  const configuredSecrets = [
-    process.env.CRON_SECRET,
-    process.env.WORKFLOW_CRON_SECRET,
-  ].flatMap((value) => value?.trim() ? [value.trim()] : []);
-
-  if (!configuredSecrets.length) {
-    return false;
-  }
-
-  const bearerToken = getBearerToken(request);
-  return Boolean(bearerToken && configuredSecrets.includes(bearerToken));
-}
 
 function shouldRunDailyTelemetryCleanup() {
   const johannesburgHour = Number(
@@ -47,7 +27,7 @@ function shouldRunDailyTelemetryCleanup() {
 }
 
 export async function GET(request: Request) {
-  if (!isAuthorisedCronRequest(request)) {
+  if (!isAuthorisedWorkflowCronRequest(request)) {
     return Response.json({ error: "Unauthorised workflow runner." }, { status: 401 });
   }
 

@@ -8,7 +8,7 @@ export type EmailCommunicationPayload = {
   message: string;
   sent_at: string | null;
   show_id: string | null;
-  status: "failed" | "sent" | "suppressed";
+  status: "failed" | "sending" | "sent" | "suppressed";
   subject: string | null;
   type: string;
 };
@@ -162,4 +162,37 @@ export async function insertCommunicationPayload(
   }
 
   return data as CommunicationRow | null;
+}
+
+export async function claimOneTimeEmailCommunication(
+  supabase: SupabaseClient,
+  payload: Omit<EmailCommunicationPayload, "sent_at" | "status">,
+) {
+  const { data, error } = await supabase
+    .from("communications")
+    .insert({ ...payload, sent_at: null, status: "sending" })
+    .select(communicationSelect)
+    .maybeSingle();
+
+  if (error?.code === "23505") return null;
+  if (error) throw error;
+  return data as CommunicationRow | null;
+}
+
+export async function completeClaimedEmailCommunication(
+  supabase: SupabaseClient,
+  id: string,
+  payload: Pick<EmailCommunicationPayload, "message" | "status" | "subject">,
+) {
+  const { data, error } = await supabase
+    .from("communications")
+    .update({ ...payload, sent_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "sending")
+    .select(communicationSelect)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error("The email send claim is no longer active.");
+  return data as CommunicationRow;
 }

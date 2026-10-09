@@ -8,6 +8,7 @@ const migration = readFileSync(new URL("../../../supabase/migrations/20261005170
 const workflow = readFileSync(new URL("../workflows/reviewManagement.ts", import.meta.url), "utf8");
 const submission = readFileSync(new URL("../../app/api/reviews/[token]/route.ts", import.meta.url), "utf8");
 const runner = readFileSync(new URL("../../app/api/workflows/run/route.ts", import.meta.url), "utf8");
+const cronAuthorization = readFileSync(new URL("../workflows/cronAuthorization.ts", import.meta.url), "utf8");
 const card = readFileSync(new URL("../../app/admin/ReviewManagementWorkflowCard.tsx", import.meta.url), "utf8");
 const reviewWorkspace = readFileSync(new URL("../../app/admin/ReviewsAdminWorkspace.tsx", import.meta.url), "utf8");
 
@@ -73,7 +74,9 @@ test("preview is no-send and both workflow switches remain independent", () => {
 
 test("the existing authenticated scheduler retries alerts and runs the daily summary", () => {
   assert.match(runner, /runReviewManagementWorkflows\(serviceClient\)/);
-  assert.match(runner, /process\.env\.CRON_SECRET/);
+  assert.match(runner, /isAuthorisedWorkflowCronRequest/);
+  assert.match(cronAuthorization, /process\.env\.CRON_SECRET/);
+  assert.match(cronAuthorization, /process\.env\.WORKFLOW_CRON_SECRET/);
   assert.match(workflow, /runPendingReviewAlerts/);
   assert.match(workflow, /runDailyReviewSummary/);
 });

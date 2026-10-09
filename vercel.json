@@ -3,6 +3,10 @@
     {
       "path": "/api/workflows/run",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/workflows/reviews/run",
+      "schedule": "7,22,37,52 * * * *"
     }
   ]
 }

@@ -11,6 +11,8 @@ import {
   type EmailAttachment,
 } from "@/lib/email/smtp";
 import {
+  claimOneTimeEmailCommunication,
+  completeClaimedEmailCommunication,
   findDuplicateSentCommunication,
   insertCommunicationPayload,
   type EmailCommunicationPayload,
@@ -40,13 +42,18 @@ export type AutomatedWorkflowConfiguration = {
 
 export type WorkflowSummary = {
   alreadySent: number;
+  attempted: number;
+  deduplicated: number;
   eligible: number;
   excluded: number;
+  failed: number;
   reasons: Record<string, number>;
   recipientCount: number;
   recipients: string[];
   scanned: number;
   sent: number;
+  skipped: number;
+  suppressed: number;
   workflowKey: AutomatedWorkflowKey;
 };
 
@@ -524,13 +531,18 @@ export async function renderConfiguredWorkflowEmail(input: {
 function createSummary(workflowKey: AutomatedWorkflowKey): WorkflowSummary {
   return {
     alreadySent: 0,
+    attempted: 0,
+    deduplicated: 0,
     eligible: 0,
     excluded: 0,
+    failed: 0,
     reasons: {},
     recipientCount: 0,
     recipients: [],
     scanned: 0,
     sent: 0,
+    skipped: 0,
+    suppressed: 0,
     workflowKey,
   };
 }
@@ -695,6 +707,8 @@ function evaluateWorkflow(
     increment(summary.reasons, "eligible");
   }
 
+  summary.deduplicated = summary.alreadySent;
+  summary.skipped = summary.excluded + summary.alreadySent;
   return { eligible, summary };
 }
 
@@ -844,6 +858,52 @@ export async function runAutomatedWorkflows(
     for (const item of eligibleItems) {
       let deliveryItem = item;
 
+      const duplicate = await findDuplicateSentCommunication(supabase, {
+        booking_id: item.booking.id,
+        channel: "email",
+        customer_id: item.booking.customer_id,
+        message: item.message,
+        sent_at: null,
+        show_id: item.booking.show_id,
+        status: "sent",
+        subject: item.subject,
+        type: getWorkflowCommunicationType(item.workflowKey),
+      });
+
+      if (duplicate) {
+        results[item.workflowKey].alreadySent += 1;
+        results[item.workflowKey].deduplicated += 1;
+        results[item.workflowKey].skipped += 1;
+        continue;
+      }
+
+      const customerId = item.booking.customer_id;
+      if (!customerId) {
+        await insertWorkflowCommunication(supabase, item, "failed");
+        results[item.workflowKey].failed += 1;
+        continue;
+      }
+
+      const reviewClaim = item.workflowKey === "post_show_review"
+        ? await claimOneTimeEmailCommunication(supabase, {
+            booking_id: item.booking.id,
+            channel: "email",
+            customer_id: customerId,
+            message: item.message,
+            show_id: item.booking.show_id,
+            subject: item.subject,
+            type: getWorkflowCommunicationType(item.workflowKey),
+          })
+        : null;
+
+      if (item.workflowKey === "post_show_review" && !reviewClaim) {
+        results[item.workflowKey].deduplicated += 1;
+        results[item.workflowKey].skipped += 1;
+        continue;
+      }
+
+      results[item.workflowKey].attempted += 1;
+
       if (item.workflowKey === "post_show_review") {
         try {
           const invitation = await getOrCreateVerifiedReviewLink(
@@ -870,39 +930,14 @@ export async function runAutomatedWorkflows(
             bookingId: item.booking.id,
             message: error instanceof Error ? error.message : "Unknown error",
           });
-          await insertWorkflowCommunication(
-            supabase,
-            {
-              ...item,
-              html: undefined,
-              message: "Review request was not sent because its verified link could not be created.",
-            },
-            "failed",
-          );
+          await completeClaimedEmailCommunication(supabase, reviewClaim!.id, {
+            message: "Review request was not sent because its verified link could not be created.",
+            status: "failed",
+            subject: item.subject,
+          });
+          results[item.workflowKey].failed += 1;
           continue;
         }
-      }
-
-      const duplicate = await findDuplicateSentCommunication(supabase, {
-        booking_id: deliveryItem.booking.id,
-        channel: "email",
-        customer_id: deliveryItem.booking.customer_id,
-        message: deliveryItem.message,
-        sent_at: null,
-        show_id: deliveryItem.booking.show_id,
-        status: "sent",
-        subject: deliveryItem.subject,
-        type: getWorkflowCommunicationType(deliveryItem.workflowKey),
-      });
-
-      if (duplicate) {
-        results[item.workflowKey].alreadySent += 1;
-        continue;
-      }
-
-      if (!deliveryItem.booking.customer_id) {
-        await insertWorkflowCommunication(supabase, deliveryItem, "failed");
-        continue;
       }
 
       const sendResult = await sendOperationalCustomerEmail({
@@ -911,7 +946,7 @@ export async function runAutomatedWorkflows(
           deliveryItem.workflowKey === "post_show_review"
             ? "RATE YOUR EXPERIENCE"
             : undefined,
-        customerId: deliveryItem.booking.customer_id,
+        customerId,
         hidePrimaryUrlInHtml: deliveryItem.workflowKey === "post_show_review",
         kind:
           deliveryItem.workflowKey === "pre_show_reminder"
@@ -923,14 +958,28 @@ export async function runAutomatedWorkflows(
         to: deliveryItem.recipient,
       });
 
-      await insertWorkflowCommunication(
-        supabase,
-        deliveryItem,
-        sendResult.ok ? "sent" : sendResult.suppressed ? "suppressed" : "failed",
-      );
+      const deliveryStatus = sendResult.ok
+        ? "sent"
+        : sendResult.suppressed
+          ? "suppressed"
+          : "failed";
+
+      if (reviewClaim) {
+        await completeClaimedEmailCommunication(supabase, reviewClaim.id, {
+          message: deliveryItem.message,
+          status: deliveryStatus,
+          subject: deliveryItem.subject,
+        });
+      } else {
+        await insertWorkflowCommunication(supabase, deliveryItem, deliveryStatus);
+      }
 
       if (sendResult.ok) {
         results[item.workflowKey].sent += 1;
+      } else if (sendResult.suppressed) {
+        results[item.workflowKey].suppressed += 1;
+      } else {
+        results[item.workflowKey].failed += 1;
       }
     }
   }
