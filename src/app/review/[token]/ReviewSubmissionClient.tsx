@@ -17,6 +17,8 @@ type Props = {
   token: string;
 };
 
+type PublicationConsentMode = "anonymous" | "private" | "public";
+
 const minimumLength = 20;
 const maximumLength = 2000;
 
@@ -50,7 +52,8 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
   const [rating, setRating] = useState<number | null>(null);
   const [ratingPreview, setRatingPreview] = useState<number | null>(null);
   const [reviewText, setReviewText] = useState("");
-  const [publicationConsent, setPublicationConsent] = useState(false);
+  const [publicationConsentMode, setPublicationConsentMode] =
+    useState<PublicationConsentMode>("private");
   const [contactRequested, setContactRequested] = useState(false);
   const [status, setStatus] = useState<"loading" | "ready" | "submitting" | "submitted" | "unavailable">(
     preview ? "ready" : "loading",
@@ -131,7 +134,13 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
     setMessage("");
     try {
       const response = await fetch(`/api/reviews/${encodeURIComponent(token)}`, {
-        body: JSON.stringify({ contactRequested, publicationConsent, rating, reviewText: trimmed }),
+        body: JSON.stringify({
+          contactRequested,
+          publicationConsent: publicationConsentMode === "public",
+          publicationConsentMode,
+          rating,
+          reviewText: trimmed,
+        }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       });
@@ -233,17 +242,29 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
               <p className="mt-1.5 text-right text-xs text-zinc-500">{reviewText.trim().length} / {maximumLength}</p>
             </div>
 
-            <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#D8C36A]/20 bg-[#D8C36A]/[0.05] p-4 text-sm leading-6 text-zinc-300 sm:px-5">
-              <input
-                checked={publicationConsent}
-                className="mt-0.5 h-5 w-5 shrink-0 accent-[#D8C36A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2D66C] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-                onChange={(event) => setPublicationConsent(event.target.checked)}
-                type="checkbox"
-              />
-              <span>
-                Zingara may publish my review under this safe display name: <strong className="text-white">{context.publicDisplayName}</strong> Contact details and booking references are never published.
-              </span>
-            </label>
+            <fieldset className="rounded-2xl border border-[#D8C36A]/20 bg-[#D8C36A]/[0.05] p-4 sm:px-5">
+              <legend className="px-1 text-sm font-semibold text-white">How may we use your review?</legend>
+              <div className="mt-2 space-y-2 text-sm leading-6 text-zinc-300">
+                {([
+                  ["public", `Publish as ${context.publicDisplayName}`],
+                  ["anonymous", "Publish as Anonymous"],
+                  ["private", "Keep my review private"],
+                ] as const).map(([value, label]) => (
+                  <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-2 py-2 hover:bg-white/[0.04]" key={value}>
+                    <input
+                      checked={publicationConsentMode === value}
+                      className="h-5 w-5 shrink-0 accent-[#D8C36A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2D66C]"
+                      name="publication-consent"
+                      onChange={() => setPublicationConsentMode(value)}
+                      type="radio"
+                      value={value}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 text-xs leading-5 text-zinc-500">Contact details and booking references are never published.</p>
+            </fieldset>
 
             <fieldset>
               <legend className="text-sm font-semibold">Would you like a member of our team to contact you?</legend>

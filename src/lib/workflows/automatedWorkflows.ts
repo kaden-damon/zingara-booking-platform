@@ -47,6 +47,13 @@ export type WorkflowSummary = {
   eligible: number;
   excluded: number;
   failed: number;
+  performanceBreakdown: Array<{
+    date: string;
+    eligible: number;
+    showId: string;
+    time: string;
+    venue: string;
+  }>;
   reasons: Record<string, number>;
   recipientCount: number;
   recipients: string[];
@@ -558,6 +565,7 @@ function createSummary(workflowKey: AutomatedWorkflowKey): WorkflowSummary {
     eligible: 0,
     excluded: 0,
     failed: 0,
+    performanceBreakdown: [],
     reasons: {},
     recipientCount: 0,
     recipients: [],
@@ -578,6 +586,7 @@ function evaluateWorkflow(
   communications: CommunicationRow[],
   reviewedBookingIds: Set<string>,
   now: Date,
+  reviewWindow?: { end: Date; start: Date },
 ) {
   const config = configs.get(workflowKey);
   const summary = createSummary(workflowKey);
@@ -604,7 +613,7 @@ function evaluateWorkflow(
       continue;
     }
 
-    if (!config.activatedAt) {
+    if (!config.activatedAt && !(workflowKey === "post_show_review" && reviewWindow)) {
       summary.excluded += 1;
       increment(summary.reasons, "missing_activation_boundary");
       continue;
@@ -636,7 +645,7 @@ function evaluateWorkflow(
     }
 
     const showDateTime = getShowDateTime(show);
-    const activationDate = new Date(config.activatedAt);
+    const activationDate = new Date(config.activatedAt ?? 0);
 
     if (workflowKey === "pre_show_reminder") {
       if (!["confirmed", "checked_in", "completed"].includes(booking.booking_status)) {
@@ -679,16 +688,24 @@ function evaluateWorkflow(
         continue;
       }
 
-      if (differenceInDays(now, showDateTime) !== config.timingOffsetDays) {
-        summary.excluded += 1;
-        increment(summary.reasons, "outside_review_window");
-        continue;
-      }
+      if (reviewWindow) {
+        if (showDateTime < reviewWindow.start || showDateTime >= reviewWindow.end) {
+          summary.excluded += 1;
+          increment(summary.reasons, "outside_historical_window");
+          continue;
+        }
+      } else {
+        if (differenceInDays(now, showDateTime) !== config.timingOffsetDays) {
+          summary.excluded += 1;
+          increment(summary.reasons, "outside_review_window");
+          continue;
+        }
 
-      if (!isReviewPerformanceAfterActivation(showDateTime, activationDate)) {
-        summary.excluded += 1;
-        increment(summary.reasons, "before_activation_boundary");
-        continue;
+        if (!isReviewPerformanceAfterActivation(showDateTime, activationDate)) {
+          summary.excluded += 1;
+          increment(summary.reasons, "before_activation_boundary");
+          continue;
+        }
       }
     }
 
@@ -726,6 +743,15 @@ function evaluateWorkflow(
     summary.eligible += 1;
     summary.recipientCount += 1;
     summary.recipients.push(redactEmail(recipient));
+    const breakdown = summary.performanceBreakdown.find((item) => item.showId === show.id);
+    if (breakdown) breakdown.eligible += 1;
+    else summary.performanceBreakdown.push({
+      date: show.date,
+      eligible: 1,
+      showId: show.id,
+      time: show.time.slice(0, 5),
+      venue: show.venue,
+    });
     increment(summary.reasons, "eligible");
   }
 
@@ -828,6 +854,8 @@ export async function runAutomatedWorkflows(
     mode?: "dry-run" | "send";
     now?: Date;
     reviewOrigin?: string;
+    reviewWindow?: { end: Date; start: Date };
+    maxDeliveries?: number;
     workflowKey?: AutomatedWorkflowKey;
   } = {},
 ): Promise<WorkflowRunResult> {
@@ -859,6 +887,7 @@ export async function runAutomatedWorkflows(
       dataset.communications,
       dataset.reviewedBookingIds,
       now,
+      workflowKey === "post_show_review" ? options.reviewWindow : undefined,
     );
 
     results[workflowKey] = result.summary;
@@ -877,8 +906,11 @@ export async function runAutomatedWorkflows(
       );
     }
 
+    const deliveryItems = options.maxDeliveries
+      ? eligibleItems.slice(0, Math.max(0, options.maxDeliveries))
+      : eligibleItems;
     await runWithConcurrency(
-      eligibleItems,
+      deliveryItems,
       workflowDeliveryConcurrency,
       async (item) => {
         let deliveryItem = item;

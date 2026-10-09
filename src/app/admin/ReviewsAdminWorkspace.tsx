@@ -5,6 +5,12 @@ import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
 type ReviewStatus = "needs_review" | "not_published" | "published";
 type ReviewRow = {
+  anonymousIdentityWarnings: string[];
+  anonymousPermission: {
+    expires_at: string;
+    sent_at: string | null;
+    status: string;
+  } | null;
   bookingReference: string;
   contactRequested: boolean;
   displayName: string;
@@ -24,6 +30,8 @@ type ReviewRow = {
   performanceName: string;
   performanceTime: string | null;
   publicationConsent: boolean;
+  publicationConsentMode: "anonymous" | "private" | "public";
+  publicationMode: "anonymous" | "named" | null;
   rating: number;
   reviewText: string;
   revision: number;
@@ -136,7 +144,7 @@ export default function ReviewsAdminWorkspace() {
   const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
 
   async function moderate(
-    action: "do_not_publish" | "feature" | "publish" | "unfeature" | "unpublish",
+    action: "do_not_publish" | "feature" | "publish" | "publish_anonymous" | "unfeature" | "unpublish",
   ) {
     if (!selected) return;
     setBusy(true);
@@ -154,6 +162,23 @@ export default function ReviewsAdminWorkspace() {
           ? moderationError.message
           : "The review could not be updated.",
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function requestAnonymousPermission() {
+    if (!selected) return;
+    setBusy(true);
+    setError("");
+    try {
+      await fetchSupabaseApi("/api/admin/reviews/anonymous-permission", {
+        body: { reviewId: selected.id },
+        method: "POST",
+      });
+      await load();
+    } catch (permissionError) {
+      setError(permissionError instanceof Error ? permissionError.message : "The permission request could not be sent.");
     } finally {
       setBusy(false);
     }
@@ -294,7 +319,7 @@ export default function ReviewsAdminWorkspace() {
                 <div><dt className="text-xs uppercase text-zinc-500">Performance</dt><dd className="mt-1 text-zinc-200">{selected.performanceName}</dd></div>
                 <div><dt className="text-xs uppercase text-zinc-500">Venue / date</dt><dd className="mt-1 text-zinc-200">{venueLabel(selected.venue)} · {dateLabel(selected.performanceDate)} · {selected.performanceTime ?? "-"}</dd></div>
                 <div><dt className="text-xs uppercase text-zinc-500">Submitted</dt><dd className="mt-1 text-zinc-200">{new Date(selected.submittedAt).toLocaleString("en-ZA")}</dd></div>
-                <div><dt className="text-xs uppercase text-zinc-500">Publication consent</dt><dd className="mt-1 text-zinc-200">{selected.publicationConsent ? "Yes" : "No"}</dd></div>
+                <div><dt className="text-xs uppercase text-zinc-500">Publication choice</dt><dd className="mt-1 text-zinc-200">{selected.publicationConsentMode === "public" ? `Publish as ${selected.displayName}` : selected.publicationConsentMode === "anonymous" ? "Publish as Anonymous" : "Private Only"}</dd></div>
               </dl>
 
               <div>
@@ -305,6 +330,16 @@ export default function ReviewsAdminWorkspace() {
               {selected.contactRequested && (
                 <p className="rounded-xl border border-sky-400/25 bg-sky-400/[0.06] px-4 py-3 text-sm text-sky-100">This guest asked to be contacted. Use the linked booking to follow up through the normal customer workflow.</p>
               )}
+
+              {selected.publicationConsentMode === "anonymous" && selected.anonymousIdentityWarnings.length > 0 ? (
+                <p className="rounded-xl border border-amber-300/30 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100" role="alert">
+                  Check the review text before publishing anonymously. It may contain: {selected.anonymousIdentityWarnings.join(", ")}.
+                </p>
+              ) : null}
+
+              {selected.anonymousPermission ? (
+                <p className="text-sm text-zinc-400">Anonymous permission request: {statusLabel(selected.anonymousPermission.status)}</p>
+              ) : null}
 
               <div>
                 <label className="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-500" htmlFor="moderation-note">Internal moderation note</label>
@@ -319,17 +354,38 @@ export default function ReviewsAdminWorkspace() {
               </div>
 
               <div className="flex flex-wrap gap-3">
-                {selected.status !== "published" && (
+                {selected.status !== "published" && selected.publicationConsentMode !== "private" && (
                   <button
                     className="rounded-full bg-amber-300 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
-                    disabled={busy || !selected.publicationConsent}
+                    disabled={busy || selected.publicationConsentMode !== "public"}
                     onClick={() => void moderate("publish")}
-                    title={selected.publicationConsent ? "Publish review" : "Guest publication consent is required"}
+                    title={selected.publicationConsentMode === "public" ? "Publish review" : "Guest publication consent is required"}
                     type="button"
                   >
                     Publish
                   </button>
                 )}
+                {selected.status !== "published" && selected.publicationConsentMode === "anonymous" ? (
+                  <button
+                    className="rounded-full bg-amber-300 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
+                    disabled={busy || selected.anonymousIdentityWarnings.length > 0}
+                    onClick={() => void moderate("publish_anonymous")}
+                    title={selected.anonymousIdentityWarnings.length > 0 ? "Check identifying details first" : "Publish as Anonymous"}
+                    type="button"
+                  >
+                    Publish as Anonymous
+                  </button>
+                ) : null}
+                {selected.status !== "published" && selected.publicationConsentMode === "private" ? (
+                  <button
+                    className="rounded-full border border-amber-300/35 px-4 py-2.5 text-sm font-semibold text-amber-200 disabled:opacity-40"
+                    disabled={busy || selected.anonymousPermission?.status === "pending" || selected.anonymousPermission?.status === "granted"}
+                    onClick={() => void requestAnonymousPermission()}
+                    type="button"
+                  >
+                    {selected.anonymousPermission?.status === "pending" ? "Permission requested" : "Request Anonymous Permission"}
+                  </button>
+                ) : null}
                 {selected.status === "published" && (
                   <button className="rounded-full border border-white/20 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40" disabled={busy} onClick={() => void moderate("unpublish")} type="button">Unpublish</button>
                 )}

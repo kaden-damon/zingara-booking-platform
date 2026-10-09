@@ -330,7 +330,9 @@ test("moderation is permission and venue scoped without guest content mutation",
 test("public feed cannot expose private context or unapproved reviews", async () => {
   const route = await readFile(publicFeedPath, "utf8");
   assert.match(route, /eq\("moderation_status", "published"\)/);
-  assert.match(route, /eq\("publication_consent", true\)/);
+  assert.match(route, /publication_consent_mode\.eq\.public/);
+  assert.match(route, /publication_consent_mode\.eq\.anonymous/);
+  assert.match(route, /publication_mode\.eq\.anonymous/);
   assert.match(route, /public_id/);
   assert.match(route, /publicReviewContractVersion/);
   assert.match(route, /get_public_review_aggregates/);

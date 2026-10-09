@@ -1,6 +1,7 @@
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
 import { recordAuditEvent } from "@/lib/supabase/serverAudit";
+import { getAnonymousReviewIdentityWarnings } from "@/lib/reviews/reviews";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ async function loadReviewPage(
   let query = serviceClient
     .from("guest_reviews")
     .select(
-      "id,booking_id,show_id,venue,public_display_name,rating,review_text,contact_requested,publication_consent,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision",
+      "id,booking_id,show_id,venue,public_display_name,rating,review_text,contact_requested,publication_consent,publication_consent_mode,publication_mode,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision",
       { count: "exact" },
     )
     .eq("moderation_status", input.status)
@@ -59,7 +60,7 @@ async function loadReviewPage(
   const showIds = [...new Set(rows.map((row) => row.show_id))];
   const reviewIds = rows.map((row) => row.id);
 
-  const [bookingsResult, showsResult, eventsResult, staffResult] = await Promise.all([
+  const [bookingsResult, showsResult, eventsResult, staffResult, permissionsResult] = await Promise.all([
     bookingIds.length
       ? serviceClient.from("bookings").select("id,booking_reference,guest_count").in("id", bookingIds)
       : Promise.resolve({ data: [], error: null }),
@@ -74,8 +75,14 @@ async function loadReviewPage(
           .order("occurred_at", { ascending: false })
       : Promise.resolve({ data: [], error: null }),
     serviceClient.from("staff_profiles").select("id,full_name"),
+    reviewIds.length
+      ? serviceClient
+          .from("review_anonymous_permission_requests")
+          .select("review_id,status,sent_at,expires_at")
+          .in("review_id", reviewIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  for (const result of [bookingsResult, showsResult, eventsResult, staffResult]) {
+  for (const result of [bookingsResult, showsResult, eventsResult, staffResult, permissionsResult]) {
     if (result.error) throw result.error;
   }
 
@@ -83,6 +90,9 @@ async function loadReviewPage(
   const showMap = new Map((showsResult.data ?? []).map((row) => [row.id, row]));
   const staffMap = new Map((staffResult.data ?? []).map((row) => [row.id, row.full_name]));
   const events = eventsResult.data ?? [];
+  const permissionMap = new Map(
+    (permissionsResult.data ?? []).map((row) => [row.review_id, row]),
+  );
 
   return {
     page: input.page,
@@ -115,7 +125,14 @@ async function loadReviewPage(
         performanceDate: show?.date ?? null,
         performanceName: show?.name ?? "Performance unavailable",
         performanceTime: show?.time?.slice(0, 5) ?? null,
+        anonymousIdentityWarnings: getAnonymousReviewIdentityWarnings(
+          row.review_text,
+          row.public_display_name,
+        ),
+        anonymousPermission: permissionMap.get(row.id) ?? null,
         publicationConsent: row.publication_consent,
+        publicationConsentMode: row.publication_consent_mode,
+        publicationMode: row.publication_mode,
         publishedAt: row.published_at,
         rating: row.rating,
         reviewText: row.review_text,
@@ -174,7 +191,7 @@ export async function PATCH(request: Request) {
 
   try {
     const body = (await request.json()) as {
-      action?: "do_not_publish" | "feature" | "publish" | "unfeature" | "unpublish";
+      action?: "do_not_publish" | "feature" | "publish" | "publish_anonymous" | "unfeature" | "unpublish";
       note?: string;
       reviewId?: string;
       revision?: number;
@@ -184,6 +201,7 @@ export async function PATCH(request: Request) {
       "do_not_publish",
       "feature",
       "publish",
+      "publish_anonymous",
       "unfeature",
       "unpublish",
     ]);
@@ -199,7 +217,7 @@ export async function PATCH(request: Request) {
 
     const { data: before, error: beforeError } = await auth.serviceClient
       .from("guest_reviews")
-      .select("id,venue,moderation_status,publication_consent,featured,revision")
+      .select("id,venue,moderation_status,publication_consent,publication_consent_mode,publication_mode,public_display_name,review_text,featured,revision")
       .eq("id", body.reviewId)
       .maybeSingle();
     if (beforeError) throw beforeError;
@@ -207,12 +225,30 @@ export async function PATCH(request: Request) {
     if (!allowedVenues(auth.staffProfile.venue_scope).includes(before.venue)) {
       return Response.json({ error: "You do not have access to this venue." }, { status: 403 });
     }
-    if (body.action === "publish" && !before.publication_consent) {
+    if (body.action === "publish" && before.publication_consent_mode !== "public") {
       return Response.json({ error: "This guest did not consent to publication." }, { status: 409 });
+    }
+    if (body.action === "publish_anonymous") {
+      if (before.publication_consent_mode !== "anonymous") {
+        return Response.json(
+          { error: "The guest has not agreed to anonymous publication." },
+          { status: 409 },
+        );
+      }
+      const warnings = getAnonymousReviewIdentityWarnings(
+        before.review_text,
+        before.public_display_name,
+      );
+      if (warnings.length > 0) {
+        return Response.json(
+          { error: `Check the review text before publishing anonymously. It may contain: ${warnings.join(", ")}.` },
+          { status: 409 },
+        );
+      }
     }
     if (
       (body.action === "feature" || body.action === "unfeature") &&
-      (before.moderation_status !== "published" || !before.publication_consent)
+      (before.moderation_status !== "published" || !before.publication_mode)
     ) {
       return Response.json(
         { error: "Only a published, consented review can be featured." },
@@ -250,16 +286,18 @@ export async function PATCH(request: Request) {
       afterValues: {
         featured: featureAction ? data.featured : before.featured,
         moderationStatus: featureAction ? before.moderation_status : data.moderation_status,
+        publicationMode: featureAction ? before.publication_mode : data.publication_mode,
         revision: data.revision,
       },
       beforeValues: {
         featured: before.featured,
         moderationStatus: before.moderation_status,
+        publicationMode: before.publication_mode,
         revision: before.revision,
       },
       changedFields: featureAction
         ? ["featured", "revision"]
-        : ["moderationStatus", "revision"],
+        : ["moderationStatus", "publicationMode", "revision"],
       entityId: body.reviewId,
       entityLocation: before.venue,
       entityReference: body.reviewId,

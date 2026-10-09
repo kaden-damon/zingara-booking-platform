@@ -12,7 +12,11 @@ export type ReviewModerationStatus =
 export type ReviewModerationAction =
   | "do_not_publish"
   | "publish"
+  | "publish_anonymous"
   | "unpublish";
+
+export type ReviewPublicationConsentMode = "anonymous" | "private" | "public";
+export type ReviewPublicationMode = "anonymous" | "named" | null;
 
 export type ReviewEligibilityInput = {
   archivedAt: string | null;
@@ -29,6 +33,8 @@ export type PublicReviewRecord = {
   publicDisplayName: string;
   publishedAt: string;
   publicationConsent: boolean;
+  publicationConsentMode?: ReviewPublicationConsentMode;
+  publicationMode?: ReviewPublicationMode;
   rating: number;
   reviewText: string;
   status: ReviewModerationStatus;
@@ -135,6 +141,7 @@ export function getSafePublicDisplayNameFromFullName(value: string) {
 export function validateReviewSubmission(input: {
   contactRequested: unknown;
   publicationConsent: unknown;
+  publicationConsentMode?: unknown;
   rating: unknown;
   reviewText: unknown;
 }) {
@@ -158,10 +165,20 @@ export function validateReviewSubmission(input: {
     return { error: "Please enter your review as plain text." } as const;
   }
 
+  const publicationConsentMode =
+    input.publicationConsentMode === "anonymous" ||
+    input.publicationConsentMode === "private" ||
+    input.publicationConsentMode === "public"
+      ? input.publicationConsentMode
+      : input.publicationConsent === true
+        ? "public"
+        : "private";
+
   return {
     value: {
       contactRequested: input.contactRequested === true,
-      publicationConsent: input.publicationConsent === true,
+      publicationConsent: publicationConsentMode === "public",
+      publicationConsentMode,
       rating,
       reviewText,
     },
@@ -194,11 +211,19 @@ export function getReviewEligibilityReason(
 
 export function canPublishReview(input: {
   action: ReviewModerationAction;
-  publicationConsent: boolean;
+  publicationConsent?: boolean;
+  publicationConsentMode?: ReviewPublicationConsentMode;
   status: ReviewModerationStatus;
 }) {
   if (input.action === "publish") {
-    return input.publicationConsent && input.status !== "published";
+    return (
+      (input.publicationConsentMode === "public" ||
+        (!input.publicationConsentMode && input.publicationConsent)) &&
+      input.status !== "published"
+    );
+  }
+  if (input.action === "publish_anonymous") {
+    return input.publicationConsentMode === "anonymous" && input.status !== "published";
   }
   if (input.action === "unpublish") return input.status === "published";
   return input.status !== "not_published";
@@ -241,10 +266,14 @@ export function parsePublicReviewFilters(searchParams: URLSearchParams) {
 }
 
 export function toPublicReviewPayload(record: PublicReviewRecord): PublicReviewPayload | null {
-  if (record.status !== "published" || !record.publicationConsent) return null;
+  const consentMode = record.publicationConsentMode ?? (record.publicationConsent ? "public" : "private");
+  const publicationMode = record.publicationMode ?? (record.publicationConsent ? "named" : null);
+  const isNamed = consentMode === "public" && publicationMode === "named";
+  const isAnonymous = consentMode === "anonymous" && publicationMode === "anonymous";
+  if (record.status !== "published" || (!isNamed && !isAnonymous)) return null;
 
   return {
-    displayName: record.publicDisplayName,
+    displayName: isAnonymous ? "Anonymous" : record.publicDisplayName,
     featured: record.featured,
     publicReviewId: record.id,
     publishedAt: record.publishedAt,
@@ -263,8 +292,7 @@ export function getVisiblePublicReviews(
   const visible = records
     .filter(
       (record) =>
-        record.status === "published" &&
-        record.publicationConsent &&
+        toPublicReviewPayload(record) !== null &&
         (!filters.venue || record.venue === filters.venue) &&
         (!filters.featured || record.featured),
     )
@@ -278,9 +306,7 @@ export function getVisiblePublicReviews(
 }
 
 export function getPublishedReviewAggregates(records: PublicReviewRecord[]) {
-  const published = records.filter(
-    (record) => record.status === "published" && record.publicationConsent,
-  );
+  const published = records.filter((record) => toPublicReviewPayload(record) !== null);
   const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } as Record<1 | 2 | 3 | 4 | 5, number>;
   const venues: Record<string, { averageRating: number; count: number; total: number }> = {};
 
@@ -314,4 +340,32 @@ export function getPublishedReviewAggregates(records: PublicReviewRecord[]) {
       ]),
     ),
   } satisfies PublicReviewAggregates;
+}
+
+export function getAnonymousReviewIdentityWarnings(
+  reviewText: string,
+  publicDisplayName: string,
+) {
+  const warnings: string[] = [];
+  const normalized = reviewText.trim();
+  const firstName = publicDisplayName.trim().split(/\s+/)[0]?.replace(/[^\p{L}'-]/gu, "");
+
+  if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(normalized)) {
+    warnings.push("email address");
+  }
+  if (/(?:\+?27|0)[\s()-]*(?:\d[\s()-]*){8,9}/.test(normalized)) {
+    warnings.push("phone number");
+  }
+  if (/\bZNG-[A-Z0-9]+\b/i.test(normalized)) {
+    warnings.push("booking reference");
+  }
+  if (firstName && firstName.length >= 3 && new RegExp(`\\b${firstName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(normalized)) {
+    warnings.push("guest name");
+  }
+
+  return warnings;
+}
+
+export function buildAnonymousReviewPermissionUrl(origin: string, token: string) {
+  return `${origin.replace(/\/$/, "")}/review/anonymous-permission/${encodeURIComponent(token)}`;
 }

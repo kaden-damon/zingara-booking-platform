@@ -115,11 +115,11 @@ export async function GET(request: Request) {
   let query = supabase
     .from("guest_reviews")
     .select(
-      "public_id,public_display_name,rating,review_text,venue,published_at,publication_consent,moderation_status,verified_guest,featured",
+      "public_id,public_display_name,rating,review_text,venue,published_at,publication_consent,publication_consent_mode,publication_mode,moderation_status,verified_guest,featured",
       { count: "exact" },
     )
     .eq("moderation_status", "published")
-    .eq("publication_consent", true)
+    .or("and(publication_consent_mode.eq.public,publication_mode.eq.named),and(publication_consent_mode.eq.anonymous,publication_mode.eq.anonymous)")
     .order("published_at", { ascending: false })
     .order("public_id", { ascending: false })
     .range(from, from + parsed.value.limit - 1);
@@ -149,6 +149,8 @@ export async function GET(request: Request) {
     id: row.public_id,
     publicDisplayName: row.public_display_name,
     publicationConsent: row.publication_consent,
+    publicationConsentMode: row.publication_consent_mode,
+    publicationMode: row.publication_mode,
     publishedAt: row.published_at,
     rating: row.rating,
     reviewText: row.review_text,
