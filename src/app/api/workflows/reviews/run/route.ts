@@ -1,6 +1,7 @@
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { runAutomatedWorkflows } from "@/lib/workflows/automatedWorkflows";
 import { isAuthorisedWorkflowCronRequest } from "@/lib/workflows/cronAuthorization";
+import { continueHistoricalReviewInvitations } from "@/lib/workflows/historicalReviewInvitations";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -68,11 +69,17 @@ export async function GET(request: Request) {
 
     if (completionError) throw completionError;
 
+    const historical = await continueHistoricalReviewInvitations(serviceClient).catch((error) => {
+      console.error("[Review Invitations] Historical continuation failed", error);
+      return null;
+    });
+
     return Response.json({
       completedAt,
       executionMode: "send",
       runId: run.id,
       summary,
+      historical,
       workflow: workflowKey,
     });
   } catch (error) {

@@ -11,6 +11,7 @@ import {
 
 const root = process.cwd();
 const migrationPath = `${root}/supabase/migrations/20261009123000_phase_48_5_anonymous_reviews.sql`;
+const publicationFixMigrationPath = `${root}/supabase/migrations/20261009150000_phase_48_6_anonymous_publication_constraint.sql`;
 
 function review(overrides: Partial<PublicReviewRecord> = {}): PublicReviewRecord {
   return {
@@ -78,6 +79,29 @@ test("migration preserves historical private consent and enforces anonymous publ
   assert.doesNotMatch(sql, /set publication_consent_mode = 'anonymous'[\s\S]*where publication_consent = false/i);
 });
 
+test("anonymous publication removes the legacy named-consent constraint without weakening consent", async () => {
+  const sql = await readFile(publicationFixMigrationPath, "utf8");
+  assert.match(sql, /drop constraint if exists guest_reviews_check1/);
+  assert.match(sql, /publication_consent_mode = 'public'[\s\S]*publication_mode = 'named'[\s\S]*publication_consent = true/);
+  assert.match(sql, /publication_consent_mode = 'anonymous'[\s\S]*publication_mode = 'anonymous'[\s\S]*publication_consent = false[\s\S]*publication_consented_at is not null/);
+  assert.match(sql, /moderation_status <> 'published'/);
+});
+
+test("Reviews uses bounded list data and loads selected history on demand", async () => {
+  const [route, workspace] = await Promise.all([
+    readFile(`${root}/src/app/api/admin/reviews/route.ts`, "utf8"),
+    readFile(`${root}/src/app/admin/ReviewsAdminWorkspace.tsx`, "utf8"),
+  ]);
+  assert.match(route, /pageSize.*20/);
+  assert.match(route, /\.range\(from, from \+ input\.pageSize - 1\)/);
+  assert.match(route, /input\.includeDetails && reviewIds\.length/);
+  assert.match(route, /staff_profiles"\)\.select\("id,full_name"\)\.in\("id", actorIds\)/);
+  assert.match(workspace, /details: "true"/);
+  assert.match(workspace, /new AbortController\(\)/);
+  assert.match(workspace, /setDebouncedSearch/);
+  assert.doesNotMatch(workspace, /getBookings\(/);
+});
+
 test("permission request is staff-authorised, guest-specific, audited and suppression-aware", async () => {
   const route = await readFile(`${root}/src/app/api/admin/reviews/anonymous-permission/route.ts`, "utf8");
   assert.match(route, /communications:manage/);
@@ -90,16 +114,20 @@ test("permission request is staff-authorised, guest-specific, audited and suppre
 });
 
 test("historical operation is dry by default, bounded, resumable and threshold protected", async () => {
-  const [route, workflows] = await Promise.all([
+  const [route, historical, scheduler, workflows] = await Promise.all([
     readFile(`${root}/src/app/api/workflows/reviews/historical/route.ts`, "utf8"),
+    readFile(`${root}/src/lib/workflows/historicalReviewInvitations.ts`, "utf8"),
+    readFile(`${root}/src/app/api/workflows/reviews/run/route.ts`, "utf8"),
     readFile(`${root}/src/lib/workflows/automatedWorkflows.ts`, "utf8"),
   ]);
-  assert.match(route, /2026-09-01T00:00:00\+02:00/);
-  assert.match(route, /maximumApprovedPopulation = 500/);
-  assert.match(route, /deliveryBatchSize = 25/);
-  assert.match(route, /plan\.eligible > maximumApprovedPopulation/);
-  assert.match(route, /status: "blocked"/);
-  assert.match(route, /status: remaining === 0 \? "completed" : "paused"/);
+  assert.match(historical, /2026-09-01T00:00:00\+02:00/);
+  assert.match(historical, /historicalReviewApprovedMaximum = 542/);
+  assert.match(historical, /historicalReviewBatchSize = 25/);
+  assert.match(historical, /plan\.eligible > historicalReviewApprovedMaximum/);
+  assert.match(historical, /\.eq\("status", "paused"\)/);
+  assert.match(historical, /status === "completed" \|\| status === "failed"/);
+  assert.match(route, /startHistoricalReviewInvitations/);
+  assert.match(scheduler, /continueHistoricalReviewInvitations/);
   assert.match(workflows, /reviewWindow/);
   assert.match(workflows, /maxDeliveries/);
   assert.match(workflows, /claimOneTimeEmailCommunication/);

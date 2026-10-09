@@ -25,7 +25,14 @@ function hasReviewAccess(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
 async function loadReviewPage(
   serviceClient: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]>,
   scope: string[],
-  input: { page: number; pageSize: number; reviewId: string; search: string; status: string },
+  input: {
+    includeDetails: boolean;
+    page: number;
+    pageSize: number;
+    reviewId: string;
+    search: string;
+    status: string;
+  },
 ) {
   const venues = allowedVenues(scope);
   const from = (input.page - 1) * input.pageSize;
@@ -60,36 +67,50 @@ async function loadReviewPage(
   const showIds = [...new Set(rows.map((row) => row.show_id))];
   const reviewIds = rows.map((row) => row.id);
 
-  const [bookingsResult, showsResult, eventsResult, staffResult, permissionsResult] = await Promise.all([
+  const [bookingsResult, showsResult] = await Promise.all([
     bookingIds.length
       ? serviceClient.from("bookings").select("id,booking_reference,guest_count").in("id", bookingIds)
       : Promise.resolve({ data: [], error: null }),
     showIds.length
       ? serviceClient.from("shows").select("id,name,date,time,venue").in("id", showIds)
       : Promise.resolve({ data: [], error: null }),
-    reviewIds.length
-      ? serviceClient
+  ]);
+  for (const result of [bookingsResult, showsResult]) {
+    if (result.error) throw result.error;
+  }
+
+  const [eventsResult, permissionsResult] = input.includeDetails && reviewIds.length
+    ? await Promise.all([
+        serviceClient
           .from("guest_review_events")
           .select("id,review_id,event_type,actor_staff_profile_id,occurred_at,from_status,to_status,note")
           .in("review_id", reviewIds)
-          .order("occurred_at", { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
-    serviceClient.from("staff_profiles").select("id,full_name"),
-    reviewIds.length
-      ? serviceClient
+          .order("occurred_at", { ascending: false }),
+        serviceClient
           .from("review_anonymous_permission_requests")
           .select("review_id,status,sent_at,expires_at")
-          .in("review_id", reviewIds)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-  for (const result of [bookingsResult, showsResult, eventsResult, staffResult, permissionsResult]) {
-    if (result.error) throw result.error;
-  }
+          .in("review_id", reviewIds),
+      ])
+    : [{ data: [], error: null }, { data: [], error: null }];
+  if (eventsResult.error) throw eventsResult.error;
+  if (permissionsResult.error) throw permissionsResult.error;
+
+  const events = eventsResult.data ?? [];
+  const actorIds = [
+    ...new Set(
+      events
+        .map((event) => event.actor_staff_profile_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const staffResult = actorIds.length
+    ? await serviceClient.from("staff_profiles").select("id,full_name").in("id", actorIds)
+    : { data: [], error: null };
+  if (staffResult.error) throw staffResult.error;
 
   const bookingMap = new Map((bookingsResult.data ?? []).map((row) => [row.id, row]));
   const showMap = new Map((showsResult.data ?? []).map((row) => [row.id, row]));
   const staffMap = new Map((staffResult.data ?? []).map((row) => [row.id, row.full_name]));
-  const events = eventsResult.data ?? [];
   const permissionMap = new Map(
     (permissionsResult.data ?? []).map((row) => [row.review_id, row]),
   );
@@ -169,6 +190,7 @@ export async function GET(request: Request) {
   try {
     return Response.json(
       await loadReviewPage(auth.serviceClient, auth.staffProfile.venue_scope, {
+        includeDetails: url.searchParams.get("details") === "true" && Boolean(reviewId),
         page,
         pageSize,
         reviewId,

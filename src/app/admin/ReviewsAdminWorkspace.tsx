@@ -77,8 +77,11 @@ export default function ReviewsAdminWorkspace() {
   const [status, setStatus] = useState<ReviewStatus>("needs_review");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [result, setResult] = useState<ReviewPage>({ page: 1, pageSize: 20, rows: [], total: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<ReviewRow | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -114,33 +117,81 @@ export default function ReviewsAdminWorkspace() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), search.trim() ? 300 : 0);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: "20", status });
-      if (search.trim()) params.set("search", search.trim());
+      if (debouncedSearch) params.set("search", debouncedSearch);
       if (targetReviewId) params.set("reviewId", targetReviewId);
       const data = await fetchSupabaseApi<ReviewPage>(`/api/admin/reviews?${params.toString()}`, {
         cache: "no-store",
+        signal,
       });
       setResult(data);
       setSelectedId((current) =>
         current && data.rows.some((row) => row.id === current) ? current : data.rows[0]?.id ?? null,
       );
     } catch (loadError) {
+      if (loadError instanceof DOMException && loadError.name === "AbortError") return;
       setError(loadError instanceof Error ? loadError.message : "The review queue could not be loaded.");
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [page, search, status, targetReviewId]);
+  }, [debouncedSearch, page, status, targetReviewId]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void load(controller.signal), 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [load]);
 
-  const selected = result.rows.find((row) => row.id === selectedId) ?? null;
+  useEffect(() => {
+    if (!selectedId) return;
+
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      details: "true",
+      page: "1",
+      pageSize: "20",
+      reviewId: selectedId,
+      status,
+    });
+    const timer = window.setTimeout(() => {
+      setDetailLoading(true);
+      void fetchSupabaseApi<ReviewPage>(`/api/admin/reviews?${params.toString()}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then((data) => {
+          const detail = data.rows[0] ?? null;
+          setSelectedDetail(detail);
+          setNote(detail?.moderationNote ?? "");
+        })
+        .catch((detailError) => {
+          if (detailError instanceof DOMException && detailError.name === "AbortError") return;
+          setError(detailError instanceof Error ? detailError.message : "Review details could not be loaded.");
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setDetailLoading(false);
+        });
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [selectedId, status]);
+
+  const listSelected = result.rows.find((row) => row.id === selectedId) ?? null;
+  const selected = selectedDetail?.id === selectedId ? selectedDetail : listSelected;
   const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
 
   async function moderate(
@@ -155,6 +206,7 @@ export default function ReviewsAdminWorkspace() {
         method: "PATCH",
       });
       setNote("");
+      setSelectedDetail(null);
       await load();
     } catch (moderationError) {
       setError(
@@ -176,6 +228,7 @@ export default function ReviewsAdminWorkspace() {
         body: { reviewId: selected.id },
         method: "POST",
       });
+      setSelectedDetail(null);
       await load();
     } catch (permissionError) {
       setError(permissionError instanceof Error ? permissionError.message : "The permission request could not be sent.");
@@ -268,7 +321,8 @@ export default function ReviewsAdminWorkspace() {
                   </span>
                   {review.featured && <span className="rounded-full border border-amber-300/30 px-2 py-1 text-amber-200">Featured</span>}
                   {review.contactRequested && <span className="rounded-full border border-sky-400/30 px-2 py-1 text-sky-300">Contact requested</span>}
-                  {!review.publicationConsent && <span className="rounded-full border border-white/15 px-2 py-1 text-zinc-400">Private only</span>}
+                  {review.publicationConsentMode === "private" && <span className="rounded-full border border-white/15 px-2 py-1 text-zinc-400">Private only</span>}
+                  {review.publicationConsentMode === "anonymous" && <span className="rounded-full border border-white/15 px-2 py-1 text-zinc-300">Anonymous</span>}
                 </div>
               </button>
             ))
@@ -407,7 +461,7 @@ export default function ReviewsAdminWorkspace() {
               <div className="border-t border-white/10 pt-5">
                 <h3 className="text-sm font-semibold text-white">History</h3>
                 <div className="mt-3 space-y-3">
-                  {selected.history.map((event, index) => (
+                  {detailLoading ? <p className="text-xs text-zinc-500">Loading review history...</p> : selected.history.map((event, index) => (
                     <div className="grid gap-1 text-xs sm:grid-cols-[140px_1fr]" key={`${event.at}-${index}`}>
                       <span className="text-zinc-500">{new Date(event.at).toLocaleString("en-ZA")}</span>
                       <span className="text-zinc-300">{statusLabel(event.type)} · {event.actor}{event.note ? ` · ${event.note}` : ""}</span>
