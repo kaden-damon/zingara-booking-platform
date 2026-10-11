@@ -58,6 +58,7 @@ function wrapText(value: string, maxLength: number) {
 }
 
 export function createZingaraTextPdf(input: {
+  contentBottomMargin?: number;
   footer?: string;
   sections: ZingaraPdfSection[];
   subtitle: string;
@@ -66,13 +67,14 @@ export function createZingaraTextPdf(input: {
   const width = 595;
   const height = 842;
   const margin = 42;
+  const contentBottomMargin = input.contentBottomMargin ?? 52;
   const pageBackground = `1 1 1 rg 0 0 ${width} ${height} re f\n`;
   const pages: string[] = [pageBackground];
   let y = height - margin;
 
   function command(value: string) { pages[pages.length - 1] += value; }
   function addPage() { pages.push(pageBackground); y = height - margin; }
-  function ensureSpace(points: number) { if (y - points < 52) addPage(); }
+  function ensureSpace(points: number) { if (y - points < contentBottomMargin) addPage(); }
   function text(value: string, x: number, size = 9, bold = false, color = "0.12 0.12 0.12") {
     command(`${color} rg BT /${bold ? "F2" : "F1"} ${size} Tf ${x} ${y} Td (${escapePdfText(value)}) Tj ET\n`);
   }

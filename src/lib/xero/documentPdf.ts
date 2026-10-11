@@ -70,6 +70,7 @@ export function createXeroDocumentPdf(document: XeroPdfDocument) {
       ];
 
   return createZingaraTextPdf({
+    contentBottomMargin: 72,
     footer: "Local Zingara operational document. Not issued by Xero.",
     sections: [
       { title: invoice ? "Invoice Details" : "Quote Details", rows: identityRows },

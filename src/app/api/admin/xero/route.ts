@@ -2,6 +2,7 @@ import { calculateXeroDocumentTotals, type XeroDocumentLineInput, type XeroLineA
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
 import { canCreateXeroInvoice, canCreateXeroQuote } from "@/lib/xero/access";
+import { buildXeroDocumentSyncPayload, documentMappingCategory, type QueueableXeroDocument } from "@/lib/xero/queue";
 
 export const dynamic = "force-dynamic";
 
@@ -421,12 +422,39 @@ export async function PATCH(request: Request) {
   if (!permissions.includes("bookings:manage") && !canCreateInvoice(auth, permissions)) {
     return Response.json({ error: "Quote or Accounts access is required." }, { status: 403 });
   }
-  const body = (await request.json()) as { action?: "accept" | "convert"; acceptedBy?: string; evidence?: string; documentId?: string; version?: number };
+  const body = (await request.json()) as { action?: "accept" | "convert" | "queue"; acceptedBy?: string; evidence?: string; documentId?: string; version?: number };
   if (!body.documentId || !body.action) return Response.json({ error: "Choose a document action." }, { status: 400 });
   const { data: current, error } = await auth.serviceClient.from("xero_documents").select("*").eq("id", body.documentId).single();
   if (error || !current) return Response.json({ error: "The document could not be found." }, { status: 404 });
   if (!allowedVenues(auth.staffProfile.venue_scope).includes(current.venue)) return Response.json({ error: "This venue is outside your access." }, { status: 403 });
   if (body.version !== current.version) return Response.json({ error: "This document has changed. Refresh and try again." }, { status: 409 });
+
+  if (body.action === "queue") {
+    if (!canCreateInvoice(auth, permissions)) return Response.json({ error: "Accounts access is required to prepare Xero sync." }, { status: 403 });
+    if (!(["draft", "revised"] as string[]).includes(current.status)) return Response.json({ error: "Only a current draft can be prepared for Xero." }, { status: 409 });
+    const { data: connection } = await auth.serviceClient.from("xero_connections").select("tenant_id,status,sync_paused").not("tenant_id", "is", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (!connection?.tenant_id) return Response.json({ error: "Connect and choose the approved Xero organisation first." }, { status: 409 });
+    try {
+      const category = documentMappingCategory(current as QueueableXeroDocument);
+      const { data: mapping } = await auth.serviceClient.from("xero_account_mappings").select("category,account_code,tax_code,approved_at").eq("tenant_id", connection.tenant_id).eq("category", category).not("approved_at", "is", null).maybeSingle();
+      if (!mapping) return Response.json({ error: "Accounts must approve the account and VAT mapping first." }, { status: 409 });
+      const payload = buildXeroDocumentSyncPayload(current as QueueableXeroDocument, mapping);
+      const sourceId = current.company_id ?? current.contact_customer_id;
+      if (sourceId) {
+        const sourceColumn = current.company_id ? "company_id" : "customer_id";
+        const { data: contactMapping } = await auth.serviceClient.from("xero_contact_mappings").select("xero_contact_id").eq("tenant_id", connection.tenant_id).eq(sourceColumn, sourceId).eq("status", "active").maybeSingle();
+        if (contactMapping?.xero_contact_id) Object.assign(payload, { existingContactId: contactMapping.xero_contact_id });
+      }
+      const idempotencyKey = `xero:${current.kind}:${current.id}:v${current.version}`;
+      const status = connection.status === "connected" && connection.sync_paused === false && process.env.XERO_LIVE_SYNC_AUTHORISED === "true" ? "pending" : "paused";
+      const { error: queueError } = await auth.serviceClient.from("xero_sync_outbox").upsert({ document_id: current.id, idempotency_key: idempotencyKey, operation: "document.sync", payload, status, tenant_id: connection.tenant_id, updated_at: new Date().toISOString() }, { onConflict: "idempotency_key", ignoreDuplicates: true });
+      if (queueError) throw queueError;
+      await auth.serviceClient.from("xero_documents").update({ sync_status: status, xero_tenant_id: connection.tenant_id, updated_at: new Date().toISOString() }).eq("id", current.id).eq("version", current.version);
+      return Response.json({ status });
+    } catch (queueError) {
+      return Response.json({ error: queueError instanceof Error ? queueError.message : "The document could not be prepared for Xero." }, { status: 409 });
+    }
+  }
 
   if (body.action === "accept") {
     if (!canCreateXeroQuote(permissions)) return Response.json({ error: "Quote access is required." }, { status: 403 });

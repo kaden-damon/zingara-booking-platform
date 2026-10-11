@@ -73,7 +73,7 @@ test("Sales, Box Office and Accounts actions preserve the existing permission mo
 });
 
 test("mock transport makes mutation retries idempotent and classifies retryable failures", async () => {
-  const transport = new MockXeroTransport([{ data: { InvoiceID: "inv-1" }, status: 200 }]);
+  const transport = new MockXeroTransport([{ correlationId: null, data: { InvoiceID: "inv-1" }, retryAfterSeconds: null, status: 200 }]);
   const input = { body: {}, idempotencyKey: "invoice:local-1:v1", method: "POST" as const, path: "/Invoices", tenantId: "tenant-1" };
   const first = await transport.request(input);
   const second = await transport.request(input);
