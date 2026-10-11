@@ -60,11 +60,11 @@ Verified against the repository and official Xero documentation on 11 October 20
 | Stable contacts | ContactNumber lookup, conflict block and idempotent create | Implemented | Adapter/mock end-to-end tests |
 | Quotes and invoices | Executable Accounting API create/update/read/list adapters | Implemented but outbound disabled | Adapter/mock end-to-end tests |
 | Payments and credit notes | Executable allocation and draft credit-note adapters; verified-payment evidence allowlist | Implemented but outbound disabled | Successful/failed evidence tests |
-| Outbox worker | Bounded claim/lease, per-tenant gate, idempotency, retries, rate-limit delay, terminal review and version-aware completion | Implemented; no Production schedule activated | Worker crash/retry/pause tests |
+| Outbox worker | Bounded claim/lease, per-tenant gate, idempotency, retries, rate-limit delay, terminal review, audited staff retry and version-aware completion | Implemented; no Production schedule activated | Worker crash/retry/pause tests and bounded attention API |
 | Webhooks | Raw-body HMAC, durable receipt before acknowledgement, dedupe, bounded processing and sequence guard | Implemented; no Production webhook secret | Signature/replay/order tests |
 | Scheduled reconciliation | Bounded invoice reads using `If-Modified-Since`; payment and credit-note read adapters for scheduled reconciliation because Xero has no Payment webhook | Implemented; activation disabled | Reconciliation tests |
 | Accounts mappings | Ten required categories, explicit Accounts approval, activation blocked until all are approved | Implemented | Mapping completeness tests |
-| Accounting workspace | Bounded ten-row document list, filters, details, booking financial comparison, connection/mapping panel and sync status | Implemented | API/UI tests and responsive QA |
+| Accounting workspace | Bounded ten-row document list, filters, details, booking financial comparison, connection/mapping panel, sync attention/retry and reconciliation status | Implemented | API/UI tests and responsive QA |
 | Venue scope and permissions | Every local document/list action uses staff venue scope; connection is Settings-only; reconciliation is Accounts/Settings | Implemented | Existing access tests plus route inspection |
 | Live Xero interoperability | Requires credentials, approved organisation/mappings and demo-organisation round trip | Blocked by design | Mock contracts do not certify live operation |
 

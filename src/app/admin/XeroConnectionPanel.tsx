@@ -8,6 +8,9 @@ type Connection = { id: string; organisation: { candidates?: Candidate[]; select
 type ConnectionPayload = { configured: boolean; connections: Connection[]; liveSyncAuthorised: boolean };
 type Mapping = { account_code: string | null; approved_at: string | null; category: string; tax_code: string | null };
 type MappingsPayload = { mappings: Mapping[]; required: string[] };
+type SyncItem = { attempt_count: number; document_id: string | null; id: string; last_error: string | null; operation: string; status: string; updated_at: string };
+type SyncPayload = { items: SyncItem[]; total: number };
+type ReconciliationPayload = { items: Array<{ category: string; id: string; last_seen_at: string; provider_resource_type: string }>; total: number };
 
 const button = "min-h-10 rounded-full border border-[#D8C36A]/45 px-4 text-xs font-semibold text-[#F2D66C] transition hover:border-[#F2D66C] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40";
 const input = "min-h-10 w-full rounded-lg border border-white/15 bg-black/40 px-3 text-sm text-white outline-none focus:border-[#D8C36A]";
@@ -15,10 +18,15 @@ function label(value: string) { return value.replaceAll("_", " ").replace(/\b\w/
 
 export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Promise<void> }) {
   const [payload, setPayload] = useState<ConnectionPayload | null>(null); const [mappings, setMappings] = useState<MappingsPayload | null>(null);
+  const [syncItems, setSyncItems] = useState<SyncPayload>({ items: [], total: 0 }); const [reconciliation, setReconciliation] = useState<ReconciliationPayload>({ items: [], total: 0 });
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [drafts, setDrafts] = useState<Record<string, { accountCode: string; taxCode: string }>>({});
   const current = payload?.connections[0] ?? null;
   const load = useCallback(async () => {
-    const connection = await fetchSupabaseApi<ConnectionPayload>("/api/admin/xero/connection", { cache: "no-store" }); setPayload(connection);
+    const [connection, syncData, reconciliationData] = await Promise.all([
+      fetchSupabaseApi<ConnectionPayload>("/api/admin/xero/connection", { cache: "no-store" }),
+      fetchSupabaseApi<SyncPayload>("/api/admin/xero/sync", { cache: "no-store" }),
+      fetchSupabaseApi<ReconciliationPayload>("/api/admin/xero/reconciliation", { cache: "no-store" }),
+    ]); setPayload(connection); setSyncItems(syncData); setReconciliation(reconciliationData);
     const tenantId = connection.connections[0]?.tenant_id;
     const mappingData = await fetchSupabaseApi<MappingsPayload>(`/api/admin/xero/mappings${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ""}`, { cache: "no-store" }); setMappings(mappingData);
     setDrafts(Object.fromEntries(mappingData.mappings.map((mapping) => [mapping.category, { accountCode: mapping.account_code ?? "", taxCode: mapping.tax_code ?? "" }])));
@@ -30,6 +38,7 @@ export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Pr
   async function act(action: "disconnect" | "enable" | "pause" | "select", tenantId?: string) { if (!current) return; setBusy(true); setError(""); try { await fetchSupabaseApi("/api/admin/xero/connection", { body: { action, connectionId: current.id, tenantId }, method: "POST" }); await load(); await onChanged(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Xero settings could not be updated."); } finally { setBusy(false); } }
   async function connect() { setBusy(true); setError(""); try { const result = await fetchSupabaseApi<{ authorizationUrl: string }>("/api/admin/xero/oauth/start", { method: "POST" }); window.location.assign(result.authorizationUrl); } catch (caught) { setError(caught instanceof Error ? caught.message : "Xero connection could not start."); setBusy(false); } }
   async function saveMapping(category: string) { if (!current?.tenant_id) return; const draft = drafts[category] ?? { accountCode: "", taxCode: "" }; setBusy(true); setError(""); try { await fetchSupabaseApi("/api/admin/xero/mappings", { body: { accountCode: draft.accountCode, category, taxCode: draft.taxCode, tenantId: current.tenant_id }, method: "PUT" }); await load(); await onChanged(); } catch (caught) { setError(caught instanceof Error ? caught.message : "The mapping could not be saved."); } finally { setBusy(false); } }
+  async function retry(outboxId: string) { setBusy(true); setError(""); try { await fetchSupabaseApi("/api/admin/xero/sync", { body: { action: "retry", outboxId }, method: "POST" }); await load(); await onChanged(); } catch (caught) { setError(caught instanceof Error ? caught.message : "The sync item could not be retried."); } finally { setBusy(false); } }
   const candidates = current?.organisation?.candidates ?? [];
   return <section className="mt-5 rounded-xl border border-white/10 bg-black/25 p-4" aria-labelledby="xero-connection-title">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 id="xero-connection-title" className="font-semibold text-white">Xero connection</h3><p className="mt-1 text-sm text-zinc-400">Local quotes and invoice drafts work now. Accounts connection and sync remain paused.</p></div><div className="flex flex-wrap gap-2">
@@ -41,5 +50,9 @@ export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Pr
     {error && <p role="alert" className="mt-3 rounded-lg border border-red-400/30 bg-red-950/25 p-3 text-sm text-red-100">{error}</p>}
     {candidates.length > 0 && !current?.tenant_id && <div className="mt-4"><p className="text-xs font-semibold uppercase text-zinc-400">Choose the approved organisation</p><div className="mt-2 flex flex-wrap gap-2">{candidates.map((candidate) => <button key={candidate.tenantId} type="button" className={button} disabled={busy} onClick={() => void act("select", candidate.tenantId)}>{candidate.tenantName}</button>)}</div></div>}
     {current?.tenant_id && <div className="mt-4"><p className="text-sm font-semibold text-white">Accounts mappings</p><p className="mt-1 text-xs text-zinc-500">Every category must be approved before sync can be enabled.</p><div className="mt-3 grid gap-2">{(mappings?.required ?? []).map((category) => { const saved = mappings?.mappings.find((mapping) => mapping.category === category); const draft = drafts[category] ?? { accountCode: "", taxCode: "" }; return <div key={category} className="grid gap-2 rounded-lg border border-white/10 p-3 sm:grid-cols-[minmax(9rem,1fr)_1fr_1fr_auto] sm:items-center"><p className="text-sm text-white">{label(category)}{saved?.approved_at && <span className="block text-xs text-emerald-300">Approved</span>}</p><input aria-label={`${label(category)} account code`} className={input} placeholder="Account code" value={draft.accountCode} onChange={(event) => setDrafts((currentDrafts) => ({ ...currentDrafts, [category]: { ...draft, accountCode: event.target.value } }))} /><input aria-label={`${label(category)} VAT code`} className={input} placeholder="VAT code" value={draft.taxCode} onChange={(event) => setDrafts((currentDrafts) => ({ ...currentDrafts, [category]: { ...draft, taxCode: event.target.value } }))} /><button type="button" className={button} disabled={busy || !draft.accountCode.trim() || !draft.taxCode.trim()} onClick={() => void saveMapping(category)}>Approve</button></div>; })}</div></div>}
+    {(syncItems.total > 0 || reconciliation.total > 0) && <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="rounded-lg border border-white/10 p-3"><p className="text-sm font-semibold text-white">Sync attention</p><p className="mt-1 text-xs text-zinc-500">{syncItems.total} item{syncItems.total === 1 ? "" : "s"} waiting or paused.</p><div className="mt-2 space-y-2">{syncItems.items.filter((item) => item.status === "blocked").map((item) => <div key={item.id} className="flex items-center justify-between gap-2 text-xs"><span className="min-w-0 truncate text-zinc-300">{item.last_error || "Sync needs review."}</span><button type="button" className={button} disabled={busy} onClick={() => void retry(item.id)}>Retry</button></div>)}</div></div>
+      <div className="rounded-lg border border-white/10 p-3"><p className="text-sm font-semibold text-white">Reconciliation</p><p className="mt-1 text-xs text-zinc-500">{reconciliation.total} open difference{reconciliation.total === 1 ? "" : "s"}.</p>{reconciliation.items.slice(0, 5).map((item) => <p key={item.id} className="mt-2 text-xs text-zinc-300">{label(item.category)} · {label(item.provider_resource_type)}</p>)}</div>
+    </div>}
   </section>;
 }
