@@ -9,7 +9,7 @@ function canManage(auth: Awaited<ReturnType<typeof requireActiveStaff>>) { const
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request); if (auth.error || !auth.serviceClient) return auth.error;
   if (!canManage(auth)) return Response.json({ error: "Settings access is required." }, { status: 403 });
-  const { data, error } = await auth.serviceClient.from("xero_connections").select("id,tenant_id,tenant_name,status,sync_paused,last_sync_at,health_checked_at,health_error,organisation,connected_at").order("created_at", { ascending: false }).limit(5);
+  const { data, error } = await auth.serviceClient.from("xero_connections").select("id,tenant_id,tenant_name,status,sync_paused,last_sync_at,health_checked_at,health_error,organisation,connected_at").order("updated_at", { ascending: false }).limit(5);
   if (error) throw error; return Response.json({ connections: data ?? [], configured: Boolean(process.env.XERO_CLIENT_ID && process.env.XERO_CLIENT_SECRET && process.env.XERO_REDIRECT_URI && process.env.XERO_TOKEN_ENCRYPTION_KEY), liveSyncAuthorised: process.env.XERO_LIVE_SYNC_AUTHORISED === "true" });
 }
 
