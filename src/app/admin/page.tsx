@@ -30710,6 +30710,14 @@ export default function AdminDashboardPage() {
                                       : "Convert To Booking"}
                               </button>
                             )}
+                            {canManageBookings && !openCorporateRequest.linkedBookingReference && (
+                              <a
+                                href={`/admin?section=xero&quoteRequest=${encodeURIComponent(openCorporateRequest.id)}`}
+                                className="rounded-full border border-[#D8C36A]/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                              >
+                                Create Quote
+                              </a>
+                            )}
                             {canSendPaymentLink && (
                               <button
                                 type="button"
@@ -33347,6 +33355,11 @@ export default function AdminDashboardPage() {
                 typeof window === "undefined"
                   ? ""
                   : new URLSearchParams(window.location.search).get("booking") ?? ""
+              }
+              initialCorporateRequestId={
+                typeof window === "undefined"
+                  ? ""
+                  : new URLSearchParams(window.location.search).get("quoteRequest") ?? ""
               }
             />
           </div>

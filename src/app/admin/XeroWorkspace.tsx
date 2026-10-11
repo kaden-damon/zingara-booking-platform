@@ -19,7 +19,7 @@ type DocumentDetail = DocumentRow & {
   lines: Array<XeroDocumentLineInput & { subtotalCents: number; taxCents: number; totalCents: number }>;
   payment_terms: string | null; performance_date: string | null; performance_time: string | null;
   seating_summary: string | null; subtotal_cents: number; tax_cents: number; valid_until: string | null;
-  company_id: string | null; contact_customer_id: string | null; source_booking_id: string | null;
+  company_id: string | null; contact_customer_id: string | null; source_booking_id: string | null; source_corporate_request_id: string | null;
 };
 type BookingFinancials = { amountPaid: number; bookingReference: string; bookingValue: number; outstanding: number; paymentStatus: string };
 type WorkspacePayload = {
@@ -30,6 +30,7 @@ type WorkspacePayload = {
 };
 type DetailPayload = { bookingFinancials: BookingFinancials | null; document: DocumentDetail; versions: Array<{ created_at: string; version: number }> };
 type BookingPrefill = { booking: { billingAddress: string; bookingReference: string; bookingValue: number; companyId: string | null; contactCustomerId: string | null; customerEmail: string; customerName: string; guestCount: number; outstanding: number; paid: number; paymentStatus: string; performanceDate: string; performanceTime: string; seatingSummary: string; sourceBookingId: string; venue: "cape-town" | "johannesburg" } };
+type CorporatePrefill = { corporateRequest: { billingAddress: string; companyId: string | null; contactCustomerId: string | null; customerEmail: string; customerName: string; guestCount: number | null; performanceDate: string | null; seatingSummary: string | null; sourceCorporateRequestId: string; venue: "cape-town" | "johannesburg" } };
 
 const emptyLine = (): XeroDocumentLineInput => ({ description: "", quantity: "1", taxCode: null, taxRatePercent: null, unitPrice: "0.0000" });
 const inputClass = "mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white outline-none transition focus:border-[#D8C36A] focus:ring-2 focus:ring-[#D8C36A]/20";
@@ -54,7 +55,7 @@ function downloadPdf(document: DocumentDetail) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-export default function XeroWorkspace({ initialBookingReference = "", mode = "settings" }: { initialBookingReference?: string; mode?: "reports" | "settings" }) {
+export default function XeroWorkspace({ initialBookingReference = "", initialCorporateRequestId = "", mode = "settings" }: { initialBookingReference?: string; initialCorporateRequestId?: string; mode?: "reports" | "settings" }) {
   const [payload, setPayload] = useState<WorkspacePayload | null>(null);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const [page, setPage] = useState(1); const [search, setSearch] = useState(""); const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -63,6 +64,7 @@ export default function XeroWorkspace({ initialBookingReference = "", mode = "se
   const [kind, setKind] = useState<"invoice" | "quote">("quote"); const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState(""); const [billingAddress, setBillingAddress] = useState(""); const [accountNumber, setAccountNumber] = useState("");
   const [sourceBookingId, setSourceBookingId] = useState<string | null>(null); const [companyId, setCompanyId] = useState<string | null>(null); const [contactCustomerId, setContactCustomerId] = useState<string | null>(null);
+  const [sourceCorporateRequestId, setSourceCorporateRequestId] = useState<string | null>(null);
   const [bookingReference, setBookingReference] = useState(initialBookingReference); const [venue, setVenue] = useState<"cape-town" | "johannesburg">("cape-town");
   const [documentDate, setDocumentDate] = useState(new Date().toISOString().slice(0, 10)); const [validUntil, setValidUntil] = useState("");
   const [performanceDate, setPerformanceDate] = useState(""); const [performanceTime, setPerformanceTime] = useState("");
@@ -90,6 +92,22 @@ export default function XeroWorkspace({ initialBookingReference = "", mode = "se
     }, 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [initialBookingReference]);
+  useEffect(() => {
+    if (!initialCorporateRequestId) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await fetchSupabaseApi<CorporatePrefill>(`/api/admin/xero?prefillCorporateRequestId=${encodeURIComponent(initialCorporateRequestId)}`, { cache: "no-store", signal: controller.signal });
+        const request = result.corporateRequest;
+        setSourceCorporateRequestId(request.sourceCorporateRequestId); setCompanyId(request.companyId); setContactCustomerId(request.contactCustomerId);
+        setCustomerName(request.customerName); setCustomerEmail(request.customerEmail); setBillingAddress(request.billingAddress); setGuestCount(request.guestCount === null ? "" : String(request.guestCount));
+        setPerformanceDate(request.performanceDate ?? ""); setSeatingSummary(request.seatingSummary ?? ""); setVenue(request.venue); setEditorOpen(true);
+      } catch (prefillError) {
+        if (!(prefillError instanceof DOMException && prefillError.name === "AbortError")) setError(prefillError instanceof Error ? prefillError.message : "The Corporate enquiry couldn't be loaded.");
+      }
+    }, 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [initialCorporateRequestId]);
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setError(""); const params = new URLSearchParams({ page: String(page), pageSize: "10" });
     if (debouncedSearch) params.set("search", debouncedSearch); if (kindFilter !== "all") params.set("kind", kindFilter);
@@ -109,7 +127,7 @@ export default function XeroWorkspace({ initialBookingReference = "", mode = "se
   function updateLine(index: number, key: keyof XeroDocumentLineInput, value: string | null) { setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, [key]: value } : line)); }
   function moveLine(index: number, direction: -1 | 1) { setLines((current) => { const nextIndex = index + direction; if (nextIndex < 0 || nextIndex >= current.length) return current; const next = [...current]; [next[index], next[nextIndex]] = [next[nextIndex], next[index]]; return next; }); }
   function resetEditor(nextKind: "invoice" | "quote") {
-    setEditingId(null); setEditingVersion(null); setKind(nextKind); setCustomerName(""); setCustomerEmail(""); setBillingAddress(""); setAccountNumber(""); setBookingReference(initialBookingReference); setSourceBookingId(null); setCompanyId(null); setContactCustomerId(null);
+    setEditingId(null); setEditingVersion(null); setKind(nextKind); setCustomerName(""); setCustomerEmail(""); setBillingAddress(""); setAccountNumber(""); setBookingReference(initialBookingReference); setSourceBookingId(null); setSourceCorporateRequestId(null); setCompanyId(null); setContactCustomerId(null);
     setVenue("cape-town"); setDocumentDate(new Date().toISOString().slice(0, 10)); setValidUntil(""); setPerformanceDate(""); setPerformanceTime(""); setSeatingSummary(""); setGuestCount("");
     setPaymentTerms(""); setCustomerNotes(""); setInternalNotes(""); setAmountType("no-tax"); setLines([emptyLine()]); setError(""); setEditorOpen(true);
   }
@@ -117,6 +135,7 @@ export default function XeroWorkspace({ initialBookingReference = "", mode = "se
     setEditingId(document.id); setEditingVersion(document.version); setKind(document.kind); setCustomerName(document.customer_name); setCustomerEmail(document.customer_email ?? ""); setBillingAddress(document.billing_address ?? "");
     setAccountNumber(document.account_number ?? ""); setBookingReference(document.source_booking_reference ?? ""); setVenue(document.venue as typeof venue); setDocumentDate(document.document_date); setValidUntil(document.valid_until ?? "");
     setSourceBookingId(document.source_booking_id); setCompanyId(document.company_id); setContactCustomerId(document.contact_customer_id);
+    setSourceCorporateRequestId(document.source_corporate_request_id);
     setPerformanceDate(document.performance_date ?? ""); setPerformanceTime(document.performance_time?.slice(0,5) ?? ""); setSeatingSummary(document.seating_summary ?? ""); setGuestCount(document.guest_count === null ? "" : String(document.guest_count));
     setPaymentTerms(document.payment_terms ?? ""); setCustomerNotes(document.customer_notes ?? ""); setInternalNotes(document.internal_notes ?? ""); setAmountType(document.line_amount_type);
     setLines(document.lines.map(({ description, quantity, taxCode, taxRatePercent, unitPrice }) => ({ description, quantity: String(quantity), taxCode, taxRatePercent, unitPrice: String(unitPrice) })));
@@ -126,7 +145,7 @@ export default function XeroWorkspace({ initialBookingReference = "", mode = "se
     setBusy(true); setError("");
     try { await fetchSupabaseApi("/api/admin/xero", { method: editingId ? "PUT" : "POST", body: { accountNumber, billingAddress, companyId, contactCustomerId, customerEmail, customerName, customerNotes, documentDate, documentId: editingId,
       guestCount: guestCount ? Number(guestCount) : null, internalNotes, kind, lineAmountType: amountType, lines, paymentTerms, performanceDate, performanceTime, seatingSummary,
-      sourceBookingId, sourceBookingReference: bookingReference, validUntil, venue, version: editingVersion } }); setEditorOpen(false); await load(); }
+      sourceBookingId, sourceBookingReference: bookingReference, sourceCorporateRequestId, validUntil, venue, version: editingVersion } }); setEditorOpen(false); await load(); }
     catch (saveError) { setError(saveError instanceof Error ? saveError.message : "The draft couldn't be saved."); } finally { setBusy(false); }
   }
   async function openDocument(documentId: string) { setBusy(true); setError(""); try { const result = await fetchSupabaseApi<DetailPayload>(`/api/admin/xero?documentId=${encodeURIComponent(documentId)}`, { cache: "no-store" }); setSelectedPayload(result); setAcceptedBy(result.document.accepted_by ?? ""); setAcceptanceEvidence(result.document.acceptance_evidence ?? ""); } catch (detailError) { setError(detailError instanceof Error ? detailError.message : "The document couldn't be loaded."); } finally { setBusy(false); } }

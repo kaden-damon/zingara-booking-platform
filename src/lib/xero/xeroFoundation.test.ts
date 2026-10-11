@@ -128,14 +128,17 @@ test("quote and invoice PDFs keep local/Xero and payment truth explicit", () => 
 });
 
 test("admin integration stays bounded and presents disconnected truth", async () => {
-  const [route, workspace] = await Promise.all([
+  const [route, workspace, adminPage] = await Promise.all([
     source("../../app/api/admin/xero/route.ts"),
     source("../../app/admin/XeroWorkspace.tsx"),
+    source("../../app/admin/page.tsx"),
   ]);
   assert.match(route, /\.range\(from, from \+ pageSize - 1\)/);
   assert.match(route, /export async function PUT/);
   assert.match(route, /canCreateInvoice/);
   assert.match(route, /prefillBookingReference/);
+  assert.match(route, /prefillCorporateRequestId/);
+  assert.match(route, /resolveSourceCorporateRequest/);
   assert.match(route, /resolveSourceBooking/);
   assert.match(route, /The linked booking is outside this venue/);
   assert.match(route, /Add a valid billing email/);
@@ -143,6 +146,9 @@ test("admin integration stays bounded and presents disconnected truth", async ()
   assert.match(workspace, /Live sync paused/);
   assert.match(workspace, /pageSize: "10"/);
   assert.match(workspace, /Create Invoice Draft/);
+  assert.match(workspace, /initialCorporateRequestId/);
+  assert.match(adminPage, /canManageBookings && !openCorporateRequest\.linkedBookingReference/);
+  assert.match(adminPage, /section=xero&quoteRequest=/);
   assert.match(workspace, /Edit Draft/);
   assert.match(workspace, /Review & Accept/);
   assert.match(workspace, /Custom service lines never create guests, tickets or seats/);

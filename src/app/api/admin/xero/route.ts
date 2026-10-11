@@ -118,6 +118,19 @@ function cleanSearch(value: string | null) {
   return value?.normalize("NFKC").replace(/[^\p{L}\p{N}\s@.+-]/gu, "").trim().slice(0, 100) ?? "";
 }
 
+function corporateRequestVenue(notes: string | null) {
+  if (!notes?.startsWith("__zingara_corporate_request_meta__:")) return null;
+  try {
+    const metadata = JSON.parse(notes.slice("__zingara_corporate_request_meta__:".length)) as { locationAcknowledgement?: string };
+    const location = metadata.locationAcknowledgement?.toLowerCase() ?? "";
+    if (location.includes("johannesburg")) return "johannesburg";
+    if (location.includes("cape town")) return "cape-town";
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 async function resolveSourceBooking(
   auth: Awaited<ReturnType<typeof requireActiveStaff>>,
   input: DocumentInput,
@@ -137,6 +150,26 @@ async function resolveSourceBooking(
   input.sourceBookingReference = booking.booking_reference;
 }
 
+async function resolveSourceCorporateRequest(
+  auth: Awaited<ReturnType<typeof requireActiveStaff>>,
+  input: DocumentInput,
+) {
+  if (!auth.serviceClient || !input.sourceCorporateRequestId) return;
+  const { data: request, error } = await auth.serviceClient
+    .from("corporate_requests")
+    .select("id,company_id,contact_customer_id,notes")
+    .eq("id", input.sourceCorporateRequestId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!request) throw new Error("The linked Corporate enquiry could not be found.");
+  const venue = corporateRequestVenue(request.notes);
+  if (!venue || !auth.staffProfile || !allowedVenues(auth.staffProfile.venue_scope).includes(venue) || input.venue !== venue) {
+    throw new Error("The linked Corporate enquiry is outside this venue.");
+  }
+  input.companyId = request.company_id;
+  input.contactCustomerId = request.contact_customer_id;
+}
+
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
   if (auth.error || !auth.serviceClient || !auth.staffProfile) return auth.error;
@@ -146,6 +179,40 @@ export async function GET(request: Request) {
   }
   const venues = allowedVenues(auth.staffProfile.venue_scope);
   const url = new URL(request.url);
+  const prefillCorporateRequestId = url.searchParams.get("prefillCorporateRequestId")?.trim();
+  if (prefillCorporateRequestId) {
+    if (!/^[0-9a-f-]{36}$/i.test(prefillCorporateRequestId)) return Response.json({ error: "Invalid Corporate enquiry." }, { status: 400 });
+    const { data: corporateRequest, error: requestError } = await auth.serviceClient
+      .from("corporate_requests")
+      .select("id,company_id,contact_customer_id,company_name,contact_name,email,guest_count,preferred_event_date,seating_preference,notes")
+      .eq("id", prefillCorporateRequestId)
+      .maybeSingle();
+    if (requestError) throw requestError;
+    if (!corporateRequest) return Response.json({ error: "The Corporate enquiry could not be found." }, { status: 404 });
+    const venue = corporateRequestVenue(corporateRequest.notes);
+    if (!venue) return Response.json({ error: "Confirm the enquiry venue before creating a quote." }, { status: 409 });
+    if (!venues.includes(venue)) return Response.json({ error: "This venue is outside your access." }, { status: 403 });
+    const [customerResult, companyResult] = await Promise.all([
+      corporateRequest.contact_customer_id ? auth.serviceClient.from("customers").select("id,first_name,surname,email").eq("id", corporateRequest.contact_customer_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+      corporateRequest.company_id ? auth.serviceClient.from("companies").select("id,legal_name,trading_name,billing_email,billing_address_line_1,billing_address_line_2,billing_suburb,billing_city,billing_province,billing_postal_code,billing_country").eq("id", corporateRequest.company_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    ]);
+    if (customerResult.error) throw customerResult.error;
+    if (companyResult.error) throw companyResult.error;
+    const customer = customerResult.data;
+    const company = companyResult.data;
+    return Response.json({ corporateRequest: {
+      billingAddress: company ? [company.billing_address_line_1, company.billing_address_line_2, company.billing_suburb, company.billing_city, company.billing_province, company.billing_postal_code, company.billing_country].filter(Boolean).join(", ") : "",
+      companyId: corporateRequest.company_id,
+      contactCustomerId: corporateRequest.contact_customer_id,
+      customerEmail: company?.billing_email || customer?.email || corporateRequest.email || "",
+      customerName: company?.trading_name || company?.legal_name || corporateRequest.company_name || corporateRequest.contact_name,
+      guestCount: corporateRequest.guest_count,
+      performanceDate: corporateRequest.preferred_event_date,
+      seatingSummary: corporateRequest.seating_preference,
+      sourceCorporateRequestId: corporateRequest.id,
+      venue,
+    } });
+  }
   const prefillBookingReference = cleanText(url.searchParams.get("prefillBookingReference") ?? undefined, 100);
   if (prefillBookingReference) {
     const { data: booking, error: bookingError } = await auth.serviceClient
@@ -274,6 +341,8 @@ export async function POST(request: Request) {
   const permissions = rolePermissions(auth);
   try {
     const input = (await request.json()) as DocumentInput;
+    if (input.sourceBookingId && input.sourceCorporateRequestId) throw new Error("Link the document to one source only.");
+    await resolveSourceCorporateRequest(auth, input);
     await resolveSourceBooking(auth, input);
     const validated = validateDocument(input);
     if (validated.kind === "quote" && !canCreateXeroQuote(permissions)) {
@@ -318,11 +387,14 @@ export async function PUT(request: Request) {
     const validated = validateDocument(input);
     if (validated.kind === "quote" && !canCreateXeroQuote(permissions)) return Response.json({ error: "Quote access is required." }, { status: 403 });
     if (validated.kind === "invoice" && !canCreateInvoice(auth, permissions)) return Response.json({ error: "Accounts access is required." }, { status: 403 });
-    const { data: current, error: currentError } = await auth.serviceClient.from("xero_documents").select("id,kind,venue,status,version,source_booking_id,source_booking_reference").eq("id", input.documentId).single();
+    const { data: current, error: currentError } = await auth.serviceClient.from("xero_documents").select("id,kind,venue,status,version,source_booking_id,source_booking_reference,source_corporate_request_id").eq("id", input.documentId).single();
     if (currentError || !current) return Response.json({ error: "The document could not be found." }, { status: 404 });
     if (!allowedVenues(auth.staffProfile.venue_scope).includes(current.venue)) return Response.json({ error: "This venue is outside your access." }, { status: 403 });
     if (!input.venue || !allowedVenues(auth.staffProfile.venue_scope).includes(input.venue)) return Response.json({ error: "This venue is outside your access." }, { status: 403 });
+    await resolveSourceCorporateRequest(auth, input);
+    await resolveSourceBooking(auth, input);
     if ((input.sourceBookingId ?? null) !== (current.source_booking_id ?? null) || cleanText(input.sourceBookingReference, 100) !== (current.source_booking_reference ?? "")) return Response.json({ error: "The linked booking cannot be changed on this draft." }, { status: 409 });
+    if ((input.sourceCorporateRequestId ?? null) !== (current.source_corporate_request_id ?? null)) return Response.json({ error: "The linked Corporate enquiry cannot be changed on this draft." }, { status: 409 });
     if (current.kind !== validated.kind || !["draft", "revised"].includes(current.status)) return Response.json({ error: "This document is read-only." }, { status: 409 });
     const { data, error } = await auth.serviceClient.rpc("update_xero_document_draft_atomic", {
       p_actor_auth_user_id: auth.user.id,
