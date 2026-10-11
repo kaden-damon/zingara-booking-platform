@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import {
   acknowledgeStaffTour,
@@ -62,7 +63,7 @@ export function StaffOnboardingTour() {
       >
         <div className="flex items-start justify-between gap-4">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-            NEW: FULL SHOW BUYOUTS
+            NEW: ZINGARA × XERO
           </p>
           <button
             aria-label="Close onboarding tour"
@@ -75,6 +76,13 @@ export function StaffOnboardingTour() {
         </div>
 
         <div className="mt-4 min-h-56 sm:mt-5">
+          {page.id === "xero-ready" && (
+            <div className="mb-5 flex items-center gap-3">
+              <Image src="/brand/zingara-logo-landing.svg" alt="Zingara" width={142} height={34} className="h-8 w-auto" />
+              <span aria-hidden="true" className="text-xl text-[#D8C36A]">→</span>
+              <Image src="/brand/xero-logo.png" alt="Xero" width={163} height={32} className="h-8 w-auto" />
+            </div>
+          )}
           <h2 className="text-2xl font-bold sm:text-3xl" id="staff-tour-title">
             {page.title}
           </h2>

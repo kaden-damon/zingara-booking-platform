@@ -139,6 +139,22 @@ export default function CorporateBookingOperationsPanel(props: {
           <p className="text-xs text-zinc-500">Updated {new Intl.DateTimeFormat("en-ZA", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Johannesburg" }).format(new Date(operations.updatedAt))}{operations.updatedByName ? ` by ${operations.updatedByName}` : ""}</p>
         )}
       </div>
+      {props.canManage && !props.readOnly && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a
+            href={`/admin?section=xero&booking=${encodeURIComponent(props.bookingReference)}`}
+            className="inline-flex min-h-10 items-center rounded-full bg-[#D8C36A] px-4 text-xs font-bold uppercase text-black transition hover:bg-[#F2D66C]"
+          >
+            Create Quote
+          </a>
+          <a
+            href="/admin?section=reports&report=accounting"
+            className="inline-flex min-h-10 items-center rounded-full border border-white/15 px-4 text-xs font-semibold text-zinc-200 transition hover:border-[#D8C36A]/50 hover:text-white"
+          >
+            View Quotes &amp; Invoices
+          </a>
+        </div>
+      )}
       {cards.length > 0 ? (
         <div className="mt-3 grid gap-2 sm:grid-cols-3">
           {cards.map((card) => (

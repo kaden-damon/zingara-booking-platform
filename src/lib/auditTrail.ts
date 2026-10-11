@@ -3,6 +3,7 @@ import type { AdminRole } from "@/lib/zingaraAccess";
 export type AuditOutcome = "blocked" | "failed" | "success";
 
 export type AuditEntityType =
+  | "accounting-document"
   | "booking"
   | "booking-lock"
   | "customer"

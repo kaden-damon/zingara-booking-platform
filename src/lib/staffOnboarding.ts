@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 
-export const latestStaffTourVersion = "full-show-buyouts-2026-10";
+export const latestStaffTourVersion = "xero-foundation-2026-10";
 export const staffTourMetadataKey = "zingara_staff_tour_version";
 
 export type StaffTourPage = {
@@ -13,40 +13,42 @@ export type StaffTourPage = {
 
 export const staffTourPages: StaffTourPage[] = [
   {
-    body: "Go to Home → Show & Availability Management and select the performance.",
-    id: "buyout-show",
-    title: "Choose the show",
+    body: "The quoting and invoice-draft workflow is ready. Live Xero synchronisation is not connected and stays paused until Accounts approves it.",
+    id: "xero-ready",
+    supporting: "No document is sent to Xero until a verified organisation is connected and approved.",
+    title: "Zingara × Xero",
   },
   {
-    body: "Select the + on the performance and choose Full Show Buyout.",
-    id: "buyout-start",
-    title: "Start the Buyout",
+    body: "Open a Corporate booking and choose Create Quote. Add the customer, show, seating, pax and approved commercial details.",
+    id: "xero-quote",
+    title: "Create a Quote",
   },
   {
-    body: "Select the Company and Contact, or use the yellow + to create them.",
-    id: "buyout-company",
-    title: "Choose the Company",
+    body: "Use Add Line for independently priced seats, gratuity, venue hire, Halal surcharge, AV or another approved service.",
+    id: "xero-lines",
+    supporting: "Custom service lines never create guests, tickets or seats.",
+    title: "Add Custom Lines",
   },
   {
-    body: "Select Private Salon, Speakeasy or Grand Society.",
-    id: "buyout-package",
-    title: "Choose the package",
+    body: "Save a draft, preview it and record the accepted version and evidence. Viewing a quote never accepts it.",
+    id: "xero-accept",
+    title: "Send & Accept",
   },
   {
-    body: "Enter the expected guest count and final count when known.",
-    id: "buyout-guests",
-    title: "Add guest numbers",
+    body: "Convert only the accepted quote version. Until Xero connects, the result is clearly marked as a local invoice draft.",
+    id: "xero-invoice",
+    title: "Convert to Invoice",
   },
   {
-    body: "Check the show, Company, package, guests and price, then create the Buyout.",
-    id: "buyout-review",
-    title: "Review and create",
+    body: "Use the existing verified PayFast or EFT workflow to request and confirm deposits. Creating an invoice never marks a booking paid.",
+    id: "xero-deposit",
+    title: "Request Deposit",
   },
   {
-    body: "Once the valid Buyout is created, Zingara protects the performance from ordinary public bookings.",
-    id: "buyout-protection",
-    supporting: "If the show already has bookings, they stay unchanged and need to be moved manually.",
-    title: "The show is protected",
+    body: "Open Reports → Accounting to review local documents, verified paid amounts, differences and sync attention without changing certified reports.",
+    id: "xero-reporting",
+    supporting: "Settings → Integrations shows the connection and mapping status for authorised staff.",
+    title: "Accounts & Reports",
   },
 ];
 

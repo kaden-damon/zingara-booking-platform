@@ -172,6 +172,26 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
       purpose: "Review and manage Corporate enquiries and bookings.",
       title: "Corporate Bookings",
     },
+    xero: {
+      action: { href: "/admin?section=settings&settings=integrations", label: "Open Xero Integration" },
+      content: (
+        <div className="space-y-4">
+          <Steps>
+            <li>Open a Corporate booking and choose Create Quote.</li>
+            <li>Add the approved customer, performance and custom price lines.</li>
+            <li>Save the operational draft and review its total.</li>
+            <li>Record acceptance against the exact quote version.</li>
+            <li>Convert the accepted quote to a local invoice draft.</li>
+            <li>Accounts reviews mappings and connects the approved Xero organisation separately.</li>
+          </Steps>
+          <Note critical>Live Xero sync is not connected. A local invoice draft is not an issued Xero invoice and never proves payment.</Note>
+          <Note>Path: Corporate booking → Create Quote. Accounting status: Reports → Accounting. Connection status: Settings → Integrations.</Note>
+        </div>
+      ),
+      id: "xero",
+      purpose: "Create quotes and understand the paused Xero accounting workflow.",
+      title: "Quotes & Xero",
+    },
     customers: {
       action: { href: "/admin?section=customers", label: "Open Customers" },
       content: (

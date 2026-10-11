@@ -9,11 +9,11 @@ import {
 } from "./staffOnboarding.ts";
 
 test("staff onboarding is versioned and concise", () => {
-  assert.equal(latestStaffTourVersion, "full-show-buyouts-2026-10");
+  assert.equal(latestStaffTourVersion, "xero-foundation-2026-10");
   assert.equal(staffTourPages.length, 7);
   assert.equal(new Set(staffTourPages.map((page) => page.id)).size, 7);
   assert.ok(staffTourPages.every((page) => !("icon" in page)));
-  assert.match(staffTourPages.at(-1)?.supporting ?? "", /stay unchanged and need to be moved manually/);
+  assert.match(staffTourPages.at(-1)?.supporting ?? "", /Settings → Integrations/);
 });
 
 test("only the current release acknowledgement suppresses the tour", () => {

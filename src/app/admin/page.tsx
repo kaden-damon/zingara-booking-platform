@@ -72,6 +72,7 @@ const DineplanReconciliation = dynamic(
   () => import("./DineplanReconciliation"),
 );
 const ManagementAnalytics = dynamic(() => import("./ManagementAnalytics"));
+const XeroWorkspace = dynamic(() => import("./XeroWorkspace"));
 const PotentialDuplicatesPanel = dynamic(
   () => import("./PotentialDuplicatesPanel"),
 );
@@ -953,6 +954,7 @@ type AdminTab =
   | "analytics"
   | "platform-operations"
   | "settings"
+  | "xero"
   | "academy";
 type AnalyticsSectionId =
   | "per-show-revenue"
@@ -962,7 +964,7 @@ type AnalyticsSectionId =
   | "booking-source-mix"
   | "waitlist-conversion"
   | "customer-value";
-type AnalyticsWorkspace = "reports" | "revenue" | "sales";
+type AnalyticsWorkspace = "accounting" | "reports" | "revenue" | "sales";
 type BookingArchiveFilter = "active" | "all" | "archived";
 type CustomerArchiveFilter = "active" | "all" | "archived";
 type CustomerNameStatusFilter = "all" | "complete" | "incomplete";
@@ -979,6 +981,7 @@ type OperationsTab =
   | "export-centre";
 type SettingsTab =
   | "audit"
+  | "integrations"
   | "portability"
   | "promo-codes"
   | "staff"
@@ -1654,6 +1657,7 @@ const adminPresenceAreas: Record<AdminTab, string> = {
   "platform-operations": "Platform Operations",
   reviews: "Guest Reviews",
   settings: "Settings",
+  xero: "Quotes & Invoices",
 };
 
 const dataPortabilityColumns: Record<
@@ -5437,6 +5441,37 @@ const settingsLessons: AcademyArticle[] = [
   {
     category: "Settings",
     commonMistakes: [
+      "Treating a local invoice draft as an issued Xero invoice.",
+      "Choosing a tax or account mapping without Accounts approval.",
+      "Assuming an approved invoice means the booking has been paid.",
+    ],
+    difficulty: "advanced",
+    howTo: [
+      "Open a Corporate booking and choose Create Quote.",
+      "Add the approved customer, show and custom lines.",
+      "Save and review the operational quote draft.",
+      "Record who accepted the exact quote version and the evidence.",
+      "Convert the accepted quote to a local invoice draft.",
+      "Open Reports, then Accounting to review document and sync status.",
+      "Accounts connects and approves the Xero organisation and mappings in Settings, then Integrations.",
+    ],
+    id: "xero-quotes-invoices",
+    keywords: ["xero", "quote", "invoice", "accounts", "deposit", "custom lines", "accounting"],
+    moduleId: "settings",
+    purpose: "Create operational quotes and local invoice drafts while keeping Xero as the accounting authority.",
+    relatedActions: ["bookings"],
+    related: ["Payment Gateway Settings", "Corporate Bookings"],
+    tips: [
+      "Custom service lines do not create guests, tickets or seats.",
+      "Live sync starts paused and stays unavailable until Accounts approves the organisation and mappings.",
+      "Only verified payment evidence changes paid and outstanding amounts.",
+    ],
+    title: "Zingara × Xero Quotes and Invoices",
+    whenToUse: "Use this for approved Corporate quotes, acceptance and accounting handover.",
+  },
+  {
+    category: "Settings",
+    commonMistakes: [
       "Changing settings during service without checking the operational impact.",
       "Assuming settings changes only affect the current screen.",
     ],
@@ -7382,6 +7417,7 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "promo-codes", label: "Promotions" },
   { id: "workflows", label: "Communications" },
   { id: "audit", label: "Audit Trail" },
+  { id: "integrations", label: "Integrations" },
 ];
 const systemTabs: Array<{ id: SystemTab; label: string }> = [
   { id: "operations", label: "Platform" },
@@ -12374,6 +12410,8 @@ export default function AdminDashboardPage() {
       const issueId = url.searchParams.get("issue")?.trim();
       const dineplanActionId = url.searchParams.get("action")?.trim();
       const section = url.searchParams.get("section")?.trim();
+      const settingsSection = url.searchParams.get("settings")?.trim();
+      const reportSection = url.searchParams.get("report")?.trim();
       const systemSection = url.searchParams.get("system")?.trim();
       const bookingShow = url.searchParams.get("show")?.trim();
       const deepLinkKey = `${bookingReference ?? ""}|${waitlistId ?? ""}|${corporateRequestId ?? ""}|${issueId ?? ""}|${dineplanActionId ?? ""}|${section ?? ""}|${systemSection ?? ""}|${bookingShow ?? ""}`;
@@ -12386,7 +12424,9 @@ export default function AdminDashboardPage() {
         return;
       }
 
-      if (bookingReference) {
+      if (section === "xero") {
+        setActiveAdminTab("xero");
+      } else if (bookingReference) {
         setActiveAdminTab("bookings");
         setBookingSearch(bookingReference);
         setBookingPage(1);
@@ -12444,12 +12484,15 @@ export default function AdminDashboardPage() {
         setActiveAdminTab("customers");
       } else if (section === "analytics") {
         setActiveAdminTab("analytics");
+        if (reportSection === "accounting") setAnalyticsWorkspace("accounting");
       } else if (section === "reports") {
         setActiveAdminTab("analytics");
+        if (reportSection === "accounting") setAnalyticsWorkspace("accounting");
       } else if (section === "reviews") {
         setActiveAdminTab("reviews");
       } else if (section === "settings") {
         setActiveAdminTab("settings");
+        if (settingsSection === "integrations") setActiveSettingsTab("integrations");
       } else if (section === "communications") {
         setActiveAdminTab("settings");
         setActiveSettingsTab("workflows");
@@ -33297,9 +33340,21 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
+        {activeAdminTab === "xero" && canViewBookingManagement && (
+          <div className="mb-10">
+            <XeroWorkspace
+              initialBookingReference={
+                typeof window === "undefined"
+                  ? ""
+                  : new URLSearchParams(window.location.search).get("booking") ?? ""
+              }
+            />
+          </div>
+        )}
+
         {activeAdminTab === "settings" && canManageSettings && (
           <section className="mb-8 rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/70 p-2 shadow-2xl shadow-black/20">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-6">
               {settingsTabs
                 .filter((tab) => tab.id !== "portability" || canViewDataPortability)
                 .map((tab) => (
@@ -33319,6 +33374,20 @@ export default function AdminDashboardPage() {
             </div>
           </section>
         )}
+
+        {activeAdminTab === "settings" &&
+          activeSettingsTab === "integrations" &&
+          canManageSettings && (
+            <div className="mb-10">
+              <XeroWorkspace
+                initialBookingReference={
+                  typeof window === "undefined"
+                    ? ""
+                    : new URLSearchParams(window.location.search).get("booking") ?? ""
+                }
+              />
+            </div>
+          )}
 
         {activeAdminTab === "settings" &&
           activeSettingsTab === "portability" &&
@@ -39057,13 +39126,14 @@ export default function AdminDashboardPage() {
           <section className="mb-10 rounded-2xl border border-[#D8C36A]/35 bg-[radial-gradient(circle_at_top,#251909_0%,#101010_48%,#050505_100%)] p-6 shadow-2xl shadow-[#8D7A2F]/10">
             <nav
               aria-label="Analytics workspaces"
-              className="mb-8 grid w-full grid-cols-1 gap-2 rounded-[1.25rem] border border-white/10 bg-black/35 p-2 md:grid-cols-3"
+              className="mb-8 grid w-full grid-cols-2 gap-2 rounded-[1.25rem] border border-white/10 bg-black/35 p-2 lg:grid-cols-4"
             >
               {(
                 [
                   ["sales", "Sales & Performance"],
                   ["revenue", "Revenue"],
                   ["reports", "Operations Reports"],
+                  ["accounting", "Accounting"],
                 ] as Array<[AnalyticsWorkspace, string]>
               ).map(([workspace, label]) => (
                 <button
@@ -39093,6 +39163,8 @@ export default function AdminDashboardPage() {
                 } : undefined}
               />
             )}
+
+            {analyticsWorkspace === "accounting" && <XeroWorkspace mode="reports" />}
 
             {analyticsWorkspace === "revenue" && (
               <>
