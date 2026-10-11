@@ -154,3 +154,19 @@ test("admin integration stays bounded and presents disconnected truth", async ()
   assert.match(workspace, /Custom service lines never create guests, tickets or seats/);
   assert.doesNotMatch(workspace, /Xero is connected/);
 });
+
+test("blocked sync recovery is bounded, permissioned and atomically audited", async () => {
+  const [route, panel, migration] = await Promise.all([
+    source("../../app/api/admin/xero/sync/route.ts"),
+    source("../../app/admin/XeroConnectionPanel.tsx"),
+    source("../../../supabase/migrations/20261011235500_phase_49_1_xero_manual_retry.sql"),
+  ]);
+  assert.match(route, /\.limit\(20\)/);
+  assert.match(route, /settings:manage/);
+  assert.match(route, /retry_xero_sync_outbox_atomic/);
+  assert.match(panel, /Sync attention/);
+  assert.match(panel, /Reconciliation/);
+  assert.match(migration, /for update/);
+  assert.match(migration, /xero\.sync-retry-requested/);
+  assert.match(migration, /insert into public\.audit_events/);
+});
