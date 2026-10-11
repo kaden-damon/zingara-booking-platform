@@ -16,23 +16,28 @@ export type XeroCalculatedLine = XeroDocumentLineInput & {
 
 const SCALE = 10_000;
 
-function parseScaled(value: string, scale = 4) {
+function parseScaled(value: string, scale = 4, allowNegative = false) {
   const normalized = value.trim();
-  if (!/^\d+(?:\.\d+)?$/.test(normalized)) {
-    throw new Error("Enter a valid positive number.");
+  const pattern = allowNegative ? /^-?\d+(?:\.\d+)?$/ : /^\d+(?:\.\d+)?$/;
+  if (!pattern.test(normalized)) {
+    throw new Error(allowNegative ? "Enter a valid amount." : "Enter a valid positive number.");
   }
-  const [whole, fraction = ""] = normalized.split(".");
+  const negative = normalized.startsWith("-");
+  const unsigned = negative ? normalized.slice(1) : normalized;
+  const [whole, fraction = ""] = unsigned.split(".");
   if (fraction.length > scale) {
     throw new Error(`Use no more than ${scale} decimal places.`);
   }
-  const scaled = Number(whole) * 10 ** scale + Number(fraction.padEnd(scale, "0"));
+  const magnitude = Number(whole) * 10 ** scale + Number(fraction.padEnd(scale, "0"));
+  const scaled = negative ? -magnitude : magnitude;
   if (!Number.isSafeInteger(scaled)) throw new Error("This amount is too large.");
   return scaled;
 }
 
 function roundFraction(numerator: number, denominator: number) {
   if (!Number.isSafeInteger(numerator)) throw new Error("This calculation is too large.");
-  return Math.floor(numerator / denominator + 0.5);
+  const result = numerator / denominator;
+  return result < 0 ? Math.ceil(result - 0.5) : Math.floor(result + 0.5);
 }
 
 export function calculateXeroDocumentLine(
@@ -41,7 +46,8 @@ export function calculateXeroDocumentLine(
 ): XeroCalculatedLine {
   if (!input.description.trim()) throw new Error("Add a line description.");
   const quantity = parseScaled(input.quantity);
-  const unitPrice = parseScaled(input.unitPrice);
+  if (quantity <= 0) throw new Error("Quantity must be greater than zero.");
+  const unitPrice = parseScaled(input.unitPrice, 4, true);
   const lineGrossScaled = roundFraction(quantity * unitPrice, SCALE);
   const grossCents = roundFraction(lineGrossScaled, 100);
   const taxBasisPoints = input.taxRatePercent
@@ -68,12 +74,18 @@ export function calculateXeroDocumentLine(
     };
   }
 
-  const taxCents = roundFraction(grossCents * taxBasisPoints, 10_000);
+  // Xero-style exclusive totals round the extended amount including tax once.
+  // Rounding the subtotal and tax independently introduces a one-cent drift for
+  // four-decimal unit prices such as the approved INV-1237 fixture.
+  const totalCents = roundFraction(
+    lineGrossScaled * (10_000 + taxBasisPoints),
+    100 * 10_000,
+  );
   return {
     ...input,
     subtotalCents: grossCents,
-    taxCents,
-    totalCents: grossCents + taxCents,
+    taxCents: totalCents - grossCents,
+    totalCents,
   };
 }
 
@@ -84,7 +96,7 @@ export function calculateXeroDocumentTotals(
   const calculatedLines = lines.map((line) =>
     calculateXeroDocumentLine(line, amountType),
   );
-  return calculatedLines.reduce(
+  const totals = calculatedLines.reduce(
     (totals, line) => ({
       lines: calculatedLines,
       subtotalCents: totals.subtotalCents + line.subtotalCents,
@@ -93,6 +105,10 @@ export function calculateXeroDocumentTotals(
     }),
     { lines: calculatedLines, subtotalCents: 0, taxCents: 0, totalCents: 0 },
   );
+  if (totals.subtotalCents < 0 || totals.totalCents < 0) {
+    throw new Error("Discounts cannot make the document total negative.");
+  }
+  return totals;
 }
 
 export function isAccountingMappingApproved(input: {

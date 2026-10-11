@@ -32,7 +32,7 @@ export const staffTourPages: StaffTourPage[] = [
   {
     body: "Save a draft, preview it and record the accepted version and evidence. Viewing a quote never accepts it.",
     id: "xero-accept",
-    title: "Send & Accept",
+    title: "Review & Accept",
   },
   {
     body: "Convert only the accepted quote version. Until Xero connects, the result is clearly marked as a local invoice draft.",

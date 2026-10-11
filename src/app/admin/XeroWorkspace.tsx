@@ -1,284 +1,166 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { createZingaraTextPdf } from "@/lib/exports/zingaraTextPdf";
-import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createXeroDocumentPdf } from "@/lib/xero/documentPdf";
 import { calculateXeroDocumentTotals, type XeroDocumentLineInput, type XeroLineAmountType } from "@/lib/xero/documentMath";
+import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
 type DocumentRow = {
-  created_at: string;
-  customer_name: string;
-  document_date: string;
-  id: string;
-  kind: "invoice" | "quote";
-  local_reference: string;
-  source_booking_reference: string | null;
-  status: string;
-  sync_status: string;
-  total_cents: number;
-  venue: string;
-  version: number;
-  xero_document_number: string | null;
-  xero_status: string | null;
+  created_at: string; customer_name: string; document_date: string; id: string;
+  kind: "invoice" | "quote"; local_reference: string; source_booking_reference: string | null;
+  status: string; sync_status: string; total_cents: number; venue: string; version: number;
+  xero_document_number: string | null; xero_status: string | null;
 };
 type DocumentDetail = DocumentRow & {
-  accepted_by: string | null;
-  acceptance_evidence: string | null;
-  billing_address: string | null;
-  customer_email: string | null;
-  customer_notes: string | null;
-  guest_count: number | null;
-  performance_date: string | null;
-  performance_time: string | null;
-  seating_summary: string | null;
+  accepted_by: string | null; acceptance_evidence: string | null; account_number: string | null;
+  billing_address: string | null; customer_email: string | null; customer_notes: string | null;
+  guest_count: number | null; internal_notes: string | null; line_amount_type: XeroLineAmountType;
   lines: Array<XeroDocumentLineInput & { subtotalCents: number; taxCents: number; totalCents: number }>;
-  payment_terms: string | null;
-  subtotal_cents: number;
-  tax_cents: number;
-  valid_until: string | null;
+  payment_terms: string | null; performance_date: string | null; performance_time: string | null;
+  seating_summary: string | null; subtotal_cents: number; tax_cents: number; valid_until: string | null;
+  company_id: string | null; contact_customer_id: string | null; source_booking_id: string | null;
 };
-
+type BookingFinancials = { amountPaid: number; bookingReference: string; bookingValue: number; outstanding: number; paymentStatus: string };
 type WorkspacePayload = {
-  canCreateInvoice: boolean;
-  canManageConnection: boolean;
+  canCreateInvoice: boolean; canCreateQuote: boolean; canManageConnection: boolean;
   connection: { last_sync_at: string | null; status: string; sync_paused: boolean; tenant_name: string | null };
-  documents: DocumentRow[];
-  mappings: Array<{ account_code: string | null; approved_at: string | null; category: string; tax_code: string | null }>;
-  outboxAttentionCount: number;
-  page: number;
-  pageSize: number;
-  total: number;
+  documents: DocumentRow[]; mappings: Array<{ account_code: string | null; approved_at: string | null; category: string; tax_code: string | null }>;
+  outboxAttentionCount: number; page: number; pageSize: number; total: number;
 };
+type DetailPayload = { bookingFinancials: BookingFinancials | null; document: DocumentDetail; versions: Array<{ created_at: string; version: number }> };
+type BookingPrefill = { booking: { billingAddress: string; bookingReference: string; bookingValue: number; companyId: string | null; contactCustomerId: string | null; customerEmail: string; customerName: string; guestCount: number; outstanding: number; paid: number; paymentStatus: string; performanceDate: string; performanceTime: string; seatingSummary: string; sourceBookingId: string; venue: "cape-town" | "johannesburg" } };
 
 const emptyLine = (): XeroDocumentLineInput => ({ description: "", quantity: "1", taxCode: null, taxRatePercent: null, unitPrice: "0.0000" });
 const inputClass = "mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white outline-none transition focus:border-[#D8C36A] focus:ring-2 focus:ring-[#D8C36A]/20";
 const labelClass = "text-xs font-semibold uppercase text-zinc-400";
+const secondaryButton = "min-h-11 rounded-full border border-[#D8C36A]/40 px-4 text-sm font-semibold text-[#F2D66C] transition hover:border-[#F2D66C] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C] disabled:opacity-40";
+const primaryButton = "min-h-11 rounded-full bg-[#D8C36A] px-5 text-sm font-bold text-black transition hover:bg-[#F2D66C] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C] disabled:opacity-40";
 
-function money(cents: number) {
-  return new Intl.NumberFormat("en-ZA", { currency: "ZAR", style: "currency" }).format(cents / 100);
-}
-
-function venueLabel(value: string) {
-  return value === "johannesburg" ? "Johannesburg" : "Cape Town";
-}
-
-function downloadDocumentPdf(document: DocumentDetail) {
-  const bytes = createZingaraTextPdf({
-    footer: "Local Zingara operational document. Not issued by Xero.",
-    sections: [
-      { title: "Customer", rows: [
-        { label: "Customer / Company", value: document.customer_name },
-        { label: "Email", value: document.customer_email || "Not recorded" },
-        { label: "Billing address", value: document.billing_address || "Not recorded" },
-      ] },
-      { title: "Event", rows: [
-        { label: "Venue", value: venueLabel(document.venue) },
-        { label: "Performance", value: [document.performance_date, document.performance_time].filter(Boolean).join(" at ") || "Not linked" },
-        { label: "Guests", value: document.guest_count === null ? "Not recorded" : String(document.guest_count) },
-        { label: "Seating", value: document.seating_summary || "Not recorded" },
-        { label: "Booking", value: document.source_booking_reference || "Not linked" },
-      ] },
-      { title: "Lines", rows: document.lines.map((line) => ({
-        value: `${line.description} | ${line.quantity} x ${line.unitPrice} | ${money(line.totalCents)}`,
-      })) },
-      { title: "Totals", rows: [
-        { label: "Subtotal", value: money(document.subtotal_cents) },
-        { label: "VAT", value: money(document.tax_cents) },
-        { label: "Total", value: money(document.total_cents) },
-      ] },
-      { title: "Terms", rows: [
-        { label: "Valid until", value: document.valid_until || "Not set" },
-        { label: "Payment terms", value: document.payment_terms || "Not set" },
-        { label: "Customer notes", value: document.customer_notes || "None" },
-      ] },
-    ],
-    subtitle: `${document.local_reference} | ${document.document_date} | ${document.customer_name}`,
-    title: document.kind === "quote" ? "Cost Estimate Quote" : "Local Invoice Draft",
-  });
+function money(cents: number) { return new Intl.NumberFormat("en-ZA", { currency: "ZAR", style: "currency" }).format(cents / 100); }
+function venueLabel(value: string) { return value === "johannesburg" ? "Johannesburg" : "Cape Town"; }
+function statusLabel(value: string) { return value === "local_only" ? "Awaiting Accounts" : value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }
+function downloadPdf(document: DocumentDetail) {
+  const bytes = createXeroDocumentPdf({ accountNumber: document.account_number, billingAddress: document.billing_address,
+    customerEmail: document.customer_email, customerName: document.customer_name, customerNotes: document.customer_notes,
+    documentDate: document.document_date, guestCount: document.guest_count, kind: document.kind,
+    lineAmountType: document.line_amount_type, lines: document.lines, localReference: document.local_reference,
+    paymentTerms: document.payment_terms, performanceDate: document.performance_date, performanceTime: document.performance_time,
+    seatingSummary: document.seating_summary, sourceBookingReference: document.source_booking_reference, status: document.status,
+    subtotalCents: document.subtotal_cents, taxCents: document.tax_cents, totalCents: document.total_cents,
+    validUntil: document.valid_until, venue: document.venue, xeroDocumentNumber: document.xero_document_number });
   const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-  const anchor = window.document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${document.local_reference}.pdf`;
-  anchor.click();
+  const anchor = window.document.createElement("a"); anchor.href = url; anchor.download = `${document.local_reference}.pdf`; anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export default function XeroWorkspace({ initialBookingReference = "", mode = "settings" }: { initialBookingReference?: string; mode?: "reports" | "settings" }) {
   const [payload, setPayload] = useState<WorkspacePayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [kind, setKind] = useState<"invoice" | "quote">("quote");
-  const [customerName, setCustomerName] = useState("");
-  const [customerEmail, setCustomerEmail] = useState("");
-  const [billingAddress, setBillingAddress] = useState("");
-  const [bookingReference, setBookingReference] = useState(initialBookingReference);
-  const [venue, setVenue] = useState<"cape-town" | "johannesburg">("cape-town");
-  const [documentDate, setDocumentDate] = useState(new Date().toISOString().slice(0, 10));
-  const [validUntil, setValidUntil] = useState("");
-  const [performanceDate, setPerformanceDate] = useState("");
-  const [performanceTime, setPerformanceTime] = useState("");
-  const [seatingSummary, setSeatingSummary] = useState("");
-  const [guestCount, setGuestCount] = useState("");
-  const [paymentTerms, setPaymentTerms] = useState("");
-  const [customerNotes, setCustomerNotes] = useState("");
-  const [internalNotes, setInternalNotes] = useState("");
-  const [amountType, setAmountType] = useState<XeroLineAmountType>("no-tax");
-  const [lines, setLines] = useState<XeroDocumentLineInput[]>([emptyLine()]);
-  const [busy, setBusy] = useState(false);
-  const [selected, setSelected] = useState<DocumentDetail | null>(null);
-  const [acceptedBy, setAcceptedBy] = useState("");
-  const [acceptanceEvidence, setAcceptanceEvidence] = useState("");
+  const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const [page, setPage] = useState(1); const [search, setSearch] = useState(""); const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [kindFilter, setKindFilter] = useState("all"); const [statusFilter, setStatusFilter] = useState("all"); const [venueFilter, setVenueFilter] = useState("all");
+  const [editorOpen, setEditorOpen] = useState(false); const [editingId, setEditingId] = useState<string | null>(null); const [editingVersion, setEditingVersion] = useState<number | null>(null);
+  const [kind, setKind] = useState<"invoice" | "quote">("quote"); const [customerName, setCustomerName] = useState("");
+  const [customerEmail, setCustomerEmail] = useState(""); const [billingAddress, setBillingAddress] = useState(""); const [accountNumber, setAccountNumber] = useState("");
+  const [sourceBookingId, setSourceBookingId] = useState<string | null>(null); const [companyId, setCompanyId] = useState<string | null>(null); const [contactCustomerId, setContactCustomerId] = useState<string | null>(null);
+  const [bookingReference, setBookingReference] = useState(initialBookingReference); const [venue, setVenue] = useState<"cape-town" | "johannesburg">("cape-town");
+  const [documentDate, setDocumentDate] = useState(new Date().toISOString().slice(0, 10)); const [validUntil, setValidUntil] = useState("");
+  const [performanceDate, setPerformanceDate] = useState(""); const [performanceTime, setPerformanceTime] = useState("");
+  const [seatingSummary, setSeatingSummary] = useState(""); const [guestCount, setGuestCount] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState(""); const [customerNotes, setCustomerNotes] = useState(""); const [internalNotes, setInternalNotes] = useState("");
+  const [amountType, setAmountType] = useState<XeroLineAmountType>("no-tax"); const [lines, setLines] = useState<XeroDocumentLineInput[]>([emptyLine()]);
+  const [selectedPayload, setSelectedPayload] = useState<DetailPayload | null>(null); const selected = selectedPayload?.document ?? null;
+  const [acceptedBy, setAcceptedBy] = useState(""); const [acceptanceEvidence, setAcceptanceEvidence] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      setPayload(await fetchSupabaseApi<WorkspacePayload>("/api/admin/xero?pageSize=20", { cache: "no-store" }));
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Xero details couldn't be loaded.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  useEffect(() => { const timer = window.setTimeout(() => { setDebouncedSearch(search.trim()); setPage(1); }, 300); return () => window.clearTimeout(timer); }, [search]);
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    if (!initialBookingReference) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await fetchSupabaseApi<BookingPrefill>(`/api/admin/xero?prefillBookingReference=${encodeURIComponent(initialBookingReference)}`, { cache: "no-store", signal: controller.signal });
+        const booking = result.booking;
+        setSourceBookingId(booking.sourceBookingId); setCompanyId(booking.companyId); setContactCustomerId(booking.contactCustomerId);
+        setBookingReference(booking.bookingReference); setCustomerName(booking.customerName); setCustomerEmail(booking.customerEmail); setBillingAddress(booking.billingAddress);
+        setGuestCount(String(booking.guestCount)); setPerformanceDate(booking.performanceDate); setPerformanceTime(booking.performanceTime.slice(0,5)); setSeatingSummary(booking.seatingSummary); setVenue(booking.venue);
+        setEditorOpen(true);
+      } catch (prefillError) {
+        if (!(prefillError instanceof DOMException && prefillError.name === "AbortError")) setError(prefillError instanceof Error ? prefillError.message : "The booking details couldn't be loaded.");
+      }
+    }, 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [initialBookingReference]);
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true); setError(""); const params = new URLSearchParams({ page: String(page), pageSize: "10" });
+    if (debouncedSearch) params.set("search", debouncedSearch); if (kindFilter !== "all") params.set("kind", kindFilter);
+    if (statusFilter !== "all") params.set("status", statusFilter); if (venueFilter !== "all") params.set("venue", venueFilter);
+    try { setPayload(await fetchSupabaseApi<WorkspacePayload>(`/api/admin/xero?${params}`, { cache: "no-store", signal })); }
+    catch (loadError) { if (!(loadError instanceof DOMException && loadError.name === "AbortError")) setError(loadError instanceof Error ? loadError.message : "Accounting couldn't be loaded. Try again."); }
+    finally { if (!signal?.aborted) setLoading(false); }
+  }, [debouncedSearch, kindFilter, page, statusFilter, venueFilter]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void load(controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
   }, [load]);
-  const totals = useMemo(() => {
-    try { return calculateXeroDocumentTotals(lines, amountType); } catch { return null; }
-  }, [amountType, lines]);
 
-  function updateLine(index: number, key: keyof XeroDocumentLineInput, value: string | null) {
-    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, [key]: value } : line));
+  const totals = useMemo(() => { try { return calculateXeroDocumentTotals(lines, amountType); } catch { return null; } }, [amountType, lines]);
+  const pageCount = Math.max(1, Math.ceil((payload?.total ?? 0) / (payload?.pageSize ?? 10)));
+  function updateLine(index: number, key: keyof XeroDocumentLineInput, value: string | null) { setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, [key]: value } : line)); }
+  function moveLine(index: number, direction: -1 | 1) { setLines((current) => { const nextIndex = index + direction; if (nextIndex < 0 || nextIndex >= current.length) return current; const next = [...current]; [next[index], next[nextIndex]] = [next[nextIndex], next[index]]; return next; }); }
+  function resetEditor(nextKind: "invoice" | "quote") {
+    setEditingId(null); setEditingVersion(null); setKind(nextKind); setCustomerName(""); setCustomerEmail(""); setBillingAddress(""); setAccountNumber(""); setBookingReference(initialBookingReference); setSourceBookingId(null); setCompanyId(null); setContactCustomerId(null);
+    setVenue("cape-town"); setDocumentDate(new Date().toISOString().slice(0, 10)); setValidUntil(""); setPerformanceDate(""); setPerformanceTime(""); setSeatingSummary(""); setGuestCount("");
+    setPaymentTerms(""); setCustomerNotes(""); setInternalNotes(""); setAmountType("no-tax"); setLines([emptyLine()]); setError(""); setEditorOpen(true);
   }
-
-  function moveLine(index: number, direction: -1 | 1) {
-    setLines((current) => {
-      const nextIndex = index + direction;
-      if (nextIndex < 0 || nextIndex >= current.length) return current;
-      const next = [...current];
-      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
-      return next;
-    });
+  function editDocument(document: DocumentDetail) {
+    setEditingId(document.id); setEditingVersion(document.version); setKind(document.kind); setCustomerName(document.customer_name); setCustomerEmail(document.customer_email ?? ""); setBillingAddress(document.billing_address ?? "");
+    setAccountNumber(document.account_number ?? ""); setBookingReference(document.source_booking_reference ?? ""); setVenue(document.venue as typeof venue); setDocumentDate(document.document_date); setValidUntil(document.valid_until ?? "");
+    setSourceBookingId(document.source_booking_id); setCompanyId(document.company_id); setContactCustomerId(document.contact_customer_id);
+    setPerformanceDate(document.performance_date ?? ""); setPerformanceTime(document.performance_time?.slice(0,5) ?? ""); setSeatingSummary(document.seating_summary ?? ""); setGuestCount(document.guest_count === null ? "" : String(document.guest_count));
+    setPaymentTerms(document.payment_terms ?? ""); setCustomerNotes(document.customer_notes ?? ""); setInternalNotes(document.internal_notes ?? ""); setAmountType(document.line_amount_type);
+    setLines(document.lines.map(({ description, quantity, taxCode, taxRatePercent, unitPrice }) => ({ description, quantity: String(quantity), taxCode, taxRatePercent, unitPrice: String(unitPrice) })));
+    setSelectedPayload(null); setError(""); setEditorOpen(true);
   }
-
   async function saveDraft() {
-    setBusy(true);
-    setError("");
-    try {
-      await fetchSupabaseApi("/api/admin/xero", { method: "POST", body: {
-        billingAddress, customerEmail, customerName, customerNotes, documentDate,
-        guestCount: guestCount ? Number(guestCount) : null, internalNotes, kind,
-        lineAmountType: amountType, lines, paymentTerms, performanceDate,
-        performanceTime, seatingSummary, sourceBookingReference: bookingReference,
-        validUntil, venue,
-      } });
-      setEditorOpen(false);
-      setLines([emptyLine()]);
-      await load();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "The draft couldn't be saved.");
-    } finally { setBusy(false); }
+    setBusy(true); setError("");
+    try { await fetchSupabaseApi("/api/admin/xero", { method: editingId ? "PUT" : "POST", body: { accountNumber, billingAddress, companyId, contactCustomerId, customerEmail, customerName, customerNotes, documentDate, documentId: editingId,
+      guestCount: guestCount ? Number(guestCount) : null, internalNotes, kind, lineAmountType: amountType, lines, paymentTerms, performanceDate, performanceTime, seatingSummary,
+      sourceBookingId, sourceBookingReference: bookingReference, validUntil, venue, version: editingVersion } }); setEditorOpen(false); await load(); }
+    catch (saveError) { setError(saveError instanceof Error ? saveError.message : "The draft couldn't be saved."); } finally { setBusy(false); }
   }
+  async function openDocument(documentId: string) { setBusy(true); setError(""); try { const result = await fetchSupabaseApi<DetailPayload>(`/api/admin/xero?documentId=${encodeURIComponent(documentId)}`, { cache: "no-store" }); setSelectedPayload(result); setAcceptedBy(result.document.accepted_by ?? ""); setAcceptanceEvidence(result.document.acceptance_evidence ?? ""); } catch (detailError) { setError(detailError instanceof Error ? detailError.message : "The document couldn't be loaded."); } finally { setBusy(false); } }
+  async function documentAction(action: "accept" | "convert") { if (!selected) return; setBusy(true); setError(""); try { await fetchSupabaseApi("/api/admin/xero", { body: { acceptedBy, action, documentId: selected.id, evidence: acceptanceEvidence, version: selected.version }, method: "PATCH" }); setSelectedPayload(null); await load(); } catch (actionError) { setError(actionError instanceof Error ? actionError.message : "The document couldn't be updated."); } finally { setBusy(false); } }
 
-  async function openDocument(documentId: string) {
-    setBusy(true);
-    setError("");
-    try {
-      const result = await fetchSupabaseApi<{ document: DocumentDetail }>(
-        `/api/admin/xero?documentId=${encodeURIComponent(documentId)}`,
-        { cache: "no-store" },
-      );
-      setSelected(result.document);
-      setAcceptedBy(result.document.accepted_by ?? "");
-      setAcceptanceEvidence(result.document.acceptance_evidence ?? "");
-    } catch (detailError) {
-      setError(detailError instanceof Error ? detailError.message : "The document couldn't be loaded.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function documentAction(action: "accept" | "convert") {
-    if (!selected) return;
-    setBusy(true);
-    setError("");
-    try {
-      await fetchSupabaseApi("/api/admin/xero", {
-        body: {
-          acceptedBy,
-          action,
-          documentId: selected.id,
-          evidence: acceptanceEvidence,
-          version: selected.version,
-        },
-        method: "PATCH",
-      });
-      setSelected(null);
-      await load();
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "The document couldn't be updated.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const connectionLabel = payload?.connection.status === "not_connected" ? "Not Connected" : payload?.connection.status.replaceAll("_", " ");
-  return (
-    <section className="rounded-2xl border border-[#8D7A2F]/35 bg-zinc-950/80 p-4 shadow-2xl shadow-black/30 sm:p-6">
-      <div className="flex flex-col gap-5 border-b border-white/10 pb-5 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Image src="/brand/zingara-logo-landing.svg" alt="Zingara" width={150} height={36} className="h-9 w-auto" />
-            <span aria-hidden="true" className="text-xl text-[#D8C36A]">→</span>
-            <Image src="/brand/xero-logo.png" alt="Xero" width={183} height={36} className="h-9 w-auto" />
-          </div>
-          <p className="mt-4 text-xs font-semibold uppercase text-[#D8C36A]">{mode === "reports" ? "Accounting" : "Settings · Integrations"}</p>
-          <h2 className="mt-1 text-2xl font-bold text-white">Zingara × Xero</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Create operational quotes and local invoice drafts now. Xero integration is ready to connect; live sync stays paused until Accounts approves the organisation and mappings.</p>
-        </div>
-        <div className="rounded-xl border border-amber-300/30 bg-amber-950/20 px-4 py-3 text-sm">
-          <p className="font-semibold text-amber-100">{connectionLabel}</p>
-          <p className="mt-1 text-xs text-amber-200/75">Live sync paused · No accounting documents sent</p>
-          {payload?.canManageConnection && (
-            <button
-              type="button"
-              disabled
-              title="Xero credentials and an authorised organisation are required"
-              className="mt-3 min-h-10 rounded-full border border-amber-200/25 px-4 text-xs font-semibold text-amber-100 opacity-55"
-            >
-              Connect Xero
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[['Create a Quote','Flexible customer lines'],['Send & Accept','Versioned acceptance evidence'],['Convert to Invoice','Local draft until Xero issues it'],['Accounts & Reports','Differences stay visible']].map(([title,copy]) => <div key={title} className="rounded-xl border border-white/10 bg-black/30 p-4"><p className="font-semibold text-white">{title}</p><p className="mt-1 text-sm text-zinc-400">{copy}</p></div>)}
-      </div>
-
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <div><p className="text-sm font-semibold text-white">Quotes &amp; invoice drafts</p><p className="text-xs text-zinc-500">{payload?.total ?? 0} document{payload?.total === 1 ? "" : "s"} · {payload?.outboxAttentionCount ?? 0} paused or requiring attention</p></div>
-        <button type="button" onClick={() => setEditorOpen(true)} className="min-h-11 rounded-full bg-[#D8C36A] px-5 py-2 text-sm font-bold text-black transition hover:bg-[#F2D66C] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C]">Create Quote</button>
-      </div>
-      {error && <p role="alert" className="mt-4 rounded-lg border border-red-400/30 bg-red-950/30 p-3 text-sm text-red-100">{error}</p>}
-      {loading ? <p className="mt-5 text-sm text-zinc-400">Loading accounting workspace...</p> : payload?.documents.length ? (
-        <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="text-xs uppercase text-zinc-500"><tr><th className="p-3">Document</th><th className="p-3">Customer</th><th className="p-3">Venue</th><th className="p-3">Total</th><th className="p-3">Status</th><th className="p-3">Xero</th><th className="p-3"><span className="sr-only">Action</span></th></tr></thead><tbody>{payload.documents.map((row) => <tr key={row.id} className="border-t border-white/10"><td className="p-3 font-semibold text-white">{row.local_reference}<span className="ml-2 text-xs font-normal text-zinc-500">{row.kind}</span></td><td className="p-3 text-zinc-300">{row.customer_name}{row.source_booking_reference ? <span className="block text-xs text-zinc-500">{row.source_booking_reference}</span> : null}</td><td className="p-3 text-zinc-300">{venueLabel(row.venue)}</td><td className="p-3 text-white">{money(row.total_cents)}</td><td className="p-3 text-zinc-300">{row.status.replaceAll("_", " ")}</td><td className="p-3 text-amber-200">{row.xero_document_number ?? "Not connected"}</td><td className="p-3"><button type="button" disabled={busy} onClick={() => void openDocument(row.id)} className="min-h-10 rounded-full border border-[#D8C36A]/40 px-4 text-xs font-semibold text-[#F2D66C] disabled:opacity-40">View</button></td></tr>)}</tbody></table></div>
-      ) : <div className="mt-4 rounded-xl border border-dashed border-white/15 p-6 text-sm text-zinc-400">No quote or invoice drafts yet.</div>}
-
-      {editorOpen && <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/85 p-3"><button type="button" aria-label="Close quote editor" onClick={() => setEditorOpen(false)} className="absolute inset-0" /><div role="dialog" aria-modal="true" aria-labelledby="xero-editor-title" className="relative z-10 flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 shadow-2xl"><header className="flex items-start justify-between gap-3 border-b border-white/10 p-4 sm:p-5"><div><p className="text-xs font-semibold uppercase text-[#D8C36A]">COST ESTIMATE QUOTE</p><h3 id="xero-editor-title" className="mt-1 text-xl font-bold text-white">Create a quote</h3><p className="mt-1 text-sm text-zinc-400">Custom service lines never create guests, tickets or seats.</p></div><button type="button" onClick={() => setEditorOpen(false)} className="min-h-11 rounded-lg border border-white/15 px-4 text-sm text-white">Close</button></header><div className="overflow-y-auto p-4 sm:p-5">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><label><span className={labelClass}>Document type</span><select className={inputClass} value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}><option value="quote">Quote</option>{payload?.canCreateInvoice && <option value="invoice">Direct invoice draft</option>}</select></label><label><span className={labelClass}>Venue</span><select className={inputClass} value={venue} onChange={(e) => setVenue(e.target.value as typeof venue)}><option value="cape-town">Cape Town</option><option value="johannesburg">Johannesburg</option></select></label><label><span className={labelClass}>Document date</span><input type="date" className={inputClass} value={documentDate} onChange={(e) => setDocumentDate(e.target.value)} /></label><label><span className={labelClass}>Valid until</span><input type="date" className={inputClass} value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></label><label><span className={labelClass}>Company / guest</span><input className={inputClass} value={customerName} onChange={(e) => setCustomerName(e.target.value)} /></label><label><span className={labelClass}>Billing email</span><input type="email" className={inputClass} value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} /></label><label><span className={labelClass}>Booking reference</span><input className={inputClass} value={bookingReference} onChange={(e) => setBookingReference(e.target.value)} /></label><label><span className={labelClass}>Pax</span><input type="number" min="0" className={inputClass} value={guestCount} onChange={(e) => setGuestCount(e.target.value)} /></label><label><span className={labelClass}>Performance date</span><input type="date" className={inputClass} value={performanceDate} onChange={(e) => setPerformanceDate(e.target.value)} /></label><label><span className={labelClass}>Show time</span><input type="time" className={inputClass} value={performanceTime} onChange={(e) => setPerformanceTime(e.target.value)} /></label><label><span className={labelClass}>Seating</span><input className={inputClass} value={seatingSummary} onChange={(e) => setSeatingSummary(e.target.value)} /></label><label><span className={labelClass}>Line amounts</span><select className={inputClass} value={amountType} onChange={(e) => setAmountType(e.target.value as XeroLineAmountType)}><option value="no-tax">No VAT configured</option><option value="exclusive">Tax exclusive</option><option value="inclusive">Tax inclusive</option></select></label></div>
-        <label className="mt-4 block"><span className={labelClass}>Billing address</span><textarea className={inputClass} value={billingAddress} onChange={(e) => setBillingAddress(e.target.value)} /></label>
-        <div className="mt-6 flex items-center justify-between"><h4 className="font-semibold text-white">Quote lines</h4><button type="button" onClick={() => setLines((current) => [...current, emptyLine()])} className="min-h-10 rounded-full border border-[#D8C36A]/45 px-4 text-sm font-semibold text-[#F2D66C]">Add Line</button></div>
-        <div className="mt-3 space-y-3">{lines.map((line,index) => <div key={index} className="grid gap-3 rounded-xl border border-white/10 bg-black/25 p-3 md:grid-cols-[minmax(220px,2fr)_100px_150px_130px_auto]"><label><span className={labelClass}>Description</span><textarea className={inputClass} value={line.description} onChange={(e) => updateLine(index,"description",e.target.value)} /></label><label><span className={labelClass}>Units</span><input className={inputClass} inputMode="decimal" value={line.quantity} onChange={(e) => updateLine(index,"quantity",e.target.value)} /></label><label><span className={labelClass}>Unit Price</span><input className={inputClass} inputMode="decimal" value={line.unitPrice} onChange={(e) => updateLine(index,"unitPrice",e.target.value)} /></label><label><span className={labelClass}>VAT %</span><input className={inputClass} inputMode="decimal" disabled={amountType === "no-tax"} value={line.taxRatePercent ?? ""} onChange={(e) => updateLine(index,"taxRatePercent",e.target.value || null)} /></label><div className="flex items-end gap-1"><button type="button" aria-label="Move line up" onClick={() => moveLine(index,-1)} className="h-11 w-10 rounded-lg border border-white/15">↑</button><button type="button" aria-label="Move line down" onClick={() => moveLine(index,1)} className="h-11 w-10 rounded-lg border border-white/15">↓</button><button type="button" aria-label="Delete line" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_,i) => i !== index))} className="h-11 w-10 rounded-lg border border-red-400/25 text-red-200 disabled:opacity-30">×</button></div></div>)}</div>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2"><label><span className={labelClass}>Payment terms</span><textarea className={inputClass} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} /></label><label><span className={labelClass}>Customer notes</span><textarea className={inputClass} value={customerNotes} onChange={(e) => setCustomerNotes(e.target.value)} /></label><label className="sm:col-span-2"><span className={labelClass}>Internal notes</span><textarea className={inputClass} value={internalNotes} onChange={(e) => setInternalNotes(e.target.value)} /></label></div>
-        <div className="mt-5 ml-auto max-w-sm rounded-xl border border-[#D8C36A]/25 bg-black/35 p-4 text-sm"><div className="flex justify-between"><span className="text-zinc-400">Subtotal</span><span>{totals ? money(totals.subtotalCents) : "Check lines"}</span></div><div className="mt-2 flex justify-between"><span className="text-zinc-400">VAT</span><span>{totals ? money(totals.taxCents) : "—"}</span></div><div className="mt-3 flex justify-between border-t border-white/10 pt-3 text-base font-bold text-[#F2D66C]"><span>Total</span><span>{totals ? money(totals.totalCents) : "—"}</span></div></div>
-      </div><footer className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 p-4 sm:p-5"><p className="text-xs text-zinc-500">Saving creates a local operational draft only. Nothing is sent to Xero or a customer.</p><button type="button" disabled={busy || !totals} onClick={() => void saveDraft()} className="min-h-11 rounded-full bg-[#D8C36A] px-5 font-bold text-black disabled:opacity-40">{busy ? "Saving..." : "Save Draft"}</button></footer></div></div>}
-
-      {selected && <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/85 p-3"><button type="button" aria-label="Close document details" onClick={() => setSelected(null)} className="absolute inset-0" /><section role="dialog" aria-modal="true" aria-labelledby="xero-detail-title" className="relative z-10 max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-[#D8C36A]">{selected.kind === "quote" ? "COST ESTIMATE QUOTE" : "LOCAL INVOICE DRAFT"}</p><h3 id="xero-detail-title" className="mt-1 text-xl font-bold text-white">{selected.local_reference}</h3><p className="mt-1 text-sm text-zinc-400">{selected.customer_name} · {venueLabel(selected.venue)}</p></div><button type="button" onClick={() => setSelected(null)} className="min-h-11 rounded-lg border border-white/15 px-4">Close</button></div><div className="mt-5 space-y-2">{selected.lines.map((line,index) => <div key={index} className="grid gap-1 rounded-lg border border-white/10 bg-black/25 p-3 text-sm sm:grid-cols-[1fr_auto]"><p className="text-white">{line.description}<span className="block text-xs text-zinc-500">{line.quantity} × {line.unitPrice}</span></p><p className="font-semibold text-white">{money(line.totalCents)}</p></div>)}</div><div className="mt-4 ml-auto max-w-xs text-sm"><p className="flex justify-between"><span className="text-zinc-500">Subtotal</span><span>{money(selected.subtotal_cents)}</span></p><p className="mt-2 flex justify-between"><span className="text-zinc-500">VAT</span><span>{money(selected.tax_cents)}</span></p><p className="mt-3 flex justify-between border-t border-white/10 pt-3 font-bold text-[#F2D66C]"><span>Total</span><span>{money(selected.total_cents)}</span></p></div>{selected.kind === "quote" && selected.status !== "accepted" && selected.status !== "converted" && <div className="mt-5 grid gap-3 rounded-xl border border-white/10 p-4 sm:grid-cols-2"><label><span className={labelClass}>Accepted by</span><input className={inputClass} value={acceptedBy} onChange={(event) => setAcceptedBy(event.target.value)} /></label><label><span className={labelClass}>Acceptance evidence</span><textarea className={inputClass} value={acceptanceEvidence} onChange={(event) => setAcceptanceEvidence(event.target.value)} /></label></div>}<div className="mt-5 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => downloadDocumentPdf(selected)} className="min-h-11 rounded-full border border-[#D8C36A]/45 px-5 text-sm font-semibold text-[#F2D66C]">Download PDF</button>{selected.kind === "quote" && selected.status !== "accepted" && selected.status !== "converted" && <button type="button" disabled={busy || !acceptedBy.trim() || !acceptanceEvidence.trim()} onClick={() => void documentAction("accept")} className="min-h-11 rounded-full bg-[#D8C36A] px-5 text-sm font-bold text-black disabled:opacity-40">Record Acceptance</button>}{selected.kind === "quote" && selected.status === "accepted" && <button type="button" disabled={busy} onClick={() => void documentAction("convert")} className="min-h-11 rounded-full bg-[#D8C36A] px-5 text-sm font-bold text-black disabled:opacity-40">Convert to Invoice Draft</button>}</div></section></div>}
-    </section>
-  );
+  const connectionLabel = payload?.connection.status === "not_connected" ? "Not Connected" : statusLabel(payload?.connection.status ?? "not_connected");
+  return <section className="rounded-2xl border border-[#8D7A2F]/35 bg-zinc-950/80 p-4 shadow-2xl shadow-black/30 sm:p-6">
+    <div className="flex flex-col gap-5 border-b border-white/10 pb-5 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-3"><Image src="/brand/zingara-logo-landing.svg" alt="Zingara" width={150} height={36} className="h-9 w-auto" /><span aria-hidden="true" className="text-xl text-[#D8C36A]">→</span><Image src="/brand/xero-logo.png" alt="Xero" width={183} height={36} className="h-9 w-auto" /></div>
+      <p className="mt-4 text-xs font-semibold uppercase text-[#D8C36A]">{mode === "reports" ? "Accounting" : "Settings · Integrations"}</p><h2 className="mt-1 text-2xl font-bold text-white">Zingara × Xero</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Create quotes and local invoice drafts. Live sync stays paused until Accounts approves the Xero organisation and account mappings.</p></div>
+      <div className="rounded-xl border border-amber-300/30 bg-amber-950/20 px-4 py-3 text-sm"><p className="font-semibold text-amber-100">{connectionLabel}</p><p className="mt-1 text-xs text-amber-200/75">Live sync paused · Nothing sent to Xero</p>{payload?.canManageConnection && <><button type="button" disabled title="Accounts approval and an authorised Xero organisation are required" className="mt-3 min-h-10 rounded-full border border-amber-200/25 px-4 text-xs font-semibold text-amber-100 opacity-55">Connect Xero</button><p className="mt-2 max-w-56 text-xs text-amber-200/65">Accounts approval and connection details are still required.</p></>}</div></div>
+    <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[["Create a Quote","Flexible customer lines"],["Review & Accept","Recorded acceptance evidence"],["Create an Invoice","Local draft until Xero issues it"],["Accounts & Reports","Verified differences stay visible"]].map(([title,copy]) => <div key={title} className="rounded-xl border border-white/10 bg-black/30 p-4"><p className="font-semibold text-white">{title}</p><p className="mt-1 text-sm text-zinc-400">{copy}</p></div>)}</div>
+    <div className="mt-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-semibold text-white">Quotes &amp; invoice drafts</p><p className="text-xs text-zinc-500">{payload?.total ?? 0} matching · {payload?.outboxAttentionCount ?? 0} awaiting Accounts attention</p></div><div className="flex flex-wrap gap-2">{payload?.canCreateQuote && <button type="button" onClick={() => resetEditor("quote")} className={primaryButton}>Create Quote</button>}{payload?.canCreateInvoice && <button type="button" onClick={() => resetEditor("invoice")} className={secondaryButton}>Create Invoice Draft</button>}</div></div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><label><span className={labelClass}>Search</span><input type="search" className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Reference or customer" /></label><Filter label="Document" value={kindFilter} onChange={setKindFilter} options={[["all","All documents"],["quote","Quotes"],["invoice","Invoices"]]} reset={() => setPage(1)} /><Filter label="Status" value={statusFilter} onChange={setStatusFilter} options={[["all","All statuses"],["draft","Draft"],["revised","Revised"],["accepted","Accepted"],["converted","Converted"],["expired","Expired"],["superseded","Superseded"]]} reset={() => setPage(1)} /><Filter label="Venue" value={venueFilter} onChange={setVenueFilter} options={[["all","All authorised venues"],["cape-town","Cape Town"],["johannesburg","Johannesburg"]]} reset={() => setPage(1)} /></div>
+    {error && <p role="alert" className="mt-4 rounded-lg border border-red-400/30 bg-red-950/30 p-3 text-sm text-red-100">{error}</p>}
+    {loading ? <p className="mt-5 text-sm text-zinc-400">Loading accounting documents...</p> : payload?.documents.length ? <DocumentList payload={payload} busy={busy} openDocument={openDocument} pageCount={pageCount} setPage={setPage} /> : <div className="mt-4 rounded-xl border border-dashed border-white/15 p-6 text-sm text-zinc-400">No documents match these filters.</div>}
+    {editorOpen && <Editor kind={kind} setKind={setKind} editingId={editingId} payload={payload} venue={venue} setVenue={setVenue} documentDate={documentDate} setDocumentDate={setDocumentDate} validUntil={validUntil} setValidUntil={setValidUntil} customerName={customerName} setCustomerName={setCustomerName} customerEmail={customerEmail} setCustomerEmail={setCustomerEmail} accountNumber={accountNumber} setAccountNumber={setAccountNumber} bookingReference={bookingReference} setBookingReference={setBookingReference} guestCount={guestCount} setGuestCount={setGuestCount} performanceDate={performanceDate} setPerformanceDate={setPerformanceDate} performanceTime={performanceTime} setPerformanceTime={setPerformanceTime} seatingSummary={seatingSummary} setSeatingSummary={setSeatingSummary} amountType={amountType} setAmountType={setAmountType} billingAddress={billingAddress} setBillingAddress={setBillingAddress} lines={lines} setLines={setLines} updateLine={updateLine} moveLine={moveLine} paymentTerms={paymentTerms} setPaymentTerms={setPaymentTerms} customerNotes={customerNotes} setCustomerNotes={setCustomerNotes} internalNotes={internalNotes} setInternalNotes={setInternalNotes} totals={totals} busy={busy} close={() => setEditorOpen(false)} save={saveDraft} />}
+    {selected && <Details payload={selectedPayload!} canCreateInvoice={Boolean(payload?.canCreateInvoice)} busy={busy} acceptedBy={acceptedBy} setAcceptedBy={setAcceptedBy} acceptanceEvidence={acceptanceEvidence} setAcceptanceEvidence={setAcceptanceEvidence} close={() => setSelectedPayload(null)} edit={editDocument} action={documentAction} />}
+  </section>;
 }
+
+function Filter({ label, value, onChange, options, reset }: { label: string; value: string; onChange: (value: string) => void; options: string[][]; reset: () => void }) { return <label><span className={labelClass}>{label}</span><select className={inputClass} value={value} onChange={(event) => { onChange(event.target.value); reset(); }}>{options.map(([key,name]) => <option key={key} value={key}>{name}</option>)}</select></label>; }
+
+function DocumentList({ payload, busy, openDocument, pageCount, setPage }: { payload: WorkspacePayload; busy: boolean; openDocument: (id: string) => Promise<void>; pageCount: number; setPage: React.Dispatch<React.SetStateAction<number>> }) { return <><div className="mt-4 hidden overflow-x-auto md:block"><table className="w-full text-left text-sm"><thead className="text-xs uppercase text-zinc-500"><tr><th className="p-3">Document</th><th className="p-3">Customer</th><th className="p-3">Venue</th><th className="p-3">Total</th><th className="p-3">Status</th><th className="p-3">Xero</th><th className="p-3"><span className="sr-only">Action</span></th></tr></thead><tbody>{payload.documents.map((row) => <tr key={row.id} className="border-t border-white/10"><td className="p-3 font-semibold text-white">{row.local_reference}<span className="ml-2 text-xs font-normal text-zinc-500">{row.kind}</span></td><td className="p-3 text-zinc-300">{row.customer_name}{row.source_booking_reference && <span className="block text-xs text-zinc-500">{row.source_booking_reference}</span>}</td><td className="p-3 text-zinc-300">{venueLabel(row.venue)}</td><td className="p-3 text-white">{money(row.total_cents)}</td><td className="p-3 text-zinc-300">{statusLabel(row.status)}</td><td className="p-3 text-amber-200">{row.xero_document_number ?? "Not connected"}</td><td className="p-3"><button type="button" disabled={busy} onClick={() => void openDocument(row.id)} className={secondaryButton}>View</button></td></tr>)}</tbody></table></div><div className="mt-4 grid gap-3 md:hidden">{payload.documents.map((row) => <article key={row.id} className="rounded-xl border border-white/10 bg-black/25 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-white">{row.local_reference}</p><p className="text-xs text-zinc-500">{row.kind} · {statusLabel(row.status)}</p></div><p className="font-semibold text-[#F2D66C]">{money(row.total_cents)}</p></div><p className="mt-3 text-sm text-zinc-300">{row.customer_name}</p><p className="mt-1 text-xs text-zinc-500">{venueLabel(row.venue)}{row.source_booking_reference ? ` · ${row.source_booking_reference}` : ""}</p><button type="button" disabled={busy} onClick={() => void openDocument(row.id)} className={`${secondaryButton} mt-4 w-full`}>View Document</button></article>)}</div><nav aria-label="Accounting document pages" className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4"><p className="text-xs text-zinc-500">Page {payload.page} of {pageCount} · {payload.total} matching</p><div className="flex gap-2"><button type="button" className={secondaryButton} disabled={payload.page <= 1} onClick={() => setPage((value) => Math.max(1,value - 1))}>Previous</button><button type="button" className={secondaryButton} disabled={payload.page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount,value + 1))}>Next</button></div></nav></>; }
+
+type EditorProps = { kind: "invoice" | "quote"; setKind: (value: "invoice" | "quote") => void; editingId: string | null; payload: WorkspacePayload | null; venue: "cape-town" | "johannesburg"; setVenue: (value: "cape-town" | "johannesburg") => void; documentDate: string; setDocumentDate: (value: string) => void; validUntil: string; setValidUntil: (value: string) => void; customerName: string; setCustomerName: (value: string) => void; customerEmail: string; setCustomerEmail: (value: string) => void; accountNumber: string; setAccountNumber: (value: string) => void; bookingReference: string; setBookingReference: (value: string) => void; guestCount: string; setGuestCount: (value: string) => void; performanceDate: string; setPerformanceDate: (value: string) => void; performanceTime: string; setPerformanceTime: (value: string) => void; seatingSummary: string; setSeatingSummary: (value: string) => void; amountType: XeroLineAmountType; setAmountType: (value: XeroLineAmountType) => void; billingAddress: string; setBillingAddress: (value: string) => void; lines: XeroDocumentLineInput[]; setLines: React.Dispatch<React.SetStateAction<XeroDocumentLineInput[]>>; updateLine: (index: number,key: keyof XeroDocumentLineInput,value: string | null) => void; moveLine: (index: number,direction: -1 | 1) => void; paymentTerms: string; setPaymentTerms: (value: string) => void; customerNotes: string; setCustomerNotes: (value: string) => void; internalNotes: string; setInternalNotes: (value: string) => void; totals: ReturnType<typeof calculateXeroDocumentTotals> | null; busy: boolean; close: () => void; save: () => Promise<void> };
+function Editor(props: EditorProps) { return <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/85 p-3"><button type="button" aria-label="Close document editor" onClick={props.close} className="absolute inset-0" /><div role="dialog" aria-modal="true" aria-labelledby="xero-editor-title" className="relative z-10 flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 shadow-2xl"><header className="flex items-start justify-between gap-3 border-b border-white/10 p-4 sm:p-5"><div><p className="text-xs font-semibold uppercase text-[#D8C36A]">{props.kind === "quote" ? "COST ESTIMATE QUOTE" : "LOCAL INVOICE DRAFT"}</p><h3 id="xero-editor-title" className="mt-1 text-xl font-bold text-white">{props.editingId ? `Edit ${props.kind} draft` : props.kind === "quote" ? "Create a quote" : "Create an invoice draft"}</h3><p className="mt-1 text-sm text-zinc-400">Custom service lines never create guests, tickets or seats.</p></div><button type="button" onClick={props.close} className={secondaryButton}>Close</button></header><div className="overflow-y-auto p-4 sm:p-5"><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <Field label="Document type"><select disabled={Boolean(props.editingId)} className={inputClass} value={props.kind} onChange={(e) => props.setKind(e.target.value as typeof props.kind)}><option value="quote">Quote</option>{props.payload?.canCreateInvoice && <option value="invoice">Direct invoice draft</option>}</select></Field><Field label="Venue"><select className={inputClass} value={props.venue} onChange={(e) => props.setVenue(e.target.value as typeof props.venue)}><option value="cape-town">Cape Town</option><option value="johannesburg">Johannesburg</option></select></Field><TextField label="Document date" type="date" value={props.documentDate} set={props.setDocumentDate} /><TextField label="Valid until" type="date" value={props.validUntil} set={props.setValidUntil} />
+    <TextField label="Company / guest" value={props.customerName} set={props.setCustomerName} /><TextField label="Billing email" type="email" value={props.customerEmail} set={props.setCustomerEmail} /><TextField label="Account number" value={props.accountNumber} set={props.setAccountNumber} /><TextField label="Booking reference" value={props.bookingReference} set={props.setBookingReference} /><TextField label="Pax" type="number" value={props.guestCount} set={props.setGuestCount} /><TextField label="Performance date" type="date" value={props.performanceDate} set={props.setPerformanceDate} /><TextField label="Show time" type="time" value={props.performanceTime} set={props.setPerformanceTime} /><TextField label="Seating" value={props.seatingSummary} set={props.setSeatingSummary} />
+    <Field label="Line amounts"><select className={inputClass} value={props.amountType} onChange={(e) => props.setAmountType(e.target.value as XeroLineAmountType)}><option value="no-tax">No VAT</option><option value="exclusive">VAT exclusive</option><option value="inclusive">VAT inclusive</option></select></Field><label className="sm:col-span-2 lg:col-span-3"><span className={labelClass}>Billing address</span><input className={inputClass} value={props.billingAddress} onChange={(e) => props.setBillingAddress(e.target.value)} /></label></div>
+    <div className="mt-6 flex items-center justify-between gap-3"><h4 className="font-semibold text-white">Line items</h4><button type="button" onClick={() => props.setLines((current) => [...current,emptyLine()])} className={secondaryButton}>Add Line</button></div><div className="mt-3 space-y-3">{props.lines.map((line,index) => <div key={index} className="grid gap-3 rounded-xl border border-white/10 bg-black/25 p-3 sm:grid-cols-[minmax(180px,2fr)_100px_130px_100px_auto]"><Field label="Description"><textarea rows={2} className={inputClass} value={line.description} onChange={(e) => props.updateLine(index,"description",e.target.value)} /></Field><TextField label="Quantity" value={line.quantity} set={(value) => props.updateLine(index,"quantity",value)} /><TextField label="Unit price" value={line.unitPrice} set={(value) => props.updateLine(index,"unitPrice",value)} /><TextField label="VAT %" value={line.taxRatePercent ?? ""} set={(value) => props.updateLine(index,"taxRatePercent",value || null)} /><div className="flex items-end gap-1"><button type="button" aria-label="Move line up" onClick={() => props.moveLine(index,-1)} className="h-11 w-10 rounded-lg border border-white/15">↑</button><button type="button" aria-label="Move line down" onClick={() => props.moveLine(index,1)} className="h-11 w-10 rounded-lg border border-white/15">↓</button><button type="button" aria-label="Delete line" disabled={props.lines.length === 1} onClick={() => props.setLines((current) => current.filter((_,lineIndex) => lineIndex !== index))} className="h-11 w-10 rounded-lg border border-red-400/25 text-red-200 disabled:opacity-30">×</button></div></div>)}</div>
+    <div className="mt-5 grid gap-4 sm:grid-cols-2"><AreaField label="Payment terms" value={props.paymentTerms} set={props.setPaymentTerms} /><AreaField label="Customer notes" value={props.customerNotes} set={props.setCustomerNotes} /><label className="sm:col-span-2"><span className={labelClass}>Internal notes</span><textarea className={inputClass} value={props.internalNotes} onChange={(e) => props.setInternalNotes(e.target.value)} /></label></div><div className="mt-5 ml-auto max-w-sm rounded-xl border border-[#D8C36A]/25 bg-black/35 p-4 text-sm"><p className="flex justify-between"><span className="text-zinc-400">Subtotal</span><span>{props.totals ? money(props.totals.subtotalCents) : "Check lines"}</span></p><p className="mt-2 flex justify-between"><span className="text-zinc-400">VAT</span><span>{props.totals ? money(props.totals.taxCents) : "—"}</span></p><p className="mt-3 flex justify-between border-t border-white/10 pt-3 text-base font-bold text-[#F2D66C]"><span>Total</span><span>{props.totals ? money(props.totals.totalCents) : "—"}</span></p></div></div><footer className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 p-4 sm:p-5"><p className="max-w-xl text-xs text-zinc-500">Saving creates or revises a local draft only. Nothing is sent to Xero or a customer.</p><button type="button" disabled={props.busy || !props.totals} onClick={() => void props.save()} className={primaryButton}>{props.busy ? "Saving..." : props.editingId ? "Save Changes" : "Save Draft"}</button></footer></div></div>; }
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label><span className={labelClass}>{label}</span>{children}</label>; }
+function TextField({ label, value, set, type = "text" }: { label: string; value: string; set: (value: string) => void; type?: string }) { return <Field label={label}><input type={type} min={type === "number" ? "0" : undefined} className={inputClass} value={value} onChange={(e) => set(e.target.value)} /></Field>; }
+function AreaField({ label, value, set }: { label: string; value: string; set: (value: string) => void }) { return <Field label={label}><textarea className={inputClass} value={value} onChange={(e) => set(e.target.value)} /></Field>; }
+
+function Details({ payload, canCreateInvoice, busy, acceptedBy, setAcceptedBy, acceptanceEvidence, setAcceptanceEvidence, close, edit, action }: { payload: DetailPayload; canCreateInvoice: boolean; busy: boolean; acceptedBy: string; setAcceptedBy: (value: string) => void; acceptanceEvidence: string; setAcceptanceEvidence: (value: string) => void; close: () => void; edit: (document: DocumentDetail) => void; action: (action: "accept" | "convert") => Promise<void> }) { const document = payload.document; return <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/85 p-3"><button type="button" aria-label="Close document details" onClick={close} className="absolute inset-0" /><section role="dialog" aria-modal="true" aria-labelledby="xero-detail-title" className="relative z-10 max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-4 shadow-2xl sm:p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-[#D8C36A]">{document.kind === "quote" ? "COST ESTIMATE QUOTE" : "LOCAL INVOICE DRAFT"}</p><h3 id="xero-detail-title" className="mt-1 text-xl font-bold text-white">{document.local_reference}</h3><p className="mt-1 text-sm text-zinc-400">{document.customer_name} · {venueLabel(document.venue)} · {statusLabel(document.status)}</p></div><button type="button" onClick={close} className={secondaryButton}>Close</button></div><div className="mt-5 space-y-2">{document.lines.map((line,index) => <div key={index} className="grid gap-1 rounded-lg border border-white/10 bg-black/25 p-3 text-sm sm:grid-cols-[1fr_auto]"><p className="text-white">{line.description}<span className="block text-xs text-zinc-500">{line.quantity} × {line.unitPrice}</span></p><p className="font-semibold text-white">{money(line.totalCents)}</p></div>)}</div><div className="mt-4 ml-auto max-w-xs text-sm"><p className="flex justify-between"><span className="text-zinc-500">Subtotal</span><span>{money(document.subtotal_cents)}</span></p><p className="mt-2 flex justify-between"><span className="text-zinc-500">VAT</span><span>{money(document.tax_cents)}</span></p><p className="mt-3 flex justify-between border-t border-white/10 pt-3 font-bold text-[#F2D66C]"><span>Document total</span><span>{money(document.total_cents)}</span></p></div>{payload.bookingFinancials ? <div className="mt-5 rounded-xl border border-emerald-400/20 bg-emerald-950/15 p-4"><p className="text-xs font-semibold uppercase text-emerald-200">Verified booking financials</p><div className="mt-3 grid gap-2 text-sm sm:grid-cols-3"><p><span className="block text-zinc-500">Booking value</span>{money(Math.round(payload.bookingFinancials.bookingValue * 100))}</p><p><span className="block text-zinc-500">Paid</span>{money(Math.round(payload.bookingFinancials.amountPaid * 100))}</p><p><span className="block text-zinc-500">Outstanding</span>{money(Math.round(payload.bookingFinancials.outstanding * 100))}</p></div></div> : <p className="mt-5 rounded-lg border border-white/10 p-3 text-sm text-zinc-400">No linked booking financials. Accounts must verify paid and outstanding amounts before issuing an invoice.</p>}{document.kind === "quote" && !["accepted","converted"].includes(document.status) && <div className="mt-5 grid gap-3 rounded-xl border border-white/10 p-4 sm:grid-cols-2"><TextField label="Accepted by" value={acceptedBy} set={setAcceptedBy} /><AreaField label="Acceptance evidence" value={acceptanceEvidence} set={setAcceptanceEvidence} /></div>}<div className="mt-5 flex flex-wrap justify-end gap-2">{["draft","revised"].includes(document.status) && <button type="button" onClick={() => edit(document)} className={secondaryButton}>Edit Draft</button>}<button type="button" onClick={() => downloadPdf(document)} className={secondaryButton}>Download PDF</button>{document.kind === "quote" && !["accepted","converted"].includes(document.status) && <button type="button" disabled={busy || !acceptedBy.trim() || !acceptanceEvidence.trim()} onClick={() => void action("accept")} className={primaryButton}>Record Acceptance</button>}{document.kind === "quote" && document.status === "accepted" && canCreateInvoice && <button type="button" disabled={busy} onClick={() => void action("convert")} className={primaryButton}>Create Invoice Draft</button>}</div><p className="mt-4 text-xs text-zinc-500">Version {document.version} · {payload.versions.length} saved version{payload.versions.length === 1 ? "" : "s"}</p></section></div>; }
