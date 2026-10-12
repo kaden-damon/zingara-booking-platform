@@ -40,10 +40,12 @@ type ReinstatementPreview = {
   code: "CAPACITY_BLOCKED" | "NOT_ELIGIBLE" | "PAYMENT_REQUIRED" | "READY";
   eligible: boolean;
   expired_at: string | null;
+  historical_performance?: boolean;
   floor_assignment_required: boolean;
   guest_count: number;
   payment_satisfied: boolean;
   payment_status: string;
+  reinstatement_type?: "corporate_expiry" | "released_booking";
   system_expired: boolean;
   updated_at: string;
 };
@@ -90,12 +92,39 @@ function rpcErrorResponse(error: { message?: string }) {
       { status: 409 },
     );
   }
+  if (message.includes("BOOKING_REINSTATEMENT_PAYMENT_REQUIRED")) {
+    return Response.json(
+      {
+        code: "BOOKING_REINSTATEMENT_PAYMENT_REQUIRED",
+        error: "Payment could not be verified",
+        explanation: "Check the payment details before reinstating this booking.",
+      },
+      { status: 409 },
+    );
+  }
   if (message.includes("CORPORATE_REINSTATEMENT_CAPACITY_EXCEEDED")) {
     const [, zoneId = "this zone", pax = "0", active = "0", capacity = "0"] =
       message.split("|");
     return Response.json(
       {
         code: "CORPORATE_REINSTATEMENT_CAPACITY_EXCEEDED",
+        error: "Capacity prevents reinstatement",
+        explanation: capacityExplanation({
+          active_entitlement: Number(active),
+          effective_capacity: Number(capacity),
+          pax: Number(pax),
+          zone_id: zoneId,
+        }),
+      },
+      { status: 409 },
+    );
+  }
+  if (message.includes("BOOKING_REINSTATEMENT_CAPACITY_EXCEEDED")) {
+    const [, zoneId = "this zone", pax = "0", active = "0", capacity = "0"] =
+      message.split("|");
+    return Response.json(
+      {
+        code: "BOOKING_REINSTATEMENT_CAPACITY_EXCEEDED",
         error: "Capacity prevents reinstatement",
         explanation: capacityExplanation({
           active_entitlement: Number(active),
@@ -117,6 +146,16 @@ function rpcErrorResponse(error: { message?: string }) {
       { status: 409 },
     );
   }
+  if (message.includes("BOOKING_REINSTATEMENT_ALREADY_ACTIVE")) {
+    return Response.json(
+      {
+        code: "BOOKING_REINSTATEMENT_ALREADY_ACTIVE",
+        error: "This booking has already been reinstated.",
+        explanation: "Reload Booking Details to view the current state.",
+      },
+      { status: 409 },
+    );
+  }
   if (message.includes("CORPORATE_REINSTATEMENT_NOT_ELIGIBLE")) {
     return Response.json(
       {
@@ -127,13 +166,24 @@ function rpcErrorResponse(error: { message?: string }) {
       { status: 409 },
     );
   }
+  if (message.includes("BOOKING_REINSTATEMENT_NOT_ELIGIBLE")) {
+    return Response.json(
+      {
+        code: "BOOKING_REINSTATEMENT_NOT_ELIGIBLE",
+        error: "This booking cannot be reinstated.",
+        explanation: "Review its cancellation, refund and payment history before trying again.",
+      },
+      { status: 409 },
+    );
+  }
   if (message.includes("SHOW_OUTSIDE_STAFF_SCOPE")) {
     return Response.json(
       { code: "SHOW_OUTSIDE_STAFF_SCOPE", error: "This booking is outside your assigned location." },
       { status: 403 },
     );
   }
-  if (message.includes("CORPORATE_REINSTATEMENT_PERMISSION_REQUIRED")) {
+  if (message.includes("CORPORATE_REINSTATEMENT_PERMISSION_REQUIRED") ||
+      message.includes("BOOKING_REINSTATEMENT_PERMISSION_REQUIRED")) {
     return Response.json({ error: "Booking management access is required." }, { status: 403 });
   }
   if (message.includes("BOOKING_NOT_FOUND") || message.includes("SHOW_NOT_FOUND")) {
@@ -190,7 +240,7 @@ export async function POST(request: Request) {
 
     if (action === "preview") {
       const { data, error } = await auth.serviceClient.rpc(
-        "preview_expired_corporate_reinstatement",
+        "preview_booking_reinstatement",
         { p_booking_reference: bookingReference },
       );
       if (error) {
@@ -208,10 +258,12 @@ export async function POST(request: Request) {
           blockedAllocation
             ? capacityExplanation(blockedAllocation)
             : preview.code === "PAYMENT_REQUIRED"
-              ? "Record the verified EFT payment before reinstating this booking."
+              ? "Check the payment details before reinstating this booking."
               : preview.code === "NOT_ELIGIBLE"
-                ? "This booking was not released by the Corporate payment-expiry workflow."
-                : "Payment and live capacity checks are ready for confirmation.",
+                ? "This booking cannot be safely reinstated from its current state."
+                : preview.historical_performance
+                  ? "Payment and capacity checks passed. The historical show and table-needed state will be preserved."
+                  : "Payment and live capacity checks are ready for confirmation.",
       });
     }
 
@@ -224,20 +276,33 @@ export async function POST(request: Request) {
       );
     }
 
-    const ticketCode = createTicketCode(bookingReference);
-    const { data, error } = await auth.serviceClient.rpc(
-      "reinstate_expired_corporate_booking_atomic",
-      {
-        p_actor_auth_user_id: auth.user.id,
-        p_actor_staff_profile_id: auth.staffProfile.id,
-        p_booking_reference: bookingReference,
-        p_expected_updated_at: expectedUpdatedAt,
-        p_idempotency_key: idempotencyKey,
-        p_ticket_code: ticketCode,
-        p_ticket_url: getTicketUrl(bookingReference),
-        p_user_agent: request.headers.get("user-agent"),
-      },
+    const { data: previewData, error: previewError } = await auth.serviceClient.rpc(
+      "preview_booking_reinstatement",
+      { p_booking_reference: bookingReference },
     );
+    if (previewError) throw previewError;
+    const preview = previewData as ReinstatementPreview;
+    const isCorporateExpiry = preview.reinstatement_type === "corporate_expiry";
+    const ticketCode = createTicketCode(bookingReference);
+    const { data, error } = isCorporateExpiry
+      ? await auth.serviceClient.rpc("reinstate_expired_corporate_booking_atomic", {
+          p_actor_auth_user_id: auth.user.id,
+          p_actor_staff_profile_id: auth.staffProfile.id,
+          p_booking_reference: bookingReference,
+          p_expected_updated_at: expectedUpdatedAt,
+          p_idempotency_key: idempotencyKey,
+          p_ticket_code: ticketCode,
+          p_ticket_url: getTicketUrl(bookingReference),
+          p_user_agent: request.headers.get("user-agent"),
+        })
+      : await auth.serviceClient.rpc("reinstate_released_booking_atomic", {
+          p_actor_auth_user_id: auth.user.id,
+          p_actor_staff_profile_id: auth.staffProfile.id,
+          p_booking_reference: bookingReference,
+          p_expected_updated_at: expectedUpdatedAt,
+          p_idempotency_key: idempotencyKey,
+          p_user_agent: request.headers.get("user-agent"),
+        });
     if (error) {
       const response = rpcErrorResponse(error);
       if (response) return response;
@@ -245,13 +310,13 @@ export async function POST(request: Request) {
     }
 
     const result = data as { idempotent?: boolean };
-    if (!result.idempotent) {
+    if (!result.idempotent && isCorporateExpiry) {
       await notifyAppleWalletBooking(auth.serviceClient, booking.id);
     }
     return Response.json({
       message: result.idempotent
         ? "This booking was already reinstated by this request."
-        : "Corporate booking reinstated successfully.",
+        : "Booking reinstated successfully.",
       result,
     });
   } catch (error) {

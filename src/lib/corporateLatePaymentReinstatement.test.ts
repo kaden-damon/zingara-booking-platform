@@ -120,7 +120,7 @@ test("Booking Details uses explicit preview and confirmation instead of status d
   assert.match(page, /Record Late Corporate EFT/);
   assert.match(page, /action: "preview"/);
   assert.match(page, /action: "reinstate"/);
-  assert.match(page, /disabled=\{bookingIsReadOnly \|\| isSystemExpiredCorporate\}/);
+  assert.match(page, /disabled=\{bookingIsReadOnly \|\| isReinstatementCandidate\}/);
   assert.match(page, /Use Reinstate Booking after recording verified EFT payment/);
 });
 

@@ -652,11 +652,13 @@ type CorporateReinstatementPreview = {
   booking_reference: string;
   code: "CAPACITY_BLOCKED" | "NOT_ELIGIBLE" | "PAYMENT_REQUIRED" | "READY";
   eligible: boolean;
-  expired_at: string;
+  expired_at: string | null;
   floor_assignment_required: boolean;
   guest_count: number;
   payment_satisfied: boolean;
   payment_status: string;
+  reinstatement_type?: "corporate_expiry" | "released_booking";
+  historical_performance?: boolean;
   updated_at: string;
 };
 type BroadcastForm = {
@@ -19466,21 +19468,11 @@ export default function AdminDashboardPage() {
           method: "POST",
         },
       );
-      const [authoritativeBookings, authoritativePayments] = await Promise.all([
-        getBookings(),
-        getPayments(),
-      ]);
-      setBookings(authoritativeBookings);
-      setPaymentRows(authoritativePayments);
+      await refreshBookingInState(booking.reference);
       setCorporateReinstatement(null);
       showWorkflowToast(`✓ ${response.message}`);
     } catch (error) {
-      const [authoritativeBookings, authoritativePayments] = await Promise.all([
-        getBookings(),
-        getPayments(),
-      ]);
-      setBookings(authoritativeBookings);
-      setPaymentRows(authoritativePayments);
+      await refreshBookingInState(booking.reference);
       showStaffGuidance(
         resolveStaffActionGuidance(error, {
           action: {
@@ -19490,7 +19482,7 @@ export default function AdminDashboardPage() {
               destination: "payment-controls",
             },
           },
-          message: "The Corporate booking was not reinstated.",
+          message: "The booking was not reinstated.",
           nextStep: "Check the payment, booking status and available capacity before trying again.",
           status: "blocked",
           title: "Reinstatement blocked",
@@ -31225,13 +31217,16 @@ export default function AdminDashboardPage() {
               <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
                 <section className="w-full max-w-2xl rounded-[2rem] border border-[#D8C36A]/35 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
                   <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#F2D66C]">
-                    Reinstate Corporate Booking
+                    Reinstate Booking
                   </p>
                   <h2 className="mt-3 text-2xl font-bold">
                     {reinstatementBooking?.customer.name ?? preview.booking_reference}
                   </h2>
                   <p className="mt-2 text-sm text-zinc-400">
-                    {preview.booking_reference} · {preview.guest_count} guests · System payment deadline expired {formatSouthAfricanTimestamp(preview.expired_at)}
+                    {preview.booking_reference} · {preview.guest_count} guests
+                    {preview.expired_at
+                      ? ` · Released ${formatSouthAfricanTimestamp(preview.expired_at)}`
+                      : ""}
                   </p>
 
                   <div className="mt-5 grid gap-3 border-y border-white/10 py-4 text-sm sm:grid-cols-3">
@@ -44980,6 +44975,13 @@ export default function AdminDashboardPage() {
 	                  isCorporateBooking &&
 	                  booking.status === "cancelled" &&
 	                  Boolean(booking.corporatePaymentExpiredAt);
+	                const isReleasedBooking =
+	                  booking.status === "cancelled" &&
+	                  !booking.archivedAt &&
+	                  booking.tableNumber === "Released" &&
+	                  booking.paymentStatus !== "refunded";
+	                const isReinstatementCandidate =
+	                  isSystemExpiredCorporate || isReleasedBooking;
 	                const bookingSeatingSummary = isCorporateBooking
 	                  ? getBookingZoneEntitlements(booking)
 	                      .map(
@@ -46256,7 +46258,7 @@ export default function AdminDashboardPage() {
                                       : "Record EFT"}
                                 </button>
                               )}
-	                              {isSystemExpiredCorporate && (
+	                              {isReinstatementCandidate && (
 	                                <button
 	                                  type="button"
 	                                  onClick={() =>
@@ -46412,7 +46414,7 @@ export default function AdminDashboardPage() {
                             </span>
                             <select
                               value={booking.status ?? "confirmed"}
-                              disabled={bookingIsReadOnly || isSystemExpiredCorporate}
+                              disabled={bookingIsReadOnly || isReinstatementCandidate}
                               onChange={(event) =>
                                 updateBookingStatus(
                                   booking,
