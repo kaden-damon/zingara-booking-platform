@@ -47,6 +47,8 @@ test("the distinct Melanie row retains its existing evidence and table claim", a
   assert.match(source, /Melanie Samsung Diecto/);
   assert.match(source, /2c13118e212ca9240c71536325feebac19437cc9e689a293c86836a9f0c63b9a/);
   assert.match(source, /source_row_number = 1521/);
+  assert.match(source, /c51640dd-caeb-4b5a-b3a5-00f08fd547df/);
+  assert.doesNotMatch(source, /c516a63f-953b-41e8-8a29-e13c75f247e3/);
   assert.match(source, /table_code = '800\+801'/);
   assert.match(source, /set booking_id = v_melanie_id/);
   assert.match(source, /set booking_id = v_melanie_id,\s*reference = v_melanie_reference/);

@@ -147,7 +147,7 @@ begin
 
   select * into v_existing_payment
     from public.payments
-   where id = 'c516a63f-953b-41e8-8a29-e13c75f247e3'::uuid
+   where id = 'c51640dd-caeb-4b5a-b3a5-00f08fd547df'::uuid
      and booking_id = v_kelly.id
      and payment_type::text = 'comp'
      and payment_status::text = 'comp_vip'
