@@ -6,6 +6,10 @@ const migration = readFileSync(
   new URL("../../supabase/migrations/20261014150000_p0_dineplan_import_identity_integrity.sql", import.meta.url),
   "utf8",
 );
+const durabilityMigration = readFileSync(
+  new URL("../../supabase/migrations/20261014151000_p0_dineplan_import_conflict_durability.sql", import.meta.url),
+  "utf8",
+);
 
 test("Dineplan import binds one stable source identity to one booking", () => {
   assert.match(migration, /dineplan_import_identity_bindings/);
@@ -44,4 +48,13 @@ test("the legacy unchecked importer is no longer callable by service role", () =
     migration,
     /grant execute on function public\.execute_data_portability_import\([\s\S]*to service_role/,
   );
+});
+
+test("blocked identity evidence is durable and concurrent attempts stay isolated", () => {
+  assert.match(durabilityMigration, /dineplan_import_identity_conflicts/);
+  assert.match(durabilityMigration, /attempt_id bigint not null default txid_current\(\)/);
+  assert.match(durabilityMigration, /where attempt_id = txid_current\(\)/);
+  assert.match(durabilityMigration, /grant select, insert on public\.dineplan_import_identity_conflicts to service_role/);
+  assert.match(durabilityMigration, /could not be located/);
+  assert.match(durabilityMigration, /did not complete safely/);
 });
