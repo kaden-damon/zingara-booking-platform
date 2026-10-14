@@ -93,7 +93,7 @@ export async function GET(request: Request) {
   try {
     const { data: booking, error } = await auth.serviceClient
       .from("bookings")
-      .select("id,booking_reference,booking_origin,notes,guest_count,payment_status,section,service_fee,subtotal_amount,addons_total,total_amount,amount_paid,balance_outstanding,table_id,updated_at,show_tables:table_id(table_code,capacity)")
+      .select("id,booking_reference,booking_origin,booking_source,notes,guest_count,payment_status,section,service_fee,subtotal_amount,addons_total,total_amount,amount_paid,balance_outstanding,table_id,updated_at,show_tables:table_id(table_code,capacity)")
       .eq("booking_reference", bookingReference)
       .maybeSingle();
 
@@ -184,6 +184,9 @@ export async function GET(request: Request) {
           }
         : null,
       providerBackedAmount,
+      corporateFixedTotal:
+        booking.booking_origin === "corporate" &&
+        booking.booking_source === "corporate-direct",
       addedGuestPricingBasis,
     });
   } catch (error) {
@@ -247,6 +250,18 @@ export async function POST(request: Request) {
       return Response.json({ error: "This booking is currently being edited." }, { status: 409 });
     }
 
+    const { data: bookingContext, error: bookingContextError } =
+      body.action === "guest-count"
+        ? await auth.serviceClient
+            .from("bookings")
+            .select("booking_origin,booking_source")
+            .eq("booking_reference", bookingReference)
+            .maybeSingle()
+        : { data: null, error: null };
+    if (bookingContextError) throw bookingContextError;
+    const isCorporateFixedTotal =
+      bookingContext?.booking_origin === "corporate" &&
+      bookingContext?.booking_source === "corporate-direct";
     const hasManualFinancialBasis =
       body.manualPaymentBasis !== undefined || body.manualUnitAmount !== undefined;
     const hasLegacyInvoiceEvidence = Boolean(body.legacyInvoiceEvidence);
@@ -257,7 +272,9 @@ export async function POST(request: Request) {
           ? "reconcile_imported_booking_financials_atomic"
           : "reconcile_booking_financials_atomic"
         : body.action === "guest-count"
-          ? hasRetainedValueTransfer
+          ? isCorporateFixedTotal
+            ? "reconcile_corporate_booking_guest_count_atomic"
+            : hasRetainedValueTransfer
             ? "reconcile_paid_booking_guest_reduction_atomic"
             : hasManualFinancialBasis
             ? "reconcile_legacy_booking_guest_count_financials_atomic"
@@ -391,6 +408,12 @@ export async function POST(request: Request) {
       }
       if (message.includes("ZONE_CAPACITY_EXCEEDED")) {
         return Response.json({ error: "This seating section does not have enough approved space for the added guests." }, { status: 409 });
+      }
+      if (message.includes("CORPORATE_ZONE_ENTITLEMENTS_INVALID")) {
+        return Response.json({ error: "The Corporate seating allocation does not match the guest count. Review the seating sections and try again." }, { status: 409 });
+      }
+      if (message.includes("CORPORATE_ZONE_ALLOCATION_REQUIRED")) {
+        return Response.json({ error: "This booking uses more than one seating section. Update its Corporate seating allocation before changing the guest count." }, { status: 409 });
       }
       if (message.includes("BOOKING_TABLE_STATE_INVALID")) {
         return Response.json({ error: "Check this booking's table before changing the guest count." }, { status: 409 });

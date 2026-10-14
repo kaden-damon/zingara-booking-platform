@@ -46148,7 +46148,9 @@ export default function AdminDashboardPage() {
                                     }
                                     className="rounded-full border border-[#D8C36A]/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                                   >
-                                    Edit Payment Details
+                                    {booking.source === "corporate-direct"
+                                      ? "Edit Agreed Price"
+                                      : "Edit Payment Details"}
                                   </button>
                                   <button
                                     type="button"

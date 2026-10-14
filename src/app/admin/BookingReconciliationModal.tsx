@@ -44,6 +44,7 @@ export type BookingReconciliationDetails = {
     sourceTicketAmount: number;
   } | null;
   providerBackedAmount: number;
+  corporateFixedTotal: boolean;
   addedGuestPricingBasis: AddedGuestPricingBasis;
 };
 
@@ -166,9 +167,10 @@ export function FinancialReconciliationModal(
     !props.details.retainedValueBasis;
   const outstanding = Math.max(toMoney(draft.totalAmount - draft.amountPaid), 0);
   const validation = validateFinancialReconciliation(draft);
+  const corporatePrice = props.details.corporateFixedTotal;
 
   return (
-    <ModalFrame onClose={props.onClose} title="Edit Payment Details">
+    <ModalFrame onClose={props.onClose} title={corporatePrice ? "Edit Agreed Price" : "Edit Payment Details"}>
       <p className="mt-3 text-sm text-zinc-400">{booking.bookingReference}</p>
       <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-white/10 bg-black/35 p-4">
@@ -189,7 +191,7 @@ export function FinancialReconciliationModal(
         </div>
       </div>
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <MoneyInput label="Total Booking Amount" value={draft.totalAmount} onChange={(totalAmount) => setDraft((current) => ({ ...current, totalAmount }))} />
+        <MoneyInput label={corporatePrice ? "Agreed Corporate Total" : "Total Booking Amount"} value={draft.totalAmount} onChange={(totalAmount) => setDraft((current) => ({ ...current, totalAmount }))} />
         <MoneyInput label="Total Amount Paid" value={draft.amountPaid} onChange={(amountPaid) => setDraft((current) => ({ ...current, amountPaid }))} />
       </div>
       <p className="mt-2 text-xs text-zinc-500">Total Booking Amount is the total value of this booking.</p>
@@ -220,7 +222,7 @@ export function FinancialReconciliationModal(
       </label>
       {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
       <button type="button" disabled={props.isSaving || Boolean(validation) || (requiresImportedEvidence && (!draft.sourceDocument.trim() || toMoney(draft.sourceTicketAmount + draft.sourceGratuityAmount) !== toMoney(draft.totalAmount)))} onClick={() => props.onSave({ amountPaid: draft.amountPaid, reason: draft.reason, totalAmount: draft.totalAmount, legacyInvoiceEvidence: requiresImportedEvidence ? { sourceDocument: draft.sourceDocument, sourceGratuityAmount: draft.sourceGratuityAmount, sourceTicketAmount: draft.sourceTicketAmount } : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
-        {props.isSaving ? "Saving..." : "Save payment correction"}
+        {props.isSaving ? "Saving..." : corporatePrice ? "Confirm agreed price" : "Save payment correction"}
       </button>
     </ModalFrame>
   );
@@ -254,13 +256,21 @@ export function GuestCountReconciliationModal(
   });
   const [operationId] = useState(() => crypto.randomUUID());
   const validation = validateGuestCountReconciliation(draft);
-  const financials = calculateAddedGuestFinancials({
+  const calculatedFinancials = calculateAddedGuestFinancials({
     basis: props.details.addedGuestPricingBasis,
     currentGuestCount: booking.guestCount,
     currentOutstanding: booking.balanceOutstanding,
     newGuestCount: draft.guestCount,
   });
+  const financials = props.details.corporateFixedTotal && calculatedFinancials.addedGuests > 0
+    ? {
+        ...calculatedFinancials,
+        additionalAmount: 0,
+        newOutstanding: booking.balanceOutstanding,
+      }
+    : calculatedFinancials;
   const requiresManualFinancialBasis =
+    !props.details.corporateFixedTotal &&
     financials.addedGuests > 0 && financials.additionalAmount === null;
   const manualFinancials = calculateAuthorizedLegacyIncrease({
     amountPaid: booking.amountPaid,
@@ -338,8 +348,8 @@ export function GuestCountReconciliationModal(
       {financials.addedGuests > 0 ? (
         <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
           <p>Added guests: {financials.addedGuests}</p>
-          <p>Pricing: {isComplimentaryIncrease ? "Complimentary" : props.details.addedGuestPricingBasis.paymentBasis === "deposit" ? "Original deposit" : props.details.addedGuestPricingBasis.paymentBasis === "full" ? "Original ticket price" : "Payment details need review"}</p>
-          <p>Rate: {isComplimentaryIncrease ? "Complimentary · R0.00 pp" : props.details.addedGuestPricingBasis.unitAmount === null ? "Check payment details" : `R${props.details.addedGuestPricingBasis.unitAmount.toFixed(2)} pp`}</p>
+          <p>Pricing: {props.details.corporateFixedTotal ? "Agreed Corporate total" : isComplimentaryIncrease ? "Complimentary" : props.details.addedGuestPricingBasis.paymentBasis === "deposit" ? "Original deposit" : props.details.addedGuestPricingBasis.paymentBasis === "full" ? "Original ticket price" : "Payment details need review"}</p>
+          <p>Rate: {props.details.corporateFixedTotal ? "Fixed total · no automatic repricing" : isComplimentaryIncrease ? "Complimentary · R0.00 pp" : props.details.addedGuestPricingBasis.unitAmount === null ? "Check payment details" : `R${props.details.addedGuestPricingBasis.unitAmount.toFixed(2)} pp`}</p>
           <p>Additional amount: {financials.additionalAmount === null ? "Unavailable" : `R${financials.additionalAmount.toFixed(2)}`}</p>
           <p>New outstanding: {financials.newOutstanding === null ? "Unavailable" : `R${financials.newOutstanding.toFixed(2)}`}</p>
         </div>
