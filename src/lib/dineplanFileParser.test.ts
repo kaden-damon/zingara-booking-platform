@@ -60,6 +60,26 @@ test("valid Dineplan CSV parses into a normalized snapshot", async () => {
   assert.equal(parsed.venue, "johannesburg");
 });
 
+test("authoritative semicolon Dineplan CSV keeps the first row and quoted commas", async () => {
+  const csv = [
+    '"Booking Reference";"Booking Date";"Time";"Covers";"Guest Name";"Requested Amount";Total Paid";"Payment Notes";"Seating Area";"Table(s)"',
+    '"nk9bqc";"2026-10-17";"17:00";"18";"Kelly R.";"";"";"INV-1113 Paid in Full (R26,730.00)";"Middle Ring R1320pp";"310, 311, 312"',
+    '"tbxkqc";"2026-10-29";"17:00";"20";"Bianca M.";"";"";"INV- (R29,700.00)";"Royal Balcony R1320pp";"800, 801"',
+  ].join("\n");
+  const parsed = await parseDineplanFile({
+    bytes: Buffer.from(csv),
+    filename: "reservations_1Oct2026-31Oct2026.csv",
+    mimeType: "text/csv",
+  });
+
+  assert.equal(parsed.reservations.length, 2);
+  assert.equal(parsed.reservations[0].sourceReference, "nk9bqc");
+  assert.equal(parsed.reservations[0].pax, 18);
+  assert.deepEqual(parsed.reservations[0].tables, ["310", "311", "312"]);
+  assert.equal(parsed.reservations[1].sourceReference, "tbxkqc");
+  assert.equal(parsed.reservations[1].pax, 20);
+});
+
 test("valid Dineplan PDF parses through the file boundary", async () => {
   const text = `Johannesburg\nReport Date: 23/09/2026\nGenerated: 24/09/2026 07:40\nTime   Pax   Guest                    Payment          Notes        Telephone     Seating                  Table\n17:00  2     Dione Pieterse           Deposit Paid                   0821234567    Private Raised Booths    21`;
   const parsed = await parseDineplanFile({

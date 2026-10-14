@@ -7,8 +7,38 @@ import {
 } from "./dineplanReconciliation.ts";
 
 export const dineplanMaximumFileSize = 10 * 1024 * 1024;
-export const dineplanParserVersion = 4;
+export const dineplanParserVersion = 5;
 const allowedExtensions = new Set(["csv", "pdf", "xlsx"]);
+
+function detectDelimitedSeparator(text: string) {
+  const counts = new Map<string, number>([[",", 0], [";", 0], ["\t", 0]]);
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') {
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+      continue;
+    }
+    if (!quoted && (character === "\n" || character === "\r")) break;
+    if (!quoted && counts.has(character)) {
+      counts.set(character, (counts.get(character) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? ",";
+}
+
+function normalizeDineplanCsvHeader(text: string) {
+  const newlineIndex = text.search(/[\r\n]/);
+  const header = newlineIndex >= 0 ? text.slice(0, newlineIndex) : text;
+  const corrected = header.replace(/;Total Paid";/, ';"Total Paid";');
+  return corrected === header
+    ? text
+    : corrected + (newlineIndex >= 0 ? text.slice(newlineIndex) : "");
+}
 
 async function loadPdfParser() {
   const { getData } = await import("pdf-parse/worker");
@@ -318,9 +348,11 @@ export async function parseDineplanFile(input: {
     }
     venue = detectVenue(evidenceText) ?? filenameMetadata?.venue ?? null;
   } else if (extension === "csv") {
-    evidenceText = input.bytes.toString("utf8");
+    evidenceText = normalizeDineplanCsvHeader(input.bytes.toString("utf8"));
     if (evidenceText.includes("\u0000")) throw new Error("The CSV contains unsupported binary content.");
-    records = recordsFromRows(parseDelimitedRows(evidenceText));
+    records = recordsFromRows(
+      parseDelimitedRows(evidenceText, detectDelimitedSeparator(evidenceText)),
+    );
     venue = detectVenue(`${input.filename} ${evidenceText}`);
   } else {
     if (!input.bytes.subarray(0, 2).equals(Buffer.from("PK"))) {
