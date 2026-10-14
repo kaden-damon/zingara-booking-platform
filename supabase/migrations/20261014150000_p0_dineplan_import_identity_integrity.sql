@@ -70,11 +70,11 @@ select
   legacy.id,
   legacy.booking_reference,
   legacy.normalized_source_reference,
-  encode(digest(
+  encode(extensions.digest(
     'dineplan|' || legacy.normalized_source_reference,
     'sha256'
   ), 'hex'),
-  encode(digest(
+  encode(extensions.digest(
     concat_ws('|',
       'dineplan',
       legacy.normalized_source_reference,
@@ -175,8 +175,8 @@ begin
       from jsonb_array_elements(p_rows) with ordinality source(row_data, ordinality)
     ), normalized as (
       select incoming.*,
-        encode(digest('dineplan|' || incoming.source_reference, 'sha256'), 'hex') as source_reference_fingerprint,
-        encode(digest(
+        encode(extensions.digest('dineplan|' || incoming.source_reference, 'sha256'), 'hex') as source_reference_fingerprint,
+        encode(extensions.digest(
           concat_ws('|',
             'dineplan', incoming.source_reference,
             lower(regexp_replace(incoming.customer_name, '[^A-Za-z0-9]', '', 'g')),
@@ -254,7 +254,7 @@ begin
       status, compared_at, compared_by
     )
     values (
-      encode(digest('import-identity-conflict|' || coalesce(p_preview_hash, '') || '|' || clock_timestamp()::text, 'sha256'), 'hex'),
+      encode(extensions.digest('import-identity-conflict|' || coalesce(p_preview_hash, '') || '|' || clock_timestamp()::text, 'sha256'), 'hex'),
       coalesce(nullif(p_file_name, ''), 'dineplan-import'),
       'application/json',
       greatest(1, octet_length(p_rows::text)),
@@ -281,7 +281,7 @@ begin
         material_fingerprint, status, source_generated_at
       )
       select
-        encode(digest(concat_ws('|', 'dineplan-import-identity', v_conflict.source_reference, coalesce(v_conflict.booking_id::text, 'unbound')), 'sha256'), 'hex'),
+        encode(extensions.digest(concat_ws('|', 'dineplan-import-identity', v_conflict.source_reference, coalesce(v_conflict.booking_id::text, 'unbound')), 'sha256'), 'hex'),
         v_snapshot_id,
         'import-identity:' || v_conflict.row_number,
         v_conflict.show_id,
@@ -301,7 +301,7 @@ begin
         format('Source %s was blocked: %s', coalesce(v_conflict.source_reference, 'missing'), v_conflict.reason),
         format('Booking %s remains unchanged.', coalesce(v_conflict.booking_reference, 'not linked')),
         0,
-        encode(digest(concat_ws('|', v_conflict.reason, v_conflict.incoming_fingerprint, v_conflict.bound_fingerprint), 'sha256'), 'hex'),
+        encode(extensions.digest(concat_ws('|', v_conflict.reason, v_conflict.incoming_fingerprint, v_conflict.bound_fingerprint), 'sha256'), 'hex'),
         'unacknowledged',
         now()
       from public.bookings booking
@@ -419,7 +419,7 @@ begin
             substring(trim(source.row_data #>> '{values,booking_reference}') from 4)
           ), '[^A-Za-z0-9]', '', 'g'
         )) as source_reference,
-        encode(digest(
+        encode(extensions.digest(
           'dineplan|' || upper(regexp_replace(
             coalesce(
               nullif(trim(source.row_data #>> '{values,source_booking_reference}'), ''),
@@ -427,7 +427,7 @@ begin
             ), '[^A-Za-z0-9]', '', 'g'
           )), 'sha256'
         ), 'hex') as source_reference_fingerprint,
-        encode(digest(
+        encode(extensions.digest(
           concat_ws('|',
             'dineplan',
             upper(regexp_replace(
