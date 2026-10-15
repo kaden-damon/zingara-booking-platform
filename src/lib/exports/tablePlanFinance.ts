@@ -75,12 +75,17 @@ export const tablePlanFinancialColumnHeaders = [
 export function getDineplanZoneReceiptFormula(
   firstDataRow: number,
   finalDataRow: number,
+  firstColumn = "K",
+  lastColumn = "N",
 ) {
-  return `SUM(K${firstDataRow}:N${finalDataRow})`;
+  return `SUM(${firstColumn}${firstDataRow}:${lastColumn}${finalDataRow})`;
 }
 
-export function getTablePlanToPayTotalFormula(tableTotalsRow: number) {
-  return `SUM(O${tableTotalsRow})`;
+export function getTablePlanToPayTotalFormula(
+  tableTotalsRow: number,
+  column = "O",
+) {
+  return `SUM(${column}${tableTotalsRow})`;
 }
 
 type TablePlanFinancialInput = {

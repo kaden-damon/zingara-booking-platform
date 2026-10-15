@@ -4,6 +4,7 @@ import test from "node:test";
 import ExcelJS from "exceljs";
 
 import {
+  applyTablePlanOriginalEvidence,
   buildTablePlanWorkbook,
   type TablePlanBooking,
   type TablePlanCustomer,
@@ -80,6 +81,73 @@ function cellNumber(value: ExcelJS.CellValue) {
   }
   return 0;
 }
+
+test("Table Plan preserves authoritative original zone and price evidence", async () => {
+  const moved = applyTablePlanOriginalEvidence(
+    booking("moved", "MOVED", 4, "table-400", {
+      notes: '__zingara_booking_meta__:{"pricePerPerson":1540,"zoneId":"middle-ring"}',
+      section: "golden-circle",
+    }),
+    [{
+      action: "booking.create",
+      after_values: {
+        guest_count: 4,
+        notes: '__zingara_booking_meta__:{"pricePerPerson":1360,"zoneId":"middle-ring"}',
+        section: "Middle Ring",
+      },
+      before_values: null,
+      created_at: "2026-09-01T10:00:00Z",
+      entity_id: "moved",
+    }],
+  );
+  const corporate = applyTablePlanOriginalEvidence(
+    booking("corporate-original", "CORP-ORIGINAL", 10, "table-200", {
+      notes: '__zingara_booking_meta__:{"pricingProvenance":{"agreedPricePerPerson":1250}}',
+      section: "middle-ring",
+      zone_entitlements: [
+        { pax: 6, zoneId: "middle-ring" },
+        { pax: 4, zoneId: "golden-circle" },
+      ],
+    }),
+    [],
+  );
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [moved, corporate],
+    configuredZonePrices: {
+      "golden-circle": 1_540,
+      "middle-ring": 1_360,
+      "private-booths": 1_440,
+      "royal-balcony": 1_250,
+    },
+    customers: [customer("moved", "Moved Guest"), customer("corporate-original", "Corporate Original")],
+    payments: [],
+    show: {
+      date: "2026-10-14",
+      id: "show-history",
+      name: "History Test",
+      time: "17:00:00",
+      venue: "johannesburg",
+    },
+    tables: [
+      table("table-400", "400", "moved", { section: "golden-circle" }),
+      table("table-200", "200", "corporate-original"),
+      table("table-401", "401", "corporate-original", { section: "golden-circle" }),
+    ],
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+  assert.ok(sheet);
+  const rows = Array.from({ length: sheet.rowCount }, (_, index) => sheet.getRow(index + 1));
+  const movedRow = rows.find((row) => row.getCell(7).value === "MOVED");
+  const corporateRow = rows.find((row) => row.getCell(7).value === "CORP-ORIGINAL");
+
+  assert.equal(movedRow?.getCell(8).value, "Middle Ring");
+  assert.equal(movedRow?.getCell(12).value, 1_360);
+  assert.equal(movedRow?.getCell(12).numFmt, '"R" #,##0.00;[Red]"-R" #,##0.00;"R" 0.00');
+  assert.equal(corporateRow?.getCell(8).value, "Middle Ring: 6; Golden Circle: 4");
+  assert.equal(corporateRow?.getCell(12).value, 1_250);
+});
 
 test("Table Plan exports physical claims with singular booking totals", async () => {
   const bookings = [
@@ -233,40 +301,45 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.equal(
     bookingRows
       .filter((row) => row.getCell(5).value === "Two Table Guest")
-      .reduce((total, row) => total + cellNumber(row.getCell(12).value), 0),
+      .reduce((total, row) => total + cellNumber(row.getCell(14).value), 0),
     500,
   );
   const twoTableRows = bookingRows.filter(
     (row) => row.getCell(5).value === "Two Table Guest",
   );
   assert.deepEqual(
-    Array.from({ length: 17 }, (_, index) => twoTableRows[1].getCell(7 + index).value),
-    Array(17).fill(null),
+    Array.from({ length: 19 }, (_, index) => twoTableRows[1].getCell(7 + index).value),
+    Array(19).fill(null),
   );
   assert.equal(
     bookingRows.find((row) => row.getCell(5).value === "Single Guest")
-      ?.getCell(10).value,
+      ?.getCell(11).value,
     "Paid R200 · Outstanding R200",
   );
   assert.equal(twoTableRows[0].getCell(7).value, "TWO");
-  assert.equal(twoTableRows[0].getCell(8).value, null);
-  assert.equal(twoTableRows[0].getCell(9).value, "Deposit");
-  assert.equal(twoTableRows[0].getCell(10).value, "Paid R500 · Outstanding R500");
+  assert.equal(twoTableRows[0].getCell(8).value, "Middle Ring");
+  assert.equal(twoTableRows[0].getCell(9).value, null);
+  assert.equal(twoTableRows[0].getCell(10).value, "Deposit");
+  assert.equal(twoTableRows[0].getCell(11).value, "Paid R500 · Outstanding R500");
   assert.equal(twoTableRows[1].getCell(7).value, null);
-  assert.equal(twoTableRows[1].getCell(10).value, null);
+  assert.equal(twoTableRows[1].getCell(11).value, null);
   const unknownMethodRow = bookingRows.find(
     (row) => row.getCell(5).value === "Single Guest",
   );
   assert.ok(unknownMethodRow);
   assert.deepEqual(
-    [11, 12, 13, 14].map((column) => cellNumber(unknownMethodRow.getCell(column).value)),
+    [13, 14, 15, 16].map((column) => cellNumber(unknownMethodRow.getCell(column).value)),
     [0, 0, 0, 0],
   );
-  assert.equal(cellNumber(unknownMethodRow.getCell(15).value), 200);
-  assert.equal(sheet.getRow(3).getCell(10).value, null);
+  assert.equal(cellNumber(unknownMethodRow.getCell(17).value), 200);
+  assert.equal(sheet.getRow(3).getCell(11).value, "NOTES");
+  assert.deepEqual(
+    Array.from({ length: 8 }, (_, index) => sheet.getRow(3).getCell(5 + index).value),
+    ["NAME", "CONTACT", "BOOKING REF", "ORIGINAL ZONE", "PAYMENT BREAKDOWN", "PAYMENT SUMMARY", "NOTES", "ORIGINAL PRICE"],
+  );
   assert.deepEqual(
     Array.from({ length: 13 }, (_, index) =>
-      String(sheet.getRow(3).getCell(11 + index).value ?? "").trim(),
+      String(sheet.getRow(3).getCell(13 + index).value ?? "").trim(),
     ),
     [
       "FULL-PYT-CC",
@@ -284,11 +357,17 @@ test("Table Plan exports physical claims with singular booking totals", async ()
       "TIPS",
     ],
   );
-  assert.equal(sheet.getRow(3).getCell(16).value, "MEDIA");
-  assert.equal(sheet.columnCount, 23);
+  assert.equal(sheet.getRow(3).getCell(18).value, "MEDIA");
+  assert.equal(sheet.columnCount, 25);
   assert.equal(sheet.getColumn(7).width, 15.28);
-  assert.equal(sheet.getColumn(8).width, 38.86);
-  assert.equal(sheet.getColumn(10).width, 48);
+  assert.equal(sheet.getColumn(8).width, 24);
+  assert.equal(sheet.getColumn(9).width, 38.86);
+  assert.equal(sheet.getColumn(11).width, 48);
+  assert.equal(sheet.getColumn(12).width, 18);
+  assert.equal(
+    rows.find((row) => row.getCell(2).value === "11")?.getCell(12).value,
+    null,
+  );
   assert.equal(
     rows.some(
       (row) =>
@@ -321,19 +400,26 @@ test("Table Plan exports physical claims with singular booking totals", async ()
     /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
   );
   const tableTotalsRow = rows.find((row) => {
-    const value = row.getCell(11).value;
-    return value && typeof value === "object" && "formula" in value && /^SUM\(K4:K\d+\)$/.test(String(value.formula));
+    const value = row.getCell(13).value;
+    return value && typeof value === "object" && "formula" in value && /^SUM\(M4:M\d+\)$/.test(String(value.formula));
   });
   assert.ok(tableTotalsRow);
   assert.deepEqual(
     Array.from({ length: 13 }, (_, index) => {
-      const value = tableTotalsRow.getCell(11 + index).value;
+      const value = tableTotalsRow.getCell(13 + index).value;
       return value && typeof value === "object" && "formula" in value
         ? String(value.formula).slice(0, 5)
         : "";
     }),
-    Array(13).fill("SUM(K").map((value, index) => index === 0 ? value : `SUM(${String.fromCharCode(75 + index)}`),
+    Array(13).fill("SUM(M").map((value, index) => index === 0 ? value : `SUM(${String.fromCharCode(77 + index)}`),
   );
+  const checklistPaxRow = rows.find((row) => row.getCell(5).value === "PAX COUNT");
+  assert.ok(checklistPaxRow);
+  assert.match(
+    String((checklistPaxRow.getCell(9).value as ExcelJS.CellFormulaValue).formula),
+    /^SUM\(D\d+\)$/,
+  );
+  assert.equal(checklistPaxRow.getCell(10).value, null);
   assert.ok(sheet.model.merges.some((merge) => /^E\d+:I\d+$/.test(merge)));
 });
 
@@ -405,14 +491,14 @@ test("Table Plan applies Jacques's approved operational columns to every seating
       .find((candidate) => candidate.getCell(7).value === `REF-${fixture.id.toUpperCase()}`);
     assert.ok(row, fixture.id);
     assert.equal(
-      row.getCell(8).value,
+      row.getCell(9).value,
       fixture.status === "comp_vip"
         ? "Dinner show comps, drinks and gratuity to be paid by client"
         : `Operational note for ${fixture.id}`,
     );
-    assert.equal(row.getCell(9).value, fixture.expected);
-    assert.doesNotMatch(String(row.getCell(9).value), /R\d|REF-|@|note/i);
-    assert.match(String(row.getCell(10).value), /^Paid R/);
+    assert.equal(row.getCell(10).value, fixture.expected);
+    assert.doesNotMatch(String(row.getCell(10).value), /R\d|REF-|@|note/i);
+    assert.match(String(row.getCell(11).value), /^Paid R/);
     assert.match(String(row.getCell(6).value), /\+27110000000$/);
   }
   const workbookText = workbook.worksheets
@@ -472,17 +558,17 @@ test("Table Plan emits one payment summary for a multi-zone Corporate booking", 
   assert.equal(
     rows.filter(
       (row) =>
-        row.getCell(10).value ===
+        row.getCell(11).value ===
         "Paid R2,000 · Outstanding R6,000",
     ).length,
     1,
   );
   assert.equal(
-    rows.filter((row) => row.getCell(9).value === "Deposit").length,
+    rows.filter((row) => row.getCell(10).value === "Deposit").length,
     1,
   );
   assert.equal(rows.filter((row) => row.getCell(7).value == null).length, 1);
-  assert.equal(rows.filter((row) => row.getCell(10).value == null).length, 1);
+  assert.equal(rows.filter((row) => row.getCell(11).value == null).length, 1);
   assert.equal(
     rows.reduce((total, row) => total + cellNumber(row.getCell(4).value), 0),
     8,
@@ -497,6 +583,8 @@ test("Table Plan route remains batched and includes report-critical booking stat
 
   assert.match(route, /show_tables/);
   assert.match(route, /zone_entitlements/);
+  assert.match(route, /applyTablePlanOriginalEvidence/);
+  assert.match(route, /audit_events/);
   assert.match(route, /await Promise\.all\(\[/);
   assert.doesNotMatch(route, /\.not\("table_id",\s*"is",\s*null\)/);
 });

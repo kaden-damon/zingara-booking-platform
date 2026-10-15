@@ -78,11 +78,21 @@ export type TablePlanBooking = {
   guest_count: number;
   id: string;
   notes: string | null;
+  original_price_per_person?: number | null;
+  original_zone_entitlements?: Array<{ pax: number; zoneId: SeatingZoneId }> | null;
   payment_status: string;
   section: string;
   table_id: string | null;
   total_amount: number;
   zone_entitlements?: Array<{ pax: number; zoneId: SeatingZoneId }> | null;
+};
+
+export type TablePlanBookingAudit = {
+  action: string;
+  after_values: Record<string, unknown> | null;
+  before_values: Record<string, unknown> | null;
+  created_at: string;
+  entity_id: string;
 };
 
 export type TablePlanCustomer = {
@@ -157,11 +167,13 @@ type UnassignedTablePlanRow = {
 
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
 const bookingReferenceColumn = 7;
-const notesColumn = 8;
-const paymentTypeColumn = 9;
-const paymentSummaryColumn = 10;
-const firstFinancialColumn = 11;
-const lastFinancialColumn = 23;
+const originalZoneColumn = 8;
+const notesColumn = 9;
+const paymentTypeColumn = 10;
+const paymentSummaryColumn = 11;
+const originalPriceColumn = 12;
+const firstFinancialColumn = 13;
+const lastFinancialColumn = 25;
 const activeBookingStatuses = new Set([
   "checked_in",
   "confirmed",
@@ -199,8 +211,19 @@ const dynamicMergeAddresses = [
   "A73:A83",
   "E100:G100",
 ];
-const monetaryColumns = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
+const monetaryColumns = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25];
 const southAfricanCurrencyNumberFormat = tablePlanCurrencyNumberFormat;
+
+const operationalColumnHeaders = [
+  "NAME",
+  "CONTACT",
+  "BOOKING REF",
+  "ORIGINAL ZONE",
+  "PAYMENT BREAKDOWN",
+  "PAYMENT SUMMARY",
+  "NOTES",
+  "ORIGINAL PRICE",
+] as const;
 
 export function neutralizeSpreadsheetFormula(value: string) {
   return /^[=+\-@]/.test(value.trimStart()) ? `'${value}` : value;
@@ -238,6 +261,114 @@ function normalizeZone(section: string): TablePlanZoneId | null {
   }
 
   return null;
+}
+
+function parseBookingMetadataValue(value: unknown) {
+  if (typeof value !== "string" || !value.startsWith(bookingMetadataPrefix)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value.slice(bookingMetadataPrefix.length)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function parseOriginalZoneEntitlements(values: Record<string, unknown> | null) {
+  if (!values) return null;
+  const metadata = parseBookingMetadataValue(values.notes);
+  const rawEntitlements = values.zone_entitlements ?? metadata?.zoneEntitlements;
+
+  if (Array.isArray(rawEntitlements)) {
+    const entitlements = rawEntitlements.flatMap((raw) => {
+      if (!raw || typeof raw !== "object") return [];
+      const item = raw as Record<string, unknown>;
+      const zone = normalizeZone(String(item.zoneId ?? item.zone_id ?? ""));
+      const pax = Number(item.pax);
+
+      return zone && Number.isFinite(pax) && pax > 0
+        ? [{ pax, zoneId: toReportingZone(zone)! }]
+        : [];
+    });
+
+    if (entitlements.length) return entitlements;
+  }
+
+  const section = String(values.section ?? metadata?.zoneId ?? "");
+  const zone = normalizeZone(section);
+  const pax = Number(values.guest_count ?? metadata?.partySize);
+
+  return zone
+    ? [{ pax: Number.isFinite(pax) && pax > 0 ? pax : 0, zoneId: toReportingZone(zone)! }]
+    : null;
+}
+
+function parseOriginalPrice(values: Record<string, unknown> | null) {
+  const metadata = values ? parseBookingMetadataValue(values.notes) : null;
+  if (!metadata) return null;
+  const pricingProvenance = metadata.pricingProvenance;
+  const provenanceRate =
+    pricingProvenance && typeof pricingProvenance === "object"
+      ? Number((pricingProvenance as Record<string, unknown>).agreedPricePerPerson)
+      : Number.NaN;
+  const metadataRate = Number(metadata.pricePerPerson);
+  const rate = Number.isFinite(provenanceRate) ? provenanceRate : metadataRate;
+
+  return Number.isFinite(rate) && rate >= 0 ? rate : null;
+}
+
+export function applyTablePlanOriginalEvidence(
+  booking: TablePlanBooking,
+  audits: TablePlanBookingAudit[],
+): TablePlanBooking {
+  const ordered = [...audits].sort((left, right) =>
+    left.created_at.localeCompare(right.created_at),
+  );
+  const creation = ordered.find((audit) => audit.action === "booking.create");
+  const preChange = ordered.find(
+    (audit) => parseOriginalZoneEntitlements(audit.before_values) !== null,
+  );
+  const currentValues: Record<string, unknown> = {
+    guest_count: booking.guest_count,
+    notes: booking.notes,
+    section: booking.section,
+    zone_entitlements: booking.zone_entitlements,
+  };
+  const evidenceValues = creation?.after_values ?? preChange?.before_values ?? currentValues;
+  const priceValues =
+    [creation?.after_values, preChange?.before_values, currentValues].find(
+      (values) => parseOriginalPrice(values ?? null) !== null,
+    ) ?? null;
+
+  return {
+    ...booking,
+    original_price_per_person: parseOriginalPrice(priceValues),
+    original_zone_entitlements: parseOriginalZoneEntitlements(evidenceValues),
+  };
+}
+
+function formatZoneName(zoneId: SeatingZoneId) {
+  if (zoneId === "golden-circle") return "Golden Circle";
+  if (zoneId === "middle-ring") return "Middle Ring";
+  if (zoneId === "royal-booths") return "Private Booths";
+  return "Royal Balcony";
+}
+
+function formatOriginalZones(booking: TablePlanBooking) {
+  const entitlements = booking.original_zone_entitlements?.length
+    ? booking.original_zone_entitlements
+    : parseOriginalZoneEntitlements({
+        guest_count: booking.guest_count,
+        section: booking.section,
+        zone_entitlements: booking.zone_entitlements,
+      });
+  if (!entitlements?.length) return null;
+  if (entitlements.length === 1) return formatZoneName(entitlements[0].zoneId);
+
+  return entitlements
+    .map((entitlement) => `${formatZoneName(entitlement.zoneId)}: ${entitlement.pax}`)
+    .join("; ");
 }
 
 function toReportingZone(section: string): SeatingZoneId | null {
@@ -604,6 +735,9 @@ function restorePaymentColumnHeaders(worksheet: Worksheet) {
       return;
     }
 
+    operationalColumnHeaders.forEach((header, index) => {
+      row.getCell(5 + index).value = header;
+    });
     tablePlanFinancialColumnHeaders.forEach((header, index) => {
       row.getCell(firstFinancialColumn + index).value = header;
     });
@@ -614,27 +748,45 @@ function insertApprovedOperationalColumns(worksheet: Worksheet) {
   worksheet.spliceColumns(bookingReferenceColumn, 0, [], []);
 
   worksheet.eachRow({ includeEmpty: true }, (row) => {
-    for (const column of [bookingReferenceColumn, notesColumn]) {
-      row.getCell(column).style = cloneStyle(row.getCell(paymentTypeColumn));
+    for (const column of [bookingReferenceColumn, 8]) {
+      row.getCell(column).style = cloneStyle(row.getCell(9));
       row.getCell(column).value = null;
     }
   });
 
   worksheet.getColumn(bookingReferenceColumn).width = 15.28;
-  worksheet.getColumn(notesColumn).width = 38.86;
+  worksheet.getColumn(8).width = 38.86;
 }
 
 function insertPaymentSummaryColumn(worksheet: Worksheet) {
-  worksheet.spliceColumns(paymentSummaryColumn, 0, []);
+  worksheet.spliceColumns(10, 0, []);
 
   worksheet.eachRow({ includeEmpty: true }, (row) => {
-    row.getCell(paymentSummaryColumn).style = cloneStyle(
-      row.getCell(firstFinancialColumn),
+    row.getCell(10).style = cloneStyle(
+      row.getCell(11),
     );
-    row.getCell(paymentSummaryColumn).value = null;
+    row.getCell(10).value = null;
   });
 
-  worksheet.getColumn(paymentSummaryColumn).width = 48;
+  worksheet.getColumn(10).width = 48;
+}
+
+function insertOriginalEvidenceColumns(worksheet: Worksheet) {
+  worksheet.spliceColumns(originalZoneColumn, 0, []);
+  worksheet.eachRow({ includeEmpty: true }, (row) => {
+    row.getCell(originalZoneColumn).style = cloneStyle(row.getCell(notesColumn));
+    row.getCell(originalZoneColumn).value = null;
+  });
+  worksheet.getColumn(originalZoneColumn).width = 24;
+
+  worksheet.spliceColumns(originalPriceColumn, 0, []);
+  worksheet.eachRow({ includeEmpty: true }, (row) => {
+    row.getCell(originalPriceColumn).style = cloneStyle(
+      row.getCell(firstFinancialColumn),
+    );
+    row.getCell(originalPriceColumn).value = null;
+  });
+  worksheet.getColumn(originalPriceColumn).width = 18;
 }
 
 function resolveTablePlanPaymentType(booking: TablePlanBooking) {
@@ -706,6 +858,9 @@ function populateBookingDataRow(
   row.getCell(bookingReferenceColumn).value = includeBookingDetails
     ? neutralizeSpreadsheetFormula(booking.booking_reference)
     : null;
+  row.getCell(originalZoneColumn).value = includeBookingDetails
+    ? neutralizeSpreadsheetFormula(formatOriginalZones(booking) ?? "") || null
+    : null;
   row.getCell(notesColumn).value = includeBookingDetails
     ? booking.payment_status.trim().toLowerCase() === "comp_vip"
       ? "Dinner show comps, drinks and gratuity to be paid by client"
@@ -720,18 +875,23 @@ function populateBookingDataRow(
   row.getCell(paymentSummaryColumn).value = neutralizeSpreadsheetFormula(
     formatTablePlanPaymentSummary(paymentSummary),
   );
-  setMoneyValue(row.getCell(11), financials.fullCard);
-  setMoneyValue(row.getCell(12), financials.prePaidCard);
-  setMoneyValue(row.getCell(13), financials.prePaidEft);
-  setMoneyValue(row.getCell(14), financials.fullEft);
-  setMoneyValue(row.getCell(15), financials.toPay);
-  setMoneyValue(row.getCell(16), 0);
-  setMoneyValue(row.getCell(17), financials.complimentaryAmount);
-  setMoneyValue(row.getCell(18), financials.halaalMealsAmount);
-  setMoneyValue(row.getCell(19), financials.kosherMealsAmount);
-  setMoneyValue(row.getCell(20), financials.ticketGratuityAmount);
-  setMoneyValue(row.getCell(21), financials.barTabPaidAmount);
-  setMoneyValue(row.getCell(22), financials.barGratuityAmount);
+  if (booking.original_price_per_person == null) {
+    row.getCell(originalPriceColumn).value = null;
+  } else {
+    setMoneyValue(row.getCell(originalPriceColumn), booking.original_price_per_person);
+  }
+  setMoneyValue(row.getCell(13), financials.fullCard);
+  setMoneyValue(row.getCell(14), financials.prePaidCard);
+  setMoneyValue(row.getCell(15), financials.prePaidEft);
+  setMoneyValue(row.getCell(16), financials.fullEft);
+  setMoneyValue(row.getCell(17), financials.toPay);
+  setMoneyValue(row.getCell(18), 0);
+  setMoneyValue(row.getCell(19), financials.complimentaryAmount);
+  setMoneyValue(row.getCell(20), financials.halaalMealsAmount);
+  setMoneyValue(row.getCell(21), financials.kosherMealsAmount);
+  setMoneyValue(row.getCell(22), financials.ticketGratuityAmount);
+  setMoneyValue(row.getCell(23), financials.barTabPaidAmount);
+  setMoneyValue(row.getCell(24), financials.barGratuityAmount);
 }
 
 function clearSecondaryBookingFinancials(row: Row) {
@@ -753,7 +913,7 @@ function copyTableRowStyle(worksheet: Worksheet, sourceRow: Row, targetRow: Row)
   }
 
   targetRow.getCell(lastFinancialColumn).value = {
-    formula: `SUM(T${targetRow.number}+V${targetRow.number})`,
+    formula: `SUM(V${targetRow.number}+X${targetRow.number})`,
     result: 0,
   };
 }
@@ -836,7 +996,7 @@ function clearTableDataRow(row: Row) {
   }
 
   row.getCell(lastFinancialColumn).value = {
-    formula: `SUM(T${row.number}+V${row.number})`,
+    formula: `SUM(V${row.number}+X${row.number})`,
     result: 0,
   };
 
@@ -908,9 +1068,13 @@ function updateTablePlanFormulas(
   const summaryCapacityRow = 92 + rowOffset;
   const checklistOffset = rowOffset;
 
+  // ORIGINAL ZONE is inserted before the checklist value column. Keep the
+  // established checklist in column I and clear the shifted template values.
+  for (let row = 102 + checklistOffset; row <= 131 + checklistOffset; row += 1) {
+    worksheet.getCell(`J${row}`).value = null;
+  }
+
   const columnNumbers = {
-    K: 11,
-    L: 12,
     M: 13,
     N: 14,
     O: 15,
@@ -922,6 +1086,8 @@ function updateTablePlanFormulas(
     U: 21,
     V: 22,
     W: 23,
+    X: 24,
+    Y: 25,
   } as const;
 
   for (const [column, columnNumber] of Object.entries(columnNumbers)) {
@@ -934,13 +1100,13 @@ function updateTablePlanFormulas(
 
   worksheet.getCell(`C${summaryCapacityRow}`).value = totalCapacity;
   const paxCount = sumRows(worksheet, dataRows, 4);
-  const fullCard = sumRows(worksheet, dataRows, 11);
-  const prePaidCard = sumRows(worksheet, dataRows, 12);
-  const prePaidEft = sumRows(worksheet, dataRows, 13);
-  const fullEft = sumRows(worksheet, dataRows, 14);
-  const toPay = sumRows(worksheet, dataRows, 15);
-  const media = sumRows(worksheet, dataRows, 16);
-  const comps = sumRows(worksheet, dataRows, 17);
+  const fullCard = sumRows(worksheet, dataRows, 13);
+  const prePaidCard = sumRows(worksheet, dataRows, 14);
+  const prePaidEft = sumRows(worksheet, dataRows, 15);
+  const fullEft = sumRows(worksheet, dataRows, 16);
+  const toPay = sumRows(worksheet, dataRows, 17);
+  const media = sumRows(worksheet, dataRows, 18);
+  const comps = sumRows(worksheet, dataRows, 19);
   const totalFullyPaid = fullCard + fullEft;
   const totalPrePaid = prePaidCard + prePaidEft;
 
@@ -956,12 +1122,12 @@ function updateTablePlanFormulas(
   );
   setMoneyFormula(
     worksheet.getCell(`I${103 + checklistOffset}`),
-    `SUM(K${tableTotalsRow})`,
+    `SUM(M${tableTotalsRow})`,
     fullCard,
   );
   setMoneyFormula(
     worksheet.getCell(`I${104 + checklistOffset}`),
-    `SUM(N${tableTotalsRow})`,
+    `SUM(P${tableTotalsRow})`,
     fullEft,
   );
   setMoneyFormula(
@@ -971,12 +1137,12 @@ function updateTablePlanFormulas(
   );
   setMoneyFormula(
     worksheet.getCell(`I${107 + checklistOffset}`),
-    `SUM(L${tableTotalsRow})`,
+    `SUM(N${tableTotalsRow})`,
     prePaidCard,
   );
   setMoneyFormula(
     worksheet.getCell(`I${108 + checklistOffset}`),
-    `SUM(M${tableTotalsRow})`,
+    `SUM(O${tableTotalsRow})`,
     prePaidEft,
   );
   setMoneyFormula(
@@ -999,8 +1165,10 @@ function updateTablePlanFormulas(
       getDineplanZoneReceiptFormula(
         layout.firstDataRow,
         layout.finalDataRow,
+        "M",
+        "P",
       ),
-      [11, 12, 13, 14].reduce(
+      [13, 14, 15, 16].reduce(
         (total, column) => total + sumRows(worksheet, layout.dataRows, column),
         0,
       ),
@@ -1014,7 +1182,7 @@ function updateTablePlanFormulas(
   );
   setMoneyFormula(
     worksheet.getCell(`I${118 + checklistOffset}`),
-    getTablePlanToPayTotalFormula(tableTotalsRow),
+    getTablePlanToPayTotalFormula(tableTotalsRow, "Q"),
     toPay,
   );
   setMoneyFormula(
@@ -1025,43 +1193,43 @@ function updateTablePlanFormulas(
   worksheet.getCell(`E${122 + checklistOffset}`).value = "MEDIA ";
   setMoneyFormula(
     worksheet.getCell(`I${122 + checklistOffset}`),
-    `SUM(P${tableTotalsRow})`,
+    `SUM(R${tableTotalsRow})`,
     media,
   );
   setMoneyFormula(
     worksheet.getCell(`I${123 + checklistOffset}`),
-    `SUM(Q${tableTotalsRow})`,
+    `SUM(S${tableTotalsRow})`,
     comps,
   );
   setMoneyFormula(
     worksheet.getCell(`I${124 + checklistOffset}`),
-    getTablePlanToPayTotalFormula(tableTotalsRow),
+    getTablePlanToPayTotalFormula(tableTotalsRow, "Q"),
     toPay,
   );
   setMoneyFormula(
     worksheet.getCell(`I${125 + checklistOffset}`),
-    `SUM(U${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 21),
+    `SUM(W${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 23),
   );
   setMoneyFormula(
     worksheet.getCell(`I${127 + checklistOffset}`),
+    `SUM(X${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 24),
+  );
+  setMoneyFormula(
+    worksheet.getCell(`I${128 + checklistOffset}`),
     `SUM(V${tableTotalsRow})`,
     sumRows(worksheet, dataRows, 22),
   );
   setMoneyFormula(
-    worksheet.getCell(`I${128 + checklistOffset}`),
+    worksheet.getCell(`I${130 + checklistOffset}`),
     `SUM(T${tableTotalsRow})`,
     sumRows(worksheet, dataRows, 20),
   );
   setMoneyFormula(
-    worksheet.getCell(`I${130 + checklistOffset}`),
-    `SUM(R${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 18),
-  );
-  setMoneyFormula(
     worksheet.getCell(`I${131 + checklistOffset}`),
-    `SUM(S${tableTotalsRow})`,
-    sumRows(worksheet, dataRows, 19),
+    `SUM(U${tableTotalsRow})`,
+    sumRows(worksheet, dataRows, 21),
   );
   const discountedRateCell = worksheet.getCell(`I${126 + checklistOffset}`);
 
@@ -1172,6 +1340,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
 
   insertApprovedOperationalColumns(tablePlan);
   insertPaymentSummaryColumn(tablePlan);
+  insertOriginalEvidenceColumns(tablePlan);
 
   const activeBookings = input.bookings.filter(
     (booking) =>
@@ -1495,8 +1664,11 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   tablePlan.getColumn(5).width = 27.14;
   tablePlan.getColumn(6).width = 20.29;
   tablePlan.getColumn(7).width = 15.28;
-  tablePlan.getColumn(8).width = 38.86;
-  tablePlan.getColumn(9).width = 53.55;
+  tablePlan.getColumn(8).width = 24;
+  tablePlan.getColumn(9).width = 38.86;
+  tablePlan.getColumn(10).width = 53.55;
+  tablePlan.getColumn(11).width = 48;
+  tablePlan.getColumn(12).width = 18;
   notes.getColumn(1).width = 6.78;
   notes.getColumn(2).width = 6;
   notes.getColumn(3).width = 30.22;

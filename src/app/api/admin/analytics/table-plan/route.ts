@@ -1,5 +1,7 @@
 import {
+  applyTablePlanOriginalEvidence,
   buildTablePlanWorkbook,
+  type TablePlanBookingAudit,
   type TablePlanBooking,
   type TablePlanCustomer,
   type TablePlanPayment,
@@ -209,10 +211,25 @@ export async function GET(request: Request) {
           )
           .in("booking_id", bookingIds)
       : Promise.resolve({ data: [], error: null });
-    const [customerResult, paymentResult, legacyPaymentEvidenceResult] = await Promise.all([
+    const bookingAuditRequest = bookingIds.length
+      ? auth.serviceClient
+          .from("audit_events")
+          .select("entity_id,action,before_values,after_values,created_at")
+          .eq("entity_type", "booking")
+          .eq("outcome", "success")
+          .in("entity_id", bookingIds)
+          .order("created_at", { ascending: true })
+      : Promise.resolve({ data: [], error: null });
+    const [
+      customerResult,
+      paymentResult,
+      legacyPaymentEvidenceResult,
+      bookingAuditResult,
+    ] = await Promise.all([
       customerRequest,
       paymentRequest,
       legacyPaymentEvidenceRequest,
+      bookingAuditRequest,
     ]);
 
     if (customerResult.error) {
@@ -226,6 +243,26 @@ export async function GET(request: Request) {
     if (legacyPaymentEvidenceResult.error) {
       throw legacyPaymentEvidenceResult.error;
     }
+
+    if (bookingAuditResult.error) {
+      throw bookingAuditResult.error;
+    }
+
+    const auditsByBookingId = new Map<string, TablePlanBookingAudit[]>();
+
+    for (const audit of (bookingAuditResult.data ?? []) as TablePlanBookingAudit[]) {
+      auditsByBookingId.set(audit.entity_id, [
+        ...(auditsByBookingId.get(audit.entity_id) ?? []),
+        audit,
+      ]);
+    }
+
+    const bookingsWithOriginalEvidence = bookings.map((booking) =>
+      applyTablePlanOriginalEvidence(
+        booking,
+        auditsByBookingId.get(booking.id) ?? [],
+      ),
+    );
 
     const customers = (customerResult.data ?? []) as TablePlanCustomer[];
     const emailNamedCustomerIds = customers
@@ -286,7 +323,7 @@ export async function GET(request: Request) {
     });
 
     const workbook = await buildTablePlanWorkbook({
-      bookings,
+      bookings: bookingsWithOriginalEvidence,
       configuredZonePrices: {
         "golden-circle": venueSettings.zonePricing["golden-circle"].price,
         "middle-ring": venueSettings.zonePricing["middle-ring"].price,
