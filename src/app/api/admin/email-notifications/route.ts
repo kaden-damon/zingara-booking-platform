@@ -48,6 +48,7 @@ function isManagementKey(
 
 async function responsePayload(
   auth: Awaited<ReturnType<typeof requireActiveStaff>>,
+  includeStaffOptions = true,
 ) {
   const canManage = canManageOrganisation(auth.staffProfile!);
   const [personal, corporateRoute, staffOptions] = await Promise.all([
@@ -55,7 +56,7 @@ async function responsePayload(
     canManage
       ? loadManagementEmailRoute(auth.serviceClient!, "corporate-enquiry")
       : Promise.resolve(null),
-    canManage
+    canManage && includeStaffOptions
       ? auth.serviceClient!
           .from("staff_profiles")
           .select("id,full_name,email,venue_scope")
@@ -84,7 +85,12 @@ export async function GET(request: Request) {
   if (auth.error || !auth.serviceClient || !auth.staffProfile) return auth.error;
 
   try {
-    return Response.json(await responsePayload(auth));
+    return Response.json(
+      await responsePayload(
+        auth,
+        new URL(request.url).searchParams.get("details") === "true",
+      ),
+    );
   } catch (error) {
     console.error("[Email Notifications] Settings could not be loaded", error);
     return Response.json(

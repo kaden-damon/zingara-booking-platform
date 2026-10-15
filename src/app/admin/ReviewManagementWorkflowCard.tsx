@@ -21,6 +21,8 @@ export function ReviewManagementWorkflowCard({ isSuperAdmin }: { isSuperAdmin: b
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<"daily" | "immediate" | null>(null);
   const [width, setWidth] = useState<390 | 620>(620);
+  const [expanded, setExpanded] = useState(false);
+  const [summaryRecipients, setSummaryRecipients] = useState<{ daily: string; immediate: string }>({ daily: "Loading...", immediate: "Loading..." });
 
   const load = useCallback(async () => {
     if (!isSuperAdmin) return;
@@ -34,7 +36,25 @@ export function ReviewManagementWorkflowCard({ isSuperAdmin }: { isSuperAdmin: b
     finally { setLoading(false); }
   }, [isSuperAdmin]);
 
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  const loadSummary = useCallback(async () => {
+    if (!isSuperAdmin) return;
+    try {
+      const response = await request("/api/admin/workflows/review-management?summary=true");
+      const next = await response.json();
+      if (!response.ok) throw new Error(next.error ?? "Review notification summary could not be loaded.");
+      setDraft(next.configuration);
+      setSummaryRecipients({
+        daily: `To: ${next.dailyRecipients?.to?.join(", ") || "None"} · CC: ${next.dailyRecipients?.cc?.join(", ") || "None"}`,
+        immediate: `To: ${next.immediateRecipients?.to?.join(", ") || "None"} · CC: ${next.immediateRecipients?.cc?.join(", ") || "None"}`,
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Review notification summary could not be loaded.");
+    }
+  }, [isSuperAdmin]);
+
+  useEffect(() => { const timer = window.setTimeout(() => void loadSummary(), 0); return () => window.clearTimeout(timer); }, [loadSummary]);
+
+  useEffect(() => { if (!expanded) return; const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [expanded, load]);
   if (!isSuperAdmin) return null;
 
   const toggleRecipient = (kind: "dailyRecipientStaffIds" | "immediateRecipientStaffIds", id: string) => setDraft((current) => current ? { ...current, [kind]: current[kind].includes(id) ? current[kind].filter((value) => value !== id) : [...current[kind], id] } : current);
@@ -56,9 +76,11 @@ export function ReviewManagementWorkflowCard({ isSuperAdmin }: { isSuperAdmin: b
   const example = preview === "immediate" ? payload?.immediateExample : payload?.dailyExample;
 
   return <article className="mt-5 rounded-lg border border-[#D8C36A]/30 bg-zinc-950/80 p-5">
-    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Guest Reviews</p>
-    <h3 className="mt-2 text-xl font-bold">Review management notifications</h3>
-    <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Alert management when a review arrives and send one daily summary of new reviews. Ratings of 1–2 are marked Needs attention.</p>
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Guest Reviews</p><h3 className="mt-2 text-xl font-bold">Review management notifications</h3><div className="mt-3 grid gap-2 text-xs text-zinc-500"><p><strong className="text-zinc-300">New Review Alert · {draft?.immediateEnabled ? "Enabled" : "Disabled"}</strong><br />{summaryRecipients.immediate}</p><p><strong className="text-zinc-300">Daily Review Summary · {draft?.dailyEnabled ? "Enabled" : "Disabled"} · {draft?.dailyTime ?? "08:00"} SAST</strong><br />{summaryRecipients.daily}</p></div></div>
+      <button type="button" onClick={() => setExpanded((current) => !current)} aria-expanded={expanded} className="min-h-10 shrink-0 rounded-full border border-[#D8C36A]/35 px-4 text-xs font-bold uppercase tracking-[0.08em] text-[#F2D66C]">{expanded ? "Close" : "Edit Settings"}</button>
+    </div>
+    {expanded && <>
     <div className="mt-5 grid gap-5 xl:grid-cols-2">
       <section className="rounded-lg border border-white/10 p-4"><div className="flex items-center justify-between gap-3"><h4 className="font-semibold">New Review Alert</h4><button type="button" onClick={() => setDraft((current) => current ? { ...current, immediateEnabled: !current.immediateEnabled } : current)} className="rounded-full border border-white/15 px-4 py-2 text-xs font-bold">{draft?.immediateEnabled ? "Enabled" : "Disabled"}</button></div><p className="mt-2 text-sm text-zinc-500">Sent once after a genuine review is saved.</p>{choices("immediateRecipientStaffIds")}<p className="mt-3 text-xs text-zinc-500">{recipientText(payload?.immediateRecipients)}</p><button type="button" onClick={() => setPreview("immediate")} className="mt-3 rounded-full border border-white/15 px-4 py-2 text-xs font-bold">Preview Email</button></section>
       <section className="rounded-lg border border-white/10 p-4"><div className="flex items-center justify-between gap-3"><h4 className="font-semibold">Daily Review Summary</h4><button type="button" onClick={() => setDraft((current) => current ? { ...current, dailyEnabled: !current.dailyEnabled } : current)} className="rounded-full border border-white/15 px-4 py-2 text-xs font-bold">{draft?.dailyEnabled ? "Enabled" : "Disabled"}</button></div><label className="mt-3 block text-sm text-zinc-400">Time (SAST)<input type="time" value={draft?.dailyTime ?? "08:00"} onChange={(event) => setDraft((current) => current ? { ...current, dailyTime: event.target.value } : current)} className="mt-2 block rounded-lg border border-zinc-700 bg-black px-4 py-3 text-white" /></label>{choices("dailyRecipientStaffIds")}<p className="mt-3 text-xs text-zinc-500">{recipientText(payload?.dailyRecipients)}</p><button type="button" onClick={() => setPreview("daily")} className="mt-3 rounded-full border border-white/15 px-4 py-2 text-xs font-bold">Preview Email</button></section>
@@ -66,5 +88,6 @@ export function ReviewManagementWorkflowCard({ isSuperAdmin }: { isSuperAdmin: b
     {error && <p className="mt-4 text-sm text-red-300">{error}</p>}{message && <p className="mt-4 text-sm text-emerald-300">{message}</p>}
     <div className="mt-5 flex gap-3"><button type="button" disabled={!draft || loading} onClick={() => void save()} className="rounded-full bg-[#D8C36A] px-5 py-3 text-xs font-bold text-black disabled:opacity-50">SAVE SETTINGS</button><button type="button" disabled={loading} onClick={() => void load()} className="rounded-full border border-white/15 px-5 py-3 text-xs font-bold">REFRESH PREVIEW</button></div>
     {preview && example && <div role="dialog" aria-modal="true" aria-label="Review notification email preview" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"><div className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-lg border border-[#D8C36A]/35 bg-zinc-950 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs uppercase tracking-[0.14em] text-zinc-500">No-send preview</p><h4 className="font-bold">{example.subject}</h4></div><div className="flex gap-2"><button type="button" onClick={() => setWidth(620)} className="rounded-full border border-white/15 px-3 py-2 text-xs">Desktop</button><button type="button" onClick={() => setWidth(390)} className="rounded-full border border-white/15 px-3 py-2 text-xs">Mobile</button><button type="button" onClick={() => setPreview(null)} className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-bold text-black">Close</button></div></div><div className="mt-4 overflow-auto bg-zinc-900 p-3"><iframe title="Review notification preview" srcDoc={example.html} style={{ height: "68vh", width }} className="mx-auto max-w-full border-0 bg-white" /></div></div></div>}
+    </>}
   </article>;
 }

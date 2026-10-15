@@ -1,6 +1,6 @@
 import { getAdminRoleFromName, requireActiveStaff } from "@/lib/supabase/serverAdmin";
 import { recordAuditEvent } from "@/lib/supabase/serverAudit";
-import { loadReviewManagementConfiguration, previewReviewManagement, saveReviewManagementConfiguration } from "@/lib/workflows/reviewManagement";
+import { loadReviewManagementConfiguration, loadReviewManagementSummary, previewReviewManagement, saveReviewManagementConfiguration } from "@/lib/workflows/reviewManagement";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,7 +20,12 @@ async function requireSuperAdmin(request: Request) {
 export async function GET(request: Request) {
   const access = await requireSuperAdmin(request);
   if (access.error) return access.error;
-  try { return Response.json(await previewReviewManagement(access.auth.serviceClient!)); }
+  try {
+    if (new URL(request.url).searchParams.get("summary") === "true") {
+      return Response.json(await loadReviewManagementSummary(access.auth.serviceClient!));
+    }
+    return Response.json(await previewReviewManagement(access.auth.serviceClient!));
+  }
   catch (error) { console.error("[Review Management] Preview failed", error); return Response.json({ error: "Review notification preview could not be loaded." }, { status: 500 }); }
 }
 

@@ -5,6 +5,7 @@ export type AdminNavigationSection =
   | "bookings"
   | "operations"
   | "customers"
+  | "communications"
   | "reviews"
   | "analytics"
   | "platform-operations"
@@ -44,6 +45,7 @@ export function getAdminNavigation(access: AdminNavigationAccess) {
 
   const more: AdminNavigationItem[] = [];
   if (access.canManageCommunications) {
+    more.push({ id: "communications", label: "Communications" });
     more.push({ id: "reviews", label: "Reviews" });
   }
   if (access.canManageSettings) {

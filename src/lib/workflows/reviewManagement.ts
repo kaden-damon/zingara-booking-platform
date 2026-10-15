@@ -277,6 +277,15 @@ export async function loadReviewManagementConfiguration(client: SupabaseClient, 
   };
 }
 
+export async function loadReviewManagementSummary(client: SupabaseClient) {
+  const configuration = await loadReviewManagementConfiguration(client);
+  const [immediateRecipients, dailyRecipients] = await Promise.all([
+    resolveRecipients(client, configuration.immediateRecipientStaffIds),
+    resolveRecipients(client, configuration.dailyRecipientStaffIds),
+  ]);
+  return { configuration, dailyRecipients, immediateRecipients };
+}
+
 export async function saveReviewManagementConfiguration(client: SupabaseClient, input: { dailyEnabled: boolean; dailyRecipientStaffIds: string[]; dailyTime: string; immediateEnabled: boolean; immediateRecipientStaffIds: string[] }, updatedBy: string | null, now = new Date()) {
   if (!input.dailyTime.match(/^([01]\d|2[0-3]):[0-5]\d$/)) throw new Error("Enter a valid daily time.");
   const staff = await loadStaff(client);

@@ -30,6 +30,13 @@ export async function GET(request: Request) {
     return Response.json({ error: "Supabase service role is not configured." }, { status: 500 });
   }
   try {
+    if (new URL(request.url).searchParams.get("summary") === "true") {
+      return Response.json({
+        configuration: await loadDailyBookingReviewConfiguration(
+          access.auth.serviceClient,
+        ),
+      });
+    }
     return Response.json(await previewDailyBookingReviews(access.auth.serviceClient));
   } catch (error) {
     console.error("[Daily Booking Review] Preview failed", error);

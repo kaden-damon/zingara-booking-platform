@@ -81,6 +81,12 @@ const ReviewManagementWorkflowCard = dynamic(() =>
     (module) => module.ReviewManagementWorkflowCard,
   ),
 );
+const EmailNotificationsSettings = dynamic(
+  () => import("./EmailNotificationsSettings"),
+);
+const CommunicationHistoryPanel = dynamic(
+  () => import("./CommunicationHistoryPanel"),
+);
 const ReviewsAdminWorkspace = dynamic(
   () => import("./ReviewsAdminWorkspace"),
 );
@@ -955,6 +961,7 @@ type AdminTab =
   | "corporate"
   | "operations"
   | "customers"
+  | "communications"
   | "reviews"
   | "analytics"
   | "platform-operations"
@@ -970,6 +977,12 @@ type AnalyticsSectionId =
   | "waitlist-conversion"
   | "customer-value";
 type AnalyticsWorkspace = "accounting" | "reports" | "revenue" | "sales";
+type CommunicationsTab =
+  | "overview"
+  | "guest-emails"
+  | "staff-emails"
+  | "broadcasts"
+  | "history";
 type BookingArchiveFilter = "active" | "all" | "archived";
 type CustomerArchiveFilter = "active" | "all" | "archived";
 type CustomerNameStatusFilter = "all" | "complete" | "incomplete";
@@ -1655,6 +1668,7 @@ const adminPresenceAreas: Record<AdminTab, string> = {
   academy: "Dashboard",
   analytics: "Reports",
   bookings: "Bookings",
+  communications: "Communications",
   corporate: "Bookings",
   customers: "Customers",
   operations: "Operations",
@@ -7420,9 +7434,18 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "staff", label: "People" },
   { id: "venue", label: "Venue" },
   { id: "promo-codes", label: "Promotions" },
-  { id: "workflows", label: "Communications" },
   { id: "audit", label: "Audit Trail" },
   { id: "integrations", label: "Integrations" },
+];
+const communicationsTabs: Array<{
+  id: CommunicationsTab;
+  label: string;
+}> = [
+  { id: "overview", label: "Overview" },
+  { id: "guest-emails", label: "Guest Emails" },
+  { id: "staff-emails", label: "Staff Emails" },
+  { id: "broadcasts", label: "Broadcasts" },
+  { id: "history", label: "History" },
 ];
 const systemTabs: Array<{ id: SystemTab; label: string }> = [
   { id: "operations", label: "Platform" },
@@ -10822,6 +10845,8 @@ export default function AdminDashboardPage() {
   ]);
   const [activeSettingsTab, setActiveSettingsTab] =
     useState<SettingsTab>("staff");
+  const [activeCommunicationsTab, setActiveCommunicationsTab] =
+    useState<CommunicationsTab>("overview");
   const [promoCodes, setPromoCodes] = useState<PromoAdminRecord[]>([]);
   const [promoCodeSearch, setPromoCodeSearch] = useState("");
   const [promoCodeStatus, setPromoCodeStatus] = useState("");
@@ -11083,6 +11108,12 @@ export default function AdminDashboardPage() {
     defaultShows[0]?.id ?? "",
   );
   const [workflowStatus, setWorkflowStatus] = useState("");
+  const [workflowBookingsLoadState, setWorkflowBookingsLoadState] = useState<{
+    error: string;
+    showId: string;
+    status: "idle" | "loading" | "loaded" | "error";
+  }>({ error: "", showId: "", status: "idle" });
+  const workflowBookingsLoadRequestRef = useRef(0);
   const [isWorkflowSendConfirmOpen, setIsWorkflowSendConfirmOpen] =
     useState(false);
   const [isWorkflowSending, setIsWorkflowSending] = useState(false);
@@ -11688,8 +11719,7 @@ export default function AdminDashboardPage() {
     const requiresCompleteBookingPopulation =
       (activeAdminTab === "customers" && crmDirectoryView === "customers") ||
       (activeAdminTab === "corporate" && corporateWorkspace === "enquiries") ||
-      (activeAdminTab === "analytics" && analyticsWorkspace === "revenue") ||
-      (activeAdminTab === "settings" && activeSettingsTab === "workflows");
+      (activeAdminTab === "analytics" && analyticsWorkspace === "revenue");
 
     if (
       !hasHydrated ||
@@ -11736,8 +11766,7 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     const requiresBookingHistories =
-      (activeAdminTab === "customers" && crmDirectoryView === "customers") ||
-      (activeAdminTab === "settings" && activeSettingsTab === "workflows");
+      activeAdminTab === "customers" && crmDirectoryView === "customers";
 
     if (
       !hasHydrated ||
@@ -12499,8 +12528,8 @@ export default function AdminDashboardPage() {
         setActiveAdminTab("settings");
         if (settingsSection === "integrations") setActiveSettingsTab("integrations");
       } else if (section === "communications") {
-        setActiveAdminTab("settings");
-        setActiveSettingsTab("workflows");
+        setActiveAdminTab("communications");
+        setActiveCommunicationsTab("overview");
       } else if (section === "academy") {
         setActiveAdminTab("academy");
       } else if (section === "platform-operations") {
@@ -13044,15 +13073,16 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     if (
-      activeAdminTab !== "settings" ||
-      activeSettingsTab !== "workflows" ||
+      activeAdminTab !== "communications" ||
+      (activeCommunicationsTab !== "overview" &&
+        activeCommunicationsTab !== "guest-emails") ||
       !isSuperAdmin
     ) {
       return;
     }
 
     void loadAutomatedWorkflows();
-  }, [activeAdminTab, activeSettingsTab, isSuperAdmin]);
+  }, [activeAdminTab, activeCommunicationsTab, isSuperAdmin]);
 
   useEffect(() => {
     if (
@@ -26727,6 +26757,83 @@ export default function AdminDashboardPage() {
     workflowShows.find((show) => show.id === workflowShowId) ??
     workflowShows[0] ??
     selectedShow;
+  const authoritativeWorkflowShowId =
+    workflowShow?.supabaseId ?? workflowShow?.id ?? "";
+  const requiresWorkflowShowBookings =
+    activeAdminTab === "communications" &&
+    (activeCommunicationsTab === "guest-emails" ||
+      activeCommunicationsTab === "broadcasts");
+
+  useEffect(() => {
+    if (
+      !hasHydrated ||
+      !currentStaff ||
+      !requiresWorkflowShowBookings ||
+      !workflowShow ||
+      !authoritativeWorkflowShowId
+    ) {
+      return;
+    }
+
+    const requestId = workflowBookingsLoadRequestRef.current + 1;
+    workflowBookingsLoadRequestRef.current = requestId;
+    let isCancelled = false;
+
+    setWorkflowBookingsLoadState({
+      error: "",
+      showId: workflowShow.id,
+      status: "loading",
+    });
+
+    void getBookings({
+      showId: authoritativeWorkflowShowId,
+      throwOnError: true,
+    })
+      .then((nextBookings) => {
+        if (
+          isCancelled ||
+          requestId !== workflowBookingsLoadRequestRef.current
+        ) {
+          return;
+        }
+
+        setBookings(nextBookings);
+        setWorkflowBookingsLoadState({
+          error: "",
+          showId: workflowShow.id,
+          status: "loaded",
+        });
+      })
+      .catch((error) => {
+        if (
+          isCancelled ||
+          requestId !== workflowBookingsLoadRequestRef.current
+        ) {
+          return;
+        }
+
+        console.error(
+          "[Zingara admin] Failed to load selected communication show",
+          error,
+        );
+        setWorkflowBookingsLoadState({
+          error: "Guest recipients couldn't be loaded. Try again.",
+          showId: workflowShow.id,
+          status: "error",
+        });
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    activeCommunicationsTab,
+    authoritativeWorkflowShowId,
+    currentStaff,
+    hasHydrated,
+    requiresWorkflowShowBookings,
+    workflowShow,
+  ]);
   const workflowShowBookings = workflowShow
     ? activeBookingsForOperations.filter(
         (booking) => booking.showId === workflowShow.id,
@@ -27327,34 +27434,6 @@ export default function AdminDashboardPage() {
           ),
         }
       : null;
-  const workflowCommunicationHistory = workflowShowBookings
-    .flatMap((booking) =>
-      (booking.communicationHistory ?? []).map((record) => {
-        const template = communicationTemplates.find(
-          (currentTemplate) => currentTemplate.id === record.templateId,
-        );
-
-        return {
-          booking,
-          record,
-          showLabel: getShowLabel(
-            shows.find(
-              (show) => show.id === (record.showId ?? booking.showId),
-            ) ?? workflowShow,
-          ),
-          templateName:
-            template?.name ??
-            (record.trigger
-              ? communicationTriggerLabels[record.trigger]
-              : "Guest Communication"),
-        };
-      }),
-    )
-    .sort(
-      (left, right) =>
-        new Date(right.record.sentAt).getTime() -
-        new Date(left.record.sentAt).getTime(),
-    );
   const shouldPrepareRevenueAnalytics =
     activeAdminTab === "overview" ||
     (activeAdminTab === "analytics" && analyticsWorkspace === "revenue");
@@ -41097,32 +41176,27 @@ export default function AdminDashboardPage() {
           </section>
         )}
 
-        {activeAdminTab === "settings" &&
-          activeSettingsTab === "workflows" &&
+        {activeAdminTab === "communications" &&
           canManageCommunications && (
-          <section className="mb-10 rounded-2xl border border-[#D8C36A]/35 bg-[radial-gradient(circle_at_top,#22170C_0%,#101010_48%,#050505_100%)] p-6 shadow-2xl shadow-[#8D7A2F]/10">
+          <section className="mb-10 rounded-lg border border-[#D8C36A]/35 bg-[radial-gradient(circle_at_top,#22170C_0%,#101010_48%,#050505_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
             <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
-                  Guest Communications
+                  Communications
                 </p>
-                <h2 className="text-3xl font-bold">
-                  Automated Workflows
-                </h2>
+                <h2 className="text-3xl font-bold">Email & Guest Messaging</h2>
                 <p className="mt-2 text-zinc-400">
-                  Manage templates, trigger reminders, and broadcast
-                  operational updates for{" "}
-                  <span className="font-semibold text-white">
-                    {getShowLabel(workflowShow)}
-                  </span>
-                  .
+                  Manage guest journeys, staff emails, broadcasts and delivery history.
                 </p>
               </div>
 
-              <div className="flex flex-col items-start gap-3">
+              {(activeCommunicationsTab === "guest-emails" ||
+                activeCommunicationsTab === "broadcasts" ||
+                activeCommunicationsTab === "history") && (
+              <div className="w-full max-w-sm">
                 <label className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                   Selected Performance
-                  <span className="mt-2 block min-w-[280px]">
+                  <span className="mt-2 block">
                     <PerformanceCalendarSelector
                       buttonClassName="w-full rounded-full border border-[#D8C36A]/35 bg-black px-4 py-3 text-left text-sm font-semibold normal-case tracking-normal text-white transition hover:border-[#D8C36A]/60 focus:border-[#D8C36A]/70 focus:outline-none"
                       emptyLabel="Select performance"
@@ -41136,25 +41210,59 @@ export default function AdminDashboardPage() {
                     />
                   </span>
                 </label>
-
-                <button
-                  type="button"
-                  onClick={sendShowReminder}
-                  disabled={activeWorkflowBookings.length === 0}
-                  className="inline-flex min-w-[220px] max-w-full items-center justify-center whitespace-nowrap rounded-full border border-[#D8C36A]/40 px-5 py-3 text-center text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Send Show Reminders
-                </button>
               </div>
+              )}
             </div>
 
-            {workflowStatus && (
+            <div role="tablist" aria-label="Communications workspace" className="mb-6 grid grid-cols-2 gap-2 rounded-lg border border-white/10 bg-black/35 p-2 sm:grid-cols-3 lg:grid-cols-5">
+              {communicationsTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeCommunicationsTab === tab.id}
+                  onClick={() => setActiveCommunicationsTab(tab.id)}
+                  className={`min-h-11 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-[0.1em] transition focus:outline-none focus:ring-2 focus:ring-[#F2D66C]/60 ${
+                    activeCommunicationsTab === tab.id
+                      ? "bg-[#D8C36A] text-black"
+                      : "border border-white/10 text-zinc-300 hover:border-[#D8C36A]/45 hover:text-white"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {activeCommunicationsTab === "overview" && (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                {[
+                  ["Active guest workflows", String(automatedWorkflows.filter((workflow) => workflow.enabled).length)],
+                  ["Staff email workflows", "4 managed"],
+                  ["Recent activity", "Open History"],
+                  ["Failed communications", "Check History"],
+                  ["Next scheduled runs", "Open Staff Emails"],
+                ].map(([label, value], index) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setActiveCommunicationsTab(index < 2 ? (index === 0 ? "guest-emails" : "staff-emails") : index < 4 ? "history" : "staff-emails")}
+                    className="min-h-28 rounded-lg border border-white/10 bg-black/30 p-4 text-left transition hover:border-[#D8C36A]/45"
+                  >
+                    <span className="block text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">{label}</span>
+                    <strong className="mt-3 block text-lg text-white">{value}</strong>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {activeCommunicationsTab !== "overview" && workflowStatus && (
               <div className="mb-5 rounded-2xl border border-emerald-300/30 bg-emerald-950/20 p-4 text-sm font-semibold text-emerald-200">
                 {workflowStatus}
               </div>
             )}
 
-            <div className="mb-5 rounded-2xl border border-[#D8C36A]/25 bg-black/35 p-5">
+            {activeCommunicationsTab === "guest-emails" && (
+            <div className="mb-5 rounded-lg border border-[#D8C36A]/25 bg-black/35 p-4 sm:p-5">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
@@ -41166,6 +41274,17 @@ export default function AdminDashboardPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={sendShowReminder}
+                    disabled={
+                      workflowBookingsLoadState.status !== "loaded" ||
+                      activeWorkflowBookings.length === 0
+                    }
+                    className="inline-flex min-w-[150px] items-center justify-center rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Send Reminders
+                  </button>
                   <button
                     type="button"
                     onClick={() => void loadAutomatedWorkflows()}
@@ -41195,6 +41314,15 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
+              {workflowBookingsLoadState.status === "loading" && (
+                <p className="mt-4 text-sm text-zinc-500">Loading recipients for this performance...</p>
+              )}
+              {workflowBookingsLoadState.status === "error" && (
+                <p role="alert" className="mt-4 rounded-lg border border-red-300/25 bg-red-950/20 p-3 text-sm text-red-200">
+                  {workflowBookingsLoadState.error}
+                </p>
+              )}
+
               <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {automatedWorkflows.map((workflow) => {
                   const isReviewWorkflow =
@@ -41208,7 +41336,7 @@ export default function AdminDashboardPage() {
                   return (
                     <article
                       key={workflow.workflowKey}
-                      className="rounded-2xl border border-white/10 bg-zinc-950/70 p-5"
+                      className="rounded-lg border border-white/10 bg-zinc-950/70 p-4 sm:p-5"
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
@@ -41379,11 +41507,18 @@ export default function AdminDashboardPage() {
                 })}
               </div>
             </div>
+            )}
 
-            <DailyBookingReviewWorkflowCard isSuperAdmin={isSuperAdmin} />
-            <ReviewManagementWorkflowCard isSuperAdmin={isSuperAdmin} />
+            {activeCommunicationsTab === "staff-emails" && (
+              <div className="space-y-4">
+                <EmailNotificationsSettings showPersonal={false} />
+                <DailyBookingReviewWorkflowCard isSuperAdmin={isSuperAdmin} />
+                <ReviewManagementWorkflowCard isSuperAdmin={isSuperAdmin} />
+              </div>
+            )}
 
-            {workflowStatusConfirmation && (
+            {activeCommunicationsTab === "guest-emails" &&
+              workflowStatusConfirmation && (
               <div className="mb-5 rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-5 shadow-2xl shadow-black/40">
                 {(() => {
                   const isReviewWorkflow =
@@ -41440,7 +41575,8 @@ export default function AdminDashboardPage() {
               </div>
             )}
 
-            {workflowEmailPreview && (
+            {activeCommunicationsTab === "guest-emails" &&
+              workflowEmailPreview && (
               <div className="mb-5 rounded-2xl border border-white/10 bg-black/45 p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
@@ -41483,7 +41619,8 @@ export default function AdminDashboardPage() {
               </div>
             )}
 
-            <div className="mb-5 rounded-2xl border border-white/10 bg-black/35 p-5">
+            {activeCommunicationsTab === "overview" && (
+            <div className="mt-5 rounded-lg border border-white/10 bg-black/35 p-4 sm:p-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
@@ -41587,9 +41724,13 @@ export default function AdminDashboardPage() {
                 })}
               </div>
             </div>
+            )}
 
-            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-              <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
+            {(activeCommunicationsTab === "guest-emails" ||
+              activeCommunicationsTab === "broadcasts") && (
+            <div className="grid grid-cols-1 gap-5">
+              {activeCommunicationsTab === "guest-emails" && (
+              <div className="rounded-lg border border-white/10 bg-black/35 p-4 sm:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -41812,8 +41953,10 @@ export default function AdminDashboardPage() {
                   </div>
                 )}
               </div>
+              )}
 
-              <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
+              {activeCommunicationsTab === "broadcasts" && (
+              <div className="rounded-lg border border-white/10 bg-black/35 p-4 sm:p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                   Operational Broadcast
                 </p>
@@ -41876,56 +42019,17 @@ export default function AdminDashboardPage() {
                 </button>
 
               </div>
-            </div>
-
-            <AdminCollapsibleSection
-              className="mt-5 bg-black/35"
-              summary={`${workflowCommunicationHistory.length} record${workflowCommunicationHistory.length === 1 ? "" : "s"} · ${getShowLabel(workflowShow)}`}
-              title="Communication History"
-            >
-
-              {workflowCommunicationHistory.length === 0 ? (
-                <p className="rounded-2xl border border-white/10 bg-zinc-950 p-4 text-sm text-zinc-400">
-                  No communications have been sent for this show yet.
-                </p>
-              ) : (
-                <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
-                  {workflowCommunicationHistory.map(
-                    ({ booking, record, showLabel, templateName }) => (
-                      <div
-                        key={`workflow-history-${record.id}`}
-                        className="rounded-2xl border border-white/10 bg-zinc-950 p-4"
-                      >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                              {templateName}
-                            </p>
-                            <p className="mt-1 font-semibold text-white">
-                              {record.subject ?? "Guest communication"}
-                            </p>
-                            <p className="mt-1 text-sm text-zinc-400">
-                              {booking.customer.name || "Guest"} ·{" "}
-                              {booking.reference} ·{" "}
-                              {communicationChannelLabels[record.channel]}
-                            </p>
-                            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                              {showLabel}
-                            </p>
-                          </div>
-                          <p className="text-xs text-zinc-500">
-                            {formatSouthAfricanTimestamp(record.sentAt)}
-                          </p>
-                        </div>
-                        <p className="mt-3 line-clamp-2 text-sm text-zinc-300">
-                          {record.message}
-                        </p>
-                      </div>
-                    ),
-                  )}
-                </div>
               )}
-            </AdminCollapsibleSection>
+            </div>
+            )}
+
+            {activeCommunicationsTab === "history" && (
+              <CommunicationHistoryPanel
+                key={authoritativeWorkflowShowId}
+                showId={authoritativeWorkflowShowId}
+                showLabel={getShowLabel(workflowShow)}
+              />
+            )}
           </section>
         )}
 

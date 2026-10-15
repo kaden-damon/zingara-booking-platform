@@ -59,6 +59,7 @@ export function DailyBookingReviewWorkflowCard({ isSuperAdmin }: { isSuperAdmin:
   const [loading, setLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewWidth, setPreviewWidth] = useState<390 | 620>(620);
+  const [expanded, setExpanded] = useState(false);
 
   const loadPreview = useCallback(async () => {
     if (!isSuperAdmin) return;
@@ -78,10 +79,28 @@ export function DailyBookingReviewWorkflowCard({ isSuperAdmin }: { isSuperAdmin:
     }
   }, [isSuperAdmin]);
 
+  const loadSummary = useCallback(async () => {
+    if (!isSuperAdmin) return;
+    try {
+      const response = await authorisedRequest("/api/admin/workflows/daily-booking-review?summary=true");
+      const next = (await response.json()) as { configuration?: Configuration; error?: string };
+      if (!response.ok || !next.configuration) throw new Error(next.error ?? "Workflow summary could not be loaded.");
+      setDraft(next.configuration);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Workflow summary could not be loaded.");
+    }
+  }, [isSuperAdmin]);
+
   useEffect(() => {
+    const timer = window.setTimeout(() => void loadSummary(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadSummary]);
+
+  useEffect(() => {
+    if (!expanded) return;
     const timer = window.setTimeout(() => void loadPreview(), 0);
     return () => window.clearTimeout(timer);
-  }, [loadPreview]);
+  }, [expanded, loadPreview]);
 
   async function save() {
     if (!draft) return;
@@ -121,17 +140,16 @@ export function DailyBookingReviewWorkflowCard({ isSuperAdmin }: { isSuperAdmin:
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
             Each staff member receives the current payment, table and booking state for the bookings they created. Empty reports are skipped.
           </p>
+          <p className="mt-2 text-xs text-zinc-500">Recipients: each eligible staff creator · Management CC: Kaden · Schedule: {draft?.scheduledTime ?? "08:00"} SAST</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setDraft((current) => current ? { ...current, enabled: !current.enabled } : current)}
-          disabled={!draft || loading}
-          className={`inline-flex min-w-[130px] items-center justify-center rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] transition disabled:opacity-40 ${draft?.enabled ? "border-emerald-300/40 bg-emerald-950/30 text-emerald-200" : "border-white/15 text-zinc-300"}`}
-        >
-          {draft?.enabled ? "Enabled" : "Disabled"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-full border px-3 py-2 text-xs font-bold uppercase tracking-[0.1em] ${draft?.enabled ? "border-emerald-300/40 text-emerald-200" : "border-white/10 text-zinc-500"}`}>{draft ? (draft.enabled ? "Enabled" : "Disabled") : "Scheduled daily"}</span>
+          <button type="button" onClick={() => setExpanded((current) => !current)} aria-expanded={expanded} className="min-h-10 rounded-full border border-[#D8C36A]/35 px-4 text-xs font-bold uppercase tracking-[0.08em] text-[#F2D66C]">{expanded ? "Close" : "Edit Settings"}</button>
+        </div>
       </div>
 
+      {expanded && (
+      <>
       <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-[180px_1fr]">
         <label className="text-sm text-zinc-400">
           Time (SAST)
@@ -150,6 +168,7 @@ export function DailyBookingReviewWorkflowCard({ isSuperAdmin }: { isSuperAdmin:
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
+        <button type="button" onClick={() => setDraft((current) => current ? { ...current, enabled: !current.enabled } : current)} disabled={!draft || loading} className="rounded-full border border-white/15 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-zinc-200 disabled:opacity-40">{draft?.enabled ? "Disable" : "Enable"}</button>
         <button type="button" onClick={() => void loadPreview()} disabled={loading} className="rounded-full border border-white/15 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white hover:text-black disabled:opacity-40">{loading ? "Loading..." : "Preview Recipients"}</button>
         <button type="button" onClick={() => setShowPreview(true)} disabled={!payload?.example} className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:opacity-40">Preview Email</button>
         <button type="button" onClick={() => void save()} disabled={!draft || loading} className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C] disabled:opacity-40">Save Workflow</button>
@@ -176,6 +195,8 @@ export function DailyBookingReviewWorkflowCard({ isSuperAdmin }: { isSuperAdmin:
             <div className="mt-4 overflow-auto bg-zinc-900 p-3"><iframe title="Daily Booking Review preview" srcDoc={payload.example.html} style={{ height: "68vh", width: previewWidth }} className="mx-auto max-w-full border-0 bg-white" /></div>
           </div>
         </div>
+      )}
+      </>
       )}
     </article>
   );

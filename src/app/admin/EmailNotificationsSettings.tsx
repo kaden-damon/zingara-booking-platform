@@ -26,10 +26,10 @@ type Payload = {
   staffOptions: StaffOption[];
 };
 
-async function authorisedRequest(init?: RequestInit) {
+async function authorisedRequest(init?: RequestInit, includeDetails = false) {
   const auth = await getAdminAuthSession();
   if (!auth) throw new Error("Your Admin session has expired. Sign in again.");
-  return fetch("/api/admin/email-notifications", {
+  return fetch(`/api/admin/email-notifications${includeDetails ? "?details=true" : ""}`, {
     ...init,
     headers: {
       ...init?.headers,
@@ -39,25 +39,34 @@ async function authorisedRequest(init?: RequestInit) {
   });
 }
 
-export default function EmailNotificationsSettings() {
+export default function EmailNotificationsSettings({
+  showManagement = true,
+  showPersonal = true,
+}: {
+  showManagement?: boolean;
+  showPersonal?: boolean;
+}) {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [managementDraft, setManagementDraft] =
     useState<ManagementSetting | null>(null);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
+  const [managementExpanded, setManagementExpanded] = useState(false);
+  const [managementDetailsLoaded, setManagementDetailsLoaded] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (includeDetails = false) => {
     setLoading(true);
     setError("");
     try {
-      const response = await authorisedRequest();
+      const response = await authorisedRequest(undefined, includeDetails);
       const next = (await response.json()) as Payload & { error?: string };
       if (!response.ok) {
         throw new Error(next.error ?? "Email notification settings couldn't be loaded.");
       }
       setPayload(next);
       setManagementDraft(next.management[0] ?? null);
+      if (includeDetails) setManagementDetailsLoaded(true);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -70,9 +79,15 @@ export default function EmailNotificationsSettings() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
+    const timer = window.setTimeout(() => void load(false), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  async function toggleManagementDetails() {
+    const nextExpanded = !managementExpanded;
+    setManagementExpanded(nextExpanded);
+    if (nextExpanded && !managementDetailsLoaded) await load(true);
+  }
 
   const selectedTo = useMemo(
     () => new Set(managementDraft?.to.map((member) => member.id) ?? []),
@@ -166,10 +181,13 @@ export default function EmailNotificationsSettings() {
       </p>
       <h2 className="mt-2 text-2xl font-bold text-white">Staff email preferences</h2>
       <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-        Choose your own eligible emails. Management routing is controlled separately and remains protected.
+        {showPersonal
+          ? "Choose your own eligible emails. Management routing is controlled separately and remains protected."
+          : "Review required recipients and edit protected organisation routing without changing delivery rules."}
       </p>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+      <div className={`mt-5 grid gap-5 ${showManagement && showPersonal ? "xl:grid-cols-2" : ""}`}>
+        {showPersonal && (
         <div className="rounded-lg border border-white/10 bg-black/30 p-4">
           <h3 className="font-semibold text-white">Your email subscriptions</h3>
           <p className="mt-1 text-sm text-zinc-500">These changes apply only to your staff profile.</p>
@@ -192,7 +210,9 @@ export default function EmailNotificationsSettings() {
             ))}
           </div>
         </div>
+        )}
 
+        {showManagement && (
         <div className="rounded-lg border border-white/10 bg-black/30 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -206,18 +226,36 @@ export default function EmailNotificationsSettings() {
 
           {payload?.canManageOrganisation && managementDraft ? (
             <>
-              <label className="mt-4 flex min-h-11 items-center justify-between gap-3 rounded-lg border border-white/10 p-3 text-sm text-white">
-                New Corporate Enquiries
-                <input
-                  type="checkbox"
-                  aria-label="Enable Corporate enquiry emails"
-                  checked={managementDraft.enabled}
-                  disabled={loading}
-                  onChange={(event) => setManagementDraft((current) => current ? { ...current, enabled: event.target.checked } : current)}
-                  className="h-5 w-5 accent-[#D8C36A]"
-                />
-              </label>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="mt-4 rounded-lg border border-white/10 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <strong className="block text-sm text-white">New Corporate Enquiries</strong>
+                    <p className="mt-1 text-xs leading-5 text-zinc-500">
+                      To: {managementDraft.to.map((member) => member.name).join(", ") || "None"} · CC: {managementDraft.cc.map((member) => member.name).join(", ") || "None"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`rounded-full border px-3 py-1 text-xs ${managementDraft.enabled ? "border-emerald-300/30 text-emerald-200" : "border-white/10 text-zinc-500"}`}>{managementDraft.enabled ? "Enabled" : "Disabled"}</span>
+                    <button type="button" onClick={() => void toggleManagementDetails()} aria-expanded={managementExpanded} className="min-h-10 rounded-full border border-[#D8C36A]/35 px-4 text-xs font-bold uppercase tracking-[0.08em] text-[#F2D66C]">
+                      {managementExpanded ? "Close" : "Edit Settings"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {managementExpanded && (
+              <div className="mt-4 rounded-lg border border-[#D8C36A]/20 bg-black/30 p-4">
+                <label className="flex min-h-11 items-center justify-between gap-3 text-sm text-white">
+                  Email enabled
+                  <input
+                    type="checkbox"
+                    aria-label="Enable Corporate enquiry emails"
+                    checked={managementDraft.enabled}
+                    disabled={loading}
+                    onChange={(event) => setManagementDraft((current) => current ? { ...current, enabled: event.target.checked } : current)}
+                    className="h-5 w-5 accent-[#D8C36A]"
+                  />
+                </label>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {(["to", "cc"] as const).map((placement) => (
                   <fieldset key={placement} className="rounded-lg border border-white/10 p-3">
                     <legend className="px-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#D8C36A]">{placement}</legend>
@@ -237,8 +275,8 @@ export default function EmailNotificationsSettings() {
                     </div>
                   </fieldset>
                 ))}
-              </div>
-              <button
+                </div>
+                <button
                 type="button"
                 onClick={() => void saveManagement()}
                 disabled={loading || (managementDraft.enabled && managementDraft.to.length === 0)}
@@ -246,6 +284,8 @@ export default function EmailNotificationsSettings() {
               >
                 {loading ? "Saving..." : "Save Email Routing"}
               </button>
+              </div>
+              )}
             </>
           ) : (
             <p className="mt-4 rounded-lg border border-white/10 p-3 text-sm leading-6 text-zinc-400">
@@ -253,6 +293,7 @@ export default function EmailNotificationsSettings() {
             </p>
           )}
         </div>
+        )}
       </div>
 
       <p className="mt-4 text-xs leading-5 text-zinc-500">

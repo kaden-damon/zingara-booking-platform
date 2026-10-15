@@ -6,6 +6,7 @@ import {
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import { createZingaraTicketEmail } from "@/lib/email/ticketEmail";
 import type { OperationalCommunicationKind } from "@/lib/customerCommunicationPreferences";
+import { normalizeStaffLocation, normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -37,6 +38,137 @@ export async function GET(request: Request) {
       { error: "Supabase service role is not configured." },
       { status: 500 },
     );
+  }
+
+  const url = new URL(request.url);
+  const requestedPage = url.searchParams.get("page");
+  const requestedShowId = url.searchParams.get("showId")?.trim() ?? "";
+
+  if (requestedPage !== null) {
+    const role = Array.isArray(auth.staffProfile.roles)
+      ? auth.staffProfile.roles[0]
+      : auth.staffProfile.roles;
+    if (!getRolePermissions(role).includes("communications:manage")) {
+      return Response.json(
+        { error: "Communications management access is required." },
+        { status: 403 },
+      );
+    }
+
+    if (!/^[0-9a-f-]{36}$/i.test(requestedShowId)) {
+      return Response.json(
+        { error: "Select a performance to view its communication history." },
+        { status: 400 },
+      );
+    }
+
+    const { data: show, error: showError } = await serviceClient
+      .from("shows")
+      .select("id,venue")
+      .eq("id", requestedShowId)
+      .maybeSingle();
+
+    if (showError || !show) {
+      return Response.json(
+        { error: "The selected performance couldn't be loaded." },
+        { status: showError ? 500 : 404 },
+      );
+    }
+
+    const venueScope = normalizeStaffVenueScope(
+      auth.staffProfile.venue_scope ?? [],
+    );
+    const showVenue = normalizeStaffLocation(show.venue);
+    if (
+      !venueScope.includes("all") &&
+      (!showVenue || !venueScope.includes(showVenue))
+    ) {
+      return Response.json(
+        { error: "This performance is outside your venue access." },
+        { status: 403 },
+      );
+    }
+
+    const page = Math.max(1, Number(requestedPage) || 1);
+    const pageSize = Math.min(
+      50,
+      Math.max(5, Number(url.searchParams.get("pageSize") ?? "10") || 10),
+    );
+    const search = url.searchParams.get("search")?.trim() ?? "";
+    const status = url.searchParams.get("status")?.trim() ?? "all";
+    const allowedStatuses = ["all", "failed", "sent", "suppressed"];
+    if (!allowedStatuses.includes(status)) {
+      return Response.json({ error: "Invalid communication status." }, { status: 400 });
+    }
+
+    let query = serviceClient
+      .from("communications")
+      .select(
+        "id,customer_id,booking_id,show_id,batch_id,type,channel,subject,message,status,sent_at,created_at",
+        { count: "exact" },
+      )
+      .eq("show_id", requestedShowId)
+      .order("sent_at", { ascending: false })
+      .order("id", { ascending: false });
+
+    if (status !== "all") query = query.eq("status", status);
+    if (search) {
+      const escapedSearch = search.replaceAll(",", " ");
+      query = query.or(
+        `subject.ilike.%${escapedSearch}%,message.ilike.%${escapedSearch}%`,
+      );
+    }
+
+    const from = (page - 1) * pageSize;
+    const { data, error, count } = await query.range(from, from + pageSize - 1);
+    if (error) {
+      console.error("[Zingara API] Failed to load communication history", error);
+      return Response.json(
+        { error: "Communication history couldn't be loaded. Try again." },
+        { status: 500 },
+      );
+    }
+
+    const bookingIds = [...new Set((data ?? []).flatMap((row) => row.booking_id ? [row.booking_id] : []))];
+    const bookingsResult = bookingIds.length
+      ? await serviceClient
+          .from("bookings")
+          .select("id,booking_reference,customer_id")
+          .in("id", bookingIds)
+      : { data: [], error: null };
+    if (bookingsResult.error) {
+      console.error("[Zingara API] Failed to load communication booking labels", bookingsResult.error);
+    }
+    const customerIds = [...new Set((bookingsResult.data ?? []).flatMap((booking) => booking.customer_id ? [booking.customer_id] : []))];
+    const customersResult = customerIds.length
+      ? await serviceClient
+          .from("customers")
+          .select("id,first_name,surname")
+          .in("id", customerIds)
+      : { data: [], error: null };
+    if (customersResult.error) {
+      console.error("[Zingara API] Failed to load communication customer labels", customersResult.error);
+    }
+    const bookingsById = new Map((bookingsResult.data ?? []).map((booking) => [booking.id, booking]));
+    const customersById = new Map((customersResult.data ?? []).map((customer) => [customer.id, customer]));
+    const rows = (data ?? []).map((row) => {
+      const booking = row.booking_id ? bookingsById.get(row.booking_id) : null;
+      const customer = booking?.customer_id ? customersById.get(booking.customer_id) : null;
+      return {
+        ...row,
+        bookingReference: booking?.booking_reference ?? null,
+        customerName: customer
+          ? [customer.first_name, customer.surname].filter(Boolean).join(" ")
+          : null,
+      };
+    });
+
+    return Response.json({
+      page,
+      pageSize,
+      rows,
+      total: count ?? 0,
+    });
   }
 
   const { data, error } = await serviceClient

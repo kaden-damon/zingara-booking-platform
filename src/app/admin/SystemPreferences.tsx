@@ -164,7 +164,7 @@ export default function SystemPreferences({ isSuperAdmin }: { isSuperAdmin: bool
         )}
       </nav>
 
-      <EmailNotificationsSettings />
+      <EmailNotificationsSettings showManagement={false} />
 
       {isRegisterLoading && (
         <p role="status" className="text-xs text-zinc-500">
