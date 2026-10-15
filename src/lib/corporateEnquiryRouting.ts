@@ -5,6 +5,7 @@ type CorporateEnquiryLike = {
   companyName: string;
   contactName: string;
   contactNumber: string;
+  createdAt?: string;
   dietaryRequirements: string[];
   email: string;
   guestCount: number | null;
@@ -90,5 +91,6 @@ export function createCorporateEnquiryNotificationMessage(
     `Bar tab: ${display(request.barTab)}`,
     `Add-ons: ${display(request.addons.join(", "))}`,
     `Notes: ${display(request.notes)}`,
+    `Received: ${request.createdAt ? new Intl.DateTimeFormat("en-ZA", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Johannesburg" }).format(new Date(request.createdAt)) : "Not supplied"}`,
   ].join("\n");
 }

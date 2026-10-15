@@ -1,0 +1,266 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { getAdminAuthSession } from "@/lib/supabase/auth";
+
+type PersonalSetting = {
+  description: string;
+  enabled: boolean;
+  key: "daily-booking-review";
+  label: string;
+  mode: "personal";
+};
+
+type Recipient = { email: string; id: string; name: string };
+type StaffOption = Recipient & { venueScope: string[] };
+type ManagementSetting = {
+  cc: Recipient[];
+  enabled: boolean;
+  key: "corporate-enquiry";
+  to: Recipient[];
+};
+type Payload = {
+  canManageOrganisation: boolean;
+  management: ManagementSetting[];
+  personal: PersonalSetting[];
+  staffOptions: StaffOption[];
+};
+
+async function authorisedRequest(init?: RequestInit) {
+  const auth = await getAdminAuthSession();
+  if (!auth) throw new Error("Your Admin session has expired. Sign in again.");
+  return fetch("/api/admin/email-notifications", {
+    ...init,
+    headers: {
+      ...init?.headers,
+      Authorization: `Bearer ${auth.session.access_token}`,
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export default function EmailNotificationsSettings() {
+  const [payload, setPayload] = useState<Payload | null>(null);
+  const [managementDraft, setManagementDraft] =
+    useState<ManagementSetting | null>(null);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await authorisedRequest();
+      const next = (await response.json()) as Payload & { error?: string };
+      if (!response.ok) {
+        throw new Error(next.error ?? "Email notification settings couldn't be loaded.");
+      }
+      setPayload(next);
+      setManagementDraft(next.management[0] ?? null);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Email notification settings couldn't be loaded.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const selectedTo = useMemo(
+    () => new Set(managementDraft?.to.map((member) => member.id) ?? []),
+    [managementDraft],
+  );
+  const selectedCc = useMemo(
+    () => new Set(managementDraft?.cc.map((member) => member.id) ?? []),
+    [managementDraft],
+  );
+
+  async function savePersonal(setting: PersonalSetting, enabled: boolean) {
+    setError("");
+    setStatus("");
+    setLoading(true);
+    try {
+      const response = await authorisedRequest({
+        body: JSON.stringify({
+          action: "personal",
+          enabled,
+          notificationKey: setting.key,
+        }),
+        method: "PATCH",
+      });
+      const next = (await response.json()) as Payload & { error?: string };
+      if (!response.ok) throw new Error(next.error ?? "Your preference couldn't be saved.");
+      setPayload(next);
+      setManagementDraft(next.management[0] ?? managementDraft);
+      setStatus(`${setting.label} ${enabled ? "enabled" : "disabled"} for you.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Your preference couldn't be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function setRecipient(staff: StaffOption, placement: "cc" | "to") {
+    setManagementDraft((current) => {
+      if (!current) return current;
+      const isSelected = placement === "to" ? selectedTo.has(staff.id) : selectedCc.has(staff.id);
+      const recipient = { email: staff.email, id: staff.id, name: staff.name };
+      return {
+        ...current,
+        cc:
+          placement === "cc"
+            ? isSelected
+              ? current.cc.filter((member) => member.id !== staff.id)
+              : [...current.cc.filter((member) => member.id !== staff.id), recipient]
+            : current.cc.filter((member) => member.id !== staff.id),
+        to:
+          placement === "to"
+            ? isSelected
+              ? current.to.filter((member) => member.id !== staff.id)
+              : [...current.to.filter((member) => member.id !== staff.id), recipient]
+            : current.to.filter((member) => member.id !== staff.id),
+      };
+    });
+  }
+
+  async function saveManagement() {
+    if (!managementDraft) return;
+    setError("");
+    setStatus("");
+    setLoading(true);
+    try {
+      const response = await authorisedRequest({
+        body: JSON.stringify({
+          action: "management",
+          ccStaffProfileIds: managementDraft.cc.map((member) => member.id),
+          enabled: managementDraft.enabled,
+          notificationKey: managementDraft.key,
+          toStaffProfileIds: managementDraft.to.map((member) => member.id),
+        }),
+        method: "PATCH",
+      });
+      const next = (await response.json()) as Payload & { error?: string };
+      if (!response.ok) throw new Error(next.error ?? "Email routing couldn't be saved.");
+      setPayload(next);
+      setManagementDraft(next.management[0] ?? null);
+      setStatus("Corporate enquiry email routing saved.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Email routing couldn't be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-[#D8C36A]/30 bg-zinc-950/80 p-4 sm:p-5">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+        Email Notifications
+      </p>
+      <h2 className="mt-2 text-2xl font-bold text-white">Staff email preferences</h2>
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+        Choose your own eligible emails. Management routing is controlled separately and remains protected.
+      </p>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        <div className="rounded-lg border border-white/10 bg-black/30 p-4">
+          <h3 className="font-semibold text-white">Your email subscriptions</h3>
+          <p className="mt-1 text-sm text-zinc-500">These changes apply only to your staff profile.</p>
+          <div className="mt-4 space-y-3">
+            {payload?.personal.map((setting) => (
+              <label key={setting.key} className="flex min-h-12 items-start justify-between gap-4 rounded-lg border border-white/10 p-3">
+                <span>
+                  <strong className="block text-sm text-white">{setting.label}</strong>
+                  <span className="mt-1 block text-xs leading-5 text-zinc-500">{setting.description}</span>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label={`${setting.label} email subscription`}
+                  checked={setting.enabled}
+                  disabled={loading}
+                  onChange={(event) => void savePersonal(setting, event.target.checked)}
+                  className="mt-1 h-5 w-5 accent-[#D8C36A]"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-white/10 bg-black/30 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-white">Management-controlled recipients</h3>
+              <p className="mt-1 text-sm text-zinc-500">Required recipients and CC routing for organisation emails.</p>
+            </div>
+            {!payload?.canManageOrganisation && (
+              <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-zinc-500">View protected</span>
+            )}
+          </div>
+
+          {payload?.canManageOrganisation && managementDraft ? (
+            <>
+              <label className="mt-4 flex min-h-11 items-center justify-between gap-3 rounded-lg border border-white/10 p-3 text-sm text-white">
+                New Corporate Enquiries
+                <input
+                  type="checkbox"
+                  aria-label="Enable Corporate enquiry emails"
+                  checked={managementDraft.enabled}
+                  disabled={loading}
+                  onChange={(event) => setManagementDraft((current) => current ? { ...current, enabled: event.target.checked } : current)}
+                  className="h-5 w-5 accent-[#D8C36A]"
+                />
+              </label>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {(["to", "cc"] as const).map((placement) => (
+                  <fieldset key={placement} className="rounded-lg border border-white/10 p-3">
+                    <legend className="px-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#D8C36A]">{placement}</legend>
+                    <div className="mt-2 space-y-2">
+                      {payload.staffOptions.map((staff) => (
+                        <label key={`${placement}-${staff.id}`} className="flex items-start gap-2 text-sm text-zinc-300">
+                          <input
+                            type="checkbox"
+                            checked={placement === "to" ? selectedTo.has(staff.id) : selectedCc.has(staff.id)}
+                            disabled={loading}
+                            onChange={() => setRecipient(staff, placement)}
+                            className="mt-1 h-4 w-4 accent-[#D8C36A]"
+                          />
+                          <span className="min-w-0"><strong className="block truncate text-white">{staff.name}</strong><span className="block break-all text-xs text-zinc-500">{staff.email}</span></span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => void saveManagement()}
+                disabled={loading || (managementDraft.enabled && managementDraft.to.length === 0)}
+                className="mt-4 min-h-11 rounded-full bg-[#D8C36A] px-5 py-2 text-xs font-bold uppercase tracking-[0.1em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {loading ? "Saving..." : "Save Email Routing"}
+              </button>
+            </>
+          ) : (
+            <p className="mt-4 rounded-lg border border-white/10 p-3 text-sm leading-6 text-zinc-400">
+              Only authorised management can change required recipients, CC routing, or organisation-wide email settings.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <p className="mt-4 text-xs leading-5 text-zinc-500">
+        Review alerts, daily review summaries, Dineplan action emails and guest journeys retain their existing protected workflow settings.
+      </p>
+      {status && <p role="status" className="mt-4 rounded-lg border border-emerald-300/25 bg-emerald-950/20 p-3 text-sm text-emerald-200">{status}</p>}
+      {error && <p role="alert" className="mt-4 rounded-lg border border-red-300/25 bg-red-950/20 p-3 text-sm text-red-200">{error}</p>}
+      {loading && !payload && <p className="mt-4 text-sm text-zinc-500">Loading email settings...</p>}
+    </section>
+  );
+}

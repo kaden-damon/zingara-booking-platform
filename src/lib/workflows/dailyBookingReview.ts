@@ -281,7 +281,25 @@ async function loadEligibleStaff(client: SupabaseClient) {
     .in("role_id", eligibleRoleIds)
     .order("full_name");
   if (error) throw error;
-  return ((data ?? []) as StaffRow[]).filter((staff) => isValidEmail(staff.email));
+  const eligible = ((data ?? []) as StaffRow[]).filter((staff) =>
+    isValidEmail(staff.email),
+  );
+  if (!eligible.length) return eligible;
+  const { data: subscriptions, error: subscriptionError } = await client
+    .from("staff_email_subscriptions")
+    .select("staff_profile_id,enabled")
+    .eq("notification_key", "daily-booking-review")
+    .in(
+      "staff_profile_id",
+      eligible.map((staff) => staff.id),
+    );
+  if (subscriptionError) throw subscriptionError;
+  const disabled = new Set(
+    (subscriptions ?? [])
+      .filter((subscription) => subscription.enabled === false)
+      .map((subscription) => subscription.staff_profile_id),
+  );
+  return eligible.filter((staff) => !disabled.has(staff.id));
 }
 
 async function loadBookingsForStaff(client: SupabaseClient, staffId: string) {

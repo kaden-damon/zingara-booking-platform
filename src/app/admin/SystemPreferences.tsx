@@ -5,6 +5,7 @@ import { adminIpUndertaking } from "@/lib/adminIpUndertaking";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
 import CookiePrivacyPreferences from "./CookiePrivacyPreferences";
+import EmailNotificationsSettings from "./EmailNotificationsSettings";
 
 type Workspace = "cookie-consent" | "platform-terms";
 type RegisterRow = {
@@ -162,6 +163,8 @@ export default function SystemPreferences({ isSuperAdmin }: { isSuperAdmin: bool
           </button>
         )}
       </nav>
+
+      <EmailNotificationsSettings />
 
       {isRegisterLoading && (
         <p role="status" className="text-xs text-zinc-500">

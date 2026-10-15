@@ -11,7 +11,11 @@ import {
   sendOperationalCustomerEmail,
   sendZingaraEmail,
 } from "@/lib/email/smtp";
-import { resolveInternalOperationalRecipients } from "@/lib/email/internalOperationalRecipients";
+import {
+  claimStaffEmailDelivery,
+  completeStaffEmailDelivery,
+  loadManagementEmailRoute,
+} from "@/lib/email/staffEmailNotifications";
 import type {
   CommunicationRecord,
   CorporateRequest,
@@ -19,7 +23,6 @@ import type {
 } from "@/lib/zingaraDemo";
 import {
   createCorporateEnquiryNotificationMessage,
-  getCorporateEnquiryRecipient,
 } from "@/lib/corporateEnquiryRouting";
 
 async function findExistingCustomerId(
@@ -96,7 +99,7 @@ async function sendAndLog(
     type: input.type,
   };
 
-  if (await hasMatchingCommunication(supabase, payload)) return;
+  if (await hasMatchingCommunication(supabase, payload)) return { ok: true } as const;
 
   const result = input.customerId
     ? await sendOperationalCustomerEmail({
@@ -121,41 +124,59 @@ async function sendAndLog(
     ...payload,
     status: result.ok ? "sent" : result.suppressed ? "suppressed" : "failed",
   });
+  return result;
 }
 
 export async function sendCorporateEnquiryEmails(
   supabase: SupabaseClient,
   request: CorporateRequest,
-  settings: DemoVenueSettings,
+  settings?: DemoVenueSettings,
 ) {
-  const recipient = getCorporateEnquiryRecipient(request, settings);
-
-  if (!recipient) {
-    throw new Error("Corporate enquiry venue is not authoritative.");
-  }
-
+  void settings;
   const location = request.locationAcknowledgement?.trim() ?? "Corporate";
   const internalSubject = `New ${location} Corporate enquiry · ${request.id}`;
   const internalMessage = createCorporateEnquiryNotificationMessage(request);
   const internalBranded = await createBrandedCustomerEmail({
+    ctaLabel: "OPEN CORPORATE ENQUIRY",
+    ctaUrl: `/admin?corporate=${encodeURIComponent(request.id)}`,
     heading: `New ${location} Corporate Enquiry`,
+    includeAgePolicy: false,
     message: internalMessage,
     subject: internalSubject,
   });
-  const internalRecipients = await resolveInternalOperationalRecipients(supabase, {
-    to: recipient,
-  });
+  const route = await loadManagementEmailRoute(supabase, "corporate-enquiry");
 
-  await sendAndLog(supabase, {
-    branded: internalBranded,
-    customerId: null,
-    message: internalMessage,
-    cc: internalRecipients.cc,
-    recipient: internalRecipients.to,
-    sentAt: request.createdAt,
-    subject: internalSubject,
-    type: "custom_message",
-  });
+  if (route.enabled) {
+    if (!route.to.length) {
+      throw new Error("Corporate enquiry email has no active primary recipient.");
+    }
+    const deliveryId = await claimStaffEmailDelivery(supabase, {
+      ccStaffProfileIds: route.cc.map((member) => member.id),
+      eventKey: request.id,
+      notificationKey: "corporate-enquiry",
+      toStaffProfileIds: route.to.map((member) => member.id),
+    });
+    if (deliveryId) {
+      const result = await sendAndLog(supabase, {
+        branded: internalBranded,
+        customerId: null,
+        message: internalMessage,
+        cc: route.cc.map((member) => member.email),
+        recipient: route.to.map((member) => member.email),
+        sentAt: request.createdAt,
+        subject: internalSubject,
+        type: "custom_message",
+      });
+      await completeStaffEmailDelivery(supabase, deliveryId, {
+        error: result.ok ? undefined : result.error,
+        status: result.ok
+          ? "sent"
+          : result.suppressed
+            ? "suppressed"
+            : "failed",
+      });
+    }
+  }
 
   const acknowledgement = (request.communicationHistory ?? []).find(
     (record): record is CommunicationRecord =>
