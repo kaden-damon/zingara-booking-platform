@@ -45,7 +45,10 @@ type ReinstatementPreview = {
   guest_count: number;
   payment_satisfied: boolean;
   payment_status: string;
-  reinstatement_type?: "corporate_expiry" | "released_booking";
+  reinstatement_type?:
+    | "corporate_expiry"
+    | "public_checkout_expiry"
+    | "released_booking";
   system_expired: boolean;
   updated_at: string;
 };
@@ -257,6 +260,8 @@ export async function POST(request: Request) {
         guidance:
           blockedAllocation
             ? capacityExplanation(blockedAllocation)
+            : preview.reinstatement_type === "public_checkout_expiry"
+              ? "Management override: this booking is unpaid. Capacity checks passed; reinstatement will preserve the outstanding balance and will not create tickets."
             : preview.code === "PAYMENT_REQUIRED"
               ? "Check the payment details before reinstating this booking."
               : preview.code === "NOT_ELIGIBLE"

@@ -657,7 +657,10 @@ type CorporateReinstatementPreview = {
   guest_count: number;
   payment_satisfied: boolean;
   payment_status: string;
-  reinstatement_type?: "corporate_expiry" | "released_booking";
+  reinstatement_type?:
+    | "corporate_expiry"
+    | "public_checkout_expiry"
+    | "released_booking";
   historical_performance?: boolean;
   updated_at: string;
 };
@@ -31303,7 +31306,10 @@ export default function AdminDashboardPage() {
                         ? "Reinstating..."
                         : preview.payment_satisfied
                           ? "Confirm Reinstatement"
-                          : "Payment Required"}
+                          : preview.eligible &&
+                              preview.reinstatement_type === "public_checkout_expiry"
+                            ? "Confirm Unpaid Reinstatement"
+                            : "Payment Required"}
                     </button>
                   </div>
                 </section>
