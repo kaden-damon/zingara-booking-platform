@@ -19,6 +19,8 @@ type Props = {
 
 const minimumLength = 20;
 const maximumLength = 2000;
+const categoryLabels = ["Food", "Value", "Service", "Ambience"] as const;
+type CategoryLabel = (typeof categoryLabels)[number];
 
 function venueLabel(venue: string) {
   return venue === "johannesburg" ? "Johannesburg" : "Cape Town";
@@ -49,6 +51,13 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
   );
   const [rating, setRating] = useState<number | null>(null);
   const [ratingPreview, setRatingPreview] = useState<number | null>(null);
+  const [categoryRatings, setCategoryRatings] = useState<Record<CategoryLabel, number | null>>({
+    Ambience: null,
+    Food: null,
+    Service: null,
+    Value: null,
+  });
+  const [confirming, setConfirming] = useState(false);
   const [reviewText, setReviewText] = useState("");
   const [privacyRequested, setPrivacyRequested] = useState(false);
   const [contactRequested, setContactRequested] = useState(false);
@@ -111,14 +120,14 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
     };
   }, [preview, token]);
 
-  async function submitReview(event: React.FormEvent<HTMLFormElement>) {
+  function submitReview(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (preview) {
-      setMessage("Preview only. No review was submitted.");
-      return;
-    }
     if (!rating) {
       setMessage("Choose a star rating before submitting your review.");
+      return;
+    }
+    if (categoryLabels.some((label) => categoryRatings[label] === null)) {
+      setMessage("Choose a rating for Food, Value, Service and Ambience.");
       return;
     }
     const trimmed = reviewText.trim();
@@ -127,15 +136,31 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
       return;
     }
 
+    setConfirming(true);
+  }
+
+  async function confirmSubmit() {
+    if (!rating || categoryLabels.some((label) => categoryRatings[label] === null)) return;
+    if (preview) {
+      setConfirming(false);
+      setMessage("Preview only. No review was submitted.");
+      return;
+    }
     setStatus("submitting");
+    setConfirming(false);
     setMessage("");
+    const trimmed = reviewText.trim();
     try {
       const response = await fetch(`/api/reviews/${encodeURIComponent(token)}`, {
         body: JSON.stringify({
+          ambienceRating: categoryRatings.Ambience,
           contactRequested,
+          foodRating: categoryRatings.Food,
           privacyRequested,
           rating,
           reviewText: trimmed,
+          serviceRating: categoryRatings.Service,
+          valueRating: categoryRatings.Value,
         }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -223,6 +248,35 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
               </div>
             </fieldset>
 
+            <fieldset>
+              <legend className="text-sm font-semibold text-white">Rate each part of your experience</legend>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {categoryLabels.map((label) => (
+                  <div className="flex min-h-12 items-center justify-between gap-3 border-b border-white/10 py-2" key={label}>
+                    <span className="text-sm text-zinc-300">{label}</span>
+                    <div aria-label={`${label} rating`} className="flex" role="radiogroup">
+                      {[1, 2, 3, 4, 5].map((value) => (
+                        <button
+                          aria-checked={categoryRatings[label] === value}
+                          aria-label={`${label}: ${value} star${value === 1 ? "" : "s"}`}
+                          className={`grid h-9 w-9 place-items-center text-xl transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2D66C] ${value <= (categoryRatings[label] ?? 0) ? "text-[#F2D66C]" : "text-zinc-700 hover:text-[#D8C36A]"}`}
+                          key={value}
+                          onClick={() => {
+                            setCategoryRatings((current) => ({ ...current, [label]: value }));
+                            setMessage("");
+                          }}
+                          role="radio"
+                          type="button"
+                        >
+                          <span aria-hidden="true">★</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </fieldset>
+
             <div>
               <label className="text-sm font-semibold" htmlFor="review-text">Your review</label>
               <textarea
@@ -284,6 +338,21 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
             </div>
           </form>
         )}
+        {confirming && rating ? (
+          <div aria-labelledby="review-confirm-title" aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4" role="dialog">
+            <div className="w-full max-w-md rounded-2xl border border-[#D8C36A]/35 bg-[#080808] p-5 shadow-2xl sm:p-6">
+              <h2 className="text-xl font-semibold" id="review-confirm-title">Submit these ratings?</h2>
+              <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <div className="border-l-2 border-[#D8C36A] pl-3"><dt className="text-zinc-500">Overall</dt><dd className="mt-1 text-lg text-[#F2D66C]">{rating} / 5</dd></div>
+                {categoryLabels.map((label) => <div className="border-l-2 border-white/15 pl-3" key={label}><dt className="text-zinc-500">{label}</dt><dd className="mt-1 text-lg text-white">{categoryRatings[label]} / 5</dd></div>)}
+              </dl>
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button className="min-h-11 rounded-full border border-white/20 px-5 text-sm font-semibold" onClick={() => setConfirming(false)} type="button">Edit Rating</button>
+                <button className="min-h-11 rounded-full bg-[#D8C36A] px-5 text-sm font-bold text-black" onClick={() => void confirmSubmit()} type="button">Yes, Submit</button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   );

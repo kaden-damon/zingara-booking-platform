@@ -51,11 +51,14 @@ async function responsePayload(
   includeStaffOptions = true,
 ) {
   const canManage = canManageOrganisation(auth.staffProfile!);
-  const [personal, corporateRoute, staffOptions] = await Promise.all([
+  const managementKeys = staffEmailNotificationRegistry
+    .filter((item) => item.mode === "management")
+    .map((item) => item.key);
+  const [personal, managementRoutes, staffOptions] = await Promise.all([
     loadPersonalEmailSubscriptions(auth.serviceClient!, auth.staffProfile!.id),
     canManage
-      ? loadManagementEmailRoute(auth.serviceClient!, "corporate-enquiry")
-      : Promise.resolve(null),
+      ? Promise.all(managementKeys.map((key) => loadManagementEmailRoute(auth.serviceClient!, key)))
+      : Promise.resolve([]),
     canManage && includeStaffOptions
       ? auth.serviceClient!
           .from("staff_profiles")
@@ -69,7 +72,7 @@ async function responsePayload(
 
   return {
     canManageOrganisation: canManage,
-    management: corporateRoute ? [corporateRoute] : [],
+    management: managementRoutes,
     personal,
     staffOptions: (staffOptions.data ?? []).map((staff) => ({
       email: staff.email,

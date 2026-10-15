@@ -9,21 +9,25 @@ export type ReviewAnalyticsStatus =
   | "published";
 
 export type ReviewAnalyticsReview = {
+  ambienceRating: number | null;
   bookingId: string;
   contactRequested: boolean;
   displayName: string;
   featured: boolean;
+  foodRating: number | null;
   id: string;
   invitationType: "automated_verified" | "manual_email" | "manual_link";
   moderationStatus: ReviewAnalyticsStatus;
   publicationConsent: boolean;
   rating: number;
   reviewText: string;
+  serviceRating: number | null;
   showId: string;
   submittedAt: string;
   unpublishedAt: string | null;
   venue: AnalyticsVenue;
   verifiedGuest: boolean;
+  valueRating: number | null;
 };
 
 export type ReviewAnalyticsShow = {
@@ -78,6 +82,7 @@ export type ReviewAnalyticsReport = {
     submitted: number;
   };
   kpis: {
+    categoryRatings: { ambience: number | null; food: number | null; service: number | null; value: number | null };
     consentRate: number | null;
     contactRequested: number;
     featured: number;
@@ -265,6 +270,8 @@ export function calculateReviewAnalytics(input: {
     sentBookingIds.has(bookingId),
   ).length;
   const guestRating = calculateReviewRatingAverage(reviews.map((review) => review.rating));
+  const categoryAverage = (key: "ambienceRating" | "foodRating" | "serviceRating" | "valueRating") =>
+    calculateReviewRatingAverage(reviews.flatMap((review) => review[key] === null ? [] : [review[key]!]));
   const publicRating = calculateReviewRatingAverage(publicReviews.map((review) => review.rating));
   const published = publicReviews.length;
   const moderation = {
@@ -350,6 +357,12 @@ export function calculateReviewAnalytics(input: {
       submitted: reviews.length,
     },
     kpis: {
+      categoryRatings: {
+        ambience: categoryAverage("ambienceRating"),
+        food: categoryAverage("foodRating"),
+        service: categoryAverage("serviceRating"),
+        value: categoryAverage("valueRating"),
+      },
       consentRate: rate(
         reviews.filter((review) => review.publicationConsent).length,
         reviews.length,

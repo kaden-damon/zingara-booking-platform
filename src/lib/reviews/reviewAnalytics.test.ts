@@ -25,21 +25,25 @@ const shows: ReviewAnalyticsShow[] = [
 
 function review(overrides: Partial<ReviewAnalyticsReview> = {}): ReviewAnalyticsReview {
   return {
+    ambienceRating: null,
     bookingId: "booking-one",
     contactRequested: false,
     displayName: "Verified Guest",
     featured: false,
+    foodRating: null,
     id: "review-one",
     invitationType: "automated_verified",
     moderationStatus: "needs_review",
     publicationConsent: false,
     rating: 1,
     reviewText: "The guest supplied useful feedback about the experience.",
+    serviceRating: null,
     showId: "show-jhb",
     submittedAt: "2026-10-01T00:30:00+02:00",
     unpublishedAt: null,
     venue: "johannesburg",
     verifiedGuest: true,
+    valueRating: null,
     ...overrides,
   };
 }
@@ -105,6 +109,15 @@ test("Guest Rating includes every submitted moderation outcome while Public Rati
   assert.equal(result.moderation.notPublished, 1);
   assert.deepEqual(result.ratingDistribution.map((row) => row.count), [1, 1, 0, 1, 1]);
   assert.deepEqual(result.publicDistribution.map((row) => row.count), [1, 0, 0, 0, 0]);
+});
+
+test("category averages exclude historical reviews without category ratings", () => {
+  const result = calculate([
+    review(),
+    review({ ambienceRating: 5, foodRating: 4, id: "category-one", serviceRating: 3, valueRating: 2 }),
+    review({ ambienceRating: 3, foodRating: 2, id: "category-two", serviceRating: 5, valueRating: 4 }),
+  ]);
+  assert.deepEqual(result.kpis.categoryRatings, { ambience: 4, food: 3, service: 4, value: 3 });
 });
 
 test("response, publication, consent and contact metrics use explicit denominators", () => {

@@ -55,12 +55,16 @@ export async function POST(request: Request, context: RouteContext) {
     await resolveVerifiedReviewContext(supabase, token);
     const body = (await request.json()) as Record<string, unknown>;
     const validated = validateReviewSubmission({
+      ambienceRating: body.ambienceRating,
       contactRequested: body.contactRequested,
+      foodRating: body.foodRating,
       publicationConsent: body.publicationConsent,
       publicationConsentMode: body.publicationConsentMode,
       privacyRequested: body.privacyRequested,
       rating: body.rating,
       reviewText: body.reviewText,
+      serviceRating: body.serviceRating,
+      valueRating: body.valueRating,
     });
 
     if ("error" in validated) {
@@ -68,14 +72,18 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const { data, error } = await supabase.rpc("submit_verified_guest_review", {
+      p_ambience_rating: validated.value.ambienceRating,
       p_contact_requested: validated.value.contactRequested,
+      p_food_rating: validated.value.foodRating,
       p_publication_consent: validated.value.publicationConsent,
       p_publication_consent_mode: validated.value.publicationConsentMode,
       p_publication_policy_version: validated.value.publicationPolicyVersion,
       p_privacy_requested: validated.value.privacyRequested,
       p_rating: validated.value.rating,
       p_review_text: validated.value.reviewText,
+      p_service_rating: validated.value.serviceRating,
       p_token_hash: hashReviewToken(token),
+      p_value_rating: validated.value.valueRating,
     });
 
     if (error) throw error;

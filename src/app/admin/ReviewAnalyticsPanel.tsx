@@ -231,6 +231,12 @@ export default function ReviewAnalyticsPanel({
         <Kpi label="Needs Review" value={integer.format(report.kpis.needsReview)} />
         <Kpi label="Contact Requested" value={integer.format(report.kpis.contactRequested)} />
       </div>
+      <div className="grid grid-cols-2 gap-y-3 border-y border-white/10 py-4 md:grid-cols-4">
+        <Kpi helper="Submitted category ratings only" label="Food" value={rating(report.kpis.categoryRatings.food)} />
+        <Kpi helper="Submitted category ratings only" label="Value" value={rating(report.kpis.categoryRatings.value)} />
+        <Kpi helper="Submitted category ratings only" label="Service" value={rating(report.kpis.categoryRatings.service)} />
+        <Kpi helper="Submitted category ratings only" label="Ambience" value={rating(report.kpis.categoryRatings.ambience)} />
+      </div>
 
       {noReviews ? (
         <div className="border-y border-white/10 py-8 text-center">

@@ -39,7 +39,7 @@ async function loadReviewPage(
   let query = serviceClient
     .from("guest_reviews")
     .select(
-      "id,booking_id,show_id,venue,public_display_name,rating,review_text,contact_requested,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision",
+      "id,booking_id,show_id,venue,public_display_name,rating,food_rating,value_rating,service_rating,ambience_rating,review_text,contact_requested,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision",
       { count: "exact" },
     )
     .eq("moderation_status", input.status)
@@ -67,15 +67,18 @@ async function loadReviewPage(
   const showIds = [...new Set(rows.map((row) => row.show_id))];
   const reviewIds = rows.map((row) => row.id);
 
-  const [bookingsResult, showsResult] = await Promise.all([
+  const [bookingsResult, showsResult, replySummariesResult] = await Promise.all([
     bookingIds.length
-      ? serviceClient.from("bookings").select("id,booking_reference,guest_count").in("id", bookingIds)
+      ? serviceClient.from("bookings").select("id,booking_reference,guest_count,customer_id").in("id", bookingIds)
       : Promise.resolve({ data: [], error: null }),
     showIds.length
       ? serviceClient.from("shows").select("id,name,date,time,venue").in("id", showIds)
       : Promise.resolve({ data: [], error: null }),
+    reviewIds.length
+      ? serviceClient.from("guest_review_replies").select("review_id,actor_name,sent_at").in("review_id", reviewIds).eq("status", "sent").order("sent_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  for (const result of [bookingsResult, showsResult]) {
+  for (const result of [bookingsResult, showsResult, replySummariesResult]) {
     if (result.error) throw result.error;
   }
 
@@ -87,6 +90,11 @@ async function loadReviewPage(
         .order("occurred_at", { ascending: false })
     : { data: [], error: null };
   if (eventsResult.error) throw eventsResult.error;
+
+  const detailRepliesResult = input.includeDetails && reviewIds.length
+    ? await serviceClient.from("guest_review_replies").select("id,review_id,actor_name,actor_email,message,sent_at").in("review_id", reviewIds).eq("status", "sent").order("sent_at", { ascending: false })
+    : { data: [], error: null };
+  if (detailRepliesResult.error) throw detailRepliesResult.error;
 
   const events = eventsResult.data ?? [];
   const actorIds = [
@@ -104,6 +112,14 @@ async function loadReviewPage(
   const bookingMap = new Map((bookingsResult.data ?? []).map((row) => [row.id, row]));
   const showMap = new Map((showsResult.data ?? []).map((row) => [row.id, row]));
   const staffMap = new Map((staffResult.data ?? []).map((row) => [row.id, row.full_name]));
+  const customerIds = input.includeDetails
+    ? [...new Set((bookingsResult.data ?? []).map((row) => row.customer_id).filter(Boolean))]
+    : [];
+  const customersResult = customerIds.length
+    ? await serviceClient.from("customers").select("id,email,mobile").in("id", customerIds)
+    : { data: [], error: null };
+  if (customersResult.error) throw customersResult.error;
+  const customerMap = new Map((customersResult.data ?? []).map((row) => [row.id, row]));
 
   return {
     page: input.page,
@@ -121,6 +137,13 @@ async function loadReviewPage(
           status: row.moderation_status,
         }),
         bookingReference: booking?.booking_reference ?? "Booking unavailable",
+        categoryRatings: {
+          ambience: row.ambience_rating,
+          food: row.food_rating,
+          service: row.service_rating,
+          value: row.value_rating,
+        },
+        contact: input.includeDetails && booking?.customer_id ? customerMap.get(booking.customer_id) ?? null : null,
         contactRequested: row.contact_requested,
         displayName: row.public_display_name,
         featured: row.featured,
@@ -138,6 +161,7 @@ async function loadReviewPage(
             type: event.event_type,
           })),
         id: row.id,
+        latestReply: (replySummariesResult.data ?? []).find((reply) => reply.review_id === row.id) ?? null,
         moderationNote: row.moderation_note,
         moderatedAt: row.moderated_at,
         moderatedBy: row.moderated_by ? staffMap.get(row.moderated_by) ?? "Staff member" : null,
@@ -156,6 +180,7 @@ async function loadReviewPage(
         publishedAt: row.published_at,
         rating: row.rating,
         reviewText: row.review_text,
+        replies: (detailRepliesResult.data ?? []).filter((reply) => reply.review_id === row.id),
         revision: row.revision,
         status: row.moderation_status,
         submittedAt: row.submitted_at,

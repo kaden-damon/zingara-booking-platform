@@ -45,6 +45,7 @@ const eligible = {
   showDate: "2026-09-20",
   showTime: "17:00:00",
 };
+const categoryRatings = { ambienceRating: 4, foodRating: 5, serviceRating: 4, valueRating: 3 };
 
 function review(overrides: Partial<PublicReviewRecord> = {}): PublicReviewRecord {
   return {
@@ -117,6 +118,7 @@ test("automated review classification stays truthful to persisted check-in evide
 test("one-star and five-star submissions are valid but no implicit rating is accepted", () => {
   for (const rating of [1, 5]) {
     const result = validateReviewSubmission({
+      ...categoryRatings,
       contactRequested: rating === 1,
       publicationConsent: true,
       rating,
@@ -126,6 +128,7 @@ test("one-star and five-star submissions are valid but no implicit rating is acc
   }
   assert.match(
     validateReviewSubmission({
+      ...categoryRatings,
       contactRequested: false,
       publicationConsent: false,
       rating: null,
@@ -138,6 +141,7 @@ test("one-star and five-star submissions are valid but no implicit rating is acc
 test("review text rejects whitespace, HTML, scripts and extreme payloads", () => {
   for (const reviewText of ["     ", "<b>This review contains markup that must be rejected.</b>", "<script>alert(1)</script>", "x".repeat(2001)]) {
     const result = validateReviewSubmission({
+      ...categoryRatings,
       contactRequested: false,
       publicationConsent: false,
       rating: 3,

@@ -10,6 +10,7 @@ test("personal subscriptions and management routing are separate", () => {
     [
       { key: "daily-booking-review", mode: "personal" },
       { key: "corporate-enquiry", mode: "management" },
+      { key: "new-review-alert", mode: "management" },
     ],
   );
 });
@@ -77,5 +78,6 @@ test("Email Notifications UI keeps personal and management controls distinct", a
   assert.match(card, /Management-controlled recipients/);
   assert.match(card, /Only authorised management/);
   assert.match(card, /New Corporate Enquiries/);
+  assert.match(card, /New Review Alerts/);
   assert.match(card, /sm:grid-cols-2/);
 });

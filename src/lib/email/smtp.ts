@@ -40,6 +40,7 @@ type EmailSendInput = {
   cc?: string | string[] | null;
   html?: string | null;
   message: string;
+  replyTo?: string | null;
   sender?: ZingaraEmailSender;
   subject?: string | null;
   to?: string | string[] | null;
@@ -114,6 +115,7 @@ export async function sendZingaraEmail({
   cc,
   html,
   message,
+  replyTo,
   sender,
   subject,
   to,
@@ -155,6 +157,7 @@ export async function sendZingaraEmail({
         name: config.fromName,
       },
       html: html ? sanitizeEmailHtml(html) : toHtmlMessage(message),
+      replyTo: replyTo?.trim() || undefined,
       subject: subject?.trim() || "Zingara booking update",
       text: message,
       to: recipient,

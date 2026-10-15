@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createBrandedCustomerEmail } from "@/lib/email/customerEmail";
 import { kadenManagementEmail, resolveInternalOperationalRecipients } from "@/lib/email/internalOperationalRecipients";
 import { sendZingaraEmail } from "@/lib/email/smtp";
+import { loadManagementEmailRoute } from "@/lib/email/staffEmailNotifications";
 import { calculateReviewRatingAverage, isReviewAttentionRating } from "@/lib/reviews/reviewRating";
 
 const timeZone = "Africa/Johannesburg";
@@ -31,6 +32,7 @@ type ReviewRow = {
   submitted_at: string;
   venue: "cape-town" | "johannesburg";
   verified_guest: boolean;
+  review_privacy_requested: boolean | null;
 };
 type ReviewContext = ReviewRow & {
   invitationType: "automated_verified" | "manual_email" | "manual_link";
@@ -107,7 +109,7 @@ async function resolveRecipients(client: SupabaseClient, ids: string[]) {
 }
 
 async function loadReview(client: SupabaseClient, reviewId: string): Promise<ReviewContext | null> {
-  const { data, error } = await client.from("guest_reviews").select("id,invitation_id,show_id,venue,public_display_name,rating,review_text,contact_requested,moderation_status,verified_guest,submitted_at").eq("id", reviewId).maybeSingle();
+  const { data, error } = await client.from("guest_reviews").select("id,invitation_id,show_id,venue,public_display_name,rating,review_text,contact_requested,moderation_status,verified_guest,submitted_at,review_privacy_requested").eq("id", reviewId).maybeSingle();
   if (error) throw error;
   if (!data) return null;
   const [showResult, invitationResult] = await Promise.all([
@@ -151,7 +153,7 @@ function renderReviewCard(review: ReviewContext) {
 }
 
 async function renderImmediate(review: ReviewContext) {
-  const subject = `${isReviewAttentionRating(review.rating) ? "Review needs attention" : "New guest review"} - ${review.rating}/5`;
+  const subject = `${review.public_display_name} just submitted a ${review.review_privacy_requested ? "Private" : "Public"} Review`;
   const url = reviewUrl(review);
   const message = `${subject}\n\n${review.public_display_name}\n${review.rating}/5\n${reviewMeta(review)}\n${invitationLabel(review.invitationType)}\n${statusLabel(review.moderation_status)}\n\n${review.review_text}\n\n${url}`;
   const branded = await createBrandedCustomerEmail({ ctaLabel: "OPEN REVIEW", ctaUrl: url, heading: subject, html: renderReviewCard(review), includeAgePolicy: false, message, subject });
@@ -186,7 +188,9 @@ export async function sendImmediateReviewAlert(client: SupabaseClient, reviewId:
   if (!config.immediate_enabled || !config.immediate_activated_at) return { reason: "disabled", sent: false } as const;
   const review = await loadReview(client, reviewId);
   if (!review || review.submitted_at < config.immediate_activated_at) return { reason: "before-activation", sent: false } as const;
-  const recipients = await resolveRecipients(client, config.immediate_recipient_staff_ids);
+  const route = await loadManagementEmailRoute(client, "new-review-alert");
+  if (!route.enabled) return { reason: "disabled", sent: false } as const;
+  const recipients = { cc: route.cc.map((member) => member.email), to: route.to.map((member) => member.email) };
   if (!recipients.to.length) return { reason: "no-recipients", sent: false } as const;
   const claim = await client.rpc("claim_review_management_alert", { p_cc_emails: recipients.cc, p_primary_emails: recipients.to, p_review_id: review.id });
   if (claim.error) throw claim.error;
@@ -279,10 +283,11 @@ export async function loadReviewManagementConfiguration(client: SupabaseClient, 
 
 export async function loadReviewManagementSummary(client: SupabaseClient) {
   const configuration = await loadReviewManagementConfiguration(client);
-  const [immediateRecipients, dailyRecipients] = await Promise.all([
-    resolveRecipients(client, configuration.immediateRecipientStaffIds),
+  const [immediateRoute, dailyRecipients] = await Promise.all([
+    loadManagementEmailRoute(client, "new-review-alert"),
     resolveRecipients(client, configuration.dailyRecipientStaffIds),
   ]);
+  const immediateRecipients = { cc: immediateRoute.cc.map((member) => member.email), to: immediateRoute.to.map((member) => member.email) };
   return { configuration, dailyRecipients, immediateRecipients };
 }
 
@@ -304,9 +309,10 @@ export async function saveReviewManagementConfiguration(client: SupabaseClient, 
 export async function previewReviewManagement(client: SupabaseClient) {
   const [configuration, staff] = await Promise.all([loadReviewManagementConfiguration(client), loadStaff(client)]);
   const activeStaff = staff.filter((member) => member.active && member.email);
-  const immediateRecipients = await resolveRecipients(client, configuration.immediateRecipientStaffIds);
+  const immediateRoute = await loadManagementEmailRoute(client, "new-review-alert");
+  const immediateRecipients = { cc: immediateRoute.cc.map((member) => member.email), to: immediateRoute.to.map((member) => member.email) };
   const dailyRecipients = await resolveRecipients(client, configuration.dailyRecipientStaffIds);
-  const example: ReviewContext = { contact_requested: true, id: "preview", invitation_id: "preview", invitationType: "automated_verified", moderation_status: "needs_review", public_display_name: "Verified Guest", rating: 2, review_text: "The team should review this feedback and follow up with the guest where appropriate.", show_id: "preview", submitted_at: new Date().toISOString(), venue: "johannesburg", verified_guest: true, show: { date: dateKey(new Date()), name: "The Royal Countess", time: "17:00:00" } };
+  const example: ReviewContext = { contact_requested: true, id: "preview", invitation_id: "preview", invitationType: "automated_verified", moderation_status: "needs_review", public_display_name: "Verified Guest", rating: 2, review_privacy_requested: false, review_text: "The team should review this feedback and follow up with the guest where appropriate.", show_id: "preview", submitted_at: new Date().toISOString(), venue: "johannesburg", verified_guest: true, show: { date: dateKey(new Date()), name: "The Royal Countess", time: "17:00:00" } };
   const [immediateExample, dailyExample] = await Promise.all([renderImmediate(example), renderDaily([example], new Date(Date.now() - 86_400_000).toISOString(), new Date().toISOString())]);
   return { configuration, dailyExample: { html: dailyExample.html, subject: dailyExample.subject }, dailyRecipients, immediateExample: { html: immediateExample.html, subject: immediateExample.subject }, immediateRecipients, staff: activeStaff };
 }

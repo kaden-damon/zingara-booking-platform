@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getAdminAuthSession } from "@/lib/supabase/auth";
 
 type PersonalSetting = {
@@ -16,7 +16,7 @@ type StaffOption = Recipient & { venueScope: string[] };
 type ManagementSetting = {
   cc: Recipient[];
   enabled: boolean;
-  key: "corporate-enquiry";
+  key: "corporate-enquiry" | "new-review-alert";
   to: Recipient[];
 };
 type Payload = {
@@ -47,12 +47,11 @@ export default function EmailNotificationsSettings({
   showPersonal?: boolean;
 }) {
   const [payload, setPayload] = useState<Payload | null>(null);
-  const [managementDraft, setManagementDraft] =
-    useState<ManagementSetting | null>(null);
+  const [managementDrafts, setManagementDrafts] = useState<ManagementSetting[]>([]);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
-  const [managementExpanded, setManagementExpanded] = useState(false);
+  const [managementExpanded, setManagementExpanded] = useState<string | null>(null);
   const [managementDetailsLoaded, setManagementDetailsLoaded] = useState(false);
 
   const load = useCallback(async (includeDetails = false) => {
@@ -65,7 +64,7 @@ export default function EmailNotificationsSettings({
         throw new Error(next.error ?? "Email notification settings couldn't be loaded.");
       }
       setPayload(next);
-      setManagementDraft(next.management[0] ?? null);
+      setManagementDrafts(next.management);
       if (includeDetails) setManagementDetailsLoaded(true);
     } catch (caught) {
       setError(
@@ -83,21 +82,6 @@ export default function EmailNotificationsSettings({
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  async function toggleManagementDetails() {
-    const nextExpanded = !managementExpanded;
-    setManagementExpanded(nextExpanded);
-    if (nextExpanded && !managementDetailsLoaded) await load(true);
-  }
-
-  const selectedTo = useMemo(
-    () => new Set(managementDraft?.to.map((member) => member.id) ?? []),
-    [managementDraft],
-  );
-  const selectedCc = useMemo(
-    () => new Set(managementDraft?.cc.map((member) => member.id) ?? []),
-    [managementDraft],
-  );
-
   async function savePersonal(setting: PersonalSetting, enabled: boolean) {
     setError("");
     setStatus("");
@@ -114,7 +98,7 @@ export default function EmailNotificationsSettings({
       const next = (await response.json()) as Payload & { error?: string };
       if (!response.ok) throw new Error(next.error ?? "Your preference couldn't be saved.");
       setPayload(next);
-      setManagementDraft(next.management[0] ?? managementDraft);
+      setManagementDrafts(next.management);
       setStatus(`${setting.label} ${enabled ? "enabled" : "disabled"} for you.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Your preference couldn't be saved.");
@@ -123,10 +107,13 @@ export default function EmailNotificationsSettings({
     }
   }
 
-  function setRecipient(staff: StaffOption, placement: "cc" | "to") {
-    setManagementDraft((current) => {
-      if (!current) return current;
-      const isSelected = placement === "to" ? selectedTo.has(staff.id) : selectedCc.has(staff.id);
+  function updateManagement(key: ManagementSetting["key"], update: (setting: ManagementSetting) => ManagementSetting) {
+    setManagementDrafts((current) => current.map((setting) => setting.key === key ? update(setting) : setting));
+  }
+
+  function setRecipient(key: ManagementSetting["key"], staff: StaffOption, placement: "cc" | "to") {
+    updateManagement(key, (current) => {
+      const isSelected = (placement === "to" ? current.to : current.cc).some((member) => member.id === staff.id);
       const recipient = { email: staff.email, id: staff.id, name: staff.name };
       return {
         ...current,
@@ -146,8 +133,7 @@ export default function EmailNotificationsSettings({
     });
   }
 
-  async function saveManagement() {
-    if (!managementDraft) return;
+  async function saveManagement(managementDraft: ManagementSetting) {
     setError("");
     setStatus("");
     setLoading(true);
@@ -165,8 +151,8 @@ export default function EmailNotificationsSettings({
       const next = (await response.json()) as Payload & { error?: string };
       if (!response.ok) throw new Error(next.error ?? "Email routing couldn't be saved.");
       setPayload(next);
-      setManagementDraft(next.management[0] ?? null);
-      setStatus("Corporate enquiry email routing saved.");
+      setManagementDrafts(next.management);
+      setStatus("Email routing saved.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Email routing couldn't be saved.");
     } finally {
@@ -224,34 +210,36 @@ export default function EmailNotificationsSettings({
             )}
           </div>
 
-          {payload?.canManageOrganisation && managementDraft ? (
-            <>
-              <div className="mt-4 rounded-lg border border-white/10 p-3">
+          {payload?.canManageOrganisation && managementDrafts.length ? (
+            <div className="mt-4 space-y-3">
+            {managementDrafts.map((managementDraft) => {
+              const expanded = managementExpanded === managementDraft.key;
+              const label = managementDraft.key === "new-review-alert" ? "New Review Alerts" : "New Corporate Enquiries";
+              return <div className="rounded-lg border border-white/10 p-3" key={managementDraft.key}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <strong className="block text-sm text-white">New Corporate Enquiries</strong>
+                    <strong className="block text-sm text-white">{label}</strong>
                     <p className="mt-1 text-xs leading-5 text-zinc-500">
                       To: {managementDraft.to.map((member) => member.name).join(", ") || "None"} · CC: {managementDraft.cc.map((member) => member.name).join(", ") || "None"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`rounded-full border px-3 py-1 text-xs ${managementDraft.enabled ? "border-emerald-300/30 text-emerald-200" : "border-white/10 text-zinc-500"}`}>{managementDraft.enabled ? "Enabled" : "Disabled"}</span>
-                    <button type="button" onClick={() => void toggleManagementDetails()} aria-expanded={managementExpanded} className="min-h-10 rounded-full border border-[#D8C36A]/35 px-4 text-xs font-bold uppercase tracking-[0.08em] text-[#F2D66C]">
-                      {managementExpanded ? "Close" : "Edit Settings"}
+                    <button type="button" onClick={async () => { setManagementExpanded(expanded ? null : managementDraft.key); if (!managementDetailsLoaded) await load(true); }} aria-expanded={expanded} className="min-h-10 rounded-full border border-[#D8C36A]/35 px-4 text-xs font-bold uppercase tracking-[0.08em] text-[#F2D66C]">
+                      {expanded ? "Close" : "Edit Settings"}
                     </button>
                   </div>
                 </div>
-              </div>
-              {managementExpanded && (
+              {expanded && (
               <div className="mt-4 rounded-lg border border-[#D8C36A]/20 bg-black/30 p-4">
                 <label className="flex min-h-11 items-center justify-between gap-3 text-sm text-white">
                   Email enabled
                   <input
                     type="checkbox"
-                    aria-label="Enable Corporate enquiry emails"
+                    aria-label={`Enable ${label}`}
                     checked={managementDraft.enabled}
                     disabled={loading}
-                    onChange={(event) => setManagementDraft((current) => current ? { ...current, enabled: event.target.checked } : current)}
+                    onChange={(event) => updateManagement(managementDraft.key, (current) => ({ ...current, enabled: event.target.checked }))}
                     className="h-5 w-5 accent-[#D8C36A]"
                   />
                 </label>
@@ -264,9 +252,9 @@ export default function EmailNotificationsSettings({
                         <label key={`${placement}-${staff.id}`} className="flex items-start gap-2 text-sm text-zinc-300">
                           <input
                             type="checkbox"
-                            checked={placement === "to" ? selectedTo.has(staff.id) : selectedCc.has(staff.id)}
+                            checked={(placement === "to" ? managementDraft.to : managementDraft.cc).some((member) => member.id === staff.id)}
                             disabled={loading}
-                            onChange={() => setRecipient(staff, placement)}
+                            onChange={() => setRecipient(managementDraft.key, staff, placement)}
                             className="mt-1 h-4 w-4 accent-[#D8C36A]"
                           />
                           <span className="min-w-0"><strong className="block truncate text-white">{staff.name}</strong><span className="block break-all text-xs text-zinc-500">{staff.email}</span></span>
@@ -278,7 +266,7 @@ export default function EmailNotificationsSettings({
                 </div>
                 <button
                 type="button"
-                onClick={() => void saveManagement()}
+                onClick={() => void saveManagement(managementDraft)}
                 disabled={loading || (managementDraft.enabled && managementDraft.to.length === 0)}
                 className="mt-4 min-h-11 rounded-full bg-[#D8C36A] px-5 py-2 text-xs font-bold uppercase tracking-[0.1em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -286,7 +274,9 @@ export default function EmailNotificationsSettings({
               </button>
               </div>
               )}
-            </>
+              </div>;
+            })}
+            </div>
           ) : (
             <p className="mt-4 rounded-lg border border-white/10 p-3 text-sm leading-6 text-zinc-400">
               Only authorised management can change required recipients, CC routing, or organisation-wide email settings.

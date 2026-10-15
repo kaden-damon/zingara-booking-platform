@@ -8,6 +8,8 @@ type ReviewRow = {
   anonymousPublicationAllowed: boolean;
   anonymousIdentityWarnings: string[];
   bookingReference: string;
+  categoryRatings: { ambience: number | null; food: number | null; service: number | null; value: number | null };
+  contact: { email: string | null; mobile: string | null } | null;
   contactRequested: boolean;
   displayName: string;
   featured: boolean;
@@ -21,6 +23,7 @@ type ReviewRow = {
     type: string;
   }>;
   id: string;
+  latestReply: { actor_name: string; sent_at: string } | null;
   moderationNote: string | null;
   performanceDate: string | null;
   performanceName: string;
@@ -32,6 +35,7 @@ type ReviewRow = {
   privacyRequested: boolean | null;
   rating: number;
   reviewText: string;
+  replies: Array<{ actor_email: string; actor_name: string; id: string; message: string; sent_at: string }>;
   revision: number;
   status: ReviewStatus;
   submittedAt: string;
@@ -85,6 +89,11 @@ export default function ReviewsAdminWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [targetReviewId, setTargetReviewId] = useState("");
+  const [replyMessage, setReplyMessage] = useState("");
+  const [replyKey, setReplyKey] = useState("");
+  const [replyBusy, setReplyBusy] = useState(false);
+  const [replyStatus, setReplyStatus] = useState("");
+  const [detailVersion, setDetailVersion] = useState(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -186,7 +195,7 @@ export default function ReviewsAdminWorkspace() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [selectedId, status]);
+  }, [detailVersion, selectedId, status]);
 
   const listSelected = result.rows.find((row) => row.id === selectedId) ?? null;
   const selected = selectedDetail?.id === selectedId ? selectedDetail : listSelected;
@@ -214,6 +223,31 @@ export default function ReviewsAdminWorkspace() {
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function sendReply() {
+    if (!selected || !replyMessage.trim()) return;
+    setReplyBusy(true);
+    setError("");
+    setReplyStatus("");
+    try {
+      const idempotencyKey = replyKey || crypto.randomUUID();
+      setReplyKey(idempotencyKey);
+      await fetchSupabaseApi("/api/admin/reviews/reply", {
+        body: { idempotencyKey, message: replyMessage.trim(), reviewId: selected.id },
+        method: "POST",
+      });
+      setReplyMessage("");
+      setReplyKey("");
+      setReplyStatus("Reply sent.");
+      setSelectedDetail(null);
+      setDetailVersion((value) => value + 1);
+      await load();
+    } catch (replyError) {
+      setError(replyError instanceof Error ? replyError.message : "The reply couldn't be sent. Try again.");
+    } finally {
+      setReplyBusy(false);
     }
   }
 
@@ -303,6 +337,7 @@ export default function ReviewsAdminWorkspace() {
                   {review.contactRequested && <span className="rounded-full border border-sky-400/30 px-2 py-1 text-sky-300">Contact requested</span>}
                   {review.publicationConsentMode === "private" && <span className="rounded-full border border-white/15 px-2 py-1 text-zinc-400">Private only</span>}
                   {review.publicationConsentMode === "anonymous" && <span className="rounded-full border border-white/15 px-2 py-1 text-zinc-300">Anonymous</span>}
+                  {review.latestReply && <span className="rounded-full border border-emerald-400/30 px-2 py-1 text-emerald-300">Replied · {review.latestReply.actor_name}</span>}
                 </div>
               </button>
             ))
@@ -345,6 +380,7 @@ export default function ReviewsAdminWorkspace() {
                 <div>
                   <p className="text-xl font-semibold text-white">{selected.displayName}</p>
                   <p className="mt-1 text-sm text-zinc-400">{selected.bookingReference} · {selected.guestCount ?? "-"} guests · {selected.verifiedGuest ? "Verified Guest" : "Invited Guest"}</p>
+                  {selected.contact ? <p className="mt-1 text-xs text-zinc-500">{selected.contact.email || "No email"} · {selected.contact.mobile || "No phone"}</p> : null}
                 </div>
                 <span className="self-start rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold uppercase text-zinc-300">{statusLabel(selected.status)}</span>
               </div>
@@ -358,7 +394,23 @@ export default function ReviewsAdminWorkspace() {
 
               <div>
                 <p className="text-2xl text-amber-300" aria-label={`${selected.rating} stars`}>{"★".repeat(selected.rating)}{"☆".repeat(5 - selected.rating)}</p>
+                {Object.values(selected.categoryRatings).some((value) => value !== null) ? (
+                  <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2 text-sm sm:grid-cols-4">
+                    {Object.entries(selected.categoryRatings).map(([label, value]) => <p className="capitalize text-zinc-400" key={label}>{label} <strong className="text-amber-200">{value ?? "—"} / 5</strong></p>)}
+                  </div>
+                ) : <p className="mt-2 text-xs text-zinc-500">Category ratings were not collected for this historical review.</p>}
                 <p className="mt-4 whitespace-pre-wrap text-base leading-7 text-zinc-200">{selected.reviewText}</p>
+              </div>
+
+              <div className="border-y border-white/10 py-5">
+                <label className="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-500" htmlFor="review-reply">Reply to Guest</label>
+                <textarea className="mt-2 min-h-24 w-full rounded-xl border border-white/15 bg-black/30 p-3 text-sm text-white outline-none focus:border-amber-300" id="review-reply" maxLength={4000} onChange={(event) => { setReplyMessage(event.target.value); setReplyKey(""); }} placeholder="Write a short reply to the guest." value={replyMessage} />
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button className="min-h-10 rounded-full bg-amber-300 px-4 text-sm font-semibold text-black disabled:opacity-40" disabled={replyBusy || !replyMessage.trim() || !selected.contact?.email} onClick={() => void sendReply()} type="button">{replyBusy ? "Sending..." : "Reply to Guest"}</button>
+                  {!selected.contact?.email ? <span className="text-xs text-zinc-500">No guest email is available.</span> : null}
+                  {replyStatus ? <span className="text-xs text-emerald-300" role="status">{replyStatus}</span> : null}
+                </div>
+                {selected.replies.length ? <div className="mt-4 space-y-3">{selected.replies.map((reply) => <div className="border-l-2 border-emerald-300/40 pl-3 text-sm" key={reply.id}><p className="text-zinc-200">{reply.message}</p><p className="mt-1 text-xs text-zinc-500">{reply.actor_name} · {reply.actor_email} · {new Date(reply.sent_at).toLocaleString("en-ZA")}</p></div>)}</div> : null}
               </div>
 
               {selected.contactRequested && (

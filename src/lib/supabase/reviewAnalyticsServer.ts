@@ -75,20 +75,24 @@ type ShowRow = {
 };
 
 type ReviewRow = {
+  ambience_rating: number | null;
   booking_id: string;
   contact_requested: boolean;
   featured: boolean;
+  food_rating: number | null;
   id: string;
   invitation_id: string;
   moderation_status: "needs_review" | "not_published" | "published";
   public_display_name: string;
   publication_consent: boolean;
   rating: number;
+  service_rating: number | null;
   show_id: string;
   submitted_at: string;
   unpublished_at: string | null;
   venue: AnalyticsVenue;
   verified_guest: boolean;
+  value_rating: number | null;
 };
 
 type BookingRow = {
@@ -180,7 +184,7 @@ export async function loadReviewAnalyticsReport(
       serviceClient
         .from("guest_reviews")
         .select(
-          "id,invitation_id,booking_id,show_id,venue,public_display_name,rating,contact_requested,publication_consent,moderation_status,submitted_at,unpublished_at,featured,verified_guest",
+          "id,invitation_id,booking_id,show_id,venue,public_display_name,rating,food_rating,value_rating,service_rating,ambience_rating,contact_requested,publication_consent,moderation_status,submitted_at,unpublished_at,featured,verified_guest",
         )
         .in("show_id", ids)
         .order("submitted_at", { ascending: false })
@@ -272,21 +276,25 @@ export async function loadReviewAnalyticsReport(
     invitationRows.map((invitation) => [invitation.id, invitation.invitation_type]),
   );
   const reviews: ReviewAnalyticsReview[] = reviewRows.map((review) => ({
+    ambienceRating: review.ambience_rating,
     bookingId: review.booking_id,
     contactRequested: review.contact_requested,
     displayName: review.public_display_name,
     featured: review.featured,
+    foodRating: review.food_rating,
     id: review.id,
     invitationType: invitationTypes.get(review.invitation_id) ?? (review.verified_guest ? "automated_verified" : "manual_link"),
     moderationStatus: review.moderation_status,
     publicationConsent: review.publication_consent,
     rating: review.rating,
     reviewText: reviewText.get(review.id) ?? "",
+    serviceRating: review.service_rating,
     showId: review.show_id,
     submittedAt: review.submitted_at,
     unpublishedAt: review.unpublished_at,
     venue: review.venue,
     verifiedGuest: review.verified_guest,
+    valueRating: review.value_rating,
   }));
   const submittedRange = (timestamp: string) =>
     inRange(

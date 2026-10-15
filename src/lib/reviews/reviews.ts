@@ -142,18 +142,32 @@ export function getSafePublicDisplayNameFromFullName(value: string) {
 }
 
 export function validateReviewSubmission(input: {
+  ambienceRating?: unknown;
   contactRequested: unknown;
+  foodRating?: unknown;
   publicationConsent: unknown;
   publicationConsentMode?: unknown;
   privacyRequested?: unknown;
   rating: unknown;
   reviewText: unknown;
+  serviceRating?: unknown;
+  valueRating?: unknown;
 }) {
   const rating = Number(input.rating);
+  const categoryRatings = {
+    ambienceRating: Number(input.ambienceRating),
+    foodRating: Number(input.foodRating),
+    serviceRating: Number(input.serviceRating),
+    valueRating: Number(input.valueRating),
+  };
   const reviewText = typeof input.reviewText === "string" ? input.reviewText.trim() : "";
 
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
     return { error: "Choose a star rating before submitting your review." } as const;
+  }
+
+  if (Object.values(categoryRatings).some((value) => !Number.isInteger(value) || value < 1 || value > 5)) {
+    return { error: "Choose a rating for Food, Value, Service and Ambience." } as const;
   }
 
   if (
@@ -184,6 +198,7 @@ export function validateReviewSubmission(input: {
   return {
     value: {
       contactRequested: input.contactRequested === true,
+      ...categoryRatings,
       publicationConsent: publicationConsentMode === "public",
       publicationConsentMode,
       publicationPolicyVersion: usesPrivacyToggle ? reviewPublicationPolicyVersion : null,

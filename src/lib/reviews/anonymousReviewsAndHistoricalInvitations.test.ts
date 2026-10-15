@@ -10,6 +10,8 @@ import {
   type PublicReviewRecord,
 } from "./reviews.ts";
 
+const categoryRatings = { ambienceRating: 4, foodRating: 5, serviceRating: 4, valueRating: 3 };
+
 const root = process.cwd();
 const migrationPath = `${root}/supabase/migrations/20261009123000_phase_48_5_anonymous_reviews.sql`;
 const publicationFixMigrationPath = `${root}/supabase/migrations/20261009150000_phase_48_6_anonymous_publication_constraint.sql`;
@@ -36,6 +38,7 @@ function review(overrides: Partial<PublicReviewRecord> = {}): PublicReviewRecord
 test("submission preserves explicit public, anonymous and private choices", () => {
   for (const mode of ["public", "anonymous", "private"] as const) {
     const result = validateReviewSubmission({
+      ...categoryRatings,
       contactRequested: false,
       publicationConsent: mode === "public",
       publicationConsentMode: mode,
@@ -48,6 +51,7 @@ test("submission preserves explicit public, anonymous and private choices", () =
 
 test("privacy toggle defaults to normal publication and records the policy choice", () => {
   const normal = validateReviewSubmission({
+    ...categoryRatings,
     contactRequested: false,
     privacyRequested: false,
     publicationConsent: undefined,
@@ -55,6 +59,7 @@ test("privacy toggle defaults to normal publication and records the policy choic
     reviewText: "A detailed review that is long enough for safe submission.",
   });
   const privateRequested = validateReviewSubmission({
+    ...categoryRatings,
     contactRequested: false,
     privacyRequested: true,
     publicationConsent: undefined,

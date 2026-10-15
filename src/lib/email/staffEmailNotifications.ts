@@ -13,6 +13,12 @@ export const staffEmailNotificationRegistry = [
     label: "New Corporate Enquiries",
     mode: "management",
   },
+  {
+    description: "An immediate alert whenever a guest submits a review.",
+    key: "new-review-alert",
+    label: "New Review Alerts",
+    mode: "management",
+  },
 ] as const;
 
 export type StaffEmailNotificationKey =
