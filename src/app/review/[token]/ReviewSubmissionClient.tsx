@@ -70,6 +70,7 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
 
   function selectRating(value: number) {
     setRating(value);
+    if (value >= 4) setContactRequested(false);
     setRatingPreview(null);
     setMessage("");
   }
@@ -306,22 +307,24 @@ export default function ReviewSubmissionClient({ preview = false, token }: Props
               </button>
             </div>
 
-            <fieldset>
-              <legend className="text-sm font-semibold">Would you like a member of our team to contact you?</legend>
-              <div className="mt-3 grid w-full grid-cols-2 rounded-2xl border border-white/10 bg-black/45 p-1 sm:w-64" role="group" aria-label="Contact request">
-                {[false, true].map((value) => (
-                  <button
-                    aria-pressed={contactRequested === value}
-                    className={`min-h-11 rounded-xl px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2D66C] ${contactRequested === value ? "bg-[#D8C36A] text-black shadow-[0_0_18px_rgba(216,195,106,0.16)]" : "text-zinc-400 hover:text-white"}`}
-                    key={String(value)}
-                    onClick={() => setContactRequested(value)}
-                    type="button"
-                  >
-                    {value ? "Yes" : "No"}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
+            {rating !== null && rating <= 3 ? (
+              <fieldset>
+                <legend className="text-sm font-semibold">Would you like a member of our team to contact you?</legend>
+                <div className="mt-3 grid w-full grid-cols-2 rounded-2xl border border-white/10 bg-black/45 p-1 sm:w-64" role="group" aria-label="Contact request">
+                  {[false, true].map((value) => (
+                    <button
+                      aria-pressed={contactRequested === value}
+                      className={`min-h-11 rounded-xl px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2D66C] ${contactRequested === value ? "bg-[#D8C36A] text-black shadow-[0_0_18px_rgba(216,195,106,0.16)]" : "text-zinc-400 hover:text-white"}`}
+                      key={String(value)}
+                      onClick={() => setContactRequested(value)}
+                      type="button"
+                    >
+                      {value ? "Yes" : "No"}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
 
             {message && (
               <p className="rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/[0.07] px-4 py-3 text-sm leading-6 text-zinc-200" aria-live="polite">{message}</p>

@@ -2,6 +2,7 @@ import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
 import { recordAuditEvent } from "@/lib/supabase/serverAudit";
 import { canPublishReview, getAnonymousReviewIdentityWarnings } from "@/lib/reviews/reviews";
+import { getReviewContactState, parseReviewAdminFilters, type ReviewAdminFilters } from "@/lib/reviews/reviewAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ async function loadReviewPage(
     reviewId: string;
     search: string;
     status: string;
+    filters: ReviewAdminFilters;
   },
 ) {
   const venues = allowedVenues(scope);
@@ -39,12 +41,13 @@ async function loadReviewPage(
   let query = serviceClient
     .from("guest_reviews")
     .select(
-      "id,booking_id,show_id,venue,public_display_name,rating,food_rating,value_rating,service_rating,ambience_rating,review_text,contact_requested,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision",
+      "id,booking_id,show_id,venue,public_display_name,rating,food_rating,value_rating,service_rating,ambience_rating,review_text,contact_requested,contacted_at,contacted_by,contact_method,replied_at,replied_by_name,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision",
       { count: "exact" },
     )
     .eq("moderation_status", input.status)
     .in("venue", venues.length ? venues : ["__none__"])
     .order("submitted_at", { ascending: false })
+    .order("id", { ascending: false })
     .range(from, from + input.pageSize - 1);
 
   if (input.reviewId) {
@@ -60,6 +63,22 @@ async function loadReviewPage(
     }
   }
 
+  if (input.filters.rating !== null) query = query.eq("rating", input.filters.rating);
+  if (input.filters.venue !== "all") query = query.eq("venue", input.filters.venue);
+  if (input.filters.contact === "contact_requested") {
+    query = query.eq("contact_requested", true).is("contacted_at", null);
+  } else if (input.filters.contact === "contacted") {
+    query = query.not("contacted_at", "is", null);
+  } else if (input.filters.contact === "not_contacted") {
+    query = query.is("contacted_at", null);
+  }
+  if (input.filters.reply === "replied") query = query.not("replied_at", "is", null);
+  if (input.filters.reply === "not_replied") query = query.is("replied_at", null);
+  if (input.filters.privacy === "private") query = query.eq("review_privacy_requested", true);
+  if (input.filters.privacy === "public") {
+    query = query.or("review_privacy_requested.eq.false,and(review_privacy_requested.is.null,publication_consent_mode.eq.public)");
+  }
+
   const { data: reviews, error, count } = await query;
   if (error) throw error;
   const rows = reviews ?? [];
@@ -67,18 +86,15 @@ async function loadReviewPage(
   const showIds = [...new Set(rows.map((row) => row.show_id))];
   const reviewIds = rows.map((row) => row.id);
 
-  const [bookingsResult, showsResult, replySummariesResult] = await Promise.all([
+  const [bookingsResult, showsResult] = await Promise.all([
     bookingIds.length
       ? serviceClient.from("bookings").select("id,booking_reference,guest_count,customer_id").in("id", bookingIds)
       : Promise.resolve({ data: [], error: null }),
     showIds.length
       ? serviceClient.from("shows").select("id,name,date,time,venue").in("id", showIds)
       : Promise.resolve({ data: [], error: null }),
-    reviewIds.length
-      ? serviceClient.from("guest_review_replies").select("review_id,actor_name,sent_at").in("review_id", reviewIds).eq("status", "sent").order("sent_at", { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
   ]);
-  for (const result of [bookingsResult, showsResult, replySummariesResult]) {
+  for (const result of [bookingsResult, showsResult]) {
     if (result.error) throw result.error;
   }
 
@@ -99,8 +115,7 @@ async function loadReviewPage(
   const events = eventsResult.data ?? [];
   const actorIds = [
     ...new Set(
-      events
-        .map((event) => event.actor_staff_profile_id)
+      [...events.map((event) => event.actor_staff_profile_id), ...rows.map((row) => row.contacted_by), ...rows.map((row) => row.moderated_by)]
         .filter((id): id is string => Boolean(id)),
     ),
   ];
@@ -145,6 +160,10 @@ async function loadReviewPage(
         },
         contact: input.includeDetails && booking?.customer_id ? customerMap.get(booking.customer_id) ?? null : null,
         contactRequested: row.contact_requested,
+        contactedAt: row.contacted_at,
+        contactedBy: row.contacted_by ? staffMap.get(row.contacted_by) ?? "Staff member" : null,
+        contactMethod: row.contact_method,
+        contactState: getReviewContactState({ contactedAt: row.contacted_at, contactRequested: row.contact_requested }),
         displayName: row.public_display_name,
         featured: row.featured,
         guestCount: booking?.guest_count ?? null,
@@ -161,7 +180,9 @@ async function loadReviewPage(
             type: event.event_type,
           })),
         id: row.id,
-        latestReply: (replySummariesResult.data ?? []).find((reply) => reply.review_id === row.id) ?? null,
+        latestReply: row.replied_at && row.replied_by_name
+          ? { actor_name: row.replied_by_name, sent_at: row.replied_at }
+          : null,
         moderationNote: row.moderation_note,
         moderatedAt: row.moderated_at,
         moderatedBy: row.moderated_by ? staffMap.get(row.moderated_by) ?? "Staff member" : null,
@@ -210,6 +231,14 @@ export async function GET(request: Request) {
   if (reviewId && !/^[0-9a-f-]{36}$/i.test(reviewId)) {
     return Response.json({ error: "Invalid review identifier." }, { status: 400 });
   }
+  const parsedFilters = parseReviewAdminFilters(url.searchParams);
+  if ("error" in parsedFilters) return Response.json({ error: parsedFilters.error }, { status: 400 });
+  if (
+    parsedFilters.value.venue !== "all" &&
+    !allowedVenues(auth.staffProfile.venue_scope).includes(parsedFilters.value.venue)
+  ) {
+    return Response.json({ error: "You do not have access to this venue." }, { status: 403 });
+  }
 
   try {
     return Response.json(
@@ -220,6 +249,7 @@ export async function GET(request: Request) {
         reviewId,
         search: url.searchParams.get("search")?.trim() ?? "",
         status,
+        filters: parsedFilters.value,
       }),
     );
   } catch (error) {

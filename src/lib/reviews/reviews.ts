@@ -197,7 +197,7 @@ export function validateReviewSubmission(input: {
 
   return {
     value: {
-      contactRequested: input.contactRequested === true,
+      contactRequested: rating <= 3 && input.contactRequested === true,
       ...categoryRatings,
       publicationConsent: publicationConsentMode === "public",
       publicationConsentMode,
