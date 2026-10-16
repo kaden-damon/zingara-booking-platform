@@ -60,6 +60,16 @@ export async function POST(request: Request) {
 
     if (maintenanceResponse) return maintenanceResponse;
 
+    const holdCleanupPromise = runPublicPaymentHoldCleanup(serviceClient).catch(
+      (error) => {
+        console.error(
+          "[Zingara PayFast] Public payment hold cleanup failed",
+          error,
+        );
+        return null;
+      },
+    );
+
     const ipLimit = await checkRateLimit(
       request,
       {
@@ -118,11 +128,7 @@ export async function POST(request: Request) {
       );
     }
 
-    try {
-      await runPublicPaymentHoldCleanup(serviceClient);
-    } catch (error) {
-      console.error("[Zingara PayFast] Public payment hold cleanup failed", error);
-    }
+    await holdCleanupPromise;
 
     let attemptResult: Awaited<ReturnType<typeof preparePayFastCheckoutAttempt>>;
 

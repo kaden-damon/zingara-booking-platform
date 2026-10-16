@@ -54,7 +54,10 @@ import {
   createAdminBooking,
   createBooking,
 } from "../../lib/supabase/bookings";
-import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
+import {
+  fetchSupabaseApi,
+  SupabaseApiError,
+} from "../../lib/supabase/apiClient";
 import { getPublicShows } from "../../lib/supabase/shows";
 import {
   type CustomPricedTemporaryTable,
@@ -144,10 +147,28 @@ type BeforeInstallPromptEvent = Event & {
 
 type PayFastCheckoutResponse = {
   actionUrl?: string;
+  code?: string;
   error?: string;
   fields?: Record<string, boolean | number | string | null | undefined>;
   mode?: "live" | "sandbox";
 };
+
+function getCheckoutFailureTelemetry(error: unknown) {
+  if (error instanceof SupabaseApiError) {
+    if (error.status === 429) {
+      return { failureKind: "rate-limited", statusCode: error.status };
+    }
+    if (error.status === 409) {
+      return { failureKind: "business-conflict", statusCode: error.status };
+    }
+    if (error.status >= 400 && error.status < 500) {
+      return { failureKind: "request-rejected", statusCode: error.status };
+    }
+    return { failureKind: "server-error", statusCode: error.status };
+  }
+
+  return { failureKind: "network-or-client-error", statusCode: null };
+}
 
 type ZeroValueCompletionResponse = {
   booking?: DemoBooking;
@@ -2246,6 +2267,18 @@ export default function BookingPage() {
     }
 
     if (!validateCheckoutCustomerDetails()) {
+      if (manualCheckoutRole === "none") {
+        trackTelemetryEventOnce("guest-details-validation-failed", {
+          eventType: "journey_failed",
+          metadata: {
+            failureKind: "form-validation",
+            stage: "Booking Details",
+            status: "details-incomplete",
+          },
+          operation: "validate_guest_details",
+          safeFingerprint: "public_booking_details_validation_failed",
+        });
+      }
       return;
     }
 
@@ -2548,9 +2581,10 @@ export default function BookingPage() {
         const completion = (await response.json()) as ZeroValueCompletionResponse;
 
         if (!response.ok || !completion.booking) {
-          throw new Error(
-            completion.error ?? "Booking could not be completed.",
-          );
+          throw new SupabaseApiError({
+            message: completion.error ?? "Booking could not be completed.",
+            status: response.status,
+          });
         }
 
         const confirmedBooking = completion.booking;
@@ -2601,9 +2635,11 @@ export default function BookingPage() {
       const checkout = (await response.json()) as PayFastCheckoutResponse;
 
       if (!response.ok || !checkout.actionUrl || !checkout.fields) {
-        throw new Error(
-          checkout.error ?? "PayFast checkout could not be prepared.",
-        );
+        throw new SupabaseApiError({
+          code: checkout.code,
+          message: checkout.error ?? "PayFast checkout could not be prepared.",
+          status: response.status,
+        });
       }
 
       setPaymentRedirectStatus("Redirecting to secure PayFast checkout...");
@@ -2626,6 +2662,7 @@ export default function BookingPage() {
         .toLowerCase()
         .includes("reserved by another guest");
       const isPriceConflict = await refreshShowPricingAfterConflict(error);
+      const failure = getCheckoutFailureTelemetry(error);
 
       setPaymentRedirectStatus(
         isAvailabilityConflict || isPriceConflict
@@ -2637,6 +2674,7 @@ export default function BookingPage() {
         eventType: "journey_failed",
         journeyId,
         metadata: {
+          failureKind: failure.failureKind,
           stage: "Checkout",
           status: isAvailabilityConflict ? "availability-conflict" : "checkout-failed",
         },
@@ -2646,6 +2684,7 @@ export default function BookingPage() {
           : checkoutOperation === "create_booking"
             ? "public_booking_create_failed"
             : "public_booking_checkout_failed",
+        statusCode: failure.statusCode,
       });
       setIsPayFastRedirecting(false);
     }

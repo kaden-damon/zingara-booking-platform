@@ -80,6 +80,7 @@ const sensitiveKeyPattern =
 const allowedMetadataKeys = new Set([
   "device",
   "environment",
+  "failureKind",
   "location",
   "paymentState",
   "paymentStatus",

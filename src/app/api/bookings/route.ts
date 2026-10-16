@@ -1452,6 +1452,8 @@ async function withAuthoritativePublicPricing(
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const supabase = getServiceClient();
+  let telemetryBookingReference: string | null = null;
+  let telemetryJourneyId: string | null = null;
 
   if (!supabase) {
     return Response.json(
@@ -1470,6 +1472,9 @@ export async function POST(request: Request) {
     let booking = body.booking;
     const journeyId =
       typeof body.journeyId === "string" ? body.journeyId : null;
+
+    telemetryBookingReference = booking?.reference ?? null;
+    telemetryJourneyId = journeyId;
 
     if (!booking?.reference || !booking.customer || !booking.showId) {
       return Response.json(
@@ -1899,7 +1904,19 @@ export async function POST(request: Request) {
       }
 
       const showLocation = normalizeShowLocation(show.venue);
-      const publicBookingSettings = await loadVenueSettings(supabase);
+      const holdCleanupPromise = runPublicPaymentHoldCleanup(supabase).catch(
+        (error) => {
+          console.error(
+            "[Zingara API] Public payment hold cleanup failed",
+            error,
+          );
+          return null;
+        },
+      );
+      const [publicBookingSettings, publicZoneSalesOpen] = await Promise.all([
+        loadVenueSettings(supabase),
+        isPublicZoneSalesOpen(supabase, show.id, booking.zoneId),
+      ]);
 
       if (
         showLocation &&
@@ -1937,7 +1954,7 @@ export async function POST(request: Request) {
         }
       }
 
-      if (!(await isPublicZoneSalesOpen(supabase, show.id, booking.zoneId))) {
+      if (!publicZoneSalesOpen) {
         return Response.json(
           {
             code: "PUBLIC_ZONE_SALES_CLOSED",
@@ -1947,11 +1964,7 @@ export async function POST(request: Request) {
         );
       }
 
-      try {
-        await runPublicPaymentHoldCleanup(supabase);
-      } catch (error) {
-        console.error("[Zingara API] Public payment hold cleanup failed", error);
-      }
+      await holdCleanupPromise;
     }
 
     const ipLimit = await checkRateLimit(
@@ -2378,6 +2391,11 @@ export async function POST(request: Request) {
     console.error("[Zingara API] Booking transaction failed", error);
     recordPlatformFailureEventBestEffort(
       {
+        bookingReference: telemetryBookingReference,
+        journeyId: telemetryJourneyId,
+        metadata: {
+          failureKind: "server-error",
+        },
         operation: "create_booking",
         route: "/api/bookings",
         safeFingerprint: "booking_create_unavailable",

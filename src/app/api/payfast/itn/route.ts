@@ -31,6 +31,7 @@ import {
   type PayFastItnData,
 } from "@/lib/payfast/itn";
 import { createHash } from "node:crypto";
+import { after } from "next/server";
 import { recordPlatformEventBestEffort } from "@/lib/platformTelemetry";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import {
@@ -999,54 +1000,71 @@ async function confirmPayment(
     authoritativeBooking,
   );
 
-  const showRow = await loadShow(supabase, row.show_id);
-  const show = toShow(showRow);
-  const templates = await loadTemplates(supabase);
+  after(async () => {
+    try {
+      const [showRow, templates] = await Promise.all([
+        loadShow(supabase, row.show_id),
+        loadTemplates(supabase),
+      ]);
+      const show = toShow(showRow);
 
-  await ensureCommunication(
-    supabase,
-    bookingId,
-    row.customer_id,
-    row.show_id,
-    authoritativeBooking,
-    show,
-    "reservation-confirmed",
-    templates,
-    ensuredTicket,
-  );
-  await ensureCommunication(
-    supabase,
-    bookingId,
-    row.customer_id,
-    row.show_id,
-    authoritativeBooking,
-    show,
-    "payment-confirmation",
-    templates,
-    undefined,
-    persistedPayment.provider_transaction_id ?? undefined,
-  );
+      await Promise.all([
+        ensureCommunication(
+          supabase,
+          bookingId,
+          row.customer_id,
+          row.show_id,
+          authoritativeBooking,
+          show,
+          "reservation-confirmed",
+          templates,
+          ensuredTicket,
+        ),
+        ensureCommunication(
+          supabase,
+          bookingId,
+          row.customer_id,
+          row.show_id,
+          authoritativeBooking,
+          show,
+          "payment-confirmation",
+          templates,
+          undefined,
+          persistedPayment.provider_transaction_id ?? undefined,
+        ),
+      ]);
 
-  if (!wasConfirmed) {
-    if (!bookingWasConfirmed) {
-      void sendGuestPushNotification({
-        bookingReference: authoritativeBooking.reference,
-        trigger: "reservation-confirmed",
-      });
-      void sendStaffPushNotification({
-        bookingReference: authoritativeBooking.reference,
-        trigger: "new-booking",
-      });
+      if (!wasConfirmed) {
+        if (!bookingWasConfirmed) {
+          await Promise.all([
+            sendGuestPushNotification({
+              bookingReference: authoritativeBooking.reference,
+              trigger: "reservation-confirmed",
+            }),
+            sendStaffPushNotification({
+              bookingReference: authoritativeBooking.reference,
+              trigger: "new-booking",
+            }),
+          ]);
+        }
+        await Promise.all([
+          sendGuestPushNotification({
+            bookingReference: authoritativeBooking.reference,
+            trigger: "payment-received",
+          }),
+          sendStaffPushNotification({
+            bookingReference: authoritativeBooking.reference,
+            trigger: "payment-received",
+          }),
+        ]);
+      }
+    } catch (error) {
+      console.error(
+        "[Zingara PayFast] Deferred payment communication failed",
+        error,
+      );
     }
-    void sendGuestPushNotification({
-      bookingReference: authoritativeBooking.reference,
-      trigger: "payment-received",
-    });
-    void sendStaffPushNotification({
-      bookingReference: authoritativeBooking.reference,
-      trigger: "payment-received",
-    });
-  }
+  });
 
   return {
     bookingReference: authoritativeBooking.reference,
@@ -1144,7 +1162,12 @@ export async function POST(request: Request) {
       return Response.json({ ok: false }, { status: 200 });
     }
 
-    const sourceIpValid = await verifyPayFastSourceIp(requestIp);
+    const [sourceIpValid, expectedTransaction, serverValidationValid] =
+      await Promise.all([
+        verifyPayFastSourceIp(requestIp),
+        getExpectedPayFastAmounts(supabase, data, booking, bookingRow),
+        verifyPayFastServerConfirmation(config, pfParamString),
+      ]);
 
     if (!sourceIpValid) {
       await recordFailedItn(supabase, bookingRow.id, "source invalid");
@@ -1158,19 +1181,9 @@ export async function POST(request: Request) {
       return Response.json({ ok: false }, { status: 200 });
     }
 
-    const expectedTransaction = await getExpectedPayFastAmounts(
-      supabase,
-      data,
-      booking,
-      bookingRow,
-    );
     const paymentAmount = getPaymentAmount(data);
     const paymentAmountValid =
       Math.abs(expectedTransaction.providerGrossAmount - paymentAmount) <= 0.01;
-    const serverValidationValid = await verifyPayFastServerConfirmation(
-      config,
-      pfParamString,
-    );
     const validation = {
       paymentAmount,
       paymentAmountValid,

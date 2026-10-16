@@ -9,7 +9,10 @@ import {
   getAdminAuthSession,
   signOutAdmin,
 } from "../../lib/supabase/auth";
-import { getVenueSettings } from "../../lib/supabase/venueSettings";
+import {
+  getPublicVenueSettings,
+  getVenueSettings,
+} from "../../lib/supabase/venueSettings";
 import { defaultVenueSettings } from "../../lib/zingaraDemo";
 
 const navigationItems = [
@@ -106,7 +109,9 @@ export default function ZingaraHeader() {
     let isMounted = true;
 
     async function loadVenueSettings() {
-      const nextVenueSettings = await getVenueSettings();
+      const nextVenueSettings = isAdminRoute
+        ? await getVenueSettings()
+        : await getPublicVenueSettings();
 
       if (isMounted) {
         setVenueSettings(nextVenueSettings);
@@ -133,7 +138,7 @@ export default function ZingaraHeader() {
         loadVenueSettings,
       );
     };
-  }, []);
+  }, [isAdminRoute]);
 
   useEffect(() => {
     let isMounted = true;
