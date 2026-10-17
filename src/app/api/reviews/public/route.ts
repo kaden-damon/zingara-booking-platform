@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const responseHeaders = {
-  "Cache-Control": "public, max-age=0, must-revalidate",
+  "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=60",
   "Content-Type": "application/json; charset=utf-8",
   "X-Content-Type-Options": "nosniff",
 };
@@ -115,7 +115,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("guest_reviews")
     .select(
-      "public_id,public_display_name,rating,review_text,venue,published_at,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,verified_guest,featured",
+      "public_id,public_display_name,rating,food_rating,value_rating,service_rating,ambience_rating,review_text,venue,published_at,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,verified_guest,featured,shows!inner(date)",
       { count: "exact" },
     )
     .eq("moderation_status", "published")
@@ -145,8 +145,11 @@ export async function GET(request: Request) {
   }
 
   const records = (reviewsResult.data ?? []).map((row) => ({
+    ambienceRating: row.ambience_rating,
     featured: row.featured,
+    foodRating: row.food_rating,
     id: row.public_id,
+    performanceDate: row.shows[0]?.date ?? "",
     publicDisplayName: row.public_display_name,
     publicationConsent: row.publication_consent,
     publicationConsentMode: row.publication_consent_mode,
@@ -156,7 +159,9 @@ export async function GET(request: Request) {
     publishedAt: row.published_at,
     rating: row.rating,
     reviewText: row.review_text,
+    serviceRating: row.service_rating,
     status: row.moderation_status,
+    valueRating: row.value_rating,
     venue: row.venue,
     verifiedGuest: row.verified_guest,
   }));

@@ -31,6 +31,7 @@ const customerEmailPath = `${root}/src/lib/email/customerEmail.ts`;
 const adminPagePath = `${root}/src/app/admin/page.tsx`;
 const wixBackendPath = `${root}/docs/wix-reviews/reviews.web.js`;
 const wixFrontendPath = `${root}/docs/wix-reviews/reviews-page.js`;
+const wixHomepagePath = `${root}/docs/wix-reviews/homepage-reviews.js`;
 const wixPreviewPath = `${root}/src/app/review/wix-preview/page.tsx`;
 const manualMigrationPath = `${root}/supabase/migrations/20261004210000_phase_43_5_manual_review_invitations.sql`;
 const bookingEligibilityMigrationPath = `${root}/supabase/migrations/20261005073000_phase_43_review_eligibility_without_checkin.sql`;
@@ -167,13 +168,18 @@ test("publication requires consent and low ratings follow the same rule", () => 
 test("public payload contains only approved presentation fields", () => {
   const payload = toPublicReviewPayload(review());
   assert.deepEqual(Object.keys(payload ?? {}).sort(), [
+    "ambienceRating",
     "displayName",
     "featured",
+    "foodRating",
     "guestType",
+    "performanceDate",
     "publicReviewId",
     "publishedAt",
     "rating",
     "reviewText",
+    "serviceRating",
+    "valueRating",
     "venue",
     "verifiedGuest",
   ]);
@@ -261,13 +267,18 @@ test("serialized public reviews contain no linked customer, booking, payment, mo
   const serialized = JSON.stringify(toPublicReviewPayload(internalFixture));
   assert.doesNotMatch(serialized, /private@example\.com|\+27 82|ZNG-|DP-|moderation|payment|token|customerId/i);
   assert.deepEqual(Object.keys(JSON.parse(serialized)).sort(), [
+    "ambienceRating",
     "displayName",
     "featured",
+    "foodRating",
     "guestType",
+    "performanceDate",
     "publicReviewId",
     "publishedAt",
     "rating",
     "reviewText",
+    "serviceRating",
+    "valueRating",
     "venue",
     "verifiedGuest",
   ]);
@@ -341,17 +352,18 @@ test("public feed cannot expose private context or unapproved reviews", async ()
   assert.match(route, /publicReviewContractVersion/);
   assert.match(route, /get_public_review_aggregates/);
   assert.match(route, /limit: 180/);
-  assert.match(route, /max-age=0, must-revalidate/);
+  assert.match(route, /max-age=0, s-maxage=60, stale-while-revalidate=60/);
   assert.match(route, /process\.env\.NODE_ENV === "production"/);
   assert.doesNotMatch(route, /\.select\("id,/);
   assert.doesNotMatch(route, /customer_id|booking_reference|email|phone|moderation_note/);
-  assert.doesNotMatch(route, /Access-Control-Allow-Origin|stale-while-revalidate/);
+  assert.doesNotMatch(route, /Access-Control-Allow-Origin/);
 });
 
 test("Wix handoff uses a backend web module without a second review store or browser secret", async () => {
-  const [backend, frontend, preview, handoff] = await Promise.all([
+  const [backend, frontend, homepage, preview, handoff] = await Promise.all([
     readFile(wixBackendPath, "utf8"),
     readFile(wixFrontendPath, "utf8"),
+    readFile(wixHomepagePath, "utf8"),
     readFile(wixPreviewPath, "utf8"),
     readFile(`${root}/docs/wix-reviews/README.md`, "utf8"),
   ]);
@@ -368,12 +380,19 @@ test("Wix handoff uses a backend web module without a second review store or bro
   assert.match(frontend, /venueFilter/);
   assert.match(frontend, /reviewsEmpty/);
   assert.match(frontend, /reviewsError/);
+  assert.match(homepage, /wix-location-frontend/);
+  assert.match(homepage, /joburghome: "johannesburg"/);
+  assert.match(homepage, /capetownhome: "cape-town"/);
+  assert.match(homepage, /limit: PAGE_SIZE/);
+  assert.doesNotMatch(homepage, /featured:/);
+  assert.match(homepage, /reviewCategories/);
+  assert.match(homepage, /reviewsSection.*collapse/s);
   assert.match(preview, /process\.env\.NODE_ENV === "production"/);
   assert.match(preview, /notFound\(\)/);
-  assert.match(handoff, /backend only/i);
   assert.match(handoff, /Cape Town \(`\/capetownhome`\): after Gallery and before Contact Details \/ newsletter/);
   assert.match(handoff, /Johannesburg \(`\/joburghome`\): after Our Brand Partners and before Contact Details \/ newsletter/);
-  assert.match(handoff, /Do not add or render a Reviews section on either live homepage/);
+  assert.match(handoff, /one-minute shared cache/i);
+  assert.match(handoff, /every published review is eligible/i);
 });
 
 test("existing post-show workflow resolves recipient-specific links and remains disabled by default", async () => {

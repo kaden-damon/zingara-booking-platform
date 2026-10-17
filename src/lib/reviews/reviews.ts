@@ -29,8 +29,11 @@ export type ReviewEligibilityInput = {
 };
 
 export type PublicReviewRecord = {
+  ambienceRating?: number | null;
   featured: boolean;
+  foodRating?: number | null;
   id: string;
+  performanceDate?: string | null;
   publicDisplayName: string;
   publishedAt: string;
   publicationConsent: boolean;
@@ -40,7 +43,9 @@ export type PublicReviewRecord = {
   privacyRequested?: boolean | null;
   rating: number;
   reviewText: string;
+  serviceRating?: number | null;
   status: ReviewModerationStatus;
+  valueRating?: number | null;
   venue: string;
   verifiedGuest: boolean;
 };
@@ -60,12 +65,17 @@ export type PublicReviewAggregates = {
 };
 
 export type PublicReviewPayload = {
+  ambienceRating: number | null;
   displayName: string;
   featured: boolean;
+  foodRating: number | null;
+  performanceDate: string;
   publicReviewId: string;
   publishedAt: string;
   rating: number;
   reviewText: string;
+  serviceRating: number | null;
+  valueRating: number | null;
   venue: string;
   verifiedGuest: boolean;
   guestType: "invited" | "verified";
@@ -93,8 +103,8 @@ export function getReviewGuestType(input: {
     : "invited" as const;
 }
 
-// guestType is an additive field; retain 1.0 so the installed Wix backend
-// continues accepting the feed without a Wix deployment.
+// Public fields are additive; retain 1.0 so installed Wix consumers continue
+// accepting the feed without requiring a coordinated contract migration.
 export const publicReviewContractVersion = "1.0";
 export const publicReviewDefaultLimit = 12;
 export const publicReviewMaximumLimit = 24;
@@ -316,12 +326,17 @@ export function toPublicReviewPayload(record: PublicReviewRecord): PublicReviewP
   if (record.status !== "published" || (!isNamed && !isAnonymous)) return null;
 
   return {
+    ambienceRating: record.ambienceRating ?? null,
     displayName: isAnonymous ? "Anonymous" : record.publicDisplayName,
     featured: record.featured,
+    foodRating: record.foodRating ?? null,
+    performanceDate: record.performanceDate ?? "",
     publicReviewId: record.id,
     publishedAt: record.publishedAt,
     rating: record.rating,
     reviewText: record.reviewText,
+    serviceRating: record.serviceRating ?? null,
+    valueRating: record.valueRating ?? null,
     venue: record.venue,
     verifiedGuest: record.verifiedGuest,
     guestType: record.verifiedGuest ? "verified" : "invited",
