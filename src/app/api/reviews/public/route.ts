@@ -144,27 +144,31 @@ export async function GET(request: Request) {
     );
   }
 
-  const records = (reviewsResult.data ?? []).map((row) => ({
-    ambienceRating: row.ambience_rating,
-    featured: row.featured,
-    foodRating: row.food_rating,
-    id: row.public_id,
-    performanceDate: row.shows[0]?.date ?? "",
-    publicDisplayName: row.public_display_name,
-    publicationConsent: row.publication_consent,
-    publicationConsentMode: row.publication_consent_mode,
-    publicationMode: row.publication_mode,
-    publicationPolicyVersion: row.review_publication_policy_version,
-    privacyRequested: row.review_privacy_requested,
-    publishedAt: row.published_at,
-    rating: row.rating,
-    reviewText: row.review_text,
-    serviceRating: row.service_rating,
-    status: row.moderation_status,
-    valueRating: row.value_rating,
-    venue: row.venue,
-    verifiedGuest: row.verified_guest,
-  }));
+  const records = (reviewsResult.data ?? []).map((row) => {
+    const shows = row.shows as unknown as { date?: string } | { date?: string }[] | null;
+    const show = Array.isArray(shows) ? shows[0] : shows;
+    return {
+      ambienceRating: row.ambience_rating,
+      featured: row.featured,
+      foodRating: row.food_rating,
+      id: row.public_id,
+      performanceDate: show?.date ?? "",
+      publicDisplayName: row.public_display_name,
+      publicationConsent: row.publication_consent,
+      publicationConsentMode: row.publication_consent_mode,
+      publicationMode: row.publication_mode,
+      publicationPolicyVersion: row.review_publication_policy_version,
+      privacyRequested: row.review_privacy_requested,
+      publishedAt: row.published_at,
+      rating: row.rating,
+      reviewText: row.review_text,
+      serviceRating: row.service_rating,
+      status: row.moderation_status,
+      valueRating: row.value_rating,
+      venue: row.venue,
+      verifiedGuest: row.verified_guest,
+    };
+  });
 
   return Response.json(
     publicResponse({
