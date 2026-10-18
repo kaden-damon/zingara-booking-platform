@@ -13,6 +13,8 @@ import {
   getVisiblePublicReviews,
   hashReviewToken,
   parsePublicReviewFilters,
+  sanitizePublicReviewDisplayName,
+  sanitizePublicReviewText,
   toPublicReviewPayload,
   validateReviewSubmission,
   type PublicReviewRecord,
@@ -185,6 +187,25 @@ test("public payload contains only approved presentation fields", () => {
   ]);
   assert.equal(toPublicReviewPayload(review({ publicationConsent: false })), null);
   assert.equal(toPublicReviewPayload(review({ status: "not_published" })), null);
+});
+
+test("public payload removes email addresses and telephone numbers without changing stored review input", () => {
+  const reviewText = "Wonderful evening. Contact me at guest@example.com or +27 82 555 0199.";
+  const record = review({ publicDisplayName: "guest@example.com", reviewText });
+  const payload = toPublicReviewPayload(record);
+
+  assert.equal(record.reviewText, reviewText);
+  assert.equal(payload?.displayName, "Anonymous");
+  assert.equal(
+    payload?.reviewText,
+    "Wonderful evening. Contact me at [contact details removed] or [contact details removed].",
+  );
+  assert.doesNotMatch(JSON.stringify(payload), /guest@example\.com|\+27 82 555 0199/);
+  assert.equal(sanitizePublicReviewDisplayName("Chanel D."), "Chanel D.");
+  assert.equal(
+    sanitizePublicReviewText("The table for 12 was perfect and the show was 5 stars."),
+    "The table for 12 was perfect and the show was 5 stars.",
+  );
 });
 
 test("aggregates include published consented reviews only and retain venue breakdown", () => {

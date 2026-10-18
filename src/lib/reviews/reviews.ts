@@ -112,6 +112,23 @@ export const publicReviewMaximumPage = 500;
 
 const htmlMarkupPattern = /<\/?[a-z][^>]*>/i;
 const blockedControlCharacterPattern = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+const publicEmailAddressPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const publicPhoneCandidatePattern = /\+?\d[\d\s().-]{7,}\d/g;
+
+export function sanitizePublicReviewText(value: string) {
+  return value
+    .replace(publicEmailAddressPattern, "[contact details removed]")
+    .replace(publicPhoneCandidatePattern, (candidate) => {
+      const digitCount = candidate.replace(/\D/g, "").length;
+      return digitCount >= 9 && digitCount <= 15
+        ? "[contact details removed]"
+        : candidate;
+    });
+}
+
+export function sanitizePublicReviewDisplayName(value: string) {
+  return sanitizePublicReviewText(value) === value ? value : "Anonymous";
+}
 
 export function createReviewToken() {
   return crypto.randomBytes(32).toString("base64url");
@@ -327,14 +344,16 @@ export function toPublicReviewPayload(record: PublicReviewRecord): PublicReviewP
 
   return {
     ambienceRating: record.ambienceRating ?? null,
-    displayName: isAnonymous ? "Anonymous" : record.publicDisplayName,
+    displayName: isAnonymous
+      ? "Anonymous"
+      : sanitizePublicReviewDisplayName(record.publicDisplayName),
     featured: record.featured,
     foodRating: record.foodRating ?? null,
     performanceDate: record.performanceDate ?? "",
     publicReviewId: record.id,
     publishedAt: record.publishedAt,
     rating: record.rating,
-    reviewText: record.reviewText,
+    reviewText: sanitizePublicReviewText(record.reviewText),
     serviceRating: record.serviceRating ?? null,
     valueRating: record.valueRating ?? null,
     venue: record.venue,
