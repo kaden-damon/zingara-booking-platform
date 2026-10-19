@@ -306,11 +306,21 @@ export async function POST(request: Request) {
           updated_at: now,
         })
         .eq("id", activeLock.id)
+        .eq("session_id", sessionId)
+        .eq("last_activity_at", activeLock.last_activity_at)
         .select("*")
         .maybeSingle();
 
       if (updateError) {
         throw updateError;
+      }
+
+      if (!updatedLock) {
+        const latestLock = await loadActiveLock(serviceClient, showReference);
+        return Response.json({
+          lock: latestLock ? toClientLock(latestLock) : undefined,
+          status: "blocked",
+        });
       }
 
       return Response.json({

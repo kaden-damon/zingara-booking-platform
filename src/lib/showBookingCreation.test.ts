@@ -29,16 +29,22 @@ test("calendar booking links preserve the exact show and lock context", () => {
   assert.equal(params.get("showLockSession"), context.sessionId);
 });
 
-test("Standard and Corporate use the same acquired show lock", () => {
+test("Standard and Corporate preserve show context without a shared creation lock", () => {
+  const unlockedContext = {
+    expectedDate: context.expectedDate,
+    expectedLocation: context.expectedLocation,
+    expectedTime: context.expectedTime,
+    showReference: context.showReference,
+  };
   const standard = new URL(
-    `https://book.zingara.co.za${buildCalendarBookingHref({ bookingType: "standard", context })}`,
+    `https://book.zingara.co.za${buildCalendarBookingHref({ bookingType: "standard", context: unlockedContext })}`,
   );
   const corporate = new URL(
-    `https://book.zingara.co.za${buildCalendarBookingHref({ bookingType: "corporate", context })}`,
+    `https://book.zingara.co.za${buildCalendarBookingHref({ bookingType: "corporate", context: unlockedContext })}`,
   );
 
-  assert.equal(standard.searchParams.get("showLockId"), context.lockId);
-  assert.equal(corporate.searchParams.get("showLockId"), context.lockId);
+  assert.equal(standard.searchParams.get("showLockId"), null);
+  assert.equal(corporate.searchParams.get("showLockId"), null);
   assert.equal(corporate.searchParams.get("bookingType"), "corporate");
 });
 
@@ -84,12 +90,13 @@ test("heartbeat and insert races cannot transfer a lock to another tab", async (
   assert.match(route, /status: ownsLatestLock \? "acquired" : "blocked"/);
 });
 
-test("incomplete calendar lock context fails closed", () => {
+test("calendar context requires the immutable show snapshot, not a creation lock", () => {
   assert.equal(hasValidCalendarBookingContext(context), true);
   assert.equal(
-    hasValidCalendarBookingContext({ ...context, lockId: "" }),
-    false,
+    hasValidCalendarBookingContext({ ...context, lockId: "", sessionId: "" }),
+    true,
   );
+  assert.equal(hasValidCalendarBookingContext({ ...context, expectedDate: "" }), false);
 });
 
 test("explicit locked-show location overrides query and stored venue context", async () => {
@@ -137,7 +144,7 @@ test("staff operational show inventory uses the authenticated API client", async
   assert.match(shows, /fetch\(\s*"\/api\/shows"/);
 });
 
-test("lock heartbeat cannot declare the show ready before exact show resolution", async () => {
+test("exact show resolution declares staff checkout ready without a shared lock", async () => {
   const page = await readFile(
     new URL("../app/book/page.tsx", import.meta.url),
     "utf8",
@@ -145,26 +152,41 @@ test("lock heartbeat cannot declare the show ready before exact show resolution"
 
   assert.match(
     page,
-    /result\.status === "acquired"\s*\? currentStatus/,
-  );
-  assert.match(
-    page,
     /lockedShow\.date !== lockContext\.expectedDate[\s\S]+lockedShow\.time !== lockContext\.expectedTime[\s\S]+lockedLocation !== lockContext\.expectedLocation/,
   );
 });
 
-test("server verifies purpose, owner, freshness, show snapshot and releases on success", async () => {
+test("server verifies the authoritative show snapshot without serialising creators", async () => {
   const route = await readFile(
     new URL("../app/api/admin/bookings/route.ts", import.meta.url),
     "utf8",
   );
 
   assert.match(route, /Full Name and a valid Pax value are required/);
-  assert.match(route, /\.eq\("lock_purpose", "booking-creation"\)/);
-  assert.match(route, /\.eq\("staff_profile_id", auth\.staffProfile\.id\)/);
-  assert.match(route, /\.gte\("last_activity_at", staleBefore\)/);
   assert.match(route, /lockedShow\.date !== calendarBookingContext\.expectedDate/);
-  assert.match(route, /reason: "booking-created"/);
+  assert.doesNotMatch(route, /Your show booking lock has expired/);
+  assert.doesNotMatch(route, /reason: "booking-created"/);
+});
+
+test("three staff booking journeys for one show remain independent", () => {
+  const unlockedContext = {
+    expectedDate: context.expectedDate,
+    expectedLocation: context.expectedLocation,
+    expectedTime: context.expectedTime,
+    showReference: context.showReference,
+  };
+  const journeys = ["fatima", "michael", "sharon"].map(() =>
+    new URL(
+      `https://book.zingara.co.za${buildCalendarBookingHref({ bookingType: "standard", context: unlockedContext })}`,
+    ),
+  );
+
+  assert.equal(journeys.length, 3);
+  for (const journey of journeys) {
+    assert.equal(journey.searchParams.get("showId"), context.showReference);
+    assert.equal(journey.searchParams.get("showLockId"), null);
+    assert.equal(journey.searchParams.get("showLockSession"), null);
+  }
 });
 
 test("public booking route remains independent from staff show locks", async () => {

@@ -4,6 +4,7 @@ import { adminIpUndertakingRequiredEvent } from "../adminIpUndertaking";
 type ApiOptions = {
   body?: unknown;
   cache?: RequestCache;
+  keepalive?: boolean;
   method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
   signal?: AbortSignal;
 };
@@ -42,15 +43,24 @@ export async function fetchSupabaseApi<T>(
     "Content-Type": "application/json",
   };
   const accessToken = session.data.session?.access_token;
+  const bookingLockSessionId =
+    typeof window !== "undefined"
+      ? window.sessionStorage.getItem("zingara-booking-lock-session-id")
+      : null;
 
   if (accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  if (bookingLockSessionId) {
+    headers["x-zingara-booking-lock-session"] = bookingLockSessionId;
   }
 
   const response = await fetch(path, {
     body: options.body ? JSON.stringify(options.body) : undefined,
     cache: options.cache,
     headers,
+    keepalive: options.keepalive,
     method: options.method ?? "GET",
     signal: options.signal,
   });

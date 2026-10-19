@@ -1708,16 +1708,20 @@ export default function BookingPage() {
   }, [calendarBookingContext, showLoadStatus, shows]);
 
   useEffect(() => {
-    if (!calendarBookingContext || manualCheckoutRole === "none") return;
+    const lockId = calendarBookingContext?.lockId;
+    const lockSessionId = calendarBookingContext?.sessionId;
 
-    const lockContext = calendarBookingContext;
+    if (!lockId || !lockSessionId || manualCheckoutRole === "none") return;
+
+    const activeLockId = lockId;
+    const activeLockSessionId = lockSessionId;
     let active = true;
 
     async function heartbeat() {
       try {
         const result = await heartbeatShowEditLock({
-          lockId: lockContext.lockId,
-          sessionId: lockContext.sessionId,
+          lockId: activeLockId,
+          sessionId: activeLockSessionId,
         });
 
         if (!active) return;
@@ -1740,18 +1744,21 @@ export default function BookingPage() {
 
     function releaseOnUnload() {
       void releaseShowEditLock({
-        lockId: lockContext.lockId,
+        lockId: activeLockId,
+        keepalive: true,
         reason: "tab-closed",
-        sessionId: lockContext.sessionId,
+        sessionId: activeLockSessionId,
       }).catch(() => undefined);
     }
 
     window.addEventListener("beforeunload", releaseOnUnload);
+    window.addEventListener("pagehide", releaseOnUnload);
 
     return () => {
       active = false;
       window.clearInterval(timer);
       window.removeEventListener("beforeunload", releaseOnUnload);
+      window.removeEventListener("pagehide", releaseOnUnload);
     };
   }, [calendarBookingContext, manualCheckoutRole]);
 
@@ -2504,7 +2511,7 @@ export default function BookingPage() {
 
     if (isLockedCalendarCheckout && calendarLockStatus !== "SHOW READY ✓") {
       setPaymentRedirectStatus(
-        "The show booking lock is not active. Cancel and reopen the show from Admin.",
+        "This performance changed. Cancel and reopen it from Admin.",
       );
       return;
     }
@@ -2763,7 +2770,7 @@ export default function BookingPage() {
 
     if (isLockedCalendarCheckout && calendarLockStatus !== "SHOW READY ✓") {
       setManualPaymentLinkStatus(
-        "The show booking lock is not active. Cancel and reopen the show from Admin.",
+        "This performance changed. Cancel and reopen it from Admin.",
       );
       return;
     }
@@ -3527,7 +3534,10 @@ export default function BookingPage() {
               <button
                 type="button"
                 onClick={async () => {
-                  if (calendarBookingContext) {
+                  if (
+                    calendarBookingContext?.lockId &&
+                    calendarBookingContext.sessionId
+                  ) {
                     await releaseShowEditLock({
                       lockId: calendarBookingContext.lockId,
                       reason: "cancelled",

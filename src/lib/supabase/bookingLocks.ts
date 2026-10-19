@@ -21,7 +21,7 @@ export type BookingEditLock = {
 
 export type BookingLockAcquireResult = {
   lock?: BookingEditLock;
-  status: "acquired" | "blocked" | "missing";
+  status: "acquired" | "blocked" | "missing" | "recoverable";
 };
 
 export type BookingTakeoverResolutionResult = {
@@ -79,7 +79,27 @@ export async function heartbeatBookingEditLock(input: {
   );
 }
 
+export async function reclaimBookingEditLock(input: {
+  expectedLastActivityAt: string;
+  lockId: string;
+  sessionId: string;
+}) {
+  return fetchSupabaseApi<BookingLockAcquireResult>(
+    "/api/admin/booking-locks",
+    {
+      body: {
+        action: "reclaim",
+        expectedLastActivityAt: input.expectedLastActivityAt,
+        lockId: input.lockId,
+        sessionId: input.sessionId,
+      },
+      method: "POST",
+    },
+  );
+}
+
 export async function releaseBookingEditLock(input: {
+  keepalive?: boolean;
   lockId: string;
   reason: string;
   sessionId: string;
@@ -94,6 +114,7 @@ export async function releaseBookingEditLock(input: {
         sessionId: input.sessionId,
       },
       method: "POST",
+      keepalive: input.keepalive,
     },
   );
 }

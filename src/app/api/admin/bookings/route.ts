@@ -53,6 +53,7 @@ export const dynamic = "force-dynamic";
 const bookingSelect =
   "id,customer_id,company_id,show_id,table_id,booking_reference,booking_source,booking_origin,corporate_request_id,created_by_staff_id,provenance_recorded_at,created_by_staff:staff_profiles!bookings_created_by_staff_id_fkey(id,full_name,email),company_name,guest_count,booking_status,payment_status,section,zone_entitlements,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,corporate_payment_deadline,corporate_payment_reminder_at,corporate_payment_reminder_sent_at,corporate_payment_expired_at,notes,dietary_requirements,archived_at,archived_by,archive_reason,created_at,updated_at";
 const bookingMetadataPrefix = "__zingara_booking_meta__:";
+const showMetadataPrefix = "__zingara_show_meta__:";
 const bookingQueryBatchSize = 1000;
 const aggregateQueryBatchSize = 150;
 const bookingAuditFields = [
@@ -102,6 +103,19 @@ type AdminBookingRow = {
   table_id: string | null;
   [key: string]: unknown;
 };
+
+function getShowReference(row: { id: string; notes?: string | null }) {
+  if (!row.notes?.startsWith(showMetadataPrefix)) return row.id;
+
+  try {
+    const metadata = JSON.parse(row.notes.slice(showMetadataPrefix.length)) as {
+      legacyId?: string;
+    };
+    return metadata.legacyId || row.id;
+  } catch {
+    return row.id;
+  }
+}
 
 async function fetchAdminBookingIdentityRows(
   serviceClient: SupabaseClient,
@@ -1044,7 +1058,7 @@ async function ensureNoConflictingBookingLock(
   const { data: activeLock, error } = await supabase
     .from("booking_edit_locks")
     .select(
-      "id,booking_reference,staff_profile_id,staff_name,staff_role,last_activity_at,started_at",
+      "id,booking_reference,session_id,staff_profile_id,staff_name,staff_role,last_activity_at,started_at",
     )
     .eq("booking_reference", bookingReference)
     .is("released_at", null)
@@ -1064,10 +1078,15 @@ async function ensureNoConflictingBookingLock(
   }
 
   const requestingStaffProfileId = await getRequestingStaffProfileId(request);
+  const requestingSessionId = request.headers
+    .get("x-zingara-booking-lock-session")
+    ?.trim();
 
   if (
     requestingStaffProfileId &&
-    activeLock.staff_profile_id === requestingStaffProfileId
+    requestingSessionId &&
+    activeLock.staff_profile_id === requestingStaffProfileId &&
+    activeLock.session_id === requestingSessionId
   ) {
     return null;
   }
@@ -2027,7 +2046,7 @@ async function runBookingTransaction(request: Request, body?: unknown) {
   if (calendarBookingContext) {
     if (!hasValidCalendarBookingContext(calendarBookingContext) || !rawBooking) {
       return Response.json(
-        { error: "A valid calendar booking lock is required." },
+        { error: "A valid calendar booking context is required." },
         { status: 409 },
       );
     }
@@ -2043,31 +2062,13 @@ async function runBookingTransaction(request: Request, body?: unknown) {
       );
     }
 
-    const staleBefore = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    const { data: lock, error: lockError } = await supabase
-      .from("show_edit_locks")
-      .select("id,show_id,show_reference,staff_profile_id,session_id,lock_purpose,last_activity_at,released_at")
-      .eq("id", calendarBookingContext.lockId)
-      .eq("show_reference", calendarBookingContext.showReference)
-      .eq("staff_profile_id", auth.staffProfile.id)
-      .eq("session_id", calendarBookingContext.sessionId)
-      .eq("lock_purpose", "booking-creation")
-      .is("released_at", null)
-      .gte("last_activity_at", staleBefore)
-      .maybeSingle();
-
-    if (lockError || !lock) {
-      return Response.json(
-        { error: "Your show booking lock has expired or is no longer active." },
-        { status: 409 },
-      );
-    }
-
-    const { data: lockedShow, error: showError } = await supabase
+    const { data: showRows, error: showError } = await supabase
       .from("shows")
       .select("id,date,time,venue,status,notes")
-      .eq("id", lock.show_id)
-      .maybeSingle();
+      .limit(500);
+    const lockedShow = (showRows ?? []).find(
+      (show) => getShowReference(show) === calendarBookingContext.showReference,
+    );
     const lockedLocation = lockedShow
       ? normalizeShowLocation(lockedShow.venue)
       : null;
@@ -2076,7 +2077,7 @@ async function runBookingTransaction(request: Request, body?: unknown) {
       showError ||
       !lockedShow ||
       lockedShow.status !== "active" ||
-      lock.show_reference !== rawBooking.showId ||
+      calendarBookingContext.showReference !== rawBooking.showId ||
       lockedShow.date !== calendarBookingContext.expectedDate ||
       lockedShow.time.slice(0, 5) !==
         calendarBookingContext.expectedTime.slice(0, 5) ||
@@ -2172,26 +2173,6 @@ async function runBookingTransaction(request: Request, body?: unknown) {
     method: "POST",
   });
   const payload = await response.json().catch(() => ({}));
-
-  if (response.ok && calendarBookingContext) {
-    const releaseHeaders = new Headers({ "Content-Type": "application/json" });
-
-    if (authorization) releaseHeaders.set("authorization", authorization);
-    if (cookie) releaseHeaders.set("cookie", cookie);
-
-    await fetch(new URL("/api/admin/show-locks", request.url), {
-      body: JSON.stringify({
-        action: "release",
-        lockId: calendarBookingContext.lockId,
-        reason: "booking-created",
-        sessionId: calendarBookingContext.sessionId,
-      }),
-      headers: releaseHeaders,
-      method: "POST",
-    }).catch((error) => {
-      console.error("[Zingara API] Failed to release completed booking lock", error);
-    });
-  }
 
   if (supabase && bookingReference) {
     const { data: afterBooking } = await supabase

@@ -178,6 +178,7 @@ import {
   acquireBookingEditLock,
   getBookingEditLocks,
   heartbeatBookingEditLock,
+  reclaimBookingEditLock,
   releaseBookingEditLock,
   resolveBookingEditTakeover,
   requestBookingEditTakeover,
@@ -421,7 +422,6 @@ import {
 } from "../../lib/supabase/floorPlans";
 import {
   type ShowEditLock,
-  acquireShowBookingCreationLock,
   acquireShowEditLock,
   getShowEditLocks,
   heartbeatShowEditLock,
@@ -11232,6 +11232,9 @@ export default function AdminDashboardPage() {
     useState<SplitMergeReview | null>(null);
   const [expandedBookingReference, setExpandedBookingReference] =
     useState("");
+  const [bookingDetailAccessMode, setBookingDetailAccessMode] = useState<
+    "edit" | "view"
+  >("edit");
   const [dirtyBookingMetadataReference, setDirtyBookingMetadataReference] =
     useState("");
   const [pendingBookingDetailsReference, setPendingBookingDetailsReference] =
@@ -11256,11 +11259,6 @@ export default function AdminDashboardPage() {
     useState<ShowEditLock | null>(null);
   const [calendarBookingShow, setCalendarBookingShow] =
     useState<DemoShow | null>(null);
-  const [calendarBookingLock, setCalendarBookingLock] =
-    useState<ShowEditLock | null>(null);
-  const [calendarBookingBlockingLock, setCalendarBookingBlockingLock] =
-    useState<ShowEditLock | null>(null);
-  const [calendarBookingSessionId, setCalendarBookingSessionId] = useState("");
   const [calendarBookingStatus, setCalendarBookingStatus] = useState("");
   const [isCalendarBuyoutOpen, setIsCalendarBuyoutOpen] = useState(false);
   const [isCalendarBookingLocking, setIsCalendarBookingLocking] =
@@ -11270,12 +11268,23 @@ export default function AdminDashboardPage() {
   const [showReadOnlyReferences, setShowReadOnlyReferences] =
     useState<string[]>([]);
   const [bookingLockStatus, setBookingLockStatus] = useState("");
+  const [bookingLockRetryRevision, setBookingLockRetryRevision] = useState(0);
   const [showLockStatus, setShowLockStatus] = useState("");
-  const [bookingLockSessionId] = useState(() =>
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `booking-lock-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+  const [bookingLockSessionId] = useState(() => {
+    const sessionId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `booking-lock-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(
+        "zingara-booking-lock-session-id",
+        sessionId,
+      );
+    }
+
+    return sessionId;
+  });
   const [showLockSessionId] = useState(() =>
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -11750,7 +11759,10 @@ export default function AdminDashboardPage() {
     }
   }
 
-  function openBookingDetails(reference: string) {
+  function openBookingDetails(
+    reference: string,
+    accessMode: "edit" | "view" = "edit",
+  ) {
     if (
       expandedBookingReference &&
       dirtyBookingMetadataReference === expandedBookingReference &&
@@ -11761,6 +11773,7 @@ export default function AdminDashboardPage() {
       return;
     }
 
+    setBookingDetailAccessMode(accessMode);
     void loadBookingDetails(reference);
   }
 
@@ -13266,13 +13279,12 @@ export default function AdminDashboardPage() {
   }, [activeAdminTab, activeSettingsTab, canManageIssueRegister]);
 
   function isOwnBookingLock(lock?: BookingEditLock | null) {
-    if (!lock || !currentStaff) {
-      return false;
-    }
+    return Boolean(lock && lock.sessionId === bookingLockSessionId);
+  }
 
-    return (
-      lock.staffUserId === currentStaff.id ||
-      lock.sessionId === bookingLockSessionId
+  function isSameStaffBookingLock(lock?: BookingEditLock | null) {
+    return Boolean(
+      lock && currentStaff && lock.staffUserId === currentStaff.id,
     );
   }
 
@@ -13442,6 +13454,40 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function reclaimOwnBookingLock(lock: BookingEditLock) {
+    setBookingLockStatus("Reclaiming your interrupted session...");
+
+    try {
+      const result = await reclaimBookingEditLock({
+        expectedLastActivityAt: lock.lastActivityAt,
+        lockId: lock.id,
+        sessionId: bookingLockSessionId,
+      });
+
+      if (result.status !== "acquired" || !result.lock) {
+        await refreshBookingEditLocks(lock.bookingReference);
+        setBookingLockStatus(
+          "This booking changed while access was being restored. Retry.",
+        );
+        return;
+      }
+
+      setBookingDetailAccessMode("edit");
+      setActiveBookingEditLock(result.lock);
+      activeBookingEditLockRef.current = result.lock;
+      upsertBookingEditLock(result.lock);
+      setBookingReadOnlyReferences((currentReferences) =>
+        currentReferences.filter(
+          (reference) => reference !== lock.bookingReference,
+        ),
+      );
+      setBookingLockStatus("");
+    } catch (error) {
+      console.error("[Zingara Admin] Failed to reclaim booking lock", error);
+      setBookingLockStatus("Editing access could not be restored. Retry.");
+    }
+  }
+
   async function releaseCurrentShowLock(reason = "closed") {
     const lock = activeShowEditLockRef.current;
 
@@ -13465,118 +13511,25 @@ export default function AdminDashboardPage() {
   }
 
   async function releaseCalendarBookingLock(reason = "cancelled") {
-    const lock = calendarBookingLock;
-
-    setCalendarBookingLock(null);
-    setCalendarBookingBlockingLock(null);
-    setCalendarBookingSessionId("");
     setCalendarBookingShow(null);
     setCalendarBookingStatus("");
     setIsCalendarBuyoutOpen(false);
-
-    if (!lock) return;
-
-    try {
-      await releaseShowEditLock({
-        lockId: lock.id,
-        reason,
-        sessionId: lock.sessionId,
-      });
-      await refreshShowEditLocks(lock.showReference);
-    } catch (error) {
-      console.error("[Zingara Admin] Failed to release booking creation lock", error);
-    }
+    void reason;
   }
 
   async function beginCalendarBooking(show: DemoShow) {
     if (!canManageBookings || isCalendarBookingLocking) return;
 
-    const sessionId =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `show-booking-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
     setIsCalendarBookingLocking(true);
-    setCalendarBookingSessionId(sessionId);
-    setCalendarBookingBlockingLock(null);
-    setCalendarBookingStatus("ACQUIRING SHOW...");
-
-    try {
-      const result = await acquireShowBookingCreationLock({
-        sessionId,
-        showReference: show.id,
-      });
-
-      if (result.status !== "acquired" || !result.lock) {
-        setCalendarBookingShow(show);
-        setCalendarBookingLock(null);
-        setCalendarBookingBlockingLock(result.lock ?? null);
-        setCalendarBookingStatus(
-          result.lock
-            ? `SHOW CURRENTLY IN USE\n${result.lock.staffName} is currently ${result.lock.lockPurpose === "booking-creation" ? "creating a booking for" : "editing"} this performance.`
-            : "This show could not be prepared for booking creation.",
-        );
-        return;
-      }
-
-      setCalendarBookingShow(show);
-      setCalendarBookingLock(result.lock);
-      setCalendarBookingBlockingLock(null);
-      setCalendarBookingStatus("SHOW READY ✓");
-      await refreshShowEditLocks(show.id);
-    } catch (error) {
-      console.error("[Zingara Admin] Failed to acquire booking creation lock", error);
-      setCalendarBookingShow(show);
-      setCalendarBookingLock(null);
-      setCalendarBookingStatus("Booking creation is temporarily unavailable.");
-    } finally {
-      setIsCalendarBookingLocking(false);
-    }
-  }
-
-  async function forceCalendarBookingTakeover() {
-    if (
-      !calendarBookingShow ||
-      !calendarBookingSessionId ||
-      !calendarBookingBlockingLock ||
-      !canForceShowTakeover(calendarBookingBlockingLock) ||
-      !window.confirm(
-        `Force takeover from ${calendarBookingBlockingLock.staffName}? Their active show operation will be ended.`,
-      )
-    ) {
-      return;
-    }
-
-    setIsCalendarBookingLocking(true);
-    setCalendarBookingStatus("ACQUIRING SHOW...");
-
-    try {
-      const result = await acquireShowBookingCreationLock({
-        force: true,
-        sessionId: calendarBookingSessionId,
-        showReference: calendarBookingShow.id,
-      });
-
-      if (result.status === "acquired" && result.lock) {
-        setCalendarBookingLock(result.lock);
-        setCalendarBookingBlockingLock(null);
-        setCalendarBookingStatus("SHOW READY ✓");
-        await refreshShowEditLocks(calendarBookingShow.id);
-      } else {
-        setCalendarBookingStatus("Show takeover was not completed.");
-      }
-    } catch (error) {
-      console.error("[Zingara Admin] Failed to force booking takeover", error);
-      setCalendarBookingStatus("Show takeover is not available.");
-    } finally {
-      setIsCalendarBookingLocking(false);
-    }
+    setCalendarBookingShow(show);
+    setCalendarBookingStatus("SHOW READY ✓");
+    setIsCalendarBookingLocking(false);
   }
 
   function openCalendarBookingCheckout(
     bookingType: "corporate" | "standard",
   ) {
-    if (!calendarBookingShow || !calendarBookingLock) return;
+    if (!calendarBookingShow) return;
 
     const location = normalizeShowLocation(
       calendarBookingShow.location ?? calendarBookingShow.venueName,
@@ -13591,8 +13544,6 @@ export default function AdminDashboardPage() {
       expectedDate: calendarBookingShow.date,
       expectedLocation: location,
       expectedTime: calendarBookingShow.time,
-      lockId: calendarBookingLock.id,
-      sessionId: calendarBookingLock.sessionId,
       showReference: calendarBookingShow.id,
     };
 
@@ -13620,6 +13571,7 @@ export default function AdminDashboardPage() {
     setPendingBookingDetailsReference(null);
     void releaseCurrentBookingLock(reason);
     setExpandedBookingReference("");
+    setBookingDetailAccessMode("edit");
   }
 
   function closeBookingDetails() {
@@ -13704,7 +13656,12 @@ export default function AdminDashboardPage() {
   }, [currentStaff?.id]);
 
   useEffect(() => {
-    if (!expandedBookingReference || !currentStaff || !canManageBookings) {
+    if (
+      !expandedBookingReference ||
+      !currentStaff ||
+      !canManageBookings ||
+      bookingDetailAccessMode === "view"
+    ) {
       return;
     }
 
@@ -13753,7 +13710,9 @@ export default function AdminDashboardPage() {
         setBookingLockStatus(
           result.status === "missing"
             ? "Booking could not be found for locking."
-            : "This booking is currently being edited.",
+            : result.status === "recoverable"
+              ? "Your interrupted editing session can be resumed."
+              : "This booking is currently being edited.",
         );
       } catch (error) {
         console.error("[Zingara Admin] Failed to acquire booking lock", error);
@@ -13775,6 +13734,8 @@ export default function AdminDashboardPage() {
     };
   }, [
     bookingLockSessionId,
+    bookingDetailAccessMode,
+    bookingLockRetryRevision,
     canManageBookings,
     currentStaff?.id,
     expandedBookingReference,
@@ -13961,6 +13922,7 @@ export default function AdminDashboardPage() {
       }
 
       void releaseBookingEditLock({
+        keepalive: true,
         lockId: lock.id,
         reason: "tab-closed",
         sessionId: bookingLockSessionId,
@@ -13968,8 +13930,12 @@ export default function AdminDashboardPage() {
     }
 
     window.addEventListener("beforeunload", releaseOnUnload);
+    window.addEventListener("pagehide", releaseOnUnload);
 
-    return () => window.removeEventListener("beforeunload", releaseOnUnload);
+    return () => {
+      window.removeEventListener("beforeunload", releaseOnUnload);
+      window.removeEventListener("pagehide", releaseOnUnload);
+    };
   }, [bookingLockSessionId]);
 
   useEffect(() => {
@@ -13981,6 +13947,7 @@ export default function AdminDashboardPage() {
       }
 
       void releaseShowEditLock({
+        keepalive: true,
         lockId: lock.id,
         reason: "tab-closed",
         sessionId: showLockSessionId,
@@ -13988,8 +13955,12 @@ export default function AdminDashboardPage() {
     }
 
     window.addEventListener("beforeunload", releaseOnUnload);
+    window.addEventListener("pagehide", releaseOnUnload);
 
-    return () => window.removeEventListener("beforeunload", releaseOnUnload);
+    return () => {
+      window.removeEventListener("beforeunload", releaseOnUnload);
+      window.removeEventListener("pagehide", releaseOnUnload);
+    };
   }, [showLockSessionId]);
 
   useEffect(() => {
@@ -25929,10 +25900,12 @@ export default function AdminDashboardPage() {
       companies: string[];
       message: string;
       onRefresh: () => void;
+      readOnly?: boolean;
       status: BookingCustomerRefreshState["status"];
     },
   ) {
-    const isEditing = editingCustomerIdentityId === customer.id;
+    const isEditing =
+      !refresh?.readOnly && editingCustomerIdentityId === customer.id;
     const nameStatus = classifyCustomerName({
       displayName: getLiveCustomerName(customer),
       firstName: customer.first_name,
@@ -25962,7 +25935,7 @@ export default function AdminDashboardPage() {
                 {refresh.status === "loading" ? "Refreshing..." : "Refresh"}
               </button>
             )}
-            {canManageBookings && (
+            {canManageBookings && !refresh?.readOnly && (
               <button
                 type="button"
                 onClick={() => beginCustomerIdentityEdit(customer.id)}
@@ -38903,14 +38876,14 @@ export default function AdminDashboardPage() {
               <p
                 role="status"
                 className={`mt-5 whitespace-pre-line rounded-xl border p-3 text-sm font-semibold ${
-                  calendarBookingLock
+                  calendarBookingStatus === "SHOW READY ✓"
                     ? "border-emerald-300/30 bg-emerald-950/25 text-emerald-200"
                     : "border-amber-300/30 bg-amber-950/25 text-amber-100"
                 }`}
               >
                 {calendarBookingStatus || "Checking show availability..."}
               </p>
-              {calendarBookingLock && (
+              {calendarBookingStatus === "SHOW READY ✓" && (
                 <div className={`mt-5 grid grid-cols-1 gap-3 ${canManageShows ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
                   <button
                     type="button"
@@ -38937,18 +38910,6 @@ export default function AdminDashboardPage() {
                   )}
                 </div>
               )}
-              {!calendarBookingLock &&
-                calendarBookingBlockingLock &&
-                canForceShowTakeover(calendarBookingBlockingLock) && (
-                  <button
-                    type="button"
-                    onClick={() => void forceCalendarBookingTakeover()}
-                    disabled={isCalendarBookingLocking}
-                    className="mt-5 min-h-12 w-full rounded-full border border-red-300/45 px-5 py-3 text-sm font-bold uppercase text-red-100 transition hover:bg-red-200 hover:text-black disabled:opacity-50"
-                  >
-                    Force Takeover
-                  </button>
-                )}
               <button
                 type="button"
                 onClick={() => void releaseCalendarBookingLock("cancelled")}
@@ -44321,6 +44282,10 @@ export default function AdminDashboardPage() {
 	                const isBookingExpanded =
 	                  expandedBookingReference === booking.reference;
                     const bookingLock = getBookingEditLock(booking.reference);
+                    const bookingLockRecoverable =
+                      Boolean(bookingLock) &&
+                      !isOwnBookingLock(bookingLock) &&
+                      isSameStaffBookingLock(bookingLock);
                     const bookingLockedByOther =
                       Boolean(bookingLock) && !isOwnBookingLock(bookingLock);
                     const bookingIsReadOnly =
@@ -44739,6 +44704,30 @@ export default function AdminDashboardPage() {
                             </button>
                           </div>
 	                          <div className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5">
+                    {bookingDetailAccessMode === "view" && (
+                      <div
+                        role="status"
+                        className="mb-4 flex flex-col gap-3 rounded-xl border border-sky-300/35 bg-sky-950/25 p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-100">
+                            Read Only
+                          </p>
+                          <p className="mt-1 text-sm text-sky-100/80">
+                            {bookingLock
+                              ? `${bookingLock.staffName} is editing this booking. No changes can be made here.`
+                              : "No changes can be made in this view."}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void loadBookingDetails(booking.reference)}
+                          className="min-h-10 shrink-0 rounded-full border border-sky-200/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-sky-50 transition hover:bg-sky-200 hover:text-black"
+                        >
+                          Refresh Details
+                        </button>
+                      </div>
+                    )}
                     <div className="rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
@@ -44908,7 +44897,9 @@ export default function AdminDashboardPage() {
                     {bookingLockedByOther && bookingLock && (
                       <div className="mt-4 rounded-2xl border border-sky-300/30 bg-sky-950/20 p-4">
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-200">
-                          This booking is currently being edited.
+                          {bookingLockRecoverable
+                            ? "Your interrupted editing session can be restored."
+                            : "This booking is currently being edited."}
                         </p>
                         <div className="mt-3 grid grid-cols-1 gap-3 text-sm text-zinc-300 sm:grid-cols-2">
                           <p>
@@ -44965,7 +44956,8 @@ export default function AdminDashboardPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() =>
+                            onClick={() => {
+                              setBookingDetailAccessMode("view");
                               setBookingReadOnlyReferences(
                                 (currentReferences) =>
                                   currentReferences.includes(
@@ -44976,12 +44968,22 @@ export default function AdminDashboardPage() {
                                         ...currentReferences,
                                         booking.reference,
                                       ],
-                              )
-                            }
+                              );
+                              setBookingLockStatus("Opened read only.");
+                            }}
                             className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                           >
-                            View Read Only
+                            View Only
                           </button>
+                          {bookingLockRecoverable ? (
+                            <button
+                              type="button"
+                              onClick={() => void reclaimOwnBookingLock(bookingLock)}
+                              className="rounded-full border border-emerald-300/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-100 transition hover:bg-emerald-300 hover:text-black"
+                            >
+                              Resume / Reclaim
+                            </button>
+                          ) : (
                           <button
                             type="button"
                             disabled={
@@ -45012,7 +45014,8 @@ export default function AdminDashboardPage() {
                               ? "Takeover Pending"
                               : "Request Takeover"}
                           </button>
-                          {canForceBookingTakeover(bookingLock) && (
+                          )}
+                          {!bookingLockRecoverable && canForceBookingTakeover(bookingLock) && (
                             <button
                               type="button"
                               onClick={async () => {
@@ -45053,6 +45056,27 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
                     )}
+
+                    {!bookingLock &&
+                      bookingReadOnlyReferences.includes(booking.reference) &&
+                      !isArchivedBooking(booking) && (
+                        <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4">
+                          <p className="text-sm text-amber-100">
+                            Editing access may now be available.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBookingDetailAccessMode("edit");
+                              setBookingLockStatus("Checking editing access...");
+                              setBookingLockRetryRevision((revision) => revision + 1);
+                            }}
+                            className="mt-3 rounded-full border border-amber-200/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-amber-50 transition hover:bg-amber-200 hover:text-black"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      )}
 
                     {!bookingLockedByOther &&
                       bookingLock &&
@@ -45730,6 +45754,7 @@ export default function AdminDashboardPage() {
                                 message: bookingCustomerRefresh?.message ?? "",
                                 onRefresh: () =>
                                   void refreshBookingCustomerDetails(booking),
+                                readOnly: bookingIsReadOnly,
                                 status: bookingCustomerRefresh?.status ?? "idle",
                               },
                             )}
@@ -45939,7 +45964,7 @@ export default function AdminDashboardPage() {
                             <button
                               type="button"
                               onClick={() => openBookingShowTransfer(booking)}
-                              disabled={eligibleTransferShows.length === 0 || !isBookingEligibleForShowTransfer(booking.status)}
+                              disabled={bookingIsReadOnly || eligibleTransferShows.length === 0 || !isBookingEligibleForShowTransfer(booking.status)}
                               className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full border border-[#D8C36A]/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               Move to Another Show
@@ -46084,6 +46109,7 @@ export default function AdminDashboardPage() {
                                     void confirmBookingShowTransfer(booking)
                                   }
                                   disabled={
+                                    bookingIsReadOnly ||
                                     isBookingShowTransferring ||
                                     !bookingShowTransfer.destinationShowId
                                   }

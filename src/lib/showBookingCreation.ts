@@ -4,8 +4,8 @@ export type CalendarBookingLockContext = {
   expectedDate: string;
   expectedLocation: string;
   expectedTime: string;
-  lockId: string;
-  sessionId: string;
+  lockId?: string;
+  sessionId?: string;
   showReference: string;
 };
 
@@ -31,10 +31,13 @@ export function buildCalendarBookingHref(input: {
     expectedLocation: input.context.expectedLocation,
     expectedTime: input.context.expectedTime,
     showId: input.context.showReference,
-    showLockId: input.context.lockId,
-    showLockSession: input.context.sessionId,
     staffCheckout: "1",
   });
+
+  if (input.context.lockId && input.context.sessionId) {
+    params.set("showLockId", input.context.lockId);
+    params.set("showLockSession", input.context.sessionId);
+  }
 
   return `/book?${params.toString()}`;
 }
@@ -46,8 +49,6 @@ export function hasValidCalendarBookingContext(
     context?.expectedDate?.trim() &&
       context.expectedLocation?.trim() &&
       context.expectedTime?.trim() &&
-      context.lockId?.trim() &&
-      context.sessionId?.trim() &&
       context.showReference?.trim(),
   );
 }

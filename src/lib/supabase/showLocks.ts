@@ -84,6 +84,7 @@ export async function acquireShowBookingCreationLock(input: {
 }
 
 export async function releaseShowEditLock(input: {
+  keepalive?: boolean;
   lockId: string;
   reason: string;
   sessionId: string;
@@ -96,5 +97,6 @@ export async function releaseShowEditLock(input: {
       sessionId: input.sessionId,
     },
     method: "POST",
+    keepalive: input.keepalive,
   });
 }

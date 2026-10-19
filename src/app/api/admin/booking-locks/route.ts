@@ -200,6 +200,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     action?: string;
     bookingReference?: string;
+    expectedLastActivityAt?: string;
     lockId?: string;
     reason?: string;
     sessionId?: string;
@@ -261,7 +262,10 @@ export async function POST(request: Request) {
 
     const activeLock = await loadActiveLock(serviceClient, bookingReference);
 
-    if (activeLock?.staff_profile_id === staffProfile.id) {
+    if (
+      activeLock?.staff_profile_id === staffProfile.id &&
+      activeLock.session_id === sessionId
+    ) {
       const { data: updatedLock, error: updateError } = await serviceClient
         .from("booking_edit_locks")
         .update({
@@ -270,11 +274,24 @@ export async function POST(request: Request) {
           updated_at: now,
         })
         .eq("id", activeLock.id)
+        .eq("session_id", sessionId)
+        .eq("last_activity_at", activeLock.last_activity_at)
         .select("*")
         .maybeSingle();
 
       if (updateError) {
         throw updateError;
+      }
+
+      if (!updatedLock) {
+        const latestLock = await loadActiveLock(serviceClient, bookingReference);
+        return Response.json({
+          lock: latestLock ? toClientLock(latestLock) : undefined,
+          status:
+            latestLock?.staff_profile_id === staffProfile.id
+              ? "recoverable"
+              : "blocked",
+        });
       }
 
       return Response.json({
@@ -304,7 +321,10 @@ export async function POST(request: Request) {
 
         return Response.json({
           lock: toClientLock(activeLock),
-          status: "blocked",
+          status:
+            activeLock.staff_profile_id === staffProfile.id
+              ? "recoverable"
+              : "blocked",
         });
       }
 
@@ -361,7 +381,9 @@ export async function POST(request: Request) {
           lock: toClientLock(latestLock),
           status:
             latestLock.staff_profile_id === staffProfile.id
-              ? "acquired"
+              ? latestLock.session_id === sessionId
+                ? "acquired"
+                : "recoverable"
               : "blocked",
         });
       }
@@ -392,22 +414,76 @@ export async function POST(request: Request) {
     });
   }
 
+  if (action === "reclaim") {
+    const lockId = body.lockId?.trim();
+    const sessionId = body.sessionId?.trim();
+    const expectedLastActivityAt = body.expectedLastActivityAt?.trim();
+
+    if (!lockId || !sessionId || !expectedLastActivityAt) {
+      return Response.json(
+        { error: "Lock, session and lock revision are required." },
+        { status: 400 },
+      );
+    }
+
+    const { data: reclaimedLock, error: reclaimError } = await serviceClient
+      .from("booking_edit_locks")
+      .update({
+        last_activity_at: now,
+        session_id: sessionId,
+        updated_at: now,
+      })
+      .eq("id", lockId)
+      .eq("staff_profile_id", staffProfile.id)
+      .eq("last_activity_at", expectedLastActivityAt)
+      .is("released_at", null)
+      .select("*")
+      .maybeSingle();
+
+    if (reclaimError) throw reclaimError;
+
+    if (!reclaimedLock) {
+      return Response.json({ status: "blocked" });
+    }
+
+    await tryRecordAuditEvent(serviceClient, staffProfile, user, {
+      action: "booking-lock.reclaim",
+      changedFields: ["session_id", "last_activity_at"],
+      entityId: (reclaimedLock as BookingEditLockRow).booking_id,
+      entityReference: (reclaimedLock as BookingEditLockRow).booking_reference,
+      entityType: "booking-lock",
+      outcome: "success",
+      reason: "Staff member reclaimed their own interrupted booking session.",
+      request,
+      sourceArea: "Bookings",
+    });
+
+    return Response.json({
+      lock: toClientLock(reclaimedLock as BookingEditLockRow),
+      status: "acquired",
+    });
+  }
+
   if (action === "heartbeat") {
     const lockId = body.lockId?.trim();
+    const sessionId = body.sessionId?.trim();
 
-    if (!lockId) {
-      return Response.json({ error: "Lock ID is required." }, { status: 400 });
+    if (!lockId || !sessionId) {
+      return Response.json(
+        { error: "Lock ID and session ID are required." },
+        { status: 400 },
+      );
     }
 
     const { data: updatedLock, error: updateError } = await serviceClient
       .from("booking_edit_locks")
       .update({
         last_activity_at: now,
-        session_id: body.sessionId?.trim() || undefined,
         updated_at: now,
       })
       .eq("id", lockId)
       .eq("staff_profile_id", staffProfile.id)
+      .eq("session_id", sessionId)
       .is("released_at", null)
       .select("*")
       .maybeSingle();
