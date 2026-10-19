@@ -2034,9 +2034,42 @@ export async function POST(request: Request) {
         booking.source === "corporate-direct" &&
         booking.corporateRequestId,
     );
-    let customerId = resolvesCorporateCustomerAtomically
-      ? undefined
-      : await upsertCustomer(supabase, booking.customer);
+    let customerId: string | undefined;
+    if (
+      isTrustedStaff &&
+      !resolvesCorporateCustomerAtomically &&
+      booking.customerId
+    ) {
+      const { data: selectedCustomer, error: selectedCustomerError } =
+        await supabase
+          .from("customers")
+          .select("id,first_name,surname,email,mobile,merged_into_customer_id")
+          .eq("id", booking.customerId)
+          .is("merged_into_customer_id", null)
+          .maybeSingle();
+
+      if (selectedCustomerError) throw selectedCustomerError;
+      if (!selectedCustomer) {
+        return Response.json(
+          { error: "That customer profile is no longer available. Choose another customer." },
+          { status: 409 },
+        );
+      }
+
+      customerId = selectedCustomer.id;
+      booking = {
+        ...booking,
+        customer: normalizeBookingCustomer({
+          email: selectedCustomer.email ?? "",
+          name: [selectedCustomer.first_name, selectedCustomer.surname]
+            .filter(Boolean)
+            .join(" "),
+          phone: selectedCustomer.mobile ?? "",
+        }),
+      };
+    } else if (!resolvesCorporateCustomerAtomically) {
+      customerId = await upsertCustomer(supabase, booking.customer);
+    }
     const showId = show.id;
 
     if (!customerId && !resolvesCorporateCustomerAtomically) {

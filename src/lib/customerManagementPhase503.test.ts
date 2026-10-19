@@ -7,7 +7,7 @@ const workspace = source("../app/admin/CustomerManagementWorkspace.tsx");
 const companyWorkspace = source("../app/admin/CompanyCrmWorkspace.tsx");
 const route = source("../app/api/admin/customer-management/route.ts");
 const bookingPage = source("../app/book/page.tsx");
-const bookingStore = source("./supabase/bookings.ts");
+const bookingRoute = source("../app/api/bookings/route.ts");
 const adminPage = source("../app/admin/page.tsx");
 const tablePlan = source("../app/api/admin/analytics/table-plan/route.ts");
 const migration = source("../../supabase/migrations/20261019143000_phase_50_3_customer_company_associations.sql");
@@ -53,7 +53,10 @@ test("customer and company associations are many-to-many and unlink safely", () 
 test("staff bookings reuse an exact customer while public validation stays unchanged", () => {
   assert.match(bookingPage, /selectedExistingCustomerId/);
   assert.match(bookingPage, /manualCheckoutRole === "none"[\s\S]{0,100}undefined/);
-  assert.match(bookingStore, /booking\.customerId \?\?[\s\S]*getOrCreateCustomerIdFromInfo/);
+  assert.match(bookingRoute, /isTrustedStaff[\s\S]*booking\.customerId/);
+  assert.match(bookingRoute, /\.eq\("id", booking\.customerId\)/);
+  assert.match(bookingRoute, /\.is\("merged_into_customer_id", null\)/);
+  assert.match(bookingRoute, /customerId = selectedCustomer\.id/);
   assert.match(bookingPage, /customerInfo\.email\.trim\(\)/);
   assert.match(bookingPage, /customerInfo\.phone\.trim\(\)/);
 });
