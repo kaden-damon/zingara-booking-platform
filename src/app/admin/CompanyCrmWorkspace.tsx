@@ -14,6 +14,7 @@ import {
 import { paginateServerItems } from "@/lib/pagination";
 import { fetchSupabaseApi, SupabaseApiError } from "@/lib/supabase/apiClient";
 import BookingPaginationControls from "./BookingPaginationControls";
+import CorporateCompanyReconciliation from "./CorporateCompanyReconciliation";
 
 type SelectedCustomer = {
   companyId: string | null;
@@ -25,8 +26,10 @@ type SelectedCustomer = {
 
 type Props = {
   canManage: boolean;
+  canManageReconciliation?: boolean;
   mode: "customer-link" | "directory";
   onCustomerChanged?: () => Promise<unknown> | void;
+  onOpenBooking?: (bookingReference: string) => void;
   selectedCustomer: SelectedCustomer | null;
 };
 
@@ -72,8 +75,10 @@ function companyToInput(company: CompanyRecord): CompanyWriteInput {
 
 export default function CompanyCrmWorkspace({
   canManage,
+  canManageReconciliation = false,
   mode,
   onCustomerChanged,
+  onOpenBooking,
   selectedCustomer,
 }: Props) {
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
@@ -86,6 +91,7 @@ export default function CompanyCrmWorkspace({
   const [companyViewMode, setCompanyViewMode] =
     useState<CompanyViewMode>("compact");
   const [companyViewModeLoaded, setCompanyViewModeLoaded] = useState(false);
+  const [directorySection, setDirectorySection] = useState<"companies" | "reconciliation">("companies");
   const [companyPage, setCompanyPage] = useState(1);
   const [companyPageSize, setCompanyPageSize] = useState(25);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
@@ -424,7 +430,28 @@ export default function CompanyCrmWorkspace({
         </section>
       )}
 
-      {mode === "directory" && (
+      {mode === "directory" && canManageReconciliation && (
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Companies workspace">
+          {([['companies', 'Companies'], ['reconciliation', 'Reconciliation']] as const).map(([value, label]) => (
+            <button
+              aria-selected={directorySection === value}
+              className={`rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] transition ${directorySection === value ? "bg-[#D8C36A] text-black" : "border border-white/15 text-zinc-300 hover:border-[#D8C36A]/50"}`}
+              key={value}
+              onClick={() => setDirectorySection(value)}
+              role="tab"
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mode === "directory" && directorySection === "reconciliation" && canManageReconciliation && onOpenBooking && (
+        <CorporateCompanyReconciliation onOpenBooking={onOpenBooking} />
+      )}
+
+      {mode === "directory" && directorySection === "companies" && (
         <section className="rounded-lg border border-white/10 bg-zinc-950/80 p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>

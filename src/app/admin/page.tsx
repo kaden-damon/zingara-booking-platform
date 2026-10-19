@@ -11654,9 +11654,11 @@ export default function AdminDashboardPage() {
       }
 
       setBookings((currentBookings) =>
-        currentBookings.map((booking) =>
-          booking.reference === reference ? detailedBooking : booking,
-        ),
+        currentBookings.some((booking) => booking.reference === reference)
+          ? currentBookings.map((booking) =>
+              booking.reference === reference ? detailedBooking : booking,
+            )
+          : [detailedBooking, ...currentBookings],
       );
       setExpandedBookingReference(reference);
 
@@ -25756,6 +25758,7 @@ export default function AdminDashboardPage() {
     refresh?: {
       companies: string[];
       message: string;
+      onChangeCustomer?: () => void;
       onRefresh: () => void;
       readOnly?: boolean;
       status: BookingCustomerRefreshState["status"];
@@ -25798,7 +25801,16 @@ export default function AdminDashboardPage() {
                 onClick={() => beginCustomerIdentityEdit(customer.id)}
                 className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
               >
-                Edit Customer Details
+                Edit Customer
+              </button>
+            )}
+            {refresh?.onChangeCustomer && !refresh.readOnly && (
+              <button
+                type="button"
+                onClick={refresh.onChangeCustomer}
+                className="rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+              >
+                Change Customer
               </button>
             )}
             </div>
@@ -39980,8 +39992,18 @@ export default function AdminDashboardPage() {
             {crmDirectoryView === "companies" ? (
               <CompanyCrmWorkspace
                 canManage={canManageBookings}
+                canManageReconciliation={canReassignBookingCustomer}
                 mode="directory"
                 onCustomerChanged={refreshLiveCustomerRecords}
+                onOpenBooking={(bookingReference) => {
+                  setActiveAdminTab("corporate");
+                  setCorporateWorkspace("bookings");
+                  setBookingArchiveFilter("all");
+                  setHideCancelledBookings(false);
+                  setBookingSearch(bookingReference);
+                  setBookingPage(1);
+                  void openBookingDetails(bookingReference);
+                }}
                 selectedCustomer={null}
               />
             ) : (
@@ -44547,15 +44569,6 @@ export default function AdminDashboardPage() {
 	                                  Seating: {currentTable ? "Table assigned" : "Table needed"}
 	                                </span>
 	                              </div>
-	                              {canReassignBookingCustomer && !bookingIsReadOnly && !bookingLockedByOther && (
-	                                <button
-	                                  type="button"
-	                                  onClick={() => setBookingCustomerReassignmentReference(booking.reference)}
-	                                  className="mt-3 rounded-full border border-[#D8C36A]/40 px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
-	                                >
-	                                  Edit Linked Customer
-	                                </button>
-	                              )}
 	                              <details className="mt-3 text-xs text-zinc-400">
 	                                <summary className="cursor-pointer font-semibold text-zinc-300">Booking source and history</summary>
 	                                <p className="mt-2 break-words">
@@ -44623,7 +44636,8 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
                     <section className="mt-4 rounded-xl border border-white/10 bg-black/25 p-4" aria-labelledby={`booking-summary-${booking.reference}`}>
-                      <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500" id={`booking-summary-${booking.reference}`}>Booking summary</h4>
+                      <p className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Booking Overview</p>
+                      <h4 className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500" id={`booking-summary-${booking.reference}`}>Booking summary</h4>
                       <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                         <p><span className="block text-xs text-zinc-500">Total</span><strong className="text-white">{formatCurrency(financials.totalPrice)}</strong></p>
                         <p><span className="block text-xs text-zinc-500">Paid</span><strong className="text-white">{formatCurrency(financials.amountPaid)}</strong></p>
@@ -45043,7 +45057,8 @@ export default function AdminDashboardPage() {
                         </div>
                       )}
 
-                    <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)] xl:mt-5 xl:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.85fr)]">
+                    <h4 className="mt-6 text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Tickets &amp; Communications</h4>
+                    <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)] xl:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.85fr)]">
                       <div className="min-w-0 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <div className="min-w-0">
@@ -45341,7 +45356,8 @@ export default function AdminDashboardPage() {
 
                     {canManageBookings && !bookingIsReadOnly ? (
                       <>
-                        <div id={`payment-controls-${booking.reference}`} className="mt-4 min-w-0 scroll-mt-4 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
+                        <h4 className="mt-6 text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Payments &amp; Financials</h4>
+                        <div id={`payment-controls-${booking.reference}`} className="mt-3 min-w-0 scroll-mt-4 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
                           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <div>
                               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -45625,6 +45641,7 @@ export default function AdminDashboardPage() {
 	                          </div>
 	                        )}
 
+                        <h4 className="mt-6 text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Customer &amp; Company</h4>
                         {linkedBookingCustomer ? (
                           <div className="mt-6 space-y-3">
                             <div className="rounded-2xl border border-[#D8C36A]/20 bg-[#D8C36A]/10 px-4 py-3 text-sm text-[#F2D66C]">
@@ -45638,6 +45655,10 @@ export default function AdminDashboardPage() {
                                 message: bookingCustomerRefresh?.message ?? "",
                                 onRefresh: () =>
                                   void refreshBookingCustomerDetails(booking),
+                                onChangeCustomer:
+                                  canReassignBookingCustomer && !bookingLockedByOther
+                                    ? () => setBookingCustomerReassignmentReference(booking.reference)
+                                    : undefined,
                                 readOnly: bookingIsReadOnly,
                                 status: bookingCustomerRefresh?.status ?? "idle",
                               },
@@ -45706,7 +45727,8 @@ export default function AdminDashboardPage() {
                         </div>
                         )}
 
-                        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[220px_1fr_220px]">
+                        <h4 className="mt-6 text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Booking &amp; Seating</h4>
+                        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-[220px_1fr_220px]">
                           <label>
                             <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                               Booking Status
@@ -46019,7 +46041,8 @@ export default function AdminDashboardPage() {
                               : `No compatible table is currently available for this ${booking.partySize}-guest booking. Keep the current assignment, open capacity, or place the guest on waitlist review before moving.`}
                           </div>
                         )}
-                        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                        <h4 className="mt-6 text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">History &amp; Audit</h4>
+                        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
                           <BookingMetadataDraftEditor
                             key={booking.reference}
                             bookingId={booking.supabaseBookingId}
