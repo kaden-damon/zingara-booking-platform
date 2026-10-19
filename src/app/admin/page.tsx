@@ -100,6 +100,10 @@ const SystemMaintenancePanel = dynamic(
   () => import("./SystemMaintenancePanel"),
 );
 const SystemPreferences = dynamic(() => import("./SystemPreferences"));
+const TrainingRegister = dynamic(() => import("./TrainingRegister"));
+const TrainingAcknowledgementPrompt = dynamic(
+  () => import("./TrainingAcknowledgementPrompt"),
+);
 import {
   adminIpUndertaking,
   adminIpUndertakingRequiredEvent,
@@ -10899,6 +10903,9 @@ export default function AdminDashboardPage() {
   >([]);
   const [academyBrowseAllModules, setAcademyBrowseAllModules] =
     useState(false);
+  const [academyWorkspace, setAcademyWorkspace] = useState<
+    "learning" | "training-register"
+  >("learning");
   const academySearchInputRef = useRef<HTMLInputElement | null>(null);
   const academyLessonListRef = useRef<HTMLDivElement | null>(null);
   const academyLessonButtonRefs = useRef<
@@ -12532,6 +12539,11 @@ export default function AdminDashboardPage() {
         setActiveCommunicationsTab("overview");
       } else if (section === "academy") {
         setActiveAdminTab("academy");
+        setAcademyWorkspace(
+          url.searchParams.get("academySection") === "training-register"
+            ? "training-register"
+            : "learning",
+        );
       } else if (section === "platform-operations") {
         setActiveAdminTab("platform-operations");
         setActiveSystemTab(
@@ -29267,6 +29279,11 @@ export default function AdminDashboardPage() {
 
   return (
     <main className="relative isolate z-10 min-h-screen overflow-x-hidden bg-black px-3 py-4 text-white sm:px-6 sm:py-6 lg:py-7">
+      <TrainingAcknowledgementPrompt
+        canPrompt={
+          activeAdminTab === "overview" || activeAdminTab === "academy"
+        }
+      />
       {platformMaintenance.staff.enabled && isSuperAdmin && (
         <div className="fixed inset-x-3 top-3 z-[170] mx-auto flex max-w-5xl flex-col gap-3 rounded-lg border border-amber-300/55 bg-amber-950/95 p-4 text-amber-50 shadow-2xl backdrop-blur sm:inset-x-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -29694,11 +29711,15 @@ export default function AdminDashboardPage() {
                   staff training, and confident guest service.
                 </p>
               </div>
-              <span className="w-fit rounded-full border border-[#D8C36A]/35 bg-black/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
-                {academyModules.length} modules · {academyArticles.length} lessons
-              </span>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setAcademyWorkspace("learning")} className={`min-h-11 rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.1em] ${academyWorkspace === "learning" ? "bg-[#D8C36A] text-black" : "border border-white/15 text-zinc-300"}`}>Academy</button>
+                <button type="button" onClick={() => setAcademyWorkspace("training-register")} className={`min-h-11 rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.1em] ${academyWorkspace === "training-register" ? "bg-[#D8C36A] text-black" : "border border-white/15 text-zinc-300"}`}>Training Register</button>
+              </div>
             </div>
 
+            {academyWorkspace === "training-register" ? (
+              <TrainingRegister />
+            ) : (
             <div className="grid gap-4 xl:grid-cols-[240px_minmax(280px,0.86fr)_minmax(420px,1.32fr)] xl:items-stretch">
               <aside className="flex flex-col rounded-[1.5rem] border border-[#D8C36A]/15 bg-black/45 p-3 shadow-[0_0_34px_rgba(216,195,106,0.06)] sm:p-4 xl:h-[min(78vh,54rem)] xl:min-h-[42rem]">
                 <div className="mb-3 flex items-start justify-between gap-3">
@@ -30397,6 +30418,7 @@ export default function AdminDashboardPage() {
                 )}
               </article>
             </div>
+            )}
           </section>
         )}
 
