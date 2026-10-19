@@ -18,7 +18,9 @@ const response = (data: unknown, status = 200) => ({ correlationId: "corr", data
 
 test("OAuth start uses exact redirect, state, PKCE and approved scopes", () => {
   const state = createXeroOAuthState(); const url = new URL(buildXeroAuthorizationUrl(config, state.state, state.challenge));
-  assert.equal(url.origin, "https://login.xero.com"); assert.equal(url.searchParams.get("redirect_uri"), config.redirectUri); assert.equal(url.searchParams.get("code_challenge_method"), "S256"); assert.match(url.searchParams.get("scope") ?? "", /offline_access/); assert.notEqual(state.state, state.verifier);
+  assert.equal(url.origin, "https://login.xero.com"); assert.equal(url.searchParams.get("redirect_uri"), config.redirectUri); assert.equal(url.searchParams.get("code_challenge_method"), "S256");
+  assert.deepEqual((url.searchParams.get("scope") ?? "").split(" "), ["openid", "profile", "email", "offline_access", "accounting.settings.read", "accounting.contacts", "accounting.invoices", "accounting.payments"]);
+  assert.doesNotMatch(url.searchParams.get("scope") ?? "", /accounting\.transactions/); assert.notEqual(state.state, state.verifier);
 });
 
 test("OAuth exchange, rotation and explicit tenant discovery use official contracts", async () => {

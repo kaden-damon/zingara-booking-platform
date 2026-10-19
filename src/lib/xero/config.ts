@@ -3,8 +3,10 @@ export const XERO_SCOPES = [
   "profile",
   "email",
   "offline_access",
-  "accounting.settings",
-  "accounting.transactions",
+  "accounting.settings.read",
+  "accounting.contacts",
+  "accounting.invoices",
+  "accounting.payments",
 ] as const;
 
 export type XeroConfiguration = {
