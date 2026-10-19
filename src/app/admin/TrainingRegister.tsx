@@ -178,14 +178,17 @@ export default function TrainingRegister() {
       </form>
 
       {error && <p role="alert" className="mt-4 rounded-lg border border-red-400/30 bg-red-950/40 p-3 text-sm text-red-100">{error}</p>}
-      <div className="mt-4 overflow-x-auto">
+      <div className="mt-4 hidden overflow-x-auto sm:block">
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="text-[0.68rem] uppercase tracking-[0.1em] text-zinc-500"><tr><th className="px-3 py-2">Staff</th><th className="px-3 py-2">Topic</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Duration</th><th className="px-3 py-2">Trainer</th><th className="px-3 py-2">Status</th></tr></thead>
           <tbody>{!loading && payload?.records.map((record) => <tr key={record.id} onClick={() => void openRecord(record)} className="cursor-pointer border-t border-white/10 text-zinc-300 hover:bg-white/5"><td className="px-3 py-3 font-semibold text-white">{record.staffName}</td><td className="px-3 py-3">{record.title}</td><td className="px-3 py-3">{record.trainingDate}</td><td className="px-3 py-3">{record.durationMinutes} min</td><td className="px-3 py-3">{record.trainerName}</td><td className="px-3 py-3"><span className="rounded-full border border-[#D8C36A]/30 px-2 py-1 text-xs text-[#F2D66C]">{trainingStatusLabels[record.status]}</span></td></tr>)}</tbody>
         </table>
-        {loading && <p className="py-8 text-center text-sm text-zinc-400">Loading training records...</p>}
-        {!loading && payload?.records.length === 0 && <p className="py-8 text-center text-sm text-zinc-400">No training records match these filters.</p>}
       </div>
+      <div className="mt-4 space-y-2 sm:hidden">
+        {payload?.records.map((record) => <button key={record.id} type="button" onClick={() => void openRecord(record)} className="w-full rounded-lg border border-white/10 bg-zinc-950 p-3 text-left"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-white">{record.title}</p><p className="mt-1 text-xs text-zinc-400">{record.staffName} · {record.trainingDate}</p></div><span className="shrink-0 rounded-full border border-[#D8C36A]/30 px-2 py-1 text-[0.65rem] text-[#F2D66C]">{record.durationMinutes} min</span></div><p className="mt-2 text-xs text-zinc-500">{record.trainerName} · {trainingStatusLabels[record.status]}</p></button>)}
+      </div>
+      {loading && <p className="py-8 text-center text-sm text-zinc-400">Loading training records...</p>}
+      {!loading && payload?.records.length === 0 && <p className="py-8 text-center text-sm text-zinc-400">No training records match these filters.</p>}
       <div className="mt-4 flex items-center justify-between gap-3 text-sm"><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)} className="min-h-11 rounded-lg border border-white/15 px-4 disabled:opacity-35">Previous</button><span>Page {page} of {pageCount} · {payload?.total ?? 0} records</span><button disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)} className="min-h-11 rounded-lg border border-white/15 px-4 disabled:opacity-35">Next</button></div>
 
       {showCreate && <div className="fixed inset-0 z-[190] grid place-items-center bg-black/80 p-3" role="dialog" aria-modal="true" aria-labelledby="record-training-heading"><form onSubmit={createRecord} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-5"><div className="flex items-start justify-between"><div><p className="text-xs font-semibold uppercase text-[#D8C36A]">Training Register</p><h2 id="record-training-heading" className="mt-1 text-2xl font-bold">{form.correctsRecordId ? "Record Correction" : "Record Training"}</h2></div><button type="button" onClick={() => setShowCreate(false)} aria-label="Close" className="rounded-lg border border-white/15 px-3 py-2">Close</button></div><div className="mt-5 grid gap-4 sm:grid-cols-2">
