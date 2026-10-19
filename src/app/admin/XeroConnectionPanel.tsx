@@ -28,6 +28,10 @@ const button = "min-h-10 rounded-full border border-[#D8C36A]/45 px-4 text-xs fo
 const input = "min-h-10 w-full rounded-lg border border-white/15 bg-black/40 px-3 text-sm text-white outline-none focus:border-[#D8C36A]";
 const VENUES: Array<{ label: string; value: XeroMappingVenue }> = [{ label: "All Venues", value: "all" }, { label: "Johannesburg", value: "johannesburg" }, { label: "Cape Town", value: "cape-town" }];
 function label(value: string) { return value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase()); }
+function resolveAccount(accounts: Account[], value: string) {
+  const search = value.trim().toLocaleLowerCase();
+  return accounts.find((account) => account.code.toLocaleLowerCase() === search || account.name.toLocaleLowerCase() === search || `${account.code} — ${account.name}`.toLocaleLowerCase() === search);
+}
 
 export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Promise<void> }) {
   const [payload, setPayload] = useState<ConnectionPayload | null>(null);
@@ -80,7 +84,7 @@ export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Pr
     const key = xeroMappingKey(selectedVenue, category);
     const draft = drafts[key] ?? { accountCode: "", taxCode: "" };
     const candidates = category === "payment_account" ? discovery.paymentAccounts : discovery.accounts;
-    const account = candidates.find((candidate) => candidate.code === draft.accountCode);
+    const account = resolveAccount(candidates, draft.accountCode);
     if (!account) { setError("Choose an account from the verified Xero list."); return; }
     setBusy(true); setError("");
     try {
@@ -125,11 +129,11 @@ export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Pr
         const saved = mappings.mappings.find((mapping) => mapping.venue === selectedVenue && mapping.category === category);
         const draft = drafts[key] ?? { accountCode: saved?.account_code ?? "", taxCode: saved?.tax_code ?? "" };
         const accountOptions = category === "payment_account" ? discovery.paymentAccounts : discovery.accounts;
-        const selectedAccount = accountOptions.find((account) => account.code === draft.accountCode);
+        const selectedAccount = resolveAccount(accountOptions, draft.accountCode);
         const taxRequired = category !== "payment_account";
         return <div key={key} className="grid gap-2 rounded-lg border border-white/10 p-3 lg:grid-cols-[minmax(10rem,0.8fr)_minmax(14rem,1.5fr)_minmax(12rem,1fr)_auto] lg:items-center">
           <div><p className="text-sm text-white">{label(category)}</p><p className={`text-xs ${saved?.approved_at ? "text-emerald-300" : "text-amber-200"}`}>{saved?.approved_at ? "Approved and verified" : "Unapproved"}</p></div>
-          <div><input aria-label={`${label(category)} Xero account`} className={input} list={`xero-accounts-${key}`} placeholder="Search account code or name" value={draft.accountCode} onChange={(event) => setDrafts((currentDrafts) => ({ ...currentDrafts, [key]: { ...draft, accountCode: event.target.value } }))} /><datalist id={`xero-accounts-${key}`}>{accountOptions.map((account) => <option key={account.accountId} value={account.code}>{account.code} — {account.name}</option>)}</datalist><p className="mt-1 truncate text-xs text-zinc-500">{selectedAccount ? `${selectedAccount.code} — ${selectedAccount.name}` : saved?.account_name ?? "Choose from verified Xero accounts"}</p></div>
+          <div><input aria-label={`${label(category)} Xero account`} autoComplete="off" className={input} list={`xero-accounts-${key}`} placeholder="Search account code or name" value={draft.accountCode} onChange={(event) => setDrafts((currentDrafts) => ({ ...currentDrafts, [key]: { ...draft, accountCode: event.target.value } }))} /><datalist id={`xero-accounts-${key}`}>{accountOptions.map((account) => <option key={account.accountId} value={account.code}>{account.code} — {account.name}</option>)}</datalist><p className="mt-1 truncate text-xs text-zinc-500">{selectedAccount ? `${selectedAccount.code} — ${selectedAccount.name}` : saved?.account_name ?? "Choose from verified Xero accounts"}</p></div>
           {taxRequired ? <select aria-label={`${label(category)} tax treatment`} className={input} value={draft.taxCode} onChange={(event) => setDrafts((currentDrafts) => ({ ...currentDrafts, [key]: { ...draft, taxCode: event.target.value } }))}><option value="">Choose tax treatment</option>{revenueTaxRates.map((taxRate) => <option key={taxRate.taxType} value={taxRate.taxType}>{taxRate.name} · {taxRate.displayRate}%</option>)}</select> : <p className="text-xs text-zinc-500">No invoice tax treatment</p>}
           <button type="button" className={button} disabled={busy || !selectedAccount || (taxRequired && !draft.taxCode)} onClick={() => void saveMapping(category)}>Approve</button>
         </div>;
