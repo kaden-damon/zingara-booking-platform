@@ -322,7 +322,7 @@ begin
   end if;
   if not exists (
     select 1 from public.shows where id = v_booking.show_id and date = date '2026-11-05'
-      and lower(venue) like '%cape town%'
+      and replace(lower(venue), '-', ' ') like '%cape town%'
   ) then raise exception 'KOOS_SHOW_EVIDENCE_CHANGED'; end if;
 
   select * into v_customer from public.customers
