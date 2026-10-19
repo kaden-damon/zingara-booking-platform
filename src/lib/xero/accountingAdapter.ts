@@ -19,14 +19,16 @@ export class XeroAccountingAdapter {
   private readonly tenantId: string; private readonly transport: XeroTransport;
   constructor(transport: XeroTransport, tenantId: string) { requireTenant(tenantId); this.transport = transport; this.tenantId = tenantId; }
   async discover() {
-    const [organisation, accounts, taxRates, tracking, branding] = await Promise.all([
+    const [organisation, accounts, taxRates, tracking, branding, actions, invoiceReminders] = await Promise.all([
       this.transport.request({ method: "GET", path: "/Organisation", tenantId: this.tenantId }),
       this.transport.request({ method: "GET", path: "/Accounts?where=Status%3D%3D%22ACTIVE%22", tenantId: this.tenantId }),
       this.transport.request({ method: "GET", path: "/TaxRates", tenantId: this.tenantId }),
       this.transport.request({ method: "GET", path: "/TrackingCategories", tenantId: this.tenantId }),
       this.transport.request({ method: "GET", path: "/BrandingThemes", tenantId: this.tenantId }),
+      this.transport.request({ method: "GET", path: "/Organisation/Actions", tenantId: this.tenantId }),
+      this.transport.request({ method: "GET", path: "/InvoiceReminders/Settings", tenantId: this.tenantId }),
     ]);
-    return { accounts: accounts.data, branding: branding.data, organisation: organisation.data, taxRates: taxRates.data, tracking: tracking.data };
+    return { accounts: accounts.data, actions: actions.data, branding: branding.data, invoiceReminders: invoiceReminders.data, organisation: organisation.data, taxRates: taxRates.data, tracking: tracking.data };
   }
   async findContactByNumber(contactNumber: string) {
     if (!contactNumber) throw new Error("A stable contact number is required.");

@@ -29,8 +29,8 @@ export async function POST(request: Request) {
   }
   if (body.action === "enable") {
     if (process.env.XERO_LIVE_SYNC_AUTHORISED !== "true") return Response.json({ error: "Live Xero sync requires separate approval." }, { status: 409 });
-    const { data: approvedMappings } = await auth.serviceClient.from("xero_account_mappings").select("category").eq("tenant_id", current.tenant_id).not("approved_at", "is", null);
-    if (!allRequiredXeroMappingsApproved((approvedMappings ?? []).map((row) => row.category))) return Response.json({ error: "Accounts must approve all required mappings first." }, { status: 409 });
+    const { data: approvedMappings } = await auth.serviceClient.from("xero_account_mappings").select("venue,category").eq("tenant_id", current.tenant_id).not("approved_at", "is", null);
+    if (!allRequiredXeroMappingsApproved(approvedMappings ?? [])) return Response.json({ error: "Accounts must approve all required venue mappings first." }, { status: 409 });
     const { error: enableError } = await auth.serviceClient.from("xero_connections").update({ status: "connected", sync_paused: false }).eq("id", current.id).not("tenant_id", "is", null);
     if (enableError) throw enableError;
     await auth.serviceClient.from("xero_sync_outbox").update({ status: "pending", updated_at: new Date().toISOString() }).eq("tenant_id", current.tenant_id).eq("status", "paused");

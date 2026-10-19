@@ -7,6 +7,8 @@ import { buildXeroAuthorizationUrl, createXeroOAuthState, exchangeXeroCode, list
 import { reconcileAccounting } from "./reconciliation.ts";
 import { buildInvoiceReconciliation, shouldApplyWebhookEvent } from "./inbound.ts";
 import { buildXeroDocumentSyncPayload, documentMappingCategory } from "./queue.ts";
+import { allRequiredXeroMappingsApproved, xeroMappingKey } from "./mappings.ts";
+import { normaliseXeroDiscovery, verifiedXeroMapping } from "./discovery.ts";
 import { executeXeroOperation } from "./operations.ts";
 import { decryptXeroSecret, encryptXeroSecret, redactXeroSecrets } from "./tokenVault.ts";
 import { MockXeroTransport, XeroApiError, xeroRetryDelay } from "./transport.ts";
@@ -62,12 +64,38 @@ test("webhooks verify raw-body HMAC, deduplicate keys and ignore unsupported pay
 test("reconciliation preserves separate operational and accounting truth", () => { const local = { allocatedCents: 5000, documentId: "local", providerIds: ["payfast"], status: "AUTHORISED", totalCents: 10000 }; const xero = { allocatedCents: 5000, documentId: "xero", paymentIds: ["payment"], status: "AUTHORISED", totalCents: 10000 }; assert.equal(reconcileAccounting(local,xero),"matched"); assert.equal(reconcileAccounting(local,{...xero,allocatedCents:4000}),"amount_mismatch"); assert.equal(reconcileAccounting(local,null),"missing_xero"); assert.equal(reconcileAccounting(null,xero),"missing_local"); });
 
 test("document preparation uses approved source mapping and stable contact identity", () => {
-  const document = { company_id: "company-1", contact_customer_id: null, customer_email: "accounts@example.com", customer_name: "Example Company", document_date: "2026-10-11", id: "doc", kind: "invoice" as const, line_amount_type: "exclusive" as const, lines: [{ description: "Corporate package", quantity: "1", unitPrice: "43473.9130" }], local_reference: "ZD-1", source_booking_id: null, source_corporate_request_id: "request-1", status: "draft", valid_until: "2026-10-18", version: 2 };
+  const document = { company_id: "company-1", contact_customer_id: null, customer_email: "accounts@example.com", customer_name: "Example Company", document_date: "2026-10-11", id: "doc", kind: "invoice" as const, line_amount_type: "exclusive" as const, lines: [{ description: "Corporate package", quantity: "1", unitPrice: "43473.9130" }], local_reference: "ZD-1", source_booking_id: null, source_corporate_request_id: "request-1", status: "draft", valid_until: "2026-10-18", venue: "johannesburg" as const, version: 2 };
   assert.equal(documentMappingCategory(document), "corporate");
   const payload = buildXeroDocumentSyncPayload(document, { account_code: "200", category: "corporate", tax_code: "OUTPUT2" });
   assert.equal(payload.contact.contactNumber, "ZINGARA-COMPANY-company-1");
   assert.equal(payload.command.lines[0].unitAmount, 43473.913);
   assert.throws(() => documentMappingCategory({ ...document, source_corporate_request_id: null }), /Link this document/);
+});
+
+test("Xero discovery exposes only active verified accounts and eligible payment clearing accounts", () => {
+  const discovery = normaliseXeroDiscovery({
+    accounts: { Accounts: [
+      { AccountID: "sales-jhb", Code: "205", Name: "Sales - JHB", Status: "ACTIVE", TaxType: "OUTPUT2", Type: "REVENUE" },
+      { AccountID: "clearing", Code: "900", EnablePaymentsToAccount: true, Name: "PayFast Clearing Account", Status: "ACTIVE", TaxType: "NONE", Type: "BANK" },
+      { AccountID: "inactive", Code: "999", Name: "Old", Status: "ARCHIVED", Type: "BANK" },
+    ] },
+    organisation: { Organisations: [{ BaseCurrency: "ZAR", LegalName: "Zingara Productions (Pty) Ltd", Name: "Zingara Productions (Pty) Ltd", OrganisationID: "org", OrganisationStatus: "ACTIVE" }] },
+    taxRates: { TaxRates: [{ CanApplyToRevenue: true, DisplayTaxRate: 15, EffectiveRate: 15, Name: "15% VAT on Income", Status: "ACTIVE", TaxType: "OUTPUT2" }] },
+  });
+  assert.deepEqual(discovery.accounts.map((account) => account.code), ["205", "900"]);
+  assert.deepEqual(discovery.paymentAccounts.map((account) => account.code), ["900"]);
+  assert.equal(verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "ticket_sales", discovery, taxCode: "OUTPUT2" }).taxRate?.effectiveRate, 15);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "payment_account", discovery }), /payment account/);
+});
+
+test("mapping readiness requires every venue category and one shared payment account", () => {
+  const categories = ["ticket_sales", "corporate", "buyouts", "booking_fee", "gratuity", "addons", "discounts", "deposits", "refunds"];
+  const complete = [
+    ...categories.flatMap((category) => [{ category, venue: "johannesburg" }, { category, venue: "cape-town" }]),
+    { category: "payment_account", venue: "all" },
+  ];
+  assert.equal(allRequiredXeroMappingsApproved(complete), true);
+  assert.equal(allRequiredXeroMappingsApproved(complete.filter((mapping) => xeroMappingKey(mapping.venue as "all" | "johannesburg" | "cape-town", mapping.category as "ticket_sales") !== "cape-town:ticket_sales")), false);
 });
 
 test("document sync resolves or creates one contact through the same adapter path", async () => {

@@ -22,6 +22,7 @@ export type QueueableXeroDocument = {
   source_corporate_request_id: string | null;
   status: string;
   valid_until: string | null;
+  venue: "cape-town" | "johannesburg";
   version: number;
 };
 

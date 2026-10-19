@@ -26,7 +26,7 @@ type BookingFinancials = { amountPaid: number; bookingReference: string; booking
 type WorkspacePayload = {
   canCreateInvoice: boolean; canCreateQuote: boolean; canManageConnection: boolean;
   connection: { last_sync_at: string | null; status: string; sync_paused: boolean; tenant_name: string | null };
-  documents: DocumentRow[]; mappings: Array<{ account_code: string | null; approved_at: string | null; category: string; tax_code: string | null }>;
+  documents: DocumentRow[]; mappings: Array<{ account_code: string | null; account_name: string | null; approved_at: string | null; category: string; tax_code: string | null; tax_name: string | null; venue: string }>;
   outboxAttentionCount: number; page: number; pageSize: number; total: number;
 };
 type DetailPayload = { bookingFinancials: BookingFinancials | null; document: DocumentDetail; versions: Array<{ created_at: string; version: number }> };

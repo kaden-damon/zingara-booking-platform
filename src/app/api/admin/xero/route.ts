@@ -312,7 +312,7 @@ export async function GET(request: Request) {
     query,
     auth.serviceClient.from("xero_connections").select("tenant_name,status,sync_paused,last_sync_at").limit(1).maybeSingle(),
     permissions.includes("bookings:reconcile") || permissions.includes("settings:manage")
-      ? auth.serviceClient.from("xero_account_mappings").select("category,account_code,tax_code,approved_at").order("category")
+      ? auth.serviceClient.from("xero_account_mappings").select("venue,category,account_code,account_name,tax_code,tax_name,approved_at").order("venue").order("category")
       : Promise.resolve({ data: [], error: null }),
     auth.serviceClient.from("xero_sync_outbox").select("status", { count: "exact", head: true }).in("status", ["paused", "pending", "failed", "blocked"]),
   ]);
@@ -436,7 +436,7 @@ export async function PATCH(request: Request) {
     if (!connection?.tenant_id) return Response.json({ error: "Connect and choose the approved Xero organisation first." }, { status: 409 });
     try {
       const category = documentMappingCategory(current as QueueableXeroDocument);
-      const { data: mapping } = await auth.serviceClient.from("xero_account_mappings").select("category,account_code,tax_code,approved_at").eq("tenant_id", connection.tenant_id).eq("category", category).not("approved_at", "is", null).maybeSingle();
+      const { data: mapping } = await auth.serviceClient.from("xero_account_mappings").select("venue,category,account_code,tax_code,approved_at").eq("tenant_id", connection.tenant_id).eq("venue", current.venue).eq("category", category).not("approved_at", "is", null).maybeSingle();
       if (!mapping) return Response.json({ error: "Accounts must approve the account and VAT mapping first." }, { status: 409 });
       const payload = buildXeroDocumentSyncPayload(current as QueueableXeroDocument, mapping);
       const sourceId = current.company_id ?? current.contact_customer_id;
