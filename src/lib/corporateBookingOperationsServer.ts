@@ -51,7 +51,7 @@ export async function loadCorporateOperationsContext(
 ): Promise<CorporateOperationsContext | null> {
   const { data: booking, error: bookingError } = await serviceClient
     .from("bookings")
-    .select("id,booking_reference,booking_source,booking_origin,corporate_request_id,customer_id,show_id,company_name,guest_count,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,payment_status,dietary_requirements,created_by_staff_id")
+    .select("id,booking_reference,booking_source,booking_origin,corporate_request_id,customer_id,company_id,show_id,company_name,guest_count,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,payment_status,dietary_requirements,created_by_staff_id")
     .eq("booking_reference", bookingReference.trim().toUpperCase())
     .maybeSingle();
   if (bookingError) throw bookingError;
@@ -64,9 +64,12 @@ export async function loadCorporateOperationsContext(
     throw new Error("NOT_CORPORATE_BOOKING");
   }
 
-  const [showResult, customerResult, requestByIdResult, requestByReferenceResult, operationsResult, evidenceResult, tableResult, creatorResult] = await Promise.all([
+  const [showResult, customerResult, companyResult, requestByIdResult, requestByReferenceResult, operationsResult, evidenceResult, tableResult, creatorResult] = await Promise.all([
     serviceClient.from("shows").select("id,date,time,venue,notes").eq("id", booking.show_id).maybeSingle(),
-    serviceClient.from("customers").select("id,first_name,surname,dietary_requirements").eq("id", booking.customer_id).maybeSingle(),
+    serviceClient.from("customers").select("id,first_name,surname,email,mobile,dietary_requirements").eq("id", booking.customer_id).maybeSingle(),
+    booking.company_id
+      ? serviceClient.from("companies").select("id,legal_name,trading_name").eq("id", booking.company_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
     booking.corporate_request_id
       ? serviceClient.from("corporate_requests").select("id,company_name,contact_name,dietary_requirements,other_dietary_requirement,bar_tab,occasion,other_description").eq("id", booking.corporate_request_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -78,7 +81,7 @@ export async function loadCorporateOperationsContext(
       ? serviceClient.from("staff_profiles").select("full_name").eq("id", booking.created_by_staff_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ]);
-  const firstError = [showResult, customerResult, requestByIdResult, requestByReferenceResult, operationsResult, evidenceResult, tableResult, creatorResult]
+  const firstError = [showResult, customerResult, companyResult, requestByIdResult, requestByReferenceResult, operationsResult, evidenceResult, tableResult, creatorResult]
     .find((result) => result.error)?.error;
   if (firstError) throw firstError;
   if (!showResult.data) throw new Error("SHOW_NOT_FOUND");
@@ -142,11 +145,13 @@ export async function loadCorporateOperationsContext(
       barTabAmount: money(evidence?.bar_tab_paid_amount),
       bookedThrough: creatorResult.data?.full_name ?? "Not recorded",
       bookingReference: booking.booking_reference,
-      companyName: text(booking.company_name) || text(request?.company_name) || customerName || "Corporate booking",
+      companyName: text(companyResult.data?.trading_name) || text(companyResult.data?.legal_name) || text(booking.company_name) || text(request?.company_name) || "Company not linked",
       dietaryRequirements: Array.from(new Set(dietaryRequirements)),
       eventName: text(request?.occasion) || text(request?.other_description) || "Corporate function",
       guestCount: Number(booking.guest_count) || 0,
-      organiserName: text(request?.contact_name) || customerName || "Not recorded",
+      organiserName: customerName || text(request?.contact_name) || "Not recorded",
+      organiserEmail: text(customerResult.data?.email),
+      organiserPhone: text(customerResult.data?.mobile),
       outstandingAmount: money(booking.balance_outstanding),
       paymentStatus: titleCaseStatus(text(booking.payment_status)),
       seating,
@@ -168,6 +173,7 @@ function sharedBookingSections(snapshot: CorporateOperationsBookingSnapshot): Zi
       rows: [
         { label: "Company", value: snapshot.companyName },
         { label: "Organiser", value: snapshot.organiserName },
+        { label: "Contact", value: [snapshot.organiserEmail, snapshot.organiserPhone].filter(Boolean).join(" / ") || "Not recorded" },
         { label: "Reference", value: snapshot.bookingReference },
         { label: "Booked through", value: snapshot.bookedThrough },
         { label: "Performance", value: `${snapshot.venue} - ${dateLabel(snapshot.showDate)} - ${snapshot.showTime}` },

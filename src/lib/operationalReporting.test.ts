@@ -245,7 +245,7 @@ test("supports all established reporting zones", () => {
   assert.equal(buildOperationalTableReportRows(bookings, tables).length, 4);
 });
 
-test("report integrations use the shared grains and keep the show query batched", () => {
+test("report integrations use a bounded selected-show query and keep Table Plan batched", () => {
   const adminPage = readFileSync(
     new URL("../app/admin/page.tsx", import.meta.url),
     "utf8",
@@ -254,10 +254,15 @@ test("report integrations use the shared grains and keep the show query batched"
     new URL("../app/api/admin/analytics/table-plan/route.ts", import.meta.url),
     "utf8",
   );
+  const operationsRoute = readFileSync(
+    new URL("../app/api/admin/operations-reports/route.ts", import.meta.url),
+    "utf8",
+  );
 
-  assert.match(adminPage, /buildBookingGrainReportRows/);
-  assert.match(adminPage, /buildCustomerGrainReportRows/);
-  assert.match(adminPage, /buildOperationalTableReportRows/);
+  assert.match(adminPage, /\/api\/admin\/operations-reports/);
+  assert.doesNotMatch(adminPage, /getReportBookings/);
+  assert.match(operationsRoute, /\.eq\("show_id", show\.id\)/);
+  assert.match(operationsRoute, /await Promise\.all\(\[/);
   assert.doesNotMatch(
     tablePlanRoute,
     /\.not\("table_id",\s*"is",\s*null\)/,

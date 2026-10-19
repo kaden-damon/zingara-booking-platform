@@ -20,6 +20,13 @@ function canManage(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
   return getRolePermissions(role).includes("bookings:manage");
 }
 
+function canReassignBookingCustomer(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
+  const role = Array.isArray(auth.staffProfile?.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile?.roles;
+  return ["Super Admin", "Venue Manager", "Box Office Manager"].includes(role?.name ?? "");
+}
+
 function canRead(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
   const role = Array.isArray(auth.staffProfile?.roles)
     ? auth.staffProfile.roles[0]
@@ -181,6 +188,51 @@ export async function GET(request: Request) {
       if (!normalized.payload) return Response.json({ matches: [] });
       const matches = await findPotentialMatches(auth.serviceClient, normalized.payload);
       return Response.json({ matches });
+    }
+
+    if (mode === "reassignment-search") {
+      if (!canReassignBookingCustomer(auth)) {
+        return Response.json({ error: "Management permission is required." }, { status: 403 });
+      }
+      const { page, pageSize } = getPagination(url);
+      const search = cleanSearch(url.searchParams.get("search") ?? "");
+      if (search.length < 2) return Response.json({ page, pageSize, rows: [], total: 0 });
+      const { data: result, error: searchError } = await auth.serviceClient.rpc("search_customer_crm_page", {
+        p_archived: "active",
+        p_page: page,
+        p_page_size: pageSize,
+        p_search: search,
+      });
+      if (searchError) throw searchError;
+      const ids = Array.isArray(result?.ids) ? result.ids as string[] : [];
+      if (!ids.length) return Response.json({ page, pageSize, rows: [], total: Number(result?.total ?? 0) });
+      const [customersResult, linksResult] = await Promise.all([
+        auth.serviceClient.from("customers").select("id,first_name,surname,email,mobile").in("id", ids),
+        auth.serviceClient.from("customer_company_associations").select("customer_id,company_id").in("customer_id", ids).is("removed_at", null),
+      ]);
+      if (customersResult.error) throw customersResult.error;
+      if (linksResult.error) throw linksResult.error;
+      const companyIds = [...new Set((linksResult.data ?? []).map((row) => row.company_id))];
+      const companiesResult = companyIds.length
+        ? await auth.serviceClient.from("companies").select("id,legal_name,trading_name").in("id", companyIds)
+        : { data: [], error: null };
+      if (companiesResult.error) throw companiesResult.error;
+      const companies = new Map((companiesResult.data ?? []).map((company) => [company.id, company]));
+      const companyNames = new Map<string, string[]>();
+      for (const link of linksResult.data ?? []) {
+        const company = companies.get(link.company_id);
+        if (!company) continue;
+        const values = companyNames.get(link.customer_id) ?? [];
+        values.push(company.trading_name || company.legal_name);
+        companyNames.set(link.customer_id, values);
+      }
+      const customerMap = new Map((customersResult.data ?? []).map((customer) => [customer.id, customer]));
+      return Response.json({
+        page,
+        pageSize,
+        rows: ids.map((id) => ({ ...customerMap.get(id), companies: companyNames.get(id) ?? [] })).filter((row) => row.id),
+        total: Number(result?.total ?? 0),
+      });
     }
 
     if (mode === "companies") {
@@ -398,21 +450,19 @@ export async function GET(request: Request) {
     const pageSize = Math.min(50, Math.max(1, Number(url.searchParams.get("pageSize") ?? 10)));
     const search = cleanSearch(url.searchParams.get("search") ?? "");
     const archived = url.searchParams.get("archived") ?? "active";
-    let query = auth.serviceClient
-      .from("customers")
-      .select(customerListFields, { count: "exact" })
-      .is("merged_into_customer_id", null)
-      .order("updated_at", { ascending: false })
-      .order("id", { ascending: false })
-      .range((page - 1) * pageSize, page * pageSize - 1);
-    if (archived === "active") query = query.is("preferences->>archivedAt", null);
-    if (archived === "archived") query = query.not("preferences->>archivedAt", "is", null);
-    if (search) {
-      query = query.or(`first_name.ilike.%${search}%,surname.ilike.%${search}%,email.ilike.%${search}%,mobile.ilike.%${search}%`);
-    }
-    const { data, error, count } = await query;
+    const { data: result, error: searchError } = await auth.serviceClient.rpc("search_customer_crm_page", {
+      p_archived: archived,
+      p_page: page,
+      p_page_size: pageSize,
+      p_search: search,
+    });
+    if (searchError) throw searchError;
+    const ids = Array.isArray(result?.ids) ? result.ids as string[] : [];
+    if (!ids.length) return Response.json({ canManage: canManage(auth), page, pageSize, rows: [], total: Number(result?.total ?? 0) });
+    const { data, error } = await auth.serviceClient.from("customers").select(customerListFields).in("id", ids);
     if (error) throw error;
-    return Response.json({ canManage: canManage(auth), page, pageSize, rows: data ?? [], total: count ?? 0 });
+    const rows = new Map((data ?? []).map((customer) => [customer.id, customer]));
+    return Response.json({ canManage: canManage(auth), page, pageSize, rows: ids.map((id) => rows.get(id)).filter(Boolean), total: Number(result?.total ?? 0) });
   } catch (error) {
     console.error("[Zingara API] Customer management read failed", error);
     return Response.json({ error: "Customer information could not be loaded." }, { status: 500 });

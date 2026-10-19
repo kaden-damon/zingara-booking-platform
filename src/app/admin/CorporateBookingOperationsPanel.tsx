@@ -192,6 +192,7 @@ export default function CorporateBookingOperationsPanel(props: {
                 <p><span className="text-zinc-500">Performance:</span> {snapshot.venue} · {snapshot.showDate} · {snapshot.showTime}</p>
                 <p><span className="text-zinc-500">Guests:</span> {snapshot.guestCount} · {snapshot.seating}</p>
                 <p><span className="text-zinc-500">Organiser:</span> {snapshot.organiserName}</p>
+                <p><span className="text-zinc-500">Contact:</span> {[snapshot.organiserEmail, snapshot.organiserPhone].filter(Boolean).join(" · ") || "Not recorded"}</p>
                 <p><span className="text-zinc-500">Tables:</span> {snapshot.tableSummary}</p>
                 <p><span className="text-zinc-500">Total / paid:</span> {money(snapshot.totalAmount)} / {money(snapshot.amountPaid)}</p>
                 <p><span className="text-zinc-500">Outstanding:</span> {money(snapshot.outstandingAmount)}</p>

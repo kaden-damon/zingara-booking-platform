@@ -55,6 +55,8 @@ export type CorporateOperationsBookingSnapshot = {
   eventName: string;
   guestCount: number;
   organiserName: string;
+  organiserEmail: string;
+  organiserPhone: string;
   outstandingAmount: number;
   paymentStatus: string;
   seating: string;

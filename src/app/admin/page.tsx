@@ -117,10 +117,11 @@ import {
 import { platformVersion } from "../../lib/platformIdentity";
 import { bookingClaimsTable } from "../../lib/bookingTableClaims";
 import {
-  buildBookingGrainReportRows,
-  buildCustomerGrainReportRows,
-  buildOperationalTableReportRows,
-} from "../../lib/operationalReporting";
+  escapeReportHtml,
+  operationalReportLabels,
+  type OperationalReportRow,
+  type OperationalReportType,
+} from "../../lib/operationsReports";
 import { normalizePhoneForComparison } from "../../lib/phone";
 import {
   getCommunicationFailureGuidance,
@@ -537,6 +538,7 @@ import {
 import { isShowStaffBookable } from "../../lib/publicShowSales";
 import BookingPaginationControls from "./BookingPaginationControls";
 import CorporateBookingOperationsPanel from "./CorporateBookingOperationsPanel";
+import BookingCustomerReassignmentDialog from "./BookingCustomerReassignmentDialog";
 
 type NewTableForm = {
   customPricePerPerson: string;
@@ -707,14 +709,6 @@ type PayFastRefundAvailabilityQaResult = {
 type WaitlistReport = Record<WaitlistStatus, number> & {
   activeGuests: number;
 };
-type OperationalReportType =
-  | "bookings"
-  | "guest-list"
-  | "table-allocations"
-  | "check-ins"
-  | "revenue"
-  | "waitlist"
-  | "crm";
 type TableOccupancyState =
   | "available"
   | "blocked"
@@ -7605,15 +7599,6 @@ function getNextRelevantOperationalShow(shows: DemoShow[]) {
   return getDefaultOperationalShow(shows, getCurrentSouthAfricaDate());
 }
 
-const operationalReportLabels: Record<OperationalReportType, string> = {
-  bookings: "Booking Manifest",
-  "check-ins": "Guest Check-In Sheet",
-  crm: "CRM Customer List",
-  "guest-list": "Guest List",
-  revenue: "Revenue Summary",
-  "table-allocations": "Floor Allocation Summary",
-  waitlist: "Waitlist Report",
-};
 
 const defaultWaitlistReport: WaitlistReport = {
   activeGuests: 0,
@@ -8693,21 +8678,6 @@ function escapeCsvValue(value: string | number | undefined) {
   return /[",\n]/.test(stringValue)
     ? `"${stringValue.replaceAll('"', '""')}"`
     : stringValue;
-}
-
-function createCsv(rows: Array<Record<string, string | number | undefined>>) {
-  if (rows.length === 0) {
-    return "";
-  }
-
-  const headers = Object.keys(rows[0]);
-
-  return [
-    headers.map(escapeCsvValue).join(","),
-    ...rows.map((row) =>
-      headers.map((header) => escapeCsvValue(row[header])).join(","),
-    ),
-  ].join("\n");
 }
 
 function createCsvFromSheet(sheet: ExportSheet) {
@@ -11235,6 +11205,8 @@ export default function AdminDashboardPage() {
   const [bookingDetailAccessMode, setBookingDetailAccessMode] = useState<
     "edit" | "view"
   >("edit");
+  const [bookingCustomerReassignmentReference, setBookingCustomerReassignmentReference] =
+    useState("");
   const [dirtyBookingMetadataReference, setDirtyBookingMetadataReference] =
     useState("");
   const [pendingBookingDetailsReference, setPendingBookingDetailsReference] =
@@ -12921,6 +12893,8 @@ export default function AdminDashboardPage() {
   const isSuperAdmin = currentStaff?.role === "super-admin";
   const canExecuteDataPortability = false;
   const isVenueManager = currentStaff?.role === "venue-manager";
+  const canReassignBookingCustomer =
+    isSuperAdmin || isVenueManager || currentStaff?.role === "box-office-manager";
   const canManageIssueRegister = canManageStaffIssues(currentStaff?.role);
   const canViewAuditTrail = isSuperAdmin || isVenueManager;
   const isBoxOfficeStaff =
@@ -19818,143 +19792,25 @@ export default function AdminDashboardPage() {
     }
   }
 
-  function getReportBookings() {
-    return bookings.filter((booking) => {
-      const show = getBookingShow(booking);
-      const paymentStatus = getBookingPaymentStatus(booking);
-
-      return (
-        Boolean(analyticsSelectedShow) &&
-        bookingBelongsToShow(booking, analyticsSelectedShow) &&
-        (reportDateFilter ? show?.date === reportDateFilter : true) &&
-        (reportStatusFilter === "all"
-          ? true
-          : (booking.status ?? "confirmed") === reportStatusFilter) &&
-        (reportZoneFilter === "all"
-          ? true
-          : booking.zoneId === reportZoneFilter) &&
-        (reportPaymentFilter === "all"
-          ? true
-          : paymentStatus === reportPaymentFilter)
-      );
+  async function loadOperationalReport(reportType: OperationalReportType) {
+    const showId = analyticsSelectedShow?.supabaseId;
+    if (!showId) throw new Error("Choose a performance before generating the report.");
+    const params = new URLSearchParams({
+      bookingStatus: reportStatusFilter,
+      date: reportDateFilter || analyticsSelectedShow.date,
+      paymentStatus: reportPaymentFilter,
+      showId,
+      type: reportType,
+      zone: reportZoneFilter,
     });
-  }
-
-  function getReportRows(reportType: OperationalReportType) {
-    const reportBookings = getReportBookings();
-    const bookingRows = buildBookingGrainReportRows(reportBookings, tables);
-
-    if (reportType === "waitlist") {
-      return waitlist
-        .filter((entry) =>
-          getShowIdentityValues(analyticsSelectedShow).includes(entry.showId),
-        )
-        .map((entry) => ({
-          reference: entry.id,
-          customer: entry.customer.name,
-          email: entry.customer.email,
-          phone: entry.customer.phone,
-          guests: entry.partySize,
-          preferredZone: entry.desiredZoneTitle ?? "Any",
-          status: waitlistStatusLabels[entry.status],
-          notes: entry.notes,
-        }));
-    }
-
-    if (reportType === "crm") {
-      return buildCustomerGrainReportRows(
-        bookingRows,
-        (booking) => getBookingFinancials(booking).totalPrice,
-      );
-    }
-
-    if (reportType === "table-allocations") {
-      const selectedShowIds = getShowIdentityValues(analyticsSelectedShow);
-      const reportTables = tables.filter(
-        (table) => table.showId && selectedShowIds.includes(table.showId),
-      );
-
-      return buildOperationalTableReportRows(reportBookings, reportTables).map(
-        (row) => ({
-          zone: row.zoneTitle,
-          table: row.tableNumber,
-          seats: row.capacityConfigured ? row.capacity : "Capacity required",
-          allocatedPax: row.allocatedPax,
-          status: tableOccupancyLabels[row.state],
-          booking: row.booking?.reference,
-          guest: row.booking?.customer.name,
-          notes: row.notes,
-        }),
-      );
-    }
-
-    if (reportType === "revenue") {
-      return bookingRows.map(({ booking }) => {
-        const financials = getBookingFinancials(booking);
-
-        return {
-          reference: booking.reference,
-          customer: booking.customer.name,
-          status: bookingStatusLabels[booking.status ?? "confirmed"],
-          paymentStatus: paymentStatusLabels[financials.paymentStatus],
-          subtotal: financials.subtotalPrice,
-          addons: financials.addonsTotal,
-          discounts: financials.discountAmount,
-          total: financials.totalPrice,
-          paid: financials.amountPaid,
-          outstanding: financials.balanceDue,
-        };
-      });
-    }
-
-    if (reportType === "check-ins") {
-      return bookingRows.map(({ booking, tableSummary, zoneSummary }) => ({
-        reference: booking.reference,
-        customer: booking.customer.name,
-        phone: booking.customer.phone,
-        guests: booking.partySize,
-        zone: zoneSummary,
-        table: tableSummary,
-        status: bookingStatusLabels[booking.status ?? "confirmed"],
-        arrival: booking.arrivalTime
-          ? formatSouthAfricanTimestamp(booking.arrivalTime)
-          : "",
-        signature: "",
-      }));
-    }
-
-    if (reportType === "guest-list") {
-      return bookingRows.map(({ booking, notes, tableSummary, zoneSummary }) => ({
-        customer: booking.customer.name,
-        email: booking.customer.email,
-        phone: booking.customer.phone,
-        guests: booking.partySize,
-        zone: zoneSummary,
-        table: tableSummary,
-        notes,
-      }));
-    }
-
-    return bookingRows.map(({ booking, notes, tableSummary, zoneSummary }) => {
-      const financials = getBookingFinancials(booking);
-
-      return {
-        reference: booking.reference,
-        show: getShowLabel(getBookingShow(booking)),
-        customer: booking.customer.name,
-        email: booking.customer.email,
-        phone: booking.customer.phone,
-        guests: booking.partySize,
-        zone: zoneSummary,
-        table: tableSummary,
-        status: bookingStatusLabels[booking.status ?? "confirmed"],
-        paymentStatus: paymentStatusLabels[financials.paymentStatus],
-        total: financials.totalPrice,
-        paid: financials.amountPaid,
-        outstanding: financials.balanceDue,
-        notes,
-      };
-    });
+    return fetchSupabaseApi<{
+      columns: string[];
+      label: string;
+      performance: string;
+      rows: OperationalReportRow[];
+      total: number;
+      totalGuests: number;
+    }>(`/api/admin/operations-reports?${params.toString()}`, { cache: "no-store" });
   }
 
   function downloadTextFile(
@@ -22973,8 +22829,12 @@ export default function AdminDashboardPage() {
     await runWithReportGenerationLock(
       `${operationalReportLabels[reportType]} CSV`,
       reportScope,
-      () => {
-        const csv = createCsv(getReportRows(reportType));
+      async () => {
+        const report = await loadOperationalReport(reportType);
+        const csv = [
+          report.columns.map(escapeCsvValue).join(","),
+          ...report.rows.map((row) => report.columns.map((column) => escapeCsvValue(row[column])).join(",")),
+        ].join("\n");
         downloadTextFile(
           `${reportType}-${analyticsSelectedShow?.supabaseId ?? analyticsSelectedShow?.id ?? "no-show"}.csv`,
           csv,
@@ -22995,12 +22855,9 @@ export default function AdminDashboardPage() {
     await runWithReportGenerationLock(
       `${operationalReportLabels[reportType]} Printable View`,
       reportScope,
-      () => {
-        const rows = getReportRows(reportType) as Array<
-          Record<string, string | number | undefined>
-        >;
-        const headers = rows[0] ? Object.keys(rows[0]) : [];
-        const html = `<!doctype html><html><head><title>${operationalReportLabels[reportType]}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ccc;padding:8px;text-align:left;font-size:12px}th{background:#eee}</style></head><body><h1>${operationalReportLabels[reportType]}</h1><p>${getShowLabel(analyticsSelectedShow)}</p><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((header) => `<td>${String(row[header] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
+      async () => {
+        const report = await loadOperationalReport(reportType);
+        const html = `<!doctype html><html><head><title>${escapeReportHtml(report.label)}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ccc;padding:8px;text-align:left;font-size:12px}th{background:#eee}</style></head><body><h1>${escapeReportHtml(report.label)}</h1><p>${escapeReportHtml(report.performance)}</p><p>${report.total} bookings · ${report.totalGuests} guests</p><table><thead><tr>${report.columns.map((header) => `<th>${escapeReportHtml(header)}</th>`).join("")}</tr></thead><tbody>${report.rows.map((row) => `<tr>${report.columns.map((header) => `<td>${escapeReportHtml(row[header])}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
         const printWindow = window.open("", "_blank");
         if (!printWindow) throw new Error("The printable report window was blocked by the browser.");
         printWindow.document.write(html);
@@ -44690,6 +44547,15 @@ export default function AdminDashboardPage() {
 	                                  Seating: {currentTable ? "Table assigned" : "Table needed"}
 	                                </span>
 	                              </div>
+	                              {canReassignBookingCustomer && !bookingIsReadOnly && !bookingLockedByOther && (
+	                                <button
+	                                  type="button"
+	                                  onClick={() => setBookingCustomerReassignmentReference(booking.reference)}
+	                                  className="mt-3 rounded-full border border-[#D8C36A]/40 px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+	                                >
+	                                  Edit Linked Customer
+	                                </button>
+	                              )}
 	                              <details className="mt-3 text-xs text-zinc-400">
 	                                <summary className="cursor-pointer font-semibold text-zinc-300">Booking source and history</summary>
 	                                <p className="mt-2 break-words">
@@ -44827,6 +44693,21 @@ export default function AdminDashboardPage() {
                         bookingReference={booking.reference}
                         canManage={canManageBookings}
                         readOnly={bookingIsReadOnly || bookingLockedByOther}
+                      />
+                    )}
+                    {bookingCustomerReassignmentReference === booking.reference && booking.updatedAt && (
+                      <BookingCustomerReassignmentDialog
+                        bookingReference={booking.reference}
+                        currentCustomerId={booking.customerId}
+                        currentCustomerName={booking.customer.name || "Unnamed Guest"}
+                        expectedUpdatedAt={booking.updatedAt}
+                        onClose={() => setBookingCustomerReassignmentReference("")}
+                        onSuccess={() => {
+                          setBookingCustomerReassignmentReference("");
+                          void loadBookingDetails(booking.reference);
+                          void getBookings().then(setBookings);
+                          showWorkflowToast("✓ Linked customer updated");
+                        }}
                       />
                     )}
                     {booking.promoRedemption && (
