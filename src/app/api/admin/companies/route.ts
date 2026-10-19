@@ -4,6 +4,7 @@ import {
   type CompanyWriteInput,
 } from "@/lib/companyMaster";
 import {
+  loadCompanyPage,
   loadCompanies,
   toCompanyRpcPayload,
 } from "@/lib/supabase/companyMasterServer";
@@ -51,8 +52,22 @@ export async function GET(request: Request) {
   if (auth.error || !auth.serviceClient) return auth.error;
 
   try {
-    const includeArchived =
-      new URL(request.url).searchParams.get("includeArchived") === "true";
+    const url = new URL(request.url);
+    const includeArchived = url.searchParams.get("includeArchived") === "true";
+    const isPaged = url.searchParams.get("mode") === "list";
+    if (isPaged) {
+      const search = (url.searchParams.get("search") ?? "")
+        .replace(/[,%()]/g, " ")
+        .trim()
+        .slice(0, 120);
+      const result = await loadCompanyPage(auth.serviceClient, {
+        includeArchived,
+        page: Number(url.searchParams.get("page") ?? 1),
+        pageSize: Number(url.searchParams.get("pageSize") ?? 25),
+        search,
+      });
+      return Response.json(result);
+    }
     const companies = await loadCompanies(auth.serviceClient, includeArchived);
     return Response.json({ companies });
   } catch (error) {
@@ -131,7 +146,7 @@ async function saveCompany(request: Request) {
     }
 
     const companyId = String((data as { id?: string } | null)?.id ?? body.companyId ?? "");
-    const companies = await loadCompanies(auth.serviceClient, true);
+    const companies = await loadCompanies(auth.serviceClient, true, [companyId]);
     const company = companies.find((candidate) => candidate.id === companyId);
     if (!company) throw new Error("Saved Company could not be reloaded.");
 

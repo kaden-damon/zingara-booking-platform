@@ -772,6 +772,12 @@ type LiveCustomerRecord = {
   relationship_notes: string | null;
   surname: string | null;
 };
+type BookingCustomerRefreshState = {
+  companies: string[];
+  customer: LiveCustomerRecord | null;
+  message: string;
+  status: "error" | "idle" | "loading" | "success";
+};
 type CustomerCommunicationPauseEditor = {
   channel: OperationalCommunicationChannel;
   duration: OperationalPauseDuration;
@@ -10463,6 +10469,8 @@ export default function AdminDashboardPage() {
     message: string;
     reference: string;
   } | null>(null);
+  const [bookingCustomerRefreshState, setBookingCustomerRefreshState] =
+    useState<Record<string, BookingCustomerRefreshState>>({});
   const [corporateRequests, setCorporateRequests] = useState<
     CorporateRequest[]
   >([]);
@@ -11534,6 +11542,117 @@ export default function AdminDashboardPage() {
     );
 
     return booking;
+  }
+
+  async function refreshBookingCustomerDetails(booking: DemoBooking) {
+    if (!booking.customerId) {
+      setBookingCustomerRefreshState((current) => ({
+        ...current,
+        [booking.reference]: {
+          companies: [],
+          customer: null,
+          message: "No customer profile is linked to this booking.",
+          status: "error",
+        },
+      }));
+      return;
+    }
+    if (dirtyBookingMetadataReference === booking.reference) {
+      setBookingCustomerRefreshState((current) => ({
+        ...current,
+        [booking.reference]: {
+          companies: current[booking.reference]?.companies ?? [],
+          customer: current[booking.reference]?.customer ?? null,
+          message: "Save or discard booking edits before refreshing customer details.",
+          status: "error",
+        },
+      }));
+      return;
+    }
+    if (bookingCustomerRefreshState[booking.reference]?.status === "loading") {
+      return;
+    }
+
+    setBookingCustomerRefreshState((current) => ({
+      ...current,
+      [booking.reference]: {
+        companies: current[booking.reference]?.companies ?? [],
+        customer: current[booking.reference]?.customer ?? null,
+        message: "",
+        status: "loading",
+      },
+    }));
+
+    try {
+      const payload = await fetchSupabaseApi<{
+        customer: {
+          company_id: string | null;
+          crm_revision: number;
+          email: string | null;
+          first_name: string;
+          id: string;
+          job_title: string | null;
+          mobile: string | null;
+          preferences: LiveCustomerRecord["preferences"];
+          surname: string | null;
+        };
+        links: Array<{
+          company: { legal_name: string; trading_name: string | null } | null;
+        }>;
+      }>(`/api/admin/customer-management?mode=detail&id=${encodeURIComponent(booking.customerId)}`);
+      const customer: LiveCustomerRecord = {
+        ...payload.customer,
+        merged_into_customer_id: null,
+        relationship_notes: null,
+      };
+      const companies = payload.links.flatMap((link) =>
+        link.company
+          ? [link.company.trading_name?.trim() || link.company.legal_name]
+          : [],
+      );
+
+      setLiveCustomerRecords((current) => [
+        ...current.filter((record) => record.id !== customer.id),
+        customer,
+      ]);
+      setBookings((current) =>
+        current.map((candidate) =>
+          candidate.reference === booking.reference
+            ? {
+                ...candidate,
+                companyId: customer.company_id ?? candidate.companyId,
+                customer: {
+                  email: customer.email ?? "",
+                  name: [customer.first_name, customer.surname]
+                    .filter(Boolean)
+                    .join(" "),
+                  phone: customer.mobile ?? "",
+                },
+              }
+            : candidate,
+        ),
+      );
+      setBookingCustomerRefreshState((current) => ({
+        ...current,
+        [booking.reference]: {
+          companies,
+          customer,
+          message: "Customer details refreshed.",
+          status: "success",
+        },
+      }));
+    } catch (error) {
+      console.error("[Zingara admin] Booking customer refresh failed", error);
+      setBookingCustomerRefreshState((current) => ({
+        ...current,
+        [booking.reference]: {
+          companies: current[booking.reference]?.companies ?? [],
+          customer: current[booking.reference]?.customer ?? null,
+          message: "Customer details couldn't be refreshed. Try again.",
+          status: "error",
+        },
+      }));
+    }
   }
 
   async function loadBookingDetails(reference: string) {
@@ -25804,7 +25923,15 @@ export default function AdminDashboardPage() {
     }
   }
 
-  function renderCustomerIdentityEditor(customer: LiveCustomerRecord) {
+  function renderCustomerIdentityEditor(
+    customer: LiveCustomerRecord,
+    refresh?: {
+      companies: string[];
+      message: string;
+      onRefresh: () => void;
+      status: BookingCustomerRefreshState["status"];
+    },
+  ) {
     const isEditing = editingCustomerIdentityId === customer.id;
     const nameStatus = classifyCustomerName({
       displayName: getLiveCustomerName(customer),
@@ -25824,6 +25951,17 @@ export default function AdminDashboardPage() {
                 {getCustomerNameStatusLabel(nameStatus)}
               </p>
             </div>
+            <div className="flex flex-wrap gap-2">
+            {refresh && (
+              <button
+                type="button"
+                disabled={refresh.status === "loading"}
+                onClick={refresh.onRefresh}
+                className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-zinc-200 transition hover:bg-white hover:text-black disabled:opacity-50"
+              >
+                {refresh.status === "loading" ? "Refreshing..." : "Refresh"}
+              </button>
+            )}
             {canManageBookings && (
               <button
                 type="button"
@@ -25833,7 +25971,18 @@ export default function AdminDashboardPage() {
                 Edit Customer Details
               </button>
             )}
+            </div>
           </div>
+          {refresh && refresh.companies.length > 0 && (
+            <p className="mt-3 text-sm text-zinc-400">
+              Companies: {refresh.companies.join(" · ")}
+            </p>
+          )}
+          {refresh?.message && (
+            <p className={`mt-3 text-sm ${refresh.status === "error" ? "text-red-200" : "text-emerald-200"}`} role="status">
+              {refresh.message}
+            </p>
+          )}
         </div>
       );
     }
@@ -44212,8 +44361,26 @@ export default function AdminDashboardPage() {
 	                  : undefined;
 	                const bookingPerformanceLabel =
 	                  getBookingPerformanceLabel(booking);
+                    const bookingCustomerRefresh =
+                      bookingCustomerRefreshState[booking.reference];
                     const linkedBookingCustomer =
-                      getLiveCustomerForBooking(booking);
+                      bookingCustomerRefresh?.customer ??
+                      getLiveCustomerForBooking(booking) ??
+                      (booking.customerId
+                        ? {
+                            company_id: booking.companyId ?? null,
+                            crm_revision: 1,
+                            email: booking.customer.email || null,
+                            first_name: booking.customer.name,
+                            id: booking.customerId,
+                            job_title: null,
+                            merged_into_customer_id: null,
+                            mobile: booking.customer.phone || null,
+                            preferences: null,
+                            relationship_notes: null,
+                            surname: null,
+                          }
+                        : null);
 	                const tableFitMoveTargets = tables.filter((table) =>
 	                  isEligibleManualBookingMoveTarget(table, booking, tables),
 	                );
@@ -45558,6 +45725,13 @@ export default function AdminDashboardPage() {
                             </div>
                             {renderCustomerIdentityEditor(
                               linkedBookingCustomer,
+                              {
+                                companies: bookingCustomerRefresh?.companies ?? [],
+                                message: bookingCustomerRefresh?.message ?? "",
+                                onRefresh: () =>
+                                  void refreshBookingCustomerDetails(booking),
+                                status: bookingCustomerRefresh?.status ?? "idle",
+                              },
                             )}
                           </div>
                         ) : (

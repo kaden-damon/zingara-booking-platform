@@ -13,6 +13,28 @@ export async function getCompanies(includeArchived = false) {
   return payload.companies ?? [];
 }
 
+export async function getCompanyPage(input: {
+  includeArchived?: boolean;
+  page: number;
+  pageSize: number;
+  search: string;
+  signal?: AbortSignal;
+}) {
+  const params = new URLSearchParams({
+    includeArchived: String(Boolean(input.includeArchived)),
+    mode: "list",
+    page: String(input.page),
+    pageSize: String(input.pageSize),
+    search: input.search,
+  });
+  return fetchSupabaseApi<{
+    companies: CompanyRecord[];
+    page: number;
+    pageSize: number;
+    total: number;
+  }>(`/api/admin/companies?${params}`, { signal: input.signal });
+}
+
 export async function saveCompany(input: {
   companyId?: string;
   expectedRevision: number;

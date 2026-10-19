@@ -8,7 +8,9 @@ import { normalizePhoneForComparison, parseInternationalPhone } from "@/lib/phon
 export const dynamic = "force-dynamic";
 
 const customerFields = "id,first_name,surname,email,mobile,company_id,job_title,crm_revision,preferences,created_at,updated_at";
+const customerListFields = "id,first_name,surname,crm_revision,preferences,updated_at";
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function canManage(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
   const role = Array.isArray(auth.staffProfile?.roles)
@@ -133,6 +135,9 @@ export async function GET(request: Request) {
 
     if (mode === "detail") {
       const id = url.searchParams.get("id") ?? "";
+      if (!uuidPattern.test(id)) {
+        return Response.json({ error: "Customer could not be found." }, { status: 404 });
+      }
       const { data: customer, error } = await auth.serviceClient
         .from("customers")
         .select(customerFields)
@@ -142,19 +147,39 @@ export async function GET(request: Request) {
       if (error) throw error;
       if (!customer) return Response.json({ error: "Customer could not be found." }, { status: 404 });
 
-      const [bookingsResult, linksResult, auditResult] = await Promise.all([
+      const linksResult = await auth.serviceClient
+          .from("customer_company_associations")
+          .select("id,company_id,job_title,created_at")
+          .eq("customer_id", id)
+          .is("removed_at", null)
+          .order("created_at");
+      if (linksResult.error) throw linksResult.error;
+
+      const companyIds = [...new Set((linksResult.data ?? []).map((link) => link.company_id))];
+      const companiesResult = companyIds.length
+        ? await auth.serviceClient.from("companies").select("id,legal_name,trading_name").in("id", companyIds)
+        : { data: [], error: null };
+      if (companiesResult.error) throw companiesResult.error;
+      const companies = new Map((companiesResult.data ?? []).map((company) => [company.id, company]));
+
+      return Response.json({
+        customer,
+        links: (linksResult.data ?? []).map((link) => ({ ...link, company: companies.get(link.company_id) ?? null })),
+      });
+    }
+
+    if (mode === "history") {
+      const id = url.searchParams.get("id") ?? "";
+      if (!uuidPattern.test(id)) {
+        return Response.json({ error: "Customer could not be found." }, { status: 404 });
+      }
+      const [bookingsResult, auditResult] = await Promise.all([
         auth.serviceClient
           .from("bookings")
           .select("id,booking_reference,booking_status,payment_status,guest_count,total_amount,show_id,company_id,created_at")
           .eq("customer_id", id)
           .order("created_at", { ascending: false })
           .limit(50),
-        auth.serviceClient
-          .from("customer_company_associations")
-          .select("id,company_id,job_title,created_at")
-          .eq("customer_id", id)
-          .is("removed_at", null)
-          .order("created_at"),
         auth.serviceClient
           .from("audit_events")
           .select("id,action,actor_name,created_at,changed_fields")
@@ -163,30 +188,34 @@ export async function GET(request: Request) {
           .order("created_at", { ascending: false })
           .limit(30),
       ]);
-      if (bookingsResult.error) throw bookingsResult.error;
-      if (linksResult.error) throw linksResult.error;
-      if (auditResult.error) throw auditResult.error;
+      const errors: string[] = [];
+      if (bookingsResult.error) {
+        console.error("[Zingara API] Customer booking history failed", bookingsResult.error);
+        errors.push("Booking history could not be loaded.");
+      }
+      if (auditResult.error) {
+        console.error("[Zingara API] Customer audit history failed", auditResult.error);
+        errors.push("Audit history could not be loaded.");
+      }
 
-      const companyIds = [...new Set((linksResult.data ?? []).map((link) => link.company_id))];
-      const showIds = [...new Set((bookingsResult.data ?? []).map((booking) => booking.show_id))];
-      const [companiesResult, showsResult] = await Promise.all([
-        companyIds.length
-          ? auth.serviceClient.from("companies").select("id,legal_name,trading_name").in("id", companyIds)
-          : Promise.resolve({ data: [], error: null }),
-        showIds.length
-          ? auth.serviceClient.from("shows").select("id,date,time,location").in("id", showIds)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-      if (companiesResult.error) throw companiesResult.error;
-      if (showsResult.error) throw showsResult.error;
-      const companies = new Map((companiesResult.data ?? []).map((company) => [company.id, company]));
+      const bookings = bookingsResult.error ? [] : bookingsResult.data ?? [];
+      const showIds = [...new Set(bookings.map((booking) => booking.show_id))];
+      const showsResult = showIds.length
+        ? await auth.serviceClient.from("shows").select("id,date,time,location").in("id", showIds)
+        : { data: [], error: null };
+      if (showsResult.error) {
+        console.error("[Zingara API] Customer booking shows failed", showsResult.error);
+        errors.push("Performance details could not be loaded.");
+      }
       const shows = new Map((showsResult.data ?? []).map((show) => [show.id, show]));
 
       return Response.json({
-        audit: auditResult.data ?? [],
-        bookings: (bookingsResult.data ?? []).map((booking) => ({ ...booking, show: shows.get(booking.show_id) ?? null })),
-        customer,
-        links: (linksResult.data ?? []).map((link) => ({ ...link, company: companies.get(link.company_id) ?? null })),
+        audit: auditResult.error ? [] : auditResult.data ?? [],
+        bookings: bookings.map((booking) => ({
+          ...booking,
+          show: shows.get(booking.show_id) ?? null,
+        })),
+        errors,
       });
     }
 
@@ -196,7 +225,7 @@ export async function GET(request: Request) {
     const archived = url.searchParams.get("archived") ?? "active";
     let query = auth.serviceClient
       .from("customers")
-      .select(customerFields, { count: "exact" })
+      .select(customerListFields, { count: "exact" })
       .is("merged_into_customer_id", null)
       .order("updated_at", { ascending: false })
       .order("id", { ascending: false })

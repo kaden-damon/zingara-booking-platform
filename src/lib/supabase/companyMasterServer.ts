@@ -69,9 +69,14 @@ function address(input: {
 export async function loadCompanies(
   client: SupabaseClient,
   includeArchived = false,
+  companyIds?: string[],
 ): Promise<CompanyRecord[]> {
   let query = client.from("companies").select(companySelect).order("legal_name");
   if (!includeArchived) query = query.is("archived_at", null);
+  if (companyIds) {
+    if (companyIds.length === 0) return [];
+    query = query.in("id", companyIds);
+  }
 
   const { data, error } = await query;
   if (error) throw error;
@@ -193,6 +198,48 @@ export async function loadCompanies(
       vatNumber: row.vat_number,
     };
   });
+}
+
+export async function loadCompanyPage(
+  client: SupabaseClient,
+  input: {
+    includeArchived: boolean;
+    page: number;
+    pageSize: number;
+    search: string;
+  },
+) {
+  const page = Math.max(1, Math.floor(input.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Math.floor(input.pageSize) || 25));
+  const offset = (page - 1) * pageSize;
+  let query = client
+    .from("companies")
+    .select("id", { count: "exact" })
+    .order("legal_name")
+    .order("id")
+    .range(offset, offset + pageSize - 1);
+
+  if (!input.includeArchived) {
+    query = query
+      .is("archived_at", null)
+      .is("merged_into_company_id", null);
+  }
+  if (input.search) {
+    query = query.or(
+      `legal_name.ilike.%${input.search}%,trading_name.ilike.%${input.search}%`,
+    );
+  }
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  const ids = (data ?? []).map((row) => row.id);
+  return {
+    companies: await loadCompanies(client, input.includeArchived, ids),
+    page,
+    pageSize,
+    total: count ?? 0,
+  };
 }
 
 export function toCompanyRpcPayload(values: CompanyWriteInput) {

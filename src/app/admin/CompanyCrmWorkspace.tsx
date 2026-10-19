@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   emptyCompanyInput,
   type CompanyRecord,
   type CompanyWriteInput,
 } from "@/lib/companyMaster";
 import {
-  getCompanies,
+  getCompanyPage,
   linkCustomerCompany,
   saveCompany,
 } from "@/lib/supabase/companies";
-import { paginateItems } from "@/lib/pagination";
+import { paginateServerItems } from "@/lib/pagination";
 import { fetchSupabaseApi, SupabaseApiError } from "@/lib/supabase/apiClient";
 import BookingPaginationControls from "./BookingPaginationControls";
 
@@ -77,11 +77,12 @@ export default function CompanyCrmWorkspace({
   selectedCustomer,
 }: Props) {
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [companyTotal, setCompanyTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [companyQuery, setCompanyQuery] = useState("");
   const [companyViewMode, setCompanyViewMode] =
     useState<CompanyViewMode>("compact");
   const [companyViewModeLoaded, setCompanyViewModeLoaded] = useState(false);
@@ -100,38 +101,56 @@ export default function CompanyCrmWorkspace({
   const [newContact, setNewContact] = useState({ email: "", firstName: "", mobile: "", surname: "" });
   const [newContactMatches, setNewContactMatches] = useState<typeof contactOptions>([]);
   const [showNewContact, setShowNewContact] = useState(false);
+  const workspaceRequestRef = useRef(0);
 
-  async function loadWorkspace() {
+  async function loadWorkspace(signal?: AbortSignal) {
+    const requestId = workspaceRequestRef.current + 1;
+    workspaceRequestRef.current = requestId;
     setLoading(true);
     setError("");
     try {
-      const companyRows = await getCompanies(true);
-      setCompanies(companyRows);
-      setLoaded(true);
+      const result = await getCompanyPage({
+        includeArchived: true,
+        page: companyPage,
+        pageSize: companyPageSize,
+        search: companyQuery,
+        signal,
+      });
+      if (requestId !== workspaceRequestRef.current) return;
+      setCompanies(result.companies);
+      setCompanyTotal(result.total);
     } catch (loadError) {
+      if (loadError instanceof DOMException && loadError.name === "AbortError") {
+        return;
+      }
+      if (requestId !== workspaceRequestRef.current) return;
       setError(
         loadError instanceof Error
           ? loadError.message
           : "Company information could not be loaded.",
       );
     } finally {
-      setLoading(false);
+      if (requestId === workspaceRequestRef.current) setLoading(false);
     }
   }
 
   useEffect(() => {
-    // This syncs the lazy CRM snapshot when a Customer is opened.
-    if (
-      (mode === "directory" || selectedCustomer) &&
-      !loaded &&
-      !loading
-    ) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      void loadWorkspace();
-    }
-    // This is intentionally lazy: no Company request is added to Admin boot.
+    if (mode !== "directory" && !selectedCustomer) return;
+    const controller = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadWorkspace(controller.signal);
+    return () => controller.abort();
+    // Company data remains lazy and is bounded to the current server page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, selectedCustomer?.id]);
+  }, [companyPage, companyPageSize, companyQuery, mode, selectedCustomer?.id]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setCompanyPage(1);
+      setCompanyQuery(search.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     // The editable link draft follows the selected Customer record.
@@ -177,23 +196,11 @@ export default function CompanyCrmWorkspace({
     return () => window.clearTimeout(timer);
   }, [contactSearch, editingCompanyId]);
 
-  const visibleCompanies = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return companies.filter((company) => {
-      if (!term) return true;
-      return [
-        company.legalName,
-        company.tradingName,
-        company.registrationNumber,
-        company.vatNumber,
-        company.billingEmail,
-      ].some((value) => value?.toLowerCase().includes(term));
-    });
-  }, [companies, search]);
-
-  const companyPagination = useMemo(
-    () => paginateItems(visibleCompanies, companyPage, companyPageSize),
-    [companyPage, companyPageSize, visibleCompanies],
+  const companyPagination = paginateServerItems(
+    companies,
+    companyTotal,
+    companyPage,
+    companyPageSize,
   );
 
   function beginCreate() {
@@ -750,7 +757,7 @@ export default function CompanyCrmWorkspace({
             </div>
           )}
 
-          {visibleCompanies.length === 0 && (
+          {!loading && companies.length === 0 && (
             <p className="mt-4 rounded-lg border border-white/10 bg-black/30 p-4 text-sm text-zinc-400">
               No Companies match this search.
             </p>
