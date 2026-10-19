@@ -79,13 +79,13 @@ export async function loadCompanies(
   const ids = rows.map((row) => row.id);
   if (ids.length === 0) return [];
 
-  const [contactsResult, bookingsResult, requestsResult] = await Promise.all([
+  const [associationResult, bookingsResult, requestsResult] = await Promise.all([
     client
-      .from("customers")
-      .select("id,company_id,first_name,surname,email,mobile,job_title,crm_revision,updated_at")
+      .from("customer_company_associations")
+      .select("id,company_id,customer_id,job_title,created_at")
       .in("company_id", ids)
-      .is("merged_into_customer_id", null)
-      .order("surname"),
+      .is("removed_at", null)
+      .order("created_at"),
     client
       .from("bookings")
       .select("company_id,booking_reference,guest_count,booking_status,created_at")
@@ -98,19 +98,39 @@ export async function loadCompanies(
       .order("created_at", { ascending: false }),
   ]);
 
-  if (contactsResult.error) throw contactsResult.error;
+  if (associationResult.error) throw associationResult.error;
   if (bookingsResult.error) throw bookingsResult.error;
   if (requestsResult.error) throw requestsResult.error;
 
+  const customerIds = [
+    ...new Set((associationResult.data ?? []).map((association) => association.customer_id)),
+  ];
+  const contactsResult = customerIds.length
+    ? await client
+        .from("customers")
+        .select("id,first_name,surname,email,mobile,crm_revision,updated_at")
+        .in("id", customerIds)
+        .is("merged_into_customer_id", null)
+    : { data: [], error: null };
+  if (contactsResult.error) throw contactsResult.error;
+  const contactsById = new Map(
+    (contactsResult.data ?? []).map((contact) => [contact.id, contact]),
+  );
+
   return rows.map((row) => {
-    const contacts = (contactsResult.data ?? [])
-      .filter((contact) => contact.company_id === row.id)
-      .map((contact) => ({
+    const contacts = (associationResult.data ?? [])
+      .filter((association) => association.company_id === row.id)
+      .flatMap((association) => {
+        const contact = contactsById.get(association.customer_id);
+        if (!contact) return [];
+        return [{ association, contact }];
+      })
+      .map(({ association, contact }) => ({
         crmRevision: Number(contact.crm_revision ?? 1),
         email: contact.email,
         firstName: contact.first_name,
         id: contact.id,
-        jobTitle: contact.job_title,
+        jobTitle: association.job_title,
         mobile: contact.mobile,
         surname: contact.surname,
         updatedAt: contact.updated_at,

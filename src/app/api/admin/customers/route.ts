@@ -404,8 +404,13 @@ export async function GET(request: Request) {
   if (lookup) {
     const normalizedEmail = lookup.toLowerCase();
     const normalizedPhone = lookup.replace(/\D/g, "");
+    const normalizedName = lookup.replace(/[^a-zA-ZÀ-ÿ' -]/g, " ").trim();
 
-    if (!normalizedEmail.includes("@") && normalizedPhone.length < 7) {
+    if (
+      !normalizedEmail.includes("@") &&
+      normalizedPhone.length < 7 &&
+      normalizedName.length < 2
+    ) {
       return Response.json({ rows: [] });
     }
 
@@ -416,7 +421,11 @@ export async function GET(request: Request) {
 
     query = normalizedEmail.includes("@")
       ? query.ilike("email", normalizedEmail)
-      : query.ilike("mobile", `%${normalizedPhone}%`);
+      : normalizedPhone.length >= 7
+        ? query.ilike("mobile", `%${normalizedPhone}%`)
+        : query.or(
+            `first_name.ilike.%${normalizedName.replace(/[,()%]/g, " ")}%,surname.ilike.%${normalizedName.replace(/[,()%]/g, " ")}%`,
+          );
 
     const { data, error: lookupError } = await query;
 

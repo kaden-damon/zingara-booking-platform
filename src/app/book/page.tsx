@@ -794,6 +794,8 @@ export default function BookingPage() {
   const [corporateOutstandingAmount, setCorporateOutstandingAmount] =
     useState("");
   const [customerMatches, setCustomerMatches] = useState<CustomerLookupRow[]>([]);
+  const [selectedExistingCustomerId, setSelectedExistingCustomerId] =
+    useState<string | null>(null);
   const [isManualPaymentLinkCreating, setIsManualPaymentLinkCreating] =
     useState(false);
   const [isManualPaymentLinkSending, setIsManualPaymentLinkSending] =
@@ -1228,6 +1230,7 @@ export default function BookingPage() {
   ) {
     const nextCustomer = { ...customerInfo, [field]: value };
     setCustomerInfo(nextCustomer);
+    setSelectedExistingCustomerId(null);
 
     if (!customerValidationErrors[field]) {
       return;
@@ -1758,10 +1761,17 @@ export default function BookingPage() {
       return;
     }
 
-    const lookup = customerInfo.email.trim() || customerInfo.phone.trim();
+    const lookup =
+      customerInfo.email.trim() ||
+      customerInfo.phone.trim() ||
+      customerInfo.name.trim();
     const phoneDigits = lookup.replace(/\D/g, "");
 
-    if (!lookup.includes("@") && phoneDigits.length < 7) {
+    if (
+      !lookup.includes("@") &&
+      phoneDigits.length < 7 &&
+      lookup.trim().length < 2
+    ) {
       setCustomerMatches([]);
       return;
     }
@@ -1775,7 +1785,7 @@ export default function BookingPage() {
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [customerInfo.email, customerInfo.phone, manualCheckoutRole]);
+  }, [customerInfo.email, customerInfo.name, customerInfo.phone, manualCheckoutRole]);
 
   useEffect(() => {
     if (manualCheckoutRole === "none") {
@@ -2391,6 +2401,10 @@ export default function BookingPage() {
       promoCode: appliedPromoCode?.code,
       promoLabel: appliedPromoCode?.description,
       source: source as "admin" | "corporate-direct" | "online",
+      customerId:
+        manualCheckoutRole === "none"
+          ? undefined
+          : selectedExistingCustomerId ?? undefined,
       customer: customerInfo,
       status: isComplimentary || isCorporateInvoicePaid
         ? ("confirmed" as const)
@@ -4643,6 +4657,7 @@ export default function BookingPage() {
                               .join(" "),
                             phone: customer.mobile ?? customerInfo.phone,
                           });
+                          setSelectedExistingCustomerId(customer.id);
                           setCustomerMatches([]);
                         }}
                         className="flex min-h-11 w-full flex-col rounded-xl border border-white/10 px-3 py-2 text-left text-sm transition hover:border-[#D8C36A]/50 hover:bg-[#D8C36A]/10"

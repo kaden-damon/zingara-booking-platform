@@ -10,11 +10,13 @@ type ApiOptions = {
 
 export class SupabaseApiError extends Error {
   code?: string;
+  details?: unknown;
   explanation?: string;
   status: number;
 
   constructor(input: {
     code?: string;
+    details?: unknown;
     explanation?: string;
     message: string;
     status: number;
@@ -22,6 +24,7 @@ export class SupabaseApiError extends Error {
     super(input.message);
     this.name = "SupabaseApiError";
     this.code = input.code;
+    this.details = input.details;
     this.explanation = input.explanation;
     this.status = input.status;
   }
@@ -80,6 +83,7 @@ export async function fetchSupabaseApi<T>(
 
     throw new SupabaseApiError({
       code: errorPayload.code,
+      details: errorPayload,
       explanation: errorPayload.explanation,
       message: errorPayload.error ?? "Supabase API request failed.",
       status: response.status,

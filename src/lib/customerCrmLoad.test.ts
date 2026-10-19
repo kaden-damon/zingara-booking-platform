@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const adminPageUrl = new URL("../app/admin/page.tsx", import.meta.url);
+const customerWorkspaceUrl = new URL(
+  "../app/admin/CustomerManagementWorkspace.tsx",
+  import.meta.url,
+);
 const apiClientUrl = new URL("./supabase/apiClient.ts", import.meta.url);
 const customerRouteUrl = new URL(
   "../app/api/admin/customers/route.ts",
@@ -10,15 +13,10 @@ const customerRouteUrl = new URL(
 );
 
 test("Customer CRM loader forwards the active Supabase session", async () => {
-  const source = await readFile(adminPageUrl, "utf8");
-  const loader = source.match(
-    /async function loadLiveCustomerRecords\(\) \{[\s\S]*?\n\}/,
-  )?.[0];
-
-  assert.ok(loader);
-  assert.match(loader, /fetchSupabaseApi/);
-  assert.match(loader, /"\/api\/admin\/customers"/);
-  assert.doesNotMatch(loader, /\bfetch\(/);
+  const source = await readFile(customerWorkspaceUrl, "utf8");
+  assert.match(source, /fetchSupabaseApi/);
+  assert.match(source, /\/api\/admin\/customer-management/);
+  assert.doesNotMatch(source, /\bfetch\(/);
 });
 
 test("authenticated API client sends the Supabase bearer token", async () => {
@@ -39,19 +37,16 @@ test("Customer CRM route remains restricted to active staff", async () => {
   assert.match(getHandler, /fetchAllCustomers\(auth\.serviceClient\)/);
 });
 
-test("Customer CRM retry still reissues the loader", async () => {
-  const source = await readFile(adminPageUrl, "utf8");
-
-  assert.match(source, /async function refreshLiveCustomerRecords\(\)/);
-  assert.match(source, /const records = await loadLiveCustomerRecords\(\)/);
-  assert.match(source, /onClick=\{\(\) => void refreshLiveCustomerRecords\(\)\}/);
+test("Customer CRM retry still reissues the bounded loader", async () => {
+  const source = await readFile(customerWorkspaceUrl, "utf8");
+  assert.match(source, /const loadList = useCallback/);
+  assert.match(source, /Customers couldn't be loaded\. Try again\./);
+  assert.match(source, /void loadList\(\)/);
 });
 
-test("Customer booking history opens the existing Booking Details view", async () => {
-  const source = await readFile(adminPageUrl, "utf8");
-
-  assert.match(source, /function openCustomerHistoryBooking\(reference: string\)/);
-  assert.match(source, /setBookingSearch\(reference\)/);
-  assert.match(source, /void openBookingDetails\(reference\)/);
-  assert.match(source, />\s*Open Booking\s*<\/button>/);
+test("Customer booking history remains available from exact customer details", async () => {
+  const source = await readFile(customerWorkspaceUrl, "utf8");
+  assert.match(source, /mode=detail&id=/);
+  assert.match(source, /detail\.bookings\.map/);
+  assert.match(source, /booking\.booking_reference/);
 });

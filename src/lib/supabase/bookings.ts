@@ -583,7 +583,9 @@ async function getLegacyShowId(supabaseShowId: string) {
 }
 
 async function toSupabaseBooking(booking: DemoBooking) {
-  const customerId = await getOrCreateCustomerIdFromInfo(booking.customer);
+  const customerId =
+    booking.customerId ??
+    (await getOrCreateCustomerIdFromInfo(booking.customer));
   const showId = await getSupabaseShowId(booking);
 
   console.log("[Zingara Supabase Diagnostics] Booking relation mapping", {

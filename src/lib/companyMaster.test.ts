@@ -161,7 +161,7 @@ test("CRM Company workspace is lazy and exposes required plain-English actions",
   const panel = await readFile(panelPath, "utf8");
   assert.match(panel, /no Company request is added to Admin boot/);
   assert.match(panel, /Company Directory/);
-  assert.match(panel, /\+ Create/);
+  assert.match(panel, /\+ Add Company/);
   assert.match(panel, /Primary Contact/);
   assert.match(panel, /Save Company Link/);
 });
@@ -172,8 +172,7 @@ test("Customers and Companies are mutually exclusive CRM directory views", async
   assert.match(page, /aria-label="CRM directory view"/);
   assert.match(page, /crmDirectoryView === "companies" \? \(/);
   assert.match(page, /mode="directory"/);
-  assert.match(page, /mode="customer-link"/);
-  assert.match(page, /crmDirectoryView === "customers" && \(/);
+  assert.match(page, /CustomerManagementWorkspace/);
 });
 
 test("normal CRM navigation omits Data Review while review history remains supported", async () => {
@@ -190,13 +189,15 @@ test("normal CRM navigation omits Data Review while review history remains suppo
   assert.match(sql, /reviewed_at timestamptz/);
 });
 
-test("Customer filters and search render only in Customers mode", async () => {
-  const page = await readFile(adminPagePath, "utf8");
-  assert.match(page, /crmDirectoryView === "customers" && \([\s\S]{0,1600}<AdminSearchInput/);
-  assert.match(page, /Status/);
-  assert.match(page, /Profile Details/);
-  assert.match(page, /All Profiles/);
-  assert.doesNotMatch(page, /All Names/);
+test("Customer filters and search are isolated in the bounded Customers workspace", async () => {
+  const panel = await readFile(
+    new URL("../app/admin/CustomerManagementWorkspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(panel, /Search customers/);
+  assert.match(panel, /Customer status/);
+  assert.match(panel, /pageSize = 10/);
+  assert.match(panel, /\/api\/admin\/customer-management/);
 });
 
 test("Customer and Company loading remain scoped to their selected workspace", async () => {
@@ -204,8 +205,8 @@ test("Customer and Company loading remain scoped to their selected workspace", a
     readFile(adminPagePath, "utf8"),
     readFile(panelPath, "utf8"),
   ]);
-  assert.match(page, /crmDirectoryView !== "customers"/);
-  assert.match(page, /activeAdminTab === "customers" && crmDirectoryView === "customers"/);
+  assert.match(page, /CustomerManagementWorkspace/);
+  assert.doesNotMatch(page, /activeAdminTab === "customers"[\s\S]{0,400}refreshLiveCustomerRecords/);
   assert.match(panel, /mode === "directory" \|\| selectedCustomer/);
   assert.equal((panel.match(/getCompanies\(true\)/g) ?? []).length, 1);
 });
@@ -233,7 +234,7 @@ test("Company history lives in the opened profile rather than directory cards", 
   const panel = await readFile(panelPath, "utf8");
   assert.match(panel, /id="company-profile-editor"/);
   assert.match(panel, /Company Profile/);
-  assert.match(panel, /Contacts and history/);
+  assert.match(panel, /Company details, contacts and booking history/);
   assert.doesNotMatch(panel, /<details/);
   assert.doesNotMatch(panel, /<summary/);
 });

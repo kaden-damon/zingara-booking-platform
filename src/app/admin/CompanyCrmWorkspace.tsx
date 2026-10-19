@@ -12,6 +12,7 @@ import {
   saveCompany,
 } from "@/lib/supabase/companies";
 import { paginateItems } from "@/lib/pagination";
+import { fetchSupabaseApi, SupabaseApiError } from "@/lib/supabase/apiClient";
 import BookingPaginationControls from "./BookingPaginationControls";
 
 type SelectedCustomer = {
@@ -93,6 +94,12 @@ export default function CompanyCrmWorkspace({
   const [showCompanyForm, setShowCompanyForm] = useState(false);
   const [customerCompanyId, setCustomerCompanyId] = useState("");
   const [customerJobTitle, setCustomerJobTitle] = useState("");
+  const [contactSearch, setContactSearch] = useState("");
+  const [contactOptions, setContactOptions] = useState<Array<{ id: string; first_name: string; surname: string | null; email: string | null; mobile: string | null }>>([]);
+  const [contactCustomerId, setContactCustomerId] = useState("");
+  const [newContact, setNewContact] = useState({ email: "", firstName: "", mobile: "", surname: "" });
+  const [newContactMatches, setNewContactMatches] = useState<typeof contactOptions>([]);
+  const [showNewContact, setShowNewContact] = useState(false);
 
   async function loadWorkspace() {
     setLoading(true);
@@ -156,6 +163,19 @@ export default function CompanyCrmWorkspace({
       companyViewMode,
     );
   }, [companyViewMode, companyViewModeLoaded]);
+
+  useEffect(() => {
+    if (!editingCompanyId || contactSearch.trim().length < 2) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({ mode: "list", page: "1", pageSize: "20", search: contactSearch.trim(), archived: "active" });
+      fetchSupabaseApi<{ rows: typeof contactOptions }>(`/api/admin/customer-management?${params}`)
+        .then((payload) => setContactOptions(payload.rows ?? []))
+        .catch(() => setContactOptions([]));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [contactSearch, editingCompanyId]);
 
   const visibleCompanies = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -253,6 +273,75 @@ export default function CompanyCrmWorkspace({
           ? saveError.message
           : "The Customer Company link could not be saved.",
       );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function linkCompanyContact(customerId: string) {
+    if (!editingCompanyId || !customerId || !canManage) return;
+    setLoading(true);
+    setError("");
+    try {
+      await fetchSupabaseApi("/api/admin/customer-management", {
+        body: { action: "link", companyId: editingCompanyId, customerId, jobTitle: "" },
+        method: "POST",
+      });
+      setContactCustomerId("");
+      setContactSearch("");
+      setNewContactMatches([]);
+      setShowNewContact(false);
+      await loadWorkspace();
+    } catch (linkError) {
+      setError(linkError instanceof Error ? linkError.message : "The Customer could not be linked.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createAndLinkContact(forceCreate = false) {
+    if (!editingCompanyId || !canManage) return;
+    setLoading(true);
+    setError("");
+    try {
+      const created = await fetchSupabaseApi<{ customer: { id: string } }>("/api/admin/customer-management", {
+        body: { action: "create", ...newContact, forceCreate },
+        method: "POST",
+      });
+      await fetchSupabaseApi("/api/admin/customer-management", {
+        body: { action: "link", companyId: editingCompanyId, customerId: created.customer.id, jobTitle: "" },
+        method: "POST",
+      });
+      setNewContact({ email: "", firstName: "", mobile: "", surname: "" });
+      setNewContactMatches([]);
+      setShowNewContact(false);
+      await loadWorkspace();
+    } catch (createError) {
+      const details = createError instanceof SupabaseApiError
+        ? createError.details as { code?: string; matches?: typeof contactOptions } | undefined
+        : undefined;
+      if (details?.code === "POTENTIAL_MATCHES") {
+        setNewContactMatches(details.matches ?? []);
+      } else {
+        setError(createError instanceof Error ? createError.message : "The Customer could not be created and linked.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function unlinkCompanyContact(customerId: string) {
+    if (!editingCompanyId || !canManage) return;
+    setLoading(true);
+    setError("");
+    try {
+      await fetchSupabaseApi("/api/admin/customer-management", {
+        body: { companyId: editingCompanyId, customerId },
+        method: "DELETE",
+      });
+      await loadWorkspace();
+    } catch (unlinkError) {
+      setError(unlinkError instanceof Error ? unlinkError.message : "The Customer association could not be removed.");
     } finally {
       setLoading(false);
     }
@@ -380,7 +469,7 @@ export default function CompanyCrmWorkspace({
                 onClick={beginCreate}
                 className="h-10 rounded-full bg-[#D8C36A] px-5 text-xs font-bold uppercase tracking-[0.1em] text-black transition hover:bg-[#F2D66C] disabled:opacity-50"
               >
-                + Create
+                + Add Company
               </button>
             </div>
           </div>
@@ -546,18 +635,17 @@ export default function CompanyCrmWorkspace({
               </div>
               {editingCompanyId && (
                 <div className="mt-5 border-t border-white/10 pt-4">
-                  <h4 className="text-sm font-bold text-white">Contacts and history</h4>
+                  <h4 className="text-sm font-bold text-white">Associated Customers</h4>
                   <div className="mt-3 grid gap-4 lg:grid-cols-2">
                     <div className="space-y-2 text-sm text-zinc-300">
                       {editingCompany?.contacts.map((contact) => (
-                          <p key={contact.id}>
-                            {contact.firstName} {contact.surname ?? ""}
-                            {contact.jobTitle ? ` · ${contact.jobTitle}` : ""}
-                            {contact.id === companyDraft.primaryContactCustomerId
-                              ? " · Primary Contact"
-                              : ""}
-                          </p>
+                          <div key={contact.id} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 p-2">
+                            <p>{contact.firstName} {contact.surname ?? ""}{contact.jobTitle ? ` · ${contact.jobTitle}` : ""}{contact.id === companyDraft.primaryContactCustomerId ? " · Primary Contact" : ""}</p>
+                            {canManage && <button type="button" disabled={loading} onClick={() => void unlinkCompanyContact(contact.id)} className="rounded-lg border border-red-300/30 px-2 py-1 text-xs text-red-100">Remove</button>}
+                          </div>
                         ))}
+                      {editingCompany?.contacts.length === 0 && <p className="text-zinc-500">No associated customers.</p>}
+                      {canManage && <div className="space-y-2 rounded-lg border border-[#D8C36A]/20 p-3"><input value={contactSearch} onChange={(event) => { const value = event.target.value; setContactSearch(value); if (value.trim().length < 2) setContactOptions([]); }} placeholder="Search existing customers" className={inputClass()} /><select value={contactCustomerId} onChange={(event) => setContactCustomerId(event.target.value)} className={inputClass()}><option value="">Select customer</option>{contactOptions.filter((option) => !editingCompany?.contacts.some((contact) => contact.id === option.id)).map((option) => <option key={option.id} value={option.id}>{option.first_name} {option.surname ?? ""}</option>)}</select><button type="button" disabled={!contactCustomerId || loading} onClick={() => void linkCompanyContact(contactCustomerId)} className="min-h-10 rounded-lg bg-[#D8C36A] px-3 text-sm font-bold text-black disabled:opacity-40">Link existing customer</button><button type="button" onClick={() => { setShowNewContact((value) => !value); setNewContactMatches([]); }} className="ml-2 min-h-10 rounded-lg border border-white/15 px-3 text-sm">Create and link new customer</button>{showNewContact && <div className="grid gap-2 sm:grid-cols-2"><input value={newContact.firstName} onChange={(event) => setNewContact({ ...newContact, firstName: event.target.value })} placeholder="First name" className={inputClass()} /><input value={newContact.surname} onChange={(event) => setNewContact({ ...newContact, surname: event.target.value })} placeholder="Surname" className={inputClass()} /><input value={newContact.email} onChange={(event) => setNewContact({ ...newContact, email: event.target.value })} placeholder="Email (optional)" className={inputClass()} /><input value={newContact.mobile} onChange={(event) => setNewContact({ ...newContact, mobile: event.target.value })} placeholder="Mobile (optional)" className={inputClass()} />{newContactMatches.length > 0 && <div className="space-y-2 rounded-lg border border-amber-300/30 bg-amber-950/20 p-3 sm:col-span-2"><p className="font-semibold text-amber-100">Possible existing customers</p>{newContactMatches.map((match) => <button key={match.id} type="button" onClick={() => void linkCompanyContact(match.id)} className="block w-full rounded-lg border border-white/10 p-2 text-left text-sm">Use existing customer: {match.first_name} {match.surname ?? ""}</button>)}<button type="button" disabled={loading} onClick={() => void createAndLinkContact(true)} className="min-h-10 rounded-lg border border-amber-200/35 px-3 text-sm font-semibold text-amber-100">Create new customer</button></div>}<button type="button" disabled={loading || !newContact.firstName.trim() || !newContact.surname.trim()} onClick={() => void createAndLinkContact()} className="min-h-10 rounded-lg bg-[#D8C36A] px-3 text-sm font-bold text-black disabled:opacity-40 sm:col-span-2">Create and link</button></div>}</div>}
                     </div>
                     <div className="space-y-2 text-sm text-zinc-400">
                       {editingCompany?.bookingHistory
