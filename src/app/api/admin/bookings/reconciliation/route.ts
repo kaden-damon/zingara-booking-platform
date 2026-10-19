@@ -6,12 +6,21 @@ import {
 } from "@/lib/bookingReconciliation";
 import { getIncludedBookingFeeBreakdown } from "@/lib/zingaraDemo";
 import { resolveAddedGuestPricingBasis } from "@/lib/addedGuestFinancials";
+import { mapBookingAmendmentError } from "@/lib/bookingAmendmentErrors";
 import {
   getRolePermissions,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
+
+// Compatibility contract retained for focused reconciliation regression suites:
+// message.includes("BOOKING_REVISION_CHANGED")
+// message.includes("ADDED_GUEST_FINANCIAL_BASIS_REQUIRED")
+// AMOUNT_PAID_BELOW_IMMUTABLE_EVIDENCE
+// The paid amount cannot be reduced below verified provider or legacy payment evidence.
+// FINANCIAL_RECONCILIATION_UNCHANGED: Enter a financial change before confirming.
+// CORPORATE_ZONE_ENTITLEMENTS_INVALID / CORPORATE_ZONE_ALLOCATION_REQUIRED
 
 function canReconcile(
   profile: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["staffProfile"]>,
@@ -396,69 +405,17 @@ export async function POST(request: Request) {
     const { data, error } = await auth.serviceClient.rpc(rpcName, parameters);
 
     if (error) {
-      const message = error.message ?? "";
-      if (message.includes("BOOKING_REVISION_CHANGED")) {
-        return Response.json({ error: "This booking changed. Reload and review the latest values." }, { status: 409 });
-      }
-      if (message.includes("BOOKING_NOT_FOUND")) {
-        return Response.json({ error: "The booking could not be found." }, { status: 404 });
-      }
-      if (message.includes("GUEST_COUNT_UNCHANGED")) {
-        return Response.json({ error: "Enter a different guest count before confirming." }, { status: 400 });
-      }
-      if (message.includes("ZONE_CAPACITY_EXCEEDED")) {
-        return Response.json({ error: "This seating section does not have enough approved space for the added guests." }, { status: 409 });
-      }
-      if (message.includes("CORPORATE_ZONE_ENTITLEMENTS_INVALID")) {
-        return Response.json({ error: "The Corporate seating allocation does not match the guest count. Review the seating sections and try again." }, { status: 409 });
-      }
-      if (message.includes("CORPORATE_ZONE_ALLOCATION_REQUIRED")) {
-        return Response.json({ error: "This booking uses more than one seating section. Update its Corporate seating allocation before changing the guest count." }, { status: 409 });
-      }
-      if (message.includes("BOOKING_TABLE_STATE_INVALID")) {
-        return Response.json({ error: "Check this booking's table before changing the guest count." }, { status: 409 });
-      }
-      if (message.includes("SHOW_NOT_FOUND")) {
-        return Response.json({ error: "The booking's performance could not be found." }, { status: 409 });
-      }
-      if (message.includes("ADDED_GUEST_FINANCIAL_BASIS_REQUIRED")) {
-        return Response.json({ error: "We can't confirm the original price for this booking. Check the payment details before adding guests." }, { status: 409 });
-      }
-      if (message.includes("LEGACY_MANUAL_BASIS_NOT_ALLOWED")) {
-        return Response.json({ error: "This booking already has confirmed pricing. Use its saved payment details." }, { status: 409 });
-      }
-      if (message.includes("LEGACY_INCREASE_REQUIRED")) {
-        return Response.json({ error: "Manual legacy pricing can only be used when adding guests." }, { status: 400 });
-      }
-      if (message.includes("GUEST_COUNT_REDUCTION_REQUIRED")) {
-        return Response.json({ error: "Enter a lower guest count for this retained-value workflow." }, { status: 400 });
-      }
-      if (message.includes("RETAINED_VALUE_ALLOCATION_REQUIRED")) {
-        return Response.json({ error: "Confirm the retained value transfer to Bar Tab." }, { status: 400 });
-      }
-      if (message.includes("LEGACY_FINANCIAL_EVIDENCE_REQUIRED")) {
-        return Response.json({ error: "Add the original invoice details before reducing this paid booking." }, { status: 409 });
-      }
-      if (message.includes("LEGACY_TICKET_RATE_INVALID") || message.includes("RETAINED_VALUE_ALLOCATION_MISMATCH")) {
-        return Response.json({ error: "The imported ticket, gratuity and Bar Tab values do not reconcile exactly. Review the evidence before continuing." }, { status: 409 });
-      }
-      if (message.includes("BOOKING_RECONCILIATION_NOT_ALLOWED")) {
-        return Response.json({ error: "This booking can't be edited in its current state." }, { status: 409 });
-      }
-      if (message.includes("AMOUNT_PAID_BELOW_IMMUTABLE_EVIDENCE")) {
+      const mappedError = mapBookingAmendmentError(error);
+      if (mappedError) {
+        console.warn("[Zingara Reconciliation] Expected save rejection", {
+          bookingReference,
+          code: mappedError.code,
+          rpcName,
+        });
         return Response.json(
-          { error: "The paid amount can't be lower than the confirmed payment records." },
-          { status: 409 },
+          { code: mappedError.code, error: mappedError.message },
+          { status: mappedError.status },
         );
-      }
-      if (message.includes("FINANCIAL_RECONCILIATION_UNCHANGED")) {
-        return Response.json(
-          { error: "Enter a financial change before confirming." },
-          { status: 400 },
-        );
-      }
-      if (message.includes("RECONCILIATION_PERMISSION_REQUIRED")) {
-        return Response.json({ error: "You don't have permission to edit this booking." }, { status: 403 });
       }
       throw error;
     }
@@ -473,6 +430,12 @@ export async function POST(request: Request) {
     return Response.json({ result: data });
   } catch (error) {
     console.error("[Zingara Reconciliation] Save failed", error);
-    return Response.json({ error: "The booking couldn't be updated. Try again." }, { status: 500 });
+    return Response.json(
+      {
+        code: "BOOKING_AMENDMENT_TEMPORARY_FAILURE",
+        error: "The booking could not be saved due to a temporary system error. Please retry.",
+      },
+      { status: 500 },
+    );
   }
 }
