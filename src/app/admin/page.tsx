@@ -44530,8 +44530,8 @@ export default function AdminDashboardPage() {
                           onClick={closeBookingDetails}
                           className="absolute inset-0 cursor-default"
                         />
-                        <aside className="relative z-10 flex h-full w-full max-w-5xl flex-col overflow-hidden border border-[#D8C36A]/25 bg-zinc-950 text-white shadow-2xl shadow-black/50 md:h-[min(94vh,920px)] md:w-[min(96vw,1040px)] md:rounded-[2rem] xl:h-[min(92vh,920px)]">
-                          <div className="flex items-start justify-between gap-3 border-b border-white/10 p-3 sm:p-4 lg:p-5">
+                        <aside className="relative z-10 flex h-full min-w-0 w-full max-w-[100vw] flex-col overflow-hidden border border-[#D8C36A]/25 bg-zinc-950 text-white shadow-2xl shadow-black/50 md:h-[min(94vh,920px)] md:w-[min(96vw,1040px)] md:max-w-5xl md:rounded-[2rem] xl:h-[min(92vh,920px)]">
+                          <div className="flex min-w-0 items-start justify-between gap-3 border-b border-white/10 p-3 sm:p-4 lg:p-5">
                             <div className="min-w-0">
                               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
                                 Booking Details
@@ -44585,7 +44585,7 @@ export default function AdminDashboardPage() {
                               Close
                             </button>
                           </div>
-	                          <div className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5">
+	                          <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:p-5">
                     {bookingDetailAccessMode === "view" && (
                       <div
                         role="status"
