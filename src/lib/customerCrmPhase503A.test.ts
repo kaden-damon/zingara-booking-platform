@@ -15,8 +15,9 @@ const adminPage = source("../app/admin/page.tsx");
 test("customer detail prioritizes core data and safely bounds secondary history", () => {
   assert.match(customerRoute, /mode === "detail"/);
   assert.match(customerRoute, /mode === "history"/);
-  assert.match(customerRoute, /\.limit\(50\)/);
-  assert.match(customerRoute, /\.limit\(30\)/);
+  assert.match(customerRoute, /getPagination\(url\)/);
+  assert.match(customerRoute, /\.range\(from, to\)/);
+  assert.match(customerWorkspace, /pageSize: "10"/);
   assert.match(customerWorkspace, /detailAbortRef\.current\?\.abort\(\)/);
   assert.match(customerWorkspace, /requestId !== detailRequestRef\.current/);
   assert.match(customerWorkspace, /Customer details couldn't be loaded\. Try again\./);

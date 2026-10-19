@@ -1,13 +1,14 @@
 import { getActorRoleLabel } from "@/lib/auditTrail";
 import {
   getRolePermissions,
+  isSuperAdminProfile,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 import { normalizePhoneForComparison, parseInternationalPhone } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 
-const customerFields = "id,first_name,surname,email,mobile,company_id,job_title,crm_revision,preferences,created_at,updated_at";
+const customerFields = "id,first_name,surname,email,mobile,company_id,job_title,crm_revision,preferences,vip_status,relationship_notes,dietary_requirements,created_at,updated_at";
 const customerListFields = "id,first_name,surname,crm_revision,preferences,updated_at";
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -25,6 +26,14 @@ function canRead(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
     : auth.staffProfile?.roles;
   const permissions = getRolePermissions(role);
   return permissions.includes("crm:read") || permissions.includes("bookings:manage");
+}
+
+function canManageCommunications(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
+  const role = Array.isArray(auth.staffProfile?.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile?.roles;
+  const permissions = getRolePermissions(role);
+  return permissions.includes("crm:read") && permissions.includes("communications:manage");
 }
 
 function actorArgs(
@@ -50,6 +59,62 @@ function actorArgs(
 
 function cleanSearch(value: string) {
   return value.replace(/[,%()]/g, " ").trim().slice(0, 120);
+}
+
+function getPagination(url: URL, defaultPageSize = 10) {
+  const page = Math.max(1, Number(url.searchParams.get("page") ?? 1));
+  const pageSize = Math.min(25, Math.max(1, Number(url.searchParams.get("pageSize") ?? defaultPageSize)));
+  return { page, pageSize, from: (page - 1) * pageSize, to: page * pageSize - 1 };
+}
+
+function parseBookingMetadata(notes: unknown) {
+  const prefix = "__zingara_booking_meta__:";
+  if (typeof notes !== "string" || !notes.startsWith(prefix)) return null;
+  try {
+    return JSON.parse(notes.slice(prefix.length)) as {
+      addons?: Array<{ id?: string; name?: string; price?: number; quantity?: number }>;
+      customer?: { email?: string; name?: string; phone?: string };
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadCustomerSummaryBookings(
+  client: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]>,
+  customerId: string,
+) {
+  const batchSize = 500;
+  const rows: Array<Record<string, unknown>> = [];
+  for (let from = 0; ; from += batchSize) {
+    const { data, error } = await client
+      .from("bookings")
+      .select("id,booking_status,guest_count,total_amount,amount_paid,balance_outstanding,section,addons_total,notes")
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false })
+      .range(from, from + batchSize - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as Array<Record<string, unknown>>));
+    if ((data?.length ?? 0) < batchSize) break;
+    if (rows.length >= 10_000) throw new Error("Customer booking history exceeds the supported summary boundary.");
+  }
+  return rows;
+}
+
+async function loadPromoRedemptions(
+  client: NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]>,
+  bookingIds: string[],
+) {
+  const rows: Array<{ booking_id: string; discount_amount: number; promo_code: unknown }> = [];
+  for (let index = 0; index < bookingIds.length; index += 200) {
+    const { data, error } = await client
+      .from("promo_redemptions")
+      .select("booking_id,discount_amount,promo_code:promo_codes(code)")
+      .in("booking_id", bookingIds.slice(index, index + 200));
+    if (error) throw error;
+    rows.push(...((data ?? []) as Array<{ booking_id: string; discount_amount: number; promo_code: unknown }>));
+  }
+  return rows;
 }
 
 function normalizeIdentity(input: {
@@ -163,8 +228,68 @@ export async function GET(request: Request) {
       const companies = new Map((companiesResult.data ?? []).map((company) => [company.id, company]));
 
       return Response.json({
+        canArchive: isSuperAdminProfile(auth.staffProfile),
+        canManageCommunications: canManageCommunications(auth),
         customer,
         links: (linksResult.data ?? []).map((link) => ({ ...link, company: companies.get(link.company_id) ?? null })),
+      });
+    }
+
+    if (mode === "summary") {
+      const id = url.searchParams.get("id") ?? "";
+      if (!uuidPattern.test(id)) return Response.json({ error: "Customer could not be found." }, { status: 404 });
+      const bookings = await loadCustomerSummaryBookings(auth.serviceClient, id);
+      const activeBookings = bookings.filter((booking) => String(booking.booking_status) !== "cancelled");
+      const bookingIds = bookings.map((booking) => String(booking.id));
+      const promoRedemptions = await loadPromoRedemptions(auth.serviceClient, bookingIds);
+
+      const zoneCounts = new Map<string, number>();
+      const addons = new Map<string, { count: number; name: string; revenue: number }>();
+      for (const booking of activeBookings) {
+        const section = String(booking.section ?? "").trim();
+        if (section) zoneCounts.set(section, (zoneCounts.get(section) ?? 0) + 1);
+        for (const addon of parseBookingMetadata(booking.notes)?.addons ?? []) {
+          const name = String(addon.name ?? "Add-on").trim() || "Add-on";
+          const key = String(addon.id ?? name);
+          const current = addons.get(key) ?? { count: 0, name, revenue: 0 };
+          addons.set(key, {
+            count: current.count + 1,
+            name,
+            revenue: current.revenue + Number(addon.price ?? 0),
+          });
+        }
+      }
+      const promos = new Map<string, { code: string; count: number; discount: number }>();
+      for (const redemption of promoRedemptions) {
+        const relation = redemption.promo_code as unknown;
+        const promo = Array.isArray(relation) ? relation[0] : relation;
+        const code = String((promo as { code?: string } | null)?.code ?? "Promotion");
+        const current = promos.get(code) ?? { code, count: 0, discount: 0 };
+        promos.set(code, {
+          code,
+          count: current.count + 1,
+          discount: current.discount + Number(redemption.discount_amount ?? 0),
+        });
+      }
+      const attendanceCount = activeBookings.filter((booking) => {
+        const status = String(booking.booking_status);
+        return status === "checked_in" || status === "checked-in";
+      }).length;
+      const favouriteZone = [...zoneCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      return Response.json({
+        summary: {
+          activeBookings: activeBookings.length,
+          addOns: [...addons.values()].sort((a, b) => b.count - a.count),
+          attendanceCount,
+          attendanceRate: activeBookings.length ? Math.round((attendanceCount / activeBookings.length) * 100) : 0,
+          favouriteZone,
+          guestEntitlement: activeBookings.reduce((sum, booking) => sum + Number(booking.guest_count ?? 0), 0),
+          outstanding: activeBookings.reduce((sum, booking) => sum + Number(booking.balance_outstanding ?? 0), 0),
+          paid: activeBookings.reduce((sum, booking) => sum + Number(booking.amount_paid ?? 0), 0),
+          promoUsage: [...promos.values()].sort((a, b) => b.count - a.count),
+          totalBookings: bookings.length,
+          totalSpend: activeBookings.reduce((sum, booking) => sum + Number(booking.total_amount ?? 0), 0),
+        },
       });
     }
 
@@ -173,50 +298,100 @@ export async function GET(request: Request) {
       if (!uuidPattern.test(id)) {
         return Response.json({ error: "Customer could not be found." }, { status: 404 });
       }
-      const [bookingsResult, auditResult] = await Promise.all([
-        auth.serviceClient
-          .from("bookings")
-          .select("id,booking_reference,booking_status,payment_status,guest_count,total_amount,show_id,company_id,created_at")
-          .eq("customer_id", id)
-          .order("created_at", { ascending: false })
-          .limit(50),
-        auth.serviceClient
-          .from("audit_events")
-          .select("id,action,actor_name,created_at,changed_fields")
-          .eq("entity_type", "customer")
-          .eq("entity_id", id)
-          .order("created_at", { ascending: false })
-          .limit(30),
-      ]);
+      const { page, pageSize, from, to } = getPagination(url);
+      const bookingsResult = await auth.serviceClient
+        .from("bookings")
+        .select("id,booking_reference,booking_status,payment_status,guest_count,total_amount,amount_paid,balance_outstanding,show_id,company_id,section,table_id,notes,created_at", { count: "exact" })
+        .eq("customer_id", id)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, to);
       const errors: string[] = [];
       if (bookingsResult.error) {
         console.error("[Zingara API] Customer booking history failed", bookingsResult.error);
         errors.push("Booking history could not be loaded.");
       }
-      if (auditResult.error) {
-        console.error("[Zingara API] Customer audit history failed", auditResult.error);
-        errors.push("Audit history could not be loaded.");
-      }
-
       const bookings = bookingsResult.error ? [] : bookingsResult.data ?? [];
-      const showIds = [...new Set(bookings.map((booking) => booking.show_id))];
-      const showsResult = showIds.length
-        ? await auth.serviceClient.from("shows").select("id,date,time,location").in("id", showIds)
-        : { data: [], error: null };
+      const showIds = [...new Set(bookings.map((booking) => booking.show_id).filter(Boolean))];
+      const bookingIds = bookings.map((booking) => booking.id);
+      const [showsResult, tableResult] = await Promise.all([
+        showIds.length
+          ? auth.serviceClient.from("shows").select("id,name,date,time,venue,status").in("id", showIds)
+          : Promise.resolve({ data: [], error: null }),
+        bookingIds.length
+          ? auth.serviceClient.from("show_tables").select("booking_id,table_code,section").in("booking_id", bookingIds).order("table_code")
+          : Promise.resolve({ data: [], error: null }),
+      ]);
       if (showsResult.error) {
         console.error("[Zingara API] Customer booking shows failed", showsResult.error);
         errors.push("Performance details could not be loaded.");
       }
+      if (tableResult.error) {
+        console.error("[Zingara API] Customer booking tables failed", tableResult.error);
+        errors.push("Table details could not be loaded.");
+      }
       const shows = new Map((showsResult.data ?? []).map((show) => [show.id, show]));
+      const tablesByBooking = new Map<string, string[]>();
+      for (const table of tableResult.data ?? []) {
+        const current = tablesByBooking.get(table.booking_id) ?? [];
+        current.push(table.table_code);
+        tablesByBooking.set(table.booking_id, current);
+      }
 
       return Response.json({
-        audit: auditResult.error ? [] : auditResult.data ?? [],
         bookings: bookings.map((booking) => ({
           ...booking,
+          customer_snapshot: parseBookingMetadata(booking.notes)?.customer ?? null,
+          notes: undefined,
           show: shows.get(booking.show_id) ?? null,
+          table_codes: tablesByBooking.get(booking.id) ?? [],
         })),
         errors,
+        page,
+        pageSize,
+        total: bookingsResult.count ?? 0,
       });
+    }
+
+    if (mode === "communications") {
+      const id = url.searchParams.get("id") ?? "";
+      if (!uuidPattern.test(id)) return Response.json({ error: "Customer could not be found." }, { status: 404 });
+      const { page, pageSize, from, to } = getPagination(url);
+      const { data, error, count } = await auth.serviceClient
+        .from("communications")
+        .select("id,booking_id,type,channel,subject,message,status,sent_at,created_at", { count: "exact" })
+        .eq("customer_id", id)
+        .order("sent_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .range(from, to);
+      if (error) throw error;
+      const bookingIds = [...new Set((data ?? []).map((row) => row.booking_id).filter(Boolean))];
+      const refsResult = bookingIds.length
+        ? await auth.serviceClient.from("bookings").select("id,booking_reference").in("id", bookingIds)
+        : { data: [], error: null };
+      if (refsResult.error) throw refsResult.error;
+      const refs = new Map((refsResult.data ?? []).map((row) => [row.id, row.booking_reference]));
+      return Response.json({
+        page,
+        pageSize,
+        rows: (data ?? []).map((row) => ({ ...row, booking_reference: refs.get(row.booking_id) ?? null })),
+        total: count ?? 0,
+      });
+    }
+
+    if (mode === "activity") {
+      const id = url.searchParams.get("id") ?? "";
+      if (!uuidPattern.test(id)) return Response.json({ error: "Customer could not be found." }, { status: 404 });
+      const { page, pageSize, from, to } = getPagination(url);
+      const { data, error, count } = await auth.serviceClient
+        .from("audit_events")
+        .select("id,action,actor_name,created_at,changed_fields", { count: "exact" })
+        .eq("entity_type", "customer")
+        .eq("entity_id", id)
+        .order("created_at", { ascending: false })
+        .range(from, to);
+      if (error) throw error;
+      return Response.json({ page, pageSize, rows: data ?? [], total: count ?? 0 });
     }
 
     const page = Math.max(1, Number(url.searchParams.get("page") ?? 1));

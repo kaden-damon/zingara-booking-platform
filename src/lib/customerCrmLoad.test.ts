@@ -47,7 +47,7 @@ test("Customer CRM retry still reissues the bounded loader", async () => {
 test("Customer booking history remains available from exact customer details", async () => {
   const source = await readFile(customerWorkspaceUrl, "utf8");
   assert.match(source, /mode=detail&id=/);
-  assert.match(source, /mode=history&id=/);
+  assert.match(source, /mode: "history"/);
   assert.match(source, /detailHistory\?\.bookings\.map/);
   assert.match(source, /booking\.booking_reference/);
 });

@@ -40129,7 +40129,10 @@ export default function AdminDashboardPage() {
               />
             ) : (
             <>
-              <CustomerManagementWorkspace canManage={canManageBookings} />
+              <CustomerManagementWorkspace
+                canManage={canManageBookings}
+                onOpenBooking={openCustomerHistoryBooking}
+              />
             </>
             )}
           </section>
