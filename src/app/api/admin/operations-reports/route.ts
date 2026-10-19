@@ -7,6 +7,7 @@ import {
   operationalReportLabels,
   type OperationalReportRow,
 } from "@/lib/operationsReports";
+import { sanitizeOperationalReportNotes } from "@/lib/operationalReporting";
 
 export const dynamic = "force-dynamic";
 
@@ -140,7 +141,7 @@ export async function GET(request: Request) {
         Table: (tables.get(booking.id) ?? []).join(" + ") || "Needs a table",
         "Booking Status": statusLabel(booking.booking_status),
         "Payment Status": statusLabel(booking.payment_status),
-        Notes: snapshot?.operationalNotes || "",
+        Notes: sanitizeOperationalReportNotes(snapshot?.operationalNotes || ""),
       };
       if (reportType === "guest-list") {
         return Object.fromEntries(operationalReportColumns[reportType].map((column) => [column, base[column as keyof typeof base] ?? ""]));
