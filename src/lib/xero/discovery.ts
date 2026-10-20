@@ -1,8 +1,11 @@
 export type XeroDiscoveredAccount = {
   accountId: string;
+  bankAccountSuffix: string;
   code: string;
+  eftAccountMatch: boolean;
   enablePaymentsToAccount: boolean;
   name: string;
+  payfastIdentifierMatch: boolean;
   status: string;
   taxType: string;
   type: string;
@@ -22,17 +25,24 @@ function record(value: unknown): RecordValue { return value && typeof value === 
 function rows(value: unknown, key: string) { const result = record(value)[key]; return Array.isArray(result) ? result.map(record) : []; }
 function text(value: unknown) { return typeof value === "string" ? value.trim() : ""; }
 function number(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
+function digits(value: unknown) { return text(value).replace(/\D/g, ""); }
 
 export function normaliseXeroDiscovery(input: { accounts: unknown; actions?: unknown; invoiceReminders?: unknown; organisation: unknown; taxRates: unknown; tracking?: unknown }) {
-  const accounts = rows(input.accounts, "Accounts").map<XeroDiscoveredAccount>((account) => ({
-    accountId: text(account.AccountID),
-    code: text(account.Code),
-    enablePaymentsToAccount: account.EnablePaymentsToAccount === true,
-    name: text(account.Name),
-    status: text(account.Status),
-    taxType: text(account.TaxType),
-    type: text(account.Type),
-  })).filter((account) => account.accountId && account.code && account.name && account.status === "ACTIVE")
+  const accounts = rows(input.accounts, "Accounts").map<XeroDiscoveredAccount>((account) => {
+    const bankAccountNumber = digits(account.BankAccountNumber);
+    return {
+      accountId: text(account.AccountID),
+      bankAccountSuffix: bankAccountNumber.slice(-4),
+      code: text(account.Code),
+      eftAccountMatch: bankAccountNumber.endsWith("8468"),
+      enablePaymentsToAccount: account.EnablePaymentsToAccount === true,
+      name: text(account.Name),
+      payfastIdentifierMatch: bankAccountNumber === "36090701",
+      status: text(account.Status),
+      taxType: text(account.TaxType),
+      type: text(account.Type),
+    };
+  }).filter((account) => account.accountId && account.code && account.name && account.status === "ACTIVE")
     .sort((left, right) => left.code.localeCompare(right.code, undefined, { numeric: true }));
   const taxRates = rows(input.taxRates, "TaxRates").map<XeroDiscoveredTaxRate>((taxRate) => ({
     canApplyToRevenue: taxRate.CanApplyToRevenue === true,
@@ -74,11 +84,15 @@ export function verifiedXeroMapping(input: {
 }) {
   const account = input.discovery.accounts.find((candidate) => candidate.accountId === input.accountId && candidate.code === input.accountCode);
   if (!account) throw new Error("Choose an active account from the connected Xero organisation.");
-  if (input.category === "payment_account") {
+  if (input.category === "payfast_clearing_account" || input.category === "eft_payment_account") {
     if (!input.discovery.paymentAccounts.some((candidate) => candidate.accountId === account.accountId)) throw new Error("Choose an active Xero payment account.");
+    if (input.category === "payfast_clearing_account" && !account.payfastIdentifierMatch) throw new Error("Choose the verified PayFast Clearing Account (identifier 36090701).");
+    if (input.category === "eft_payment_account" && !account.eftAccountMatch) throw new Error("Choose the verified FNB main bank account ending 8468.");
     return { account, taxRate: null };
   }
   const taxRate = input.discovery.taxRates.find((candidate) => candidate.taxType === input.taxCode && candidate.canApplyToRevenue);
   if (!taxRate) throw new Error("Choose an active Xero sales tax treatment.");
+  if (input.category === "gratuity" && taxRate.effectiveRate !== 0) throw new Error("Gratuity requires the verified no-VAT sales treatment.");
+  if (["ticket_sales", "corporate", "buyouts", "booking_fee", "addons"].includes(input.category) && taxRate.effectiveRate !== 15) throw new Error("Choose the verified 15% standard sales treatment.");
   return { account, taxRate };
 }

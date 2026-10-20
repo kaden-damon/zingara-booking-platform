@@ -7,7 +7,7 @@ import { buildXeroAuthorizationUrl, createXeroOAuthState, exchangeXeroCode, list
 import { reconcileAccounting } from "./reconciliation.ts";
 import { buildInvoiceReconciliation, shouldApplyWebhookEvent } from "./inbound.ts";
 import { buildXeroDocumentSyncPayload, documentMappingCategory } from "./queue.ts";
-import { allRequiredXeroMappingsApproved, xeroMappingKey } from "./mappings.ts";
+import { allRequiredXeroMappingsApproved, expectedXeroAccountCode, isXeroMappingApprovalSupported, xeroMappingKey } from "./mappings.ts";
 import { normaliseXeroDiscovery, verifiedXeroMapping } from "./discovery.ts";
 import { executeXeroOperation } from "./operations.ts";
 import { decryptXeroSecret, encryptXeroSecret, redactXeroSecrets } from "./tokenVault.ts";
@@ -76,26 +76,52 @@ test("Xero discovery exposes only active verified accounts and eligible payment 
   const discovery = normaliseXeroDiscovery({
     accounts: { Accounts: [
       { AccountID: "sales-jhb", Code: "205", Name: "Sales - JHB", Status: "ACTIVE", TaxType: "OUTPUT2", Type: "REVENUE" },
-      { AccountID: "clearing", Code: "900", EnablePaymentsToAccount: true, Name: "PayFast Clearing Account", Status: "ACTIVE", TaxType: "NONE", Type: "BANK" },
+      { AccountID: "clearing", BankAccountNumber: "36090701", Code: "900", EnablePaymentsToAccount: true, Name: "PayFast Clearing Account", Status: "ACTIVE", TaxType: "NONE", Type: "BANK" },
+      { AccountID: "eft", BankAccountNumber: "12345678468", Code: "901", EnablePaymentsToAccount: true, Name: "FNB Main", Status: "ACTIVE", TaxType: "NONE", Type: "BANK" },
       { AccountID: "inactive", Code: "999", Name: "Old", Status: "ARCHIVED", Type: "BANK" },
     ] },
     organisation: { Organisations: [{ BaseCurrency: "ZAR", LegalName: "Zingara Productions (Pty) Ltd", Name: "Zingara Productions (Pty) Ltd", OrganisationID: "org", OrganisationStatus: "ACTIVE" }] },
-    taxRates: { TaxRates: [{ CanApplyToRevenue: true, DisplayTaxRate: 15, EffectiveRate: 15, Name: "15% VAT on Income", Status: "ACTIVE", TaxType: "OUTPUT2" }] },
+    taxRates: { TaxRates: [
+      { CanApplyToRevenue: true, DisplayTaxRate: 15, EffectiveRate: 15, Name: "15% VAT on Income", Status: "ACTIVE", TaxType: "OUTPUT2" },
+      { CanApplyToRevenue: true, DisplayTaxRate: 0, EffectiveRate: 0, Name: "No VAT", Status: "ACTIVE", TaxType: "NONE" },
+    ] },
   });
-  assert.deepEqual(discovery.accounts.map((account) => account.code), ["205", "900"]);
-  assert.deepEqual(discovery.paymentAccounts.map((account) => account.code), ["900"]);
+  assert.deepEqual(discovery.accounts.map((account) => account.code), ["205", "900", "901"]);
+  assert.deepEqual(discovery.paymentAccounts.map((account) => account.code), ["900", "901"]);
   assert.equal(verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "ticket_sales", discovery, taxCode: "OUTPUT2" }).taxRate?.effectiveRate, 15);
-  assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "payment_account", discovery }), /payment account/);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "payfast_clearing_account", discovery }), /payment account/);
+  assert.equal(verifiedXeroMapping({ accountCode: "900", accountId: "clearing", category: "payfast_clearing_account", discovery }).taxRate, null);
+  assert.equal(verifiedXeroMapping({ accountCode: "901", accountId: "eft", category: "eft_payment_account", discovery }).taxRate, null);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "901", accountId: "eft", category: "payfast_clearing_account", discovery }), /36090701/);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "900", accountId: "clearing", category: "eft_payment_account", discovery }), /8468/);
+  assert.equal(verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "NONE" }).taxRate?.effectiveRate, 0);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "OUTPUT2" }), /no-VAT/);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "corporate", discovery, taxCode: "NONE" }), /15%/);
 });
 
-test("mapping readiness requires every venue category and one shared payment account", () => {
-  const categories = ["ticket_sales", "corporate", "buyouts", "booking_fee", "gratuity", "addons", "discounts", "deposits", "refunds"];
+test("mapping readiness requires approved operational categories and separate payment accounts", () => {
+  const categories = ["ticket_sales", "corporate", "buyouts", "booking_fee", "gratuity", "addons"];
   const complete = [
     ...categories.flatMap((category) => [{ category, venue: "johannesburg" }, { category, venue: "cape-town" }]),
-    { category: "payment_account", venue: "all" },
+    { category: "payfast_clearing_account", venue: "all" },
+    { category: "eft_payment_account", venue: "all" },
   ];
   assert.equal(allRequiredXeroMappingsApproved(complete), true);
   assert.equal(allRequiredXeroMappingsApproved(complete.filter((mapping) => xeroMappingKey(mapping.venue as "all" | "johannesburg" | "cape-town", mapping.category as "ticket_sales") !== "cape-town:ticket_sales")), false);
+  assert.equal(allRequiredXeroMappingsApproved(complete.filter((mapping) => mapping.category !== "eft_payment_account")), false);
+  assert.equal(allRequiredXeroMappingsApproved([...complete, { category: "discounts", venue: "johannesburg" }]), true);
+});
+
+test("approved mapping policy keeps venue accounts isolated and unresolved treatments blocked", () => {
+  assert.equal(expectedXeroAccountCode("johannesburg", "corporate"), "205");
+  assert.equal(expectedXeroAccountCode("cape-town", "corporate"), "205-01");
+  assert.equal(expectedXeroAccountCode("johannesburg", "booking_fee"), "206-01");
+  assert.equal(expectedXeroAccountCode("cape-town", "gratuity"), "823-02");
+  assert.equal(isXeroMappingApprovalSupported("johannesburg", "discounts"), false);
+  assert.equal(isXeroMappingApprovalSupported("cape-town", "refunds"), false);
+  assert.equal(isXeroMappingApprovalSupported("johannesburg", "deposits"), false);
+  assert.equal(isXeroMappingApprovalSupported("all", "payfast_clearing_account"), true);
+  assert.equal(isXeroMappingApprovalSupported("all", "eft_payment_account"), true);
 });
 
 test("document sync resolves or creates one contact through the same adapter path", async () => {

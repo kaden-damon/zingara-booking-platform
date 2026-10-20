@@ -8,7 +8,8 @@ export const XERO_MAPPING_CATEGORIES = [
   "discounts",
   "deposits",
   "refunds",
-  "payment_account",
+  "payfast_clearing_account",
+  "eft_payment_account",
 ] as const;
 
 export type XeroMappingCategory = (typeof XERO_MAPPING_CATEGORIES)[number];
@@ -16,8 +17,37 @@ export type XeroMappingCategory = (typeof XERO_MAPPING_CATEGORIES)[number];
 export const XERO_MAPPING_VENUES = ["all", "johannesburg", "cape-town"] as const;
 export type XeroMappingVenue = (typeof XERO_MAPPING_VENUES)[number];
 
-export const XERO_GLOBAL_MAPPING_CATEGORIES = ["payment_account"] as const satisfies readonly XeroMappingCategory[];
-export const XERO_VENUE_MAPPING_CATEGORIES = XERO_MAPPING_CATEGORIES.filter((category) => category !== "payment_account");
+export const XERO_GLOBAL_MAPPING_CATEGORIES = ["payfast_clearing_account", "eft_payment_account"] as const satisfies readonly XeroMappingCategory[];
+export const XERO_VENUE_MAPPING_CATEGORIES = XERO_MAPPING_CATEGORIES.filter((category) => !XERO_GLOBAL_MAPPING_CATEGORIES.includes(category as (typeof XERO_GLOBAL_MAPPING_CATEGORIES)[number]));
+
+export const XERO_REQUIRED_GLOBAL_MAPPING_CATEGORIES = XERO_GLOBAL_MAPPING_CATEGORIES;
+export const XERO_REQUIRED_VENUE_MAPPING_CATEGORIES = [
+  "ticket_sales",
+  "corporate",
+  "buyouts",
+  "booking_fee",
+  "gratuity",
+  "addons",
+] as const satisfies readonly XeroMappingCategory[];
+
+const APPROVED_REVENUE_ACCOUNT_CODES: Record<Exclude<XeroMappingVenue, "all">, Partial<Record<XeroMappingCategory, string>>> = {
+  "cape-town": {
+    addons: "205-01",
+    booking_fee: "206-02",
+    buyouts: "205-01",
+    corporate: "205-01",
+    gratuity: "823-02",
+    ticket_sales: "205-01",
+  },
+  johannesburg: {
+    addons: "205",
+    booking_fee: "206-01",
+    buyouts: "205",
+    corporate: "205",
+    gratuity: "823-01",
+    ticket_sales: "205",
+  },
+};
 
 export type ApprovedMappingIdentity = { category: string; venue: string };
 
@@ -29,7 +59,21 @@ export function xeroCategoriesForVenue(venue: XeroMappingVenue): readonly XeroMa
   return venue === "all" ? XERO_GLOBAL_MAPPING_CATEGORIES : XERO_VENUE_MAPPING_CATEGORIES;
 }
 
+export function isXeroPaymentMappingCategory(category: XeroMappingCategory) {
+  return XERO_GLOBAL_MAPPING_CATEGORIES.includes(category as (typeof XERO_GLOBAL_MAPPING_CATEGORIES)[number]);
+}
+
+export function expectedXeroAccountCode(venue: XeroMappingVenue, category: XeroMappingCategory) {
+  return venue === "all" ? null : APPROVED_REVENUE_ACCOUNT_CODES[venue][category] ?? null;
+}
+
+export function isXeroMappingApprovalSupported(venue: XeroMappingVenue, category: XeroMappingCategory) {
+  if (venue === "all") return isXeroPaymentMappingCategory(category);
+  return Boolean(expectedXeroAccountCode(venue, category));
+}
+
 export function allRequiredXeroMappingsApproved(mappings: ApprovedMappingIdentity[]) {
   const approved = new Set(mappings.map((mapping) => `${mapping.venue}:${mapping.category}`));
-  return XERO_MAPPING_VENUES.every((venue) => xeroCategoriesForVenue(venue).every((category) => approved.has(xeroMappingKey(venue, category))));
+  return XERO_REQUIRED_GLOBAL_MAPPING_CATEGORIES.every((category) => approved.has(xeroMappingKey("all", category)))
+    && (["johannesburg", "cape-town"] as const).every((venue) => XERO_REQUIRED_VENUE_MAPPING_CATEGORIES.every((category) => approved.has(xeroMappingKey(venue, category))));
 }

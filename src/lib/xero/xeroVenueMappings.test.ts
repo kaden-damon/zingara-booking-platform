@@ -27,4 +27,18 @@ test("mapping API verifies live Xero identity before atomic approval", async () 
   assert.match(route, /Zingara Productions \(Pty\) Ltd/);
   assert.match(route, /approve_xero_account_mapping_atomic/);
   assert.match(route, /xeroCategoriesForVenue/);
+  assert.match(route, /expectedXeroAccountCode/);
+  assert.match(route, /isXeroMappingApprovalSupported/);
+});
+
+test("mapping UI separates PayFast from EFT and explains deposit part-payments", async () => {
+  const [panel, mappings] = await Promise.all([
+    source("src/app/admin/XeroConnectionPanel.tsx"),
+    source("src/lib/xero/mappings.ts"),
+  ]);
+  assert.match(mappings, /payfast_clearing_account/);
+  assert.match(mappings, /eft_payment_account/);
+  assert.match(panel, /PayFast Clearing/);
+  assert.match(panel, /Manual EFT Bank/);
+  assert.match(panel, /allocated later as part-payments/);
 });
