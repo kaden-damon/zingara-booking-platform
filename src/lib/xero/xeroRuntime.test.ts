@@ -72,13 +72,16 @@ test("document preparation uses approved source mapping and stable contact ident
   assert.throws(() => documentMappingCategory({ ...document, source_corporate_request_id: null }), /Link this document/);
 });
 
-test("Xero discovery exposes only active verified accounts and eligible payment clearing accounts", () => {
+test("Xero discovery exposes active revenue accounts and payment accounts without inventing bank codes", () => {
   const discovery = normaliseXeroDiscovery({
     accounts: { Accounts: [
       { AccountID: "sales-jhb", Code: "205", Name: "Sales - JHB", Status: "ACTIVE", TaxType: "OUTPUT2", Type: "REVENUE" },
-      { AccountID: "clearing", BankAccountNumber: "36090701", Code: "900", EnablePaymentsToAccount: true, Name: "PayFast Clearing Account", Status: "ACTIVE", TaxType: "NONE", Type: "BANK" },
-      { AccountID: "eft", BankAccountNumber: "12345678468", Code: "901", EnablePaymentsToAccount: true, Name: "FNB Main", Status: "ACTIVE", TaxType: "NONE", Type: "BANK" },
+      { AccountID: "clearing", BankAccountNumber: "36090701", Code: "", EnablePaymentsToAccount: true, Name: "PayFast Clearing Account", Status: "ACTIVE", TaxType: "NONE", Type: "CURRLIAB" },
       { AccountID: "inactive", Code: "999", Name: "Old", Status: "ARCHIVED", Type: "BANK" },
+    ] },
+    bankAccounts: { Accounts: [
+      { AccountID: "eft", BankAccountNumber: "12345678468", EnablePaymentsToAccount: true, Name: "Zingara Productions", Status: "ACTIVE", TaxType: "NONE", Type: "BANK" },
+      { AccountID: "hidden", BankAccountNumber: "1111", EnablePaymentsToAccount: false, Name: "Inactive for payments", Status: "ACTIVE", Type: "BANK" },
     ] },
     organisation: { Organisations: [{ BaseCurrency: "ZAR", LegalName: "Zingara Productions (Pty) Ltd", Name: "Zingara Productions (Pty) Ltd", OrganisationID: "org", OrganisationStatus: "ACTIVE" }] },
     taxRates: { TaxRates: [
@@ -87,14 +90,16 @@ test("Xero discovery exposes only active verified accounts and eligible payment 
       { CanApplyToRevenue: true, DisplayTaxRate: 0, EffectiveRate: 0, Name: "Zero Rate", Status: "ACTIVE", TaxType: "ZERORATED" },
     ] },
   });
-  assert.deepEqual(discovery.accounts.map((account) => account.code), ["205", "900", "901"]);
-  assert.deepEqual(discovery.paymentAccounts.map((account) => account.code), ["900", "901"]);
+  assert.deepEqual(discovery.accounts.map((account) => account.accountId), ["sales-jhb", "hidden", "clearing", "eft"]);
+  assert.deepEqual(discovery.paymentAccounts.map((account) => account.accountId), ["clearing", "eft"]);
+  assert.equal(discovery.paymentAccounts[0].bankAccountSuffix, "0701");
+  assert.equal("bankAccountNumber" in discovery.paymentAccounts[0], false);
   assert.equal(verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "ticket_sales", discovery, taxCode: "OUTPUT2" }).taxRate?.effectiveRate, 15);
   assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "payfast_clearing_account", discovery }), /payment account/);
-  assert.equal(verifiedXeroMapping({ accountCode: "900", accountId: "clearing", category: "payfast_clearing_account", discovery }).taxRate, null);
-  assert.equal(verifiedXeroMapping({ accountCode: "901", accountId: "eft", category: "eft_payment_account", discovery }).taxRate, null);
-  assert.throws(() => verifiedXeroMapping({ accountCode: "901", accountId: "eft", category: "payfast_clearing_account", discovery }), /36090701/);
-  assert.throws(() => verifiedXeroMapping({ accountCode: "900", accountId: "clearing", category: "eft_payment_account", discovery }), /8468/);
+  assert.equal(verifiedXeroMapping({ accountCode: "", accountId: "clearing", category: "payfast_clearing_account", discovery }).taxRate, null);
+  assert.equal(verifiedXeroMapping({ accountCode: "", accountId: "eft", category: "eft_payment_account", discovery }).taxRate, null);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "", accountId: "eft", category: "payfast_clearing_account", discovery }), /36090701/);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "", accountId: "clearing", category: "eft_payment_account", discovery }), /8468/);
   assert.equal(verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "NONE" }).taxRate?.effectiveRate, 0);
   assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "OUTPUT2" }), /No VAT/);
   assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "ZERORATED" }), /No VAT/);

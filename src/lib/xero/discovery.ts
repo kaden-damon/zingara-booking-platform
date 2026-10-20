@@ -27,8 +27,9 @@ function text(value: unknown) { return typeof value === "string" ? value.trim() 
 function number(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
 function digits(value: unknown) { return text(value).replace(/\D/g, ""); }
 
-export function normaliseXeroDiscovery(input: { accounts: unknown; actions?: unknown; invoiceReminders?: unknown; organisation: unknown; taxRates: unknown; tracking?: unknown }) {
-  const accounts = rows(input.accounts, "Accounts").map<XeroDiscoveredAccount>((account) => {
+export function normaliseXeroDiscovery(input: { accounts: unknown; actions?: unknown; bankAccounts?: unknown; invoiceReminders?: unknown; organisation: unknown; taxRates: unknown; tracking?: unknown }) {
+  const accountRows = [...rows(input.accounts, "Accounts"), ...rows(input.bankAccounts, "Accounts")];
+  const accounts = Array.from(new Map(accountRows.map((account) => [text(account.AccountID), account])).values()).map<XeroDiscoveredAccount>((account) => {
     const bankAccountNumber = digits(account.BankAccountNumber);
     return {
       accountId: text(account.AccountID),
@@ -42,8 +43,8 @@ export function normaliseXeroDiscovery(input: { accounts: unknown; actions?: unk
       taxType: text(account.TaxType),
       type: text(account.Type),
     };
-  }).filter((account) => account.accountId && account.code && account.name && account.status === "ACTIVE")
-    .sort((left, right) => left.code.localeCompare(right.code, undefined, { numeric: true }));
+  }).filter((account) => account.accountId && account.name && account.status === "ACTIVE" && (account.code || account.type === "BANK" || account.enablePaymentsToAccount))
+    .sort((left, right) => (left.code || left.name).localeCompare(right.code || right.name, undefined, { numeric: true }));
   const taxRates = rows(input.taxRates, "TaxRates").map<XeroDiscoveredTaxRate>((taxRate) => ({
     canApplyToRevenue: taxRate.CanApplyToRevenue === true,
     displayRate: number(taxRate.DisplayTaxRate),
@@ -69,7 +70,7 @@ export function normaliseXeroDiscovery(input: { accounts: unknown; actions?: unk
       organisationStatus: text(organisation.OrganisationStatus),
       paymentTerms: organisation.PaymentTerms ?? null,
     },
-    paymentAccounts: accounts.filter((account) => account.type === "BANK" && account.enablePaymentsToAccount),
+    paymentAccounts: accounts.filter((account) => account.enablePaymentsToAccount),
     taxRates,
     trackingCategories: rows(input.tracking, "TrackingCategories").map((category) => ({ id: text(category.TrackingCategoryID), name: text(category.Name), status: text(category.Status) })).filter((category) => category.id && category.status === "ACTIVE"),
   };
@@ -82,7 +83,7 @@ export function verifiedXeroMapping(input: {
   discovery: ReturnType<typeof normaliseXeroDiscovery>;
   taxCode?: string;
 }) {
-  const account = input.discovery.accounts.find((candidate) => candidate.accountId === input.accountId && candidate.code === input.accountCode);
+  const account = input.discovery.accounts.find((candidate) => candidate.accountId === input.accountId && (!candidate.code || candidate.code === input.accountCode));
   if (!account) throw new Error("Choose an active account from the connected Xero organisation.");
   if (input.category === "payfast_clearing_account" || input.category === "eft_payment_account") {
     if (!input.discovery.paymentAccounts.some((candidate) => candidate.accountId === account.accountId)) throw new Error("Choose an active Xero payment account.");

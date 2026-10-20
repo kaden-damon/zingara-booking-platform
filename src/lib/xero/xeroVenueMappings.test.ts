@@ -31,6 +31,18 @@ test("mapping API verifies live Xero identity before atomic approval", async () 
   assert.match(route, /isXeroMappingApprovalSupported/);
 });
 
+test("account discovery retrieves bank accounts separately and permits Account ID based payment mapping", async () => {
+  const [adapter, discovery, route] = await Promise.all([
+    source("src/lib/xero/accountingAdapter.ts"),
+    source("src/lib/xero/discovery.ts"),
+    source("src/app/api/admin/xero/mappings/route.ts"),
+  ]);
+  assert.match(adapter, /Accounts\?where=Type%3D%3D%22BANK%22/);
+  assert.match(discovery, /account\.enablePaymentsToAccount/);
+  assert.match(discovery, /!candidate\.code \|\| candidate\.code === input\.accountCode/);
+  assert.match(route, /!isXeroPaymentMappingCategory\(category\) && !accountCode/);
+});
+
 test("mapping UI separates PayFast from EFT and explains deposit part-payments", async () => {
   const [panel, mappings] = await Promise.all([
     source("src/app/admin/XeroConnectionPanel.tsx"),
