@@ -92,7 +92,9 @@ export function verifiedXeroMapping(input: {
   }
   const taxRate = input.discovery.taxRates.find((candidate) => candidate.taxType === input.taxCode && candidate.canApplyToRevenue);
   if (!taxRate) throw new Error("Choose an active Xero sales tax treatment.");
-  if (input.category === "gratuity" && taxRate.effectiveRate !== 0) throw new Error("Gratuity requires the verified no-VAT sales treatment.");
+  if (input.category === "gratuity" && (taxRate.taxType !== "NONE" || taxRate.name !== "No VAT" || taxRate.effectiveRate !== 0)) {
+    throw new Error("Gratuity requires Xero's verified NONE - No VAT sales treatment.");
+  }
   if (["ticket_sales", "corporate", "buyouts", "booking_fee", "addons"].includes(input.category) && taxRate.effectiveRate !== 15) throw new Error("Choose the verified 15% standard sales treatment.");
   return { account, taxRate };
 }

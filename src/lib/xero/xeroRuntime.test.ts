@@ -84,6 +84,7 @@ test("Xero discovery exposes only active verified accounts and eligible payment 
     taxRates: { TaxRates: [
       { CanApplyToRevenue: true, DisplayTaxRate: 15, EffectiveRate: 15, Name: "15% VAT on Income", Status: "ACTIVE", TaxType: "OUTPUT2" },
       { CanApplyToRevenue: true, DisplayTaxRate: 0, EffectiveRate: 0, Name: "No VAT", Status: "ACTIVE", TaxType: "NONE" },
+      { CanApplyToRevenue: true, DisplayTaxRate: 0, EffectiveRate: 0, Name: "Zero Rate", Status: "ACTIVE", TaxType: "ZERORATED" },
     ] },
   });
   assert.deepEqual(discovery.accounts.map((account) => account.code), ["205", "900", "901"]);
@@ -95,7 +96,8 @@ test("Xero discovery exposes only active verified accounts and eligible payment 
   assert.throws(() => verifiedXeroMapping({ accountCode: "901", accountId: "eft", category: "payfast_clearing_account", discovery }), /36090701/);
   assert.throws(() => verifiedXeroMapping({ accountCode: "900", accountId: "clearing", category: "eft_payment_account", discovery }), /8468/);
   assert.equal(verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "NONE" }).taxRate?.effectiveRate, 0);
-  assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "OUTPUT2" }), /no-VAT/);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "OUTPUT2" }), /No VAT/);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "ZERORATED" }), /No VAT/);
   assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "corporate", discovery, taxCode: "NONE" }), /15%/);
 });
 
