@@ -23,6 +23,7 @@ import ZingaraDatePicker from "./ZingaraDatePicker";
 import ReviewAnalyticsPanel from "./ReviewAnalyticsPanel";
 import WebsiteConversionPanel from "./WebsiteConversionPanel";
 import SalesPerformanceCalendar from "./SalesPerformanceCalendar";
+import TicketSalesReport from "./TicketSalesReport";
 
 const money = new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" });
 const integer = new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 0 });
@@ -560,9 +561,12 @@ export default function ManagementAnalytics({
         <AnalyticsSection
           {...sectionProps("sales-performance")}
           title="Sales & Performance"
-          description="A month-at-a-time view of performances, guests, occupancy and sales."
+          description="Ticket sales plus the month-at-a-time performance, occupancy and sales view."
         >
-          <SalesPerformanceCalendar dataset={dataset} />
+          <TicketSalesReport />
+          <div className="mt-6 border-t border-white/10 pt-6">
+            <SalesPerformanceCalendar dataset={dataset} />
+          </div>
         </AnalyticsSection>
         <AnalyticsSection
           {...sectionProps("website-conversion")}
