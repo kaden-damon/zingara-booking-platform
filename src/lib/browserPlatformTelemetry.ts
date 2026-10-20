@@ -15,13 +15,20 @@ type TelemetryBase = {
 type TrackEventInput = TelemetryBase & {
   durationMs?: number | null;
   eventType:
+    | "booking_creation_failed"
+    | "checkout_initiated"
     | "checkout_viewed"
+    | "guest_details_continue_clicked"
     | "guest_details_completed"
+    | "guest_details_opened"
+    | "guest_details_validation_failed"
+    | "guest_details_validation_succeeded"
     | "journey_failed"
     | "journey_started"
     | "location_selected"
     | "payfast_returned"
     | "payment_initiated"
+    | "seating_continue_clicked"
     | "seating_selected"
     | "session_started"
     | "site_view"

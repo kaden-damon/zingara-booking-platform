@@ -66,13 +66,51 @@ test("checkout failures retain safe status and category evidence", async () => {
   assert.match(page, /error instanceof SupabaseApiError/);
   assert.match(page, /failureKind: failure\.failureKind/);
   assert.match(page, /statusCode: failure\.statusCode/);
-  assert.match(page, /public_booking_details_validation_failed/);
   assert.match(
     await readFile(bookingRouteUrl, "utf8"),
     /bookingReference: telemetryBookingReference,[\s\S]*journeyId: telemetryJourneyId/,
   );
   assert.match(telemetry, /"failureKind"/);
   assert.doesNotMatch(page, /metadata:[\s\S]{0,200}(email|phone|name):/i);
+});
+
+test("public progression telemetry distinguishes browsing from attempted conversion", async () => {
+  const [page, browserTelemetry, serverTelemetry] = await Promise.all([
+    readFile(bookingPageUrl, "utf8"),
+    readFile(new URL("./browserPlatformTelemetry.ts", import.meta.url), "utf8"),
+    readFile(telemetryUrl, "utf8"),
+  ]);
+
+  for (const eventType of [
+    "seating_continue_clicked",
+    "guest_details_opened",
+    "guest_details_continue_clicked",
+    "guest_details_validation_failed",
+    "guest_details_validation_succeeded",
+    "checkout_initiated",
+    "booking_creation_failed",
+  ]) {
+    assert.match(page, new RegExp(`eventType: "${eventType}"`));
+    assert.match(browserTelemetry, new RegExp(`"${eventType}"`));
+    assert.match(serverTelemetry, new RegExp(`"${eventType}"`));
+  }
+
+  assert.doesNotMatch(page, /metadata:[\s\S]{0,200}(email|phone|name):/i);
+});
+
+test("mobile public booking controls preserve readable inputs and touch targets", async () => {
+  const page = await readFile(bookingPageUrl, "utf8");
+  const globals = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(page, /Continue to Details/);
+  assert.match(page, /Continue to Payment/);
+  assert.match(page, /min-h-11 flex-1 rounded-full bg-white/);
+  assert.match(page, /grid h-11 w-11 place-items-center rounded-full border/);
+  assert.match(page, /relative min-w-0 overflow-hidden rounded-2xl/);
+  assert.match(globals, /input,[\s\S]*select,[\s\S]*textarea \{[\s\S]*font-size: 16px/);
 });
 
 test("public booking navigation never calls the authenticated venue-settings endpoint", async () => {

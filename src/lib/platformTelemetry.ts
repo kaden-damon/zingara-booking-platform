@@ -2,10 +2,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
 export type PlatformEventType =
+  | "booking_creation_failed"
   | "booking_completed"
   | "booking_reserved"
+  | "checkout_initiated"
   | "checkout_viewed"
+  | "guest_details_continue_clicked"
   | "guest_details_completed"
+  | "guest_details_opened"
+  | "guest_details_validation_failed"
+  | "guest_details_validation_succeeded"
   | "journey_failed"
   | "journey_started"
   | "location_selected"
@@ -13,6 +19,7 @@ export type PlatformEventType =
   | "payment_confirmed"
   | "payment_initiated"
   | "rate_limited"
+  | "seating_continue_clicked"
   | "seating_selected"
   | "session_started"
   | "site_view"
@@ -53,13 +60,20 @@ export type PlatformErrorInput = Omit<PlatformEventInput, "eventType" | "severit
 };
 
 export const publicPlatformEventTypes = new Set<PlatformEventType>([
+  "booking_creation_failed",
+  "checkout_initiated",
   "checkout_viewed",
+  "guest_details_continue_clicked",
   "guest_details_completed",
+  "guest_details_opened",
+  "guest_details_validation_failed",
+  "guest_details_validation_succeeded",
   "journey_failed",
   "journey_started",
   "location_selected",
   "payfast_returned",
   "payment_initiated",
+  "seating_continue_clicked",
   "seating_selected",
   "session_started",
   "site_view",

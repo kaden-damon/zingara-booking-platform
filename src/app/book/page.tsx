@@ -2088,6 +2088,20 @@ export default function BookingPage() {
   }, [customerDetailsComplete]);
 
   useEffect(() => {
+    if (activeBookingStep !== 3 || !selectedZone || manualCheckoutRole !== "none") {
+      return;
+    }
+
+    trackTelemetryEventOnce(`guest-details-opened:${selectedZone.id}`, {
+      eventType: "guest_details_opened",
+      metadata: {
+        section: selectedZone.title,
+        stage: "Booking Details",
+      },
+    });
+  }, [activeBookingStep, manualCheckoutRole, selectedZone]);
+
+  useEffect(() => {
     if (activeBookingStep !== 4 || !isConfirmationOpen) {
       return;
     }
@@ -2285,18 +2299,25 @@ export default function BookingPage() {
 
     if (!validateCheckoutCustomerDetails()) {
       if (manualCheckoutRole === "none") {
-        trackTelemetryEventOnce("guest-details-validation-failed", {
-          eventType: "journey_failed",
+        trackPlatformEvent({
+          eventType: "guest_details_validation_failed",
           metadata: {
-            failureKind: "form-validation",
             stage: "Booking Details",
-            status: "details-incomplete",
+            status: "review-details-invalid",
           },
-          operation: "validate_guest_details",
-          safeFingerprint: "public_booking_details_validation_failed",
         });
       }
       return;
+    }
+
+    if (manualCheckoutRole === "none") {
+      trackTelemetryEventOnce("checkout-initiated", {
+        eventType: "checkout_initiated",
+        metadata: {
+          section: selectedZone.title,
+          stage: "Checkout",
+        },
+      });
     }
 
     setBookingReference(null);
@@ -2304,6 +2325,61 @@ export default function BookingPage() {
     setHasAcceptedBookingTerms(false);
     setHasAcknowledgedAgePolicy(false);
     setIsConfirmationOpen(true);
+  }
+
+  function handleSeatingContinue() {
+    if (!selectedZone) {
+      return;
+    }
+
+    if (manualCheckoutRole === "none") {
+      trackPlatformEvent({
+        eventType: "seating_continue_clicked",
+        metadata: {
+          section: selectedZone.title,
+          stage: "Selecting Seating",
+        },
+      });
+    }
+
+    setActiveBookingStep(3);
+  }
+
+  function handleGuestDetailsContinue() {
+    if (manualCheckoutRole === "none") {
+      trackPlatformEvent({
+        eventType: "guest_details_continue_clicked",
+        metadata: {
+          stage: "Booking Details",
+        },
+      });
+    }
+
+    const detailsAreValid = validateCheckoutCustomerDetails();
+
+    if (manualCheckoutRole === "none") {
+      if (detailsAreValid) {
+        trackTelemetryEventOnce("guest-details-validation-succeeded", {
+          eventType: "guest_details_validation_succeeded",
+          metadata: {
+            stage: "Booking Details",
+            status: "valid",
+          },
+        });
+      } else {
+        trackPlatformEvent({
+          eventType: "guest_details_validation_failed",
+          metadata: {
+            stage: "Booking Details",
+            status: "invalid",
+          },
+        });
+      }
+    }
+
+    if (detailsAreValid) {
+      setActiveBookingStep(4);
+    }
   }
 
   async function handleJoinWaitlist() {
@@ -2570,6 +2646,19 @@ export default function BookingPage() {
       setPaymentRedirectStatus(
         "We could not start your payment securely. Please try again.",
       );
+      if (manualCheckoutRole === "none") {
+        trackPlatformEvent({
+          eventType: "booking_creation_failed",
+          journeyId,
+          metadata: {
+            failureKind: "reference-generation",
+            stage: "Checkout",
+            status: "booking-reference-failed",
+          },
+          operation: "create_booking_reference",
+          safeFingerprint: "public_booking_reference_failed",
+        });
+      }
       return;
     }
 
@@ -2692,7 +2781,10 @@ export default function BookingPage() {
       );
       trackPlatformEvent({
         bookingReference: reference || null,
-        eventType: "journey_failed",
+        eventType:
+          checkoutOperation === "create_booking"
+            ? "booking_creation_failed"
+            : "journey_failed",
         journeyId,
         metadata: {
           failureKind: failure.failureKind,
@@ -3622,7 +3714,7 @@ export default function BookingPage() {
             {bookingProgressSteps.map((step, index) => (
               <div
                 key={step.label}
-                className={`relative rounded-2xl px-0.5 text-center transition sm:px-2 ${
+                className={`relative min-w-0 overflow-hidden rounded-2xl px-0.5 text-center transition sm:overflow-visible sm:px-2 ${
                   isStaffBookingJourney
                     ? staffMobileTimelineOrderClasses[index]
                     : mobileTimelineOrderClasses[index]
@@ -3694,12 +3786,12 @@ export default function BookingPage() {
                     }`}
                   />
                 )}
-                <span className="pointer-events-none absolute left-1/2 top-0 z-[1] h-10 w-10 -translate-x-1/2 rounded-full bg-black sm:h-14 sm:w-14" />
+                <span className="pointer-events-none absolute left-1/2 top-0 z-[1] h-11 w-11 -translate-x-1/2 rounded-full bg-black sm:h-14 sm:w-14" />
                 <button
                   type="button"
                   disabled={!canNavigateBookingStep(index)}
                   onClick={() => setActiveBookingStep(index)}
-                  className={`relative z-10 mx-auto mb-2.5 grid h-10 w-10 place-items-center rounded-full border text-sm font-bold transition sm:mb-4 sm:h-14 sm:w-14 sm:text-xl ${
+                  className={`relative z-10 mx-auto mb-2.5 grid h-11 w-11 place-items-center rounded-full border text-sm font-bold transition sm:mb-4 sm:h-14 sm:w-14 sm:text-xl ${
                     step.isComplete || step.isActive
                       ? "border-[#D8C36A]/70 bg-[#D8C36A]/15 text-[#F2D66C] shadow-[0_0_22px_rgba(216,195,106,0.24)]"
                       : "border-white/15 bg-zinc-950/80 text-zinc-500 shadow-[0_0_16px_rgba(0,0,0,0.35)]"
@@ -3730,7 +3822,7 @@ export default function BookingPage() {
                         </span>
                       </>
                     ) : (
-                      <span className="mx-auto block max-w-[6.75rem] truncate whitespace-nowrap text-xs font-semibold leading-4 text-white min-[390px]:text-sm sm:max-w-[12rem] sm:text-lg sm:leading-6">
+                      <span className="mx-auto block max-w-full truncate whitespace-nowrap px-0.5 text-xs font-semibold leading-4 text-white min-[390px]:text-sm sm:max-w-[12rem] sm:px-0 sm:text-lg sm:leading-6">
                         {step.mobileSummary ?? step.summary}
                       </span>
                     )}
@@ -3738,7 +3830,7 @@ export default function BookingPage() {
                       <button
                         type="button"
                         onClick={() => setActiveBookingStep(index)}
-                        className="text-base font-semibold leading-none text-[#F2D66C] drop-shadow-[0_0_10px_rgba(216,195,106,0.35)] transition hover:scale-110 hover:text-white sm:text-xl"
+                        className="grid h-11 w-11 place-items-center text-base font-semibold leading-none text-[#F2D66C] drop-shadow-[0_0_10px_rgba(216,195,106,0.35)] transition hover:scale-110 hover:text-white sm:h-auto sm:w-auto sm:text-xl"
                         aria-label={`Edit ${step.label}`}
                       >
                         ✎
@@ -4319,16 +4411,16 @@ export default function BookingPage() {
                         <button
                           type="button"
                           onClick={() => setSelectedZone(null)}
-                          className="rounded-full border border-[#D8C36A]/35 px-4 py-2 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
+                          className="min-h-11 rounded-full border border-[#D8C36A]/35 px-4 py-2.5 text-sm font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                         >
                           {isStaffBookingJourney ? "Choose another" : "Change Seating"}
                         </button>
                         <button
                           type="button"
-                          onClick={() => setActiveBookingStep(3)}
-                          className="rounded-full bg-white px-4 py-2 text-xs font-semibold text-black transition hover:bg-zinc-300"
+                          onClick={handleSeatingContinue}
+                          className="min-h-11 flex-1 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 sm:flex-none"
                         >
-                          Continue
+                          Continue to Details
                         </button>
                       </div>
                     </>
@@ -4343,9 +4435,9 @@ export default function BookingPage() {
                   <button
                     type="button"
                     disabled
-                    className="mt-4 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black opacity-40"
+                    className="mt-4 min-h-11 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-black opacity-40"
                   >
-                          Continue
+                          Continue to Details
                   </button>
                 </>
               )}
@@ -4706,14 +4798,10 @@ export default function BookingPage() {
                 )}
                 <button
                   type="button"
-                  onClick={() => {
-                    if (validateCheckoutCustomerDetails()) {
-                      setActiveBookingStep(4);
-                    }
-                  }}
+                  onClick={handleGuestDetailsContinue}
                   className="min-h-11 rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:py-3 sm:text-base"
                 >
-                  Continue
+                  Continue to Payment
                 </button>
               </div>
             </section>
@@ -5331,7 +5419,7 @@ export default function BookingPage() {
               <button
                 type="button"
                 onClick={() => setIsConfirmationOpen(false)}
-                className="shrink-0 rounded-full border border-white/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300 transition hover:bg-white hover:text-black sm:px-4 sm:py-2 sm:text-sm"
+                className="min-h-11 shrink-0 rounded-full border border-white/20 px-3 py-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300 transition hover:bg-white hover:text-black sm:px-4 sm:text-sm"
               >
                 Close
               </button>
