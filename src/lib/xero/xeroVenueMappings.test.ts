@@ -65,5 +65,6 @@ test("mapping UI separates PayFast from EFT and explains deposit part-payments",
   assert.match(mappings, /eft_payment_account/);
   assert.match(panel, /PayFast Clearing/);
   assert.match(panel, /Manual EFT Bank/);
+  assert.match(panel, /if \(!search\) return undefined/);
   assert.match(panel, /allocated later as part-payments/);
 });

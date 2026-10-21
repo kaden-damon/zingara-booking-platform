@@ -37,6 +37,7 @@ function resolveAccount(accounts: Account[], draft: Draft) {
   const selected = accounts.find((account) => account.accountId === draft.accountId);
   if (selected) return selected;
   const search = draft.accountSearch.trim().toLocaleLowerCase();
+  if (!search) return undefined;
   return accounts.find((account) => account.code.toLocaleLowerCase() === search || account.name.toLocaleLowerCase() === search || `${account.code} — ${account.name}`.toLocaleLowerCase() === search);
 }
 function accountDetail(account: Account) {
