@@ -9,6 +9,10 @@ export type XeroWorkerStore = {
 };
 export type XeroOperationExecutor = (item: XeroOutboxItem) => Promise<{ providerContactId?: string; providerId?: string; providerNumber?: string; providerStatus?: string }>;
 
+export function updatesXeroDocumentIdentity(operation: string) {
+  return ["document.sync", "quote.create", "quote.update", "invoice.create"].includes(operation);
+}
+
 export async function runXeroOutboxWorker(input: { execute: XeroOperationExecutor; limit?: number; store: XeroWorkerStore; workerId: string }) {
   const items = await input.store.claim(Math.min(25, Math.max(1, input.limit ?? 10)), input.workerId);
   const result = { blocked: 0, failed: 0, processed: 0, succeeded: 0 };

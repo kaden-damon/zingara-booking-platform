@@ -130,7 +130,7 @@ test("Xero discovery exposes active revenue accounts and payment accounts withou
   assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "payfast_clearing_account", discovery }), /payment account/);
   assert.equal(verifiedXeroMapping({ accountCode: "", accountId: "clearing", category: "payfast_clearing_account", discovery }).taxRate, null);
   assert.equal(verifiedXeroMapping({ accountCode: "", accountId: "eft", category: "eft_payment_account", discovery }).taxRate, null);
-  assert.throws(() => verifiedXeroMapping({ accountCode: "", accountId: "eft", category: "payfast_clearing_account", discovery }), /36090701/);
+  assert.throws(() => verifiedXeroMapping({ accountCode: "", accountId: "eft", category: "payfast_clearing_account", discovery }), /0701/);
   assert.throws(() => verifiedXeroMapping({ accountCode: "", accountId: "clearing", category: "eft_payment_account", discovery }), /8468/);
   assert.equal(verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "NONE" }).taxRate?.effectiveRate, 0);
   assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "OUTPUT2" }), /No VAT/);

@@ -81,7 +81,7 @@ export class XeroAccountingAdapter {
   }
   async allocateCreditNote(input: { amount: number; creditNoteId: string; invoiceId: string }, idempotencyKey: string) {
     if (!input.creditNoteId || !input.invoiceId || !(input.amount > 0)) throw new Error("An approved credit note, original invoice and allocation amount are required.");
-    const response = await this.transport.request({ body: { Amount: input.amount, Invoice: { InvoiceID: input.invoiceId } }, idempotencyKey, method: "PUT", path: `/CreditNotes/${input.creditNoteId}/Allocations`, tenantId: this.tenantId });
+    const response = await this.transport.request({ body: { Allocations: [{ Amount: input.amount, Invoice: { InvoiceID: input.invoiceId } }] }, idempotencyKey, method: "PUT", path: `/CreditNotes/${input.creditNoteId}/Allocations`, tenantId: this.tenantId });
     return first<{ AllocationID?: string; Amount?: number }>(response.data, "Allocations");
   }
 }

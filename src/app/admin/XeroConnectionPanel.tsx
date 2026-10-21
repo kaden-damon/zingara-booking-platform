@@ -42,7 +42,7 @@ function resolveAccount(accounts: Account[], draft: Draft) {
 }
 function accountDetail(account: Account) {
   const identity = account.code ? `${account.code} — ${account.name}` : account.name;
-  if (account.payfastIdentifierMatch) return `${identity} · PayFast 36090701`;
+  if (account.payfastIdentifierMatch) return `${identity} · PayFast ending 0701`;
   if (account.eftAccountMatch) return `${identity} · FNB ending 8468`;
   return identity;
 }

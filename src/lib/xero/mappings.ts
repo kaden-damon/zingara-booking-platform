@@ -80,3 +80,11 @@ export function allRequiredXeroMappingsApproved(mappings: ApprovedMappingIdentit
   return XERO_REQUIRED_GLOBAL_MAPPING_CATEGORIES.every((category) => approved.has(xeroMappingKey("all", category)))
     && (["johannesburg", "cape-town"] as const).every((venue) => XERO_REQUIRED_VENUE_MAPPING_CATEGORIES.every((category) => approved.has(xeroMappingKey(venue, category))));
 }
+
+export function resolveXeroPaymentAccount(evidenceType: unknown, mappings: Array<{ account_id: string | null; account_type: string | null; approved_at: string | null; category: string }>) {
+  const category = evidenceType === "successful_payfast" ? "payfast_clearing_account" : evidenceType === "structured_manual" ? "eft_payment_account" : null;
+  if (!category) throw new Error("The payment source needs manual reconciliation before Xero allocation.");
+  const candidates = mappings.filter((mapping) => mapping.category === category && mapping.approved_at && mapping.account_type === "BANK" && mapping.account_id);
+  if (candidates.length !== 1) throw new Error("Approve the verified bank account for this payment source before allocation.");
+  return candidates[0].account_id!;
+}

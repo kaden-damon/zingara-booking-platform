@@ -3,8 +3,8 @@ import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdm
 import { getXeroConnectionRuntime } from "@/lib/xero/connectionRuntime";
 import { XeroAccountingAdapter } from "@/lib/xero/accountingAdapter";
 import { executeXeroOperation } from "@/lib/xero/operations";
-import { allRequiredXeroMappingsApproved } from "@/lib/xero/mappings";
-import { runXeroOutboxWorker, type XeroOutboxItem, type XeroWorkerStore } from "@/lib/xero/worker";
+import { allRequiredXeroMappingsApproved, resolveXeroPaymentAccount } from "@/lib/xero/mappings";
+import { runXeroOutboxWorker, updatesXeroDocumentIdentity, type XeroOutboxItem, type XeroWorkerStore } from "@/lib/xero/worker";
 
 export const dynamic = "force-dynamic";
 function canManage(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
@@ -49,11 +49,22 @@ export async function POST(request: Request) {
       const contactSource = item.payload.contactSource as { companyId?: string | null; customerId?: string | null } | undefined;
       const contact = item.payload.contact as { contactNumber?: string } | undefined;
       if (result.providerContactId && contact?.contactNumber && contactSource && (contactSource.companyId || contactSource.customerId)) await client.from("xero_contact_mappings").upsert({ company_id: contactSource.companyId ?? null, contact_number: contact.contactNumber, customer_id: contactSource.customerId ?? null, status: "active", tenant_id: item.tenantId, updated_at: completedAt, xero_contact_id: result.providerContactId }, { onConflict: "tenant_id,contact_number" });
-      if (item.documentId) await client.from("xero_documents").update({ sync_status: "synced", updated_at: completedAt, xero_document_id: result.providerId ?? null, xero_document_number: result.providerNumber ?? null, xero_status: result.providerStatus ?? null }).eq("id", item.documentId).eq("version", Number(item.payload.documentVersion));
+      if (item.documentId && updatesXeroDocumentIdentity(item.operation)) await client.from("xero_documents").update({ sync_status: "synced", updated_at: completedAt, xero_document_id: result.providerId ?? null, xero_document_number: result.providerNumber ?? null, xero_status: result.providerStatus ?? null }).eq("id", item.documentId).eq("version", Number(item.payload.documentVersion));
     },
     async connection(tenantId) { const { data } = await client.from("xero_connections").select("status,sync_paused").eq("tenant_id", tenantId).maybeSingle(); const { data: mappings } = await client.from("xero_account_mappings").select("venue,category").eq("tenant_id", tenantId).not("approved_at", "is", null); return { configured: Boolean(process.env.XERO_CLIENT_ID), connected: data?.status === "connected", mappingsApproved: allRequiredXeroMappingsApproved(mappings ?? []), syncPaused: data?.sync_paused !== false }; },
     async fail(item, failure) { await client.from("xero_sync_outbox").update({ last_error: failure.message, lease_expires_at: null, lease_owner: null, next_attempt_at: failure.delayMs ? new Date(Date.now() + failure.delayMs).toISOString() : null, status: failure.terminal ? "blocked" : "pending", updated_at: new Date().toISOString() }).eq("id", item.id).eq("lease_owner", workerId); },
   };
   const runtimes = new Map<string, { adapter: XeroAccountingAdapter }>();
-  return Response.json(await runXeroOutboxWorker({ store, workerId, execute: async (item: XeroOutboxItem) => { let runtime = runtimes.get(item.tenantId); if (!runtime) { const loaded = await getXeroConnectionRuntime(client, item.tenantId); runtime = { adapter: new XeroAccountingAdapter(loaded.transport, item.tenantId) }; runtimes.set(item.tenantId, runtime); } return executeXeroOperation(runtime.adapter, item); } }));
+  return Response.json(await runXeroOutboxWorker({ store, workerId, execute: async (item: XeroOutboxItem) => {
+    let runtime = runtimes.get(item.tenantId);
+    if (!runtime) { const loaded = await getXeroConnectionRuntime(client, item.tenantId); runtime = { adapter: new XeroAccountingAdapter(loaded.transport, item.tenantId) }; runtimes.set(item.tenantId, runtime); }
+    if (item.operation === "payment.allocate") {
+      const { data: mappings, error } = await client.from("xero_account_mappings").select("account_id,account_type,approved_at,category").eq("tenant_id", item.tenantId).eq("venue", "all").in("category", ["payfast_clearing_account", "eft_payment_account"]);
+      if (error) throw error;
+      const accountId = resolveXeroPaymentAccount(item.payload.evidenceType, mappings ?? []);
+      const payment = item.payload.payment as Record<string, unknown> | undefined;
+      item = { ...item, payload: { ...item.payload, payment: { ...payment, accountId } } };
+    }
+    return executeXeroOperation(runtime.adapter, item);
+  } }));
 }

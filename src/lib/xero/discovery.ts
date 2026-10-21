@@ -88,7 +88,7 @@ export function verifiedXeroMapping(input: {
   if (!account) throw new Error("Choose an active account from the connected Xero organisation.");
   if (input.category === "payfast_clearing_account" || input.category === "eft_payment_account") {
     if (!input.discovery.paymentAccounts.some((candidate) => candidate.accountId === account.accountId)) throw new Error("Choose an active Xero payment account.");
-    if (input.category === "payfast_clearing_account" && !account.payfastIdentifierMatch) throw new Error("Choose the verified PayFast Clearing Account (identifier 36090701).");
+    if (input.category === "payfast_clearing_account" && !account.payfastIdentifierMatch) throw new Error("Choose the verified PayFast Clearing Account ending 0701.");
     if (input.category === "eft_payment_account" && !account.eftAccountMatch) throw new Error("Choose the verified FNB main bank account ending 8468.");
     return { account, taxRate: null };
   }
