@@ -9,6 +9,7 @@ export type MarketingConsentState =
 
 export type OperationalCommunicationKind =
   | "booking_confirmation"
+  | "booking_feedback"
   | "booking_update"
   | "cancellation_notice"
   | "custom_message"

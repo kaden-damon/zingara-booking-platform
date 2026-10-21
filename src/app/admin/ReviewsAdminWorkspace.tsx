@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
+import PlatformFeedbackAdminWorkspace from "./PlatformFeedbackAdminWorkspace";
 
 type ReviewStatus = "needs_review" | "not_published" | "published";
 type ContactFilter = "all" | "contact_requested" | "contacted" | "not_contacted";
@@ -114,6 +115,7 @@ function FilterSelect({ label, onChange, options, value }: { label: string; onCh
 }
 
 export default function ReviewsAdminWorkspace() {
+  const [feedbackType, setFeedbackType] = useState<"platform" | "show">("show");
   const [status, setStatus] = useState<ReviewStatus>("needs_review");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -424,11 +426,20 @@ export default function ReviewsAdminWorkspace() {
     }
   }
 
+  if (feedbackType === "platform") {
+    return <PlatformFeedbackAdminWorkspace onShowReviews={() => setFeedbackType("show")} />;
+  }
+
   return (
     <section className="space-y-5">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-300">Guest feedback</p>
-        <h2 className="mt-1 text-2xl font-semibold text-white">Guest Reviews</h2>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-300">Guest feedback</p>
+          <h2 className="mt-1 text-2xl font-semibold text-white">Guest Reviews</h2>
+        </div>
+        <button className="min-h-10 rounded-full border border-white/15 px-4 text-xs font-semibold text-zinc-200 hover:border-amber-300/50" onClick={() => setFeedbackType("platform")} type="button">
+          Platform Feedback
+        </button>
       </div>
 
       <div className="flex flex-col gap-3 border-y border-white/10 py-4 lg:flex-row lg:items-center lg:justify-between">

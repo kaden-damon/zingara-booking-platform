@@ -10,6 +10,7 @@ import {
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
+import { loadPlatformFeedbackCampaignConfiguration } from "@/lib/platformFeedbackConfiguration";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,7 @@ async function responsePayload(
   const managementKeys = staffEmailNotificationRegistry
     .filter((item) => item.mode === "management")
     .map((item) => item.key);
-  const [personal, managementRoutes, staffOptions] = await Promise.all([
+  const [personal, managementRoutes, staffOptions, bookingExperienceFeedback] = await Promise.all([
     loadPersonalEmailSubscriptions(auth.serviceClient!, auth.staffProfile!.id),
     canManage
       ? Promise.all(managementKeys.map((key) => loadManagementEmailRoute(auth.serviceClient!, key)))
@@ -67,11 +68,20 @@ async function responsePayload(
           .not("email", "is", null)
           .order("full_name")
       : Promise.resolve({ data: [], error: null }),
+    canManage
+      ? loadPlatformFeedbackCampaignConfiguration(auth.serviceClient!)
+      : Promise.resolve(null),
   ]);
   if (staffOptions.error) throw staffOptions.error;
 
   return {
     canManageOrganisation: canManage,
+    bookingExperienceFeedback: bookingExperienceFeedback
+      ? {
+          enabled: bookingExperienceFeedback.automationEnabled,
+          status: bookingExperienceFeedback.status,
+        }
+      : null,
     management: managementRoutes,
     personal,
     staffOptions: (staffOptions.data ?? []).map((staff) => ({
@@ -117,13 +127,43 @@ export async function PATCH(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as
       | {
-          action?: "management" | "personal";
+          action?: "booking-feedback-automation" | "management" | "personal";
           ccStaffProfileIds?: unknown;
           enabled?: unknown;
           notificationKey?: unknown;
           toStaffProfileIds?: unknown;
         }
       | null;
+
+    if (body?.action === "booking-feedback-automation") {
+      if (!canManageOrganisation(auth.staffProfile)) {
+        return Response.json(
+          { error: "Management access is required to change organisation email settings." },
+          { status: 403 },
+        );
+      }
+      if (typeof body.enabled !== "boolean") {
+        return Response.json({ error: "Choose whether this email is on or off." }, { status: 400 });
+      }
+      const before = await loadPlatformFeedbackCampaignConfiguration(auth.serviceClient);
+      const { error } = await auth.serviceClient
+        .from("platform_feedback_campaigns")
+        .update({ automation_enabled: body.enabled, updated_at: new Date().toISOString() })
+        .eq("id", before.id);
+      if (error) throw error;
+      await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+        action: "Booking Experience Feedback automation updated",
+        afterValues: { enabled: body.enabled },
+        beforeValues: { enabled: before.automationEnabled },
+        entityId: before.id,
+        entityReference: "booking-experience-feedback",
+        entityType: "workflow",
+        outcome: "success",
+        request,
+        sourceArea: "Email Notifications",
+      });
+      return Response.json(await responsePayload(auth));
+    }
 
     if (body?.action === "personal" && isPersonalKey(body.notificationKey)) {
       if (typeof body.enabled !== "boolean") {

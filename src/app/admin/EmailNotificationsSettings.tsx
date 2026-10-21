@@ -20,6 +20,7 @@ type ManagementSetting = {
   to: Recipient[];
 };
 type Payload = {
+  bookingExperienceFeedback: { enabled: boolean; status: string } | null;
   canManageOrganisation: boolean;
   management: ManagementSetting[];
   personal: PersonalSetting[];
@@ -160,6 +161,27 @@ export default function EmailNotificationsSettings({
     }
   }
 
+  async function saveBookingExperienceFeedback(enabled: boolean) {
+    setError("");
+    setStatus("");
+    setLoading(true);
+    try {
+      const response = await authorisedRequest({
+        body: JSON.stringify({ action: "booking-feedback-automation", enabled }),
+        method: "PATCH",
+      });
+      const next = (await response.json()) as Payload & { error?: string };
+      if (!response.ok) throw new Error(next.error ?? "The email setting couldn't be saved.");
+      setPayload(next);
+      setManagementDrafts(next.management);
+      setStatus(`Booking Experience Feedback ${enabled ? "enabled" : "disabled"}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The email setting couldn't be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <section className="rounded-lg border border-[#D8C36A]/30 bg-zinc-950/80 p-4 sm:p-5">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
@@ -212,6 +234,27 @@ export default function EmailNotificationsSettings({
 
           {payload?.canManageOrganisation && managementDrafts.length ? (
             <div className="mt-4 space-y-3">
+            {payload.bookingExperienceFeedback && (
+              <label className="flex min-h-12 items-start justify-between gap-4 rounded-lg border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-3">
+                <span>
+                  <strong className="block text-sm text-white">Booking Experience Feedback</strong>
+                  <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                    Approved automated invitations only. Switching this on does not approve or send a campaign.
+                  </span>
+                  <span className="mt-1 block text-[0.7rem] font-semibold uppercase tracking-[0.1em] text-[#D8C36A]">
+                    Campaign {payload.bookingExperienceFeedback.status.replaceAll("_", " ")}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label="Booking Experience Feedback automated invitations"
+                  checked={payload.bookingExperienceFeedback.enabled}
+                  disabled={loading}
+                  onChange={(event) => void saveBookingExperienceFeedback(event.target.checked)}
+                  className="mt-1 h-5 w-5 accent-[#D8C36A]"
+                />
+              </label>
+            )}
             {managementDrafts.map((managementDraft) => {
               const expanded = managementExpanded === managementDraft.key;
               const label = managementDraft.key === "new-review-alert" ? "New Review Alerts" : "New Corporate Enquiries";

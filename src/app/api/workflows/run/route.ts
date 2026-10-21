@@ -10,6 +10,7 @@ import { runDineplanScheduledEmails } from "@/lib/workflows/dineplanScheduledEma
 import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
 import { runReviewManagementWorkflows } from "@/lib/workflows/reviewManagement";
 import { isAuthorisedWorkflowCronRequest } from "@/lib/workflows/cronAuthorization";
+import { runApprovedPlatformFeedbackCampaign } from "@/lib/platformFeedbackCampaign";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -76,6 +77,16 @@ export async function GET(request: Request) {
       console.error("[Zingara Workflows] Dineplan scheduled emails failed", digestError);
       dineplanScheduledEmails = { delivered: 0, reason: "failed" };
     }
+    let platformFeedback: Awaited<ReturnType<typeof runApprovedPlatformFeedbackCampaign>> | { reason: "failed" };
+    try {
+      platformFeedback = await runApprovedPlatformFeedbackCampaign(
+        serviceClient,
+        process.env.NEXT_PUBLIC_APP_URL || "https://book.zingara.co.za",
+      );
+    } catch (feedbackError) {
+      console.error("[Zingara Workflows] Booking Experience Feedback failed", feedbackError);
+      platformFeedback = { reason: "failed" };
+    }
     let telemetryCleanup: Awaited<ReturnType<typeof cleanupPlatformTelemetry>> =
       null;
 
@@ -97,6 +108,7 @@ export async function GET(request: Request) {
       corporatePaymentHolds,
       dailyBookingReview,
       dineplanScheduledEmails,
+      platformFeedback,
       publicPaymentHolds,
       reviewManagement,
       telemetryCleanup,

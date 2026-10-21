@@ -87,6 +87,9 @@ const ReviewManagementWorkflowCard = dynamic(() =>
 const EmailNotificationsSettings = dynamic(
   () => import("./EmailNotificationsSettings"),
 );
+const PlatformFeedbackCampaignSettings = dynamic(
+  () => import("./PlatformFeedbackCampaignSettings"),
+);
 const CommunicationHistoryPanel = dynamic(
   () => import("./CommunicationHistoryPanel"),
 );
@@ -40825,6 +40828,9 @@ export default function AdminDashboardPage() {
             {(activeCommunicationsTab === "guest-emails" ||
               activeCommunicationsTab === "broadcasts") && (
             <div className="grid grid-cols-1 gap-5">
+              {activeCommunicationsTab === "guest-emails" && (
+              <PlatformFeedbackCampaignSettings />
+              )}
               {activeCommunicationsTab === "guest-emails" && (
               <div className="rounded-lg border border-white/10 bg-black/35 p-4 sm:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
