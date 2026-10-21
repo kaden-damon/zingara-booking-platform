@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
 type Row = {
+  bookingDevice: string | null;
   bookingReference: string;
+  checkoutEase: number | null;
   comment: string | null;
   contact: { email: string | null; mobile: string | null } | null;
   contactedAt: string | null;
@@ -17,11 +19,14 @@ type Row = {
   id: string;
   performanceDate: string | null;
   performanceName: string;
+  paymentConfidence: string | null;
   rating: number;
   repliedAt: string | null;
   repliedBy: string | null;
   replies: Array<{ actor_email: string; actor_name: string; id: string; message: string; sent_at: string }>;
   revision: number;
+  seatingEase: number | null;
+  showDateEase: number | null;
   status: "resolved" | "submitted";
   submittedAt: string;
   venue: string;
@@ -45,7 +50,13 @@ export default function PlatformFeedbackAdminWorkspace({ onShowReviews }: { onSh
   const [result, setResult] = useState<Page>({ page: 1, pageSize: 10, rows: [], total: 0 });
   const [venue, setVenue] = useState("all");
   const [rating, setRating] = useState("all");
-  const [contact, setContact] = useState("all");
+  const [device, setDevice] = useState("all");
+  const [showDateDifficulty, setShowDateDifficulty] = useState("all");
+  const [seatingDifficulty, setSeatingDifficulty] = useState("all");
+  const [checkoutDifficulty, setCheckoutDifficulty] = useState("all");
+  const [paymentConfidence, setPaymentConfidence] = useState("all");
+  const [contactRequest, setContactRequest] = useState("all");
+  const [contacted, setContacted] = useState("all");
   const [reply, setReply] = useState("all");
   const [status, setStatus] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -60,7 +71,21 @@ export default function PlatformFeedbackAdminWorkspace({ onShowReviews }: { onSh
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ contact, page: String(page), pageSize: "10", rating, reply, status, venue });
+      const params = new URLSearchParams({
+        checkoutDifficulty,
+        contactRequest,
+        contacted,
+        device,
+        page: String(page),
+        pageSize: "10",
+        paymentConfidence,
+        rating,
+        reply,
+        seatingDifficulty,
+        showDateDifficulty,
+        status,
+        venue,
+      });
       const next = await fetchSupabaseApi<Page>(`/api/admin/platform-feedback?${params}`, { cache: "no-store" });
       setResult(next);
       if (selectedId && !next.rows.some((row) => row.id === selectedId)) setSelectedId(null);
@@ -69,7 +94,7 @@ export default function PlatformFeedbackAdminWorkspace({ onShowReviews }: { onSh
     } finally {
       setLoading(false);
     }
-  }, [contact, page, rating, reply, selectedId, status, venue]);
+  }, [checkoutDifficulty, contactRequest, contacted, device, page, paymentConfidence, rating, reply, seatingDifficulty, selectedId, showDateDifficulty, status, venue]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -144,10 +169,16 @@ export default function PlatformFeedbackAdminWorkspace({ onShowReviews }: { onSh
         <button className="min-h-10 rounded-full border border-white/15 px-4 text-xs font-semibold text-zinc-200 hover:border-amber-300/50" onClick={onShowReviews} type="button">Show Reviews</button>
       </div>
 
-      <div className="grid gap-2 border-y border-white/10 py-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-2 border-y border-white/10 py-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <Select label="Venue" onChange={resetPage(setVenue)} options={[["all", "All venues"], ["cape-town", "Cape Town"], ["johannesburg", "Johannesburg"]]} value={venue} />
         <Select label="Rating" onChange={resetPage(setRating)} options={[["all", "All ratings"], ["1", "1 star"], ["2", "2 stars"], ["3", "3 stars"], ["4", "4 stars"], ["5", "5 stars"]]} value={rating} />
-        <Select label="Contact" onChange={resetPage(setContact)} options={[["all", "All contact states"], ["requested", "Contact requested"], ["contacted", "Contacted"], ["not_contacted", "Not contacted"]]} value={contact} />
+        <Select label="Device" onChange={resetPage(setDevice)} options={[["all", "All devices"], ["mobile", "Mobile phone"], ["computer", "Computer"], ["tablet", "Tablet"], ["cant_remember", "Can't remember"]]} value={device} />
+        <Select label="Show/date difficulty" onChange={resetPage(setShowDateDifficulty)} options={[["all", "Show/date: All"], ["difficult", "Show/date: Difficult"], ["neutral", "Show/date: Neutral"], ["easy", "Show/date: Easy"]]} value={showDateDifficulty} />
+        <Select label="Seating difficulty" onChange={resetPage(setSeatingDifficulty)} options={[["all", "Seating: All"], ["difficult", "Seating: Difficult"], ["neutral", "Seating: Neutral"], ["easy", "Seating: Easy"]]} value={seatingDifficulty} />
+        <Select label="Checkout difficulty" onChange={resetPage(setCheckoutDifficulty)} options={[["all", "Checkout: All"], ["difficult", "Checkout: Difficult"], ["neutral", "Checkout: Neutral"], ["easy", "Checkout: Easy"]]} value={checkoutDifficulty} />
+        <Select label="Payment confidence" onChange={resetPage(setPaymentConfidence)} options={[["all", "Payment confidence: All"], ["yes", "Payment confidence: Yes"], ["mostly", "Payment confidence: Mostly"], ["no", "Payment confidence: No"]]} value={paymentConfidence} />
+        <Select label="Contact requested" onChange={resetPage(setContactRequest)} options={[["all", "Contact request: All"], ["requested", "Contact requested"], ["not_requested", "No contact requested"]]} value={contactRequest} />
+        <Select label="Contacted" onChange={resetPage(setContacted)} options={[["all", "Contacted: All"], ["contacted", "Contacted"], ["not_contacted", "Not contacted"]]} value={contacted} />
         <Select label="Reply" onChange={resetPage(setReply)} options={[["all", "All replies"], ["replied", "Replied"], ["not_replied", "Not replied"]]} value={reply} />
         <Select label="Submission status" onChange={resetPage(setStatus)} options={[["all", "All submissions"], ["submitted", "Submitted"], ["resolved", "Resolved"]]} value={status} />
       </div>
@@ -184,13 +215,18 @@ export default function PlatformFeedbackAdminWorkspace({ onShowReviews }: { onSh
             <div className="space-y-5">
               <div><h3 className="text-xl font-semibold text-white">{selected.displayName}</h3><p className="mt-1 text-sm text-zinc-500">{selected.bookingReference} · {selected.performanceName}</p></div>
               <p className="text-2xl text-amber-300" aria-label={selected.rating + " stars"}>{"★".repeat(selected.rating)}{"☆".repeat(5 - selected.rating)}</p>
-              <p className="whitespace-pre-wrap text-base leading-7 text-zinc-200">{selected.comment || "No written feedback supplied."}</p>
               <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                <div><dt className="text-xs uppercase text-zinc-500">Overall booking experience</dt><dd className="mt-1 text-zinc-200">{selected.rating}/5</dd></div>
+                <div><dt className="text-xs uppercase text-zinc-500">Show and date</dt><dd className="mt-1 text-zinc-200">{selected.showDateEase ? `${selected.showDateEase}/5` : "Not recorded"}</dd></div>
+                <div><dt className="text-xs uppercase text-zinc-500">Seating selection</dt><dd className="mt-1 text-zinc-200">{selected.seatingEase ? `${selected.seatingEase}/5` : "Not recorded"}</dd></div>
+                <div><dt className="text-xs uppercase text-zinc-500">Checkout and payment</dt><dd className="mt-1 text-zinc-200">{selected.checkoutEase ? `${selected.checkoutEase}/5` : "Not recorded"}</dd></div>
+                <div><dt className="text-xs uppercase text-zinc-500">Payment confidence</dt><dd className="mt-1 capitalize text-zinc-200">{selected.paymentConfidence || "Not recorded"}</dd></div>
+                <div><dt className="text-xs uppercase text-zinc-500">Booking device</dt><dd className="mt-1 text-zinc-200">{selected.bookingDevice === "cant_remember" ? "Can't remember" : selected.bookingDevice === "mobile" ? "Mobile phone" : selected.bookingDevice ? selected.bookingDevice[0].toUpperCase() + selected.bookingDevice.slice(1) : "Not recorded"}</dd></div>
                 <div><dt className="text-xs uppercase text-zinc-500">Submitted</dt><dd className="mt-1 text-zinc-200">{new Date(selected.submittedAt).toLocaleString("en-ZA")}</dd></div>
-                <div><dt className="text-xs uppercase text-zinc-500">Device</dt><dd className="mt-1 capitalize text-zinc-200">{selected.deviceCategory || "Not recorded"}</dd></div>
                 <div><dt className="text-xs uppercase text-zinc-500">Email</dt><dd className="mt-1 break-all text-zinc-200">{selected.contact?.email || "Unavailable"}</dd></div>
                 <div><dt className="text-xs uppercase text-zinc-500">Phone</dt><dd className="mt-1 text-zinc-200">{selected.contact?.mobile || "Unavailable"}</dd></div>
               </dl>
+              <div><p className="text-xs uppercase text-zinc-500">What could we make better?</p><p className="mt-2 whitespace-pre-wrap text-base leading-7 text-zinc-200">{selected.comment || "No written feedback supplied."}</p></div>
               <div className="border-t border-white/10 pt-5">
                 <label className="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-500" htmlFor="platform-feedback-reply">Reply to Guest</label>
                 <textarea className="mt-2 min-h-24 w-full rounded-xl border border-white/15 bg-black/30 p-3 text-sm text-white outline-none focus:border-amber-300" id="platform-feedback-reply" maxLength={4000} onChange={(event) => { setReplyMessage(event.target.value); setReplyKey(""); }} placeholder="Write a short reply to the guest." value={replyMessage} />

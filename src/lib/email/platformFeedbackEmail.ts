@@ -23,6 +23,7 @@ export async function createPlatformFeedbackEmail(input: {
       heading,
       hidePrimaryUrlInHtml: true,
       includeAgePolicy: false,
+      includeSecurityNotice: false,
       message,
       subject,
     })),

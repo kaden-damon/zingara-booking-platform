@@ -25,7 +25,13 @@ export async function GET(request: Request) {
   const from = (page - 1) * pageSize;
   const venue = url.searchParams.get("venue") || "all";
   const rating = url.searchParams.get("rating") || "all";
-  const contact = url.searchParams.get("contact") || "all";
+  const device = url.searchParams.get("device") || "all";
+  const showDateDifficulty = url.searchParams.get("showDateDifficulty") || "all";
+  const seatingDifficulty = url.searchParams.get("seatingDifficulty") || "all";
+  const checkoutDifficulty = url.searchParams.get("checkoutDifficulty") || "all";
+  const paymentConfidence = url.searchParams.get("paymentConfidence") || "all";
+  const contactRequest = url.searchParams.get("contactRequest") || "all";
+  const contacted = url.searchParams.get("contacted") || "all";
   const reply = url.searchParams.get("reply") || "all";
   const status = url.searchParams.get("status") || "all";
   const feedbackId = url.searchParams.get("feedbackId") || "";
@@ -37,17 +43,29 @@ export async function GET(request: Request) {
   try {
     let query = auth.serviceClient
       .from("platform_feedback_submissions")
-      .select("id,booking_id,customer_id,show_id,venue,rating,comment,contact_requested,device_category,contacted_at,contacted_by,contact_method,replied_at,replied_by_name,status,revision,submitted_at", { count: "exact" })
+      .select("id,booking_id,customer_id,show_id,venue,rating,show_date_ease,seating_ease,checkout_ease,comment,payment_confidence,booking_device,contact_requested,device_category,contacted_at,contacted_by,contact_method,replied_at,replied_by_name,status,revision,submitted_at", { count: "exact" })
       .in("venue", venue === "all" ? venues : [venue])
       .order("submitted_at", { ascending: false })
       .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
     if (feedbackId) query = query.eq("id", feedbackId);
     if (rating !== "all") query = query.eq("rating", Number(rating));
+    if (device !== "all") query = query.eq("booking_device", device);
+    if (showDateDifficulty === "difficult") query = query.lte("show_date_ease", 2);
+    if (showDateDifficulty === "neutral") query = query.eq("show_date_ease", 3);
+    if (showDateDifficulty === "easy") query = query.gte("show_date_ease", 4);
+    if (seatingDifficulty === "difficult") query = query.lte("seating_ease", 2);
+    if (seatingDifficulty === "neutral") query = query.eq("seating_ease", 3);
+    if (seatingDifficulty === "easy") query = query.gte("seating_ease", 4);
+    if (checkoutDifficulty === "difficult") query = query.lte("checkout_ease", 2);
+    if (checkoutDifficulty === "neutral") query = query.eq("checkout_ease", 3);
+    if (checkoutDifficulty === "easy") query = query.gte("checkout_ease", 4);
+    if (paymentConfidence !== "all") query = query.eq("payment_confidence", paymentConfidence);
     if (status !== "all") query = query.eq("status", status);
-    if (contact === "requested") query = query.eq("contact_requested", true).is("contacted_at", null);
-    if (contact === "contacted") query = query.not("contacted_at", "is", null);
-    if (contact === "not_contacted") query = query.is("contacted_at", null);
+    if (contactRequest === "requested") query = query.eq("contact_requested", true);
+    if (contactRequest === "not_requested") query = query.eq("contact_requested", false);
+    if (contacted === "contacted") query = query.not("contacted_at", "is", null);
+    if (contacted === "not_contacted") query = query.is("contacted_at", null);
     if (reply === "replied") query = query.not("replied_at", "is", null);
     if (reply === "not_replied") query = query.is("replied_at", null);
     const { data, error, count } = await query;
@@ -99,6 +117,8 @@ export async function GET(request: Request) {
           contactedBy: row.contacted_by ? staffMap.get(row.contacted_by) ?? "Staff member" : null,
           contactMethod: row.contact_method,
           contactRequested: row.contact_requested,
+          bookingDevice: row.booking_device,
+          checkoutEase: row.checkout_ease,
           deviceCategory: row.device_category,
           displayName: customer ? [customer.first_name, customer.surname].filter(Boolean).join(" ") : "Guest",
           history: events.filter((event) => event.feedback_id === row.id),
@@ -106,11 +126,14 @@ export async function GET(request: Request) {
           performanceDate: show?.date ?? null,
           performanceName: show?.name ?? "Performance unavailable",
           performanceTime: show?.time?.slice(0, 5) ?? null,
+          paymentConfidence: row.payment_confidence,
           rating: row.rating,
           repliedAt: row.replied_at,
           repliedBy: row.replied_by_name,
           replies: replies.filter((reply) => reply.feedback_id === row.id),
           revision: row.revision,
+          seatingEase: row.seating_ease,
+          showDateEase: row.show_date_ease,
           status: row.status,
           submittedAt: row.submitted_at,
           venue: row.venue,

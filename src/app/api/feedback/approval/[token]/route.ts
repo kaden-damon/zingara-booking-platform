@@ -42,6 +42,7 @@ export async function GET(request: Request, context: RouteContext) {
   return Response.json({
     feedback: {
       firstName: staff.full_name?.trim().split(/\s+/)[0] || "Zingarian",
+      suggestedDevice: null,
       venue: "cape-town",
     },
   });

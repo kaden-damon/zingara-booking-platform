@@ -14,7 +14,7 @@ async function resolveContext(token: string) {
   const tokenHash = hashPlatformFeedbackToken(token);
   const { data: invitation, error } = await client
     .from("platform_feedback_invitations")
-    .select("id,customer_id,venue,status,expires_at")
+    .select("id,customer_id,venue,status,expires_at,device_category")
     .eq("token_hash", tokenHash)
     .maybeSingle();
   if (error) throw error;
@@ -35,6 +35,12 @@ async function resolveContext(token: string) {
     client,
     feedback: {
       firstName: customer?.first_name?.trim() || "Zingarian",
+      suggestedDevice:
+        invitation.device_category === "desktop"
+          ? "computer"
+          : invitation.device_category === "mobile" || invitation.device_category === "tablet"
+            ? invitation.device_category
+            : null,
       venue: invitation.venue,
     },
     tokenHash,
@@ -94,9 +100,14 @@ export async function POST(request: Request, context: RouteContext) {
     if ("error" in validated) return Response.json({ error: validated.error }, { status: 400 });
     const resolved = await resolveContext(token);
     const { data, error } = await resolved.client.rpc("submit_platform_feedback", {
+      p_booking_device: validated.value.bookingDevice,
+      p_checkout_ease: validated.value.checkoutEase,
       p_comment: validated.value.comment,
       p_contact_requested: validated.value.contactRequested,
+      p_payment_confidence: validated.value.paymentConfidence,
       p_rating: validated.value.rating,
+      p_seating_ease: validated.value.seatingEase,
+      p_show_date_ease: validated.value.showDateEase,
       p_token_hash: resolved.tokenHash,
     });
     if (error) throw error;

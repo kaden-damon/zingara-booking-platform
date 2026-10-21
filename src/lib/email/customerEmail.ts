@@ -133,6 +133,7 @@ export async function createBrandedCustomerEmail(input: {
   html?: string | null;
   includeAgePolicy?: boolean;
   includePrimaryCta?: boolean;
+  includeSecurityNotice?: boolean;
   message: string;
   subject?: string | null;
 }): Promise<BrandedCustomerEmail> {
@@ -140,6 +141,7 @@ export async function createBrandedCustomerEmail(input: {
     replaceCustomerTableWithTbc(input.message),
   );
   const includeAgePolicy = input.includeAgePolicy !== false;
+  const includeSecurityNotice = input.includeSecurityNotice !== false;
   const messageWithAgePolicy = includeAgePolicy
     ? `${message}\n\n${ageRestrictionPolicy.label.toUpperCase()}\n${ageRestrictionPolicy.policy}\n${ageRestrictionPolicy.explanation.split(". ")[0]}.`
     : message;
@@ -199,7 +201,7 @@ export async function createBrandedCustomerEmail(input: {
           </td></tr>
           ${primaryUrl ? `<tr><td align="center" style="padding:12px 24px 26px;">${createZingaraEmailCta(input.ctaLabel ?? "OPEN SECURE ZINGARA LINK", primaryUrl)}</td></tr>` : ""}
           <tr><td align="center" style="padding:22px 24px;border-top:1px solid #4f4525;color:#a8a29e;font-size:11px;line-height:1.6;">
-            This email and any ticket, QR code or secure booking link contained in it are intended for the recipient and should not be shared or forwarded. Tickets and QR codes may provide access to the event and should be kept secure.
+            ${includeSecurityNotice ? "This email and any ticket, QR code or secure booking link contained in it are intended for the recipient and should not be shared or forwarded. Tickets and QR codes may provide access to the event and should be kept secure." : ""}
             <div style="margin-top:14px;">${legalNavigation}</div>
             <div style="margin-top:14px;">© ${new Date().getFullYear()} House of Zingara. All rights reserved.</div>
           </td></tr>

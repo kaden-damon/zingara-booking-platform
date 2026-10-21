@@ -1,26 +1,20 @@
 export const platformFeedbackCampaignKey = "booking-experience-2026-10";
 export const platformFeedbackCampaignStatus = "awaiting_approval" as const;
-export const platformFeedbackSubject = "A little something from behind the curtain… ✨";
-export const platformFeedbackHeading = "A LITTLE NOTE FROM THE ZINGARA FAMILY";
-export const platformFeedbackCta = "SHARE YOUR THOUGHTS ✨";
+export const platformFeedbackSubject = "A little favour from Zingara ✨";
+export const platformFeedbackHeading = "WE'D LOVE YOUR THOUGHTS";
+export const platformFeedbackCta = "SHARE YOUR THOUGHTS";
 export const platformFeedbackCommentMaximumLength = 2000;
 export const platformFeedbackBody = `Dearest {{first_name}},
 
-Every extraordinary Zingara experience begins long before the curtain rises. It begins with a little anticipation, a touch of excitement and, of course, securing your place at our table.
+A little magic happens long before the curtain rises, and we'd love to know how you found booking your Zingara experience.
 
-And that's where we'd love your thoughts.
+Was it effortless, or could we have made things a little easier?
 
-We've been adding a little more magic behind the scenes, and we'd love to know how you found booking your tickets with us.
-
-Was it all smooth sailing? Was everything easy to find? Or is there a little something we could do to make the experience even more wonderful?
-
-Your thoughts help us make the magic happen, even before the show begins.
-
-It'll only take a moment, we promise.
+Your thoughts will help us make every Zingara experience even more wonderful.
 
 {{feedback_url}}
 
-With love, laughter & a little Zingara magic,
+With love,
 
 The Zingara Family`;
 
@@ -127,13 +121,32 @@ export function validatePlatformFeedbackEmailTemplate(input: Partial<PlatformFee
 }
 
 export function validatePlatformFeedbackSubmission(input: {
+  bookingDevice?: unknown;
+  checkoutEase?: unknown;
   comment?: unknown;
   contactRequested?: unknown;
+  paymentConfidence?: unknown;
   rating?: unknown;
+  seatingEase?: unknown;
+  showDateEase?: unknown;
 }) {
   const rating = Number(input.rating);
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-    return { error: "Choose a rating from one to five stars." } as const;
+    return { error: "Choose an overall booking experience rating." } as const;
+  }
+  const showDateEase = Number(input.showDateEase);
+  const seatingEase = Number(input.seatingEase);
+  const checkoutEase = Number(input.checkoutEase);
+  if (![showDateEase, seatingEase, checkoutEase].every((value) => Number.isInteger(value) && value >= 1 && value <= 5)) {
+    return { error: "Answer each booking experience question before submitting." } as const;
+  }
+  const paymentConfidence = typeof input.paymentConfidence === "string" ? input.paymentConfidence : "";
+  if (!["yes", "mostly", "no"].includes(paymentConfidence)) {
+    return { error: "Tell us whether you felt safe making your payment online." } as const;
+  }
+  const bookingDevice = typeof input.bookingDevice === "string" ? input.bookingDevice : "";
+  if (!["mobile", "computer", "tablet", "cant_remember"].includes(bookingDevice)) {
+    return { error: "Choose the device used to make the booking." } as const;
   }
   const comment = typeof input.comment === "string" ? input.comment.trim() : "";
   if (
@@ -144,5 +157,16 @@ export function validatePlatformFeedbackSubmission(input: {
     return { error: "Keep your feedback to 2,000 characters and use plain text only." } as const;
   }
   const contactRequested = rating <= 3 && input.contactRequested === true;
-  return { value: { comment: comment || null, contactRequested, rating } } as const;
+  return {
+    value: {
+      bookingDevice: bookingDevice as "mobile" | "computer" | "tablet" | "cant_remember",
+      checkoutEase,
+      comment: comment || null,
+      contactRequested,
+      paymentConfidence: paymentConfidence as "yes" | "mostly" | "no",
+      rating,
+      seatingEase,
+      showDateEase,
+    },
+  } as const;
 }
