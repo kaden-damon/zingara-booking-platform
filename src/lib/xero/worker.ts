@@ -34,3 +34,9 @@ export function assertVerifiedPaymentEvidence(payload: Record<string, unknown>) 
   if (payload.evidenceType !== "successful_payfast" && payload.evidenceType !== "structured_manual" && payload.evidenceType !== "reconciled_import") throw new Error("Verified payment evidence is required before accounting allocation.");
   if (!payload.providerPaymentId || !(Number(payload.amountCents) > 0)) throw new Error("Payment identity and amount are required.");
 }
+
+export function assertVerifiedRefundEvidence(payload: Record<string, unknown>) {
+  if (!payload.refundId || !payload.originalInvoiceId || !(Number(payload.amountCents) > 0)) {
+    throw new Error("Verified refund evidence and the original Xero invoice are required before a credit note can be prepared.");
+  }
+}

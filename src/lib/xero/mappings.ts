@@ -28,6 +28,7 @@ export const XERO_REQUIRED_VENUE_MAPPING_CATEGORIES = [
   "booking_fee",
   "gratuity",
   "addons",
+  "discounts",
 ] as const satisfies readonly XeroMappingCategory[];
 
 const APPROVED_REVENUE_ACCOUNT_CODES: Record<Exclude<XeroMappingVenue, "all">, Partial<Record<XeroMappingCategory, string>>> = {
@@ -36,6 +37,7 @@ const APPROVED_REVENUE_ACCOUNT_CODES: Record<Exclude<XeroMappingVenue, "all">, P
     booking_fee: "206-02",
     buyouts: "205-01",
     corporate: "205-01",
+    discounts: "205-01",
     gratuity: "823-02",
     ticket_sales: "205-01",
   },
@@ -44,6 +46,7 @@ const APPROVED_REVENUE_ACCOUNT_CODES: Record<Exclude<XeroMappingVenue, "all">, P
     booking_fee: "206-01",
     buyouts: "205",
     corporate: "205",
+    discounts: "205",
     gratuity: "823-01",
     ticket_sales: "205",
   },

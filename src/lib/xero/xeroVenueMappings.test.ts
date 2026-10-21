@@ -38,9 +38,22 @@ test("account discovery retrieves bank accounts separately and permits Account I
     source("src/app/api/admin/xero/mappings/route.ts"),
   ]);
   assert.match(adapter, /Accounts\?where=Type%3D%3D%22BANK%22/);
-  assert.match(discovery, /account\.enablePaymentsToAccount/);
+  assert.match(discovery, /account\.type === "BANK" \|\| account\.enablePaymentsToAccount/);
   assert.match(discovery, /!candidate\.code \|\| candidate\.code === input\.accountCode/);
   assert.match(route, /!isXeroPaymentMappingCategory\(category\) && !accountCode/);
+});
+
+test("discounts use each venue sales account while refunds retain the original-invoice policy", async () => {
+  const [mappings, panel, operations] = await Promise.all([
+    source("src/lib/xero/mappings.ts"),
+    source("src/app/admin/XeroConnectionPanel.tsx"),
+    source("src/lib/xero/operations.ts"),
+  ]);
+  assert.match(mappings, /discounts: "205"/);
+  assert.match(mappings, /discounts: "205-01"/);
+  assert.match(panel, /Original-invoice credit note/);
+  assert.match(operations, /pending manual reconciliation/);
+  assert.match(operations, /preserve the original invoice account and tax treatment/);
 });
 
 test("mapping UI separates PayFast from EFT and explains deposit part-payments", async () => {

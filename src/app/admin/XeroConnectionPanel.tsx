@@ -13,6 +13,7 @@ type Account = { accountId: string; bankAccountSuffix: string; code: string; eft
 type TaxRate = { canApplyToRevenue: boolean; displayRate: number; effectiveRate: number; name: string; status: string; taxType: string };
 type DiscoveryPayload = {
   accounts: Account[];
+  bankAccountCount: number;
   invoiceNumbering: string;
   organisation: { baseCurrency: string; defaultSalesTax: string; isDemoCompany: boolean; legalName: string; name: string; organisationStatus: string };
   paymentAccounts: Account[];
@@ -136,6 +137,7 @@ export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Pr
         {VENUES.map((venue) => <button key={venue.value} type="button" role="tab" aria-selected={selectedVenue === venue.value} className={`min-h-9 px-3 text-xs font-semibold transition ${selectedVenue === venue.value ? "bg-[#D8C36A] text-black" : "text-zinc-300 hover:text-white"}`} onClick={() => setSelectedVenue(venue.value)}>{venue.label}</button>)}
       </div>
       {selectedVenue === "all" && <p className="mt-3 text-xs text-zinc-500">Shared settings are limited to verified payment clearing. Revenue always uses its venue-specific mapping.</p>}
+      {selectedVenue === "all" && <p className="mt-1 text-xs text-zinc-500">{discovery.bankAccountCount} active Xero bank account{discovery.bankAccountCount === 1 ? "" : "s"} discovered.</p>}
       <div className="mt-3 grid gap-2">{categories.map((category) => {
         const key = xeroMappingKey(selectedVenue, category);
         const saved = mappings.mappings.find((mapping) => mapping.venue === selectedVenue && mapping.category === category);
@@ -147,7 +149,7 @@ export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Pr
         const taxRequired = !isXeroPaymentMappingCategory(category);
         const approvalSupported = isXeroMappingApprovalSupported(selectedVenue, category);
         return <div key={key} className="grid gap-2 rounded-lg border border-white/10 p-3 lg:grid-cols-[minmax(10rem,0.8fr)_minmax(14rem,1.5fr)_minmax(12rem,1fr)_auto] lg:items-center">
-          <div><p className="text-sm text-white">{label(category)}</p><p className={`text-xs ${saved?.approved_at ? "text-emerald-300" : "text-amber-200"}`}>{saved?.approved_at ? "Approved and verified" : approvalSupported ? "Unapproved" : category === "deposits" ? "Part-payment policy · no sales mapping" : "Awaiting Accounts treatment"}</p></div>
+          <div><p className="text-sm text-white">{label(category)}</p><p className={`text-xs ${saved?.approved_at ? "text-emerald-300" : "text-amber-200"}`}>{saved?.approved_at ? "Approved and verified" : approvalSupported ? "Unapproved" : category === "deposits" ? "Part-payment policy · no sales mapping" : category === "refunds" ? "Original-invoice credit note · no standalone mapping" : "Awaiting Accounts treatment"}</p></div>
           <div><input aria-label={`${label(category)} Xero account`} autoComplete="off" className={input} list={`xero-accounts-${key}`} placeholder="Search account code, name or last four" value={draft.accountSearch} onChange={(event) => setDrafts((currentDrafts) => ({ ...currentDrafts, [key]: { ...draft, accountId: "", accountSearch: event.target.value } }))} /><datalist id={`xero-accounts-${key}`}>{accountOptions.map((account) => <option key={account.accountId} value={account.code || account.name}>{accountDetail(account)}</option>)}</datalist><p className="mt-1 truncate text-xs text-zinc-500">{selectedAccount ? accountDetail(selectedAccount) : saved?.account_name ?? "Choose from verified Xero accounts"}</p>{suggestions.length > 0 && <div className="mt-1 flex flex-wrap gap-1" aria-label={`${label(category)} matching Xero accounts`}>{suggestions.map((account) => <button key={account.accountId} type="button" className="rounded border border-white/10 px-2 py-1 text-left text-xs text-zinc-300 hover:border-[#D8C36A]/60 hover:text-white" onClick={() => setDrafts((currentDrafts) => ({ ...currentDrafts, [key]: { ...draft, accountId: account.accountId, accountSearch: account.code || account.name } }))}>{accountDetail(account)}</button>)}</div>}</div>
           {taxRequired ? <select aria-label={`${label(category)} tax treatment`} className={input} value={draft.taxCode} onChange={(event) => setDrafts((currentDrafts) => ({ ...currentDrafts, [key]: { ...draft, taxCode: event.target.value } }))}><option value="">Choose tax treatment</option>{revenueTaxRates.map((taxRate) => <option key={taxRate.taxType} value={taxRate.taxType}>{taxRate.name} · {taxRate.displayRate}%</option>)}</select> : <p className="text-xs text-zinc-500">No invoice tax treatment</p>}
           <button type="button" className={button} disabled={busy || !approvalSupported || !selectedAccount || (taxRequired && !draft.taxCode)} title={approvalSupported ? "Approve verified mapping" : "Accounts confirmation is required"} onClick={() => void saveMapping(category)}>Approve</button>

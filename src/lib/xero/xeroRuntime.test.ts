@@ -13,7 +13,7 @@ import { executeXeroOperation } from "./operations.ts";
 import { decryptXeroSecret, encryptXeroSecret, redactXeroSecrets } from "./tokenVault.ts";
 import { MockXeroTransport, XeroApiError, xeroRetryDelay } from "./transport.ts";
 import { isSupportedXeroWebhookEvent, parseXeroWebhook, verifyXeroWebhook, xeroWebhookEventKey } from "./webhook.ts";
-import { assertVerifiedPaymentEvidence, runXeroOutboxWorker, type XeroOutboxItem, type XeroWorkerStore } from "./worker.ts";
+import { assertVerifiedPaymentEvidence, assertVerifiedRefundEvidence, runXeroOutboxWorker, type XeroOutboxItem, type XeroWorkerStore } from "./worker.ts";
 
 const config = getXeroConfiguration({ XERO_CLIENT_ID: "client", XERO_CLIENT_SECRET: "secret", XERO_REDIRECT_URI: "https://book.zingara.co.za/api/admin/xero/oauth/callback", XERO_TOKEN_ENCRYPTION_KEY: "vault" } as NodeJS.ProcessEnv);
 const response = (data: unknown, status = 200) => ({ correlationId: "corr", data, retryAfterSeconds: null, status });
@@ -51,6 +51,37 @@ test("adapter updates only identified contacts and draft invoices", async () => 
 });
 
 test("adapter fails closed for missing tenant, mapping and payment evidence", async () => { assert.throws(() => new XeroAccountingAdapter(new MockXeroTransport([]), "")); const adapter = new XeroAccountingAdapter(new MockXeroTransport([]), "tenant"); await assert.rejects(adapter.createInvoice({ contactId: "c", currencyCode: "ZAR", date: "2026-10-11", lineAmountTypes: "NoTax", lines: [], localReference: "Z" }, "key"), /approve/); assert.throws(() => assertVerifiedPaymentEvidence({ amountCents: 100, providerPaymentId: "p", evidenceType: "failed_payfast" }), /Verified payment/); });
+
+test("credit notes require verified refund evidence and preserve the original invoice treatment", async () => {
+  const command = { contactId: "contact", currencyCode: "ZAR" as const, date: "2026-10-21", lineAmountTypes: "Inclusive" as const, lines: [{ description: "Approved refund", quantity: 1, unitAmount: 115, mapping: { accountCode: "205", category: "refunds", taxCode: "OUTPUT3" } }], localReference: "REFUND-1" };
+  const transport = new MockXeroTransport([
+    response({ Invoices: [{ Contact: { ContactID: "contact" }, InvoiceID: "invoice", LineItems: [{ AccountCode: "205", TaxType: "OUTPUT3" }], Status: "AUTHORISED" }] }),
+    response({ CreditNotes: [{ CreditNoteID: "credit", CreditNoteNumber: "CN-1", Status: "DRAFT" }] }),
+  ]);
+  const item: XeroOutboxItem = { attemptCount: 0, documentId: "doc", id: "refund-item", idempotencyKey: "refund:1", operation: "credit_note.create", payload: { amountCents: 11_500, command, originalInvoiceId: "invoice", refundId: "refund-1" }, tenantId: "tenant" };
+  const result = await executeXeroOperation(new XeroAccountingAdapter(transport, "tenant"), item);
+  assert.equal(result.providerId, "credit");
+  assert.deepEqual(transport.calls.map((call) => call.path.split("?")[0]), ["/Invoices/invoice", "/CreditNotes"]);
+  assert.throws(() => assertVerifiedRefundEvidence({ amountCents: 11_500, refundId: "refund-1" }), /original Xero invoice/);
+});
+
+test("credit-note allocation uses the original invoice and remains idempotent", async () => {
+  const transport = new MockXeroTransport([response({ Allocations: [{ AllocationID: "allocation" }] })]);
+  const adapter = new XeroAccountingAdapter(transport, "tenant");
+  const item: XeroOutboxItem = { attemptCount: 0, documentId: "doc", id: "allocation-item", idempotencyKey: "refund:1:allocation", operation: "credit_note.allocate", payload: { amountCents: 11_500, creditNoteId: "credit", originalInvoiceId: "invoice", refundId: "refund-1" }, tenantId: "tenant" };
+  assert.equal((await executeXeroOperation(adapter, item)).providerId, "allocation");
+  assert.equal((await executeXeroOperation(adapter, item)).providerId, "allocation");
+  assert.equal(transport.calls[0].path, "/CreditNotes/credit/Allocations");
+  assert.equal(transport.calls[0].idempotencyKey, "refund:1:allocation");
+});
+
+test("credit notes remain pending when the original Xero invoice is unavailable", async () => {
+  const transport = new MockXeroTransport([response({ Invoices: [] })]);
+  const command = { contactId: "contact", currencyCode: "ZAR" as const, date: "2026-10-21", lineAmountTypes: "Inclusive" as const, lines: [{ description: "Approved refund", quantity: 1, unitAmount: 115, mapping: { accountCode: "205", category: "refunds", taxCode: "OUTPUT3" } }], localReference: "REFUND-2" };
+  const item: XeroOutboxItem = { attemptCount: 0, documentId: "doc", id: "refund-item", idempotencyKey: "refund:2", operation: "credit_note.create", payload: { amountCents: 11_500, command, originalInvoiceId: "missing", refundId: "refund-2" }, tenantId: "tenant" };
+  await assert.rejects(executeXeroOperation(new XeroAccountingAdapter(transport, "tenant"), item), /pending manual reconciliation/);
+  assert.equal(transport.calls.length, 1);
+});
 
 test("worker blocks paused tenants and retries transient failures without duplicates", async () => {
   const item: XeroOutboxItem = { attemptCount: 0, documentId: "doc", id: "item", idempotencyKey: "stable", operation: "invoice.create", payload: {}, tenantId: "tenant" }; let mode: "paused" | "ready" = "paused"; const failures: Array<{ terminal: boolean }> = []; let completed = 0;
@@ -91,8 +122,9 @@ test("Xero discovery exposes active revenue accounts and payment accounts withou
     ] },
   });
   assert.deepEqual(discovery.accounts.map((account) => account.accountId), ["sales-jhb", "hidden", "clearing", "eft"]);
-  assert.deepEqual(discovery.paymentAccounts.map((account) => account.accountId), ["clearing", "eft"]);
-  assert.equal(discovery.paymentAccounts[0].bankAccountSuffix, "0701");
+  assert.deepEqual(discovery.paymentAccounts.map((account) => account.accountId), ["hidden", "clearing", "eft"]);
+  assert.equal(discovery.bankAccountCount, 2);
+  assert.equal(discovery.paymentAccounts.find((account) => account.accountId === "clearing")?.bankAccountSuffix, "0701");
   assert.equal("bankAccountNumber" in discovery.paymentAccounts[0], false);
   assert.equal(verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "ticket_sales", discovery, taxCode: "OUTPUT2" }).taxRate?.effectiveRate, 15);
   assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "payfast_clearing_account", discovery }), /payment account/);
@@ -104,10 +136,11 @@ test("Xero discovery exposes active revenue accounts and payment accounts withou
   assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "OUTPUT2" }), /No VAT/);
   assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "gratuity", discovery, taxCode: "ZERORATED" }), /No VAT/);
   assert.throws(() => verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "corporate", discovery, taxCode: "NONE" }), /15%/);
+  assert.equal(verifiedXeroMapping({ accountCode: "205", accountId: "sales-jhb", category: "discounts", discovery, taxCode: "OUTPUT2" }).taxRate?.effectiveRate, 15);
 });
 
 test("mapping readiness requires approved operational categories and separate payment accounts", () => {
-  const categories = ["ticket_sales", "corporate", "buyouts", "booking_fee", "gratuity", "addons"];
+  const categories = ["ticket_sales", "corporate", "buyouts", "booking_fee", "gratuity", "addons", "discounts"];
   const complete = [
     ...categories.flatMap((category) => [{ category, venue: "johannesburg" }, { category, venue: "cape-town" }]),
     { category: "payfast_clearing_account", venue: "all" },
@@ -116,7 +149,7 @@ test("mapping readiness requires approved operational categories and separate pa
   assert.equal(allRequiredXeroMappingsApproved(complete), true);
   assert.equal(allRequiredXeroMappingsApproved(complete.filter((mapping) => xeroMappingKey(mapping.venue as "all" | "johannesburg" | "cape-town", mapping.category as "ticket_sales") !== "cape-town:ticket_sales")), false);
   assert.equal(allRequiredXeroMappingsApproved(complete.filter((mapping) => mapping.category !== "eft_payment_account")), false);
-  assert.equal(allRequiredXeroMappingsApproved([...complete, { category: "discounts", venue: "johannesburg" }]), true);
+  assert.equal(allRequiredXeroMappingsApproved(complete.filter((mapping) => mapping.category !== "discounts")), false);
 });
 
 test("approved mapping policy keeps venue accounts isolated and unresolved treatments blocked", () => {
@@ -124,7 +157,9 @@ test("approved mapping policy keeps venue accounts isolated and unresolved treat
   assert.equal(expectedXeroAccountCode("cape-town", "corporate"), "205-01");
   assert.equal(expectedXeroAccountCode("johannesburg", "booking_fee"), "206-01");
   assert.equal(expectedXeroAccountCode("cape-town", "gratuity"), "823-02");
-  assert.equal(isXeroMappingApprovalSupported("johannesburg", "discounts"), false);
+  assert.equal(expectedXeroAccountCode("johannesburg", "discounts"), "205");
+  assert.equal(expectedXeroAccountCode("cape-town", "discounts"), "205-01");
+  assert.equal(isXeroMappingApprovalSupported("johannesburg", "discounts"), true);
   assert.equal(isXeroMappingApprovalSupported("cape-town", "refunds"), false);
   assert.equal(isXeroMappingApprovalSupported("johannesburg", "deposits"), false);
   assert.equal(isXeroMappingApprovalSupported("all", "payfast_clearing_account"), true);

@@ -70,7 +70,8 @@ export function normaliseXeroDiscovery(input: { accounts: unknown; actions?: unk
       organisationStatus: text(organisation.OrganisationStatus),
       paymentTerms: organisation.PaymentTerms ?? null,
     },
-    paymentAccounts: accounts.filter((account) => account.enablePaymentsToAccount),
+    bankAccountCount: accounts.filter((account) => account.type === "BANK").length,
+    paymentAccounts: accounts.filter((account) => account.type === "BANK" || account.enablePaymentsToAccount),
     taxRates,
     trackingCategories: rows(input.tracking, "TrackingCategories").map((category) => ({ id: text(category.TrackingCategoryID), name: text(category.Name), status: text(category.Status) })).filter((category) => category.id && category.status === "ACTIVE"),
   };
@@ -96,6 +97,6 @@ export function verifiedXeroMapping(input: {
   if (input.category === "gratuity" && (taxRate.taxType !== "NONE" || taxRate.name !== "No VAT" || taxRate.effectiveRate !== 0)) {
     throw new Error("Gratuity requires Xero's verified NONE - No VAT sales treatment.");
   }
-  if (["ticket_sales", "corporate", "buyouts", "booking_fee", "addons"].includes(input.category) && taxRate.effectiveRate !== 15) throw new Error("Choose the verified 15% standard sales treatment.");
+  if (["ticket_sales", "corporate", "buyouts", "booking_fee", "addons", "discounts"].includes(input.category) && taxRate.effectiveRate !== 15) throw new Error("Choose the verified 15% standard sales treatment.");
   return { account, taxRate };
 }

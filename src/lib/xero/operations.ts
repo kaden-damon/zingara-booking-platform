@@ -1,7 +1,20 @@
 import { XeroAccountingAdapter, type XeroDocumentCommand } from "./accountingAdapter.ts";
-import { assertVerifiedPaymentEvidence, type XeroOutboxItem } from "./worker.ts";
+import { assertVerifiedPaymentEvidence, assertVerifiedRefundEvidence, type XeroOutboxItem } from "./worker.ts";
 
 function command(payload: Record<string, unknown>) { return payload.command as XeroDocumentCommand; }
+function originalInvoice(data: unknown, invoiceId: string) {
+  const invoices = (data as { Invoices?: Array<{ Contact?: { ContactID?: string }; InvoiceID?: string; LineItems?: Array<{ AccountCode?: string; TaxType?: string }>; Status?: string }> })?.Invoices;
+  const invoice = invoices?.find((candidate) => candidate.InvoiceID === invoiceId);
+  if (!invoice || invoice.Status === "DELETED" || invoice.Status === "VOIDED") throw new Error("The original Xero invoice is unavailable. Leave this refund pending manual reconciliation.");
+  return invoice;
+}
+function assertCreditNoteMatchesInvoice(credit: XeroDocumentCommand, invoice: ReturnType<typeof originalInvoice>) {
+  if (!invoice.Contact?.ContactID || invoice.Contact.ContactID !== credit.contactId) throw new Error("The refund contact does not match the original Xero invoice.");
+  const treatments = new Set((invoice.LineItems ?? []).map((line) => `${line.AccountCode ?? ""}:${line.TaxType ?? ""}`));
+  if (!credit.lines.length || credit.lines.some((line) => !treatments.has(`${line.mapping.accountCode}:${line.mapping.taxCode}`))) {
+    throw new Error("The credit note must preserve the original invoice account and tax treatment.");
+  }
+}
 export async function executeXeroOperation(adapter: XeroAccountingAdapter, item: XeroOutboxItem) {
   if (item.operation === "document.sync") {
     const payload = item.payload as { command: Omit<XeroDocumentCommand, "contactId">; contact: { contactNumber: string; emailAddress: string; name: string }; existingContactId?: string; kind: "invoice" | "quote" };
@@ -41,8 +54,18 @@ export async function executeXeroOperation(adapter: XeroAccountingAdapter, item:
     return { providerId: payment.PaymentID, providerStatus: payment.Status };
   }
   if (item.operation === "credit_note.create") {
-    const credit = await adapter.createCreditNote(command(item.payload), item.idempotencyKey);
+    assertVerifiedRefundEvidence(item.payload);
+    const creditCommand = command(item.payload);
+    const invoiceId = String(item.payload.originalInvoiceId);
+    const invoiceResponse = await adapter.getInvoice(invoiceId);
+    assertCreditNoteMatchesInvoice(creditCommand, originalInvoice(invoiceResponse.data, invoiceId));
+    const credit = await adapter.createCreditNote(creditCommand, item.idempotencyKey);
     return { providerId: credit.CreditNoteID, providerNumber: credit.CreditNoteNumber, providerStatus: credit.Status };
+  }
+  if (item.operation === "credit_note.allocate") {
+    assertVerifiedRefundEvidence(item.payload);
+    const allocation = await adapter.allocateCreditNote({ amount: Number(item.payload.amountCents) / 100, creditNoteId: String(item.payload.creditNoteId ?? ""), invoiceId: String(item.payload.originalInvoiceId) }, item.idempotencyKey);
+    return { providerId: String(allocation.AllocationID ?? item.payload.creditNoteId), providerStatus: "ALLOCATED" };
   }
   throw new Error("This Xero operation is not supported.");
 }

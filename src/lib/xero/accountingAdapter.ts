@@ -79,4 +79,9 @@ export class XeroAccountingAdapter {
     const response = await this.transport.request({ body: { CreditNotes: [{ Contact: { ContactID: command.contactId }, CurrencyCode: command.currencyCode, Date: command.date, LineAmountTypes: command.lineAmountTypes, LineItems: lineItems(command.lines), Reference: command.localReference, Status: "DRAFT", Type: "ACCRECCREDIT" }] }, idempotencyKey, method: "PUT", path: "/CreditNotes?summarizeErrors=false", tenantId: this.tenantId });
     return first<{ CreditNoteID: string; CreditNoteNumber?: string; Status?: string }>(response.data, "CreditNotes");
   }
+  async allocateCreditNote(input: { amount: number; creditNoteId: string; invoiceId: string }, idempotencyKey: string) {
+    if (!input.creditNoteId || !input.invoiceId || !(input.amount > 0)) throw new Error("An approved credit note, original invoice and allocation amount are required.");
+    const response = await this.transport.request({ body: { Amount: input.amount, Invoice: { InvoiceID: input.invoiceId } }, idempotencyKey, method: "PUT", path: `/CreditNotes/${input.creditNoteId}/Allocations`, tenantId: this.tenantId });
+    return first<{ AllocationID?: string; Amount?: number }>(response.data, "Allocations");
+  }
 }
