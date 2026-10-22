@@ -1,50 +1,36 @@
-# Phase 50.4D — Xero final configuration and bank account resolution
+# P0 - Booking amendment and ticket integrity repair
 
-User-authorised scope: diagnose the existing Production Xero integration, verify both bank identities, configure Tristan's discount/refund treatment using existing infrastructure, and release only verified corrections.
+Zingara is live Production. Diagnose first, then implement and deploy only the smallest verified correction.
 
-## Baseline and isolation
+## Goal
 
-- Repository: kaden-damon/zingara-booking-platform.
-- Isolated checkout from origin/main: ab53cca75f4fe3463a2a518b234c88807481e898.
-- Original checkout and its unrelated user changes are untouched.
-- Initial Production baseline: ab53cca75f4fe3463a2a518b234c88807481e898.
-- A concurrent authorised Xero release landed during verification. This checkout was fast-forwarded to b53dc4e2b544225f09c86fd073ff012e80bd6273, preserving its bank, discount, refund and explicit-selection fixes rather than duplicating them.
-- Release rollback: dpl_5NteujsJkJRtQFsWSsAnn9TeHrVN / zingara-booking-platform-2u2v2q120-kaden-damons-projects.vercel.app at b53dc4e.
+Permanently resolve recurring ticket-identity states that prevent legitimate guest-count increases while preserving every valid booking, payment, ticket, QR identity, capacity entitlement and financial record.
 
-## Mandatory boundaries
+Production canary: `ZNG-562EB5`, Callie Addison, Johannesburg, 22 October 2026, currently 4 guests and requested 5 guests. The expected additional obligation is R550. Do not execute the real guest-count amendment without separate explicit authorisation.
 
-- XERO_LIVE_SYNC_AUTHORISED=false; sync remains paused.
-- Bounded read-only Xero discovery; never log credentials or full bank numbers.
-- Verify organisation Zingara Productions (Pty) Ltd and immutable Account IDs.
-- No guessed bank identities; unmatched accounts remain unapproved.
-- Preserve all 12 approved venue mappings, OUTPUT3 15% VAT and deposit part-payments.
-- Discounts reduce the original venue sales account (JHB 205, CPT 205-01); existing discount calculations unchanged.
-- Refunds require a credit note against the original Xero invoice; missing invoice means manual reconciliation. Preserve approval, reconciliation, audit and idempotency controls.
-- No real invoices, contacts, payments, credit notes, refunds, chart/account changes, historical imports, customer messages, bookings/tickets/capacity changes or webhook activation.
-- Configuration changes only where verified and authorised; no Production business-data changes.
+## Investigation
 
-## Work
+- Trace the exact amendment guard and the lifecycle of canonical, voided, regenerated and replacement ticket identities.
+- Identify the originating process that creates the blocked state, including migrations, regeneration, transfer, cancellation, reinstatement and reconciliation paths.
+- Perform a bounded read-only audit of active bookings and classify valid replacements, duplicates, orphaned records, genuine conflicts and bookings likely to fail amendments.
+- Determine why the previous Phase 50.3 safeguard did not prevent recurrence.
 
-1. Confirm Production commit/deployment and rollback; inspect current discovery/scopes/tenant/mappings.
-2. Diagnose complete bounded bank discovery and masked immutable identities.
-3. Make minimal configuration/runtime/UI corrections using existing infrastructure.
-4. Run mocked focused Xero tests, TypeScript, changed-file ESLint, diff checks and Production webpack build.
-5. Commit authorised files, push main and deploy Production only if changes required; reverify paused state and no financial writes.
-6. Report exact findings and remaining blockers honestly; do not claim completion until verified.
+## Authorised correction
 
-## Progress
+- Recognise unambiguous valid replacements and reconcile obsolete records without weakening fail-closed identity protection.
+- Ensure future regeneration persists authoritative replacement relationships and cannot create duplicate active identities.
+- Preserve all valid customer tickets and QR codes.
+- Do not physically delete ticket records, revoke valid tickets, perform destructive cleanup or automatically alter ambiguous records.
+- Historical reconciliation must be classified, audited, non-destructive and applied only where the relationship is authoritative and unambiguous.
 
-- Read root AGENTS.md and installed Next.js route-handler guide.
-- Found original checkout 17 commits behind main with unrelated edits; isolated latest baseline.
-- Found later discovery correction 9d7e6de already on baseline; reviewing that implementation before changes.
-- Bounded authenticated Production discovery verified the correct organisation and both requested bank identities. All 12 active BANK accounts had EnablePaymentsToAccount=false, including both uncoded target accounts; the previous payment-account filter excluded them. Actual bank identifiers are masked and live Account IDs are retained only in local evidence/configuration, not source code.
-- Production scopes include accounting.settings.read; no scope change is needed. XERO_LIVE_SYNC_AUTHORISED=false, connection sync_paused=true, no webhook key configured.
-- All 12 existing approved mappings snapshotted read-only; four local draft documents, zero outbox/contact-mapping/webhook/reconciliation records before release.
-- The concurrent Production release already approved both verified BANK mappings and both venue discounts, giving 16 approvals. The original 12 approvals and zero financial outbox/contact/webhook/reconciliation counts remain intact. These existing approvals are reused without rewriting them.
-- Discarded overlapping local draft changes after preserving a local patch. Only remaining verified corrections are implemented: source-specific approved Account IDs at payment execution, official credit-note Allocations request shape, prevention of original-invoice identity overwrite, and masked PayFast UI/error text.
-- Existing original-invoice refund/contact/tax checks, authorisation boundary, durable idempotency, and manual reconciliation behaviour are preserved. No automatic financial activity is enabled. No operational discount calculations are changed.
-- 44 focused mocked Xero tests pass. Final TypeScript, changed-file ESLint, git diff --check and Production webpack build pass against b53dc4e.
-- Production environment rechecked: XERO_LIVE_SYNC_AUTHORISED=false; no webhook key configured. Runtime connection remains sync_paused=true.
-- The authorised release uses the existing GitHub main → Vercel Production pipeline, so ignored environment files and local read-only audit evidence are never uploaded as application source.
-- Final commit/deployment identifiers and post-release verification are reported in the chat and local verification evidence. No financial round-trip or webhook activation is authorised by this task.
-- No Production mapping writes or financial/business-data mutations have been performed by this checkout.
+## Verification
+
+Prove original issuance, regeneration/replacement, guest increases and decreases, transfers, cancellations, reinstatements, refunds, partial payments, QR validation, concurrency and duplicate prevention. Confirm `ZNG-562EB5` is amendment-ready while preserving its existing identities, financial evidence, zone, capacity, customer and booking reference.
+
+Use bounded queries and preserve Phase 47.1 performance. Run focused tests, TypeScript, changed-file ESLint, `git diff --check` and Production build.
+
+## Release boundary
+
+Commit and deploy only the verified application correction. No customer communications and no real amendment to `ZNG-562EB5`. Preserve unrelated user-owned changes.
+
+Final status: P0 complete - ticket identity integrity repaired.

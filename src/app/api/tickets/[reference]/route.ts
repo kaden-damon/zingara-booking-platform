@@ -1,7 +1,6 @@
 import {
   type DemoBooking,
   type DemoShow,
-  type DemoVenueSettings,
   type GuestTicket,
   createGuestTicketCode,
   getDisplayZoneTitle,
@@ -685,28 +684,21 @@ export async function POST(request: Request, context: TicketRouteContext) {
         payload.booking.reference,
         currentTicket.index,
       ).replace(/$/, `R${Date.now().toString(36).toUpperCase()}`);
-      const nextBooking = {
-        ...payload.booking,
-        guestTickets: (payload.booking.guestTickets ?? []).map((ticket) =>
-          ticket.ticketCode === currentTicket.ticketCode
-            ? {
-                ...ticket,
-                regeneratedAt: new Date().toISOString(),
-                ticketCode: regeneratedTicketCode,
-              }
-            : ticket,
-        ),
-      };
+      const regeneratedAt = new Date().toISOString();
+      const { error: regenerationError } = await supabase.rpc(
+        "regenerate_guest_ticket_atomic",
+        {
+          p_booking_id: payload.bookingId,
+          p_current_ticket_code: currentTicket.ticketCode,
+          p_new_ticket_code: regeneratedTicketCode,
+          p_regenerated_at: regeneratedAt,
+          p_request_id: `ticket-regeneration:${crypto.randomUUID()}`,
+        },
+      );
 
-      await supabase
-        .from("tickets")
-        .update({ ticket_status: "void" })
-        .eq("ticket_code", currentTicket.ticketCode);
-      await supabase
-        .from("bookings")
-        .update({ notes: serializeBookingNotes(nextBooking) })
-        .eq("booking_reference", payload.booking.reference);
-      await persistGuestTickets(request.url, payload.bookingId, nextBooking);
+      if (regenerationError) {
+        throw regenerationError;
+      }
 
       const nextPayload = await loadTicketPayload(
         regeneratedTicketCode,
