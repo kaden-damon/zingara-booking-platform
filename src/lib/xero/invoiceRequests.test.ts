@@ -107,10 +107,31 @@ test("quotation acceptance and banking confirmation fail closed with immutable e
   assert.match(quoteRoute, /Confirmation of Banking Details PDF/);
   assert.match(quoteRoute, /VIEW & ACCEPT QUOTE/);
   assert.match(quoteRoute, /banking_document_id/);
+  assert.match(quoteRoute, /filename: `\$\{current\.local_reference\}\.pdf`/);
+  assert.match(quoteRoute, /filename: bankingDocument\.original_filename/);
+  assert.match(quoteRoute, /contentDisposition: "attachment" as const/);
   assert.match(publicRoute, /accept_xero_quote_by_token_atomic/);
   assert.match(publicRoute, /quote-accepted/);
   assert.doesNotMatch(publicRoute, /convert_xero_quote_to_invoice/);
   assert.match(bankingRoute, /canReplaceBankingDocument/);
   assert.match(bankingRoute, /validateBankingPdf/);
   assert.match(workspace, /XeroBankingDocumentPanel/);
+});
+
+test("Xero workspace controls keep the rounded Zingara action language", async () => {
+  const [workspace, connection, banking, acceptance] = await Promise.all([
+    source("../../app/admin/XeroWorkspace.tsx"),
+    source("../../app/admin/XeroConnectionPanel.tsx"),
+    source("../../app/admin/XeroBankingDocumentPanel.tsx"),
+    source("../../app/quote/[token]/QuoteAcceptanceClient.tsx"),
+  ]);
+  assert.match(workspace, /const primaryButton = "[^"]*rounded-full/);
+  assert.match(workspace, /const secondaryButton = "[^"]*rounded-full/);
+  assert.match(workspace, /overflow-x-auto rounded-xl border/);
+  assert.match(workspace, /aria-label="Move line up"[\s\S]{0,500}rounded-full/);
+  assert.match(connection, /role="tab"[^>]*rounded-full/);
+  assert.match(connection, /matching Xero accounts`[^>]*>[\s\S]*rounded-full/);
+  assert.match(banking, /rounded-full/);
+  assert.match(acceptance, /ACCEPT QUOTATION/);
+  assert.doesNotMatch(acceptance, /rounded-none/);
 });
