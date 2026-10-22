@@ -19,6 +19,12 @@ export const staffEmailNotificationRegistry = [
     label: "New Review Alerts",
     mode: "management",
   },
+  {
+    description: "One morning summary when accepted quotations are waiting for Accounts.",
+    key: "invoice-request-reminders",
+    label: "Invoice Request Reminders",
+    mode: "management",
+  },
 ] as const;
 
 export type StaffEmailNotificationKey =
@@ -135,7 +141,7 @@ export async function claimStaffEmailDelivery(
   input: {
     ccStaffProfileIds: string[];
     eventKey: string;
-    notificationKey: ManagementEmailNotificationKey | "training-acknowledgement";
+    notificationKey: ManagementEmailNotificationKey | "quote-accepted" | "training-acknowledgement";
     toStaffProfileIds: string[];
   },
 ) {

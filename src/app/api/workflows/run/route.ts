@@ -11,6 +11,7 @@ import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds"
 import { runReviewManagementWorkflows } from "@/lib/workflows/reviewManagement";
 import { isAuthorisedWorkflowCronRequest } from "@/lib/workflows/cronAuthorization";
 import { runApprovedPlatformFeedbackCampaign } from "@/lib/platformFeedbackCampaign";
+import { runInvoiceRequestReminder } from "@/lib/workflows/invoiceRequestReminders";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -87,6 +88,13 @@ export async function GET(request: Request) {
       console.error("[Zingara Workflows] Booking Experience Feedback failed", feedbackError);
       platformFeedback = { reason: "failed" };
     }
+    let invoiceRequestReminder: Awaited<ReturnType<typeof runInvoiceRequestReminder>> | { reason: "failed" };
+    try {
+      invoiceRequestReminder = await runInvoiceRequestReminder(serviceClient);
+    } catch (reminderError) {
+      console.error("[Zingara Workflows] Invoice request reminder failed", reminderError);
+      invoiceRequestReminder = { reason: "failed" };
+    }
     let telemetryCleanup: Awaited<ReturnType<typeof cleanupPlatformTelemetry>> =
       null;
 
@@ -108,6 +116,7 @@ export async function GET(request: Request) {
       corporatePaymentHolds,
       dailyBookingReview,
       dineplanScheduledEmails,
+      invoiceRequestReminder,
       platformFeedback,
       publicPaymentHolds,
       reviewManagement,

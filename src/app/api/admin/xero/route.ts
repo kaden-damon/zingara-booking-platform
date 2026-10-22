@@ -1,7 +1,13 @@
 import { calculateXeroDocumentTotals, type XeroDocumentLineInput, type XeroLineAmountType } from "@/lib/xero/documentMath";
+import { createXeroDocumentPdf } from "@/lib/xero/documentPdf";
+import { createBrandedCustomerEmail } from "@/lib/email/customerEmail";
+import { sendOperationalCustomerEmail, sendZingaraEmail } from "@/lib/email/smtp";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
 import { canCreateXeroInvoice, canCreateXeroQuote } from "@/lib/xero/access";
+import { canConvertRequestedQuote } from "@/lib/xero/invoiceRequests";
+import { downloadBankingDocument, loadActiveBankingDocument } from "@/lib/xero/bankingDocuments";
+import { createQuoteAcceptanceToken, hashQuoteAcceptanceToken, quoteAcceptanceExpiry } from "@/lib/xero/quoteAcceptance";
 import { buildXeroDocumentSyncPayload, documentMappingCategory, type QueueableXeroDocument } from "@/lib/xero/queue";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +52,10 @@ function roleName(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
 
 function canCreateInvoice(auth: Awaited<ReturnType<typeof requireActiveStaff>>, permissions: string[]) {
   return canCreateXeroInvoice({ permissions, roleName: roleName(auth) });
+}
+
+function canConvertQuote(auth: Awaited<ReturnType<typeof requireActiveStaff>>, permissions: string[]) {
+  return canConvertRequestedQuote(auth.staffProfile, canCreateInvoice(auth, permissions));
 }
 
 function allowedVenues(scope: string[]) {
@@ -275,9 +285,13 @@ export async function GET(request: Request) {
     const bookingPromise = document.source_booking_id
       ? auth.serviceClient.from("bookings").select("booking_reference,total_amount,amount_paid,balance_outstanding,payment_status").eq("id", document.source_booking_id).maybeSingle()
       : Promise.resolve({ data: null, error: null });
-    const [{ data: versions, error: versionsError }, { data: booking, error: bookingError }] = await Promise.all([versionsPromise, bookingPromise]);
+    const linkedInvoicePromise = document.kind === "quote"
+      ? auth.serviceClient.from("xero_documents").select("id,local_reference,status,sync_status,xero_document_number,xero_status").eq("kind", "invoice").eq("source_quote_id", document.id).maybeSingle()
+      : Promise.resolve({ data: null, error: null });
+    const [{ data: versions, error: versionsError }, { data: booking, error: bookingError }, { data: linkedInvoice, error: linkedInvoiceError }] = await Promise.all([versionsPromise, bookingPromise, linkedInvoicePromise]);
     if (versionsError) throw versionsError;
     if (bookingError) throw bookingError;
+    if (linkedInvoiceError) throw linkedInvoiceError;
     return Response.json({
       bookingFinancials: booking ? {
         amountPaid: Number(booking.amount_paid) || 0,
@@ -287,6 +301,7 @@ export async function GET(request: Request) {
         paymentStatus: booking.payment_status,
       } : null,
       document,
+      linkedInvoice,
       versions: versions ?? [],
     });
   }
@@ -295,7 +310,7 @@ export async function GET(request: Request) {
   const from = (page - 1) * pageSize;
   let query = auth.serviceClient
     .from("xero_documents")
-    .select("id,kind,local_reference,source_booking_reference,venue,status,version,customer_name,document_date,valid_until,subtotal_cents,tax_cents,total_cents,xero_document_number,xero_status,sync_status,created_at,updated_at", { count: "exact" })
+    .select("id,kind,local_reference,source_booking_reference,venue,status,version,customer_name,document_date,valid_until,subtotal_cents,tax_cents,total_cents,xero_document_number,xero_status,sync_status,invoice_requested_at,invoice_requested_by_staff_profile_id,invoice_requested_version,created_at,updated_at", { count: "exact" })
     .in("venue", venues.length ? venues : ["__none__"])
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
@@ -305,7 +320,11 @@ export async function GET(request: Request) {
   const kind = url.searchParams.get("kind");
   if (kind === "quote" || kind === "invoice") query = query.eq("kind", kind);
   const status = url.searchParams.get("status");
-  if (status && ["draft", "revised", "accepted", "converted", "expired", "superseded"].includes(status)) query = query.eq("status", status);
+  if (status === "invoice-requested") {
+    query = query.eq("kind", "quote").eq("status", "accepted").not("invoice_requested_at", "is", null);
+  } else if (status && ["draft", "revised", "accepted", "converted", "expired", "superseded"].includes(status)) {
+    query = query.eq("status", status);
+  }
   const search = cleanSearch(url.searchParams.get("search"));
   if (search) query = query.or(`local_reference.ilike.%${search}%,customer_name.ilike.%${search}%,source_booking_reference.ilike.%${search}%`);
   const [documentsResult, connectionResult, mappingResult, outboxResult] = await Promise.all([
@@ -323,8 +342,10 @@ export async function GET(request: Request) {
     throw documentsResult.error;
   }
   return Response.json({
+    canConvertQuote: canConvertQuote(auth, permissions),
     canCreateInvoice: canCreateInvoice(auth, permissions),
     canCreateQuote: canCreateXeroQuote(permissions),
+    canRequestInvoice: canCreateXeroQuote(permissions),
     canManageConnection: permissions.includes("settings:manage"),
     connection: connectionResult.data ?? { last_sync_at: null, status: "not_connected", sync_paused: true, tenant_name: null },
     documents: documentsResult.data ?? [],
@@ -422,7 +443,7 @@ export async function PATCH(request: Request) {
   if (!permissions.includes("bookings:manage") && !canCreateInvoice(auth, permissions)) {
     return Response.json({ error: "Quote or Accounts access is required." }, { status: 403 });
   }
-  const body = (await request.json()) as { action?: "accept" | "convert" | "queue"; acceptedBy?: string; evidence?: string; documentId?: string; version?: number };
+  const body = (await request.json()) as { action?: "accept" | "convert" | "queue" | "request-invoice" | "send"; acceptedBy?: string; evidence?: string; documentId?: string; version?: number };
   if (!body.documentId || !body.action) return Response.json({ error: "Choose a document action." }, { status: 400 });
   const { data: current, error } = await auth.serviceClient.from("xero_documents").select("*").eq("id", body.documentId).single();
   if (error || !current) return Response.json({ error: "The document could not be found." }, { status: 404 });
@@ -477,8 +498,170 @@ export async function PATCH(request: Request) {
     return Response.json({ document: data });
   }
 
+  if (body.action === "send") {
+    if (!canCreateXeroQuote(permissions)) {
+      return Response.json({ error: "Quote access is required to send a quotation." }, { status: 403 });
+    }
+    if (
+      current.kind !== "quote" ||
+      !["draft", "revised", "issued", "sent"].includes(current.status) ||
+      current.accepted_at
+    ) {
+      return Response.json({ error: "This quotation cannot be sent." }, { status: 409 });
+    }
+    const recipient = current.customer_email?.trim();
+    if (!recipient) return Response.json({ error: "Add a valid billing email before sending." }, { status: 409 });
+    if (current.valid_until && current.valid_until < new Date().toISOString().slice(0, 10)) {
+      return Response.json({ error: "This quotation has expired. Revise it before sending." }, { status: 409 });
+    }
+    const bankingDocument = await loadActiveBankingDocument(auth.serviceClient);
+    if (!bankingDocument) {
+      return Response.json({ error: "Accounts must approve a Confirmation of Banking Details PDF before this quotation can be sent." }, { status: 409 });
+    }
+    const { data: deliveryId, error: claimError } = await auth.serviceClient.rpc("claim_xero_quote_email_delivery", {
+      p_document_id: current.id,
+      p_expected_version: current.version,
+      p_recipient: recipient,
+    });
+    if (claimError) throw claimError;
+    if (!deliveryId) {
+      return Response.json({ error: "This quotation version has already been sent." }, { status: 409 });
+    }
+    try {
+      const token = createQuoteAcceptanceToken();
+      const { data: acceptanceLinkId, error: linkError } = await auth.serviceClient.rpc("create_xero_quote_acceptance_link", {
+        p_banking_document_id: bankingDocument.id,
+        p_document_id: current.id,
+        p_expected_version: current.version,
+        p_expires_at: quoteAcceptanceExpiry(current.valid_until),
+        p_token_hash: hashQuoteAcceptanceToken(token),
+      });
+      if (linkError || !acceptanceLinkId) throw linkError ?? new Error("The secure quotation link could not be created.");
+      const acceptanceUrl = `/quote/${encodeURIComponent(token)}`;
+      const subject = `Zingara quotation ${current.local_reference}`;
+      const message = `Dear ${current.customer_name},\n\nYour Zingara quotation and our approved Confirmation of Banking Details are attached.\n\nQuotation: ${current.local_reference}\nTotal: ${new Intl.NumberFormat("en-ZA", { currency: "ZAR", style: "currency" }).format(Number(current.total_cents) / 100)}\n\nUse the secure button below to view and accept your quotation.\n\nKind regards,\nZingara`;
+      const branded = await createBrandedCustomerEmail({
+        ctaLabel: "VIEW & ACCEPT QUOTE",
+        ctaUrl: acceptanceUrl,
+        heading: "YOUR ZINGARA QUOTATION",
+        includeAgePolicy: false,
+        message,
+        subject,
+      });
+      const bankingPdf = await downloadBankingDocument(auth.serviceClient, bankingDocument.storage_path);
+      const pdf = createXeroDocumentPdf({
+        accountNumber: current.account_number,
+        billingAddress: current.billing_address,
+        customerEmail: current.customer_email,
+        customerName: current.customer_name,
+        customerNotes: current.customer_notes,
+        documentDate: current.document_date,
+        guestCount: current.guest_count,
+        kind: "quote",
+        lineAmountType: current.line_amount_type,
+        lines: current.lines,
+        localReference: current.local_reference,
+        paymentTerms: current.payment_terms,
+        performanceDate: current.performance_date,
+        performanceTime: current.performance_time,
+        seatingSummary: current.seating_summary,
+        sourceBookingReference: current.source_booking_reference,
+        status: current.status,
+        subtotalCents: current.subtotal_cents,
+        taxCents: current.tax_cents,
+        totalCents: current.total_cents,
+        validUntil: current.valid_until,
+        venue: current.venue,
+        xeroDocumentNumber: current.xero_document_number,
+      });
+      const email = {
+        attachments: [
+          ...branded.attachments,
+          {
+            cid: `${current.local_reference}@book.zingara.co.za`,
+            content: Buffer.from(pdf),
+            contentDisposition: "attachment" as const,
+            contentType: "application/pdf",
+            filename: `${current.local_reference}.pdf`,
+          },
+          {
+            cid: `banking-confirmation-v${bankingDocument.version}@book.zingara.co.za`,
+            content: bankingPdf,
+            contentDisposition: "attachment" as const,
+            contentType: "application/pdf",
+            filename: bankingDocument.original_filename,
+          },
+        ],
+        html: branded.html,
+        message: branded.message,
+        subject,
+        to: recipient,
+      };
+      const { error: evidenceError } = await auth.serviceClient.from("xero_quote_email_deliveries").update({ acceptance_link_id: acceptanceLinkId, banking_document_id: bankingDocument.id }).eq("id", deliveryId);
+      if (evidenceError) throw evidenceError;
+      const result = current.contact_customer_id
+        ? await sendOperationalCustomerEmail({ ...email, customerId: current.contact_customer_id, kind: "booking_update" })
+        : await sendZingaraEmail(email);
+      const { error: completeError } = await auth.serviceClient.rpc("complete_xero_quote_email_delivery", {
+        p_actor_auth_user_id: auth.user.id,
+        p_actor_location_scope: auth.staffProfile.venue_scope,
+        p_actor_name: auth.staffProfile.full_name,
+        p_actor_role: roleName(auth),
+        p_actor_staff_profile_id: auth.staffProfile.id,
+        p_delivery_id: deliveryId,
+        p_error_message: result.ok ? null : result.error,
+        p_status: result.ok ? "sent" : "failed",
+      });
+      if (completeError) throw completeError;
+      if (!result.ok) {
+        return Response.json({ error: result.suppressed ? "Customer emails are paused for this contact." : "The quotation email could not be submitted." }, { status: 502 });
+      }
+      return Response.json({ providerAccepted: true });
+    } catch (sendError) {
+      await auth.serviceClient.rpc("complete_xero_quote_email_delivery", {
+        p_actor_auth_user_id: auth.user.id,
+        p_actor_location_scope: auth.staffProfile.venue_scope,
+        p_actor_name: auth.staffProfile.full_name,
+        p_actor_role: roleName(auth),
+        p_actor_staff_profile_id: auth.staffProfile.id,
+        p_delivery_id: deliveryId,
+        p_error_message: sendError instanceof Error ? sendError.message : "Unknown quotation delivery failure",
+        p_status: "failed",
+      });
+      throw sendError;
+    }
+  }
+
+  if (body.action === "request-invoice") {
+    if (!canCreateXeroQuote(permissions)) {
+      return Response.json({ error: "Quote access is required to request an invoice." }, { status: 403 });
+    }
+    if (
+      current.kind !== "quote" ||
+      current.status !== "accepted" ||
+      current.accepted_version !== current.version ||
+      current.invoice_requested_at
+    ) {
+      return Response.json({ error: "This quotation is not eligible for a new invoice request." }, { status: 409 });
+    }
+    const { data, error: requestError } = await auth.serviceClient.rpc("request_xero_invoice_atomic", {
+      p_actor_auth_user_id: auth.user.id,
+      p_actor_location_scope: auth.staffProfile.venue_scope,
+      p_actor_name: auth.staffProfile.full_name,
+      p_actor_role: roleName(auth),
+      p_actor_staff_profile_id: auth.staffProfile.id,
+      p_document_id: current.id,
+      p_expected_version: current.version,
+    });
+    if (requestError) {
+      return Response.json({ error: "This invoice request already exists or the quotation changed." }, { status: 409 });
+    }
+    return Response.json({ document: data });
+  }
+
   if (current.kind !== "quote" || current.status !== "accepted" || current.accepted_version !== current.version) return Response.json({ error: "Only the accepted quote version can be converted." }, { status: 409 });
-  if (!canCreateInvoice(auth, permissions)) return Response.json({ error: "Accounts access is required to create an invoice draft." }, { status: 403 });
+  if (!current.invoice_requested_at || current.invoice_requested_version !== current.accepted_version) return Response.json({ error: "Sales must request an invoice for the accepted quotation first." }, { status: 409 });
+  if (!canConvertQuote(auth, permissions)) return Response.json({ error: "Only authorised Accounts staff can convert invoice requests." }, { status: 403 });
   const { data, error: insertError } = await auth.serviceClient.rpc("convert_xero_quote_to_invoice_draft_atomic", {
     p_actor_auth_user_id: auth.user.id,
     p_actor_location_scope: auth.staffProfile.venue_scope,

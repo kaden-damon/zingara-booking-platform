@@ -5,6 +5,7 @@ import test from "node:test";
 import { calculateXeroDocumentTotals, isAccountingMappingApproved } from "./documentMath.ts";
 import { createXeroDocumentPdf } from "./documentPdf.ts";
 import { canCreateXeroInvoice, canCreateXeroQuote } from "./access.ts";
+import { canConvertRequestedQuote } from "./invoiceRequests.ts";
 import { getXeroRetryDecision, MockXeroTransport } from "./mockTransport.ts";
 
 const source = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
@@ -70,6 +71,7 @@ test("Sales, Box Office and Accounts actions preserve the existing permission mo
   assert.equal(canCreateXeroInvoice({ permissions: ["bookings:reconcile"], roleName: "Box Office Manager" }), true);
   assert.equal(canCreateXeroInvoice({ permissions: ["analytics:read"], roleName: "Finance" }), true);
   assert.equal(canCreateXeroInvoice({ permissions: ["bookings:manage"], roleName: "Box Office" }), false);
+  assert.equal(canConvertRequestedQuote({ active: true, id: "6ae026bc-8815-4fea-b56c-b2103eb0c093" }, true), false);
 });
 
 test("mock transport makes mutation retries idempotent and classifies retryable failures", async () => {

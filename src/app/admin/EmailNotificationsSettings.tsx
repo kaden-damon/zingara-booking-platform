@@ -16,7 +16,7 @@ type StaffOption = Recipient & { venueScope: string[] };
 type ManagementSetting = {
   cc: Recipient[];
   enabled: boolean;
-  key: "corporate-enquiry" | "new-review-alert";
+  key: "corporate-enquiry" | "invoice-request-reminders" | "new-review-alert";
   to: Recipient[];
 };
 type Payload = {
@@ -256,6 +256,27 @@ export default function EmailNotificationsSettings({
               </label>
             )}
             {managementDrafts.map((managementDraft) => {
+              if (managementDraft.key === "invoice-request-reminders") {
+                return <label className="flex min-h-12 items-start justify-between gap-4 rounded-lg border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-3" key={managementDraft.key}>
+                  <span>
+                    <strong className="block text-sm text-white">Invoice Request Reminders</strong>
+                    <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                      One morning summary when accepted quotations are waiting for Accounts.
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                      Recipients: {[...managementDraft.to, ...managementDraft.cc].map((member) => member.name).join(", ") || "Not configured"}
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    aria-label="Invoice Request Reminders"
+                    checked={managementDraft.enabled}
+                    disabled={loading}
+                    onChange={(event) => void saveManagement({ ...managementDraft, enabled: event.target.checked })}
+                    className="mt-1 h-5 w-5 accent-[#D8C36A]"
+                  />
+                </label>;
+              }
               const expanded = managementExpanded === managementDraft.key;
               const label = managementDraft.key === "new-review-alert" ? "New Review Alerts" : "New Corporate Enquiries";
               return <div className="rounded-lg border border-white/10 p-3" key={managementDraft.key}>

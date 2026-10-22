@@ -1,42 +1,67 @@
-# Phase 50.4F - Xero final verification and controlled activation
+# Phase 50.13 - Invoice Requests & Accounts Notifications
 
-Zingara is live Production. Continue the existing Xero integration without rebuilding or duplicating it. Diagnose first and make only the smallest verified corrections.
+Zingara is live Production. Extend the existing Quote & Invoice Management and Staff Emails architecture with the smallest safe implementation. Preserve all booking, payment, Xero, permission, audit, performance and business-data safeguards.
 
 ## Goal
 
-Complete the remaining Xero readiness checks and ensure the existing Quote & Invoice workflows are operationally ready for authorised Sales staff, while keeping all live financial synchronisation paused pending separate explicit approval.
+Allow authorised Sales staff to send secure quotations, receive exact-version customer acceptance and request an invoice after acceptance. Tristan and Rachelle may review and convert eligible accepted quotations through the existing Finance workflow. Wagheeda receives reminders but does not gain conversion permission. Add one consolidated daily reminder using the existing Microsoft 365 and Zingara HTML email infrastructure.
 
-## Current-state verification
+## Customer quotation acceptance
 
-- Confirm current Git HEAD, Production deployment and rollback point.
-- Verify the OAuth connection, connected organisation, all 16 approved mappings, webhook configuration and `XERO_WEBHOOK_KEY` presence, `XERO_LIVE_SYNC_AUTHORISED`, outbound workers, reconciliation and existing local accounting documents from current Production evidence.
-- Do not rely on previous phase reports where current evidence is available.
-- Never expose credentials, tokens or signing keys.
+- Quotation emails use the existing branded HTML shell and Microsoft 365 delivery. They include the exact quotation PDF, the active approved Confirmation of Banking Details PDF and a secure `VIEW & ACCEPT QUOTE` link.
+- Fail closed when no authoritative active banking confirmation exists. Never expose private storage URLs.
+- Acceptance links are unpredictable, stored hashed, bound to quote ID/version/customer/amount/currency/snapshot and invalidated by revision. Opening a link never accepts it.
+- Provide a compact public mobile-friendly quotation page with exact details, PDF download and explicit `ACCEPT QUOTATION` action. No login is required and no internal UUID is exposed.
+- Acceptance is atomic, exact-version and idempotent, records immutable evidence, never changes financial values and never creates an invoice.
+- On successful acceptance, send one idempotent branded confirmation to the responsible Sales staff identity. The accepted quote then becomes eligible for `REQUEST INVOICE`.
 
-## Webhook and security
+## Banking confirmation document
 
-- If the webhook key exists, verify signature validation, tenant identity, idempotency, retries and bounded processing using safe fixtures and read-only Production evidence.
-- If it is absent, document the exact secure configuration steps and stop at the human security boundary.
-- Reuse the existing webhook infrastructure. Do not reconnect OAuth or expand scopes without separate authorisation.
+- Add a compact `CONFIRMATION OF BANKING DETAILS` panel inside the existing Zingara x Xero Integration workspace.
+- Store PDFs in existing private Supabase Storage with MIME, signature and size validation. Retain immutable versions and keep one authoritative active version.
+- Existing authorised staff may view the current document. Only the verified Kaden Damon and Wagheeda staff profile IDs may upload or replace it; enforce this server-side and audit every replacement.
+- Previously sent quotation deliveries retain the banking-document version used. This document is a communication attachment only and never changes Xero, PayFast or invoice accounting configuration.
 
-## Sales and accounting workflows
+## Invoice request workflow
 
-- Verify role-appropriate Sales access to Quote & Invoice Management, existing customer selection, Corporate booking links, approved line items, pricing/VAT, branded PDFs, acceptance, invoice conversion and status viewing.
-- Preserve management and financial permissions; never grant unrestricted accounting access.
-- Verify the flow from quote creation through acceptance, invoice conversion, Xero allocation/reconciliation and Zingara status updates with mock/demo transports only.
-- Preserve customer, booking, quote/invoice and provider identities; Xero-generated numbers; venue mappings; VAT, gratuity, discounts, deposits; PayFast/EFT separation; and refund/credit-note controls.
+- Add `REQUEST INVOICE` only for accepted, invoice-eligible quotations with no outstanding request and no linked invoice.
+- Record the exact accepted quote/version, requesting staff identity and timestamp, and immutable audit evidence.
+- Make requests server-side idempotent and concurrency-safe. Requesting an invoice must not create an invoice, change pricing, contact a customer or trigger Xero.
+- Use the lifecycle `ACCEPTED -> INVOICE REQUESTED -> INVOICED`. Failed conversion leaves the request outstanding and safely retryable. Successful authoritative conversion preserves request history and exposes the linked invoice status to Sales.
+- Add a compact `INVOICE REQUESTED` filter to the existing Accounts workspace. Do not create another approval screen.
 
-## Testing and release boundary
+## Permissions
 
-- Use an authorised demo organisation or isolated fixtures for all write-path tests. Do not create live Xero contacts, invoices, payments or credit notes.
-- Verify contact mapping, quote acceptance, invoice creation, partial/full payments, status reconciliation, duplicate prevention, webhook handling, retries and refund credit notes for Johannesburg and Cape Town mappings.
-- Run focused Xero/Sales tests, TypeScript, changed-file ESLint, `git diff --check` and Production build.
-- Commit and deploy only a verified in-scope application fix. Do not deploy merely to repeat verification.
-- Keep `XERO_LIVE_SYNC_AUTHORISED=false`. Do not process existing drafts, historical records or queued writes.
-- Do not modify bookings, payments, tickets, capacity, Table Plan, customer identities or unrelated Admin modules.
+- Preserve existing Sales quote creation, draft editing, delivery, acceptance visibility, venue scope and status access.
+- Sales may request invoices but may not convert them, override accepted values, change accounting mappings or trigger Xero synchronisation.
+- Only verified Tristan and Rachelle staff identities may convert requested quotations, subject to existing Finance/management permission checks.
+- Wagheeda receives reminder access only and must not gain conversion permission.
 
-## Activation boundary
+## Xero boundary
 
-After all readiness checks, stop and request explicit approval for controlled live activation. State exactly which future document types and events would synchronise. No live financial synchronisation is authorised by this task.
+- Reuse the existing Xero integration, organisation, 16 mappings, identity, VAT, gratuity, discount, deposit, payment and reconciliation safeguards.
+- Keep `XERO_LIVE_SYNC_AUTHORISED=false`. Do not create live Xero contacts, invoices, payments or credit notes, process history, or invent a disconnected financial workflow.
 
-Final status: Phase 50.4F - Xero integration verified; awaiting controlled live activation.
+## Daily reminder
+
+- Add `INVOICE REQUEST REMINDERS` under Communications -> Staff Emails using existing persisted settings and permissions. Default OFF; changing the toggle must not send immediately.
+- Resolve Tristan, Rachelle and Wagheeda from authoritative staff profiles. Never invent addresses.
+- Run once each scheduled morning, only when enabled and valid outstanding requests exist. Send one consolidated branded email, not one per quote.
+- Include the bounded outstanding count and summary rows for quote reference, customer/company, amount and request date, plus `VIEW INVOICE REQUESTS` linking to the filtered Accounts queue.
+- Deduplicate by reporting date, preserve retries and delivery auditing, and distinguish provider acceptance from inbox delivery. Suppress empty, invoiced, invalid, cancelled and superseded requests.
+
+## UX and performance
+
+- Reuse existing black/gold rounded controls and existing Quote Management layouts. Show compact `REQUEST INVOICE`, `INVOICE REQUESTED` and `INVOICED` states.
+- Use bounded server-side queries and existing pagination. No global hydration, per-quote requests, unnecessary polling or impact to public booking, Box Office, payments, Xero or Admin performance.
+
+## Verification and release
+
+- Test quote creation/editing/delivery/acceptance, both PDF attachments, secure token expiry/revocation, revised-version invalidation, duplicate acceptance prevention, Sales notification idempotency, banking upload permissions/private retrieval/version preservation, accepted-version protection, request idempotency, queue/filter, venue permissions, Sales restrictions, Tristan/Rachelle conversion, Wagheeda reminder-only access, conversion failure/retry/completion, invoice identity, sync-disabled behavior, reminder recipients/content/toggle/empty suppression/idempotency, and existing workflows.
+- Use fixtures and mocked financial/email writes. Do not send customer communications, daily reminders or create real invoices during QA.
+- Verify responsive behavior at 1440px, 900px and 390px where authenticated rendering is available.
+- Run focused tests, TypeScript, changed-file ESLint, `git diff --check`, migration validation and Production build.
+- Commit only authorised changes, push to main, deploy to Vercel Production and verify the workflow. Keep the reminder toggle OFF and live Xero sync paused.
+- Preserve unrelated user-owned changes and record baseline and rollback.
+
+Final status: Phase 50.13 complete - Customer Quote Acceptance, Banking Details & Invoice Requests verified.
