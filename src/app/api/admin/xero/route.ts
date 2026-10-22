@@ -432,7 +432,7 @@ export async function PATCH(request: Request) {
   if (body.action === "queue") {
     if (!canCreateInvoice(auth, permissions)) return Response.json({ error: "Accounts access is required to prepare Xero sync." }, { status: 403 });
     if (!(["draft", "revised"] as string[]).includes(current.status)) return Response.json({ error: "Only a current draft can be prepared for Xero." }, { status: 409 });
-    const { data: connection } = await auth.serviceClient.from("xero_connections").select("tenant_id,status,sync_paused").not("tenant_id", "is", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const { data: connection } = await auth.serviceClient.from("xero_connections").select("tenant_id,status,sync_paused").not("tenant_id", "is", null).order("updated_at", { ascending: false }).limit(1).maybeSingle();
     if (!connection?.tenant_id) return Response.json({ error: "Connect and choose the approved Xero organisation first." }, { status: 409 });
     try {
       const category = documentMappingCategory(current as QueueableXeroDocument);

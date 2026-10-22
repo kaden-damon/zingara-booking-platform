@@ -17,6 +17,8 @@ test("venue mapping migration is additive, unique and atomically audited", async
 test("document queue lookup is venue authoritative and has no global revenue fallback", async () => {
   const route = await source("src/app/api/admin/xero/route.ts");
   assert.match(route, /\.eq\("venue", current\.venue\)\.eq\("category", category\)/);
+  assert.match(route, /from\("xero_connections"\)[\s\S]{0,250}\.order\("updated_at", \{ ascending: false \}\)/);
+  assert.doesNotMatch(route, /from\("xero_connections"\)[\s\S]{0,250}\.order\("created_at"/);
   assert.doesNotMatch(route, /eq\("venue", current\.venue\)[\s\S]{0,300}\.or\(/);
 });
 

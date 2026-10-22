@@ -1,35 +1,42 @@
-# Phase 50.12 - Admin performance and legacy hardware optimisation
+# Phase 50.4F - Xero final verification and controlled activation
 
-Zingara is live Production. Diagnose first, implement only measured, surgical optimisations, preserve every existing workflow and release after complete verification.
+Zingara is live Production. Continue the existing Xero integration without rebuilding or duplicating it. Diagnose first and make only the smallest verified corrections.
 
 ## Goal
 
-Make the existing Zingara Admin materially faster and more responsive on older, lower-powered PCs without rebuilding the platform, removing functionality, weakening safeguards or changing business data.
+Complete the remaining Xero readiness checks and ensure the existing Quote & Invoice workflows are operationally ready for authorised Sales staff, while keeping all live financial synchronisation paused pending separate explicit approval.
 
-## Audit
+## Current-state verification
 
-- Profile JavaScript loading/execution, React rendering, hydration, CPU, memory, main-thread long tasks, network/API/database latency, background work, timers, retained state and module switching.
-- Distinguish browser processing from server latency and examine the large Admin component and existing effect warnings based on evidence.
-- Benchmark login/initial load, Bookings, search/filter, Booking Details, guest-count editing, booking creation, show switching, Table Plan, Customers, Companies and module switching.
-- Use realistic CPU throttling and memory constraints where available; do not claim physical legacy-PC testing unless performed.
+- Confirm current Git HEAD, Production deployment and rollback point.
+- Verify the OAuth connection, connected organisation, all 16 approved mappings, webhook configuration and `XERO_WEBHOOK_KEY` presence, `XERO_LIVE_SYNC_AUTHORISED`, outbound workers, reconciliation and existing local accounting documents from current Production evidence.
+- Do not rely on previous phase reports where current evidence is available.
+- Never expose credentials, tokens or signing keys.
 
-## Authorised optimisation
+## Webhook and security
 
-- Prefer route/component splitting, lazy loading, deferred non-essential work, reduced initial JavaScript execution, removal of proven redundant rendering/requests/effects, bounded list/modal rendering and correct listener cleanup.
-- Preserve Phase 47.1 bounded server loading. No global booking/customer/company hydration, per-row queries, unnecessary polling or duplicate background work.
-- Inactive modules must not perform unnecessary work, while booking-lock heartbeats, payment verification, operational notifications, session security, concurrency and auditing remain intact.
-- Preserve all Standard/Corporate booking, CRM/Companies, Table Plan, Floor/Check-In, Reports, Reviews, Communications, Academy/Training, Xero, PayFast, ticket/QR, locking/View Only, capacity, financial and permission functionality.
-- Preserve the approved black/gold UI, navigation and layouts. Table Plan output and the public booking journey are no-touch.
+- If the webhook key exists, verify signature validation, tenant identity, idempotency, retries and bounded processing using safe fixtures and read-only Production evidence.
+- If it is absent, document the exact secure configuration steps and stop at the human security boundary.
+- Reuse the existing webhook infrastructure. Do not reconnect OAuth or expand scopes without separate authorisation.
 
-## Targets and verification
+## Sales and accounting workflows
 
-- Target common post-data interactions within 200 ms and booking-list usability within 1-2 seconds where infrastructure permits; report only measured results.
-- Test normal and CPU-throttled operation, representative large datasets, repeated modal/module cycles and sustained use. Check long tasks, CPU, memory growth, duplicate requests, render loops, stale data and all critical workflows.
-- Run focused regressions, TypeScript, changed-file ESLint, `git diff --check` and Production build.
-- Do not create Production bookings/payments, send communications or modify business data.
+- Verify role-appropriate Sales access to Quote & Invoice Management, existing customer selection, Corporate booking links, approved line items, pricing/VAT, branded PDFs, acceptance, invoice conversion and status viewing.
+- Preserve management and financial permissions; never grant unrestricted accounting access.
+- Verify the flow from quote creation through acceptance, invoice conversion, Xero allocation/reconciliation and Zingara status updates with mock/demo transports only.
+- Preserve customer, booking, quote/invoice and provider identities; Xero-generated numbers; venue mappings; VAT, gratuity, discounts, deposits; PayFast/EFT separation; and refund/credit-note controls.
 
-## Release
+## Testing and release boundary
 
-Confirm baseline and rollback, preserve unrelated changes, commit only authorised files, push to main, deploy to Vercel Production and verify actual Production responsiveness.
+- Use an authorised demo organisation or isolated fixtures for all write-path tests. Do not create live Xero contacts, invoices, payments or credit notes.
+- Verify contact mapping, quote acceptance, invoice creation, partial/full payments, status reconciliation, duplicate prevention, webhook handling, retries and refund credit notes for Johannesburg and Cape Town mappings.
+- Run focused Xero/Sales tests, TypeScript, changed-file ESLint, `git diff --check` and Production build.
+- Commit and deploy only a verified in-scope application fix. Do not deploy merely to repeat verification.
+- Keep `XERO_LIVE_SYNC_AUTHORISED=false`. Do not process existing drafts, historical records or queued writes.
+- Do not modify bookings, payments, tickets, capacity, Table Plan, customer identities or unrelated Admin modules.
 
-Final status: Phase 50.12 complete - Admin performance optimised for legacy hardware.
+## Activation boundary
+
+After all readiness checks, stop and request explicit approval for controlled live activation. State exactly which future document types and events would synchronise. No live financial synchronisation is authorised by this task.
+
+Final status: Phase 50.4F - Xero integration verified; awaiting controlled live activation.
