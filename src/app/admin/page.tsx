@@ -15,8 +15,6 @@ import dynamic from "next/dynamic";
 import { AdminCollapsibleSection } from "./AdminCollapsibleSection";
 import { AdminIpUndertakingGate } from "./AdminIpUndertakingGate";
 import { AdminSearchInput } from "./AdminSearchInput";
-import { BookingMetadataDraftEditor } from "./BookingMetadataDraftEditor";
-import { CorporateZoneEntitlementEditor } from "./CorporateZoneEntitlementEditor";
 import { CompactBookingList } from "./CompactBookingList";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
 import ShowZoneSalesControls from "./ShowZoneSalesControls";
@@ -26,11 +24,9 @@ import { StaffIssueAttachments } from "./StaffIssueAttachments";
 import { StaffIssueMediaPicker } from "./StaffIssueMediaPicker";
 import ZingaraDatePicker from "./ZingaraDatePicker";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
-import {
-  FinancialReconciliationModal,
-  GuestCountReconciliationModal,
-  type BookingReconciliationDetails,
-  type GuestCountReconciliationResult,
+import type {
+  BookingReconciliationDetails,
+  GuestCountReconciliationResult,
 } from "./BookingReconciliationModal";
 import type { LegacyGuestIncreasePaymentBasis } from "@/lib/addedGuestFinancials";
 import { corporateBuyoutStateLabels } from "@/lib/corporateBuyouts";
@@ -46,6 +42,26 @@ import { getReportGenerationLockMessage } from "../../lib/reportGenerationLock";
 
 const BookingReviewInvitations = dynamic(
   () => import("./BookingReviewInvitations"),
+);
+const BookingMetadataDraftEditor = dynamic(() =>
+  import("./BookingMetadataDraftEditor").then(
+    (module) => module.BookingMetadataDraftEditor,
+  ),
+);
+const CorporateZoneEntitlementEditor = dynamic(() =>
+  import("./CorporateZoneEntitlementEditor").then(
+    (module) => module.CorporateZoneEntitlementEditor,
+  ),
+);
+const FinancialReconciliationModal = dynamic(() =>
+  import("./BookingReconciliationModal").then(
+    (module) => module.FinancialReconciliationModal,
+  ),
+);
+const GuestCountReconciliationModal = dynamic(() =>
+  import("./BookingReconciliationModal").then(
+    (module) => module.GuestCountReconciliationModal,
+  ),
 );
 const BoxOfficeFinancialReportPanel = dynamic(
   () => import("./BoxOfficeFinancialReport"),
@@ -11383,6 +11399,7 @@ export default function AdminDashboardPage() {
   const staffIssueSubmissionIdRef = useRef("");
   const liveCustomerLoadRequestRef = useRef(0);
   const bookingLoadRequestRef = useRef(0);
+  const paymentLoadRequestRef = useRef(0);
   const bookingsRef = useRef(bookings);
   const bookingHistoryLoadRequestRef = useRef(0);
   const bookingHistoryLoadInFlightRef = useRef(false);
@@ -11395,6 +11412,38 @@ export default function AdminDashboardPage() {
   const selectedShowTableLoadRequestRef = useRef(0);
   const floorAssignmentInFlightRef = useRef(new Set<string>());
   bookingsRef.current = bookings;
+
+  async function loadPaymentsForBookings(bookingsToLoad: DemoBooking[]) {
+    const requestId = paymentLoadRequestRef.current + 1;
+    paymentLoadRequestRef.current = requestId;
+    const references = Array.from(
+      new Set(bookingsToLoad.map((booking) => booking.reference).filter(Boolean)),
+    ).slice(0, 100);
+
+    if (references.length === 0) {
+      setPaymentRows([]);
+      return [];
+    }
+
+    const rows = await getPayments({ references });
+
+    if (requestId === paymentLoadRequestRef.current) {
+      setPaymentRows(rows);
+    }
+
+    return rows;
+  }
+
+  async function refreshPaymentInState(reference: string) {
+    const rows = await getPayments({ references: [reference] });
+
+    setPaymentRows((currentRows) => [
+      ...rows,
+      ...currentRows.filter((row) => row.reference !== reference),
+    ]);
+
+    return rows;
+  }
 
   async function hydrateBookingHistories() {
     if (
@@ -11489,6 +11538,7 @@ export default function AdminDashboardPage() {
       setBookingTotal(result.total);
       setArchivedBookingTotal(result.archivedTotal);
       setBookingPromoOptions(result.promoOptions);
+      void loadPaymentsForBookings(nextBookings);
       return nextBookings;
     } catch (error) {
       console.error("[Zingara admin] Failed to load bookings", error);
@@ -12263,7 +12313,6 @@ export default function AdminDashboardPage() {
         getWaitlistEntries(),
         getStaffProfiles(),
         getAvailableRoles(),
-        getPayments(),
       ]);
 
       try {
@@ -12337,7 +12386,6 @@ export default function AdminDashboardPage() {
             nextWaitlist,
             nextStaffProfiles,
             nextStaffRoles,
-            nextPaymentRows,
         ] = await dashboardDataRequest;
 
         if (!isMounted || showLoadRequestId !== showLoadRequestRef.current) {
@@ -12349,7 +12397,6 @@ export default function AdminDashboardPage() {
         setWaitlist(nextWaitlist);
         setStaffProfiles(nextStaffProfiles);
         setStaffRoles(nextStaffRoles);
-        setPaymentRows(nextPaymentRows);
       } catch (error) {
         console.error("[Zingara admin] Failed to load dashboard data", error);
       } finally {
@@ -14007,6 +14054,7 @@ export default function AdminDashboardPage() {
         );
 
         setBookings(nextShowBookings);
+        void loadPaymentsForBookings(nextShowBookings);
         setTables((currentTables) =>
           mergeTablesForShows(currentTables, selectedShowTables, [
             selectedShowId,
@@ -19441,12 +19489,9 @@ export default function AdminDashboardPage() {
         method: "POST",
       });
 
-      const [authoritativeBookings, authoritativePayments] = await Promise.all([
-        getBookings(),
-        getPayments(),
-      ]);
+      const authoritativeBookings = await getBookings();
       setBookings(authoritativeBookings);
-      setPaymentRows(authoritativePayments);
+      await refreshPaymentInState(booking.reference);
       setMarkPaidConfirmation(null);
       showWorkflowToast(`✓ ${response.message}`);
 
@@ -19467,12 +19512,9 @@ export default function AdminDashboardPage() {
       }
     } catch (error) {
       console.error("[Zingara Admin] Atomic Mark Paid failed", error);
-      const [authoritativeBookings, authoritativePayments] = await Promise.all([
-        getBookings(),
-        getPayments(),
-      ]);
+      const authoritativeBookings = await getBookings();
       setBookings(authoritativeBookings);
-      setPaymentRows(authoritativePayments);
+      await refreshPaymentInState(booking.reference);
       showStaffGuidance(
         resolveStaffActionGuidance(error, {
           action: {
@@ -19675,7 +19717,7 @@ export default function AdminDashboardPage() {
 
       saveTables(releaseBookingTableFromList(tables, booking));
       setBookings(await getBookings());
-      setPaymentRows(await getPayments());
+      await refreshPaymentInState(booking.reference);
       setRefundEligibilityRefreshKey((currentKey) => currentKey + 1);
       setRefundBookingReference("");
       setRefundAdminPassword("");

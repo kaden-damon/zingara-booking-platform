@@ -9,6 +9,10 @@ test("rare Admin workspaces are split away from the everyday Admin bundle", asyn
   const page = await source("../app/admin/page.tsx");
 
   for (const component of [
+    "BookingMetadataDraftEditor",
+    "CorporateZoneEntitlementEditor",
+    "FinancialReconciliationModal",
+    "GuestCountReconciliationModal",
     "ManagementAnalytics",
     "DineplanReconciliation",
     "ReviewsAdminWorkspace",
@@ -21,11 +25,7 @@ test("rare Admin workspaces are split away from the everyday Admin bundle", asyn
       new RegExp(`const ${component} = dynamic\\(`),
       `${component} should load only when its workspace is rendered`,
     );
-    assert.doesNotMatch(
-      page,
-      new RegExp(`import ${component} from`),
-      `${component} must not remain a static Admin dependency`,
-    );
+    assert.doesNotMatch(page, new RegExp(`import \\{[^}]*${component}`));
   }
 });
 

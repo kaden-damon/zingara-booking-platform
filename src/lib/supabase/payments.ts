@@ -124,10 +124,26 @@ function toPaymentPayload(
   };
 }
 
-async function getPaymentRows() {
+export type PaymentQuery = {
+  references?: string[];
+};
+
+async function getPaymentRows(query: PaymentQuery = {}) {
   try {
+    const searchParams = new URLSearchParams();
+
+    Array.from(
+      new Set(
+        (query.references ?? [])
+          .map((reference) => reference.trim())
+          .filter(Boolean),
+      ),
+    )
+      .slice(0, 100)
+      .forEach((reference) => searchParams.append("reference", reference));
+    const queryString = searchParams.toString();
     const payload = await fetchSupabaseApi<{ rows: SupabasePaymentRow[] }>(
-      "/api/admin/payments",
+      `/api/admin/payments${queryString ? `?${queryString}` : ""}`,
     );
 
     return payload.rows ?? [];
@@ -137,12 +153,12 @@ async function getPaymentRows() {
   }
 }
 
-export async function getPayments() {
-  return (await getPaymentRows()) ?? [];
+export async function getPayments(query: PaymentQuery = {}) {
+  return (await getPaymentRows(query)) ?? [];
 }
 
 export async function getPayment(reference: string) {
-  const rows = await getPaymentRows();
+  const rows = await getPaymentRows({ references: [reference] });
 
   return rows?.find((row) => row.reference === reference);
 }

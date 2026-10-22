@@ -43,6 +43,31 @@ test("Admin boot paints configured show metadata before payment summaries", asyn
       loadAdminData.lastIndexOf("setIsCalendarSummariesLoading(false)"),
   );
   assert.match(loadAdminData, /setVenueSettings\(nextVenueSettings\)/);
+  assert.doesNotMatch(
+    loadAdminData,
+    /getPayments\(/,
+    "Admin boot must not hydrate the complete payment ledger",
+  );
+});
+
+test("Admin payment rows are bounded to the visible booking population", async () => {
+  const [page, paymentClient, paymentRoute] = await Promise.all([
+    pageSource(),
+    readFile(new URL("./supabase/payments.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/api/admin/payments/route.ts", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(page, /getPayments\(\{ references \}\)/);
+  assert.match(page, /loadPaymentsForBookings\(nextBookings\)/);
+  assert.match(page, /loadPaymentsForBookings\(nextShowBookings\)/);
+  assert.match(paymentClient, /searchParams\.append\("reference", reference\)/);
+  assert.match(paymentClient, /\.slice\(0, 100\)/);
+  assert.match(paymentRoute, /getAll\("reference"\)/);
+  assert.match(paymentRoute, /paymentsQuery\.in\("reference", references\)/);
+  assert.match(paymentRoute, /requireActiveStaff\(request\)/);
 });
 
 test("calendar never presents partial occupancy or financial summaries as authoritative", async () => {

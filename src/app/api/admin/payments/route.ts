@@ -31,10 +31,25 @@ export async function GET(request: Request) {
     );
   }
 
-  const { data, error } = await auth.serviceClient
+  const requestUrl = new URL(request.url);
+  const references = Array.from(
+    new Set(
+      requestUrl.searchParams
+        .getAll("reference")
+        .map((reference) => reference.trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, 100);
+  let paymentsQuery = auth.serviceClient
     .from("payments")
     .select("id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at,provider_gross_amount,provider_transaction_id,transaction_fee_amount")
     .order("created_at", { ascending: false });
+
+  if (references.length > 0) {
+    paymentsQuery = paymentsQuery.in("reference", references);
+  }
+
+  const { data, error } = await paymentsQuery;
 
   if (error) {
     console.error("[Zingara API] Failed to load payments", error);
