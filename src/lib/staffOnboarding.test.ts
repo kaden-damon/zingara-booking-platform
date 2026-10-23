@@ -25,13 +25,33 @@ test("staff onboarding is versioned and concise", () => {
 test("only the current release acknowledgement suppresses the tour", () => {
   assert.equal(
     hasAcknowledgedStaffTour({
-      user_metadata: { zingara_staff_tour_version: latestStaffTourVersion },
+      user_metadata: {
+        zingara_staff_tour_acknowledged_at: "2026-10-23T08:00:00.000Z",
+        zingara_staff_tour_acknowledgement: "completed",
+        zingara_staff_tour_version: latestStaffTourVersion,
+      },
     } as never),
     true,
   );
   assert.equal(
     hasAcknowledgedStaffTour({
       user_metadata: { zingara_staff_tour_version: "older-release" },
+    } as never),
+    false,
+  );
+  assert.equal(
+    hasAcknowledgedStaffTour({
+      user_metadata: { zingara_staff_tour_version: latestStaffTourVersion },
+    } as never),
+    false,
+  );
+  assert.equal(
+    hasAcknowledgedStaffTour({
+      user_metadata: {
+        zingara_staff_tour_acknowledged_at: "2026-10-23T08:00:00.000Z",
+        zingara_staff_tour_acknowledgement: "completed",
+        zingara_staff_tour_version: "older-release",
+      },
     } as never),
     false,
   );
@@ -54,11 +74,16 @@ test("walkthrough records completion or skip and can reopen from Academy", () =>
 
   assert.match(authSource, /staffTourAcknowledgementMetadataKey/);
   assert.match(authSource, /staffTourAcknowledgedAtMetadataKey/);
+  assert.match(authSource, /sessionData\.session\?\.user\.id !== expectedStaffId/);
   assert.match(tourSource, /finishTour\("skipped"\)/);
   assert.match(tourSource, /finishTour\("completed"\)/);
-  assert.match(tourSource, /window\.addEventListener\(staffTourOpenEvent/);
-  assert.match(tourSource, /document\.querySelector/);
-  assert.match(tourSource, /operationalDialogIsOpen/);
+  assert.match(tourSource, /window\.addEventListener\(staffTourOpenEvent, openTourWhenSafe\)/);
+  assert.match(tourSource, /blockingDialogSelector/);
+  assert.match(tourSource, /new MutationObserver/);
+  assert.match(tourSource, /authSession\.user\.id === staffId/);
+  assert.match(tourSource, /pendingObserver\?\.disconnect\(\)/);
+  assert.doesNotMatch(tourSource, /setInterval/);
   assert.match(adminSource, /Quote &amp; Invoice Walkthrough/);
   assert.match(adminSource, /window\.dispatchEvent\(new Event\(staffTourOpenEvent\)\)/);
+  assert.match(adminSource, /<StaffOnboardingTour staffId=\{currentStaff\.id\} \/>/);
 });

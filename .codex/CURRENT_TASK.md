@@ -1,53 +1,52 @@
-# Phase 50.16A - Booking Details document access
+# Phase 50.16B - Feature Walkthrough login fix
 
-Zingara is live Production. Add compact, authorised access to existing quotations and invoices from the existing Booking Details popup without duplicating documents, records, renderers or accounting workflows.
+Zingara is live Production. Repair the existing Quote & Invoice Management Feature Walkthrough so it launches safely after Admin login for every genuinely unacknowledged staff member.
 
 ## Authorised scope
 
-- Show only quotations and invoices linked to the exact open booking.
-- Distinguish quotations, local invoice drafts and Xero-issued invoices.
-- Provide View PDF and Download PDF actions through the existing authoritative renderer and permissions.
-- Preserve the existing Zingara x Xero workspace as the full accounting workspace.
-- Keep Xero live synchronisation and Invoice Request reminders OFF.
-- Do not touch Phase 50.14 Guided Training.
+- Preserve the existing six-step walkthrough, design, acknowledgement metadata and Academy reopen action.
+- Launch after successful login and restored authenticated sessions.
+- Suppress only when the current walkthrough version has a valid completed/skipped acknowledgement and timestamp.
+- Persist acknowledgement against the currently authenticated staff identity.
+- Defer safely while an operational dialog is active, then launch when that workflow closes.
+- Prevent duplicate popups, repeated authentication checks and background polling.
+- Keep Phase 50.14 Guided Training untouched.
 
-## Performance requirements
+## Baseline and safety
 
-- Make no document request during ordinary Booking Details loading.
-- Load documents only after staff explicitly open the section.
-- Use an exact-reference, venue-authorised, bounded server query.
-- Load full document data and the PDF renderer only when View PDF or Download PDF is selected.
-- Cache a generated PDF for the life of the open Booking Details view so View and Download do not render it twice.
-- Preserve Phase 50.12 Admin performance improvements and avoid polling, global hydration or per-row requests.
+- Starting commit: `523a695e5751ad1b50931ef5f859d6603f862552`.
+- Starting checkout matched `origin/main` with a clean tracked tree.
+- Phase 50.17 remains isolated and uncommitted in its separate worktree.
+- No booking, payment, ticket, customer, financial or training-record mutation is authorised.
+- QA must not complete or dismiss the walkthrough.
+- Rollback point: `523a695e5751ad1b50931ef5f859d6603f862552`.
 
-## Baseline
+## Verification and release gates
 
-- Starting commit: `1b853465fc7f8cd8fd9f4f931a306d39a510327b`.
-- Starting `main` matched `origin/main`.
-- Untracked `output/` and `tmp/` are preserved local Phase 50.16 evidence and are excluded from this release.
-- Rollback point: `1b853465fc7f8cd8fd9f4f931a306d39a510327b`.
-
-## Release gates
-
-- Focused document-access, Xero PDF and permission tests.
+- Focused walkthrough and authentication tests.
 - TypeScript, changed-file ESLint, `git diff --check` and Production build.
-- Authenticated Production verification of normal Booking Details loading, lazy document loading, document labels, PDF view/download and unchanged walkthrough responsiveness.
-- No Production booking, payment, ticket, capacity, customer, quotation, invoice or Xero data mutation.
+- Authenticated unacknowledged-session verification covering login, refresh, safe deferral and Academy reopen.
+- Commit only authorised files, push to `main`, deploy to Vercel Production and verify the live Admin experience.
 
-## Implementation and local verification - 23 October 2026
+## Diagnosed root cause
 
-- Added one compact `Quotes & Invoices` section immediately after Booking Overview in the existing Booking Details popup.
-- Reused the existing Xero document records, role permissions, venue scope and `createXeroDocumentPdf` renderer; no document or financial record is duplicated.
-- Added an exact booking-reference lookup that verifies the authoritative booking and performance venue before returning quote or invoice summaries.
-- The lookup is capped at 100 linked documents, ordered deterministically and limited to quotation and invoice kinds.
-- Normal Booking Details loading makes zero document requests. The linked-document request runs once only after staff select `Open`.
-- Full document data and the PDF renderer load only after `View PDF` or `Download PDF`; the generated PDF is cached for the open view.
-- Quotations, invoice drafts and issued invoices have distinct labels.
-- Production QA found and corrected a duplicate React sibling key between the new document panel and the existing Corporate operations panel. Repeated booking refreshes now reconcile one document panel instead of retaining duplicate instances.
-- The Production-build Admin chunk changed from 1,003,179 bytes to 1,003,306 bytes (+127 bytes, +0.013%). The panel is a separate 6,247-byte lazy chunk.
-- Focused Xero, PDF, permissions and document-access tests: 55 passed.
+- The walkthrough performed one delayed launch check 600 ms after mounting.
+- If another login-time dialog was present at that instant, the walkthrough returned without retrying after that dialog closed.
+- The acknowledgement check also accepted a current version marker without requiring a completed/skipped decision and timestamp.
+
+## Implemented correction
+
+- Defer launch behind active dialogs and open as soon as the blocking workflow closes, using one short-lived DOM observer rather than polling.
+- Guard against duplicate walkthrough instances.
+- Require current version, completed/skipped decision and a valid acknowledgement timestamp before suppressing the walkthrough.
+- Bind acknowledgement persistence to the currently authenticated staff ID.
+- Keep Academy reopening, the six walkthrough steps and the existing design unchanged.
+
+## Local verification
+
+- Focused walkthrough/authentication tests: passed (3 tests).
 - TypeScript: passed.
-- Changed-file ESLint: passed. The unchanged large Admin page retains 56 historical warnings and two baseline `set-state-in-effect` findings outside this phase; lint completed with those two baseline findings excluded and zero errors.
+- Changed walkthrough/authentication-file ESLint: passed. The unchanged Admin page retains two pre-existing `react-hooks/set-state-in-effect` findings outside this change; no unrelated effect refactor was made.
 - `git diff --check`: passed.
-- Production build: passed with the pre-existing `ticketPdfServer.ts` filesystem-tracing warning outside this phase.
-- No migration or Production business-data mutation is required.
+- Production build: passed.
+- No Phase 50.14 files, booking/payment workflows or business data changed.

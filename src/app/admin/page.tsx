@@ -46347,7 +46347,9 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {adminUndertakingState === "accepted" && <StaffOnboardingTour />}
+      {adminUndertakingState === "accepted" && (
+        <StaffOnboardingTour staffId={currentStaff.id} />
+      )}
 
       {corporateConversionReviewRequest && (
         <CorporateConversionModal

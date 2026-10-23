@@ -84,11 +84,22 @@ export async function signOutAdmin() {
 export async function acknowledgeStaffTour(
   version: string,
   acknowledgement: StaffTourAcknowledgement,
+  expectedStaffId: string,
 ) {
   const supabase = getSupabaseClient();
 
   if (!supabase) {
     return { error: "Supabase is not configured for this environment." };
+  }
+
+  const { data: sessionData, error: sessionError } =
+    await supabase.auth.getSession();
+
+  if (sessionError || sessionData.session?.user.id !== expectedStaffId) {
+    return {
+      error:
+        "Your staff session changed. Sign in again before saving this acknowledgement.",
+    };
   }
 
   const { error } = await supabase.auth.updateUser({

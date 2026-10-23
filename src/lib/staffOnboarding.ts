@@ -57,5 +57,14 @@ export const staffTourPages: StaffTourPage[] = [
 ];
 
 export function hasAcknowledgedStaffTour(user: User | null | undefined) {
-  return user?.user_metadata?.[staffTourMetadataKey] === latestStaffTourVersion;
+  const metadata = user?.user_metadata;
+  const acknowledgement = metadata?.[staffTourAcknowledgementMetadataKey];
+  const acknowledgedAt = metadata?.[staffTourAcknowledgedAtMetadataKey];
+
+  return (
+    metadata?.[staffTourMetadataKey] === latestStaffTourVersion &&
+    (acknowledgement === "completed" || acknowledgement === "skipped") &&
+    typeof acknowledgedAt === "string" &&
+    Number.isFinite(Date.parse(acknowledgedAt))
+  );
 }

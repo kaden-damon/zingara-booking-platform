@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   acknowledgeStaffTour,
   getAdminAuthSession,
@@ -14,46 +14,70 @@ import {
   type StaffTourAcknowledgement,
 } from "@/lib/staffOnboarding";
 
-export function StaffOnboardingTour() {
+type StaffOnboardingTourProps = {
+  staffId: string;
+};
+
+const blockingDialogSelector = '[role="dialog"], [role="alertdialog"]';
+
+export function StaffOnboardingTour({ staffId }: StaffOnboardingTourProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const isOpenRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    let pendingObserver: MutationObserver | null = null;
 
     const openTour = () => {
+      if (cancelled || isOpenRef.current) return;
+      pendingObserver?.disconnect();
+      pendingObserver = null;
+      isOpenRef.current = true;
       setPageIndex(0);
       setSaveError("");
       setIsOpen(true);
     };
 
-    window.addEventListener(staffTourOpenEvent, openTour);
+    const openTourWhenSafe = () => {
+      if (cancelled || isOpenRef.current) return;
+
+      if (!document.querySelector(blockingDialogSelector)) {
+        openTour();
+        return;
+      }
+
+      if (pendingObserver) return;
+      pendingObserver = new MutationObserver(() => {
+        if (!document.querySelector(blockingDialogSelector)) openTour();
+      });
+      pendingObserver.observe(document.body, { childList: true, subtree: true });
+    };
+
+    window.addEventListener(staffTourOpenEvent, openTourWhenSafe);
 
     const automaticOpenTimer = window.setTimeout(() => {
       void getAdminAuthSession().then((authSession) => {
-        const operationalDialogIsOpen = document.querySelector(
-          '[role="dialog"]',
-        );
-
         if (
           !cancelled &&
           authSession &&
-          !operationalDialogIsOpen &&
+          authSession.user.id === staffId &&
           !hasAcknowledgedStaffTour(authSession.user)
         ) {
-          openTour();
+          openTourWhenSafe();
         }
       });
     }, 600);
 
     return () => {
       cancelled = true;
+      pendingObserver?.disconnect();
       window.clearTimeout(automaticOpenTimer);
-      window.removeEventListener(staffTourOpenEvent, openTour);
+      window.removeEventListener(staffTourOpenEvent, openTourWhenSafe);
     };
-  }, []);
+  }, [staffId]);
 
   if (!isOpen) return null;
 
@@ -66,6 +90,7 @@ export function StaffOnboardingTour() {
     const result = await acknowledgeStaffTour(
       latestStaffTourVersion,
       acknowledgement,
+      staffId,
     );
     setIsSaving(false);
 
@@ -74,6 +99,7 @@ export function StaffOnboardingTour() {
       return;
     }
 
+    isOpenRef.current = false;
     setIsOpen(false);
   }
 
