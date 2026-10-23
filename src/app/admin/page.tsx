@@ -10484,7 +10484,6 @@ export default function AdminDashboardPage({
   const scannerVideoRef = useRef<HTMLVideoElement | null>(null);
   const guidedTrainingParam = use(searchParams).guidedTraining;
   const guidedTrainingModuleId =
-    process.env.NODE_ENV !== "production" &&
     typeof guidedTrainingParam === "string" &&
     guidedTrainingModules.some((module) => module.id === guidedTrainingParam)
       ? (guidedTrainingParam as GuidedTrainingModuleId)

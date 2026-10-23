@@ -732,7 +732,6 @@ export default function BookingPage({
   const resolvedSearchParams = use(searchParams);
   const guidedTrainingParam = resolvedSearchParams.guidedTraining;
   const guidedTrainingModuleId =
-    process.env.NODE_ENV !== "production" &&
     typeof guidedTrainingParam === "string" &&
     isGuidedTrainingModuleId(guidedTrainingParam)
       ? guidedTrainingParam

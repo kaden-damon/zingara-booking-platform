@@ -22,10 +22,10 @@ export default function PublicTrafficTelemetry() {
   const trackedPathRef = useRef("");
 
   useEffect(() => {
-    const isLocalGuidedTraining =
-      process.env.NODE_ENV !== "production" &&
-      new URLSearchParams(window.location.search).has("guidedTraining");
-    if (isLocalGuidedTraining) return;
+    const isGuidedTraining = new URLSearchParams(window.location.search).has(
+      "guidedTraining",
+    );
+    if (isGuidedTraining) return;
     const isPublicRoute = trackedPublicRoutes.has(pathname)
       || pathname.startsWith("/royal-decrees/");
     if (!isPublicRoute) return;

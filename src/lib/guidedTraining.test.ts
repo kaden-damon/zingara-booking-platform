@@ -110,11 +110,18 @@ test("guided training launches real Production workflows behind a synthetic writ
   assert.match(startRoute, /browserOrigin\(request\)/);
   assert.match(startRoute, /request\.headers\.get\("host"\)/);
   assert.match(adminPage, /dynamic\(\(\) => import\("\.\/GuidedTraining"\)/);
-  assert.match(adminPage, /process\.env\.NODE_ENV !== "production"/);
+  assert.doesNotMatch(
+    adminPage,
+    /process\.env\.NODE_ENV !== "production"\s*&&\s*typeof guidedTrainingParam/,
+  );
   assert.match(adminPage, /guidedTrainingPreviewStaff/);
   assert.match(adminPage, /preview\?\.persistence === "preview-session"/);
   assert.match(adminPage, /trainingBootstrap=/);
   assert.match(bookPage, /GuidedTrainingOverlay/);
+  assert.doesNotMatch(
+    bookPage,
+    /process\.env\.NODE_ENV !== "production"\s*&&\s*typeof guidedTrainingParam/,
+  );
   assert.match(bookPage, /createGuidedTrainingReference/);
   assert.doesNotMatch(bookPage, /\/api\/admin\/training\/guided\/execute/);
   assert.match(buyout, /createGuidedTrainingReference/);

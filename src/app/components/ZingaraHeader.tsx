@@ -109,11 +109,10 @@ export default function ZingaraHeader() {
     let isMounted = true;
 
     async function loadVenueSettings() {
-      const isLocalGuidedTraining =
-        process.env.NODE_ENV !== "production" &&
-        (pathname === "/admin/guided-training-preview" ||
-          new URLSearchParams(window.location.search).has("guidedTraining"));
-      if (isLocalGuidedTraining) {
+      const isGuidedTraining =
+        pathname === "/admin/guided-training-preview" ||
+        new URLSearchParams(window.location.search).has("guidedTraining");
+      if (isGuidedTraining) {
         if (isMounted) setVenueSettings(defaultVenueSettings);
         return;
       }
