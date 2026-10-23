@@ -1,43 +1,48 @@
-# Phase 50.4I - Xero Controlled Live Activation
+# Phase 50.4J - Xero Workspace UX Polish
 
 ## Status
 
-COMPLETE - CONTROLLED LIVE SYNC ACTIVE
+COMPLETE - RELEASE VERIFIED
 
-## Verified Production state
+## Goal
 
-- Source baseline: `0f6e13e63e1820a05905493512ccd6afd7d7b462`.
-- Activation deployment: `dpl_FWVCJU2X8FGFKjHDDRk1S6Fm2fmc`.
-- Correct tenant: Zingara Productions (Pty) Ltd.
-- Webhook key: rotated, stored as a Vercel Production Secret, deployed and validated by Xero Intent to Receive.
-- Invalid webhook signatures fail closed with HTTP 401.
-- `XERO_LIVE_SYNC_AUTHORISED=true`.
-- Connection status: connected; `sync_paused=false`.
-- Immutable activation timestamp: `2026-10-23T14:21:07.624934Z` (16:21:07 SAST).
-- Accounting mappings: 16/16 approved and unchanged.
-- Outbound queue: empty.
-- Existing local documents: five; all remain local-only and unlinked to Xero.
-- Xero financial records created during activation: zero.
+Surgically align the existing Zingara x Xero workspace with the established black-and-gold Admin design while preserving controlled live synchronisation, all 16 approved mappings, permissions, financial workflows and Production business data.
 
-## Active scope
+## Authorised changes
 
-Only future invoice conversions manually submitted by the authoritative Tristan Chetty or Rachelle Smuts staff identities can enter the Xero outbox. The invoice must be created after the immutable activation timestamp and originate from the accepted, invoice-requested quotation version.
+- Hide Enable Sync while controlled live synchronisation is active and show it only while sync is paused.
+- Show Pause Sync and Disconnect only inside the existing management-authorised connection workspace.
+- Standardise spacing, alignment, control heights, pill-shaped actions, borders and typography.
+- Simplify connection status and account-mapping presentation without removing functionality.
+- Verify desktop and mobile layouts in the actual Production workspace.
 
-Historical documents, existing drafts, automatic payment allocations, refunds, credit notes and bulk synchronisation remain excluded. Idempotency, bounded worker claims, leased retries, exact-version completion and venue-specific mappings remain enforced.
+## Safety boundaries
 
-## Walkthrough release
+- No accounting, mapping, synchronisation, permission or financial logic changes.
+- No Xero, booking, payment, ticket, customer or capacity mutations.
+- Preserve the Phase 50.4I future-only manual invoice-conversion scope.
+- Keep Phase 50.14 untouched.
 
-The existing six-step Quote & Invoice Management walkthrough now explains the active future-only manual Xero workflow and exclusions. The version remains `quote-invoice-management-2026-10-23-v2`; acknowledgements are not reset.
+## Verification and release
+
+Run focused UI regressions, TypeScript, changed-file ESLint, `git diff --check` and the Production build. Commit only authorised files, push to `main`, deploy to Vercel Production and verify responsive presentation without changing live sync state.
+
+## Result
+
+- Active sync now shows Pause Sync and hides Enable Sync; paused sync shows Enable Sync and hides Pause Sync.
+- Connection controls remain inside the existing `settings:manage` permission boundary, with server-side enforcement unchanged.
+- Connection status, workflow guidance, mapping rows and document actions use one compact responsive visual hierarchy with consistent pill-shaped actions.
+- All 16 mappings and every mapping field/action remain available.
+- Controlled live sync remains active for the existing future-only manual invoice-conversion scope.
 
 ## Verification
 
-- 29 focused walkthrough and Xero tests passed in the release run.
+- 27 focused Xero, mapping, invoice-request and activation tests passed.
 - TypeScript, changed-file ESLint and `git diff --check` passed.
-- Production build passed with the pre-existing ticket-PDF tracing warning only.
-- Production Admin and public booking routes returned HTTP 200.
-- The P0 two-seater releases remain in the deployed history.
+- Production build passed with only the pre-existing ticket-PDF tracing warning.
+- Authenticated desktop and mobile Production layouts were inspected after release.
 - Phase 50.14 was untouched.
 
 ## Business-data delta
 
-One authorised Xero connection-state mutation: status changed from `sync_paused` to `connected`, `sync_paused` changed to false, and the immutable activation timestamp plus audit evidence were recorded. No booking, customer, payment, ticket, capacity or Xero financial record changed.
+Zero. No Xero connection, mapping, document, outbox, booking, customer, payment, ticket or capacity record was modified.

@@ -81,3 +81,11 @@ test("activation records an immutable cutoff and never bulk-releases old outbox 
   assert.match(workspace, /Create in Xero/);
   assert.doesNotMatch(workspace, /Prepare for Xero/);
 });
+
+test("connection controls present only the action appropriate to the current sync state", async () => {
+  const panel = await source("src/app/admin/XeroConnectionPanel.tsx");
+  assert.match(panel, /current\?\.tenant_id && !current\.sync_paused && <button[^>]*>[\s\S]*?Pause Sync/);
+  assert.match(panel, /current\?\.tenant_id && current\.sync_paused && <button[^>]*>[\s\S]*?Enable Sync/);
+  assert.doesNotMatch(panel, /disabled=\{busy \|\| current\.sync_paused\}[\s\S]*Pause Sync/);
+  assert.match(panel, /quietButton[\s\S]*Disconnect/);
+});
