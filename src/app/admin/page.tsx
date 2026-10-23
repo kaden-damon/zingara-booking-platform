@@ -12971,6 +12971,10 @@ export default function AdminDashboardPage({
 
   useEffect(() => {
     if (!guidedTrainingModuleId) return;
+    const exit = () => {
+      setActiveAdminTab("academy");
+      setAcademyWorkspace("guided-training");
+    };
     const navigate = (event: Event) => {
       const detail = (event as CustomEvent<{ controlId?: string; restart?: boolean }>).detail;
       const controlId = detail?.controlId ?? "";
@@ -12990,8 +12994,12 @@ export default function AdminDashboardPage({
         setIsCalendarBuyoutOpen(controlId === "training-booking-buyout");
       }
     };
+    window.addEventListener("zingara-guided-training-exit", exit);
     window.addEventListener("zingara-guided-training-navigate", navigate);
-    return () => window.removeEventListener("zingara-guided-training-navigate", navigate);
+    return () => {
+      window.removeEventListener("zingara-guided-training-exit", exit);
+      window.removeEventListener("zingara-guided-training-navigate", navigate);
+    };
   }, [guidedTrainingModuleId]);
 
   useEffect(() => {

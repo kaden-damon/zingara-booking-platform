@@ -13,6 +13,7 @@ DELIVERED
 - Reliable Show Me recovery and native dropdown/touch behavior.
 - Corporate Step 8 rate selection and Step 9 payment then Review sequence.
 - In-place Back, Restart, Exit, Continue, refresh, and inactivity recovery.
+- Explicit Exit handoff to the Guided Training workspace in the live Admin shell.
 - Completion tick plus isolated, unlimited Retake behavior that preserves
   historical completion records.
 - Compact STEP X OF Y guide, EXIT label, segmented background blur, and a sharp,

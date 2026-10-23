@@ -101,6 +101,8 @@ test("guided training launches real Production workflows behind a synthetic writ
   assert.doesNotMatch(overlay, /document\.addEventListener\("pointerdown", guard, true\)/);
   assert.doesNotMatch(overlay, /window\.location\.assign/);
   assert.match(overlay, /router\.push\("\/admin\?section=academy&academySection=guided-training"\)/);
+  assert.match(overlay, /zingara-guided-training-exit/);
+  assert.match(adminPage, /setAcademyWorkspace\("guided-training"\)/);
   assert.match(overlay, /zingara-guided-training-navigate/);
   assert.match(overlay, /training-guide-shake/);
   assert.match(overlay, /STEP \{stepIndex \+ 1\} OF/);

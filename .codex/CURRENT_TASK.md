@@ -54,6 +54,8 @@ CORRECTIONS
   a valid payment option before Review Booking.
 - Added in-place workflow navigation for Back, Show Me, Restart, and recovery;
   client routing is used only when crossing the Admin and booking routes.
+- Exit now updates the long-lived Admin shell to the Guided Training workspace
+  before client navigation, preventing a stale Home view.
 - Preserved booking form state and the exact payment substep in session storage;
   staff-linked Academy progress remains authoritative across sessions.
 - Added a completion tick and separate Retake action. Retakes begin at Step 1

@@ -303,6 +303,7 @@ export default function GuidedTrainingOverlay({
     setProgressError("");
     try {
       await saveProgress(stepIndex);
+      window.dispatchEvent(new CustomEvent("zingara-guided-training-exit"));
       router.push("/admin?section=academy&academySection=guided-training");
     } catch (saveError) {
       setProgressError(
