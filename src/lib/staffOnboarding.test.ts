@@ -23,6 +23,8 @@ test("staff onboarding is versioned and concise", () => {
   assert.match(staffTourPages[0]?.title ?? "", /Quote & Invoice Management/);
   assert.match(staffTourPages[3]?.body ?? "", /Request Invoice/);
   assert.match(staffTourPages[4]?.body ?? "", /Tristan and Rachelle/);
+  assert.match(staffTourPages[4]?.body ?? "", /Live Xero creation is active/);
+  assert.match(staffTourPages[4]?.body ?? "", /historical documents/);
   assert.match(staffTourPages.at(-1)?.supporting ?? "", /Academy/);
 });
 

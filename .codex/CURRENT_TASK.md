@@ -1,42 +1,43 @@
-# P0 - Same-Day Cutoff & Two-Seater Live Verification
+# Phase 50.4I - Xero Controlled Live Activation
 
-Zingara is live Production. Verify the public same-day booking cutoff and the newly deployed two-seater limit using read-only Production evidence and isolated fixtures. Correct only proven defects.
+## Status
 
-## Authoritative rules
+COMPLETE - CONTROLLED LIVE SYNC ACTIVE
 
-- Cape Town and Johannesburg public bookings close at 12:00 SAST on the performance date when the venue-specific same-day cutoff is enabled.
-- The venue-specific same-day cutoff is the public-sales authority. The legacy `bookingCutoffHours` value does not participate in public booking eligibility or booking creation.
-- A qualifying two-seater claim is an unarchived booking for exactly two guests in `new`, `pending_payment`, `confirmed` or `checked_in` lifecycle state.
-- At most twenty new qualifying claims may exist per performance. Existing historical claims are preserved.
+## Verified Production state
+
+- Source baseline: `0f6e13e63e1820a05905493512ccd6afd7d7b462`.
+- Activation deployment: `dpl_FWVCJU2X8FGFKjHDDRk1S6Fm2fmc`.
+- Correct tenant: Zingara Productions (Pty) Ltd.
+- Webhook key: rotated, stored as a Vercel Production Secret, deployed and validated by Xero Intent to Receive.
+- Invalid webhook signatures fail closed with HTTP 401.
+- `XERO_LIVE_SYNC_AUTHORISED=true`.
+- Connection status: connected; `sync_paused=false`.
+- Immutable activation timestamp: `2026-10-23T14:21:07.624934Z` (16:21:07 SAST).
+- Accounting mappings: 16/16 approved and unchanged.
+- Outbound queue: empty.
+- Existing local documents: five; all remain local-only and unlinked to Xero.
+- Xero financial records created during activation: zero.
+
+## Active scope
+
+Only future invoice conversions manually submitted by the authoritative Tristan Chetty or Rachelle Smuts staff identities can enter the Xero outbox. The invoice must be created after the immutable activation timestamp and originate from the accepted, invoice-requested quotation version.
+
+Historical documents, existing drafts, automatic payment allocations, refunds, credit notes and bulk synchronisation remain excluded. Idempotency, bounded worker claims, leased retries, exact-version completion and venue-specific mappings remain enforced.
+
+## Walkthrough release
+
+The existing six-step Quote & Invoice Management walkthrough now explains the active future-only manual Xero workflow and exclusions. The version remains `quote-invoice-management-2026-10-23-v2`; acknowledgements are not reset.
 
 ## Verification
 
-- Read the saved Production venue configuration and reconcile the two cutoff settings.
-- Verify UI eligibility and the public booking API at the exact 11:59:59.999/12:00:00 SAST boundary and confirm direct callers cannot bypass the server guard.
-- Reconcile current Production two-seater counts without mutation.
-- Verify the 19/20/21 boundary, database concurrency lock, cancellation/amendment behavior, structured conflict and branded popup.
-- Verify every suggested alternative is active, venue-correct, publicly open, before its same-day cutoff, below the two-seater limit and has at least two seats in the requested zone.
+- 29 focused walkthrough and Xero tests passed in the release run.
+- TypeScript, changed-file ESLint and `git diff --check` passed.
+- Production build passed with the pre-existing ticket-PDF tracing warning only.
+- Production Admin and public booking routes returned HTTP 200.
+- The P0 two-seater releases remain in the deployed history.
+- Phase 50.14 was untouched.
 
-## Safety
+## Business-data delta
 
-- No Production bookings, payments, tickets, customers, capacity, communications or financial records may be created or changed.
-- Keep Phase 50.14 Guided Training untouched.
-- Keep Xero synchronisation paused and do not alter webhook configuration.
-- Preserve unrelated user-owned files and worktree outputs.
-
-## Confirmed defect
-
-- The initial two-seater alternative-date helper validated status, venue, zone sales, capacity and two-seater count but did not apply the venue's public opening and same-day cutoff settings. A same-day alternative could therefore be suggested after 12:00 SAST even though selection and the server booking endpoint would reject it.
-- Correct the existing helper at the narrow eligibility boundary; do not change the booking limit, historical records or public booking architecture.
-
-## Verified outcome - 23 October 2026
-
-- Production stores `sameDayCutoffEnabled=true` and `sameDayCutoffTime=12:00` for Cape Town and Johannesburg. The timestamp is constructed explicitly at `+02:00`, so 11:59:59.999 SAST is open and 12:00:00.000 SAST is closed.
-- The public UI removes same-day availability at the cutoff. The public `POST /api/bookings` route independently resolves the authoritative show and venue settings, then returns `PUBLIC_BOOKING_CUTOFF_REACHED` before customer, booking, payment, capacity or ticket mutation. Unauthenticated callers cannot claim an internal source label.
-- `bookingCutoffHours=4` is a legacy saved/displayed value with no execution reference outside the settings model and Admin field. The venue-specific 12:00 rule therefore takes precedence for public bookings.
-- The fully paginated read-only reconciliation covered 197 upcoming performances and 2,786 booking rows. One hundred and two performances contain qualifying two-guest bookings; six pre-existing performances are at or above twenty and remain grandfathered.
-- The remote database migration contains the atomic trigger guard. It serialises new claims by performance, allows the twentieth claim when nineteen exist and blocks the twenty-first when twenty exist. Cancellation/archive/non-occupying lifecycle changes release a claim; existing same-show qualifying bookings remain editable.
-- Alternative-date discovery now also requires the authoritative venue public-booking window to be open and each candidate to remain before its same-day cutoff. Existing active-status, venue, zone sales, capacity, buyout and two-seater-count checks remain intact.
-- At 12:23 SAST, live public UI verification showed Cape Town 23 October disabled as `Online bookings closed`; future available dates remained selectable. Read-only alternative reconciliation found valid future same-venue candidates for every enabled seating zone on each capped active performance.
-- Nineteen focused cutoff/two-seater tests, TypeScript, changed-file ESLint, `git diff --check` and the Production build passed. The build retained one unrelated existing dynamic-font tracing warning.
-- Production business-data delta during verification and QA: zero.
+One authorised Xero connection-state mutation: status changed from `sync_paused` to `connected`, `sync_paused` changed to false, and the immutable activation timestamp plus audit evidence were recorded. No booking, customer, payment, ticket, capacity or Xero financial record changed.
