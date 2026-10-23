@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import type { PlatformMaintenanceConfig } from "@/lib/platformMaintenance";
+import { startVisiblePolling } from "@/lib/visiblePolling";
 
 type PublicMaintenance = PlatformMaintenanceConfig["public"];
 
@@ -47,17 +48,11 @@ export default function PublicMaintenanceBoundary({
       }
     }
 
-    void refresh();
-    const interval = window.setInterval(() => void refresh(), 60_000);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
+    const stopPolling = startVisiblePolling(refresh, 60_000);
 
     return () => {
       active = false;
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibility);
+      stopPolling();
     };
   }, []);
 

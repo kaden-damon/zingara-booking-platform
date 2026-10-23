@@ -259,6 +259,7 @@ import {
   platformPresenceHeartbeatMs,
   shouldSendPresenceHeartbeat,
 } from "../../lib/platformPresence";
+import { startVisiblePolling } from "../../lib/visiblePolling";
 import {
   defaultPlatformMaintenanceConfig,
   normalizePlatformMaintenanceConfig,
@@ -12930,15 +12931,11 @@ export default function AdminDashboardPage({
       }
     }
 
-    void loadNotifications();
-    const intervalId = window.setInterval(loadNotifications, 15000);
-
-    window.addEventListener("focus", loadNotifications);
+    const stopPolling = startVisiblePolling(loadNotifications, 15_000);
 
     return () => {
       isActive = false;
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", loadNotifications);
+      stopPolling();
     };
   }, [currentStaff, guidedTrainingModuleId]);
 
@@ -13168,17 +13165,11 @@ export default function AdminDashboardPage({
       }
     }
 
-    void refreshMaintenance();
-    const interval = window.setInterval(() => void refreshMaintenance(), 30_000);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void refreshMaintenance();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
+    const stopPolling = startVisiblePolling(refreshMaintenance, 30_000);
 
     return () => {
       active = false;
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibility);
+      stopPolling();
     };
   }, [currentStaff?.id, guidedTrainingModuleId]);
 
@@ -13323,12 +13314,9 @@ export default function AdminDashboardPage({
       return;
     }
 
-    void refreshPlatformOperations();
-    const intervalId = window.setInterval(() => {
-      void refreshPlatformOperations();
-    }, 30_000);
+    const stopPolling = startVisiblePolling(refreshPlatformOperations, 30_000);
 
-    return () => window.clearInterval(intervalId);
+    return stopPolling;
   }, [
     activeAdminTab,
     activeSystemTab,
@@ -13384,13 +13372,9 @@ export default function AdminDashboardPage({
       return;
     }
 
-    void refreshSystemStatus();
+    const stopPolling = startVisiblePolling(refreshSystemStatus, 60_000);
 
-    const interval = window.setInterval(() => {
-      void refreshSystemStatus();
-    }, 60000);
-
-    return () => window.clearInterval(interval);
+    return stopPolling;
   }, [activeAdminTab, activeSystemTab, currentStaff?.id, isSuperAdmin]);
 
   useEffect(() => {
@@ -13778,13 +13762,22 @@ export default function AdminDashboardPage({
       return;
     }
 
-    void refreshBookingEditLocks();
-    const timer = window.setInterval(() => {
-      void refreshBookingEditLocks();
-    }, 30000);
+    const shouldPollBookingLocks =
+      activeAdminTab === "bookings" ||
+      activeAdminTab === "corporate" ||
+      Boolean(expandedBookingReference);
 
-    return () => window.clearInterval(timer);
-  }, [currentStaff?.id, guidedTrainingModuleId]);
+    if (!shouldPollBookingLocks) return;
+
+    const stopPolling = startVisiblePolling(refreshBookingEditLocks, 30_000);
+
+    return stopPolling;
+  }, [
+    activeAdminTab,
+    currentStaff?.id,
+    expandedBookingReference,
+    guidedTrainingModuleId,
+  ]);
 
   useEffect(() => {
     if (!currentStaff || guidedTrainingModuleId) {
@@ -13794,13 +13787,15 @@ export default function AdminDashboardPage({
       return;
     }
 
-    void refreshShowEditLocks();
-    const timer = window.setInterval(() => {
-      void refreshShowEditLocks();
-    }, 30000);
+    const shouldPollShowLocks =
+      activeAdminTab === "overview" || Boolean(editingShowId);
 
-    return () => window.clearInterval(timer);
-  }, [currentStaff?.id, guidedTrainingModuleId]);
+    if (!shouldPollShowLocks) return;
+
+    const stopPolling = startVisiblePolling(refreshShowEditLocks, 30_000);
+
+    return stopPolling;
+  }, [activeAdminTab, currentStaff?.id, editingShowId, guidedTrainingModuleId]);
 
   useEffect(() => {
     if (

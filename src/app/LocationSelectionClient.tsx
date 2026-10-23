@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { startVisiblePolling } from "@/lib/visiblePolling";
 
 import {
   getPublicBookingSalesStatusFromConfiguration,
@@ -67,9 +68,7 @@ export default function LocationSelectionClient({
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-
-    return () => window.clearInterval(timer);
+    return startVisiblePolling(() => setNow(Date.now()), 1_000);
   }, []);
 
   return (

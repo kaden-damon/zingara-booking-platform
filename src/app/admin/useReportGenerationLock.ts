@@ -6,6 +6,7 @@ import type {
   ReportGenerationLockState,
 } from "@/lib/reportGenerationLock";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
+import { startVisiblePolling } from "@/lib/visiblePolling";
 
 export function useReportGenerationLock(enabled = true) {
   const [lock, setLock] = useState<ReportGenerationLockState | null>(null);
@@ -27,12 +28,7 @@ export function useReportGenerationLock(enabled = true) {
       return;
     }
 
-    const initialRefresh = window.setTimeout(() => void refresh(), 0);
-    const interval = window.setInterval(() => void refresh(), 10_000);
-    return () => {
-      window.clearTimeout(initialRefresh);
-      window.clearInterval(interval);
-    };
+    return startVisiblePolling(refresh, 10_000);
   }, [enabled, refresh]);
 
   const acquire = useCallback(

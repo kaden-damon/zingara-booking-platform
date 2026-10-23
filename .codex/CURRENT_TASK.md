@@ -1,91 +1,81 @@
-PHASE 51.1 - CRITICAL QUERY & REPORTS OPTIMISATION
+PHASE 51.2 - BACKGROUND ACTIVITY OPTIMISATION
 
-STATUS: COMPLETE - DEPLOYED AND VERIFIED
+STATUS: VERIFIED - READY FOR RELEASE
 
 GOAL
 
-Eliminate the confirmed Reports and refund-readiness bottlenecks without any
-visible UX, workflow, permission, financial, export, or business-data change.
-
-AUTHORISED SCOPE
-
-- Replace the Management Analytics full historical browser hydration with
-  bounded server-side retrieval and aggregation while preserving every report,
-  filter, calculation, export, and displayed result.
-- Replace the oversized refund-readiness database filter that produces HTTP 500
-  responses with a bounded authoritative query while preserving eligibility,
-  approvals, reconciliation, audit, and financial safeguards.
-- Measure before and after, run focused regressions, commit, push, deploy, and
-  verify Production.
-
-STRICT SAFETY
-
-- No screen, layout, navigation, control, style, wording, workflow, or
-  permission changes.
-- No booking, payment, ticket, capacity, customer, Xero, Table Plan, Academy, or
-  other business-data mutations.
-- No stale financial cache, extra polling, global hydration, or unrelated
-  refactoring.
+Reduce unnecessary background requests, polling, browser processing, and
+server workload while preserving real-time operational behavior, concurrency,
+notifications, payment verification, and all existing UX and business rules.
 
 BASELINE
 
-- main / origin/main: 7bcb0da93046a3f546bc77b2013ea2f6609a4133
-- Production deployment: dpl_9BZVPZAzbkRWzbKuHU6Zk2NcPgz5 (READY)
+- main / origin/main: a369fe06dc618cce5ecf57b83d76a31fe98925e2
+- Production deployment: dpl_DYCy7ApG2khEVeHRdi9Fzfhm8fTk (READY)
 - Production alias: https://book.zingara.co.za
-- Rollback commit: 7bcb0da93046a3f546bc77b2013ea2f6609a4133
-- Reports baseline: 21,655 historical rows, approximately 6.72 MB raw /
-  1.42 MB gzip, approximately 5.3 seconds to first usable report.
-- Refund baseline: 983 booking identifiers encoded into one oversized filter,
-  producing HTTP 500 responses.
+- Rollback commit: a369fe06dc618cce5ecf57b83d76a31fe98925e2
+- Phase 51.0 bounded sample: 1,873 of 10,000 requests (18.7%) were
+  notifications, maintenance, booking-lock lists, system maintenance, or
+  show-lock lists.
+- Normal authenticated Admin cadence before correction:
+  notifications every 15 seconds; Admin maintenance, booking-lock lists, and
+  show-lock lists every 30 seconds; public maintenance every 60 seconds.
+
+CONFIRMED TARGETS
+
+- Non-critical refresh intervals continue while documents are hidden.
+- Global booking/show lock lists poll every Admin session even when the owning
+  workspace is inactive.
+- Several module-specific operational refreshes continue in hidden tabs.
+- Focus and visibility resumption can duplicate a request already in flight.
+
+SAFETY BOUNDARY
+
+- No screen, layout, navigation, control, style, workflow, permission, or
+  business-rule change.
+- Active booking and show lock heartbeats retain their current cadence and
+  server-side expiry/revision safeguards.
+- No booking, payment, ticket, capacity, customer, Xero, Table Plan, Academy,
+  or other business-data mutation.
+- No stale financial caching, missed notifications, extra polling, or unrelated
+  refactoring.
 
 RELEASE BOUNDARY
 
-Deploy only after focused functional parity, financial safety, TypeScript,
-changed-file ESLint, diff check, migration validation where applicable, and
-Production build all pass.
+Deploy only after focused cadence, visibility, lock, notification, maintenance,
+TypeScript, changed-file ESLint, diff, and Production build checks pass.
 
-VERIFIED CORRECTIONS
+IMPLEMENTATION
 
-- Reports now retrieve bookings in bounded concurrent pages with their linked
-  customer and payment evidence, calculate the unchanged analytics model on the
-  server, and send only the compact result to the browser.
-- Sales Performance continues to use the same authoritative demand rows without
-  hydrating booking, customer, or payment history in the browser.
-- Refund readiness now retrieves all qualifying PayFast payments in bounded
-  pages with authoritative booking and refund relationships. It no longer uses
-  an oversized booking-ID filter and no longer truncates at 1,000 payments.
+- Added one shared visibility-aware polling scheduler with in-flight request
+  suppression, immediate foreground refresh, focus/visibility deduplication,
+  and complete listener/timer cleanup.
+- Notifications and maintenance retain their existing visible-tab cadence but
+  stop while the document is hidden.
+- Booking-lock lists now refresh only in Bookings/Corporate or while Booking
+  Details is open. Show-lock lists refresh only on Calendar or while a show is
+  open. Exact-session edit heartbeats are unchanged.
+- Platform Operations, System Status, report-generation locking, and public
+  maintenance refresh only while their owning view is active and visible.
+- The public location-selection clock no longer rerenders once per second in a
+  hidden tab.
 
-MEASUREMENTS
+MEASURED EFFECT
 
-- Reports retrieval: approximately 1.63-2.23 seconds after optimisation versus
-  approximately 5.3 seconds to usable content before.
-- Reports browser payload: approximately 274 KB raw / 40 KB gzip versus
-  approximately 6.72 MB raw / 1.42 MB gzip before.
-- Browser-side historical rows: zero versus 21,655 before.
-- Refund readiness: approximately 1.13-1.58 seconds across 2,971 qualifying
-  payment rows / 2,863 bookings; the former request returned HTTP 500 and saw
-  only the first 1,000 payment rows.
+- Hidden inactive tab: up to 10 non-critical network refreshes/minute and 60
+  local clock renders/minute before; zero after.
+- Visible Admin: background request cadence falls from 10/minute to 8/minute
+  in Bookings/Calendar (20%) and to 6/minute in other workspaces (40%), while
+  notifications and maintenance retain their original active cadence.
+- No new requests, polling loops, caching, dependencies, or UI changes.
 
 VERIFICATION
 
-- Exact analytics parity: passed for default, venue, activity/source, and
-  performance/status filters against the previous loader.
-- Focused report/refund tests: 49 passed.
+- Focused polling, booking-lock, same-show concurrency, and report-lock tests:
+  35 passed.
 - TypeScript: passed.
-- Changed-file ESLint: passed with no warnings.
+- Changed files other than the pre-existing large Admin file: ESLint passed.
+- Admin changed lines: no new ESLint errors; the file retains two historical
+  `set-state-in-effect` errors at unchanged lines 8407 and 8420.
 - git diff --check: passed.
-- Production build: passed with the pre-existing ticket PDF tracing warning.
-- Production verification: authenticated Reports loaded with the unchanged
-  four-tab interface and existing report controls; the compact Management
-  Analytics request returned HTTP 200.
-- Refund verification: authenticated Admin startup completed and the bounded
-  refund-readiness request returned HTTP 200, with no oversized-filter failure.
-- Production business-data delta: zero.
-
-RELEASE
-
-- Implementation commit: 3bf0553ff7f1c1a11a31c4299fdb687e41d2067c
-- Production deployment: dpl_GrxQ4nkiU1kMDDAnoDBTBhiLzeM4 (READY)
-- Production alias: https://book.zingara.co.za
-- Rollback commit: 7bcb0da93046a3f546bc77b2013ea2f6609a4133
-- main / origin/main after release: 3bf0553ff7f1c1a11a31c4299fdb687e41d2067c
+- Production build: passed with only the existing ticket-PDF tracing warning.
