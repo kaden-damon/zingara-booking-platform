@@ -54,8 +54,13 @@ test("Legal Centre cross-references Cookie and Privacy policies", async () => {
   assert.doesNotMatch(legal, /Google Analytics is active|Meta Pixel is active/);
 });
 
-test("public runtime contains no GA4 or Meta Pixel integration", async () => {
+test("public advertising runtime is isolated behind explicit consent", async () => {
   const layout = await source("../app/layout.tsx");
-  const consent = await source("../app/components/PublicCookieConsent.tsx");
-  assert.doesNotMatch(`${layout}\n${consent}`, /gtag\(|googletagmanager|fbq\(|connect\.facebook/);
+  const tracking = await source("./advertisingTracking.ts");
+  assert.match(layout, /PublicAdvertisingTracking/);
+  assert.match(tracking, /ad_storage: "denied"/);
+  assert.match(tracking, /analytics_storage: "denied"/);
+  assert.match(tracking, /if \(consent\.analytics \|\| consent\.marketing\)/);
+  assert.match(tracking, /if \(consent\.marketing\)/);
+  assert.match(tracking, /window\.fbq\?\.\("consent", "revoke"\)/);
 });

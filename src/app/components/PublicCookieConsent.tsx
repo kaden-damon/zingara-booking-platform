@@ -25,7 +25,6 @@ export default function PublicCookieConsent() {
 
   useEffect(() => {
     if (isAdmin) {
-      setIsVisible(false);
       return;
     }
 
@@ -51,7 +50,10 @@ export default function PublicCookieConsent() {
         setConsent(storedConsent);
         setIsVisible(nextConfig.enabled && !storedConsent);
         window.dispatchEvent(new CustomEvent(cookieConsentReadyEvent, {
-          detail: { analytics: nextConfig.enabled && storedConsent?.analytics === true },
+          detail: {
+            analytics: nextConfig.enabled && storedConsent?.analytics === true,
+            marketing: nextConfig.enabled && storedConsent?.marketing === true,
+          },
         }));
       })
       .catch(() => {
@@ -64,7 +66,10 @@ export default function PublicCookieConsent() {
         setConsent(storedConsent);
         setIsVisible(nextConfig.enabled && !storedConsent);
         window.dispatchEvent(new CustomEvent(cookieConsentReadyEvent, {
-          detail: { analytics: nextConfig.enabled && storedConsent?.analytics === true },
+          detail: {
+            analytics: nextConfig.enabled && storedConsent?.analytics === true,
+            marketing: nextConfig.enabled && storedConsent?.marketing === true,
+          },
         }));
       });
 

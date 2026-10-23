@@ -43,11 +43,11 @@ test("stored consent is validated and versioned", () => {
   assert.equal(parseStoredConsent("not-json"), null);
 });
 
-test("existing explicit optional consent remains valid without a version bump", () => {
+test("existing explicit optional consent requires the advertising disclosure version", () => {
   const existing = createConsent(1, { analytics: true, marketing: false });
   assert.equal(
     isConsentCurrent(existing, defaultCookieConsentConfig.consentVersion),
-    true,
+    false,
   );
   assert.equal(canInitializeConsentCategory("analytics", existing, 1), true);
   assert.equal(canInitializeConsentCategory("marketing", existing, 1), false);
@@ -82,7 +82,7 @@ test("disabled consent UI never implies optional permission", () => {
 
 test("configuration defaults preserve locked category semantics", () => {
   assert.equal(defaultCookieConsentConfig.enabled, true);
-  assert.equal(defaultCookieConsentConfig.consentVersion, 1);
+  assert.equal(defaultCookieConsentConfig.consentVersion, 2);
   assert.equal(defaultCookieConsentConfig.acceptAllLabel, "OKAY");
   assert.match(defaultCookieConsentConfig.essentialDescription, /Required/);
 });
@@ -146,7 +146,7 @@ test("configuration changes are deterministic for audit fields", () => {
   const next = {
     ...defaultCookieConsentConfig,
     bannerHeading: "YOUR PRIVACY AT ZINGARA",
-    consentVersion: 2,
+    consentVersion: 3,
   };
   assert.deepEqual(
     getChangedCookieConsentFields(defaultCookieConsentConfig, next),

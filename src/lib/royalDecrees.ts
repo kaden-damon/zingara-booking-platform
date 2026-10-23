@@ -438,8 +438,8 @@ export const royalDecrees: RoyalDecree[] = [
         heading: "Current Consent Categories",
         body: [
           "Essential means technologies required for the service, security or a feature the visitor asks to use. Essential is always active where required.",
-          "Analytics means optional technologies that may help Zingara understand use of the platform and improve the experience. Analytics remains off unless enabled and the visitor gives Analytics consent.",
-          "Marketing means optional advertising or marketing technologies that may be introduced separately. Marketing remains off unless implemented, permitted and selected by the visitor.",
+          "Analytics means optional Google Analytics technologies that help Zingara understand use of the booking platform and improve the experience. Analytics remains off unless the visitor gives Analytics consent.",
+          "Marketing means optional Google Ads and Meta Pixel technologies used to measure advertising performance and booking journeys. Marketing remains off unless the visitor gives Marketing consent.",
         ],
       },
       {
@@ -453,15 +453,15 @@ export const royalDecrees: RoyalDecree[] = [
       {
         heading: "Analytics And Marketing Technologies",
         body: [
-          "Zingara does not currently identify any named third-party analytics or advertising provider as active under this policy. Optional providers may be introduced only after they are configured, permitted and covered by the relevant consent category.",
-          "Before or when a future analytics or marketing provider is deployed, this Cookie Policy must be updated with accurate provider, purpose and duration information. Cookie Marketing consent is separate from email marketing subscriptions, SMS marketing subscriptions and necessary transactional communications.",
+          "With Analytics consent, the booking platform uses Google Analytics 4 to measure page views and non-identifying booking-journey events. With Marketing consent, it uses Google Ads and Meta Pixel to measure advertising performance. Zingara does not send customer names, email addresses, telephone numbers or booking references in these tracking payloads.",
+          "Purchase measurement remains separately controlled and is sent only after authoritative payment verification. Google and Meta receive only the approved event, ZAR value and an opaque duplicate-protection identity. Cookie Marketing consent is separate from email marketing subscriptions, SMS marketing subscriptions and necessary transactional communications.",
         ],
       },
       {
         heading: "Duration And Retention",
         body: [
           "Zingara's own consent preference is stored in the visitor's browser until that browser data is cleared, the visitor changes the choice, or Zingara requires review through a new consent version.",
-          "No third-party cookie duration is stated before a provider is implemented and accurately documented.",
+          "Google and Meta control the duration of their optional cookies and similar identifiers under their published service policies. Visitors can withdraw the relevant consent category at any time through Cookie Preferences or clear stored identifiers through browser controls.",
         ],
       },
       {

@@ -1,6 +1,7 @@
 import { getAdminAuthSession } from "@/lib/supabase/auth";
 import { platformPresenceHeartbeatMs } from "@/lib/platformPresence";
 import { hasAnalyticsConsent } from "@/lib/cookieConsent";
+import { trackAdvertisingJourneyEvent } from "@/lib/advertisingTracking";
 
 type TelemetryMetadata = Record<string, boolean | number | string | null>;
 
@@ -336,6 +337,14 @@ export function trackPlatformEvent(input: TrackEventInput) {
     statusCode: input.statusCode,
     type: "event",
   }, input.sessionType === "staff");
+
+  if (input.sessionType !== "staff") {
+    trackAdvertisingJourneyEvent(
+      input.eventType,
+      input.metadata,
+      input.route ?? getCurrentRoute(),
+    );
+  }
 }
 
 export function upsertPlatformPresence(input: TrackSessionInput) {

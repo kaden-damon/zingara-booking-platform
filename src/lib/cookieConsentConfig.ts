@@ -17,11 +17,11 @@ export type CookieConsentConfig = {
 export const defaultCookieConsentConfig: CookieConsentConfig = {
   acceptAllLabel: "OKAY",
   analyticsDescription:
-    "Allows optional analytics technologies that help us understand and improve the booking experience.",
+    "Allows Google Analytics to measure booking-platform usage and help improve the experience.",
   bannerDescription:
     "Zingara uses essential technologies to operate the booking platform. With your permission, we may also use analytics technologies to understand how visitors use the platform and improve the experience.",
   bannerHeading: "WE VALUE YOUR PRIVACY",
-  consentVersion: 1,
+  consentVersion: 2,
   enabled: true,
   essentialDescription:
     "Required for security, core preferences, booking, payment and ticket functionality.",
@@ -29,7 +29,7 @@ export const defaultCookieConsentConfig: CookieConsentConfig = {
   footerLinkLabel: "COOKIE PREFERENCES",
   managePreferencesLabel: "MANAGE PREFERENCES",
   marketingDescription:
-    "Allows optional marketing technologies where Zingara introduces them and you choose to consent.",
+    "Allows Google Ads and Meta Pixel to measure advertising performance and booking journeys.",
   preferencesHeading: "COOKIE PREFERENCES",
   savePreferencesLabel: "SAVE PREFERENCES",
 };
@@ -119,7 +119,7 @@ export function normalizeCookieConsentConfig(
       : defaultCookieConsentConfig.enabled;
   normalized.consentVersion =
     Number.isInteger(source.consentVersion) && Number(source.consentVersion) > 0
-      ? Number(source.consentVersion)
+      ? Math.max(Number(source.consentVersion), defaultCookieConsentConfig.consentVersion)
       : defaultCookieConsentConfig.consentVersion;
 
   return normalized;
