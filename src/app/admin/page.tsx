@@ -4,6 +4,7 @@ import {
   type ChangeEvent,
   type FormEvent,
   use,
+  useDeferredValue,
   useEffect,
   useId,
   useMemo,
@@ -21134,181 +21135,264 @@ export default function AdminDashboardPage({
           (booking) => booking.reference === expandedBookingReference,
         )
       : paginatedBookings;
-  const bookingFilterDates = Array.from(
-    new Set(shows.map((show) => show.date).filter(Boolean)),
-  ).sort();
   const bookingFilterDateSet = useMemo(
-    () => new Set(bookingFilterDates),
-    [bookingFilterDates],
+    () =>
+      new Set(
+        Array.from(
+          new Set(shows.map((show) => show.date).filter(Boolean)),
+        ).sort(),
+      ),
+    [shows],
   );
-  const selectedShowBookings = selectedShow
-    ? activeBookingsForOperations.filter((booking) =>
-        bookingBelongsToShow(booking, selectedShow),
-      )
-    : [];
-  const activeShowBookings = getOperationalShowBookings(bookings, selectedShow);
-  const selectedShowFloorAssignmentBookings = activeShowBookings
-    .filter(
-      (booking) =>
-        booking.showId === selectedShowId &&
-        getBookingZoneEntitlements(booking).some((entitlement) =>
-          !(booking.reservationTableClaims ?? []).some(
-            (claim) => getCorporateSeatingZoneId(claim.section) === entitlement.zoneId,
+  const shouldPrepareSelectedShow =
+    activeAdminTab === "overview" || activeAdminTab === "operations";
+  const selectedShowOperations = useMemo(() => {
+    const selectedShowBookings =
+      shouldPrepareSelectedShow && selectedShow
+        ? activeBookingsForOperations.filter((booking) =>
+            bookingBelongsToShow(booking, selectedShow),
+          )
+        : [];
+    const activeShowBookings = shouldPrepareSelectedShow
+      ? getOperationalShowBookings(bookings, selectedShow)
+      : [];
+    const selectedShowFloorAssignmentBookings = activeShowBookings
+      .filter(
+        (booking) =>
+          booking.showId === selectedShowId &&
+          getBookingZoneEntitlements(booking).some((entitlement) =>
+            !(booking.reservationTableClaims ?? []).some(
+              (claim) =>
+                getCorporateSeatingZoneId(claim.section) === entitlement.zoneId,
+            ),
           ),
-        ),
-    )
-    .sort(
-      (left, right) =>
-        left.zoneTitle.localeCompare(right.zoneTitle) ||
-        left.customer.name.localeCompare(right.customer.name) ||
-        left.reference.localeCompare(right.reference),
-    );
-  const selectedShowFloorAssignmentPax =
-    selectedShowFloorAssignmentBookings.reduce(
+      )
+      .sort(
+        (left, right) =>
+          left.zoneTitle.localeCompare(right.zoneTitle) ||
+          left.customer.name.localeCompare(right.customer.name) ||
+          left.reference.localeCompare(right.reference),
+      );
+    const selectedShowLegacyAssignments = tables
+      .filter(
+        (table) =>
+          table.showId === selectedShowId && isLegacyFloorPlaceholder(table),
+      )
+      .flatMap((table) => {
+        const booking = activeShowBookings.find(
+          (candidate) =>
+            candidate.tableId === table.id ||
+            candidate.reference === table.bookingReference,
+        );
+
+        return booking ? [{ booking, table }] : [];
+      })
+      .sort(
+        (left, right) =>
+          left.booking.zoneTitle.localeCompare(right.booking.zoneTitle) ||
+          left.table.tableNumber.localeCompare(right.table.tableNumber) ||
+          left.booking.reference.localeCompare(right.booking.reference),
+      );
+    const reservedGuests = activeShowBookings.reduce(
       (total, booking) => total + booking.partySize,
       0,
     );
-  const selectedShowLegacyAssignments = tables
-    .filter(
-      (table) =>
-        table.showId === selectedShowId && isLegacyFloorPlaceholder(table),
-    )
-    .flatMap((table) => {
-      const booking = activeShowBookings.find(
-        (candidate) =>
-          candidate.tableId === table.id ||
-          candidate.reference === table.bookingReference,
-      );
-
-      return booking ? [{ booking, table }] : [];
-    })
-    .sort(
-      (left, right) =>
-        left.booking.zoneTitle.localeCompare(right.booking.zoneTitle) ||
-        left.table.tableNumber.localeCompare(right.table.tableNumber) ||
-        left.booking.reference.localeCompare(right.booking.reference),
+    const arrivedGuests = activeShowBookings.reduce(
+      (total, booking) => total + getArrivedGuestCount(booking),
+      0,
     );
-  const reservedGuests = activeShowBookings.reduce(
-    (total, booking) => total + booking.partySize,
-    0,
-  );
-  const arrivedGuests = activeShowBookings.reduce(
-    (total, booking) => total + getArrivedGuestCount(booking),
-    0,
-  );
-  const selectedShowCapacity = seatingZones.reduce(
-    (total, zone) =>
-      total +
-      getZoneStats(
-        tables,
-        activeShowBookings,
-        selectedShowId,
-        zone,
-        getConfiguredZoneMaxSeats(venueConfig, zone),
-      )
-        .totalCapacity,
-    0,
-  );
-  const occupancyPercent =
-    selectedShowCapacity > 0
-      ? Math.round((arrivedGuests / selectedShowCapacity) * 100)
+    const selectedShowCapacity = shouldPrepareSelectedShow
+      ? seatingZones.reduce(
+          (total, zone) =>
+            total +
+            getZoneStats(
+              tables,
+              activeShowBookings,
+              selectedShowId,
+              zone,
+              getConfiguredZoneMaxSeats(venueConfig, zone),
+            ).totalCapacity,
+          0,
+        )
       : 0;
-  const remainingSeats = Math.max(
-    selectedShowCapacity - reservedGuests,
-    0,
-  );
-  const remainingCheckIns = Math.max(reservedGuests - arrivedGuests, 0);
-  const selectedShowBlockedTables = tables.filter(
-    (table) =>
-      table.showId === selectedShowId &&
-      isFloorInventoryTable(table) &&
-      table.capacityConfigured !== false &&
-      table.status === "disabled",
-  ).length;
-  const selectedShowPaymentIssues = activeShowBookings.filter(
-    (booking) => getBookingFinancials(booking).balanceDue > 0,
-  ).length;
-  const selectedShowNoShows = selectedShowBookings.filter(
-    (booking) => (booking.status ?? "confirmed") === "no-show",
-  ).length;
-  const selectedShowVipBookings = activeShowBookings.filter((booking) =>
-    (booking.customer.name + " " + (booking.operationalNotes ?? ""))
-      .toLowerCase()
-      .includes("vip"),
-  ).length;
-  const staffSearchTerm = staffSearch.trim().toLowerCase();
-  const checkInShowBookings = effectiveCheckInShow
-    ? activeBookingsForOperations.filter((booking) =>
-        bookingBelongsToShow(booking, effectiveCheckInShow),
-      )
-    : [];
-  const activeCheckInBookings = getOperationalShowBookings(
+
+    return {
+      activeShowBookings,
+      arrivedGuests,
+      occupancyPercent:
+        selectedShowCapacity > 0
+          ? Math.round((arrivedGuests / selectedShowCapacity) * 100)
+          : 0,
+      remainingCheckIns: Math.max(reservedGuests - arrivedGuests, 0),
+      remainingSeats: Math.max(selectedShowCapacity - reservedGuests, 0),
+      reservedGuests,
+      selectedShowBlockedTables: shouldPrepareSelectedShow
+        ? tables.filter(
+            (table) =>
+              table.showId === selectedShowId &&
+              isFloorInventoryTable(table) &&
+              table.capacityConfigured !== false &&
+              table.status === "disabled",
+          ).length
+        : 0,
+      selectedShowBookings,
+      selectedShowFloorAssignmentBookings,
+      selectedShowFloorAssignmentPax:
+        selectedShowFloorAssignmentBookings.reduce(
+          (total, booking) => total + booking.partySize,
+          0,
+        ),
+      selectedShowLegacyAssignments,
+      selectedShowNoShows: selectedShowBookings.filter(
+        (booking) => (booking.status ?? "confirmed") === "no-show",
+      ).length,
+      selectedShowPaymentIssues: activeShowBookings.filter(
+        (booking) => getBookingFinancials(booking).balanceDue > 0,
+      ).length,
+      selectedShowVipBookings: activeShowBookings.filter((booking) =>
+        (booking.customer.name + " " + (booking.operationalNotes ?? ""))
+          .toLowerCase()
+          .includes("vip"),
+      ).length,
+    };
+  }, [
+    activeBookingsForOperations,
     bookings,
-    effectiveCheckInShow,
-  );
-  const checkInReservedGuests = activeCheckInBookings.reduce(
-    (total, booking) => total + booking.partySize,
-    0,
-  );
-  const checkInArrivedGuests = activeCheckInBookings.reduce(
-    (total, booking) => total + getArrivedGuestCount(booking),
-    0,
-  );
-  const checkInShowCapacity = effectiveCheckInShowId
-    ? seatingZones.reduce(
-        (total, zone) =>
-          total +
-          getZoneStats(
-            tables,
-            activeCheckInBookings,
-            effectiveCheckInShowId,
-            zone,
-            getConfiguredZoneMaxSeats(venueConfig, zone),
-          ).totalCapacity,
-        0,
-      )
-    : 0;
-  const checkInOccupancyPercent =
-    checkInShowCapacity > 0
-      ? Math.round((checkInArrivedGuests / checkInShowCapacity) * 100)
-      : 0;
-  const checkInStaffBookings = checkInShowBookings.filter((booking) => {
-    const status = booking.status ?? "confirmed";
-
-    if (hideCancelledConcierge && status === "cancelled") {
-      return false;
+    selectedShow,
+    selectedShowId,
+    shouldPrepareSelectedShow,
+    tables,
+    venueConfig,
+  ]);
+  const {
+    activeShowBookings,
+    arrivedGuests,
+    occupancyPercent,
+    remainingCheckIns,
+    remainingSeats,
+    reservedGuests,
+    selectedShowBlockedTables,
+    selectedShowBookings,
+    selectedShowFloorAssignmentBookings,
+    selectedShowFloorAssignmentPax,
+    selectedShowLegacyAssignments,
+    selectedShowNoShows,
+    selectedShowPaymentIssues,
+    selectedShowVipBookings,
+  } = selectedShowOperations;
+  const deferredStaffSearch = useDeferredValue(staffSearch);
+  const checkInOperations = useMemo(() => {
+    if (activeAdminTab !== "operations") {
+      return {
+        checkInArrivedGuests: 0,
+        checkInOccupancyPercent: 0,
+        checkInReservedGuests: 0,
+        checkInShowCapacity: 0,
+        checkInStaffBookings: [],
+      };
     }
 
-    if (
-      conciergeStatusFilter !== "all" &&
-      status !== conciergeStatusFilter
-    ) {
-      return false;
-    }
-
-    if (!staffSearchTerm) {
-      return true;
-    }
-
-    return (
-      booking.reference.toLowerCase().includes(staffSearchTerm) ||
-      booking.customer.name
-        .toLowerCase()
-        .includes(staffSearchTerm) ||
-      booking.tableNumber.toLowerCase().includes(staffSearchTerm)
+    const staffSearchTerm = deferredStaffSearch.trim().toLowerCase();
+    const checkInShowBookings = effectiveCheckInShow
+      ? activeBookingsForOperations.filter((booking) =>
+          bookingBelongsToShow(booking, effectiveCheckInShow),
+        )
+      : [];
+    const activeCheckInBookings = getOperationalShowBookings(
+      bookings,
+      effectiveCheckInShow,
     );
-  });
-  const workflowShows = shows.filter(
-    (show) => {
-      const status = show.operationalStatus ?? "active";
+    const checkInReservedGuests = activeCheckInBookings.reduce(
+      (total, booking) => total + booking.partySize,
+      0,
+    );
+    const checkInArrivedGuests = activeCheckInBookings.reduce(
+      (total, booking) => total + getArrivedGuestCount(booking),
+      0,
+    );
+    const checkInShowCapacity = effectiveCheckInShowId
+      ? seatingZones.reduce(
+          (total, zone) =>
+            total +
+            getZoneStats(
+              tables,
+              activeCheckInBookings,
+              effectiveCheckInShowId,
+              zone,
+              getConfiguredZoneMaxSeats(venueConfig, zone),
+            ).totalCapacity,
+          0,
+        )
+      : 0;
+    const checkInStaffBookings = checkInShowBookings.filter((booking) => {
+      const status = booking.status ?? "confirmed";
+
+      if (hideCancelledConcierge && status === "cancelled") {
+        return false;
+      }
+
+      if (
+        conciergeStatusFilter !== "all" &&
+        status !== conciergeStatusFilter
+      ) {
+        return false;
+      }
+
+      if (!staffSearchTerm) {
+        return true;
+      }
 
       return (
-        !show.archivedAt &&
-        status !== "inactive" &&
-        status !== "blackout" &&
-        status !== "venue-closure"
+        booking.reference.toLowerCase().includes(staffSearchTerm) ||
+        booking.customer.name.toLowerCase().includes(staffSearchTerm) ||
+        booking.tableNumber.toLowerCase().includes(staffSearchTerm)
       );
-    },
+    });
+
+    return {
+      checkInArrivedGuests,
+      checkInOccupancyPercent:
+        checkInShowCapacity > 0
+          ? Math.round((checkInArrivedGuests / checkInShowCapacity) * 100)
+          : 0,
+      checkInReservedGuests,
+      checkInShowCapacity,
+      checkInStaffBookings,
+    };
+  }, [
+    activeAdminTab,
+    activeBookingsForOperations,
+    bookings,
+    conciergeStatusFilter,
+    deferredStaffSearch,
+    effectiveCheckInShow,
+    effectiveCheckInShowId,
+    hideCancelledConcierge,
+    tables,
+    venueConfig,
+  ]);
+  const {
+    checkInArrivedGuests,
+    checkInOccupancyPercent,
+    checkInReservedGuests,
+    checkInShowCapacity,
+    checkInStaffBookings,
+  } = checkInOperations;
+  const workflowShows = useMemo(
+    () =>
+      activeAdminTab === "communications"
+        ? shows.filter((show) => {
+            const status = show.operationalStatus ?? "active";
+
+            return (
+              !show.archivedAt &&
+              status !== "inactive" &&
+              status !== "blackout" &&
+              status !== "venue-closure"
+            );
+          })
+        : [],
+    [activeAdminTab, shows],
   );
   const workflowShow =
     workflowShows.find((show) => show.id === workflowShowId) ??
@@ -21391,18 +21475,40 @@ export default function AdminDashboardPage({
     requiresWorkflowShowBookings,
     workflowShow,
   ]);
-  const workflowShowBookings = workflowShow
-    ? activeBookingsForOperations.filter(
-        (booking) => booking.showId === workflowShow.id,
-      )
-    : [];
-  const activeWorkflowBookings = workflowShowBookings.filter((booking) =>
-    isOperationallyActiveBooking(booking),
+  const workflowShowBookings = useMemo(
+    () =>
+      requiresWorkflowShowBookings && workflowShow
+        ? activeBookingsForOperations.filter(
+            (booking) => booking.showId === workflowShow.id,
+          )
+        : [],
+    [
+      activeBookingsForOperations,
+      requiresWorkflowShowBookings,
+      workflowShow,
+    ],
   );
-  const academyArticles = academyContent?.academyArticles ?? [];
-  const academyModules = academyContent?.academyModules ?? [];
-  const academyLearningPaths = academyContent?.academyLearningPaths;
-  const academyCategories = academyContent?.academyCategories ?? [];
+  const activeWorkflowBookings = useMemo(
+    () =>
+      workflowShowBookings.filter((booking) =>
+        isOperationallyActiveBooking(booking),
+      ),
+    [workflowShowBookings],
+  );
+  const shouldPrepareAcademyLearning =
+    activeAdminTab === "academy" && academyWorkspace === "learning";
+  const academyArticles = shouldPrepareAcademyLearning
+    ? academyContent?.academyArticles ?? []
+    : [];
+  const academyModules = shouldPrepareAcademyLearning
+    ? academyContent?.academyModules ?? []
+    : [];
+  const academyLearningPaths = shouldPrepareAcademyLearning
+    ? academyContent?.academyLearningPaths
+    : undefined;
+  const academyCategories = shouldPrepareAcademyLearning
+    ? academyContent?.academyCategories ?? []
+    : [];
   const academyDifficultyLabels = academyContent?.academyDifficultyLabels ?? {
     advanced: "",
     beginner: "",
@@ -21449,7 +21555,8 @@ export default function AdminDashboardPage({
     article.moduleId === "recent-changes" ||
     activeAcademyLearningPath.moduleIds.includes(article.moduleId),
   );
-  const academyQuery = academySearch.trim().toLowerCase();
+  const deferredAcademySearch = useDeferredValue(academySearch);
+  const academyQuery = deferredAcademySearch.trim().toLowerCase();
   const filteredAcademyArticles = academyArticles.filter((article) => {
     if (!academyQuery) {
       return article.category === selectedAcademyCategory;
@@ -21738,28 +21845,52 @@ export default function AdminDashboardPage({
   const showCalendarMonthPrefix = `${showCalendarMonth}-`;
   const getShowLocation = (show: DemoShow) =>
     normalizeShowLocation(show.location ?? show.venueName);
-  const showCalendarSource = guidedTrainingModuleId
-    ? [guidedTrainingSyntheticShow]
-    : shows;
-  const visibleShowCalendarShows = showCalendarSource
-    .filter((show) => {
-      const location = getShowLocation(show);
+  const visibleShowCalendarShows = useMemo(() => {
+    const showCalendarSource = guidedTrainingModuleId
+      ? [guidedTrainingSyntheticShow]
+      : shows;
 
-      return (
-        show.date.startsWith(showCalendarMonthPrefix) &&
-        (showCalendarLocationFilter === "all" ||
-          location === showCalendarLocationFilter)
+    return showCalendarSource
+      .filter((show) => {
+        const location = normalizeShowLocation(
+          show.location ?? show.venueName,
+        );
+
+        return (
+          show.date.startsWith(showCalendarMonthPrefix) &&
+          (showCalendarLocationFilter === "all" ||
+            location === showCalendarLocationFilter)
+        );
+      })
+      .sort((left, right) =>
+        `${left.date}T${left.time || "00:00"}`.localeCompare(
+          `${right.date}T${right.time || "00:00"}`,
+        ),
       );
-    })
-    .sort((left, right) =>
-      `${left.date}T${left.time || "00:00"}`.localeCompare(
-        `${right.date}T${right.time || "00:00"}`,
-      ),
-    );
+  }, [
+    guidedTrainingModuleId,
+    showCalendarLocationFilter,
+    showCalendarMonthPrefix,
+    shows,
+  ]);
+  const showCalendarShowsByDay = useMemo(() => {
+    const showsByDay = new Map<number, DemoShow[]>();
+
+    visibleShowCalendarShows.forEach((show) => {
+      const day = Number(show.date.slice(-2));
+      const dayShows = showsByDay.get(day);
+
+      if (dayShows) {
+        dayShows.push(show);
+      } else {
+        showsByDay.set(day, [show]);
+      }
+    });
+
+    return showsByDay;
+  }, [visibleShowCalendarShows]);
   const getCalendarShowsForDay = (day: number) =>
-    visibleShowCalendarShows.filter(
-      (show) => show.date === `${showCalendarMonthPrefix}${String(day).padStart(2, "0")}`,
-    );
+    showCalendarShowsByDay.get(day) ?? [];
   const showCalendarFinancialsByShow = useMemo(() => {
     const summaries = new Map<
       string,
@@ -22614,6 +22745,7 @@ export default function AdminDashboardPage({
         .length,
     [bookings],
   );
+  const deferredCorporateSearch = useDeferredValue(corporateSearch);
   const filteredCorporateRequests = useMemo(
     () =>
       activeAdminTab === "corporate" && corporateWorkspace === "enquiries"
@@ -22622,7 +22754,7 @@ export default function AdminDashboardPage({
             date: corporateDateFilter,
             lifecycle: corporateLifecycle,
             location: corporateLocationFilter,
-            search: corporateSearch,
+            search: deferredCorporateSearch,
             status: corporateStatusFilter,
           })
         : [],
@@ -22633,7 +22765,7 @@ export default function AdminDashboardPage({
       corporateLifecycle,
       corporateLocationFilter,
       corporateRequests,
-      corporateSearch,
+      deferredCorporateSearch,
       corporateStatusFilter,
       corporateWorkspace,
     ],
