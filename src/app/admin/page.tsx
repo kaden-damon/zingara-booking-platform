@@ -46348,7 +46348,11 @@ export default function AdminDashboardPage() {
       )}
 
       {adminUndertakingState === "accepted" && (
-        <StaffOnboardingTour staffId={currentStaff.id} />
+        <StaffOnboardingTour
+          key={currentStaff.id}
+          navigationKey={activeAdminTab}
+          staffId={currentStaff.id}
+        />
       )}
 
       {corporateConversionReviewRequest && (

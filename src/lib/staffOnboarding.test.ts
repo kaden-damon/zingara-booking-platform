@@ -5,13 +5,17 @@ import test from "node:test";
 // @ts-expect-error Node's built-in TypeScript test runner requires the extension.
 import {
   hasAcknowledgedStaffTour,
+  getStaffTourAcknowledgementHistory,
   latestStaffTourVersion,
   staffTourOpenEvent,
   staffTourPages,
 } from "./staffOnboarding.ts";
 
 test("staff onboarding is versioned and concise", () => {
-  assert.equal(latestStaffTourVersion, "quote-invoice-management-2026-10");
+  assert.equal(
+    latestStaffTourVersion,
+    "quote-invoice-management-2026-10-23-v2",
+  );
   assert.equal(staffTourOpenEvent, "zingara-open-staff-feature-walkthrough");
   assert.equal(staffTourPages.length, 6);
   assert.equal(new Set(staffTourPages.map((page) => page.id)).size, 6);
@@ -20,6 +24,37 @@ test("staff onboarding is versioned and concise", () => {
   assert.match(staffTourPages[3]?.body ?? "", /Request Invoice/);
   assert.match(staffTourPages[4]?.body ?? "", /Tristan and Rachelle/);
   assert.match(staffTourPages.at(-1)?.supporting ?? "", /Academy/);
+});
+
+test("new version preserves the prior acknowledgement as history", () => {
+  const previousVersion = "quote-invoice-management-2026-10";
+  const history = getStaffTourAcknowledgementHistory({
+    user_metadata: {
+      zingara_staff_tour_acknowledged_at: "2026-10-23T08:00:00.000Z",
+      zingara_staff_tour_acknowledgement: "completed",
+      zingara_staff_tour_history: [
+        {
+          acknowledgedAt: "2026-09-01T08:00:00.000Z",
+          acknowledgement: "skipped",
+          version: "earlier-release",
+        },
+      ],
+      zingara_staff_tour_version: previousVersion,
+    },
+  } as never);
+
+  assert.deepEqual(history, [
+    {
+      acknowledgedAt: "2026-09-01T08:00:00.000Z",
+      acknowledgement: "skipped",
+      version: "earlier-release",
+    },
+    {
+      acknowledgedAt: "2026-10-23T08:00:00.000Z",
+      acknowledgement: "completed",
+      version: previousVersion,
+    },
+  ]);
 });
 
 test("only the current release acknowledgement suppresses the tour", () => {
@@ -74,16 +109,22 @@ test("walkthrough records completion or skip and can reopen from Academy", () =>
 
   assert.match(authSource, /staffTourAcknowledgementMetadataKey/);
   assert.match(authSource, /staffTourAcknowledgedAtMetadataKey/);
+  assert.match(authSource, /staffTourHistoryMetadataKey/);
+  assert.match(authSource, /getStaffTourAcknowledgementHistory/);
   assert.match(authSource, /sessionData\.session\?\.user\.id !== expectedStaffId/);
   assert.match(tourSource, /finishTour\("skipped"\)/);
   assert.match(tourSource, /finishTour\("completed"\)/);
   assert.match(tourSource, /window\.addEventListener\(staffTourOpenEvent, openTourWhenSafe\)/);
   assert.match(tourSource, /blockingDialogSelector/);
   assert.match(tourSource, /new MutationObserver/);
-  assert.match(tourSource, /authSession\.user\.id === staffId/);
-  assert.match(tourSource, /pendingObserver\?\.disconnect\(\)/);
+  assert.match(tourSource, /authSession\.user\.id !== staffId/);
+  assert.match(tourSource, /pendingObserverRef\.current\?\.disconnect\(\)/);
+  assert.match(tourSource, /\[navigationKey, openTourWhenSafe, staffId\]/);
+  assert.match(tourSource, /hasHandledAutomaticTourRef/);
   assert.doesNotMatch(tourSource, /setInterval/);
   assert.match(adminSource, /Quote &amp; Invoice Walkthrough/);
   assert.match(adminSource, /window\.dispatchEvent\(new Event\(staffTourOpenEvent\)\)/);
-  assert.match(adminSource, /<StaffOnboardingTour staffId=\{currentStaff\.id\} \/>/);
+  assert.match(adminSource, /navigationKey=\{activeAdminTab\}/);
+  assert.match(adminSource, /key=\{currentStaff\.id\}/);
+  assert.match(adminSource, /staffId=\{currentStaff\.id\}/);
 });

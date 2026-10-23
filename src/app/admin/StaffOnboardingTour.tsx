@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   acknowledgeStaffTour,
   getAdminAuthSession,
@@ -15,69 +15,104 @@ import {
 } from "@/lib/staffOnboarding";
 
 type StaffOnboardingTourProps = {
+  navigationKey: string;
   staffId: string;
 };
 
 const blockingDialogSelector = '[role="dialog"], [role="alertdialog"]';
 
-export function StaffOnboardingTour({ staffId }: StaffOnboardingTourProps) {
+export function StaffOnboardingTour({
+  navigationKey,
+  staffId,
+}: StaffOnboardingTourProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const isOpenRef = useRef(false);
+  const hasHandledAutomaticTourRef = useRef(false);
+  const pendingObserverRef = useRef<MutationObserver | null>(null);
+  const eligibilityRef = useRef<{
+    eligible: boolean;
+    staffId: string;
+    version: string;
+  } | null>(null);
+
+  const openTour = useCallback(() => {
+    if (isOpenRef.current) return;
+    pendingObserverRef.current?.disconnect();
+    pendingObserverRef.current = null;
+    isOpenRef.current = true;
+    setPageIndex(0);
+    setSaveError("");
+    setIsOpen(true);
+  }, []);
+
+  const openTourWhenSafe = useCallback(() => {
+    if (isOpenRef.current) return;
+
+    if (!document.querySelector(blockingDialogSelector)) {
+      openTour();
+      return;
+    }
+
+    if (pendingObserverRef.current) return;
+    pendingObserverRef.current = new MutationObserver(() => {
+      if (!document.querySelector(blockingDialogSelector)) openTour();
+    });
+    pendingObserverRef.current.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  }, [openTour]);
+
+  useEffect(() => {
+    window.addEventListener(staffTourOpenEvent, openTourWhenSafe);
+
+    return () => {
+      window.removeEventListener(staffTourOpenEvent, openTourWhenSafe);
+    };
+  }, [openTourWhenSafe]);
 
   useEffect(() => {
     let cancelled = false;
-    let pendingObserver: MutationObserver | null = null;
 
-    const openTour = () => {
-      if (cancelled || isOpenRef.current) return;
-      pendingObserver?.disconnect();
-      pendingObserver = null;
-      isOpenRef.current = true;
-      setPageIndex(0);
-      setSaveError("");
-      setIsOpen(true);
-    };
+    const automaticOpenTimer = window.setTimeout(() => {
+      if (hasHandledAutomaticTourRef.current || isOpenRef.current) return;
 
-    const openTourWhenSafe = () => {
-      if (cancelled || isOpenRef.current) return;
-
-      if (!document.querySelector(blockingDialogSelector)) {
-        openTour();
+      const cachedEligibility = eligibilityRef.current;
+      if (
+        cachedEligibility?.staffId === staffId &&
+        cachedEligibility.version === latestStaffTourVersion
+      ) {
+        if (cachedEligibility.eligible) openTourWhenSafe();
         return;
       }
 
-      if (pendingObserver) return;
-      pendingObserver = new MutationObserver(() => {
-        if (!document.querySelector(blockingDialogSelector)) openTour();
-      });
-      pendingObserver.observe(document.body, { childList: true, subtree: true });
-    };
-
-    window.addEventListener(staffTourOpenEvent, openTourWhenSafe);
-
-    const automaticOpenTimer = window.setTimeout(() => {
       void getAdminAuthSession().then((authSession) => {
-        if (
-          !cancelled &&
-          authSession &&
-          authSession.user.id === staffId &&
-          !hasAcknowledgedStaffTour(authSession.user)
-        ) {
-          openTourWhenSafe();
-        }
+        if (cancelled || !authSession || authSession.user.id !== staffId) return;
+        const eligible = !hasAcknowledgedStaffTour(authSession.user);
+        eligibilityRef.current = {
+          eligible,
+          staffId,
+          version: latestStaffTourVersion,
+        };
+        if (eligible) openTourWhenSafe();
       });
     }, 600);
 
     return () => {
       cancelled = true;
-      pendingObserver?.disconnect();
       window.clearTimeout(automaticOpenTimer);
-      window.removeEventListener(staffTourOpenEvent, openTourWhenSafe);
     };
-  }, [staffId]);
+  }, [navigationKey, openTourWhenSafe, staffId]);
+
+  useEffect(
+    () => () => {
+      pendingObserverRef.current?.disconnect();
+    },
+    [],
+  );
 
   if (!isOpen) return null;
 
@@ -99,6 +134,14 @@ export function StaffOnboardingTour({ staffId }: StaffOnboardingTourProps) {
       return;
     }
 
+    hasHandledAutomaticTourRef.current = true;
+    eligibilityRef.current = {
+      eligible: false,
+      staffId,
+      version: latestStaffTourVersion,
+    };
+    pendingObserverRef.current?.disconnect();
+    pendingObserverRef.current = null;
     isOpenRef.current = false;
     setIsOpen(false);
   }

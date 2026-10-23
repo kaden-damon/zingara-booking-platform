@@ -2,7 +2,9 @@ import { type Session, type User } from "@supabase/supabase-js";
 import {
   staffTourAcknowledgedAtMetadataKey,
   staffTourAcknowledgementMetadataKey,
+  staffTourHistoryMetadataKey,
   staffTourMetadataKey,
+  getStaffTourAcknowledgementHistory,
   type StaffTourAcknowledgement,
 } from "@/lib/staffOnboarding";
 import { getSupabaseClient } from "./client";
@@ -106,6 +108,9 @@ export async function acknowledgeStaffTour(
     data: {
       [staffTourAcknowledgedAtMetadataKey]: new Date().toISOString(),
       [staffTourAcknowledgementMetadataKey]: acknowledgement,
+      [staffTourHistoryMetadataKey]: getStaffTourAcknowledgementHistory(
+        sessionData.session.user,
+      ),
       [staffTourMetadataKey]: version,
     },
   });
