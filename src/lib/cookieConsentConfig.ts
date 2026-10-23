@@ -14,6 +14,11 @@ export type CookieConsentConfig = {
   savePreferencesLabel: string;
 };
 
+const legacyAnalyticsDescription =
+  "Allows optional analytics technologies that help us understand and improve the booking experience.";
+const legacyMarketingDescription =
+  "Allows optional marketing technologies where Zingara introduces them and you choose to consent.";
+
 export const defaultCookieConsentConfig: CookieConsentConfig = {
   acceptAllLabel: "OKAY",
   analyticsDescription:
@@ -21,7 +26,7 @@ export const defaultCookieConsentConfig: CookieConsentConfig = {
   bannerDescription:
     "Zingara uses essential technologies to operate the booking platform. With your permission, we may also use analytics technologies to understand how visitors use the platform and improve the experience.",
   bannerHeading: "WE VALUE YOUR PRIVACY",
-  consentVersion: 2,
+  consentVersion: 4,
   enabled: true,
   essentialDescription:
     "Required for security, core preferences, booking, payment and ticket functionality.",
@@ -121,6 +126,14 @@ export function normalizeCookieConsentConfig(
     Number.isInteger(source.consentVersion) && Number(source.consentVersion) > 0
       ? Math.max(Number(source.consentVersion), defaultCookieConsentConfig.consentVersion)
       : defaultCookieConsentConfig.consentVersion;
+
+  if (normalized.analyticsDescription === legacyAnalyticsDescription) {
+    normalized.analyticsDescription = defaultCookieConsentConfig.analyticsDescription;
+  }
+
+  if (normalized.marketingDescription === legacyMarketingDescription) {
+    normalized.marketingDescription = defaultCookieConsentConfig.marketingDescription;
+  }
 
   return normalized;
 }

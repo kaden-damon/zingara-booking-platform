@@ -82,7 +82,7 @@ test("disabled consent UI never implies optional permission", () => {
 
 test("configuration defaults preserve locked category semantics", () => {
   assert.equal(defaultCookieConsentConfig.enabled, true);
-  assert.equal(defaultCookieConsentConfig.consentVersion, 2);
+  assert.equal(defaultCookieConsentConfig.consentVersion, 4);
   assert.equal(defaultCookieConsentConfig.acceptAllLabel, "OKAY");
   assert.match(defaultCookieConsentConfig.essentialDescription, /Required/);
 });
@@ -93,6 +93,21 @@ test("legacy Accept All label is safely presented as acknowledgement", () => {
     acceptAllLabel: "ACCEPT ALL",
   });
   assert.equal(normalized.acceptAllLabel, "OKAY");
+});
+
+test("legacy generic disclosures upgrade to the named advertising providers", () => {
+  const normalized = normalizeCookieConsentConfig({
+    ...defaultCookieConsentConfig,
+    analyticsDescription:
+      "Allows optional analytics technologies that help us understand and improve the booking experience.",
+    consentVersion: 3,
+    marketingDescription:
+      "Allows optional marketing technologies where Zingara introduces them and you choose to consent.",
+  });
+
+  assert.equal(normalized.consentVersion, 4);
+  assert.match(normalized.analyticsDescription, /Google Analytics/);
+  assert.match(normalized.marketingDescription, /Google Ads and Meta Pixel/);
 });
 
 test("configuration normalisation strips control characters and limits copy", () => {
@@ -146,7 +161,7 @@ test("configuration changes are deterministic for audit fields", () => {
   const next = {
     ...defaultCookieConsentConfig,
     bannerHeading: "YOUR PRIVACY AT ZINGARA",
-    consentVersion: 3,
+    consentVersion: 5,
   };
   assert.deepEqual(
     getChangedCookieConsentFields(defaultCookieConsentConfig, next),
