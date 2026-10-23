@@ -1,6 +1,6 @@
 PHASE 50.14B - ACADEMY TRAINING UX & FUNCTIONAL FIXES
 
-STATUS: VERIFIED - RELEASE READY
+STATUS: COMPLETE - LIVE AND VERIFIED
 
 BASELINE AND ROLLBACK
 
@@ -41,7 +41,12 @@ VERIFICATION
 
 RELEASE
 
-- Functional commit: pending
-- Production deployment: pending
-- Production verification: pending
-- Production business-data delta: none expected
+- Functional commits: 8671f1487bd0f90bffca89ed54646e0155a3600b and
+  0c934e2 (final Exit workspace correction)
+- Production deployment: dpl_ox3BTT8f862ga4LuebEqN6Kd8joE (READY)
+- Production alias: https://book.zingara.co.za
+- Production verification: all three module cards visible; completion tick and
+  Retake live; existing Buyout progress resumed; incorrect action blocked; Exit
+  returned to Guided Training without a reload or authentication refresh.
+- Production business-data delta: zero operational business records. Existing
+  Kaden Buyout training progress was re-saved at step 0 during verification.

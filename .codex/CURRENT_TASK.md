@@ -1,6 +1,6 @@
 PHASE 50.14B - ACADEMY TRAINING UX & FUNCTIONAL FIXES
 
-STATUS: VERIFIED - RELEASE READY
+STATUS: COMPLETE - LIVE AND VERIFIED
 
 GOAL
 
@@ -81,8 +81,15 @@ VERIFICATION
 
 RELEASE
 
-- Functional commit: pending
-- Production deployment: pending
-- Production verification: pending
-- Production business-data delta: none expected; no booking, payment, ticket,
-  customer, capacity, communication, or Xero writes are part of this release.
+- Functional commits: 8671f1487bd0f90bffca89ed54646e0155a3600b and
+  0c934e2 (final Exit workspace correction)
+- Production deployment: dpl_ox3BTT8f862ga4LuebEqN6Kd8joE (READY)
+- Production alias: https://book.zingara.co.za
+- Production verification: all three launcher cards visible; completed modules
+  show a circled tick and Retake; Buyout resumed at Step 1; incorrect navigation
+  was blocked; Exit returned directly to Guided Training without authentication
+  refresh or page reload.
+- Rollback: 1e3df00a4ddb18f56c8cde068adccb4f64ac3bd8
+- Production business-data delta: zero operational business records. Verification
+  only re-saved Kaden's existing Buyout Academy progress at step 0; no completion
+  acknowledgement was manufactured.
