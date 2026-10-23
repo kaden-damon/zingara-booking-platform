@@ -16,8 +16,10 @@ ROOT CAUSE
 The Academy navigation and Academy deep-link restoration still contained the
 pre-release local-preview restriction. Both required a non-Production runtime
 and a super-admin role, so the deployed module launcher could not be reached by
-Production staff. The guided progress API and modules themselves were present,
-enabled, and available to authenticated active staff.
+Production staff. Once exposed during authenticated release verification, the
+launcher also proved to use plain fetch requests without the active staff bearer
+token, so its protected progress endpoint returned Unauthorized. The guided
+progress API and modules themselves were present and correctly protected.
 
 CORRECTION
 
@@ -29,6 +31,8 @@ CORRECTION
   module list so staff can immediately resume or review.
 - Added focused regression assertions preventing the Production visibility gate
   from returning.
+- Routed launcher, resume, Exit, and completion progress requests through the
+  existing authenticated Admin API helper.
 
 SAFETY
 

@@ -8,6 +8,7 @@ import {
   isGuidedTrainingModuleId,
   type GuidedTrainingModuleId,
 } from "@/lib/guidedTraining";
+import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
 type StoredProgress = {
   completedAt?: string;
@@ -122,17 +123,11 @@ export default function GuidedTrainingOverlay({
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch(
+    void fetchSupabaseApi<ProgressBootstrap>(
       `/api/admin/training/guided?module=${encodeURIComponent(moduleId)}`,
       { cache: "no-store", signal: controller.signal },
     )
-      .then(async (response) => {
-        const payload = (await response.json()) as ProgressBootstrap & {
-          error?: string;
-        };
-        if (!response.ok) {
-          throw new Error(payload.error ?? "Training progress could not be loaded.");
-        }
+      .then((payload) => {
         persistenceRef.current = payload.persistence;
         const saved =
           payload.persistence === "preview-session"
@@ -180,21 +175,19 @@ export default function GuidedTrainingOverlay({
       if (persistenceRef.current === "preview-session") {
         writeStoredProgress(progress);
       }
-      const response = await fetch("/api/admin/training/guided", {
-        body: JSON.stringify({
-          currentStep: nextStep,
-          moduleId,
-          moduleVersion: trainingModule.version,
-          status: progress.status,
-        }),
-        headers: { "content-type": "application/json" },
-        keepalive: true,
-        method: "POST",
-      });
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(payload.error ?? "Training progress could not be saved.");
-      }
+      await fetchSupabaseApi<{ accepted: true }>(
+        "/api/admin/training/guided",
+        {
+          body: {
+            currentStep: nextStep,
+            moduleId,
+            moduleVersion: trainingModule.version,
+            status: progress.status,
+          },
+          keepalive: true,
+          method: "POST",
+        },
+      );
       if (isComplete) completedRecordRef.current = true;
     },
     [moduleId, trainingModule.steps.length, trainingModule.version],

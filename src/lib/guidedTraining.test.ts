@@ -81,6 +81,7 @@ test("guided training launches real Production workflows behind a synthetic writ
 
   assert.doesNotMatch(launcher, /StandardWorkflow|CorporateWorkflow|BuyoutWorkflow/);
   assert.match(launcher, /\/api\/admin\/training\/guided\/start/);
+  assert.match(launcher, /fetchSupabaseApi<GuidedTrainingBootstrap>/);
   assert.match(overlay, /document\.addEventListener\(eventName, advance\)/);
   assert.doesNotMatch(overlay, /document\.addEventListener\(eventName, advance, true\)/);
   assert.match(overlay, /document\.addEventListener\("click", guard, true\)/);
@@ -88,6 +89,8 @@ test("guided training launches real Production workflows behind a synthetic writ
   assert.match(overlay, /window\.location\.assign/);
   assert.match(overlay, /EXIT TRAINING/);
   assert.match(overlay, /\/api\/admin\/training\/guided\?module=/);
+  assert.match(overlay, /fetchSupabaseApi<ProgressBootstrap>/);
+  assert.match(overlay, /fetchSupabaseApi<\{ accepted: true \}>/);
   assert.match(overlay, /persistenceRef\.current === "preview-session"/);
   assert.match(overlay, /completedRecordRef\.current && !isComplete/);
   assert.match(overlay, /keepalive: true/);

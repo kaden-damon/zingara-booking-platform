@@ -7,6 +7,7 @@ import {
   type GuidedTrainingModuleId,
   type GuidedTrainingStatus,
 } from "@/lib/guidedTraining";
+import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
 export type GuidedTrainingBootstrap = {
   persistence: "academy" | "preview-session";
@@ -75,19 +76,11 @@ export default function GuidedTraining({
   useEffect(() => {
     if (initialBootstrap) return;
     const controller = new AbortController();
-    void fetch("/api/admin/training/guided", {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const payload = (await response.json()) as GuidedTrainingBootstrap & {
-          error?: string;
-        };
-        if (!response.ok) {
-          throw new Error(
-            payload.error ?? "Guided Training could not be loaded.",
-          );
-        }
+    void fetchSupabaseApi<GuidedTrainingBootstrap>(
+      "/api/admin/training/guided",
+      { cache: "no-store", signal: controller.signal },
+    )
+      .then((payload) => {
         setBootstrap(payload);
       })
       .catch((loadError) => {
