@@ -1,6 +1,6 @@
 PHASE 51.2 - BACKGROUND ACTIVITY OPTIMISATION
 
-STATUS: VERIFIED - READY FOR RELEASE
+STATUS: COMPLETE - DEPLOYED AND VERIFIED
 
 GOAL
 
@@ -79,3 +79,14 @@ VERIFICATION
   `set-state-in-effect` errors at unchanged lines 8407 and 8420.
 - git diff --check: passed.
 - Production build: passed with only the existing ticket-PDF tracing warning.
+
+RELEASE
+
+- Implementation commit: 1510c679f1ee82eeb3871275cfb99df81e91110f
+- Production deployment: dpl_3BspcNCYG3E5sQS9rwwCCtBdW6Gg (READY)
+- Production alias: https://book.zingara.co.za
+- Rollback commit: a369fe06dc618cce5ecf57b83d76a31fe98925e2
+- Production health: `/admin`, `/book`, and `/api/platform-maintenance`
+  returned HTTP 200; no runtime errors or HTTP 5xx responses were recorded on
+  the new deployment during release verification.
+- Production business-data delta: zero.
