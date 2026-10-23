@@ -107,6 +107,12 @@ import {
   publicShowUnavailableMessage,
   type ShowLifecycleStatus,
 } from "@/lib/publicShowSales";
+import {
+  TWO_SEATER_BOOKING_LIMIT,
+  TWO_SEATER_LIMIT_ERROR_CODE,
+  isTwoSeaterLimitError,
+} from "@/lib/twoSeaterBookingLimit";
+import { loadTwoSeaterAlternativeShows } from "@/lib/twoSeaterBookingLimitServer";
 
 export const dynamic = "force-dynamic";
 
@@ -1454,6 +1460,10 @@ export async function POST(request: Request) {
   const supabase = getServiceClient();
   let telemetryBookingReference: string | null = null;
   let telemetryJourneyId: string | null = null;
+  let twoSeaterContext: {
+    currentShow: { date: string; id: string; venue: string };
+    zoneId: DemoBooking["zoneId"];
+  } | null = null;
 
   if (!supabase) {
     return Response.json(
@@ -1782,6 +1792,17 @@ export async function POST(request: Request) {
         { error: "Booking show could not be resolved." },
         { status: 400 },
       );
+    }
+
+    if (booking.partySize === 2) {
+      twoSeaterContext = {
+        currentShow: {
+          date: show.date,
+          id: show.id,
+          venue: show.venue ?? "",
+        },
+        zoneId: booking.zoneId,
+      };
     }
 
     if (
@@ -2364,6 +2385,35 @@ export async function POST(request: Request) {
       ticketId,
     });
   } catch (error) {
+    if (isTwoSeaterLimitError(error) && twoSeaterContext) {
+      let alternatives: Awaited<
+        ReturnType<typeof loadTwoSeaterAlternativeShows>
+      > = [];
+
+      try {
+        alternatives = await loadTwoSeaterAlternativeShows(
+          supabase,
+          twoSeaterContext,
+        );
+      } catch (alternativeError) {
+        console.error(
+          "[Zingara API] Two-seater alternatives could not be loaded",
+          alternativeError,
+        );
+      }
+
+      return Response.json(
+        {
+          alternatives,
+          code: TWO_SEATER_LIMIT_ERROR_CODE,
+          error:
+            "This performance has reached its limit for two-guest table requests. Choose another available performance or contact Box Office.",
+          limit: TWO_SEATER_BOOKING_LIMIT,
+        },
+        { status: 409 },
+      );
+    }
+
     if (isBookingCapacityError(error)) {
       return Response.json(
         {

@@ -1949,11 +1949,14 @@ async function persistBookingShowTransfer(
       message.includes("BOOKING_STATUS_TRANSFER_BLOCKED") ||
       message.includes("DESTINATION_SHOW_NOT_ACTIVE") ||
       message.includes("BOOKING_ZONE_NOT_SUPPORTED") ||
-      message.includes("ZONE_CAPACITY_EXCEEDED")
+      message.includes("ZONE_CAPACITY_EXCEEDED") ||
+      message.includes("TWO_SEATER_BOOKING_LIMIT_REACHED")
     ) {
-      const publicMessage = message.includes("ZONE_CAPACITY_EXCEEDED")
-        ? "The destination show does not have enough capacity in this seating zone."
-        : "The booking or destination show is no longer eligible for this move.";
+      const publicMessage = message.includes("TWO_SEATER_BOOKING_LIMIT_REACHED")
+        ? "The destination performance has reached its limit for two-guest table requests."
+        : message.includes("ZONE_CAPACITY_EXCEEDED")
+          ? "The destination show does not have enough capacity in this seating zone."
+          : "The booking or destination show is no longer eligible for this move.";
 
       return Response.json({ error: publicMessage }, { status: 409 });
     }
@@ -2863,6 +2866,22 @@ async function persistBookingStateUpdate(request: Request, body: {
 
     return Response.json({ row: updatedBooking });
   } catch (error) {
+    const message =
+      typeof error === "object" && error && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : "";
+
+    if (message.includes("TWO_SEATER_BOOKING_LIMIT_REACHED")) {
+      return Response.json(
+        {
+          code: "TWO_SEATER_BOOKING_LIMIT_REACHED",
+          error:
+            "This performance has reached its limit for two-guest table requests. Keep the current guest count or choose another available performance.",
+        },
+        { status: 409 },
+      );
+    }
+
     console.error("[Zingara API] Failed to persist booking state update", error);
 
     return Response.json(

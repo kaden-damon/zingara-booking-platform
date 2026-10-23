@@ -20,6 +20,7 @@ const ERROR_RESPONSES: Array<{
   { code: "BOOKING_TABLE_STATE_INVALID", message: "Check this booking's table before changing the guest count.", status: 409 },
   { code: "SHOW_NOT_FOUND", message: "The booking's performance could not be found.", status: 409 },
   { code: "SHOW_NOT_ACTIVE", message: "Guests cannot be added because this performance is not currently active.", status: 409 },
+  { code: "TWO_SEATER_BOOKING_LIMIT_REACHED", message: "This performance has reached its limit for two-guest table requests. Keep the current guest count or choose another available performance.", status: 409 },
   { code: "ADDED_GUEST_FINANCIAL_BASIS_REQUIRED", message: "The additional amount could not be calculated. Check the booking's payment details before adding guests.", status: 409 },
   { code: "LEGACY_MANUAL_BASIS_NOT_ALLOWED", message: "This booking already has confirmed pricing. Use its saved payment details.", status: 409 },
   { code: "LEGACY_INCREASE_REQUIRED", message: "Manual legacy pricing can only be used when adding guests.", status: 400 },

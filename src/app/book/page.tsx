@@ -58,6 +58,11 @@ import {
   fetchSupabaseApi,
   SupabaseApiError,
 } from "../../lib/supabase/apiClient";
+import {
+  TWO_SEATER_LIMIT_ERROR_CODE,
+  type TwoSeaterAlternativeShow,
+  type TwoSeaterLimitErrorPayload,
+} from "../../lib/twoSeaterBookingLimit";
 import { getPublicShows } from "../../lib/supabase/shows";
 import {
   type CustomPricedTemporaryTable,
@@ -168,6 +173,17 @@ function getCheckoutFailureTelemetry(error: unknown) {
   }
 
   return { failureKind: "network-or-client-error", statusCode: null };
+}
+
+function getTwoSeaterLimitPayload(error: unknown) {
+  if (
+    !(error instanceof SupabaseApiError) ||
+    error.code !== TWO_SEATER_LIMIT_ERROR_CODE
+  ) {
+    return null;
+  }
+
+  return error.details as TwoSeaterLimitErrorPayload;
 }
 
 type ZeroValueCompletionResponse = {
@@ -750,6 +766,10 @@ export default function BookingPage() {
   const [paymentOption, setPaymentOption] =
     useState<PaymentOption>("full");
   const [paymentRedirectStatus, setPaymentRedirectStatus] = useState("");
+  const [twoSeaterLimitNotice, setTwoSeaterLimitNotice] = useState<{
+    alternatives: TwoSeaterAlternativeShow[];
+    message: string;
+  } | null>(null);
   const [customerValidationErrors, setCustomerValidationErrors] =
     useState<BookingCreateFieldErrors>({});
   const [postPaymentStatus, setPostPaymentStatus] =
@@ -1511,6 +1531,26 @@ export default function BookingPage() {
     setBookingReference(null);
     setAllocatedTableNumber(null);
     setWaitlistReference(null);
+  }
+
+  function selectTwoSeaterAlternative(alternative: TwoSeaterAlternativeShow) {
+    const show = shows.find(
+      (candidate) =>
+        candidate.id === alternative.id ||
+        candidate.supabaseId === alternative.id,
+    );
+
+    if (!show) {
+      setPaymentRedirectStatus(
+        "That performance is no longer available. Refresh the dates and try again.",
+      );
+      setTwoSeaterLimitNotice(null);
+      return;
+    }
+
+    setTwoSeaterLimitNotice(null);
+    setPaymentRedirectStatus("");
+    selectRecommendedShow(show);
   }
 
   function selectPartySize(nextPartySize: number) {
@@ -2764,6 +2804,16 @@ export default function BookingPage() {
       });
       submitPayFastCheckoutForm(checkout.actionUrl, checkout.fields);
     } catch (error) {
+      const twoSeaterLimit = getTwoSeaterLimitPayload(error);
+      if (twoSeaterLimit) {
+        setTwoSeaterLimitNotice({
+          alternatives: twoSeaterLimit.alternatives ?? [],
+          message:
+            twoSeaterLimit.error ??
+            "This performance has reached its limit for two-guest table requests.",
+        });
+        setPaymentRedirectStatus("");
+      }
       const message =
         error instanceof Error
           ? error.message
@@ -2774,11 +2824,13 @@ export default function BookingPage() {
       const isPriceConflict = await refreshShowPricingAfterConflict(error);
       const failure = getCheckoutFailureTelemetry(error);
 
-      setPaymentRedirectStatus(
-        isAvailabilityConflict || isPriceConflict
-          ? message
-          : `Payment could not be started. ${message}`,
-      );
+      if (!twoSeaterLimit) {
+        setPaymentRedirectStatus(
+          isAvailabilityConflict || isPriceConflict
+            ? message
+            : `Payment could not be started. ${message}`,
+        );
+      }
       trackPlatformEvent({
         bookingReference: reference || null,
         eventType:
@@ -2839,6 +2891,18 @@ export default function BookingPage() {
       setIsConfirmationOpen(true);
       setActiveBookingStep(4);
     } catch (error) {
+      const twoSeaterLimit = getTwoSeaterLimitPayload(error);
+      if (twoSeaterLimit) {
+        setTwoSeaterLimitNotice({
+          alternatives: twoSeaterLimit.alternatives ?? [],
+          message:
+            twoSeaterLimit.error ??
+            "This performance has reached its limit for two-guest table requests.",
+        });
+        setPaymentRedirectStatus("");
+        setIsPayFastRedirecting(false);
+        return;
+      }
       await refreshShowPricingAfterConflict(error);
       setPaymentRedirectStatus(
         error instanceof Error
@@ -5394,6 +5458,71 @@ export default function BookingPage() {
               );
             })()}
           </div>
+        </div>
+      )}
+
+      {twoSeaterLimitNotice && (
+        <div
+          aria-labelledby="two-seater-limit-title"
+          aria-modal="true"
+          className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-black/90 px-4 py-8 text-white backdrop-blur-md"
+          role="dialog"
+        >
+          <section className="w-full max-w-xl rounded-[1.5rem] border border-[#8D7A2F]/55 bg-[radial-gradient(circle_at_top,#25170D_0%,#0E0C0A_48%,#040404_100%)] p-5 shadow-[0_0_70px_rgba(216,195,106,0.18)] sm:rounded-[2rem] sm:p-7">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A]">
+              Two-Guest Tables
+            </p>
+            <h2
+              className="mt-2 text-2xl font-bold sm:text-3xl"
+              id="two-seater-limit-title"
+            >
+              Choose another performance
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
+              {twoSeaterLimitNotice.message}
+            </p>
+
+            {twoSeaterLimitNotice.alternatives.length > 0 ? (
+              <div className="mt-5 grid gap-2">
+                {twoSeaterLimitNotice.alternatives.map((alternative) => (
+                  <button
+                    key={`${alternative.id}-${alternative.time}`}
+                    type="button"
+                    onClick={() => selectTwoSeaterAlternative(alternative)}
+                    className="flex min-h-14 w-full items-center justify-between gap-4 rounded-2xl border border-white/15 bg-black/35 px-4 py-3 text-left transition hover:border-[#D8C36A]/70 hover:bg-[#D8C36A]/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C]"
+                  >
+                    <span className="font-semibold text-white">
+                      {getCompactDateDisplay(alternative.date)}
+                    </span>
+                    <span className="shrink-0 text-sm font-semibold text-[#F2D66C]">
+                      {alternative.time}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-5 rounded-2xl border border-white/10 bg-black/35 p-4 text-sm leading-6 text-zinc-300">
+                No alternative performance currently has matching availability.
+                Box Office can help with other options.
+              </p>
+            )}
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setTwoSeaterLimitNotice(null)}
+                className="min-h-12 rounded-full border border-white/20 px-5 text-sm font-semibold uppercase tracking-[0.08em] text-white transition hover:bg-white hover:text-black"
+              >
+                Back
+              </button>
+              <a
+                href="mailto:boxoffice@zingara.co.za"
+                className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#D8C36A] px-5 text-center text-sm font-bold uppercase tracking-[0.08em] text-black transition hover:bg-[#F2D66C]"
+              >
+                Contact Box Office
+              </a>
+            </div>
+          </section>
         </div>
       )}
 
