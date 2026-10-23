@@ -3,6 +3,7 @@
 import {
   type ChangeEvent,
   type FormEvent,
+  use,
   useEffect,
   useId,
   useMemo,
@@ -72,6 +73,17 @@ const CustomerManagementWorkspace = dynamic(
 );
 const CorporateConversionModal = dynamic(
   () => import("./CorporateConversionModal"),
+);
+const GuidedTraining = dynamic(() => import("./GuidedTraining"), {
+  loading: () => (
+    <p className="rounded-2xl border border-white/10 bg-black/35 p-5 text-zinc-400">
+      Loading Guided Training...
+    </p>
+  ),
+});
+const GuidedTrainingOverlay = dynamic(
+  () => import("./GuidedTrainingOverlay"),
+  { ssr: false },
 );
 const CorporateBuyoutCreator = dynamic(
   () => import("./CorporateBuyoutCreator"),
@@ -455,6 +467,14 @@ import {
   buildCalendarBookingHref,
   type CalendarBookingLockContext,
 } from "../../lib/showBookingCreation";
+import {
+  guidedTrainingCompany,
+  guidedTrainingModules,
+  guidedTrainingSyntheticShow,
+  guidedTrainingVenueSettings,
+  syntheticBuyoutPackage,
+  type GuidedTrainingModuleId,
+} from "../../lib/guidedTraining";
 import { getStandardShowTime } from "../../lib/showScheduleDefaults";
 import { createTicketValidation } from "../../lib/supabase/ticketValidations";
 import { createTicket, updateTicket } from "../../lib/supabase/tickets";
@@ -603,6 +623,14 @@ type ShowEditForm = {
   venueName: string;
 };
 type AdminSession = StaffSession;
+const guidedTrainingPreviewStaff: AdminSession = {
+  id: "local-management-preview",
+  name: "Academy Guide",
+  permissions: ["bookings:manage", "settings:manage"],
+  role: "box-office-manager",
+  username: "academy-guide",
+  venueId: "johannesburg",
+};
 type StaffInviteForm = {
   email: string;
   fullName: string;
@@ -10448,8 +10476,19 @@ function StaffAccountIcon() {
   );
 }
 
-export default function AdminDashboardPage() {
+export default function AdminDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const scannerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const guidedTrainingParam = use(searchParams).guidedTraining;
+  const guidedTrainingModuleId =
+    process.env.NODE_ENV !== "production" &&
+    typeof guidedTrainingParam === "string" &&
+    guidedTrainingModules.some((module) => module.id === guidedTrainingParam)
+      ? (guidedTrainingParam as GuidedTrainingModuleId)
+      : null;
   const [bookings, setBookings] = useState<DemoBooking[]>([]);
   const [isBookingsLoading, setIsBookingsLoading] = useState(false);
   const [bookingLoadError, setBookingLoadError] = useState("");
@@ -10908,7 +10947,7 @@ export default function AdminDashboardPage() {
   const [academyBrowseAllModules, setAcademyBrowseAllModules] =
     useState(false);
   const [academyWorkspace, setAcademyWorkspace] = useState<
-    "learning" | "training-register"
+    "guided-training" | "learning" | "training-register"
   >("learning");
   const academySearchInputRef = useRef<HTMLInputElement | null>(null);
   const academyLessonListRef = useRef<HTMLDivElement | null>(null);
@@ -11090,7 +11129,7 @@ export default function AdminDashboardPage() {
   const [isCalendarSummariesLoading, setIsCalendarSummariesLoading] =
     useState(true);
   const [isShowCalendarOccupancyLoading, setIsShowCalendarOccupancyLoading] =
-    useState(true);
+    useState(() => !guidedTrainingModuleId);
   const [showCalendarOccupancyError, setShowCalendarOccupancyError] =
     useState("");
   const [showCalendarOccupancyByShowZone, setShowCalendarOccupancyByShowZone] =
@@ -11876,6 +11915,7 @@ export default function AdminDashboardPage() {
     if (
       !hasHydrated ||
       !currentStaff ||
+      guidedTrainingModuleId ||
       !requiresCompleteBookingPopulation
     ) {
       return;
@@ -11913,6 +11953,7 @@ export default function AdminDashboardPage() {
     corporateWorkspace,
     crmDirectoryView,
     currentStaff,
+    guidedTrainingModuleId,
     hasHydrated,
   ]);
 
@@ -12130,7 +12171,7 @@ export default function AdminDashboardPage() {
   }, [analyticsWorkspace, analyticsWorkspaceLoaded]);
 
   useEffect(() => {
-    if (!currentStaff) {
+    if (!currentStaff || guidedTrainingModuleId) {
       return;
     }
 
@@ -12191,7 +12232,7 @@ export default function AdminDashboardPage() {
       window.removeEventListener("touchstart", recordActivity);
       document.removeEventListener("visibilitychange", resumePresence);
     };
-  }, [activeAdminTab, currentStaff]);
+  }, [activeAdminTab, currentStaff, guidedTrainingModuleId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -12423,6 +12464,29 @@ export default function AdminDashboardPage() {
       setIsSessionRestoring(true);
 
       try {
+        if (guidedTrainingModuleId) {
+          const response = await fetch(
+            `/api/admin/training/guided?module=${encodeURIComponent(guidedTrainingModuleId)}`,
+            { cache: "no-store" },
+          );
+          const preview = response.ok
+            ? await response.json() as { persistence?: string }
+            : null;
+
+          if (preview?.persistence === "preview-session") {
+            activeAdminSession = guidedTrainingPreviewStaff;
+            setCurrentStaff(guidedTrainingPreviewStaff);
+            setAdminUndertakingState("accepted");
+            setVenueSettings(guidedTrainingVenueSettings);
+            setShows([guidedTrainingSyntheticShow]);
+            setSelectedShowId(guidedTrainingSyntheticShow.id);
+            setWorkflowShowId(guidedTrainingSyntheticShow.id);
+            setIsShowsLoading(false);
+            setIsCalendarSummariesLoading(false);
+            return;
+          }
+        }
+
         const nextAdminSession = await getSupabaseAdminSession();
 
         if (
@@ -12681,10 +12745,15 @@ export default function AdminDashboardPage() {
         setActiveCommunicationsTab("overview");
       } else if (section === "academy") {
         setActiveAdminTab("academy");
+        const academySection = url.searchParams.get("academySection");
         setAcademyWorkspace(
-          url.searchParams.get("academySection") === "training-register"
+          academySection === "training-register"
             ? "training-register"
-            : "learning",
+            : academySection === "guided-training" &&
+                process.env.NODE_ENV !== "production" &&
+                staff.role === "super-admin"
+              ? "guided-training"
+              : "learning",
         );
       } else if (section === "platform-operations") {
         setActiveAdminTab("platform-operations");
@@ -12831,16 +12900,16 @@ export default function AdminDashboardPage() {
   }
 
   useEffect(() => {
-    if (!currentStaff) {
+    if (!currentStaff || guidedTrainingModuleId) {
       setPushDeviceStatus(null);
       return;
     }
 
     void refreshPushDeviceStatus();
-  }, [currentStaff]);
+  }, [currentStaff, guidedTrainingModuleId]);
 
   useEffect(() => {
-    if (!currentStaff) {
+    if (!currentStaff || guidedTrainingModuleId) {
       setStaffNotifications([]);
       setNotificationCentreUserId("");
       return;
@@ -12874,7 +12943,7 @@ export default function AdminDashboardPage() {
       window.clearInterval(intervalId);
       window.removeEventListener("focus", loadNotifications);
     };
-  }, [currentStaff]);
+  }, [currentStaff, guidedTrainingModuleId]);
 
   useEffect(() => {
     return () => {
@@ -12892,6 +12961,16 @@ export default function AdminDashboardPage() {
 
     applyDashboardLayout(getDashboardLayoutForUser(currentStaff.id));
   }, [currentStaff]);
+
+  useEffect(() => {
+    if (!currentStaff || !guidedTrainingModuleId) return;
+    const timer = window.setTimeout(() => {
+      setActiveAdminTab("overview");
+      setShowCalendarMonth("2026-12");
+      setShowCalendarLocationFilter("johannesburg");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [currentStaff, guidedTrainingModuleId]);
 
   useEffect(() => {
     if (
@@ -12959,9 +13038,11 @@ export default function AdminDashboardPage() {
   const isFloorManager = currentStaff?.role === "floor-manager";
 
   useEffect(() => {
-    if (!currentStaff || activeAdminTab !== "overview") {
-      return;
-    }
+    if (
+      !currentStaff ||
+      activeAdminTab !== "overview" ||
+      guidedTrainingModuleId
+    ) return;
 
     const controller = new AbortController();
     setIsShowCalendarOccupancyLoading(true);
@@ -13022,6 +13103,7 @@ export default function AdminDashboardPage() {
   }, [
     activeAdminTab,
     currentStaff,
+    guidedTrainingModuleId,
     showCalendarLocationFilter,
     showCalendarMonth,
     showCalendarOccupancyRevision,
@@ -13036,7 +13118,7 @@ export default function AdminDashboardPage() {
   }, [canReconcileBookings, expandedBookingReference]);
 
   useEffect(() => {
-    if (!currentStaff) return;
+    if (!currentStaff || guidedTrainingModuleId) return;
 
     let active = true;
 
@@ -13068,7 +13150,7 @@ export default function AdminDashboardPage() {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [currentStaff?.id]);
+  }, [currentStaff?.id, guidedTrainingModuleId]);
 
   useEffect(() => {
     const customerId = selectedCustomerKey?.startsWith("customer:")
@@ -13369,7 +13451,7 @@ export default function AdminDashboardPage() {
   }
 
   async function refreshBookingEditLocks(reference?: string) {
-    if (!currentStaff) {
+    if (!currentStaff || guidedTrainingModuleId) {
       setBookingEditLocks([]);
       return;
     }
@@ -13438,7 +13520,7 @@ export default function AdminDashboardPage() {
   }
 
   async function refreshShowEditLocks(reference?: string) {
-    if (!currentStaff) {
+    if (!currentStaff || guidedTrainingModuleId) {
       setShowEditLocks([]);
       return;
     }
@@ -13577,7 +13659,12 @@ export default function AdminDashboardPage() {
       showReference: calendarBookingShow.id,
     };
 
-    window.location.assign(buildCalendarBookingHref({ bookingType, context }));
+    const href = buildCalendarBookingHref({ bookingType, context });
+    window.location.assign(
+      guidedTrainingModuleId
+        ? `${href}&guidedTraining=${encodeURIComponent(guidedTrainingModuleId)}`
+        : href,
+    );
   }
 
   function reviewCalendarBuyoutBookings(showId: string) {
@@ -13654,7 +13741,7 @@ export default function AdminDashboardPage() {
   }, [activeShowEditLock]);
 
   useEffect(() => {
-    if (!currentStaff) {
+    if (!currentStaff || guidedTrainingModuleId) {
       setBookingEditLocks([]);
       setActiveBookingEditLock(null);
       activeBookingEditLockRef.current = null;
@@ -13667,10 +13754,10 @@ export default function AdminDashboardPage() {
     }, 30000);
 
     return () => window.clearInterval(timer);
-  }, [currentStaff?.id]);
+  }, [currentStaff?.id, guidedTrainingModuleId]);
 
   useEffect(() => {
-    if (!currentStaff) {
+    if (!currentStaff || guidedTrainingModuleId) {
       setShowEditLocks([]);
       setActiveShowEditLock(null);
       activeShowEditLockRef.current = null;
@@ -13683,7 +13770,7 @@ export default function AdminDashboardPage() {
     }, 30000);
 
     return () => window.clearInterval(timer);
-  }, [currentStaff?.id]);
+  }, [currentStaff?.id, guidedTrainingModuleId]);
 
   useEffect(() => {
     if (
@@ -14013,6 +14100,7 @@ export default function AdminDashboardPage() {
     if (
       !hasHydrated ||
       !currentStaff ||
+      guidedTrainingModuleId ||
       !(
         activeAdminTab === "overview" ||
         (activeAdminTab === "operations" &&
@@ -14099,6 +14187,7 @@ export default function AdminDashboardPage() {
     activeOperationsTab,
     authoritativeSelectedShowId,
     currentStaff,
+    guidedTrainingModuleId,
     hasHydrated,
     selectedShowId,
     selectedShowFloorLoadRevision,
@@ -15270,6 +15359,7 @@ export default function AdminDashboardPage() {
     pushDeviceStatus?.status !== "ios-install-required";
   const shouldShowPushOnboarding =
     Boolean(currentStaff) &&
+    !guidedTrainingModuleId &&
     !isPushOnboardingDismissed &&
     pushBrowserPermission === "default" &&
     pushDeviceStatus?.status !== "unsupported";
@@ -27186,7 +27276,10 @@ export default function AdminDashboardPage() {
   const showCalendarMonthPrefix = `${showCalendarMonth}-`;
   const getShowLocation = (show: DemoShow) =>
     normalizeShowLocation(show.location ?? show.venueName);
-  const visibleShowCalendarShows = shows
+  const showCalendarSource = guidedTrainingModuleId
+    ? [guidedTrainingSyntheticShow]
+    : shows;
+  const visibleShowCalendarShows = showCalendarSource
     .filter((show) => {
       const location = getShowLocation(show);
 
@@ -29301,11 +29394,16 @@ export default function AdminDashboardPage() {
 
   return (
     <main className="relative isolate z-10 min-h-screen overflow-x-hidden bg-black px-3 py-4 text-white sm:px-6 sm:py-6 lg:py-7">
-      <TrainingAcknowledgementPrompt
-        canPrompt={
-          activeAdminTab === "overview" || activeAdminTab === "academy"
-        }
-      />
+      {guidedTrainingModuleId && (
+        <GuidedTrainingOverlay moduleId={guidedTrainingModuleId} />
+      )}
+      {!guidedTrainingModuleId && (
+        <TrainingAcknowledgementPrompt
+          canPrompt={
+            activeAdminTab === "overview" || activeAdminTab === "academy"
+          }
+        />
+      )}
       {platformMaintenance.staff.enabled && isSuperAdmin && (
         <div className="fixed inset-x-3 top-3 z-[170] mx-auto flex max-w-5xl flex-col gap-3 rounded-lg border border-amber-300/55 bg-amber-950/95 p-4 text-amber-50 shadow-2xl backdrop-blur sm:inset-x-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -29735,12 +29833,17 @@ export default function AdminDashboardPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => setAcademyWorkspace("learning")} className={`min-h-11 rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.1em] ${academyWorkspace === "learning" ? "bg-[#D8C36A] text-black" : "border border-white/15 text-zinc-300"}`}>Academy</button>
+                {process.env.NODE_ENV !== "production" && currentStaff?.role === "super-admin" && (
+                  <button type="button" onClick={() => setAcademyWorkspace("guided-training")} className={`min-h-11 rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.1em] ${academyWorkspace === "guided-training" ? "bg-[#D8C36A] text-black" : "border border-white/15 text-zinc-300"}`}>Guided Training</button>
+                )}
                 <button type="button" onClick={() => setAcademyWorkspace("training-register")} className={`min-h-11 rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.1em] ${academyWorkspace === "training-register" ? "bg-[#D8C36A] text-black" : "border border-white/15 text-zinc-300"}`}>Training Register</button>
               </div>
             </div>
 
             {academyWorkspace === "training-register" ? (
               <TrainingRegister />
+            ) : academyWorkspace === "guided-training" ? (
+              <GuidedTraining />
             ) : (
             <div className="grid gap-4 xl:grid-cols-[240px_minmax(280px,0.86fr)_minmax(420px,1.32fr)] xl:items-stretch">
               <aside className="flex flex-col rounded-[1.5rem] border border-[#D8C36A]/15 bg-black/45 p-3 shadow-[0_0_34px_rgba(216,195,106,0.06)] sm:p-4 xl:h-[min(78vh,54rem)] xl:min-h-[42rem]">
@@ -37743,7 +37846,7 @@ export default function AdminDashboardPage() {
                         {selectedShowDateLabel} ·{" "}
                         {selectedShow?.venueName ?? venueConfig.venueName}
                       </p>
-                      {selectedShow && (
+                      {selectedShow && !guidedTrainingModuleId && (
                         <div className="mt-4">
                           <SecretPasswordOperationalBanner
                             showId={selectedShow.supabaseId ?? selectedShow.id}
@@ -38660,6 +38763,12 @@ export default function AdminDashboardPage() {
                                   {canManageBookings && (
                                     <button
                                       type="button"
+                                      data-training-control={
+                                        guidedTrainingModuleId &&
+                                        show.id === guidedTrainingSyntheticShow.id
+                                          ? "training-calendar-create"
+                                          : undefined
+                                      }
                                       aria-label={`Create booking for ${show.label}`}
                                       title="Create booking"
                                       disabled={
@@ -38814,6 +38923,7 @@ export default function AdminDashboardPage() {
                 <div className={`mt-5 grid grid-cols-1 gap-3 ${canManageShows ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
                   <button
                     type="button"
+                    data-training-control="training-booking-standard"
                     onClick={() => openCalendarBookingCheckout("standard")}
                     className="min-h-12 rounded-full bg-[#D8C36A] px-5 py-3 text-sm font-bold uppercase text-black transition hover:bg-[#F2D66C]"
                   >
@@ -38821,6 +38931,7 @@ export default function AdminDashboardPage() {
                   </button>
                   <button
                     type="button"
+                    data-training-control="training-booking-corporate"
                     onClick={() => openCalendarBookingCheckout("corporate")}
                     className="min-h-12 rounded-full border border-[#D8C36A]/55 px-5 py-3 text-sm font-bold uppercase text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                   >
@@ -38829,6 +38940,7 @@ export default function AdminDashboardPage() {
                   {canManageShows && (
                     <button
                       type="button"
+                      data-training-control="training-booking-buyout"
                       onClick={() => setIsCalendarBuyoutOpen(true)}
                       className="min-h-12 rounded-full border border-[#D8C36A]/55 px-5 py-3 text-sm font-bold uppercase text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black"
                     >
@@ -38851,6 +38963,30 @@ export default function AdminDashboardPage() {
         {calendarBookingShow && isCalendarBuyoutOpen && <CorporateBuyoutCreator
           key={calendarBookingShow.supabaseId ?? calendarBookingShow.id}
           open
+          trainingBootstrap={guidedTrainingModuleId === "buyout" ? {
+            canCreate: true,
+            companies: [guidedTrainingCompany],
+            eligibility: {
+              activeBookingCount: 0,
+              activeGuestCount: 0,
+              available: true,
+              buyoutState: null,
+              reviewBookingCount: 0,
+              reviewGuestCount: 0,
+              showStatus: "active",
+            },
+            packages: [syntheticBuyoutPackage],
+            shows: [{
+              activeBuyout: null,
+              date: guidedTrainingSyntheticShow.date,
+              id: guidedTrainingSyntheticShow.id,
+              name: guidedTrainingSyntheticShow.label,
+              status: "active",
+              time: guidedTrainingSyntheticShow.time,
+              venue: "Johannesburg",
+            }],
+          } : undefined}
+          trainingModuleId={guidedTrainingModuleId === "buyout" ? guidedTrainingModuleId : undefined}
           selectedShow={calendarBookingShow ? {
             date: calendarBookingShow.date,
             id: calendarBookingShow.supabaseId ?? calendarBookingShow.id,
@@ -46347,7 +46483,7 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {adminUndertakingState === "accepted" && (
+      {adminUndertakingState === "accepted" && !guidedTrainingModuleId && (
         <StaffOnboardingTour
           key={currentStaff.id}
           navigationKey={activeAdminTab}

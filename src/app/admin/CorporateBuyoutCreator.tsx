@@ -14,6 +14,10 @@ import {
   type CorporateBuyoutBootstrap,
 } from "@/lib/supabase/corporateBuyouts";
 import { linkCustomerCompany, saveCompany } from "@/lib/supabase/companies";
+import {
+  createGuidedTrainingReference,
+  type GuidedTrainingModuleId,
+} from "@/lib/guidedTraining";
 
 export type CorporateBuyoutSelectedShow = {
   date: string;
@@ -29,6 +33,8 @@ type Props = {
   onReviewBookings: (showId: string) => void;
   open: boolean;
   selectedShow: CorporateBuyoutSelectedShow | null;
+  trainingBootstrap?: CorporateBuyoutBootstrap;
+  trainingModuleId?: GuidedTrainingModuleId;
 };
 
 type CreatedCustomer = { crm_revision?: number; id?: string };
@@ -53,12 +59,20 @@ function formatShowDate(date: string) {
   }).format(new Date(`${date}T12:00:00+02:00`));
 }
 
+function createIdempotencyKey() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `buyout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function CorporateBuyoutCreator({
   onClose,
   onCreated,
   onReviewBookings,
   open,
   selectedShow,
+  trainingBootstrap,
+  trainingModuleId,
 }: Props) {
   const [data, setData] = useState<CorporateBuyoutBootstrap | null>(null);
   const [loading, setLoading] = useState(false);
@@ -84,7 +98,8 @@ export default function CorporateBuyoutCreator({
     setLoading(true);
     setError("");
     try {
-      const next = await getCorporateBuyoutBootstrap(showId, signal);
+      const next =
+        trainingBootstrap ?? (await getCorporateBuyoutBootstrap(showId, signal));
       setData(next);
       setPackageId((current) => current || next.packages[0]?.id || "");
     } catch (loadError) {
@@ -106,7 +121,7 @@ export default function CorporateBuyoutCreator({
       controller.abort();
       window.cancelAnimationFrame(frame);
     };
-  }, [open, selectedShowId]);
+  }, [open, selectedShowId, trainingBootstrap]);
 
   useEffect(() => {
     if (!open) return;
@@ -147,6 +162,10 @@ export default function CorporateBuyoutCreator({
   const packageCards = useMemo(() => data?.packages ?? [], [data?.packages]);
 
   async function createCompanyAndContact() {
+    if (trainingModuleId) {
+      setError("Use the supplied Company and Contact.");
+      return;
+    }
     if (!selectedShow || !newCompanyName.trim() || !newContactName.trim()) {
       setError("Enter the Company and Contact names.");
       return;
@@ -189,19 +208,24 @@ export default function CorporateBuyoutCreator({
     setSaving(true);
     setError("");
     try {
-      const key = idempotencyKey || crypto.randomUUID();
+      const key = idempotencyKey || createIdempotencyKey();
       setIdempotencyKey(key);
-      const result = await createCorporateBuyout({
-        companyId,
-        contactCustomerId: contactId,
-        expectedGuestCount: Number(expectedGuests),
-        finalGuestCount: finalGuests ? Number(finalGuests) : null,
-        idempotencyKey: key,
-        packageId: selectedPackage.id,
-        showId: authoritativeShow.id,
-      });
+      const result = trainingModuleId
+        ? { bookingReference: createGuidedTrainingReference() }
+        : await createCorporateBuyout({
+            companyId,
+            contactCustomerId: contactId,
+            expectedGuestCount: Number(expectedGuests),
+            finalGuestCount: finalGuests ? Number(finalGuests) : null,
+            idempotencyKey: key,
+            packageId: selectedPackage.id,
+            showId: authoritativeShow.id,
+          });
       setConfirming(false);
       setStatus(`Buyout ${result.bookingReference} created.`);
+      if (trainingModuleId) {
+        window.dispatchEvent(new Event("zingara-guided-training-completed"));
+      }
       await onCreated?.();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "The Buyout could not be created.");
@@ -248,27 +272,27 @@ export default function CorporateBuyoutCreator({
               )}
 
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.75rem] sm:items-end">
-                <label className="text-sm font-semibold text-zinc-300">Company<select value={companyId} onChange={(event) => { setCompanyId(event.target.value); setContactId(""); }} className={fieldClass()}><option value="">Choose Company</option>{data.companies.map((company) => <option key={company.id} value={company.id}>{company.legalName}</option>)}</select></label>
-                <label className="text-sm font-semibold text-zinc-300">Contact<select value={contactId} onChange={(event) => setContactId(event.target.value)} disabled={!selectedCompany} className={fieldClass()}><option value="">Choose Contact</option>{(selectedCompany?.contacts ?? []).map((contact) => <option key={contact.id} value={contact.id}>{[contact.firstName, contact.surname].filter(Boolean).join(" ")}</option>)}</select></label>
-                <button type="button" aria-label="Create Company and Contact" title="Create Company and Contact" aria-expanded={creatingCompany} onClick={() => setCreatingCompany((value) => !value)} className="grid h-11 w-11 place-items-center rounded-full bg-[#D8C36A] text-2xl font-light text-black transition hover:bg-[#F2D66C] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C]">+</button>
+                <label className="text-sm font-semibold text-zinc-300">Company<select data-training-control="training-buyout-company" value={companyId} onChange={(event) => { setCompanyId(event.target.value); setContactId(""); }} className={fieldClass()}><option value="">Choose Company</option>{data.companies.map((company) => <option key={company.id} value={company.id}>{company.legalName}</option>)}</select></label>
+                <label className="text-sm font-semibold text-zinc-300">Contact<select data-training-control="training-buyout-contact" value={contactId} onChange={(event) => setContactId(event.target.value)} disabled={!selectedCompany} className={fieldClass()}><option value="">Choose Contact</option>{(selectedCompany?.contacts ?? []).map((contact) => <option key={contact.id} value={contact.id}>{[contact.firstName, contact.surname].filter(Boolean).join(" ")}</option>)}</select></label>
+                <button type="button" disabled={Boolean(trainingModuleId)} aria-label="Create Company and Contact" title={trainingModuleId ? "Use the supplied Company and Contact" : "Create Company and Contact"} aria-expanded={creatingCompany} onClick={() => setCreatingCompany((value) => !value)} className="grid h-11 w-11 place-items-center rounded-full bg-[#D8C36A] text-2xl font-light text-black transition hover:bg-[#F2D66C] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40">+</button>
               </div>
               {creatingCompany && <div className="grid gap-3 rounded-2xl border border-white/10 bg-black/35 p-4 sm:grid-cols-2"><label className="text-sm text-zinc-300">Company name<input className={fieldClass()} value={newCompanyName} onChange={(event) => setNewCompanyName(event.target.value)} /></label><label className="text-sm text-zinc-300">Contact name<input className={fieldClass()} value={newContactName} onChange={(event) => setNewContactName(event.target.value)} /></label><label className="text-sm text-zinc-300">Contact email<input type="email" className={fieldClass()} value={newContactEmail} onChange={(event) => setNewContactEmail(event.target.value)} /></label><label className="text-sm text-zinc-300">Contact mobile<input className={fieldClass()} value={newContactMobile} onChange={(event) => setNewContactMobile(event.target.value)} /></label><button type="button" disabled={saving} onClick={() => void createCompanyAndContact()} className="min-h-11 rounded-full border border-[#D8C36A]/45 px-5 py-3 text-sm font-bold text-[#F2D66C] disabled:opacity-50 sm:col-span-2 sm:w-fit">{saving ? "Saving..." : "Save Company and Contact"}</button></div>}
 
-              <fieldset><legend className="text-sm font-semibold text-zinc-300">Package</legend><div className="mt-2 grid gap-3 lg:grid-cols-3">{packageCards.map((item) => <PackageCard key={item.id} item={item} selected={item.id === packageId} onSelect={() => setPackageId(item.id)} />)}</div></fieldset>
-              <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-semibold text-zinc-300">Expected guests<input type="number" min="1" step="1" value={expectedGuests} onChange={(event) => setExpectedGuests(event.target.value)} className={fieldClass()} /></label><label className="text-sm font-semibold text-zinc-300">Final guests <span className="font-normal text-zinc-500">(optional)</span><input type="number" min="1" step="1" value={finalGuests} onChange={(event) => setFinalGuests(event.target.value)} className={fieldClass()} /></label></div>
+              <fieldset><legend className="text-sm font-semibold text-zinc-300">Package</legend><div className="mt-2 grid gap-3 lg:grid-cols-3">{packageCards.map((item) => <PackageCard training={Boolean(trainingModuleId)} key={item.id} item={item} selected={item.id === packageId} onSelect={() => setPackageId(item.id)} />)}</div></fieldset>
+              <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-semibold text-zinc-300">Expected guests<input data-training-control="training-buyout-guests" type="number" min="1" step="1" value={expectedGuests} onChange={(event) => setExpectedGuests(event.target.value)} className={fieldClass()} /></label><label className="text-sm font-semibold text-zinc-300">Final guests <span className="font-normal text-zinc-500">(optional)</span><input type="number" min="1" step="1" value={finalGuests} onChange={(event) => setFinalGuests(event.target.value)} className={fieldClass()} /></label></div>
               {guestError && <p className="text-sm text-amber-200">{guestError}</p>}
               {eligibility && eligibility.activeBookingCount > 0 && <div className="rounded-2xl border border-amber-300/35 bg-amber-950/25 p-5"><p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-100">Existing bookings need review</p><p className="mt-2 text-base font-bold text-white">{eligibility.activeBookingCount} booking{eligibility.activeBookingCount === 1 ? "" : "s"} · {eligibility.activeGuestCount} guest{eligibility.activeGuestCount === 1 ? "" : "s"} need to be moved</p><p className="mt-2 text-sm text-amber-100">These bookings will stay unchanged until Box Office moves them.</p><button type="button" onClick={() => onReviewBookings(authoritativeShow?.id ?? selectedShow.id)} className="mt-3 min-h-11 rounded-full border border-[#D8C36A]/55 px-4 py-2 text-sm font-bold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black">Review Bookings</button></div>}
               {selectedPackage && commercials && <div className="grid gap-4 rounded-2xl border border-[#D8C36A]/25 bg-[#130e06] p-5 lg:grid-cols-[1fr_auto]"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">Review</p><h3 className="mt-2 text-xl font-bold text-white">Buyout</h3><p className="mt-2 text-sm text-zinc-300">{selectedCompany?.legalName ?? "Choose Company"} · {selectedContact ? [selectedContact.firstName, selectedContact.surname].filter(Boolean).join(" ") : "Choose Contact"}</p><p className="mt-1 text-sm text-zinc-400">{displayShow.venue} · {formatShowDate(displayShow.date)} · {displayShow.time.slice(0, 5)} · {selectedPackage.displayName}</p><p className="mt-1 text-sm text-zinc-400">{currentGuestCount || 0} guests · Awaiting Payment</p><p className="mt-3 text-sm text-amber-100">Public booking will close for this performance. Guests remain unallocated until Floor planning is completed.</p></div><dl className="min-w-52 space-y-2 text-sm"><div className="flex justify-between gap-5"><dt className="text-zinc-400">Base</dt><dd>{money(commercials.baseAmount)}</dd></div><div className="flex justify-between gap-5"><dt className="text-zinc-400">Gratuity</dt><dd>{money(commercials.gratuityAmount)}</dd></div><div className="flex justify-between gap-5"><dt className="text-zinc-400">VAT</dt><dd>{money(commercials.vatAmount)}</dd></div>{commercials.additionalGuests > 0 && <div className="flex justify-between gap-5"><dt className="text-zinc-400">Extra guests</dt><dd>{money(commercials.additionalGuestAmount)}</dd></div>}<div className="flex justify-between gap-5 border-t border-white/10 pt-2 text-base font-bold"><dt>Total</dt><dd className="text-[#F2D66C]">{money(commercials.totalAmount)}</dd></div></dl></div>}
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={onClose} className="min-h-11 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-zinc-200">Cancel</button><button type="button" disabled={!ready || saving} onClick={() => setConfirming(true)} className="min-h-11 rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40">Review Buyout</button></div>
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={onClose} className="min-h-11 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-zinc-200">Cancel</button><button data-training-control="training-buyout-review" type="button" disabled={!ready || saving} onClick={() => setConfirming(true)} className="min-h-11 rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40">Review Buyout</button></div>
             </div>
           )}
         </section>
       </div>
-      {confirming && authoritativeShow && selectedCompany && selectedPackage && <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/85 p-4"><section aria-labelledby="confirm-buyout-title" aria-modal="true" role="alertdialog" className="w-full max-w-lg rounded-2xl border border-[#D8C36A]/40 bg-[#090909] p-6 shadow-2xl"><h2 id="confirm-buyout-title" className="text-xl font-bold text-white">Create this Buyout?</h2><p className="mt-3 text-sm leading-6 text-zinc-300">{selectedCompany.legalName} · {selectedPackage.displayName} · {currentGuestCount} guests</p><p className="mt-2 text-sm leading-6 text-zinc-400">{authoritativeShow.venue} · {formatShowDate(authoritativeShow.date)} · {authoritativeShow.time.slice(0, 5)}</p>{eligibility && eligibility.activeBookingCount > 0 && <p className="mt-3 text-sm font-semibold leading-6 text-amber-100">Existing bookings need review · {eligibility.activeBookingCount} booking{eligibility.activeBookingCount === 1 ? "" : "s"} · {eligibility.activeGuestCount} guest{eligibility.activeGuestCount === 1 ? "" : "s"} need to be moved.</p>}<p className="mt-2 text-sm leading-6 text-amber-100">Public booking will close for this performance. Existing bookings will not be changed.</p><div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" disabled={saving} onClick={() => setConfirming(false)} className="min-h-11 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-zinc-200">Cancel</button><button type="button" disabled={saving} onClick={() => void submit()} className="min-h-11 rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold text-black disabled:opacity-50">{saving ? "Creating..." : "Create Buyout"}</button></div></section></div>}
+      {confirming && authoritativeShow && selectedCompany && selectedPackage && <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/85 p-4"><section aria-labelledby="confirm-buyout-title" aria-modal="true" role="alertdialog" className="w-full max-w-lg rounded-2xl border border-[#D8C36A]/40 bg-[#090909] p-6 shadow-2xl"><h2 id="confirm-buyout-title" className="text-xl font-bold text-white">Create this Buyout?</h2><p className="mt-3 text-sm leading-6 text-zinc-300">{selectedCompany.legalName} · {selectedPackage.displayName} · {currentGuestCount} guests</p><p className="mt-2 text-sm leading-6 text-zinc-400">{authoritativeShow.venue} · {formatShowDate(authoritativeShow.date)} · {authoritativeShow.time.slice(0, 5)}</p>{eligibility && eligibility.activeBookingCount > 0 && <p className="mt-3 text-sm font-semibold leading-6 text-amber-100">Existing bookings need review · {eligibility.activeBookingCount} booking{eligibility.activeBookingCount === 1 ? "" : "s"} · {eligibility.activeGuestCount} guest{eligibility.activeGuestCount === 1 ? "" : "s"} need to be moved.</p>}<p className="mt-2 text-sm leading-6 text-amber-100">Public booking will close for this performance. Existing bookings will not be changed.</p><div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" disabled={saving} onClick={() => setConfirming(false)} className="min-h-11 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-zinc-200">Cancel</button><button data-training-control="training-buyout-confirm" type="button" disabled={saving} onClick={() => void submit()} className="min-h-11 rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold text-black disabled:opacity-50">{saving ? "Creating..." : "Create Buyout"}</button></div></section></div>}
     </>
   );
 }
 
-function PackageCard({ item, onSelect, selected }: { item: CorporateBuyoutPackage; onSelect: () => void; selected: boolean }) {
-  return <button type="button" aria-pressed={selected} onClick={onSelect} className={`rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#D8C36A] ${selected ? "border-[#D8C36A] bg-[#181107]" : "border-white/10 bg-black/35 hover:border-white/25"}`}><span className="font-bold text-white">{item.displayName}</span><span className="mt-2 block text-lg font-bold text-[#F2D66C]">{money(item.totalAmount)}</span><span className="mt-1 block text-xs text-zinc-400">Fixed package · up to {item.includedGuestCount} guests</span><span className="mt-3 block text-xs leading-5 text-zinc-400">{item.inclusions.slice(0, 3).join(" · ")}</span></button>;
+function PackageCard({ item, onSelect, selected, training }: { item: CorporateBuyoutPackage; onSelect: () => void; selected: boolean; training: boolean }) {
+  return <button data-training-control={training ? "training-buyout-package" : undefined} type="button" aria-pressed={selected} onClick={onSelect} className={`rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#D8C36A] ${selected ? "border-[#D8C36A] bg-[#181107]" : "border-white/10 bg-black/35 hover:border-white/25"}`}><span className="font-bold text-white">{item.displayName}</span><span className="mt-2 block text-lg font-bold text-[#F2D66C]">{money(item.totalAmount)}</span><span className="mt-1 block text-xs text-zinc-400">Fixed package · up to {item.includedGuestCount} guests</span><span className="mt-3 block text-xs leading-5 text-zinc-400">{item.inclusions.slice(0, 3).join(" · ")}</span></button>;
 }

@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   type ReactNode,
+  use,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -134,6 +137,18 @@ import {
   staffBookingExtraSeatingHelp,
   staffBookingJourneyLabels,
 } from "../../lib/staffBookingCreationPresentation";
+import {
+  createGuidedTrainingReference,
+  guidedTrainingSyntheticShow,
+  guidedTrainingVenueSettings,
+  isGuidedTrainingModuleId,
+  type GuidedTrainingModuleId,
+} from "../../lib/guidedTraining";
+
+const GuidedTrainingOverlay = dynamic(
+  () => import("../admin/GuidedTrainingOverlay"),
+  { ssr: false },
+);
 
 type SeatingOption = SeatingZone;
 
@@ -709,14 +724,26 @@ function getBookingInstallState() {
   };
 }
 
-export default function BookingPage() {
+export default function BookingPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const resolvedSearchParams = use(searchParams);
+  const guidedTrainingParam = resolvedSearchParams.guidedTraining;
+  const guidedTrainingModuleId =
+    process.env.NODE_ENV !== "production" &&
+    typeof guidedTrainingParam === "string" &&
+    isGuidedTrainingModuleId(guidedTrainingParam)
+      ? guidedTrainingParam
+      : null;
   const [shows, setShows] = useState<DemoShow[]>([]);
   const [showLoadStatus, setShowLoadStatus] = useState<
     "loading" | "success" | "error"
   >("loading");
   const [showLoadRetryToken, setShowLoadRetryToken] = useState(0);
   const [venueSettings, setVenueSettings] = useState(
-    defaultVenueSettings,
+    guidedTrainingModuleId ? guidedTrainingVenueSettings : defaultVenueSettings,
   );
   const [selectedEntryLocation, setSelectedEntryLocation] =
     useState<EntryLocationKey | null>(null);
@@ -780,32 +807,49 @@ export default function BookingPage() {
     useState(false);
   const [manualCheckoutRole, setManualCheckoutRole] = useState<
     "box-office-manager" | "none" | "staff" | "super-admin"
-  >("none");
+  >(guidedTrainingModuleId ? "box-office-manager" : "none");
   const [staffPricingMode, setStaffPricingMode] = useState<
     "complimentary" | "friends-family" | "standard"
   >("standard");
-  const [calendarBookingContext] = useState<CalendarBookingLockContext | null>(
-    () => {
-      if (typeof window === "undefined") return null;
-      const params = new URLSearchParams(window.location.search);
-      const context = {
-        expectedDate: params.get("expectedDate") ?? "",
-        expectedLocation: params.get("expectedLocation") ?? "",
-        expectedTime: params.get("expectedTime") ?? "",
-        lockId: params.get("showLockId") ?? "",
-        sessionId: params.get("showLockSession") ?? "",
-        showReference: params.get("showId") ?? "",
-      };
+  const calendarBookingContext = useMemo(() => {
+    const candidate: CalendarBookingLockContext = {
+      expectedDate:
+        typeof resolvedSearchParams.expectedDate === "string"
+          ? resolvedSearchParams.expectedDate
+          : "",
+      expectedLocation:
+        typeof resolvedSearchParams.expectedLocation === "string"
+          ? resolvedSearchParams.expectedLocation
+          : "",
+      expectedTime:
+        typeof resolvedSearchParams.expectedTime === "string"
+          ? resolvedSearchParams.expectedTime
+          : "",
+      lockId:
+        typeof resolvedSearchParams.showLockId === "string"
+          ? resolvedSearchParams.showLockId
+          : "",
+      sessionId:
+        typeof resolvedSearchParams.showLockSession === "string"
+          ? resolvedSearchParams.showLockSession
+          : "",
+      showReference:
+        typeof resolvedSearchParams.showId === "string"
+          ? resolvedSearchParams.showId
+          : "",
+    };
 
-      return hasValidCalendarBookingContext(context) ? context : null;
-    },
-  );
-  const [calendarBookingType] = useState<"corporate" | "standard">(() =>
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("bookingType") === "corporate"
-      ? "corporate"
-      : "standard",
-  );
+    return hasValidCalendarBookingContext(candidate) ? candidate : null;
+  }, [
+    resolvedSearchParams.expectedDate,
+    resolvedSearchParams.expectedLocation,
+    resolvedSearchParams.expectedTime,
+    resolvedSearchParams.showId,
+    resolvedSearchParams.showLockId,
+    resolvedSearchParams.showLockSession,
+  ]);
+  const calendarBookingType: "corporate" | "standard" =
+    resolvedSearchParams.bookingType === "corporate" ? "corporate" : "standard";
   const [calendarLockStatus, setCalendarLockStatus] = useState("");
   const [corporateCompany, setCorporateCompany] = useState("");
   const [corporatePaymentBasis, setCorporatePaymentBasis] = useState<
@@ -1010,6 +1054,22 @@ export default function BookingPage() {
       return;
     }
 
+    if (guidedTrainingModuleId) {
+      const capacity = Object.fromEntries(
+        enabledSeatingZones.map((zone) => [zone.id, 120]),
+      );
+      const empty = Object.fromEntries(
+        enabledSeatingZones.map((zone) => [zone.id, 0]),
+      );
+      const open = Object.fromEntries(
+        enabledSeatingZones.map((zone) => [zone.id, true]),
+      );
+      setOccupiedSeatsByZone(empty);
+      setPublicSalesOpenByZone(open);
+      setRemainingSeatsByZone(capacity);
+      return;
+    }
+
     const controller = new AbortController();
     const authoritativeShowId = selectedShow.supabaseId ?? selectedShow.id;
 
@@ -1039,7 +1099,7 @@ export default function BookingPage() {
       });
 
     return () => controller.abort();
-  }, [isCorporateCalendarCheckout, manualCheckoutRole, selectedShow]);
+  }, [enabledSeatingZoneIds, guidedTrainingModuleId, isCorporateCalendarCheckout, manualCheckoutRole, selectedShow]);
 
   useEffect(() => {
     const code = normalizePromoCode(promoCodeInput);
@@ -1354,6 +1414,9 @@ export default function BookingPage() {
     key: string,
     input: Parameters<typeof trackPlatformEvent>[0],
   ) {
+    if (guidedTrainingModuleId) {
+      return;
+    }
     if (trackedTelemetryEventsRef.current.has(key)) {
       return;
     }
@@ -1608,10 +1671,12 @@ export default function BookingPage() {
       setShowLoadStatus("loading");
 
       try {
-        const [nextShows, nextVenueSettings] = await Promise.all([
-          getPublicShows({ operational: Boolean(calendarBookingContext) }),
-          getPublicVenueSettings(),
-        ]);
+        const [nextShows, nextVenueSettings] = guidedTrainingModuleId
+          ? [[guidedTrainingSyntheticShow], guidedTrainingVenueSettings]
+          : await Promise.all([
+              getPublicShows({ operational: Boolean(calendarBookingContext) }),
+              getPublicVenueSettings(),
+            ]);
 
         if (!isMounted || requestId !== showLoadRequestRef.current) {
           return;
@@ -1684,7 +1749,7 @@ export default function BookingPage() {
       );
       window.clearTimeout(hydrationTimer);
     };
-  }, [calendarBookingContext, showLoadRetryToken]);
+  }, [calendarBookingContext, guidedTrainingModuleId, showLoadRetryToken]);
 
   useEffect(() => {
     const mobilePortraitQuery = window.matchMedia(
@@ -1803,6 +1868,9 @@ export default function BookingPage() {
   }, [calendarBookingContext, manualCheckoutRole]);
 
   useEffect(() => {
+    if (guidedTrainingModuleId) {
+      return;
+    }
     if (manualCheckoutRole === "none") {
       setCustomerMatches([]);
       return;
@@ -1832,9 +1900,12 @@ export default function BookingPage() {
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [customerInfo.email, customerInfo.name, customerInfo.phone, manualCheckoutRole]);
+  }, [customerInfo.email, customerInfo.name, customerInfo.phone, guidedTrainingModuleId, manualCheckoutRole]);
 
   useEffect(() => {
+    if (guidedTrainingModuleId) {
+      return;
+    }
     if (manualCheckoutRole === "none") {
       return;
     }
@@ -1869,9 +1940,12 @@ export default function BookingPage() {
     return () => {
       active = false;
     };
-  }, [manualCheckoutRole, selectedEntryLocation]);
+  }, [guidedTrainingModuleId, manualCheckoutRole, selectedEntryLocation]);
 
   useEffect(() => {
+    if (guidedTrainingModuleId) {
+      return;
+    }
     if (
       manualCheckoutRole === "none" ||
       !selectedShowId ||
@@ -1913,7 +1987,7 @@ export default function BookingPage() {
     return () => {
       isMounted = false;
     };
-  }, [manualCheckoutRole, partySize, selectedShowId, selectedZone]);
+  }, [guidedTrainingModuleId, manualCheckoutRole, partySize, selectedShowId, selectedZone]);
 
   useEffect(() => {
     const installState = getBookingInstallState();
@@ -1949,6 +2023,10 @@ export default function BookingPage() {
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
+
+    if (guidedTrainingModuleId) {
+      return;
+    }
 
     if (searchParams.get("staffCheckout") !== "1") {
       return;
@@ -1987,7 +2065,7 @@ export default function BookingPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [guidedTrainingModuleId]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -2062,6 +2140,7 @@ export default function BookingPage() {
   }, []);
 
   useEffect(() => {
+    if (guidedTrainingModuleId) return;
     upsertPlatformPresence({
       currentArea: "Book",
       currentStage: telemetryStage,
@@ -2071,6 +2150,7 @@ export default function BookingPage() {
       },
     });
   }, [
+    guidedTrainingModuleId,
     selectedEntryLocation,
     telemetryStage,
   ]);
@@ -2571,6 +2651,14 @@ export default function BookingPage() {
 
   async function persistPendingCheckoutBooking(reference: string) {
     const booking = buildPendingCheckoutBooking(reference);
+    if (guidedTrainingModuleId) {
+      const bookingReference = createGuidedTrainingReference();
+      return {
+        ...booking,
+        id: bookingReference,
+        reference: bookingReference,
+      };
+    }
     if (manualCheckoutRole === "none") {
       return createBooking(booking, booking.journeyId);
     }
@@ -2679,7 +2767,9 @@ export default function BookingPage() {
       "create_booking";
 
     try {
-      reference = await createBookingReference();
+      reference = guidedTrainingModuleId
+        ? "ZNG-PENDING"
+        : await createBookingReference();
     } catch (error) {
       console.error("[Zingara Booking] Failed to generate booking reference", error);
       setIsPayFastRedirecting(false);
@@ -2706,6 +2796,17 @@ export default function BookingPage() {
       const persistedBooking = await persistPendingCheckoutBooking(reference);
 
       setAllocatedTableNumber(persistedBooking.tableNumber ?? null);
+
+      if (guidedTrainingModuleId) {
+        setBookingReference(persistedBooking.reference);
+        setPaymentRedirectStatus("");
+        setShowTicketReadyPrompt(false);
+        setActiveBookingStep(4);
+        setIsConfirmationOpen(true);
+        setIsPayFastRedirecting(false);
+        window.dispatchEvent(new Event("zingara-guided-training-completed"));
+        return;
+      }
 
       if (isComplimentary) {
         setBookingReference(persistedBooking.reference);
@@ -2881,7 +2982,9 @@ export default function BookingPage() {
     );
 
     try {
-      const reference = await createBookingReference();
+      const reference = guidedTrainingModuleId
+        ? "ZNG-PENDING"
+        : await createBookingReference();
       const persistedBooking = await persistPendingCheckoutBooking(reference);
 
       setAllocatedTableNumber(persistedBooking.tableNumber ?? null);
@@ -2890,6 +2993,9 @@ export default function BookingPage() {
       setShowTicketReadyPrompt(isCorporateInvoicePaid);
       setIsConfirmationOpen(true);
       setActiveBookingStep(4);
+      if (guidedTrainingModuleId) {
+        window.dispatchEvent(new Event("zingara-guided-training-completed"));
+      }
     } catch (error) {
       const twoSeaterLimit = getTwoSeaterLimitPayload(error);
       if (twoSeaterLimit) {
@@ -3235,6 +3341,12 @@ export default function BookingPage() {
     return (
       <g
         key={`${option.id}-${regionKey}`}
+        data-training-scope={
+          guidedTrainingModuleId &&
+          (option.id === "golden-circle" || option.id === "royal-booths")
+            ? `training-booking-zone-${option.id}`
+            : undefined
+        }
         aria-label={hotspotTitle}
         role="button"
         tabIndex={isAvailable ? 0 : -1}
@@ -3652,6 +3764,9 @@ export default function BookingPage() {
   return (
     <PublicMaintenanceBoundary>
     <main className="relative isolate z-10 min-h-screen overflow-x-hidden bg-black px-3 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-6 text-white sm:px-6 sm:py-14 lg:py-16">
+      {guidedTrainingModuleId && (
+        <GuidedTrainingOverlay moduleId={guidedTrainingModuleId} />
+      )}
       {renderPostPaymentExperience()}
       {bookingReference && isConfirmationOpen && selectedZone ? (
         renderConfirmedBookingExperience()
@@ -4201,7 +4316,7 @@ export default function BookingPage() {
               )}
 
           {activeBookingStep === 1 && (
-          <div className="max-w-5xl rounded-[1.5rem] border border-[#8D7A2F]/30 bg-zinc-950/70 p-3.5 sm:rounded-[2rem] sm:p-5">
+          <div data-training-scope="training-booking-guests" className="max-w-5xl rounded-[1.5rem] border border-[#8D7A2F]/30 bg-zinc-950/70 p-3.5 sm:rounded-[2rem] sm:p-5">
             <div className="flex flex-col gap-3">
               <div className="min-w-0">
                 <p className="zingara-heading text-xl font-bold text-white sm:text-3xl">
@@ -4283,6 +4398,7 @@ export default function BookingPage() {
                   )}
                   <button
                     type="button"
+                    data-training-control="training-booking-guests"
                     onClick={() => setActiveBookingStep(2)}
                     className="min-h-11 whitespace-nowrap rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 sm:px-6 sm:py-3"
                   >
@@ -4481,6 +4597,7 @@ export default function BookingPage() {
                         </button>
                         <button
                           type="button"
+                          data-training-control="training-booking-details-open"
                           onClick={handleSeatingContinue}
                           className="min-h-11 flex-1 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 sm:flex-none"
                         >
@@ -4660,7 +4777,7 @@ export default function BookingPage() {
           )}
 
           {selectedZone && activeBookingStep === 3 && (
-            <section className="mt-5 rounded-[1.25rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#18100A_0%,#111_48%,#050505_100%)] p-3.5 shadow-2xl shadow-black/25 sm:mt-10 sm:rounded-[2rem] sm:p-6">
+            <section data-training-scope="training-booking-details" className="mt-5 rounded-[1.25rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#18100A_0%,#111_48%,#050505_100%)] p-3.5 shadow-2xl shadow-black/25 sm:mt-10 sm:rounded-[2rem] sm:p-6">
               <div className="mb-4 sm:mb-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A] sm:text-sm">
                   {isStaffBookingJourney ? (isCorporateCalendarCheckout ? "Company" : "Guest") : "Step 4"}
@@ -4862,6 +4979,7 @@ export default function BookingPage() {
                 )}
                 <button
                   type="button"
+                  data-training-control="training-booking-details"
                   onClick={handleGuestDetailsContinue}
                   className="min-h-11 rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:py-3 sm:text-base"
                 >
@@ -4872,7 +4990,7 @@ export default function BookingPage() {
           )}
 
           {selectedZone && activeBookingStep === 4 && (
-            <div className="mt-5 rounded-[1.25rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#18100A_0%,#111_48%,#050505_100%)] p-3.5 shadow-2xl shadow-black/25 sm:mt-10 sm:rounded-[2rem] sm:p-6">
+            <div data-training-scope="training-booking-payment" className="mt-5 rounded-[1.25rem] border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#18100A_0%,#111_48%,#050505_100%)] p-3.5 shadow-2xl shadow-black/25 sm:mt-10 sm:rounded-[2rem] sm:p-6">
               <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D8C36A] sm:text-sm">
@@ -5307,6 +5425,7 @@ export default function BookingPage() {
                 )}
                 <button
                   type="button"
+                  data-training-control="training-booking-payment"
                   onClick={handleContinueBooking}
                   className="min-h-12 w-full rounded-full bg-white px-6 py-2.5 text-base font-semibold text-black transition hover:scale-[1.01] hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:px-8 sm:py-4 sm:text-xl"
                 >
@@ -5448,6 +5567,13 @@ export default function BookingPage() {
 
                   <button
                     type="button"
+                    data-training-control={
+                      guidedTrainingModuleId &&
+                      (previewSeatingZone.id === "golden-circle" ||
+                        previewSeatingZone.id === "royal-booths")
+                        ? "training-booking-zone-confirm"
+                        : undefined
+                    }
                     disabled={!availability.isAvailable}
                     onClick={confirmSeatingSelection}
                     className="mt-6 w-full rounded-full bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
@@ -5903,6 +6029,7 @@ export default function BookingPage() {
 
               <label className="flex gap-3 rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3 text-sm leading-6 text-zinc-300 sm:rounded-2xl sm:p-4">
                 <input
+                  data-training-control="training-booking-terms"
                   required
                   type="checkbox"
                   checked={hasAcceptedBookingTerms}
@@ -6252,6 +6379,7 @@ export default function BookingPage() {
                   }
                 >
                   <button
+                    data-training-control="training-booking-confirm"
                     type="submit"
                     aria-busy={isPayFastRedirecting}
                     disabled={isComplimentary || isCorporateInvoice

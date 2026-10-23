@@ -109,6 +109,14 @@ export default function ZingaraHeader() {
     let isMounted = true;
 
     async function loadVenueSettings() {
+      const isLocalGuidedTraining =
+        process.env.NODE_ENV !== "production" &&
+        (pathname === "/admin/guided-training-preview" ||
+          new URLSearchParams(window.location.search).has("guidedTraining"));
+      if (isLocalGuidedTraining) {
+        if (isMounted) setVenueSettings(defaultVenueSettings);
+        return;
+      }
       const nextVenueSettings = isAdminRoute
         ? await getVenueSettings()
         : await getPublicVenueSettings();
@@ -138,7 +146,7 @@ export default function ZingaraHeader() {
         loadVenueSettings,
       );
     };
-  }, [isAdminRoute]);
+  }, [isAdminRoute, pathname]);
 
   useEffect(() => {
     let isMounted = true;
