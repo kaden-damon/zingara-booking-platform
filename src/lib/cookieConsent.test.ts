@@ -85,7 +85,7 @@ test("disabled consent UI never implies optional permission", () => {
 
 test("configuration defaults preserve locked category semantics", () => {
   assert.equal(defaultCookieConsentConfig.enabled, true);
-  assert.equal(defaultCookieConsentConfig.consentVersion, 5);
+  assert.equal(defaultCookieConsentConfig.consentVersion, 6);
   assert.equal(defaultCookieConsentConfig.acceptAllLabel, "ACCEPT ALL");
   assert.equal(defaultCookieConsentConfig.essentialOnlyLabel, "ESSENTIAL ONLY");
   assert.match(defaultCookieConsentConfig.essentialDescription, /Required/);
@@ -111,7 +111,7 @@ test("legacy generic disclosures upgrade to the named advertising providers", ()
       "Allows optional marketing technologies where Zingara introduces them and you choose to consent.",
   });
 
-  assert.equal(normalized.consentVersion, 5);
+  assert.equal(normalized.consentVersion, 6);
   assert.match(normalized.analyticsDescription, /Google Analytics/);
   assert.match(normalized.marketingDescription, /Google Ads and Meta Pixel/);
 });
@@ -123,6 +123,16 @@ test("configuration normalisation strips control characters and limits copy", ()
   });
   assert.equal(normalized.bannerHeading, "YOUR  PRIVACY");
   assert.equal(normalized.footerLinkLabel.length, 40);
+});
+
+test("legacy implied-consent copy upgrades to the explicit provider choice", () => {
+  const normalized = normalizeCookieConsentConfig({
+    ...defaultCookieConsentConfig,
+    bannerDescription:
+      "We use cookies to ensure that we give you the best experience on our website. If you continue to use this site we will assume that you are happy with it.",
+  });
+  assert.match(normalized.bannerDescription, /Choose Accept All/);
+  assert.match(normalized.bannerDescription, /Essential Only/);
 });
 
 test("configuration permits blank hidden fields and optional heading", () => {
@@ -173,7 +183,7 @@ test("configuration changes are deterministic for audit fields", () => {
   const next = {
     ...defaultCookieConsentConfig,
     bannerHeading: "YOUR PRIVACY AT ZINGARA",
-    consentVersion: 6,
+    consentVersion: 7,
   };
   assert.deepEqual(
     getChangedCookieConsentFields(defaultCookieConsentConfig, next),

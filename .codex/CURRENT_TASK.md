@@ -26,7 +26,7 @@ Zingara is live Production. Correct the confirmed Google gtag command-queue defe
 
 - Google commands now use the provider-supported `dataLayer.push(arguments)` format.
 - The notice contains only `ACCEPT ALL` and `ESSENTIAL ONLY`; no checkbox or secondary preferences screen remains.
-- Consent version 5 records the visitor's timestamped choice and prompts visitors with older records to choose again.
+- Consent version 6 records the visitor's timestamped choice and prompts visitors with older records to choose again.
 - The existing footer control reopens the same two-choice notice.
 - Cookie Policy, Privacy Policy and Terms & Conditions identify GA4, Google Ads and Meta Pixel and state that advertising purchase measurement remains disabled.
 - Focused tests, TypeScript, changed-file ESLint, `git diff --check` and the Production build pass.

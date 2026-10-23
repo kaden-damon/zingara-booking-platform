@@ -18,6 +18,8 @@ const legacyAnalyticsDescription =
   "Allows optional analytics technologies that help us understand and improve the booking experience.";
 const legacyMarketingDescription =
   "Allows optional marketing technologies where Zingara introduces them and you choose to consent.";
+const legacyImpliedConsentDescription =
+  "We use cookies to ensure that we give you the best experience on our website. If you continue to use this site we will assume that you are happy with it.";
 
 export const defaultCookieConsentConfig: CookieConsentConfig = {
   acceptAllLabel: "ACCEPT ALL",
@@ -26,7 +28,7 @@ export const defaultCookieConsentConfig: CookieConsentConfig = {
   bannerDescription:
     "We use essential technologies to operate bookings securely. Choose Accept All to also allow GA4, Google Ads and Meta measurement, or Essential Only to keep optional tracking off.",
   bannerHeading: "WE VALUE YOUR PRIVACY",
-  consentVersion: 5,
+  consentVersion: 6,
   enabled: true,
   essentialDescription:
     "Required for security, core preferences, booking, payment and ticket functionality.",
@@ -138,6 +140,10 @@ export function normalizeCookieConsentConfig(
 
   if (normalized.marketingDescription === legacyMarketingDescription) {
     normalized.marketingDescription = defaultCookieConsentConfig.marketingDescription;
+  }
+
+  if (normalized.bannerDescription === legacyImpliedConsentDescription) {
+    normalized.bannerDescription = defaultCookieConsentConfig.bannerDescription;
   }
 
   return normalized;
