@@ -1,5 +1,10 @@
 import { type Session, type User } from "@supabase/supabase-js";
-import { staffTourMetadataKey } from "@/lib/staffOnboarding";
+import {
+  staffTourAcknowledgedAtMetadataKey,
+  staffTourAcknowledgementMetadataKey,
+  staffTourMetadataKey,
+  type StaffTourAcknowledgement,
+} from "@/lib/staffOnboarding";
 import { getSupabaseClient } from "./client";
 
 export type AdminAuthSession = {
@@ -76,7 +81,10 @@ export async function signOutAdmin() {
   }
 }
 
-export async function acknowledgeStaffTour(version: string) {
+export async function acknowledgeStaffTour(
+  version: string,
+  acknowledgement: StaffTourAcknowledgement,
+) {
   const supabase = getSupabaseClient();
 
   if (!supabase) {
@@ -85,6 +93,8 @@ export async function acknowledgeStaffTour(version: string) {
 
   const { error } = await supabase.auth.updateUser({
     data: {
+      [staffTourAcknowledgedAtMetadataKey]: new Date().toISOString(),
+      [staffTourAcknowledgementMetadataKey]: acknowledgement,
       [staffTourMetadataKey]: version,
     },
   });

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import {
@@ -10,7 +9,9 @@ import {
 import {
   hasAcknowledgedStaffTour,
   latestStaffTourVersion,
+  staffTourOpenEvent,
   staffTourPages,
+  type StaffTourAcknowledgement,
 } from "@/lib/staffOnboarding";
 
 export function StaffOnboardingTour() {
@@ -22,14 +23,35 @@ export function StaffOnboardingTour() {
   useEffect(() => {
     let cancelled = false;
 
-    void getAdminAuthSession().then((authSession) => {
-      if (!cancelled && authSession && !hasAcknowledgedStaffTour(authSession.user)) {
-        setIsOpen(true);
-      }
-    });
+    const openTour = () => {
+      setPageIndex(0);
+      setSaveError("");
+      setIsOpen(true);
+    };
+
+    window.addEventListener(staffTourOpenEvent, openTour);
+
+    const automaticOpenTimer = window.setTimeout(() => {
+      void getAdminAuthSession().then((authSession) => {
+        const operationalDialogIsOpen = document.querySelector(
+          '[role="dialog"]',
+        );
+
+        if (
+          !cancelled &&
+          authSession &&
+          !operationalDialogIsOpen &&
+          !hasAcknowledgedStaffTour(authSession.user)
+        ) {
+          openTour();
+        }
+      });
+    }, 600);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(automaticOpenTimer);
+      window.removeEventListener(staffTourOpenEvent, openTour);
     };
   }, []);
 
@@ -38,14 +60,17 @@ export function StaffOnboardingTour() {
   const page = staffTourPages[pageIndex];
   const isLastPage = pageIndex === staffTourPages.length - 1;
 
-  async function finishTour() {
+  async function finishTour(acknowledgement: StaffTourAcknowledgement) {
     setIsSaving(true);
     setSaveError("");
-    const result = await acknowledgeStaffTour(latestStaffTourVersion);
+    const result = await acknowledgeStaffTour(
+      latestStaffTourVersion,
+      acknowledgement,
+    );
     setIsSaving(false);
 
     if (result.error) {
-      setSaveError("Your progress could not be saved. You can close this and keep working.");
+      setSaveError("Your acknowledgement could not be saved. Please retry Skip or Got It; your work remains unchanged.");
       return;
     }
 
@@ -63,20 +88,20 @@ export function StaffOnboardingTour() {
       >
         <div className="flex items-start justify-between gap-4">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-            NEW: ZINGARA × XERO
+            NEW FEATURE WALKTHROUGH
           </p>
           <button
-            aria-label="Close onboarding tour"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-white/15 text-xl text-zinc-300 transition hover:border-white/40 hover:text-white"
-            onClick={() => setIsOpen(false)}
+            className="min-h-10 shrink-0 rounded-full border border-white/15 px-4 text-xs font-semibold uppercase text-zinc-300 transition hover:border-white/40 hover:text-white disabled:opacity-60"
+            disabled={isSaving}
+            onClick={() => void finishTour("skipped")}
             type="button"
           >
-            x
+            {isSaving ? "Saving..." : "Skip"}
           </button>
         </div>
 
         <div className="mt-4 min-h-56 sm:mt-5">
-          {page.id === "xero-ready" && (
+          {page.id === "quote-invoice-overview" && (
             <div className="mb-5 flex items-center gap-3">
               <Image src="/brand/zingara-logo-landing.svg" alt="Zingara" width={142} height={34} className="h-8 w-auto" />
               <span aria-hidden="true" className="text-xl text-[#D8C36A]">→</span>
@@ -100,15 +125,6 @@ export function StaffOnboardingTour() {
           )}
           {page.supporting && (
             <p className="mt-5 text-sm font-semibold text-[#F2D66C]">{page.supporting}</p>
-          )}
-          {isLastPage && (
-            <Link
-              className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-[#F2D66C] underline underline-offset-4"
-              href="/admin?section=academy"
-              onClick={() => setIsOpen(false)}
-            >
-              Open Academy
-            </Link>
           )}
         </div>
 
@@ -140,7 +156,7 @@ export function StaffOnboardingTour() {
             disabled={isSaving}
             onClick={() => {
               if (isLastPage) {
-                void finishTour();
+                void finishTour("completed");
               } else {
                 setPageIndex((current) => current + 1);
               }

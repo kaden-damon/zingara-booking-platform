@@ -122,11 +122,13 @@ test("quote and invoice PDFs keep local/Xero and payment truth explicit", () => 
   };
   const quoteText = new TextDecoder().decode(createXeroDocumentPdf({ ...base, kind: "quote" }));
   const invoiceText = new TextDecoder().decode(createXeroDocumentPdf({ ...base, kind: "invoice" }));
-  assert.match(quoteText, /Cost Estimate Quote/);
-  assert.match(invoiceText, /Tax Invoice Draft/);
-  assert.match(invoiceText, /Invoice Number: Awaiting Xero/);
-  assert.match(invoiceText, /Total Net Payments ZAR: Review verified payments in Zingara/);
-  assert.match(invoiceText, /Local Zingara operational document\. Not issued by Xero\./);
+  assert.match(quoteText, /COST ESTIMATE QUOTE/);
+  assert.match(invoiceText, /TAX INVOICE DRAFT/);
+  assert.match(invoiceText, /Invoice Number/);
+  assert.match(invoiceText, /Awaiting Xero/);
+  assert.match(invoiceText, /Total Net Payments ZAR/);
+  assert.match(invoiceText, /Review verified payments/);
+  assert.match(invoiceText, /approved Confirmation of Banking Details/);
 });
 
 test("admin integration stays bounded and presents disconnected truth", async () => {

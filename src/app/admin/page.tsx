@@ -166,6 +166,7 @@ import {
   getAdminHomeCopy,
   getAdminNavigation,
 } from "../../lib/adminNavigation";
+import { staffTourOpenEvent } from "../../lib/staffOnboarding";
 import {
   uploadAndFinalizeStaffIssueMedia,
   type StaffIssueSelectedFile,
@@ -30269,6 +30270,15 @@ export default function AdminDashboardPage() {
                           Start Training
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.dispatchEvent(new Event(staffTourOpenEvent))
+                        }
+                        className="mt-3 rounded-full border border-[#D8C36A]/45 px-5 py-2.5 text-xs font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:border-[#F2D66C] hover:bg-[#D8C36A]/10"
+                      >
+                        Quote &amp; Invoice Walkthrough
+                      </button>
                     </div>
 
                     <div className="mt-8 grid gap-3 sm:grid-cols-2">

@@ -1,7 +1,14 @@
 import type { User } from "@supabase/supabase-js";
 
-export const latestStaffTourVersion = "xero-foundation-2026-10";
+export const latestStaffTourVersion = "quote-invoice-management-2026-10";
 export const staffTourMetadataKey = "zingara_staff_tour_version";
+export const staffTourAcknowledgementMetadataKey =
+  "zingara_staff_tour_acknowledgement";
+export const staffTourAcknowledgedAtMetadataKey =
+  "zingara_staff_tour_acknowledged_at";
+export const staffTourOpenEvent = "zingara-open-staff-feature-walkthrough";
+
+export type StaffTourAcknowledgement = "completed" | "skipped";
 
 export type StaffTourPage = {
   body: string;
@@ -13,42 +20,39 @@ export type StaffTourPage = {
 
 export const staffTourPages: StaffTourPage[] = [
   {
-    body: "The quoting and invoice-draft workflow is ready. Live Xero synchronisation is not connected and stays paused until Accounts approves it.",
-    id: "xero-ready",
-    supporting: "No document is sent to Xero until a verified organisation is connected and approved.",
-    title: "Zingara × Xero",
+    body: "Zingara keeps quotations, customer acceptance, invoice requests and document status together. Your available actions continue to follow your existing role and venue permissions.",
+    id: "quote-invoice-overview",
+    supporting: "Live Xero synchronisation remains paused until it is separately authorised.",
+    title: "Quote & Invoice Management",
   },
   {
-    body: "Open a Corporate booking and choose Create Quote. Add the customer, show, seating, pax and approved commercial details.",
-    id: "xero-quote",
-    title: "Create a Quote",
+    body: "Sales staff can open an eligible Corporate enquiry or booking and choose Create Quote. Add the existing customer or company, approved line items, pricing and VAT, then save the draft.",
+    id: "create-quotation",
+    supporting: "Staff without quotation permission can still use the walkthrough, but cannot create or edit financial documents.",
+    title: "Create Quotations",
   },
   {
-    body: "Use Add Line for independently priced seats, gratuity, venue hire, Halal surcharge, AV or another approved service.",
-    id: "xero-lines",
-    supporting: "Custom service lines never create guests, tickets or seats.",
-    title: "Add Custom Lines",
+    body: "From the saved quotation, use Send Quote. The customer receives the branded email, quotation PDF and approved banking confirmation, then opens a secure Zingara link to review and accept the exact version sent.",
+    id: "send-and-accept",
+    supporting: "Opening the link does not accept a quotation, and revised quotations require a new secure link.",
+    title: "Send for Acceptance",
   },
   {
-    body: "Save a draft, preview it and record the accepted version and evidence. Viewing a quote never accepts it.",
-    id: "xero-accept",
-    title: "Review & Accept",
+    body: "After authoritative customer acceptance, Sales receives a confirmation and Request Invoice becomes available. The request preserves the accepted quotation version and places it in the Accounts queue without creating an invoice.",
+    id: "request-invoice",
+    title: "Request an Invoice",
   },
   {
-    body: "Convert only the accepted quote version. Until Xero connects, the result is clearly marked as a local invoice draft.",
-    id: "xero-invoice",
-    title: "Convert to Invoice",
+    body: "Tristan and Rachelle review Invoice Requested items in Reports → Accounting and use the existing Finance-authorised conversion workflow. Other staff can view permitted statuses but cannot bypass Accounts review.",
+    id: "accounts-processing",
+    supporting: "Wagheeda can receive approved reminders without receiving invoice-conversion permission.",
+    title: "Accounts Processing",
   },
   {
-    body: "Use the existing verified PayFast or EFT workflow to request and confirm deposits. Creating an invoice never marks a booking paid.",
-    id: "xero-deposit",
-    title: "Request Deposit",
-  },
-  {
-    body: "Open Reports → Accounting to review local documents, verified paid amounts, differences and sync attention without changing certified reports.",
-    id: "xero-reporting",
-    supporting: "Settings → Integrations shows the connection and mapping status for authorised staff.",
-    title: "Accounts & Reports",
+    body: "Open Reports → Accounting to search quotations and invoices, filter Invoice Requested items and view acceptance, request, invoice, payment and sync statuses available to your role.",
+    id: "document-statuses",
+    supporting: "You can reopen this walkthrough at any time from the Academy dashboard.",
+    title: "View Document Status",
   },
 ];
 
