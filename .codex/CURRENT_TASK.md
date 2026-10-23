@@ -1,114 +1,89 @@
-PHASE 51.5 - LEGACY HARDWARE PERFORMANCE CERTIFICATION
+PHASE 51.6 - BOX OFFICE PERFORMANCE VERIFICATION
 
-STATUS: COMPLETE
+STATUS: COMPLETE - NO APPLICATION RELEASE REQUIRED
 
 DATE: 23 OCTOBER 2026
 
 GOAL
 
-Certify the complete Zingara operational platform against the Phase 51
-performance targets using current Production data volumes, 6x CPU throttling,
-constrained-memory evidence, and authenticated workflow checks.
+Verify that the deployed Phase 51 performance work remains effective during
+everyday Production Box Office operation and correct only confirmed measurable
+regressions without changing the interface or business rules.
 
-BASELINE
+PRODUCTION BASELINE
 
-- main / origin/main: 4a445339c80298e1b822ab4188a37246dfe35d32
-- Production application commit: 2caec8aa9014c70f85c6948ea42a02e7cc7a1e07
-- Production deployment: dpl_4o3FQtmm2oUbqMDeC8h7K25NAaCV (READY)
+- origin/main: f2de327dfeb80017be6be7c5ff05c22aeb978d9b
+- Phase 51.5 application commit: 2ae1dc3f49dfeedaf5909dba6a1ab287623b9626
+- Current Production deployment: dpl_4xnfBFXeucMK9buT91ugAByZu3Lf (READY)
 - Production alias: https://book.zingara.co.za
-- Rollback commit: 4a445339c80298e1b822ab4188a37246dfe35d32
-- Phase 51.4 authenticated warm module navigation: 72-97 ms.
-- Phase 51.4 Admin route: 1,256,039 raw / 301,667 gzip bytes.
+- Application rollback baseline: 4a445339c80298e1b822ab4188a37246dfe35d32
 
-CERTIFICATION SCOPE
+ACTUAL OPERATIONAL PERFORMANCE
 
-- Actual authenticated Production data: 103 shows, 4,815 matching bookings,
-  10,175 customers, 186,391 telemetry events, and the current Reports data.
-- Read-only checks covered Dashboard/calendar, Standard and Corporate booking
-  lists, Booking Details and amendment controls, Companies and Customer CRM,
-  Floor, seating, arrivals and check-in, payments/refunds, Reports, Xero
-  Integrations, Academy, Guided Training, and Training Register.
-- No physical legacy Box Office computer was available. Certification is
-  therefore provisional and uses Chrome 6x CPU throttling plus an isolated
-  constrained JavaScript heap. No physical-device claim is made.
+Authenticated Production checks used the current bounded booking population
+(4,815 matching bookings in the live Bookings workspace) and exercised only
+non-mutating navigation and preview actions.
 
-AUTHENTICATED WORKFLOW RESULTS
+- Core navigation: Bookings 98-134 ms, Customers 101 ms, Floor & Arrivals
+  82 ms, Dashboard 96 ms.
+- Booking Details opened in 43 ms after the bounded list was ready.
+- Guest-count amendment controls responded in 103 ms; no amendment was saved.
+- Calendar month navigation responded in 97-101 ms.
+- Booking workflow chooser opened in 104 ms and was cancelled before selection
+  or persistence.
+- Table Plan/Floor responded in 96 ms; Arrivals & Check-In in 72 ms.
+- Financial Reports responded in 80 ms; Corporate Bookings in 99 ms.
+- Customer and Company search inputs responded in 104-108 ms. Their bounded,
+  debounced result refresh remained responsive with no browser stall.
 
-- Core module switches: Bookings 158 ms on first opening; Floor 75 ms;
-  Customers 75 ms; Reports 72 ms.
-- Sales & Performance 101 ms; Payment Analytics 61 ms.
-- More menu 85 ms; Settings 48 ms; Integrations/Xero 99 ms.
-- Companies 107 ms; repeat Bookings 78 ms; Corporate bookings 97 ms.
-- Booking Details opened in 39 ms once its bounded booking page was ready.
-- Floor & Arrivals 73 ms; Arrivals & Check-In 93 ms; Floor/seating 72 ms.
-- Academy 53 ms; Guided Training 94 ms; Training Register 74 ms.
-- All measured module and workspace interactions met the sub-200 ms target.
-  No UI, workflow, permission, or authoritative confirmation was changed.
+PRODUCTION TELEMETRY
 
-6X CPU AND CONSTRAINED-MEMORY RESULTS
+- Seven-day authoritative operations: public reservation p50 2.236 s / p95
+  3.145 s; PayFast checkout preparation p50 577 ms / p95 833 ms; authoritative
+  PayFast confirmation p50 2.011 s / p95 2.449 s.
+- These remain at or better than the established Phase 49/51 baselines. There
+  were no telemetry error events in the bounded seven-day duration sample.
+- The latest 10,000 Production requests covered a busy 70-minute period.
+  Normalised Admin background activity was approximately 4.8 requests per
+  visible staff session per minute, within the Phase 51.2 six-request ceiling
+  for non-booking workspaces. Concurrent staff/public traffic makes the raw
+  percentage unsuitable for comparison with the Phase 51.0 audit denominator.
+- The current deployment has zero runtime errors and zero HTTP 5xx request
+  records. The one conversion-report 500 in the broader sample was the known
+  pre-correction diagnostic request from Phase 51.5, not a current regression.
 
-- Isolated production-build profile used 6x CPU throttling and a 256 MB V8 old
-  space limit. It validates the route/runtime envelope, not authenticated data
-  workflows or a physical legacy computer.
-- Cold login route: FCP 316 ms, load 554 ms, 464,744 script-transfer bytes,
-  three long tasks totalling 281 ms, 731.8 ms task time, and 194.9 ms script.
-- Five warm reloads: FCP 92-120 ms, load 99-177 ms, no long tasks, 195.2-282.2
-  ms task time, and 51.3-62.0 ms script time.
-- Garbage-collected used JavaScript heap remained 6.83 MB across the five warm
-  runs (6,828,162 to 6,835,046 bytes), with no progressive growth.
+PERFORMANCE BUDGETS
 
-CONFIRMED BOTTLENECK AND CORRECTION
+- Admin initial route: 1,256,039 raw bytes / 301,667 gzip bytes.
+- Largest initial gzip chunk: 160,070 bytes.
+- Enforced limits remain 1,320,000 raw, 320,000 gzip, and 170,000 largest gzip.
+- All measured interface feedback met the applicable sub-150/sub-200 ms Phase
+  51 targets. Authoritative searches and financial/server writes remain subject
+  to network and database confirmation and are never represented as complete
+  prematurely.
 
-- The 31-day Website & Booking Conversion report failed in Production because
-  its venue-attribution lookup searched prior events by session without a
-  session/time index and aggregated irrelevant telemetry event types.
-- Before: v2/v3 RPC calls timed out after 8.3-8.9 seconds with PostgreSQL 57014;
-  the live panel displayed that analytics could not be loaded.
-- Added a partial `(session_id, created_at desc)` index for non-null sessions.
-- Restricted the existing base report to the seven event types it actually
-  aggregates and skipped venue-history lookup when direct event/booking venue
-  evidence already resolves the location.
-- After: five authoritative 31-day v3 calls returned HTTP 200 in 2.86-3.35
-  seconds with the same 12,077-byte result shape; the live Production panel
-  rendered successfully. Report calculations, filters, and displayed fields
-  were not changed.
+LEGACY HARDWARE STATUS
 
-INFRASTRUCTURE FINDINGS
+- Physical older Box Office hardware was not available in this environment.
+- Certification therefore remains provisional and carries forward Phase 51.5's
+  6x CPU/256 MB constrained evidence: five warm runs had 92-120 ms FCP,
+  99-177 ms load, no long tasks, and a stable 6.83 MB collected JS heap.
 
-- Supabase project is ACTIVE_HEALTHY; database size 446 MB, table data 143 MB,
-  indexes 171 MB, and both table/index cache-hit rates are 1.00.
-- No blocking or long-running database queries were present after correction.
-- The new session/time index is used and avoids sequential scans.
-- The inspected Vercel Production deployment is READY. The 24-hour window had
-  no recorded runtime errors and no HTTP 5xx request records.
-- Available evidence does not justify a Supabase or Vercel upgrade. Continue
-  measuring before purchasing additional infrastructure; the remaining cold
-  JavaScript work is a client/device concern rather than server saturation.
+VERIFICATION
 
-PERMANENT PERFORMANCE STANDARDS
+- 15 focused performance and financial-safety tests passed.
+- The enforced Admin performance budget passed.
+- Production `/admin` and `/book` remained healthy throughout verification.
+- No layout, control, navigation, permission, workflow, booking, payment,
+  ticket, capacity, Xero, Table Plan, or Academy behavior changed.
 
-- Every Production build now enforces Admin initial-route limits of 1,320,000
-  raw bytes, 320,000 gzip bytes, and 170,000 gzip bytes for the largest chunk.
-- Current build remains 1,256,039 raw / 301,667 gzip bytes; largest gzip chunk
-  is 160,070 bytes.
-- Budget failure stops the build and therefore stops deployment.
-- Existing bounded loading, lazy workspaces, visible-only polling, lock
-  heartbeats, authoritative writes, and server-side pagination remain required.
+RELEASE DECISION
 
-SAFETY
+- No confirmed in-scope regression or bottleneck requires correction.
+- No application code, migration, push, or Production deployment was performed.
+- Production remains on dpl_4xnfBFXeucMK9buT91ugAByZu3Lf.
+- Production business-data delta: none.
 
-- Strict UX/UI freeze preserved.
-- No booking, payment, ticket, capacity, customer, Xero, or operational data
-  changed.
-- Database delta is schema/read-query only: one additive index and two guarded
-  optimisations to the existing read-only conversion report function.
+FINAL
 
-RELEASE
-
-- Application commit: 2ae1dc3f49dfeedaf5909dba6a1ab287623b9626
-- Production deployment: dpl_5p1Kshx9isr1RsUqffoDV7XmGVe8 (READY)
-- Production alias: https://book.zingara.co.za
-- Rollback commit: 4a445339c80298e1b822ab4188a37246dfe35d32
-- Production verification: `/admin` and `/book` returned HTTP 200; the release
-  window contained no runtime errors and no HTTP 5xx request records.
-- Business-data delta: none.
+PHASE 51.6 - BOX OFFICE PERFORMANCE VERIFIED.
