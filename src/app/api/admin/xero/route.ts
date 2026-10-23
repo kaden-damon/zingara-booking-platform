@@ -265,6 +265,57 @@ export async function GET(request: Request) {
       },
     });
   }
+  const bookingDocumentsReference = cleanText(
+    url.searchParams.get("bookingDocumentsReference") ?? undefined,
+    100,
+  );
+  if (bookingDocumentsReference) {
+    const { data: booking, error: bookingError } = await auth.serviceClient
+      .from("bookings")
+      .select("id,booking_reference,show_id")
+      .eq("booking_reference", bookingDocumentsReference)
+      .maybeSingle();
+    if (bookingError) throw bookingError;
+    if (!booking) {
+      return Response.json(
+        { error: "The booking could not be found." },
+        { status: 404 },
+      );
+    }
+
+    const { data: show, error: showError } = await auth.serviceClient
+      .from("shows")
+      .select("venue")
+      .eq("id", booking.show_id)
+      .single();
+    if (showError || !show) {
+      return Response.json(
+        { error: "The booking performance could not be loaded." },
+        { status: 404 },
+      );
+    }
+    if (!venues.includes(show.venue)) {
+      return Response.json(
+        { error: "This venue is outside your access." },
+        { status: 403 },
+      );
+    }
+
+    const { data: documents, error: documentsError } = await auth.serviceClient
+      .from("xero_documents")
+      .select(
+        "id,kind,local_reference,status,sync_status,total_cents,document_date,version,xero_document_number,xero_status,source_booking_reference,venue,created_at,updated_at",
+      )
+      .eq("source_booking_reference", booking.booking_reference)
+      .or(`source_booking_id.eq.${booking.id},source_booking_id.is.null`)
+      .in("kind", ["quote", "invoice"])
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(100);
+    if (documentsError) throw documentsError;
+
+    return Response.json({ documents: documents ?? [] });
+  }
   const documentId = url.searchParams.get("documentId")?.trim();
   if (documentId) {
     if (!/^[0-9a-f-]{36}$/i.test(documentId)) {

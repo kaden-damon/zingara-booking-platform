@@ -92,6 +92,9 @@ const DineplanReconciliation = dynamic(
 );
 const ManagementAnalytics = dynamic(() => import("./ManagementAnalytics"));
 const XeroWorkspace = dynamic(() => import("./XeroWorkspace"));
+const BookingDocumentsSection = dynamic(
+  () => import("./BookingDocumentsSection"),
+);
 const PotentialDuplicatesPanel = dynamic(
   () => import("./PotentialDuplicatesPanel"),
 );
@@ -44742,6 +44745,15 @@ export default function AdminDashboardPage() {
                         </p>
                       )}
                     </section>
+                    {(canManageBookings ||
+                      canReconcileBookings ||
+                      canViewAnalytics ||
+                      canManageSettings) && (
+                      <BookingDocumentsSection
+                        key={booking.reference}
+                        bookingReference={booking.reference}
+                      />
+                    )}
                     {isCorporateBooking && booking.corporatePaymentBasis && (
                       <div className="mt-4 rounded-2xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
