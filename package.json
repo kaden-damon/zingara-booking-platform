@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "next build",
+    "build": "next build && node scripts/check-admin-performance-budget.mjs",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "performance:budget": "node scripts/check-admin-performance-budget.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

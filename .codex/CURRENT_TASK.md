@@ -1,109 +1,104 @@
-PHASE 51.4 - INSTANT INTERACTION ENGINEERING
+PHASE 51.5 - LEGACY HARDWARE PERFORMANCE CERTIFICATION
 
-STATUS: COMPLETE
+STATUS: VERIFIED - RELEASE PENDING
 
 DATE: 23 OCTOBER 2026
 
 GOAL
 
-Reduce click-to-response, rendering, and main-thread work across the existing
-Admin interface without changing any screen, control, wording, permission,
-workflow, or authoritative server confirmation.
+Certify the complete Zingara operational platform against the Phase 51
+performance targets using current Production data volumes, 6x CPU throttling,
+constrained-memory evidence, and authenticated workflow checks.
 
 BASELINE
 
-- main / origin/main: 65cf694e88d45d2d279b2aa9dccfbd3d227211b9
-- Production application commit: d9f0669ae49bf1c7515a6a9eaf2631f99aacefc1
-- Production deployment: dpl_2ik6RNrkkNaBBKu9gqY3grWjcv2r (READY)
-- Production alias: https://book.zingara.co.za
-- Rollback commit: 65cf694e88d45d2d279b2aa9dccfbd3d227211b9
-- Authenticated warm module navigation on the current Mac: Home 76 ms,
-  Bookings 75 ms, Customers 97 ms, Reports 92 ms.
-- Phase 51.3 6x CPU production-build baseline: 454,772 script bytes, no long
-  tasks in three route reloads, cold script duration 198 ms and repeat script
-  duration 40-47 ms.
-
-CONFIRMED CLIENT HOTSPOTS
-
-- The Home calendar filters the complete show population separately for each
-  rendered calendar day.
-- Academy lesson search, progress, favourites, and learning-path derivations
-  continue to run after the curriculum has loaded, including on unrelated
-  Admin screens.
-- Show operations, check-in, workflow-recipient, and floor summaries contain
-  repeated filters, sorts, financial calculations, and capacity calculations
-  in the root render path.
-- Corporate, Academy, and check-in searches synchronously filter their loaded
-  local datasets on the same urgent render as each keystroke.
-
-IMPLEMENTATION BOUNDARY
-
-- Index and memoise authoritative derived values without caching server state.
-- Defer only non-authoritative local search result rendering; input values and
-  all server verification remain immediate and unchanged.
-- Preserve state ownership, booking locks, capacity, payment and Xero
-  confirmation, error/loading states, and Phase 51.1-51.3 safeguards.
-- No schema, API, data-loading, layout, styling, wording, permission, workflow,
-  or business-rule changes.
-
-IMPLEMENTED
-
-- Indexed the visible Home calendar shows once per month/location change;
-  calendar-day rendering now performs direct lookups instead of rescanning the
-  show population for every day.
-- Memoised selected-show Floor/capacity/arrival summaries and check-in results,
-  and skip them entirely outside Home and Operations.
-- Memoised Communications recipient-show derivations and skip them outside the
-  Communications workspace.
-- Stop Academy curriculum search/progress derivations outside the Academy
-  Learning workspace. Guided Training and Training Register remain independent.
-- Deferred Corporate, Academy, and check-in local search result calculation so
-  controlled inputs receive urgent updates while authoritative records remain
-  unchanged.
-- Stabilised the booking-date set so unrelated renders do not rebuild it.
-
-MEASURED RESULT
-
-- Authenticated Phase 51.3 warm navigation baseline: Home 76 ms, Bookings 75
-  ms, Customers 97 ms, Reports 92 ms on the current Mac.
-- The 103-show calendar derivation benchmark improved from 812.14 ms to 75.99
-  ms over 20,000 complete calendar render cycles (-90.6%). This is an isolated
-  calculation benchmark, not a claim about end-to-end Production latency.
-- 6x CPU cold login-route comparison retained equivalent main-thread work:
-  Production 670.3 ms task / 182.7 ms script versus candidate 667.3 ms task /
-  193.6 ms script. Both recorded three cold-start long tasks.
-- 6x CPU warm candidate reloads recorded 236.6-240.9 ms task time, 61.7-62.7
-  ms script time, and no long tasks. Production recorded 227.7-244.3 ms task
-  time, 52.5-59.5 ms script time, and no long tasks.
-- Candidate script transfer was 455,185 bytes versus 464,647 bytes from the
-  current Production deployment under the same browser measurement (-2.0%).
-- Admin route gzip remains effectively flat at 301,667 bytes versus 301,254
-  bytes in Phase 51.3; this phase removes repeated execution rather than code.
-- No memory-reduction claim is made without an authenticated garbage-collected
-  heap profile.
-
-VERIFICATION
-
-- 66 focused interaction, Academy, booking management, concurrent booking,
-  booking/show lock, report-lock, and visible-polling tests passed.
-- TypeScript passed.
-- Changed-file ESLint passed for the new regression test. The Admin page retains
-  the same two historical `react-hooks/set-state-in-effect` findings in
-  unchanged show/date synchronisation code; no new lint finding was introduced.
-- `git diff --check` passed.
-- Production build passed with the existing ticket PDF filesystem-tracing
-  warning only.
-- No API, schema, request, mutation, loading-state, UI, permission, workflow, or
-  business-data change.
-
-PRODUCTION RELEASE
-
-- Application commit: 2caec8aa9014c70f85c6948ea42a02e7cc7a1e07
+- main / origin/main: 4a445339c80298e1b822ab4188a37246dfe35d32
+- Production application commit: 2caec8aa9014c70f85c6948ea42a02e7cc7a1e07
 - Production deployment: dpl_4o3FQtmm2oUbqMDeC8h7K25NAaCV (READY)
 - Production alias: https://book.zingara.co.za
-- Production `/admin` and `/book` returned HTTP 200.
-- Authenticated post-release module switching measured 72-97 ms across Home,
-  Bookings, Customers, and Reports on the current Mac.
-- main and origin/main matched the application commit at release.
-- Rollback commit: 65cf694e88d45d2d279b2aa9dccfbd3d227211b9
-- Production business-data delta: none
+- Rollback commit: 4a445339c80298e1b822ab4188a37246dfe35d32
+- Phase 51.4 authenticated warm module navigation: 72-97 ms.
+- Phase 51.4 Admin route: 1,256,039 raw / 301,667 gzip bytes.
+
+CERTIFICATION SCOPE
+
+- Actual authenticated Production data: 103 shows, 4,815 matching bookings,
+  10,175 customers, 186,391 telemetry events, and the current Reports data.
+- Read-only checks covered Dashboard/calendar, Standard and Corporate booking
+  lists, Booking Details and amendment controls, Companies and Customer CRM,
+  Floor, seating, arrivals and check-in, payments/refunds, Reports, Xero
+  Integrations, Academy, Guided Training, and Training Register.
+- No physical legacy Box Office computer was available. Certification is
+  therefore provisional and uses Chrome 6x CPU throttling plus an isolated
+  constrained JavaScript heap. No physical-device claim is made.
+
+AUTHENTICATED WORKFLOW RESULTS
+
+- Core module switches: Bookings 158 ms on first opening; Floor 75 ms;
+  Customers 75 ms; Reports 72 ms.
+- Sales & Performance 101 ms; Payment Analytics 61 ms.
+- More menu 85 ms; Settings 48 ms; Integrations/Xero 99 ms.
+- Companies 107 ms; repeat Bookings 78 ms; Corporate bookings 97 ms.
+- Booking Details opened in 39 ms once its bounded booking page was ready.
+- Floor & Arrivals 73 ms; Arrivals & Check-In 93 ms; Floor/seating 72 ms.
+- Academy 53 ms; Guided Training 94 ms; Training Register 74 ms.
+- All measured module and workspace interactions met the sub-200 ms target.
+  No UI, workflow, permission, or authoritative confirmation was changed.
+
+6X CPU AND CONSTRAINED-MEMORY RESULTS
+
+- Isolated production-build profile used 6x CPU throttling and a 256 MB V8 old
+  space limit. It validates the route/runtime envelope, not authenticated data
+  workflows or a physical legacy computer.
+- Cold login route: FCP 316 ms, load 554 ms, 464,744 script-transfer bytes,
+  three long tasks totalling 281 ms, 731.8 ms task time, and 194.9 ms script.
+- Five warm reloads: FCP 92-120 ms, load 99-177 ms, no long tasks, 195.2-282.2
+  ms task time, and 51.3-62.0 ms script time.
+- Garbage-collected used JavaScript heap remained 6.83 MB across the five warm
+  runs (6,828,162 to 6,835,046 bytes), with no progressive growth.
+
+CONFIRMED BOTTLENECK AND CORRECTION
+
+- The 31-day Website & Booking Conversion report failed in Production because
+  its venue-attribution lookup searched prior events by session without a
+  session/time index and aggregated irrelevant telemetry event types.
+- Before: v2/v3 RPC calls timed out after 8.3-8.9 seconds with PostgreSQL 57014;
+  the live panel displayed that analytics could not be loaded.
+- Added a partial `(session_id, created_at desc)` index for non-null sessions.
+- Restricted the existing base report to the seven event types it actually
+  aggregates and skipped venue-history lookup when direct event/booking venue
+  evidence already resolves the location.
+- After: five authoritative 31-day v3 calls returned HTTP 200 in 2.86-3.35
+  seconds with the same 12,077-byte result shape; the live Production panel
+  rendered successfully. Report calculations, filters, and displayed fields
+  were not changed.
+
+INFRASTRUCTURE FINDINGS
+
+- Supabase project is ACTIVE_HEALTHY; database size 446 MB, table data 143 MB,
+  indexes 171 MB, and both table/index cache-hit rates are 1.00.
+- No blocking or long-running database queries were present after correction.
+- The new session/time index is used and avoids sequential scans.
+- The inspected Vercel Production deployment is READY. The 24-hour window had
+  no recorded runtime errors and no HTTP 5xx request records.
+- Available evidence does not justify a Supabase or Vercel upgrade. Continue
+  measuring before purchasing additional infrastructure; the remaining cold
+  JavaScript work is a client/device concern rather than server saturation.
+
+PERMANENT PERFORMANCE STANDARDS
+
+- Every Production build now enforces Admin initial-route limits of 1,320,000
+  raw bytes, 320,000 gzip bytes, and 170,000 gzip bytes for the largest chunk.
+- Current build remains 1,256,039 raw / 301,667 gzip bytes; largest gzip chunk
+  is 160,070 bytes.
+- Budget failure stops the build and therefore stops deployment.
+- Existing bounded loading, lazy workspaces, visible-only polling, lock
+  heartbeats, authoritative writes, and server-side pagination remain required.
+
+SAFETY
+
+- Strict UX/UI freeze preserved.
+- No booking, payment, ticket, capacity, customer, Xero, or operational data
+  changed.
+- Database delta is schema/read-query only: one additive index and two guarded
+  optimisations to the existing read-only conversion report function.
