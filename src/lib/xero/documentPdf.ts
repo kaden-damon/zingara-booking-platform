@@ -376,3 +376,21 @@ function buildPdf(pages: PdfPage[]) {
 export function createXeroDocumentPdf(document: XeroPdfDocument) {
   return buildPdf(document.kind === "invoice" ? drawInvoice(document) : drawQuote(document));
 }
+
+// Corporate operational documents share the proven selectable-text renderer and
+// approved logo without changing the quotation or invoice templates above.
+export class ZingaraDocumentCanvas extends Canvas {}
+
+export function buildZingaraDocumentPdf(
+  pages: Array<{ content: string; height: number; width: number }>,
+) {
+  return buildPdf(pages);
+}
+
+export function measureZingaraDocumentText(value: string, size: number, bold = false) {
+  return textWidth(value, size, bold);
+}
+
+export function wrapZingaraDocumentText(value: string, width: number, size: number, bold = false) {
+  return wrap(value, width, size, bold);
+}

@@ -1,14 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  corporateChecklistItems,
   createEmptyCorporateBookingOperations,
-  getChecklistStatusLabel,
   normalizeCorporateBookingOperations,
   type CorporateBookingOperations,
   type CorporateOperationsBookingSnapshot,
   type CorporateOperationsDocument,
 } from "@/lib/corporateBookingOperations";
-import { createZingaraTextPdf, type ZingaraPdfSection } from "@/lib/exports/zingaraTextPdf";
+import { buildCorporateOperationalPdf } from "@/lib/corporateBookingOperationsPdf";
 
 type ServiceClient = SupabaseClient;
 
@@ -27,22 +25,29 @@ function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function moneyLabel(value: number) {
-  return `R${new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  }).format(value)}`;
-}
-
-function dateLabel(value: string) {
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat("en-ZA", { dateStyle: "long", timeZone: "Africa/Johannesburg" }).format(date);
-}
-
 function titleCaseStatus(value: string) {
   return value.replaceAll("_", " ").replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+type BookingCreationAudit = {
+  action?: string | null;
+  actor_name?: string | null;
+  actor_staff_profile_id?: string | null;
+  outcome?: string | null;
+};
+
+export function resolveCorporateBookingCreator(input: {
+  auditEvents: BookingCreationAudit[];
+  creatorName: string | null | undefined;
+  createdByStaffId: string | null | undefined;
+}) {
+  if (!input.createdByStaffId) return "Not recorded";
+  const corroboratingEvent = input.auditEvents.find((event) =>
+    event.outcome === "success" &&
+    ["booking.provenance-recorded", "booking.create"].includes(event.action ?? "") &&
+    event.actor_staff_profile_id === input.createdByStaffId,
+  );
+  return text(input.creatorName) || text(corroboratingEvent?.actor_name) || "Not recorded";
 }
 
 export async function loadCorporateOperationsContext(
@@ -64,7 +69,7 @@ export async function loadCorporateOperationsContext(
     throw new Error("NOT_CORPORATE_BOOKING");
   }
 
-  const [showResult, customerResult, companyResult, requestByIdResult, requestByReferenceResult, operationsResult, evidenceResult, tableResult, creatorResult] = await Promise.all([
+  const [showResult, customerResult, companyResult, requestByIdResult, requestByReferenceResult, operationsResult, evidenceResult, tableResult, creatorResult, creationAuditResult] = await Promise.all([
     serviceClient.from("shows").select("id,date,time,venue,notes").eq("id", booking.show_id).maybeSingle(),
     serviceClient.from("customers").select("id,first_name,surname,email,mobile,dietary_requirements").eq("id", booking.customer_id).maybeSingle(),
     booking.company_id
@@ -80,8 +85,14 @@ export async function loadCorporateOperationsContext(
     booking.created_by_staff_id
       ? serviceClient.from("staff_profiles").select("full_name").eq("id", booking.created_by_staff_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
+    serviceClient.from("audit_events")
+      .select("action,actor_name,actor_staff_profile_id,outcome")
+      .eq("entity_reference", booking.booking_reference)
+      .in("action", ["booking.provenance-recorded", "booking.create"])
+      .order("created_at", { ascending: true })
+      .limit(10),
   ]);
-  const firstError = [showResult, customerResult, companyResult, requestByIdResult, requestByReferenceResult, operationsResult, evidenceResult, tableResult, creatorResult]
+  const firstError = [showResult, customerResult, companyResult, requestByIdResult, requestByReferenceResult, operationsResult, evidenceResult, tableResult, creatorResult, creationAuditResult]
     .find((result) => result.error)?.error;
   if (firstError) throw firstError;
   if (!showResult.data) throw new Error("SHOW_NOT_FOUND");
@@ -143,7 +154,11 @@ export async function loadCorporateOperationsContext(
       amountPaid: money(booking.amount_paid),
       barGratuityAmount: money(evidence?.bar_gratuity_amount),
       barTabAmount: money(evidence?.bar_tab_paid_amount),
-      bookedThrough: creatorResult.data?.full_name ?? "Not recorded",
+      bookedThrough: resolveCorporateBookingCreator({
+        auditEvents: creationAuditResult.data ?? [],
+        creatorName: creatorResult.data?.full_name,
+        createdByStaffId: booking.created_by_staff_id,
+      }),
       bookingReference: booking.booking_reference,
       companyName: text(companyResult.data?.trading_name) || text(companyResult.data?.legal_name) || text(booking.company_name) || text(request?.company_name) || "Company not linked",
       dietaryRequirements: Array.from(new Set(dietaryRequirements)),
@@ -166,97 +181,9 @@ export async function loadCorporateOperationsContext(
   };
 }
 
-function sharedBookingSections(snapshot: CorporateOperationsBookingSnapshot): ZingaraPdfSection[] {
-  return [
-    {
-      title: "Booking",
-      rows: [
-        { label: "Company", value: snapshot.companyName },
-        { label: "Organiser", value: snapshot.organiserName },
-        { label: "Contact", value: [snapshot.organiserEmail, snapshot.organiserPhone].filter(Boolean).join(" / ") || "Not recorded" },
-        { label: "Reference", value: snapshot.bookingReference },
-        { label: "Booked through", value: snapshot.bookedThrough },
-        { label: "Performance", value: `${snapshot.venue} - ${dateLabel(snapshot.showDate)} - ${snapshot.showTime}` },
-        { label: "Guests", value: String(snapshot.guestCount) },
-        { label: "Seating", value: snapshot.seating },
-        { label: "Tables", value: snapshot.tableSummary },
-      ],
-    },
-    {
-      title: "Live financial position",
-      rows: [
-        { label: "Total booking amount", value: moneyLabel(snapshot.totalAmount) },
-        { label: "Total amount paid", value: moneyLabel(snapshot.amountPaid) },
-        { label: "Outstanding balance", value: moneyLabel(snapshot.outstandingAmount) },
-        { label: "Payment status", value: snapshot.paymentStatus },
-        { label: "Ticket value", value: moneyLabel(snapshot.ticketValue) },
-        { label: "Ticket gratuity", value: moneyLabel(snapshot.ticketGratuityAmount) },
-        { label: "Bar tab paid", value: moneyLabel(snapshot.barTabAmount) },
-        { label: "Bar gratuity", value: moneyLabel(snapshot.barGratuityAmount) },
-      ],
-    },
-  ];
-}
-
 export function buildCorporateOperationsPdf(
   document: CorporateOperationsDocument,
   context: CorporateOperationsContext,
 ) {
-  const { operations, snapshot } = context;
-  let title = "Corporate Function Brief";
-  let sections = sharedBookingSections(snapshot);
-
-  if (document === "function-brief") {
-    sections = [
-      ...sections,
-      { title: "Event details", rows: [
-        { label: "Event", value: snapshot.eventName },
-        { label: "Requirements", value: operations.eventRequirements },
-        { label: "Running order", value: operations.runningOrder },
-        { label: "Special requests", value: operations.specialRequests || "None recorded" },
-      ] },
-      { title: "Guest requirements", rows: [
-        { label: "Booking dietary information", value: snapshot.dietaryRequirements.join(", ") || "None recorded" },
-        { label: "Operational dietary notes", value: operations.dietaryNotes },
-        { label: "Accessibility", value: operations.accessibilityNotes },
-      ] },
-      { title: "Gratuity and staffing", rows: [
-        { label: "Allocation", value: operations.gratuityAllocation },
-        { label: "Operational notes", value: operations.functionNotes || "None recorded" },
-      ] },
-    ];
-  } else if (document === "bar-brief") {
-    title = "Corporate Bar Brief";
-    sections = [
-      ...sections,
-      { title: "Bar operations", rows: [
-        { label: "Wristbands", value: operations.wristbandDetails },
-        { label: "Service plan", value: titleCaseStatus(operations.barServicePlan) },
-        { label: "Operational limit", value: operations.operationalBarLimit === null ? "Not confirmed" : moneyLabel(operations.operationalBarLimit) },
-        { label: "Limit instructions", value: operations.barLimitInstructions || "None recorded" },
-        { label: "Alcohol restrictions", value: operations.alcoholRestrictions },
-        { label: "Settlement contact", value: operations.settlementContact || "Not applicable" },
-        { label: "Requests", value: operations.barRequests || "None recorded" },
-      ] },
-    ];
-  } else {
-    title = "Corporate Function Checklist";
-    sections = [
-      ...sections,
-      { title: "Operational review", rows: corporateChecklistItems.map((item) => ({
-        label: item.label,
-        value: `${getChecklistStatusLabel(operations.checklist[item.id].status)}${operations.checklist[item.id].note ? ` - ${operations.checklist[item.id].note}` : ""}`,
-      })) },
-      { title: "Sign-off context", rows: [
-        { label: "Employee", value: operations.employeeName || "Not recorded" },
-        { label: "Manager", value: operations.managerName || "Not recorded" },
-      ] },
-    ];
-  }
-
-  return createZingaraTextPdf({
-    sections,
-    subtitle: `${snapshot.companyName} - ${snapshot.bookingReference} - ${dateLabel(snapshot.showDate)}`,
-    title,
-  });
+  return buildCorporateOperationalPdf(document, context);
 }

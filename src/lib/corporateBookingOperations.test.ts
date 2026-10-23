@@ -7,7 +7,11 @@ import {
   getCorporateOperationsReadiness,
   normalizeCorporateBookingOperations,
 } from "./corporateBookingOperations";
-import { buildCorporateOperationsPdf, type CorporateOperationsContext } from "./corporateBookingOperationsServer";
+import {
+  buildCorporateOperationsPdf,
+  resolveCorporateBookingCreator,
+  type CorporateOperationsContext,
+} from "./corporateBookingOperationsServer";
 
 const root = process.cwd();
 const migrationPath = `${root}/supabase/migrations/20260928230000_phase_42_corporate_operations_briefs.sql`;
@@ -49,6 +53,8 @@ function context(): CorporateOperationsContext {
       eventName: "Client function",
       guestCount: 24,
       organiserName: "Lisl Whytock",
+      organiserEmail: "lisl@example.com",
+      organiserPhone: "+27000000000",
       outstandingAmount: 0,
       paymentStatus: "Fully Paid",
       seating: "Golden Circle 24",
@@ -158,13 +164,17 @@ test("function PDF uses booking-derived identity and financial values", () => {
 
 test("bar PDF distinguishes operational limit from accounting Bar Tab", () => {
   const pdf = new TextDecoder("latin1").decode(buildCorporateOperationsPdf("bar-brief", context()));
-  assert.match(pdf, /Operational limit.*R12,000.00/);
-  assert.match(pdf, /Bar tab paid.*R0.00/);
+  assert.match(pdf, /R12,000.00 Bar Limit/);
+  assert.doesNotMatch(pdf, /Bar tab paid/);
 });
 
-test("checklist PDF includes every checklist label", () => {
+test("checklist PDF includes the original operational questions and sign-off fields", () => {
   const pdf = new TextDecoder("latin1").decode(buildCorporateOperationsPdf("checklist", context()));
-  for (const item of corporateChecklistItems) assert.match(pdf, new RegExp(item.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(pdf, /Has full payment been received/);
+  assert.match(pdf, /Has a bar tab been arranged and paid for/);
+  assert.match(pdf, /strict Halaal or Kosher requirements/);
+  assert.match(pdf, /Employee Signature/);
+  assert.match(pdf, /Manager Signature/);
 });
 
 test("PDFs are valid PDF documents", () => {
@@ -175,9 +185,57 @@ test("PDFs are valid PDF documents", () => {
   }
 });
 
-test("PDF footer states live booking provenance", () => {
+test("long operational notes continue without clipping or dropping later sections", () => {
+  const longContext = context();
+  longContext.operations.runningOrder = "Extended running order detail ".repeat(180);
+  longContext.operations.specialRequests = "Special request detail ".repeat(120);
+  longContext.operations.dietaryNotes = "Dietary detail ".repeat(120);
+  const pdf = new TextDecoder("latin1").decode(buildCorporateOperationsPdf("function-brief", longContext));
+  const count = /\/Count (\d+)/.exec(pdf);
+  assert.ok(count);
+  assert.ok(Number(count[1]) > 2);
+  assert.match(pdf, /Special Requests/);
+  assert.match(pdf, /Dietaries and Allergies/);
+});
+
+test("missing operational details stay blank rather than inventing placeholders", () => {
+  const emptyContext = context();
+  emptyContext.operations = createEmptyCorporateBookingOperations();
+  emptyContext.snapshot.bookedThrough = "Not recorded";
+  emptyContext.snapshot.tableSummary = "Floor assignment required";
+  const barPdf = new TextDecoder("latin1").decode(buildCorporateOperationsPdf("bar-brief", emptyContext));
+  assert.doesNotMatch(barPdf, /Not recorded|Floor assignment required|None recorded/);
+});
+
+test("each operational PDF retains the exact booking reference", () => {
   const pdf = new TextDecoder("latin1").decode(buildCorporateOperationsPdf("function-brief", context()));
-  assert.match(pdf, /live Zingara Corporate booking record/);
+  assert.match(pdf, /ZNG-CORP01/);
+});
+
+test("Booked through resolves from immutable booking creator evidence", () => {
+  assert.equal(resolveCorporateBookingCreator({
+    auditEvents: [{
+      action: "booking.create",
+      actor_name: "Michael Davis",
+      actor_staff_profile_id: "creator-1",
+      outcome: "success",
+    }],
+    createdByStaffId: "creator-1",
+    creatorName: "Michael Davis",
+  }), "Michael Davis");
+});
+
+test("Booked through never falls back to a later unrelated actor", () => {
+  assert.equal(resolveCorporateBookingCreator({
+    auditEvents: [{
+      action: "booking.create",
+      actor_name: "Later Editor",
+      actor_staff_profile_id: "editor-2",
+      outcome: "success",
+    }],
+    createdByStaffId: "creator-1",
+    creatorName: null,
+  }), "Not recorded");
 });
 
 test("database stores only operational fields beside booking id", async () => {
@@ -268,13 +326,16 @@ test("accounting Bar Tab remains read-only in the operational editor", async () 
   assert.doesNotMatch(panel, /update\("barTabAmount"/);
 });
 
-test("shared platform PDF primitive powers reports and Corporate PDFs", async () => {
-  const [admin, server] = await Promise.all([
+test("approved selectable-text renderer powers Xero and Corporate PDFs", async () => {
+  const [admin, server, corporatePdf] = await Promise.all([
     readFile(adminPath, "utf8"),
     readFile(`${root}/src/lib/corporateBookingOperationsServer.ts`, "utf8"),
+    readFile(`${root}/src/lib/corporateBookingOperationsPdf.ts`, "utf8"),
   ]);
   assert.match(admin, /createPdfBytesFromPageContent/);
-  assert.match(server, /createZingaraTextPdf/);
+  assert.match(server, /buildCorporateOperationalPdf/);
+  assert.match(corporatePdf, /ZingaraDocumentCanvas/);
+  assert.match(corporatePdf, /buildZingaraDocumentPdf/);
 });
 
 test("Table Plan and payment source files are untouched by the feature", async () => {
