@@ -43,6 +43,7 @@ Zingara is live Production. Add compact, authorised access to existing quotation
 - Normal Booking Details loading makes zero document requests. The linked-document request runs once only after staff select `Open`.
 - Full document data and the PDF renderer load only after `View PDF` or `Download PDF`; the generated PDF is cached for the open view.
 - Quotations, invoice drafts and issued invoices have distinct labels.
+- Production QA found and corrected a duplicate React sibling key between the new document panel and the existing Corporate operations panel. Repeated booking refreshes now reconcile one document panel instead of retaining duplicate instances.
 - The Production-build Admin chunk changed from 1,003,179 bytes to 1,003,306 bytes (+127 bytes, +0.013%). The panel is a separate 6,247-byte lazy chunk.
 - Focused Xero, PDF, permissions and document-access tests: 55 passed.
 - TypeScript: passed.

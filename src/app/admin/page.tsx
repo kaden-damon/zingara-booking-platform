@@ -44750,7 +44750,6 @@ export default function AdminDashboardPage() {
                       canViewAnalytics ||
                       canManageSettings) && (
                       <BookingDocumentsSection
-                        key={booking.reference}
                         bookingReference={booking.reference}
                       />
                     )}
