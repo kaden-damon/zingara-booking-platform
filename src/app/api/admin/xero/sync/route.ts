@@ -1,10 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
-import { getXeroConnectionRuntime } from "@/lib/xero/connectionRuntime";
-import { XeroAccountingAdapter } from "@/lib/xero/accountingAdapter";
-import { executeXeroOperation } from "@/lib/xero/operations";
-import { allRequiredXeroMappingsApproved, resolveXeroPaymentAccount } from "@/lib/xero/mappings";
-import { runXeroOutboxWorker, updatesXeroDocumentIdentity, type XeroOutboxItem, type XeroWorkerStore } from "@/lib/xero/worker";
+import { runLiveXeroSyncWorker } from "@/lib/xero/liveSync";
 
 export const dynamic = "force-dynamic";
 function canManage(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
@@ -31,7 +26,7 @@ export async function POST(request: Request) {
   if (body.action === "retry") {
     if (!body.outboxId) return Response.json({ error: "Choose the sync item to retry." }, { status: 400 });
     const client = auth.serviceClient;
-    const { data: item } = await client.from("xero_sync_outbox").select("id,tenant_id,status,last_error").eq("id", body.outboxId).eq("status", "blocked").maybeSingle();
+    const { data: item } = await client.from("xero_sync_outbox").select("id,tenant_id,status,last_error").eq("id", body.outboxId).eq("operation", "document.sync").eq("status", "blocked").maybeSingle();
     if (!item) return Response.json({ error: "This sync item is no longer waiting for review." }, { status: 409 });
     const { data: connection } = await client.from("xero_connections").select("status,sync_paused").eq("tenant_id", item.tenant_id).maybeSingle();
     const nextStatus = process.env.XERO_LIVE_SYNC_AUTHORISED === "true" && connection?.status === "connected" && connection.sync_paused === false ? "pending" : "paused";
@@ -40,31 +35,5 @@ export async function POST(request: Request) {
     return Response.json({ item: updated });
   }
   if (process.env.XERO_LIVE_SYNC_AUTHORISED !== "true") return Response.json({ error: "Live Xero sync is paused and requires separate approval." }, { status: 409 });
-  const client = auth.serviceClient; const workerId = randomUUID();
-  const store: XeroWorkerStore = {
-    async claim(limit) { const { data, error } = await client.rpc("claim_xero_sync_outbox", { p_lease_seconds: 90, p_limit: limit, p_worker_id: workerId }); if (error) throw error; return (data ?? []).map((row: Record<string, unknown>) => ({ attemptCount: Number(row.attempt_count), documentId: row.document_id as string | null, id: String(row.id), idempotencyKey: String(row.idempotency_key), operation: String(row.operation), payload: row.payload as Record<string, unknown>, tenantId: String(row.tenant_id) })); },
-    async complete(item, result) {
-      const completedAt = new Date().toISOString();
-      await client.from("xero_sync_outbox").update({ completed_at: completedAt, lease_expires_at: null, lease_owner: null, provider_resource_id: result.providerId ?? null, provider_resource_number: result.providerNumber ?? null, provider_status: result.providerStatus ?? null, status: "succeeded", updated_at: completedAt }).eq("id", item.id).eq("lease_owner", workerId);
-      const contactSource = item.payload.contactSource as { companyId?: string | null; customerId?: string | null } | undefined;
-      const contact = item.payload.contact as { contactNumber?: string } | undefined;
-      if (result.providerContactId && contact?.contactNumber && contactSource && (contactSource.companyId || contactSource.customerId)) await client.from("xero_contact_mappings").upsert({ company_id: contactSource.companyId ?? null, contact_number: contact.contactNumber, customer_id: contactSource.customerId ?? null, status: "active", tenant_id: item.tenantId, updated_at: completedAt, xero_contact_id: result.providerContactId }, { onConflict: "tenant_id,contact_number" });
-      if (item.documentId && updatesXeroDocumentIdentity(item.operation)) await client.from("xero_documents").update({ sync_status: "synced", updated_at: completedAt, xero_document_id: result.providerId ?? null, xero_document_number: result.providerNumber ?? null, xero_status: result.providerStatus ?? null }).eq("id", item.documentId).eq("version", Number(item.payload.documentVersion));
-    },
-    async connection(tenantId) { const { data } = await client.from("xero_connections").select("status,sync_paused").eq("tenant_id", tenantId).maybeSingle(); const { data: mappings } = await client.from("xero_account_mappings").select("venue,category").eq("tenant_id", tenantId).not("approved_at", "is", null); return { configured: Boolean(process.env.XERO_CLIENT_ID), connected: data?.status === "connected", mappingsApproved: allRequiredXeroMappingsApproved(mappings ?? []), syncPaused: data?.sync_paused !== false }; },
-    async fail(item, failure) { await client.from("xero_sync_outbox").update({ last_error: failure.message, lease_expires_at: null, lease_owner: null, next_attempt_at: failure.delayMs ? new Date(Date.now() + failure.delayMs).toISOString() : null, status: failure.terminal ? "blocked" : "pending", updated_at: new Date().toISOString() }).eq("id", item.id).eq("lease_owner", workerId); },
-  };
-  const runtimes = new Map<string, { adapter: XeroAccountingAdapter }>();
-  return Response.json(await runXeroOutboxWorker({ store, workerId, execute: async (item: XeroOutboxItem) => {
-    let runtime = runtimes.get(item.tenantId);
-    if (!runtime) { const loaded = await getXeroConnectionRuntime(client, item.tenantId); runtime = { adapter: new XeroAccountingAdapter(loaded.transport, item.tenantId) }; runtimes.set(item.tenantId, runtime); }
-    if (item.operation === "payment.allocate") {
-      const { data: mappings, error } = await client.from("xero_account_mappings").select("account_id,account_type,approved_at,category").eq("tenant_id", item.tenantId).eq("venue", "all").in("category", ["payfast_clearing_account", "eft_payment_account"]);
-      if (error) throw error;
-      const accountId = resolveXeroPaymentAccount(item.payload.evidenceType, mappings ?? []);
-      const payment = item.payload.payment as Record<string, unknown> | undefined;
-      item = { ...item, payload: { ...item.payload, payment: { ...payment, accountId } } };
-    }
-    return executeXeroOperation(runtime.adapter, item);
-  } }));
+  return Response.json(await runLiveXeroSyncWorker(auth.serviceClient));
 }

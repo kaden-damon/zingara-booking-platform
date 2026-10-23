@@ -30,7 +30,7 @@ export const staffTourPages: StaffTourPage[] = [
   {
     body: "Zingara keeps quotations, customer acceptance, invoice requests and document status together. Your available actions continue to follow your existing role and venue permissions.",
     id: "quote-invoice-overview",
-    supporting: "Live Xero synchronisation remains paused until it is separately authorised.",
+    supporting: "Live Xero invoice creation is controlled by Accounts and is limited to eligible future Invoice Requests once separately authorised.",
     title: "Quote & Invoice Management",
   },
   {
@@ -51,7 +51,7 @@ export const staffTourPages: StaffTourPage[] = [
     title: "Request an Invoice",
   },
   {
-    body: "Tristan and Rachelle review Invoice Requested items in Reports → Accounting and use the existing Finance-authorised conversion workflow. Other staff can view permitted statuses but cannot bypass Accounts review.",
+    body: "Tristan and Rachelle review Invoice Requested items in Reports → Accounting and use the existing Finance-authorised conversion workflow. Once live Xero invoice creation is enabled, only their eligible future conversions can be submitted to Xero. Other staff can view permitted statuses but cannot bypass Accounts review.",
     id: "accounts-processing",
     supporting: "Wagheeda can receive approved reminders without receiving invoice-conversion permission.",
     title: "Accounts Processing",

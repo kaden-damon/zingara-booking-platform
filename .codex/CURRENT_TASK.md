@@ -1,47 +1,64 @@
-# Phase 50.16C - Mandatory Feature Walkthrough
+# Phase 50.4G - Xero Live Activation
 
-Zingara is live Production. Issue a new version of the existing Quote & Invoice Management Feature Walkthrough to every active staff member while preserving prior acknowledgement evidence.
+Zingara is live Production. Complete the remaining Xero readiness work for the existing Quote & Invoice Management workflow without enabling financial writes before the final human approval boundary.
 
 ## Authorised scope
 
-- New walkthrough version for all 22 active staff, including staff who completed or dismissed an earlier version.
-- Launch once when the Admin session loads, refreshes or navigates, without requiring logout/login.
-- Defer while booking, payment or other operational dialogs are active.
-- Prevent duplicate popups within the same session.
-- Record completion or dismissal against the authenticated staff identity.
-- Preserve Next, Back, Skip, Got It and Academy reopening.
-- Preserve prior acknowledgement evidence when the new version is recorded.
+- Verify the live OAuth connection, approved tenant, 16 accounting mappings, webhook readiness, environment gate, Accounts permissions, sync worker, reconciliation, and pending documents/jobs.
+- Reuse the existing Phase 49.0-50.4F Xero infrastructure.
+- Resolve verified technical blockers with the smallest safe changes.
+- Prepare only future, manually approved invoice conversions by Tristan Chetty and Rachelle Smuts.
+- Exclude historical documents, existing drafts, bulk synchronisation, payment allocations, refunds, credit notes, and unauthorised staff actions.
+- Update the Quote & Invoice walkthrough only if activation changes the staff workflow and a new version is genuinely required.
 
-## Safety and performance
+## Safety boundary
 
-- No staff impersonation and no manufactured acknowledgements.
-- No polling; use the existing authenticated session and event-driven dialog observer.
-- No role filtering: every active authenticated staff profile is eligible.
+- Keep `XERO_LIVE_SYNC_AUTHORISED=false` until the webhook security checks pass and Kaden explicitly approves the exact activation scope.
+- Do not create real Xero contacts, invoices, payments, refunds, or credit notes during verification.
+- Do not process historical or existing local documents.
+- Preserve all mappings, booking/payment/ticket/capacity data, audit evidence, idempotency, reconciliation, and unrelated changes.
 - Keep Phase 50.14 Guided Training untouched.
-- Preserve all booking, payment, ticket, capacity, Xero and reminder behaviour.
-- Preserve unrelated work and Production business data.
 
-## Baseline
+## Production baseline
 
-- Production and `origin/main`: `7d38217bd3c1e37f13496a26960ec5e7bd09c4aa`.
-- Rollback point: `7d38217bd3c1e37f13496a26960ec5e7bd09c4aa`.
-- Read-only Production reconciliation on 23 October 2026 confirmed 22 active `staff_profiles` records.
+- `main`, `origin/main`, and Production deployment: `a073560490d682ed585380a43223c743dbf628b6`.
+- Rollback point before Phase 50.4G: `a073560490d682ed585380a43223c743dbf628b6`.
+- Connected tenant: Zingara Productions (Pty) Ltd; connection remains `sync_paused`.
+- Production has 16 approved mappings, no Xero-linked local documents, no outbox rows, no webhook receipts, and no open reconciliation exceptions.
+- `XERO_LIVE_SYNC_AUTHORISED=false` and `XERO_WEBHOOK_KEY` is not configured.
+
+## Verified activation blockers
+
+- The existing enable action would promote every paused outbox row. Even though Production currently has no rows, this violates the approved future-only activation contract.
+- The activation path does not require a configured webhook signing key.
+- The existing document queue action is broader than the approved initial scope.
+
+## Required correction
+
+- Record an immutable first live-activation cutoff on the selected Xero connection.
+- Never bulk-release paused outbox rows when synchronisation is enabled.
+- Require a configured webhook signing key before connection activation.
+- Permit initial live document queueing only for invoice drafts converted from a valid accepted/requested quotation, created after the activation cutoff, and actioned by Tristan or Rachelle with existing Finance authority.
+- Leave pre-activation drafts and all non-invoice operations unavailable to this initial activation path.
+- Preserve the existing manual retry, idempotency, bounded worker, mapping, and reconciliation safeguards.
 
 ## Verification and release
 
-- Test previously acknowledged and unacknowledged users against the new version.
-- Test load, refresh, navigation, dialog deferral, session deduplication, Academy reopening and identity-bound acknowledgement.
-- Run focused tests, TypeScript, changed-file ESLint, `git diff --check` and Production build.
-- Commit, push, deploy and verify the new Production version without creating acknowledgement records during QA.
+- Run focused Xero activation, permission, idempotency, worker, webhook, and invoice-request tests.
+- Run TypeScript, changed-file ESLint, `git diff --check`, migration validation, and Production build.
+- Commit, push, and deploy only the verified technical readiness correction.
+- Keep live sync paused after deployment and report the exact Xero Developer/Vercel actions required for webhook setup and final activation approval.
 
-## Pre-release verification - 23 October 2026
+## Verified implementation - 23 October 2026
 
-- New version: `quote-invoice-management-2026-10-23-v2`.
-- Production contains 22 active staff profiles linked to 22 active authentication identities.
-- 10 active staff identities acknowledged the previous walkthrough version; 12 did not. No identity has acknowledged the new version before release.
-- Both prior states are eligible for the new version; only a valid completion or dismissal for the exact new version suppresses automatic launch.
-- Previous acknowledgement details are appended to `zingara_staff_tour_history` before the current metadata advances to the new version.
-- Admin tab navigation rechecks cached eligibility without another authentication request, while a session-level handled guard prevents duplicate popups.
-- Existing operational dialogs defer launch through the event-driven `MutationObserver`; no polling was added.
-- Focused walkthrough tests, TypeScript, `git diff --check` and Production build pass.
-- Focused changed-file ESLint passes for the walkthrough/auth modules. The single-line Admin mount change remains covered by two pre-existing `react-hooks/set-state-in-effect` findings elsewhere in the 46,000-line Admin page; those unrelated historical findings were not changed.
+- Controlled activation records an immutable first-activation timestamp and never releases historical paused work.
+- Only Tristan Chetty or Rachelle Smuts can atomically queue a future invoice converted from the exact accepted/requested quotation version.
+- The initial worker claims invoice document creation only; payments, refunds, credit notes, existing drafts, historical records and bulk work remain excluded.
+- Invoice creation retries check the stable Zingara reference before writing, and provider identity plus local completion are recorded atomically.
+- Webhooks require a valid signature, deduplicate event keys and ignore tenants other than the selected connected organisation.
+- Reconciliation is bounded to Xero invoices already linked by this workflow and cannot import historical provider documents.
+- The existing workflow runner supplies bounded retries and reconciliation without polling; both remain no-ops while the environment gate is false.
+- The Feature Walkthrough copy now reflects the controlled Accounts workflow without issuing another version or resetting acknowledgements.
+- Production remains paused with no outbox rows, linked Xero documents, webhook receipts or reconciliation exceptions.
+- Focused tests: 54 passed. TypeScript, changed-file ESLint, `git diff --check`, migration dry-run, Production schema lint and Production build passed.
+- Existing unrelated ticket-integrity schema was verified before repairing its missing Supabase migration-history entry; no ticket or booking data changed.

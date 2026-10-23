@@ -9,12 +9,13 @@ function canManage(auth: Awaited<ReturnType<typeof requireActiveStaff>>) { const
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request); if (auth.error || !auth.serviceClient) return auth.error;
   if (!canManage(auth)) return Response.json({ error: "Settings access is required." }, { status: 403 });
-  const { data, error } = await auth.serviceClient.from("xero_connections").select("id,tenant_id,tenant_name,status,sync_paused,last_sync_at,health_checked_at,health_error,organisation,connected_at").order("updated_at", { ascending: false }).limit(5);
-  if (error) throw error; return Response.json({ connections: data ?? [], configured: Boolean(process.env.XERO_CLIENT_ID && process.env.XERO_CLIENT_SECRET && process.env.XERO_REDIRECT_URI && process.env.XERO_TOKEN_ENCRYPTION_KEY), liveSyncAuthorised: process.env.XERO_LIVE_SYNC_AUTHORISED === "true" });
+  const { data, error } = await auth.serviceClient.from("xero_connections").select("id,tenant_id,tenant_name,status,sync_paused,live_sync_activated_at,last_sync_at,health_checked_at,health_error,organisation,connected_at").order("updated_at", { ascending: false }).limit(5);
+  const config = getXeroConfiguration();
+  if (error) throw error; return Response.json({ connections: data ?? [], configured: config.configured, liveSyncAuthorised: process.env.XERO_LIVE_SYNC_AUTHORISED === "true", webhookConfigured: Boolean(config.webhookKey) });
 }
 
 export async function POST(request: Request) {
-  const auth = await requireActiveStaff(request); if (auth.error || !auth.serviceClient || !auth.staffProfile) return auth.error;
+  const auth = await requireActiveStaff(request); if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) return auth.error;
   if (!canManage(auth)) return Response.json({ error: "Settings access is required." }, { status: 403 });
   const body = await request.json() as { action?: "select" | "pause" | "enable" | "disconnect"; connectionId?: string; tenantId?: string };
   if (!body.connectionId) return Response.json({ error: "Choose a Xero connection." }, { status: 400 });
@@ -29,11 +30,19 @@ export async function POST(request: Request) {
   }
   if (body.action === "enable") {
     if (process.env.XERO_LIVE_SYNC_AUTHORISED !== "true") return Response.json({ error: "Live Xero sync requires separate approval." }, { status: 409 });
+    if (!getXeroConfiguration().webhookKey) return Response.json({ error: "Configure and validate the Xero webhook before enabling live sync." }, { status: 409 });
     const { data: approvedMappings } = await auth.serviceClient.from("xero_account_mappings").select("venue,category").eq("tenant_id", current.tenant_id).not("approved_at", "is", null);
     if (!allRequiredXeroMappingsApproved(approvedMappings ?? [])) return Response.json({ error: "Accounts must approve all required venue mappings first." }, { status: 409 });
-    const { error: enableError } = await auth.serviceClient.from("xero_connections").update({ status: "connected", sync_paused: false }).eq("id", current.id).not("tenant_id", "is", null);
+    const role = Array.isArray(auth.staffProfile.roles) ? auth.staffProfile.roles[0] : auth.staffProfile.roles;
+    const { error: enableError } = await auth.serviceClient.rpc("activate_xero_connection_atomic", {
+      p_actor_auth_user_id: auth.user.id,
+      p_actor_location_scope: auth.staffProfile.venue_scope ?? [],
+      p_actor_name: auth.staffProfile.full_name,
+      p_actor_role: role?.name ?? "Staff",
+      p_actor_staff_profile_id: auth.staffProfile.id,
+      p_connection_id: current.id,
+    });
     if (enableError) throw enableError;
-    await auth.serviceClient.from("xero_sync_outbox").update({ status: "pending", updated_at: new Date().toISOString() }).eq("tenant_id", current.tenant_id).eq("status", "paused");
     return Response.json({ status: "connected" });
   }
   if (body.action === "disconnect") {

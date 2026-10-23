@@ -12,6 +12,8 @@ import { runReviewManagementWorkflows } from "@/lib/workflows/reviewManagement";
 import { isAuthorisedWorkflowCronRequest } from "@/lib/workflows/cronAuthorization";
 import { runApprovedPlatformFeedbackCampaign } from "@/lib/platformFeedbackCampaign";
 import { runInvoiceRequestReminder } from "@/lib/workflows/invoiceRequestReminders";
+import { runLiveXeroSyncWorker } from "@/lib/xero/liveSync";
+import { runLiveXeroReconciliation } from "@/lib/xero/liveReconciliation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -95,6 +97,20 @@ export async function GET(request: Request) {
       console.error("[Zingara Workflows] Invoice request reminder failed", reminderError);
       invoiceRequestReminder = { reason: "failed" };
     }
+    let xeroSync: Awaited<ReturnType<typeof runLiveXeroSyncWorker>> | { reason: "failed" };
+    try {
+      xeroSync = await runLiveXeroSyncWorker(serviceClient);
+    } catch (xeroError) {
+      console.error("[Zingara Workflows] Xero invoice sync failed", xeroError);
+      xeroSync = { reason: "failed" };
+    }
+    let xeroReconciliation: Awaited<ReturnType<typeof runLiveXeroReconciliation>> | { reason: "failed" };
+    try {
+      xeroReconciliation = await runLiveXeroReconciliation(serviceClient);
+    } catch (xeroError) {
+      console.error("[Zingara Workflows] Xero reconciliation failed", xeroError);
+      xeroReconciliation = { reason: "failed" };
+    }
     let telemetryCleanup: Awaited<ReturnType<typeof cleanupPlatformTelemetry>> =
       null;
 
@@ -121,6 +137,8 @@ export async function GET(request: Request) {
       publicPaymentHolds,
       reviewManagement,
       telemetryCleanup,
+      xeroSync,
+      xeroReconciliation,
     });
   } catch (error) {
     console.error("[Zingara Workflows] Workflow dry-run failed", error);

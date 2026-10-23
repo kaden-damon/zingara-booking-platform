@@ -65,6 +65,12 @@ export class XeroAccountingAdapter {
     return first<{ InvoiceID: string; InvoiceNumber?: string; Status?: string }>(response.data, "Invoices");
   }
   async getInvoice(invoiceId: string) { return this.transport.request({ method: "GET", path: `/Invoices/${invoiceId}`, tenantId: this.tenantId }); }
+  async findInvoicesByReference(reference: string) {
+    if (!reference) throw new Error("A stable local invoice reference is required.");
+    const where = encodeURIComponent(`Reference==\"${reference.replace(/["\\]/g, "")}\"`);
+    const response = await this.transport.request<{ Invoices?: unknown[] }>({ method: "GET", path: `/Invoices?where=${where}&page=1&pageSize=2&summaryOnly=true`, tenantId: this.tenantId });
+    return response.data.Invoices ?? [];
+  }
   async listInvoices(page = 1, modifiedAfter?: string) { return this.transport.request({ headers: modifiedAfter ? { "If-Modified-Since": modifiedAfter } : undefined, method: "GET", path: `/Invoices?page=${Math.max(1, page)}&pageSize=100&summaryOnly=true`, tenantId: this.tenantId }); }
   async listPayments(page = 1, modifiedAfter?: string) { return this.transport.request({ headers: modifiedAfter ? { "If-Modified-Since": modifiedAfter } : undefined, method: "GET", path: `/Payments?page=${Math.max(1, page)}&pageSize=100`, tenantId: this.tenantId }); }
   async listCreditNotes(page = 1, modifiedAfter?: string) { return this.transport.request({ headers: modifiedAfter ? { "If-Modified-Since": modifiedAfter } : undefined, method: "GET", path: `/CreditNotes?page=${Math.max(1, page)}&pageSize=100&summaryOnly=true`, tenantId: this.tenantId }); }

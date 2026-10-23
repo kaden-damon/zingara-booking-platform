@@ -14,7 +14,10 @@ export async function POST(request: Request) {
   try {
     const payload = parseXeroWebhook(rawBody);
     if (!payload.events.length) return new Response(null, { status: 200 });
-    const rows = payload.events.map((event) => ({ correlation: { firstEventSequence: payload.firstEventSequence, lastEventSequence: payload.lastEventSequence }, event_date_utc: event.eventDateUtc || null, event_key: xeroWebhookEventKey(event), event_sequence: payload.lastEventSequence, event_type: `${event.eventCategory}.${event.eventType}`, payload: event, resource_id: event.resourceId, status: isSupportedXeroWebhookEvent(event) ? "received" : "ignored", tenant_id: event.tenantId }));
+    const { data: connections, error: connectionError } = await client.from("xero_connections").select("tenant_id").eq("status", "connected").not("tenant_id", "is", null);
+    if (connectionError) return Response.json({ error: "Webhook tenant validation is unavailable." }, { status: 503 });
+    const allowedTenantIds = new Set((connections ?? []).map((connection) => connection.tenant_id).filter(Boolean));
+    const rows = payload.events.map((event) => ({ correlation: { firstEventSequence: payload.firstEventSequence, lastEventSequence: payload.lastEventSequence }, event_date_utc: event.eventDateUtc || null, event_key: xeroWebhookEventKey(event), event_sequence: payload.lastEventSequence, event_type: `${event.eventCategory}.${event.eventType}`, payload: event, resource_id: event.resourceId, status: allowedTenantIds.has(event.tenantId) && isSupportedXeroWebhookEvent(event) ? "received" : "ignored", tenant_id: event.tenantId }));
     const { error } = await client.from("xero_webhook_receipts").upsert(rows, { ignoreDuplicates: true, onConflict: "event_key" });
     if (error) return Response.json({ error: "Webhook receipt could not be stored." }, { status: 503 });
     return new Response(null, { status: 200 });

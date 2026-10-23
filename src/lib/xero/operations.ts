@@ -29,6 +29,13 @@ export async function executeXeroOperation(adapter: XeroAccountingAdapter, item:
       const quote = await adapter.createQuote(documentCommand, item.idempotencyKey);
       return { providerContactId: contactId, providerId: quote.QuoteID, providerNumber: quote.QuoteNumber, providerStatus: quote.Status };
     }
+    const existingInvoices = await adapter.findInvoicesByReference(documentCommand.localReference);
+    if (existingInvoices.length > 1) throw new Error("Multiple Xero invoices share this Zingara reference. Accounts review is required.");
+    if (existingInvoices.length === 1) {
+      const existing = existingInvoices[0] as { InvoiceID?: string; InvoiceNumber?: string; Status?: string };
+      if (!existing.InvoiceID) throw new Error("The matching Xero invoice has no provider identity.");
+      return { providerContactId: contactId, providerId: existing.InvoiceID, providerNumber: existing.InvoiceNumber, providerStatus: existing.Status };
+    }
     const invoice = await adapter.createInvoice(documentCommand, item.idempotencyKey);
     return { providerContactId: contactId, providerId: invoice.InvoiceID, providerNumber: invoice.InvoiceNumber, providerStatus: invoice.Status };
   }

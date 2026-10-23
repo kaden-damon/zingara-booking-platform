@@ -95,9 +95,9 @@ test("webhooks verify raw-body HMAC, deduplicate keys and ignore unsupported pay
 test("reconciliation preserves separate operational and accounting truth", () => { const local = { allocatedCents: 5000, documentId: "local", providerIds: ["payfast"], status: "AUTHORISED", totalCents: 10000 }; const xero = { allocatedCents: 5000, documentId: "xero", paymentIds: ["payment"], status: "AUTHORISED", totalCents: 10000 }; assert.equal(reconcileAccounting(local,xero),"matched"); assert.equal(reconcileAccounting(local,{...xero,allocatedCents:4000}),"amount_mismatch"); assert.equal(reconcileAccounting(local,null),"missing_xero"); assert.equal(reconcileAccounting(null,xero),"missing_local"); });
 
 test("document preparation uses approved source mapping and stable contact identity", () => {
-  const document = { company_id: "company-1", contact_customer_id: null, customer_email: "accounts@example.com", customer_name: "Example Company", document_date: "2026-10-11", id: "doc", kind: "invoice" as const, line_amount_type: "exclusive" as const, lines: [{ description: "Corporate package", quantity: "1", unitPrice: "43473.9130" }], local_reference: "ZD-1", source_booking_id: null, source_corporate_request_id: "request-1", status: "draft", valid_until: "2026-10-18", venue: "johannesburg" as const, version: 2 };
+  const document = { company_id: "company-1", contact_customer_id: null, customer_email: "accounts@example.com", customer_name: "Example Company", document_date: "2026-10-11", id: "doc", kind: "invoice" as const, line_amount_type: "exclusive" as const, lines: [{ description: "Corporate package", mappingCategory: "corporate", quantity: "1", taxRatePercent: "15", unitPrice: "43473.9130" }], local_reference: "ZD-1", source_booking_id: null, source_corporate_request_id: "request-1", status: "draft", valid_until: "2026-10-18", venue: "johannesburg" as const, version: 2 };
   assert.equal(documentMappingCategory(document), "corporate");
-  const payload = buildXeroDocumentSyncPayload(document, { account_code: "200", category: "corporate", tax_code: "OUTPUT2" });
+  const payload = buildXeroDocumentSyncPayload(document, [{ account_code: "200", category: "corporate", tax_code: "OUTPUT2", tax_rate: 15 }]);
   assert.equal(payload.contact.contactNumber, "ZINGARA-COMPANY-company-1");
   assert.equal(payload.command.lines[0].unitAmount, 43473.913);
   assert.throws(() => documentMappingCategory({ ...document, source_corporate_request_id: null }), /Link this document/);
@@ -167,12 +167,35 @@ test("approved mapping policy keeps venue accounts isolated and unresolved treat
 });
 
 test("document sync resolves or creates one contact through the same adapter path", async () => {
-  const transport = new MockXeroTransport([response({ Contacts: [] }), response({ Contacts: [{ ContactID: "contact" }] }), response({ Invoices: [{ InvoiceID: "invoice", InvoiceNumber: "INV-9", Status: "DRAFT" }] })]);
+  const transport = new MockXeroTransport([response({ Contacts: [] }), response({ Contacts: [{ ContactID: "contact" }] }), response({ Invoices: [] }), response({ Invoices: [{ InvoiceID: "invoice", InvoiceNumber: "INV-9", Status: "DRAFT" }] })]);
   const adapter = new XeroAccountingAdapter(transport, "tenant");
   const item: XeroOutboxItem = { attemptCount: 0, documentId: "doc", id: "item", idempotencyKey: "stable-doc", operation: "document.sync", payload: { contact: { contactNumber: "ZINGARA-COMPANY-1", emailAddress: "a@example.com", name: "A" }, documentVersion: 1, kind: "invoice", command: { currencyCode: "ZAR", date: "2026-10-11", lineAmountTypes: "NoTax", lines: [{ description: "Service", quantity: 1, unitAmount: 100, mapping: { accountCode: "200", category: "corporate", taxCode: "NONE" } }], localReference: "ZD-9" } }, tenantId: "tenant" };
   const result = await executeXeroOperation(adapter, item); assert.equal(result.providerId, "invoice"); assert.equal(result.providerContactId, "contact");
   assert.equal(transport.calls[1].idempotencyKey, "stable-doc:contact");
-  assert.equal(transport.calls[2].idempotencyKey, "stable-doc");
+  assert.match(transport.calls[2].path, /Reference/);
+  assert.equal(transport.calls[3].idempotencyKey, "stable-doc");
+});
+
+test("document sync reuses one existing Xero invoice with the stable Zingara reference", async () => {
+  const transport = new MockXeroTransport([
+    response({ Contacts: [{ ContactID: "contact" }] }),
+    response({ Invoices: [{ InvoiceID: "existing-invoice", InvoiceNumber: "INV-42", Status: "DRAFT" }] }),
+  ]);
+  const item: XeroOutboxItem = { attemptCount: 1, documentId: "doc", id: "item", idempotencyKey: "stable-doc", operation: "document.sync", payload: { contact: { contactNumber: "ZINGARA-COMPANY-1", emailAddress: "a@example.com", name: "A" }, documentVersion: 1, kind: "invoice", command: { currencyCode: "ZAR", date: "2026-10-23", lineAmountTypes: "Inclusive", lines: [{ description: "Corporate package", quantity: 1, unitAmount: 100, mapping: { accountCode: "205", category: "corporate", taxCode: "OUTPUT3" } }], localReference: "ZD-42" } }, tenantId: "tenant" };
+  const result = await executeXeroOperation(new XeroAccountingAdapter(transport, "tenant"), item);
+  assert.deepEqual(result, { providerContactId: "contact", providerId: "existing-invoice", providerNumber: "INV-42", providerStatus: "DRAFT" });
+  assert.equal(transport.calls.length, 2);
+  assert.match(transport.calls[1].path, /Reference/);
+});
+
+test("document sync blocks ambiguous duplicate Xero references", async () => {
+  const transport = new MockXeroTransport([
+    response({ Contacts: [{ ContactID: "contact" }] }),
+    response({ Invoices: [{ InvoiceID: "invoice-1" }, { InvoiceID: "invoice-2" }] }),
+  ]);
+  const item: XeroOutboxItem = { attemptCount: 1, documentId: "doc", id: "item", idempotencyKey: "stable-doc", operation: "document.sync", payload: { contact: { contactNumber: "ZINGARA-COMPANY-1", emailAddress: "a@example.com", name: "A" }, documentVersion: 1, kind: "invoice", command: { currencyCode: "ZAR", date: "2026-10-23", lineAmountTypes: "Inclusive", lines: [{ description: "Corporate package", quantity: 1, unitAmount: 100, mapping: { accountCode: "205", category: "corporate", taxCode: "OUTPUT3" } }], localReference: "ZD-42" } }, tenantId: "tenant" };
+  await assert.rejects(executeXeroOperation(new XeroAccountingAdapter(transport, "tenant"), item), /Multiple Xero invoices/);
+  assert.equal(transport.calls.length, 2);
 });
 
 test("mock transport preserves idempotency and adapter sends bounded reconciliation headers", async () => {

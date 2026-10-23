@@ -5,8 +5,8 @@ import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 import { isXeroMappingApprovalSupported, isXeroPaymentMappingCategory, xeroCategoriesForVenue, xeroMappingKey, type XeroMappingCategory, type XeroMappingVenue } from "@/lib/xero/mappings";
 
 type Candidate = { connectionId: string; tenantId: string; tenantName: string; tenantType: string };
-type Connection = { id: string; organisation: { candidates?: Candidate[]; selected?: Candidate } | null; status: string; sync_paused: boolean; tenant_id: string | null; tenant_name: string | null };
-type ConnectionPayload = { configured: boolean; connections: Connection[]; liveSyncAuthorised: boolean };
+type Connection = { id: string; live_sync_activated_at: string | null; organisation: { candidates?: Candidate[]; selected?: Candidate } | null; status: string; sync_paused: boolean; tenant_id: string | null; tenant_name: string | null };
+type ConnectionPayload = { configured: boolean; connections: Connection[]; liveSyncAuthorised: boolean; webhookConfigured: boolean };
 type Mapping = { account_code: string | null; account_id: string | null; account_name: string | null; approved_at: string | null; category: XeroMappingCategory; tax_code: string | null; tax_name: string | null; tax_rate: number | null; venue: XeroMappingVenue; verified_at: string | null };
 type MappingsPayload = { mappings: Mapping[] };
 type Account = { accountId: string; bankAccountSuffix: string; code: string; eftAccountMatch: boolean; enablePaymentsToAccount: boolean; name: string; payfastIdentifierMatch: boolean; status: string; taxType: string; type: string };
@@ -123,10 +123,11 @@ export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Pr
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 id="xero-connection-title" className="font-semibold text-white">Xero connection</h3><p className="mt-1 text-sm text-zinc-400">Local quotes and invoice drafts work now. Accounts connection and sync remain paused.</p></div><div className="flex flex-wrap gap-2">
       {!current?.tenant_id && <button type="button" className={button} disabled={busy || !payload?.configured} onClick={() => void connect()}>{payload?.configured ? "Connect Xero" : "Awaiting connection details"}</button>}
       {current?.tenant_id && <button type="button" className={button} disabled={busy || current.sync_paused} onClick={() => void act("pause")}>Pause Sync</button>}
-      {current?.tenant_id && <button type="button" className={button} disabled={busy || !payload?.liveSyncAuthorised} title={payload?.liveSyncAuthorised ? "Enable approved sync" : "Separate Production approval is required"} onClick={() => void act("enable")}>Enable Sync</button>}
+      {current?.tenant_id && <button type="button" className={button} disabled={busy || !payload?.liveSyncAuthorised || !payload?.webhookConfigured} title={!payload?.webhookConfigured ? "Configure and validate the Xero webhook first" : payload?.liveSyncAuthorised ? "Enable approved future invoice sync" : "Separate Production approval is required"} onClick={() => void act("enable")}>Enable Sync</button>}
       {current && <button type="button" className={button} disabled={busy} onClick={() => void act("disconnect")}>Disconnect</button>}
     </div></div>
     {error && <p role="alert" className="mt-3 rounded-lg border border-red-400/30 bg-red-950/25 p-3 text-sm text-red-100">{error}</p>}
+    {current?.tenant_id && !payload?.webhookConfigured && <p className="mt-3 rounded-lg border border-amber-300/25 bg-amber-950/20 p-3 text-xs text-amber-100">Webhook setup is required before live Xero invoice creation can be enabled.</p>}
     {candidates.length > 0 && !current?.tenant_id && <div className="mt-4"><p className="text-xs font-semibold uppercase text-zinc-400">Choose the approved organisation</p><div className="mt-2 flex flex-wrap gap-2">{candidates.map((candidate) => <button key={candidate.tenantId} type="button" className={button} disabled={busy} onClick={() => void act("select", candidate.tenantId)}>{candidate.tenantName}</button>)}</div></div>}
 
     {current?.tenant_id && discovery && <div className="mt-4">

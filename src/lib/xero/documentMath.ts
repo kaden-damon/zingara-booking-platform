@@ -2,6 +2,7 @@ export type XeroLineAmountType = "exclusive" | "inclusive" | "no-tax";
 
 export type XeroDocumentLineInput = {
   description: string;
+  mappingCategory?: string | null;
   quantity: string;
   unitPrice: string;
   taxRatePercent: string | null;
