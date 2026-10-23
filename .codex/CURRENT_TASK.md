@@ -1,6 +1,6 @@
 PHASE 51.3 - LIGHTWEIGHT ADMIN ARCHITECTURE
 
-STATUS: VERIFIED - RELEASE IN PROGRESS
+STATUS: COMPLETE
 
 DATE: 23 OCTOBER 2026
 
@@ -82,3 +82,12 @@ VERIFICATION
 - Production build passed with only the existing ticket PDF filesystem-tracing
   warning.
 - No schema, API, business-data, permission, layout, or workflow change.
+
+PRODUCTION RELEASE
+
+- Application commit: d9f0669ae49bf1c7515a6a9eaf2631f99aacefc1
+- Deployment: dpl_2ik6RNrkkNaBBKu9gqY3grWjcv2r (READY)
+- Production alias: https://book.zingara.co.za
+- Live `/admin` and `/book`: HTTP 200; Admin login rendered successfully.
+- Rollback: c23c44a4d375778f10af08bfe6a8bd4cf3ad5f1b
+- Production business-data delta: none.
