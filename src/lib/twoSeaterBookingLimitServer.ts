@@ -1,7 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { getPublicBookingCutoff } from "@/lib/bookingDeadlines";
+import { isPublicBookingOpen } from "@/lib/publicBookingSales";
 import { type SeatingZoneId, normalizeShowLocation } from "@/lib/zingaraDemo";
 import { loadPublicShowAvailabilityBatch } from "@/lib/supabase/publicShowAvailability";
+import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 import {
   TWO_SEATER_BOOKING_LIMIT,
   type TwoSeaterAlternativeShow,
@@ -41,19 +44,23 @@ export async function loadTwoSeaterAlternativeShows(
   const location = normalizeShowLocation(input.currentShow.venue);
   if (!location) return [];
 
-  const { data: candidates, error: showError } = await client
-    .from("shows")
-    .select("id,name,date,time,venue,notes,status")
-    .eq("venue", input.currentShow.venue)
-    .eq("status", "active")
-    .gte("date", input.currentShow.date)
-    .neq("id", input.currentShow.id)
-    .order("date", { ascending: true })
-    .order("time", { ascending: true })
-    .limit(alternativeCandidateLimit);
+  const [{ data: candidates, error: showError }, settings] = await Promise.all([
+    client
+      .from("shows")
+      .select("id,name,date,time,venue,notes,status")
+      .eq("venue", input.currentShow.venue)
+      .eq("status", "active")
+      .gte("date", input.currentShow.date)
+      .neq("id", input.currentShow.id)
+      .order("date", { ascending: true })
+      .order("time", { ascending: true })
+      .limit(alternativeCandidateLimit),
+    loadServerVenueSettings(client),
+  ]);
 
   if (showError) throw showError;
   if (!candidates?.length) return [];
+  if (!isPublicBookingOpen(settings, location)) return [];
 
   const showIds = candidates.map((show) => show.id);
   const [availabilityByShow, twoSeaterResult] = await Promise.all([
@@ -76,11 +83,17 @@ export async function loadTwoSeaterAlternativeShows(
 
   return candidates.flatMap((show): TwoSeaterAlternativeShow[] => {
     const availability = availabilityByShow.get(show.id);
+    const cutoff = getPublicBookingCutoff({
+      date: show.date,
+      location,
+      settings,
+    });
     const hasRequestedZone =
       availability?.publicSalesOpenByZone[input.zoneId] === true &&
       (availability.remainingSeatsByZone[input.zoneId] ?? 0) >= 2;
 
     if (
+      cutoff.closed ||
       !availability?.showPubliclyBookable ||
       !hasRequestedZone ||
       (counts.get(show.id) ?? 0) >= TWO_SEATER_BOOKING_LIMIT

@@ -101,5 +101,8 @@ test("booking UI offers bounded alternatives and a Box Office route", async () =
   assert.match(server, /\.eq\("status", "active"\)/);
   assert.match(server, /alternativeCandidateLimit = 18/);
   assert.match(server, /alternativeResultLimit = 5/);
+  assert.match(server, /isPublicBookingOpen\(settings, location\)/);
+  assert.match(server, /getPublicBookingCutoff/);
+  assert.match(server, /cutoff\.closed/);
   assert.match(server, /remainingSeatsByZone\[input\.zoneId\].*>= 2/s);
 });

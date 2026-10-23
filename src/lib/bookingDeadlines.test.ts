@@ -66,6 +66,34 @@ test("public booking closes exactly at the 12:00 SAST cutoff", () => {
   );
 });
 
+test("both venues use the exact SAST boundary before, at and after noon", () => {
+  for (const location of ["cape-town", "johannesburg"] as const) {
+    const before = getPublicBookingCutoff({
+      date: "2026-10-23",
+      location,
+      now: new Date("2026-10-23T09:59:59.999Z"),
+      settings,
+    });
+    const atCutoff = getPublicBookingCutoff({
+      date: "2026-10-23",
+      location,
+      now: new Date("2026-10-23T10:00:00.000Z"),
+      settings,
+    });
+    const after = getPublicBookingCutoff({
+      date: "2026-10-23",
+      location,
+      now: new Date("2026-10-23T10:00:00.001Z"),
+      settings,
+    });
+
+    assert.equal(before.closed, false);
+    assert.equal(atCutoff.closed, true);
+    assert.equal(after.closed, true);
+    assert.equal(atCutoff.cutoffAt, "2026-10-23T10:00:00.000Z");
+  }
+});
+
 test("future shows remain available", () => {
   assert.equal(
     getPublicBookingCutoff({
@@ -155,6 +183,17 @@ test("public API cutoff guard precedes customer mutation and exempts staff", asy
   );
   assert.ok(guard > 0 && mutation > guard);
   assert.match(source, /booking\.source === "online" && !isTrustedStaff/);
+});
+
+test("legacy booking cutoff hours do not override the venue same-day rule", async () => {
+  const [deadlineSource, routeSource] = await Promise.all([
+    readFile(new URL("./bookingDeadlines.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/bookings/route.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(deadlineSource, /bookingCutoffHours/);
+  assert.doesNotMatch(routeSource, /bookingCutoffHours/);
+  assert.match(routeSource, /getPublicBookingCutoff/);
 });
 
 test("historical Corporate hold migration remains documented as the superseded implementation", async () => {

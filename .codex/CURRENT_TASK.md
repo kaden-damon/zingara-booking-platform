@@ -1,48 +1,42 @@
-# P0 - Two-Seater Booking Limit & Alternative Dates
+# P0 - Same-Day Cutoff & Two-Seater Live Verification
 
-Zingara is live Production. Diagnose and implement one surgical operational safeguard without changing existing bookings or unrelated workflows.
+Zingara is live Production. Verify the public same-day booking cutoff and the newly deployed two-seater limit using read-only Production evidence and isolated fixtures. Correct only proven defects.
 
-## Goal
+## Authoritative rules
 
-Enforce a maximum of 20 authoritative qualifying two-seater table requests per performance, including concurrent creates and relevant amendments, while preserving every existing booking, payment, ticket, capacity and seating record.
-
-## Required work
-
-- Identify the persisted source of truth for a two-seater request and reconcile the current Production population.
-- Define and document the exact active-booking counting rule without guessing from names, notes or table assignments.
-- Enforce the boundary atomically at the database layer for creation, show transfer, lifecycle restoration and guest-count amendments.
-- Preserve existing bookings even if historical occupancy already exceeds the new limit; only block changes that increase the qualifying count.
-- Return a structured conflict to public and staff booking workflows.
-- Present a compact black/gold alternative-date dialog with only active, bookable performances that still have two-seater and ordinary capacity availability, plus a Box Office contact action.
-- Keep mobile behaviour simple and accessible.
+- Cape Town and Johannesburg public bookings close at 12:00 SAST on the performance date when the venue-specific same-day cutoff is enabled.
+- The venue-specific same-day cutoff is the public-sales authority. The legacy `bookingCutoffHours` value does not participate in public booking eligibility or booking creation.
+- A qualifying two-seater claim is an unarchived booking for exactly two guests in `new`, `pending_payment`, `confirmed` or `checked_in` lifecycle state.
+- At most twenty new qualifying claims may exist per performance. Existing historical claims are preserved.
 
 ## Verification
 
-- Reconcile actual Production counts and identify performances at or above the limit.
-- Test 19/20/21, concurrency, cancellation/release, reinstatement, guest-count amendments and show transfers.
-- Verify larger bookings and unrelated workflows remain unchanged.
-- Run focused tests, TypeScript, changed-file ESLint, `git diff --check`, migration validation and Production build.
-- Deploy the smallest verified correction and confirm Production without creating test bookings.
+- Read the saved Production venue configuration and reconcile the two cutoff settings.
+- Verify UI eligibility and the public booking API at the exact 11:59:59.999/12:00:00 SAST boundary and confirm direct callers cannot bypass the server guard.
+- Reconcile current Production two-seater counts without mutation.
+- Verify the 19/20/21 boundary, database concurrency lock, cancellation/amendment behavior, structured conflict and branded popup.
+- Verify every suggested alternative is active, venue-correct, publicly open, before its same-day cutoff, below the two-seater limit and has at least two seats in the requested zone.
 
 ## Safety
 
-- No historical booking mutation or guessed classification.
-- No Production test bookings, payments, tickets, capacity edits or communications.
-- Keep Xero paused and its pending webhook configuration untouched.
+- No Production bookings, payments, tickets, customers, capacity, communications or financial records may be created or changed.
 - Keep Phase 50.14 Guided Training untouched.
-- Preserve unrelated user-owned files and generated outputs.
+- Keep Xero synchronisation paused and do not alter webhook configuration.
+- Preserve unrelated user-owned files and worktree outputs.
 
-Final status: P0 complete - two-seater limit and alternative dates live.
+## Confirmed defect
 
-## Verified implementation - 23 October 2026
+- The initial two-seater alternative-date helper validated status, venue, zone sales, capacity and two-seater count but did not apply the venue's public opening and same-day cutoff settings. A same-day alternative could therefore be suggested after 12:00 SAST even though selection and the server booking endpoint would reject it.
+- Correct the existing helper at the narrow eligibility boundary; do not change the booking limit, historical records or public booking architecture.
 
-- Production baseline before this P0: `0679e495e170f2084c7718f86b86982ddcddc362`; `main` and `origin/main` matched before editing.
-- The authoritative classification is an unarchived booking with exactly two guests whose lifecycle is `new`, `pending_payment`, `confirmed` or `checked_in`. Table assignment is deliberately not used because ordinary bookings receive physical tables later.
-- The final fully paginated read-only Production reconciliation covered 197 upcoming performances and 2,784 booking rows. One hundred and two performances have qualifying two-guest bookings.
-- Several performances already exceeded the new limit before enforcement. The highest observed count was 39 for Cape Town, 24 October 2026 at 18:00. These existing entitlements are preserved; the guard blocks only writes that would add another qualifying booking. No historical booking was changed.
-- A database trigger serialises new qualifying claims per performance and blocks only the twenty-first claim. Existing qualifying bookings remain editable; cancellation, archive, release and guest-count increases away from two remain available.
-- The same guard covers public and staff creation, reinstatement/reactivation, transfer into another performance, and amendments that change a booking into a two-guest entitlement.
-- The booking API returns a structured conflict with at most five same-venue active alternatives. Alternatives must remain publicly bookable, have the requested zone open, retain at least two ordinary seats and remain below the two-seater limit.
-- The existing booking journey now shows a compact black/gold alternative-date dialog and Box Office contact action. Safe intercepted browser QA passed at 390px and 1440px with no horizontal overflow and no Production write.
-- Focused two-seater and amendment tests passed (8/8); the broader selected booking/capacity run passed 49 assertions. TypeScript, migration dry-run, Production schema lint, `git diff --check` and Production build passed. Changed-file lint has no new errors; the public booking page retains its pre-existing React effect lint findings.
-- No booking, payment, ticket, table, capacity, customer, communication or Xero business data was modified during investigation or QA.
+## Verified outcome - 23 October 2026
+
+- Production stores `sameDayCutoffEnabled=true` and `sameDayCutoffTime=12:00` for Cape Town and Johannesburg. The timestamp is constructed explicitly at `+02:00`, so 11:59:59.999 SAST is open and 12:00:00.000 SAST is closed.
+- The public UI removes same-day availability at the cutoff. The public `POST /api/bookings` route independently resolves the authoritative show and venue settings, then returns `PUBLIC_BOOKING_CUTOFF_REACHED` before customer, booking, payment, capacity or ticket mutation. Unauthenticated callers cannot claim an internal source label.
+- `bookingCutoffHours=4` is a legacy saved/displayed value with no execution reference outside the settings model and Admin field. The venue-specific 12:00 rule therefore takes precedence for public bookings.
+- The fully paginated read-only reconciliation covered 197 upcoming performances and 2,786 booking rows. One hundred and two performances contain qualifying two-guest bookings; six pre-existing performances are at or above twenty and remain grandfathered.
+- The remote database migration contains the atomic trigger guard. It serialises new claims by performance, allows the twentieth claim when nineteen exist and blocks the twenty-first when twenty exist. Cancellation/archive/non-occupying lifecycle changes release a claim; existing same-show qualifying bookings remain editable.
+- Alternative-date discovery now also requires the authoritative venue public-booking window to be open and each candidate to remain before its same-day cutoff. Existing active-status, venue, zone sales, capacity, buyout and two-seater-count checks remain intact.
+- At 12:23 SAST, live public UI verification showed Cape Town 23 October disabled as `Online bookings closed`; future available dates remained selectable. Read-only alternative reconciliation found valid future same-venue candidates for every enabled seating zone on each capped active performance.
+- Nineteen focused cutoff/two-seater tests, TypeScript, changed-file ESLint, `git diff --check` and the Production build passed. The build retained one unrelated existing dynamic-font tracing warning.
+- Production business-data delta during verification and QA: zero.
