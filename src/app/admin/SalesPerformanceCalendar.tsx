@@ -2,11 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  calculateManagementAnalytics,
-  defaultManagementAnalyticsFilters,
   getJohannesburgDateKey,
   type AnalyticsVenue,
-  type ManagementAnalyticsDataset,
 } from "@/lib/managementAnalytics";
 import {
   getCalendarGridDates,
@@ -83,11 +80,13 @@ function PerformanceCard({ row }: { row: SalesPerformanceRow }) {
 }
 
 export default function SalesPerformanceCalendar({
-  dataset,
+  asOf,
+  rows,
 }: {
-  dataset: ManagementAnalyticsDataset;
+  asOf: string;
+  rows: SalesPerformanceRow[];
 }) {
-  const currentMonth = getJohannesburgDateKey(dataset.asOf).slice(0, 7);
+  const currentMonth = getJohannesburgDateKey(asOf).slice(0, 7);
   const [month, setMonth] = useState(currentMonth);
   const [venue, setVenue] = useState<"all" | AnalyticsVenue>("all");
 
@@ -112,19 +111,19 @@ export default function SalesPerformanceCalendar({
     window.history.replaceState(window.history.state, "", url);
   }, [month, venue]);
 
-  const rows = useMemo(() => {
+  const visibleRows = useMemo(() => {
     const range = getCalendarMonthRange(month);
-    return calculateManagementAnalytics(dataset, {
-      ...defaultManagementAnalyticsFilters,
-      performanceFrom: range.from,
-      performanceTo: range.to,
-      venue,
-    }).performanceDemand;
-  }, [dataset, month, venue]);
-  const summary = useMemo(() => summarizeSalesPerformance(rows), [rows]);
-  const rowsByDate = useMemo(() => groupSalesPerformanceByDate(rows), [rows]);
+    return rows.filter(
+      (row) =>
+        row.date >= range.from &&
+        row.date <= range.to &&
+        (venue === "all" || row.venue === venue),
+    );
+  }, [month, rows, venue]);
+  const summary = useMemo(() => summarizeSalesPerformance(visibleRows), [visibleRows]);
+  const rowsByDate = useMemo(() => groupSalesPerformanceByDate(visibleRows), [visibleRows]);
   const gridDates = useMemo(() => getCalendarGridDates(month), [month]);
-  const today = getJohannesburgDateKey(dataset.asOf);
+  const today = getJohannesburgDateKey(asOf);
   const emptyMessage = venue === "cape-town"
     ? "No Cape Town performances this month."
     : venue === "johannesburg"
@@ -159,7 +158,7 @@ export default function SalesPerformanceCalendar({
         <SummaryMetric label="Outstanding" value={money.format(summary.outstanding)} />
       </div>
 
-      {rows.length === 0 ? (
+      {visibleRows.length === 0 ? (
         <p className="border-y border-white/10 py-12 text-center text-zinc-400">{emptyMessage}</p>
       ) : (
         <>

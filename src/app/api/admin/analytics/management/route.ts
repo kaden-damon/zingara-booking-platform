@@ -1,4 +1,10 @@
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
+import {
+  calculateManagementAnalytics,
+  calculateManagementAnalyticsSummary,
+  defaultManagementAnalyticsFilters,
+  filtersFromSearchParams,
+} from "@/lib/managementAnalytics";
 import { loadManagementAnalyticsDataset } from "@/lib/supabase/managementAnalyticsServer";
 
 export const dynamic = "force-dynamic";
@@ -22,13 +28,19 @@ export async function GET(request: Request) {
   }
 
   try {
+    const filters = filtersFromSearchParams(new URL(request.url).searchParams);
     const dataset = await loadManagementAnalyticsDataset(
       auth.serviceClient,
       auth.staffProfile.venue_scope,
     );
+    const analytics = calculateManagementAnalyticsSummary(dataset, filters);
+    const salesPerformance = calculateManagementAnalytics(
+      dataset,
+      defaultManagementAnalyticsFilters,
+    ).performanceDemand;
 
     return Response.json(
-      { dataset },
+      { analytics, asOf: dataset.asOf, salesPerformance, shows: dataset.shows },
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error) {

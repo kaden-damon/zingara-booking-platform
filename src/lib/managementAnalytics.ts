@@ -758,6 +758,31 @@ export function calculateManagementAnalytics(
   };
 }
 
+export type ManagementAnalyticsSummary = Omit<
+  ReturnType<typeof calculateManagementAnalytics>,
+  "activityBookings" | "demandBookings"
+>;
+
+export function calculateManagementAnalyticsSummary(
+  dataset: ManagementAnalyticsDataset,
+  filters: ManagementAnalyticsFilters,
+): ManagementAnalyticsSummary {
+  const analytics = calculateManagementAnalytics(dataset, filters);
+
+  return {
+    core: analytics.core,
+    dayOfWeek: analytics.dayOfWeek,
+    highlights: analytics.highlights,
+    leadTime: analytics.leadTime,
+    midweekVsWeekend: analytics.midweekVsWeekend,
+    payments: analytics.payments,
+    performanceDemand: analytics.performanceDemand,
+    performanceMonths: analytics.performanceMonths,
+    seatingDemand: analytics.seatingDemand,
+    sourceAnalysis: analytics.sourceAnalysis,
+  };
+}
+
 export function selectManagementForecastRows(
   rows: ReturnType<typeof calculateManagementAnalytics>["performanceDemand"],
   asOf: string,

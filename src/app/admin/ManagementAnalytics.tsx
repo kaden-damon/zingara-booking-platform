@@ -3,16 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   analyticsTimezone,
-  calculateManagementAnalytics,
   defaultManagementAnalyticsFilters,
   filtersToSearchParams,
   getManagementForecastAttention,
   selectManagementForecastRows,
-  type ManagementAnalyticsDataset,
   type ManagementAnalyticsFilters,
+  type ManagementAnalyticsShow,
+  type ManagementAnalyticsSummary,
   type ManagementForecastScope,
   weekdayNames,
 } from "@/lib/managementAnalytics";
+import type { SalesPerformanceRow } from "@/lib/salesPerformanceCalendar";
 import {
   dailyAnalyticsSeriesStart,
   type DailyAnalyticsVenue,
@@ -358,7 +359,10 @@ export default function ManagementAnalytics({
 }: {
   onOpenReview?: (reviewId: string, status: string) => void;
 }) {
-  const [dataset, setDataset] = useState<ManagementAnalyticsDataset | null>(null);
+  const [analytics, setAnalytics] = useState<ManagementAnalyticsSummary | null>(null);
+  const [analyticsAsOf, setAnalyticsAsOf] = useState("");
+  const [analyticsShows, setAnalyticsShows] = useState<ManagementAnalyticsShow[]>([]);
+  const [salesPerformance, setSalesPerformance] = useState<SalesPerformanceRow[]>([]);
   const [filters, setFilters] = useState<ManagementAnalyticsFilters>(defaultManagementAnalyticsFilters);
   const [filtersLoaded, setFiltersLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -402,34 +406,60 @@ export default function ManagementAnalytics({
   const load = async () => {
     setLoading(true); setError("");
     try {
-      const body = await fetchSupabaseApi<{ dataset: ManagementAnalyticsDataset }>("/api/admin/analytics/management");
-      setDataset(body.dataset);
+      const params = filtersToSearchParams(filters);
+      const body = await fetchSupabaseApi<{
+        analytics: ManagementAnalyticsSummary;
+        asOf: string;
+        salesPerformance: SalesPerformanceRow[];
+        shows: ManagementAnalyticsShow[];
+      }>(`/api/admin/analytics/management?${params.toString()}`);
+      setAnalytics(body.analytics);
+      setAnalyticsAsOf(body.asOf);
+      setSalesPerformance(body.salesPerformance);
+      setAnalyticsShows(body.shows);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Management analytics could not be loaded.");
     } finally { setLoading(false); }
   };
 
   useEffect(() => {
+    if (!filtersLoaded) return;
     let active = true;
-    fetchSupabaseApi<{ dataset: ManagementAnalyticsDataset }>("/api/admin/analytics/management")
-      .then((body) => {
-        if (active) setDataset(body.dataset);
-      })
-      .catch((loadError: unknown) => {
-        if (active) setError(loadError instanceof Error ? loadError.message : "Management analytics could not be loaded.");
-      })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, []);
-  const analytics = useMemo(() => dataset ? calculateManagementAnalytics(dataset, filters) : null, [dataset, filters]);
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      setError("");
+      const params = filtersToSearchParams(filters);
+      void fetchSupabaseApi<{
+        analytics: ManagementAnalyticsSummary;
+        asOf: string;
+        salesPerformance: SalesPerformanceRow[];
+        shows: ManagementAnalyticsShow[];
+      }>(`/api/admin/analytics/management?${params.toString()}`)
+        .then((body) => {
+          if (!active) return;
+          setAnalytics(body.analytics);
+          setAnalyticsAsOf(body.asOf);
+          setSalesPerformance(body.salesPerformance);
+          setAnalyticsShows(body.shows);
+        })
+        .catch((loadError: unknown) => {
+          if (active) setError(loadError instanceof Error ? loadError.message : "Management analytics could not be loaded.");
+        })
+        .finally(() => { if (active) setLoading(false); });
+    }, 120);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [filters, filtersLoaded]);
   const performanceOptions = useMemo(
     () =>
-      (dataset?.shows ?? [])
+      analyticsShows
         .filter((show) => filters.venue === "all" || show.venue === filters.venue)
         .sort((left, right) =>
           `${right.date}${right.time}`.localeCompare(`${left.date}${left.time}`),
         ),
-    [dataset, filters.venue],
+    [analyticsShows, filters.venue],
   );
   const demandRows = useMemo(() => {
     if (!analytics) return [];
@@ -442,11 +472,11 @@ export default function ManagementAnalytics({
       analytics
         ? selectManagementForecastRows(
             analytics.performanceDemand,
-            dataset?.asOf ?? new Date().toISOString(),
+            analyticsAsOf || new Date().toISOString(),
             forecastScope,
           )
         : [],
-    [analytics, dataset?.asOf, forecastScope],
+    [analytics, analyticsAsOf, forecastScope],
   );
   const maxTrendGuests = Math.max(1, ...demandRows.map((row) => row.guests));
   const update = <Key extends keyof ManagementAnalyticsFilters>(key: Key, value: ManagementAnalyticsFilters[Key]) => setFilters((current) => ({ ...current, [key]: value }));
@@ -508,8 +538,8 @@ export default function ManagementAnalytics({
     }
   }
 
-  if (loading) return <section className="mb-8 border-y border-[#D8C36A]/25 py-12 text-center text-zinc-400" aria-busy="true">Loading Management Analytics...</section>;
-  if (error || !dataset || !analytics) return <section className="mb-8 border-y border-red-300/25 py-10 text-center"><p className="text-red-200">{error || "Management analytics could not be loaded."}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-full border border-white/20 px-5 py-2 text-sm font-semibold">Retry</button></section>;
+  if (loading && !analytics) return <section className="mb-8 border-y border-[#D8C36A]/25 py-12 text-center text-zinc-400" aria-busy="true">Loading Management Analytics...</section>;
+  if (error || !analytics) return <section className="mb-8 border-y border-red-300/25 py-10 text-center"><p className="text-red-200">{error || "Management analytics could not be loaded."}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-full border border-white/20 px-5 py-2 text-sm font-semibold">Retry</button></section>;
 
   const core = analytics.core;
   const activeFilterCount = [
@@ -565,7 +595,7 @@ export default function ManagementAnalytics({
         >
           <TicketSalesReport />
           <div className="mt-6 border-t border-white/10 pt-6">
-            <SalesPerformanceCalendar dataset={dataset} />
+            <SalesPerformanceCalendar asOf={analyticsAsOf} rows={salesPerformance} />
           </div>
         </AnalyticsSection>
         <AnalyticsSection

@@ -12,22 +12,23 @@ const migration = readFileSync(new URL("../../supabase/migrations/20260903190000
 
 test("Analytics defaults to Sales and renders one workspace at a time", () => {
   assert.match(page, /useState<AnalyticsWorkspace>\("sales"\)/);
-  assert.match(page, /Sales & Performance Demand/);
+  assert.match(page, /Sales & Performance/);
   assert.match(page, /Revenue & Demand Reporting/);
-  assert.match(page, /Manifests, Check-In Sheets & Floor Reports/);
-  assert.match(page, /analyticsWorkspace === "sales" && <ManagementAnalytics/);
+  assert.match(page, /Operations Reports/);
+  assert.match(page, /Accounting/);
+  assert.match(page, /analyticsWorkspace === "sales" && \(/);
   assert.match(page, /analyticsWorkspace === "revenue" && \(/);
   assert.match(page, /analyticsWorkspace === "reports" && \(/);
 });
 
 test("Analytics workspace navigation wraps without horizontal overflow", () => {
   assert.match(page, /aria-label="Analytics workspaces"/);
-  assert.match(page, /grid-cols-1[^\n]+md:grid-cols-3/);
+  assert.match(page, /grid-cols-2[^\n]+lg:grid-cols-4/);
   assert.match(page, /min-h-12/);
 });
 
 test("Revenue analytics is isolated from the Sales workspace", () => {
-  assert.match(page, /type AnalyticsWorkspace = "reports" \| "revenue" \| "sales"/);
+  assert.match(page, /type AnalyticsWorkspace = "accounting" \| "reports" \| "revenue" \| "sales"/);
   assert.match(
     page,
     /activeAdminTab === "analytics" && analyticsWorkspace === "revenue"/,
@@ -47,15 +48,16 @@ test("Analytics session state accepts all three workspaces", () => {
   assert.match(page, /sessionStorage\.setItem\([\s\S]*?analyticsWorkspace/);
 });
 
-test("Phase 39.57 filters stay global and analytical sections collapse", () => {
-  assert.match(analytics, /aria-labelledby="analytics-filters"/);
+test("Management filters stay global and analytical sections collapse", () => {
+  assert.match(analytics, /title="Filters"/);
   assert.match(analytics, /zingara-admin-management-analytics-filters/);
   assert.match(analytics, /sessionStorage\.setItem/);
   assert.match(analytics, /restoreFilters\(sessionStorage\.getItem/);
-  assert.match(analytics, /"booking-activity",\s*"performance-demand"/);
+  assert.match(analytics, /sectionProps\("booking-activity"\)/);
+  assert.match(analytics, /sectionProps\("performance-demand"\)/);
   for (const title of [
     "Booking Activity",
-    "Performance Demand",
+    "Forward Forecast",
     "Day of Week Performance",
     "Midweek vs Weekend",
     "Performance Month \/ Season Demand",
@@ -113,7 +115,7 @@ test("client-generated operational reports share the same lock", () => {
 });
 
 test("report generation remains separate from Analytics viewing", () => {
-  assert.match(analytics, /calculateManagementAnalytics/);
+  assert.doesNotMatch(analytics, /calculateManagementAnalytics/);
   assert.doesNotMatch(analytics, /Export Report/);
   assert.doesNotMatch(analytics, /useReportGenerationLock\(\)/);
 });

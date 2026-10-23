@@ -196,6 +196,7 @@ test("Management Analytics collapses presentation without changing shared select
   assert.match(component, /activeFilterCount/);
   assert.match(component, /<ZingaraDatePicker/);
   assert.doesNotMatch(component, /<input type="date"/);
-  assert.match(component, /calculateManagementAnalytics\(dataset, filters\)/);
+  assert.doesNotMatch(component, /calculateManagementAnalytics\(dataset, filters\)/);
+  assert.match(component, /\/api\/admin\/analytics\/management\?\$\{params\.toString\(\)\}/);
   assert.match(component, /WebsiteConversionPanel/);
 });

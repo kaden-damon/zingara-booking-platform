@@ -16,6 +16,7 @@ import {
 } from "@/lib/zingaraDemo";
 
 const pageSize = 1000;
+const pageConcurrency = 8;
 
 async function loadAllRows<Row>(
   loadPage: (from: number, to: number) => PromiseLike<{
@@ -32,6 +33,47 @@ async function loadAllRows<Row>(
     const page = (data ?? []) as Row[];
     rows.push(...page);
     if (page.length < pageSize) break;
+  }
+
+  return rows;
+}
+
+async function loadAllRowsBounded<Row>(
+  loadPage: (
+    from: number,
+    to: number,
+    count: "exact" | undefined,
+  ) => PromiseLike<{
+    count: number | null;
+    data: unknown[] | null;
+    error: { message?: string } | null;
+  }>,
+) {
+  const first = await loadPage(0, pageSize - 1, "exact");
+  if (first.error) throw first.error;
+
+  const rows = [...((first.data ?? []) as Row[])];
+  const pageCount = Math.ceil((first.count ?? rows.length) / pageSize);
+
+  for (let page = 1; page < pageCount; page += pageConcurrency) {
+    const batch = await Promise.all(
+      Array.from(
+        { length: Math.min(pageConcurrency, pageCount - page) },
+        (_, offset) => {
+          const currentPage = page + offset;
+          return loadPage(
+            currentPage * pageSize,
+            (currentPage + 1) * pageSize - 1,
+            undefined,
+          );
+        },
+      ),
+    );
+
+    for (const result of batch) {
+      if (result.error) throw result.error;
+      rows.push(...((result.data ?? []) as Row[]));
+    }
   }
 
   return rows;
@@ -58,6 +100,8 @@ type BookingRow = {
     pax?: number | string;
     zoneId?: string;
   }> | null;
+  customers: CustomerRow | CustomerRow[] | null;
+  payments: PaymentRow[] | null;
 };
 
 type CustomerRow = {
@@ -103,29 +147,13 @@ export async function loadManagementAnalyticsDataset(
   serviceClient: SupabaseClient,
   venueScope: string[],
 ): Promise<ManagementAnalyticsDataset> {
-  const [bookingRows, customerRows, paymentRows, showRows, venueSettingsResult] =
-    await Promise.all([
-      loadAllRows<BookingRow>((from, to) =>
+  const [bookingRows, showRows, venueSettingsResult] = await Promise.all([
+      loadAllRowsBounded<BookingRow>((from, to, count) =>
         serviceClient
           .from("bookings")
           .select(
-            "id,customer_id,show_id,corporate_request_id,booking_reference,booking_source,booking_origin,guest_count,booking_status,payment_status,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,created_at,archived_at",
-          )
-          .order("id")
-          .range(from, to),
-      ),
-      loadAllRows<CustomerRow>((from, to) =>
-        serviceClient
-          .from("customers")
-          .select("id,first_name,surname,email,mobile,created_at")
-          .order("id")
-          .range(from, to),
-      ),
-      loadAllRows<PaymentRow>((from, to) =>
-        serviceClient
-          .from("payments")
-          .select(
-            "id,booking_id,payment_type,payment_status,amount,processed_at,created_at,provider_gross_amount,transaction_fee_amount",
+            "id,customer_id,show_id,corporate_request_id,booking_reference,booking_source,booking_origin,guest_count,booking_status,payment_status,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,created_at,archived_at,customers(created_at,email,first_name,id,mobile,surname),payments(amount,booking_id,created_at,id,payment_status,payment_type,processed_at,provider_gross_amount,transaction_fee_amount)",
+            count ? { count } : undefined,
           )
           .order("id")
           .range(from, to),
@@ -200,7 +228,24 @@ export async function loadManagementAnalyticsDataset(
     );
   const bookingIds = new Set(bookings.map((booking) => booking.id));
   const customerIds = new Set(bookings.map((booking) => booking.customerId));
-  const customers = customerRows
+  const customerRows = new Map<string, CustomerRow>();
+  const paymentRows = new Map<string, PaymentRow>();
+
+  for (const booking of bookingRows) {
+    const relatedCustomers = Array.isArray(booking.customers)
+      ? booking.customers
+      : booking.customers
+        ? [booking.customers]
+        : [];
+    for (const customer of relatedCustomers) {
+      customerRows.set(customer.id, customer);
+    }
+    for (const payment of booking.payments ?? []) {
+      paymentRows.set(payment.id, payment);
+    }
+  }
+
+  const customers = Array.from(customerRows.values())
     .filter((customer) => customerIds.has(customer.id))
     .map(
       (customer): ManagementAnalyticsCustomer => ({
@@ -213,7 +258,7 @@ export async function loadManagementAnalyticsDataset(
         id: customer.id,
       }),
     );
-  const payments = paymentRows
+  const payments = Array.from(paymentRows.values())
     .filter((payment) => bookingIds.has(payment.booking_id))
     .map(
       (payment): ManagementAnalyticsPayment => ({

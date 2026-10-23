@@ -122,10 +122,10 @@ test("calendar remains read-only and reuses the management reporting boundary", 
   const managementAnalytics = await readFile(new URL("../app/admin/ManagementAnalytics.tsx", import.meta.url), "utf8");
   const route = await readFile(new URL("../app/api/admin/analytics/management/route.ts", import.meta.url), "utf8");
 
-  assert.match(component, /calculateManagementAnalytics/);
-  assert.match(component, /performanceDemand/);
+  assert.doesNotMatch(component, /calculateManagementAnalytics/);
+  assert.match(component, /rows\.filter/);
   assert.match(managementAnalytics, /title="Sales & Performance"/);
-  assert.match(managementAnalytics, /A month-at-a-time view of performances, guests, occupancy and sales\./);
+  assert.match(managementAnalytics, /Ticket sales plus the month-at-a-time performance, occupancy and sales view\./);
   assert.doesNotMatch(component, /fetch\(|POST|PATCH|DELETE|updateBooking/);
   assert.match(route, /analytics:read/);
   assert.match(route, /staffProfile\.venue_scope/);

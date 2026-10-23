@@ -16,6 +16,7 @@ import {
   type StaffProfileRow,
 } from "@/lib/supabase/serverAdmin";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
+import { buildRefundEligibilityRows } from "@/lib/refundReadiness";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,45 @@ type PaymentRefundRow = {
   reference: string | null;
 };
 
+type RefundReadinessPaymentRow = Pick<
+  PaymentRefundRow,
+  | "amount"
+  | "booking_id"
+  | "id"
+  | "method"
+  | "payment_status"
+  | "provider_gross_amount"
+  | "provider_transaction_id"
+> & {
+  bookings:
+    | (RefundReadinessBookingRow & {
+        payment_refunds: RefundReadinessHistoryRow[] | null;
+      })
+    | Array<
+        RefundReadinessBookingRow & {
+          payment_refunds: RefundReadinessHistoryRow[] | null;
+        }
+      >
+    | null;
+};
+
+type RefundReadinessBookingRow = Pick<
+  BookingRefundRow,
+  | "amount_paid"
+  | "booking_reference"
+  | "booking_status"
+  | "id"
+  | "payment_status"
+>;
+
+type RefundReadinessHistoryRow = {
+  booking_id: string;
+  refund_status: string;
+};
+
+const readinessPageSize = 1000;
+const readinessBatchConcurrency = 4;
+
 const refundSelect =
   "id,booking_reference,booking_status,payment_status,total_amount,amount_paid,balance_outstanding";
 
@@ -68,6 +108,47 @@ function getSupabaseAuthClient() {
 
 function getRefundsEnabled() {
   return process.env.PAYFAST_REFUNDS_ENABLED?.trim().toLowerCase() === "true";
+}
+
+export async function loadRefundReadinessPayments(serviceClient: SupabaseClient) {
+  const loadPage = (from: number, to: number, withCount = false) =>
+    serviceClient
+      .from("payments")
+      .select(
+        "id,booking_id,amount,method,payment_status,provider_gross_amount,provider_transaction_id,bookings!inner(id,booking_reference,booking_status,payment_status,amount_paid,payment_refunds(booking_id,refund_status))",
+        withCount ? { count: "exact" } : undefined,
+      )
+      .eq("method", "payfast")
+      .not("provider_transaction_id", "is", null)
+      .gt("amount", 0)
+      .order("id")
+      .range(from, to);
+  const first = await loadPage(0, readinessPageSize - 1, true);
+  if (first.error) throw first.error;
+
+  const rows = [...((first.data ?? []) as RefundReadinessPaymentRow[])];
+  const pageCount = Math.ceil((first.count ?? rows.length) / readinessPageSize);
+
+  for (let page = 1; page < pageCount; page += readinessBatchConcurrency) {
+    const results = await Promise.all(
+      Array.from(
+        { length: Math.min(readinessBatchConcurrency, pageCount - page) },
+        (_, offset) => {
+          const currentPage = page + offset;
+          return loadPage(
+            currentPage * readinessPageSize,
+            (currentPage + 1) * readinessPageSize - 1,
+          );
+        },
+      ),
+    );
+    for (const result of results) {
+      if (result.error) throw result.error;
+      rows.push(...((result.data ?? []) as RefundReadinessPaymentRow[]));
+    }
+  }
+
+  return rows;
 }
 
 function getSafeProviderResponse(payload: Record<string, unknown>) {
@@ -300,73 +381,31 @@ export async function GET(request: Request) {
         ? "PayFast refund history is not configured."
         : "";
 
-  const { data: payments, error: paymentsError } = await auth.serviceClient
-    .from("payments")
-    .select(
-      "id,booking_id,amount,method,payment_status,provider_gross_amount,provider_transaction_id",
-    )
-    .eq("method", "payfast")
-    .not("provider_transaction_id", "is", null)
-    .gt("amount", 0);
+  const payments = await loadRefundReadinessPayments(auth.serviceClient);
 
-  if (paymentsError) {
-    throw paymentsError;
-  }
-
-  const bookingIds = [
-    ...new Set((payments ?? []).map((payment) => payment.booking_id as string)),
-  ];
-  let bookings: Array<{
-    amount_paid: number | null;
-    booking_reference: string;
-    booking_status: string;
-    id: string;
-    payment_status: string;
-  }> = [];
-  let refunds: Array<{ booking_id: string; refund_status: string }> = [];
-
-  if (bookingIds.length > 0) {
-    const [bookingResult, refundResult] = await Promise.all([
-      auth.serviceClient
-        .from("bookings")
-        .select("id,booking_reference,booking_status,payment_status,amount_paid")
-        .in("id", bookingIds),
-      auth.serviceClient
-        .from("payment_refunds")
-        .select("booking_id,refund_status")
-        .in("booking_id", bookingIds)
-        .in("refund_status", [
-          "processing",
-          "accepted",
-          "reconciliation_required",
-        ]),
-    ]);
-
-    if (bookingResult.error || refundResult.error) {
-      throw bookingResult.error ?? refundResult.error;
+  const bookingsById = new Map<string, RefundReadinessBookingRow>();
+  const refundsByBookingAndStatus = new Map<string, RefundReadinessHistoryRow>();
+  for (const payment of payments) {
+    const related = Array.isArray(payment.bookings)
+      ? payment.bookings[0]
+      : payment.bookings;
+    if (!related) continue;
+    bookingsById.set(related.id, related);
+    for (const refund of related.payment_refunds ?? []) {
+      if (
+        ["processing", "accepted", "reconciliation_required"].includes(
+          refund.refund_status,
+        )
+      ) {
+        refundsByBookingAndStatus.set(
+          `${refund.booking_id}:${refund.refund_status}`,
+          refund,
+        );
+      }
     }
-
-    bookings = bookingResult.data ?? [];
-    refunds = refundResult.data ?? [];
   }
-
-  const paymentsByBookingId = new Map<
-    string,
-    NonNullable<typeof payments>
-  >();
-
-  for (const payment of payments ?? []) {
-    const bookingId = payment.booking_id as string;
-    const bookingPayments = paymentsByBookingId.get(bookingId) ?? [];
-    bookingPayments.push(payment);
-    paymentsByBookingId.set(bookingId, bookingPayments);
-  }
-  const refundByBookingId = new Map(
-    (refunds ?? []).map((refund) => [
-      refund.booking_id as string,
-      refund.refund_status as string,
-    ]),
-  );
+  const bookings = Array.from(bookingsById.values());
+  const refunds = Array.from(refundsByBookingAndStatus.values());
 
   return Response.json({
     readiness: {
@@ -376,50 +415,12 @@ export async function GET(request: Request) {
       ready,
       reason: readinessReason || null,
     },
-    rows: bookings.map((booking) => {
-      const bookingPayments = paymentsByBookingId.get(booking.id as string) ?? [];
-      const providerPaymentTotal = bookingPayments.reduce(
-        (total, payment) => total + Number(payment.amount ?? 0),
-        0,
-      );
-      const fullRefundSupported =
-        bookingPayments.length === 1 &&
-        Math.abs(providerPaymentTotal - Number(booking.amount_paid ?? 0)) <= 0.01;
-      const refundStatus = refundByBookingId.get(booking.id as string);
-      const alreadyRefunded =
-        booking.booking_status === "refunded" ||
-        booking.payment_status === "refunded";
-      const complimentary = booking.payment_status === "comp_vip";
-      const eligible =
-        ready &&
-        !alreadyRefunded &&
-        !complimentary &&
-        !refundStatus &&
-        providerPaymentTotal > 0 &&
-        fullRefundSupported;
-      const reason = !ready
-        ? readinessReason
-        : alreadyRefunded
-          ? "This booking is already marked as refunded."
-          : complimentary
-            ? "Complimentary bookings cannot be refunded through PayFast."
-            : refundStatus === "processing"
-              ? "A refund is already processing for this booking."
-            : refundStatus === "accepted"
-                ? "This booking is already marked as refunded."
-                : refundStatus === "reconciliation_required"
-                  ? "This refund has an unknown provider outcome and requires reconciliation before another attempt."
-                : providerPaymentTotal <= 0
-                  ? "Refund amount is not valid for this payment."
-                  : !fullRefundSupported
-                    ? "This booking requires a multi-transaction refund workflow, which is not supported yet."
-                  : "";
-
-      return {
-        bookingReference: booking.booking_reference,
-        eligible,
-        reason: reason || null,
-      };
+    rows: buildRefundEligibilityRows({
+      bookings,
+      payments,
+      readinessReason,
+      ready,
+      refunds,
     }),
   });
 }
