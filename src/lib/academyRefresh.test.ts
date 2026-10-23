@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const admin = readFileSync(
-  new URL("../app/admin/page.tsx", import.meta.url),
-  "utf8",
-);
+const admin = [
+  readFileSync(new URL("../app/admin/page.tsx", import.meta.url), "utf8"),
+  readFileSync(
+    new URL("../app/admin/academyContent.ts", import.meta.url),
+    "utf8",
+  ),
+].join("\n");
 const booking = readFileSync(
   new URL("../app/book/page.tsx", import.meta.url),
   "utf8",
