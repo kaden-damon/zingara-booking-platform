@@ -96,7 +96,7 @@ test("guided training launches real Production workflows behind a synthetic writ
   assert.match(overlay, /keepalive: true/);
   assert.match(
     overlay,
-    /router\.push\("\/admin\?section=academy&academySection=guided-training"\)/,
+    /window\.location\.assign\(\s*"\/admin\?section=academy&academySection=guided-training"/,
   );
   assert.match(overlay, /elementFromPoint/);
   assert.match(overlay, /window\.visualViewport/);

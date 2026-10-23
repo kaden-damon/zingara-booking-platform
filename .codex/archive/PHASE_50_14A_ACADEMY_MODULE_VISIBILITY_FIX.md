@@ -15,6 +15,9 @@
   states. Exit and completion return to the module list for direct resume.
 - All progress reads and writes now reuse the existing authenticated Admin API
   helper and retain the server's active-staff validation.
+- Exit uses a clean Admin navigation after its successful progress save so the
+  Guided Training list is restored rather than leaving the previous Home state
+  mounted under the new URL.
 - Existing module implementations, Academy courses, staff permissions,
   progress persistence, synthetic isolation, and lazy loading are unchanged.
 - Release verification passed: 4 focused tests, TypeScript, focused training

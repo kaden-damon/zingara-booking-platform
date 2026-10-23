@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import {
   guidedTrainingModules,
@@ -102,7 +101,6 @@ export default function GuidedTrainingOverlay({
 }: {
   moduleId: GuidedTrainingModuleId;
 }) {
-  const router = useRouter();
   const trainingModule = useMemo(
     () => guidedTrainingModules.find((item) => item.id === moduleId)!,
     [moduleId],
@@ -214,7 +212,12 @@ export default function GuidedTrainingOverlay({
     setProgressError("");
     try {
       await saveProgress(stepIndex);
-      router.push("/admin?section=academy&academySection=guided-training");
+      // A clean mount restores the deep-linked Academy workspace; the Admin
+      // shell otherwise retains its previous tab state across client routing.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign(
+        "/admin?section=academy&academySection=guided-training",
+      );
     } catch (saveError) {
       setProgressError(
         saveError instanceof Error
@@ -223,7 +226,7 @@ export default function GuidedTrainingOverlay({
       );
       setExiting(false);
     }
-  }, [router, saveProgress, stepIndex]);
+  }, [saveProgress, stepIndex]);
 
   const restartWorkflow = useCallback(() => {
     persist(0);

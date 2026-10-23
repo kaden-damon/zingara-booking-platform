@@ -33,6 +33,8 @@ CORRECTION
   from returning.
 - Routed launcher, resume, Exit, and completion progress requests through the
   existing authenticated Admin API helper.
+- Exit now performs a clean Admin navigation after saving progress, ensuring the
+  long-lived Admin shell restores the Guided Training workspace before resume.
 
 SAFETY
 
