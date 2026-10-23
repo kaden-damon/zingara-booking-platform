@@ -46,6 +46,19 @@ test("standard training uses the production booking validation", () => {
   );
 });
 
+test("corporate training separates rate selection from payment and review", () => {
+  const corporate = guidedTrainingModules.find(
+    (module) => module.id === "corporate-booking",
+  );
+  assert.ok(corporate);
+  assert.equal(corporate.steps[7]?.key, "rate");
+  assert.equal(corporate.steps[7]?.controlId, "training-booking-rate");
+  assert.deepEqual(corporate.steps[7]?.validValues, ["standard", "complimentary"]);
+  assert.equal(corporate.steps[8]?.key, "payment");
+  assert.equal(corporate.steps[8]?.prepare?.controlId, "training-booking-payment-option");
+  assert.equal(corporate.steps[8]?.controlId, "training-booking-review");
+});
+
 test("corporate and buyout training use production financial validation", () => {
   const corporate = validateCorporateTrainingBooking({
     guests: 20,
@@ -86,19 +99,19 @@ test("guided training launches real Production workflows behind a synthetic writ
   assert.doesNotMatch(overlay, /document\.addEventListener\(eventName, advance, true\)/);
   assert.match(overlay, /document\.addEventListener\("click", guard, true\)/);
   assert.doesNotMatch(overlay, /document\.addEventListener\("pointerdown", guard, true\)/);
-  assert.match(overlay, /window\.location\.assign/);
-  assert.match(overlay, /EXIT TRAINING/);
+  assert.doesNotMatch(overlay, /window\.location\.assign/);
+  assert.match(overlay, /router\.push\("\/admin\?section=academy&academySection=guided-training"\)/);
+  assert.match(overlay, /zingara-guided-training-navigate/);
+  assert.match(overlay, /training-guide-shake/);
+  assert.match(overlay, /STEP \{stepIndex \+ 1\} OF/);
+  assert.match(overlay, /\{exiting \? "SAVING" : "EXIT"\}/);
   assert.match(overlay, /\/api\/admin\/training\/guided\?module=/);
   assert.match(overlay, /fetchSupabaseApi<ProgressBootstrap>/);
   assert.match(overlay, /fetchSupabaseApi<\{ accepted: true \}>/);
   assert.match(overlay, /persistenceRef\.current === "preview-session"/);
   assert.match(overlay, /completedRecordRef\.current && !isComplete/);
   assert.match(overlay, /keepalive: true/);
-  assert.match(
-    overlay,
-    /window\.location\.assign\(\s*"\/admin\?section=academy&academySection=guided-training"/,
-  );
-  assert.match(overlay, /elementFromPoint/);
+  assert.match(overlay, /router\.replace\(`\/admin\?guidedTraining=/);
   assert.match(overlay, /window\.visualViewport/);
   assert.match(overlay, /scrollIntoView\(\{ behavior, block: "center", inline: "nearest" \}\)/);
   assert.match(overlay, /ref=\{guideRef\}/);
@@ -129,7 +142,9 @@ test("guided training launches real Production workflows behind a synthetic writ
     adminPage,
     /process\.env\.NODE_ENV !== "production"\s*&&\s*typeof guidedTrainingParam/,
   );
-  assert.match(launcher, /\? "Completed - Review"/);
+  assert.match(launcher, /\? "Retake"/);
+  assert.doesNotMatch(launcher, /Completed - Review/);
+  assert.match(launcher, /aria-label="Completed"/);
   assert.match(launcher, /\? "Continue"/);
   assert.match(launcher, /: "Start"/);
   assert.match(adminPage, /guidedTrainingPreviewStaff/);
@@ -141,6 +156,9 @@ test("guided training launches real Production workflows behind a synthetic writ
     /process\.env\.NODE_ENV !== "production"\s*&&\s*typeof guidedTrainingParam/,
   );
   assert.match(bookPage, /createGuidedTrainingReference/);
+  assert.match(bookPage, /training-booking-payment-option/);
+  assert.match(bookPage, /training-booking-rate/);
+  assert.match(bookPage, /training-booking-review/);
   assert.doesNotMatch(bookPage, /\/api\/admin\/training\/guided\/execute/);
   assert.match(buyout, /createGuidedTrainingReference/);
   assert.doesNotMatch(buyout, /\/api\/admin\/training\/guided\/execute/);

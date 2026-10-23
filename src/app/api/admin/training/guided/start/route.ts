@@ -41,6 +41,9 @@ export async function GET(request: Request) {
   // host so the signed preview cookie also works from localhost and LAN URLs.
   const destination = new URL("/admin", browserOrigin(request));
   destination.searchParams.set("guidedTraining", moduleId);
+  if (url.searchParams.get("retake") === "1") {
+    destination.searchParams.set("retake", "1");
+  }
   const response = NextResponse.redirect(destination);
   response.cookies.set(guidedTrainingPreviewCookie, token, {
     httpOnly: true,

@@ -12970,6 +12970,31 @@ export default function AdminDashboardPage({
   }, [currentStaff, guidedTrainingModuleId]);
 
   useEffect(() => {
+    if (!guidedTrainingModuleId) return;
+    const navigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ controlId?: string; restart?: boolean }>).detail;
+      const controlId = detail?.controlId ?? "";
+      if (detail?.restart || controlId === "training-calendar-create") {
+        setCalendarBookingShow(null);
+        setCalendarBookingStatus("");
+        setIsCalendarBuyoutOpen(false);
+        return;
+      }
+      if (
+        controlId === "training-booking-standard" ||
+        controlId === "training-booking-corporate" ||
+        controlId === "training-booking-buyout"
+      ) {
+        setCalendarBookingShow(guidedTrainingSyntheticShow);
+        setCalendarBookingStatus("SHOW READY ✓");
+        setIsCalendarBuyoutOpen(controlId === "training-booking-buyout");
+      }
+    };
+    window.addEventListener("zingara-guided-training-navigate", navigate);
+    return () => window.removeEventListener("zingara-guided-training-navigate", navigate);
+  }, [guidedTrainingModuleId]);
+
+  useEffect(() => {
     if (
       communicationTemplates.length > 0 &&
       !communicationTemplates.some(

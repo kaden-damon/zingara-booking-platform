@@ -53,6 +53,22 @@ export default function GuidedTraining({
     initialBootstrap ?? null,
   );
   const [error, setError] = useState("");
+  const [activeRetakes] = useState<GuidedTrainingModuleId[]>(() =>
+    typeof window === "undefined"
+      ? []
+      : guidedTrainingModules
+          .filter((module) => {
+            try {
+              const saved = JSON.parse(
+                sessionStorage.getItem(`zingara-guided-training:run:${module.id}`) ?? "null",
+              ) as { moduleVersion?: number; retake?: boolean } | null;
+              return saved?.moduleVersion === module.version && saved.retake === true;
+            } catch {
+              return false;
+            }
+          })
+          .map((module) => module.id),
+  );
 
   useEffect(() => {
     if (initialBootstrap?.persistence !== "preview-session") return;
@@ -133,10 +149,18 @@ export default function GuidedTraining({
               item.module_id === module.id &&
               item.module_version === module.version,
           );
-          const status = saved?.status ?? "not-started";
+          const historicalCompletion = bootstrap.progress
+            .filter((item) => item.module_id === module.id && item.status === "completed")
+            .sort((left, right) => right.module_version - left.module_version)[0];
+          const activeRetake = activeRetakes.includes(module.id);
+          const status = activeRetake
+            ? "in-progress"
+            : saved?.status ?? (historicalCompletion ? "completed" : "not-started");
+          const completedAt = saved?.completed_at ?? historicalCompletion?.completed_at;
+          const retakeSuffix = status === "completed" ? "&retake=1" : "";
           const startHref = previewKey
-            ? `/api/admin/training/guided/start?key=${encodeURIComponent(previewKey)}&module=${encodeURIComponent(module.id)}`
-            : `/admin?guidedTraining=${encodeURIComponent(module.id)}`;
+            ? `/api/admin/training/guided/start?key=${encodeURIComponent(previewKey)}&module=${encodeURIComponent(module.id)}${retakeSuffix}`
+            : `/admin?guidedTraining=${encodeURIComponent(module.id)}${retakeSuffix}`;
           return (
             <article
               key={module.id}
@@ -149,18 +173,23 @@ export default function GuidedTraining({
               <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
                 {status.replaceAll("-", " ")}
               </p>
-              {saved?.completed_at && (
+              {completedAt && (
                 <p className="mt-1 text-xs text-zinc-500">
                   Completed{" "}
-                  {new Date(saved.completed_at).toLocaleString("en-ZA")}
+                  {new Date(completedAt).toLocaleString("en-ZA")}
                 </p>
+              )}
+              {status === "completed" && (
+                <span className="mt-4 grid h-8 w-8 place-items-center rounded-full border border-emerald-300/45 bg-emerald-950/25 text-sm font-bold text-emerald-200" aria-label="Completed">
+                  ✓
+                </span>
               )}
               <a
                 href={startHref}
                 className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#D8C36A] px-4 text-sm font-bold text-black transition hover:bg-[#F2D66C]"
               >
                 {status === "completed"
-                  ? "Completed - Review"
+                  ? "Retake"
                   : status === "in-progress"
                     ? "Continue"
                     : "Start"}

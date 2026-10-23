@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import {
   guidedTrainingModules,
@@ -30,6 +31,51 @@ type ProgressBootstrap = {
 const storageKey = "zingara-guided-training:local-management-preview";
 const guideGap = 12;
 const viewportInset = 12;
+
+type LocalRunState = {
+  moduleId: GuidedTrainingModuleId;
+  moduleVersion: number;
+  prepared: boolean;
+  retake: boolean;
+  stepIndex: number;
+};
+
+function runStorageKey(moduleId: GuidedTrainingModuleId) {
+  return `zingara-guided-training:run:${moduleId}`;
+}
+
+function readRunState(moduleId: GuidedTrainingModuleId, moduleVersion: number) {
+  try {
+    const parsed = JSON.parse(
+      sessionStorage.getItem(runStorageKey(moduleId)) ?? "null",
+    ) as LocalRunState | null;
+    return parsed?.moduleVersion === moduleVersion ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeRunState(state: LocalRunState) {
+  sessionStorage.setItem(runStorageKey(state.moduleId), JSON.stringify(state));
+}
+
+function clearRunState(moduleId: GuidedTrainingModuleId) {
+  sessionStorage.removeItem(runStorageKey(moduleId));
+}
+
+function controlValue(control: Element) {
+  if (control instanceof HTMLInputElement && control.type === "checkbox") {
+    return control.checked ? "checked" : "unchecked";
+  }
+  if (
+    control instanceof HTMLInputElement ||
+    control instanceof HTMLSelectElement ||
+    control instanceof HTMLTextAreaElement
+  ) {
+    return control.value;
+  }
+  return (control as HTMLElement).dataset.trainingValue ?? "";
+}
 
 function visibleViewport() {
   const viewport = window.visualViewport;
@@ -101,6 +147,7 @@ export default function GuidedTrainingOverlay({
 }: {
   moduleId: GuidedTrainingModuleId;
 }) {
+  const router = useRouter();
   const trainingModule = useMemo(
     () => guidedTrainingModules.find((item) => item.id === moduleId)!,
     [moduleId],
@@ -110,14 +157,22 @@ export default function GuidedTrainingOverlay({
   const [guideTop, setGuideTop] = useState(viewportInset);
   const [targetMissing, setTargetMissing] = useState(true);
   const [incorrect, setIncorrect] = useState(false);
+  const [prepared, setPrepared] = useState(false);
   const [progressReady, setProgressReady] = useState(false);
   const [progressError, setProgressError] = useState("");
   const [exiting, setExiting] = useState(false);
   const guideRef = useRef<HTMLElement | null>(null);
   const completedRecordRef = useRef(false);
+  const retakeRef = useRef(false);
   const persistenceRef = useRef<ProgressBootstrap["persistence"] | null>(null);
   const completed = stepIndex >= trainingModule.steps.length;
   const step = trainingModule.steps[Math.min(stepIndex, trainingModule.steps.length - 1)];
+  const activeControlId = !prepared && step.prepare
+    ? step.prepare.controlId
+    : step.controlId;
+  const activeInstruction = !prepared && step.prepare
+    ? step.prepare.instruction
+    : step.instruction;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -127,7 +182,7 @@ export default function GuidedTrainingOverlay({
     )
       .then((payload) => {
         persistenceRef.current = payload.persistence;
-        const saved =
+        const exactSaved =
           payload.persistence === "preview-session"
             ? readStoredProgress(moduleId, trainingModule.version)
             : payload.progress.find(
@@ -135,17 +190,41 @@ export default function GuidedTrainingOverlay({
                   row.module_id === moduleId &&
                   row.module_version === trainingModule.version,
               );
-        const savedStep = saved
+        const historicalCompletion = payload.progress
+          .filter((row) => row.module_id === moduleId && row.status === "completed")
+          .sort((left, right) => right.module_version - left.module_version)[0];
+        const saved = exactSaved ?? historicalCompletion;
+        const localRun = readRunState(moduleId, trainingModule.version);
+        const requestedRetake = new URLSearchParams(window.location.search).get("retake") === "1";
+        const retaking = requestedRetake || Boolean(localRun?.retake);
+        if (requestedRetake) {
+          sessionStorage.removeItem(`zingara-guided-training:booking:${moduleId}`);
+        }
+        const savedStep = exactSaved
           ? "current_step" in saved
             ? saved.current_step
             : saved.currentStep
           : 0;
         completedRecordRef.current = saved?.status === "completed";
-        setStepIndex(
-          saved?.status === "completed"
+        retakeRef.current = retaking;
+        const nextStep = retaking && localRun
+          ? localRun.stepIndex
+          : requestedRetake
             ? 0
-            : Math.min(savedStep, trainingModule.steps.length - 1),
-        );
+            : exactSaved?.status === "in-progress"
+              ? savedStep
+              : 0;
+        setPrepared(Boolean(retaking && localRun?.prepared));
+        setStepIndex(Math.min(nextStep, trainingModule.steps.length - 1));
+        if (retaking && !localRun) {
+          writeRunState({
+            moduleId,
+            moduleVersion: trainingModule.version,
+            prepared: false,
+            retake: true,
+            stepIndex: 0,
+          });
+        }
         setProgressReady(true);
       })
       .catch((loadError) => {
@@ -186,16 +265,28 @@ export default function GuidedTrainingOverlay({
           method: "POST",
         },
       );
-      if (isComplete) completedRecordRef.current = true;
+      if (isComplete) {
+        completedRecordRef.current = true;
+        retakeRef.current = false;
+        clearRunState(moduleId);
+      }
     },
     [moduleId, trainingModule.steps.length, trainingModule.version],
   );
 
   const persist = useCallback(
-    (nextStep: number) => {
+    (nextStep: number, nextPrepared = false) => {
       setIncorrect(false);
       setProgressError("");
+      setPrepared(nextPrepared);
       setStepIndex(nextStep);
+      writeRunState({
+        moduleId,
+        moduleVersion: trainingModule.version,
+        prepared: nextPrepared,
+        retake: retakeRef.current,
+        stepIndex: nextStep,
+      });
       void saveProgress(nextStep).catch((saveError) => {
         setProgressError(
           saveError instanceof Error
@@ -204,7 +295,7 @@ export default function GuidedTrainingOverlay({
         );
       });
     },
-    [saveProgress],
+    [moduleId, saveProgress, trainingModule.version],
   );
 
   const exitTraining = useCallback(async () => {
@@ -212,12 +303,7 @@ export default function GuidedTrainingOverlay({
     setProgressError("");
     try {
       await saveProgress(stepIndex);
-      // A clean mount restores the deep-linked Academy workspace; the Admin
-      // shell otherwise retains its previous tab state across client routing.
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-      window.location.assign(
-        "/admin?section=academy&academySection=guided-training",
-      );
+      router.push("/admin?section=academy&academySection=guided-training");
     } catch (saveError) {
       setProgressError(
         saveError instanceof Error
@@ -226,52 +312,38 @@ export default function GuidedTrainingOverlay({
       );
       setExiting(false);
     }
-  }, [saveProgress, stepIndex]);
+  }, [router, saveProgress, stepIndex]);
 
   const restartWorkflow = useCallback(() => {
     persist(0);
-    window.requestAnimationFrame(() => {
-      // A full remount clears whichever real Production modal or route the
-      // trainee reached; client navigation can retain that local workflow state.
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-      window.location.assign(
-        `/admin?guidedTraining=${encodeURIComponent(moduleId)}`,
-      );
-    });
-  }, [moduleId, persist]);
+    window.dispatchEvent(new CustomEvent("zingara-guided-training-navigate", {
+      detail: { controlId: trainingModule.steps[0].controlId, restart: true },
+    }));
+    if (window.location.pathname !== "/admin") {
+      router.replace(`/admin?guidedTraining=${encodeURIComponent(moduleId)}`);
+    }
+  }, [moduleId, persist, router, trainingModule.steps]);
 
   const moveBack = useCallback(() => {
     const previousStepIndex = Math.max(0, stepIndex - 1);
     const previousStep = trainingModule.steps[previousStepIndex];
-    const previousTarget = document.querySelector<HTMLElement>(
-      `[data-training-control="${previousStep.controlId}"]`,
-    );
-    const previousRect = previousTarget?.getBoundingClientRect();
-    const visibleAtCenter = previousRect
-      ? document
-          .elementFromPoint(
-            previousRect.left + previousRect.width / 2,
-            previousRect.top + previousRect.height / 2,
-          )
-          ?.closest(`[data-training-control="${previousStep.controlId}"]`)
-      : null;
-
-    if (previousTarget && visibleAtCenter) {
-      persist(previousStepIndex);
-      previousTarget.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
+    persist(previousStepIndex);
+    window.dispatchEvent(new CustomEvent("zingara-guided-training-navigate", {
+      detail: { controlId: previousStep.controlId },
+    }));
+    const adminControl = previousStep.controlId === "training-calendar-create" ||
+      previousStep.controlId.startsWith("training-booking-standard") ||
+      previousStep.controlId.startsWith("training-booking-corporate") ||
+      previousStep.controlId.startsWith("training-booking-buyout");
+    if (adminControl && window.location.pathname !== "/admin") {
+      router.push(`/admin?guidedTraining=${encodeURIComponent(moduleId)}`);
     }
-
-    // A prior Production step may be behind a modal or on another route. In
-    // that case restart the real workflow instead of leaving the guide and UI
-    // out of sync.
-    restartWorkflow();
-  }, [persist, restartWorkflow, stepIndex, trainingModule.steps]);
+  }, [moduleId, persist, router, stepIndex, trainingModule.steps]);
 
   const locate = useCallback(() => {
     if (completed) return;
-    const target = findVisibleTrainingElement("control", step.controlId);
-    const scope = findVisibleTrainingElement("scope", step.controlId);
+    const target = findVisibleTrainingElement("control", activeControlId);
+    const scope = findVisibleTrainingElement("scope", activeControlId);
     const highlightedElement = scope ?? target;
     setTargetMissing(!highlightedElement);
     if (!highlightedElement) {
@@ -304,20 +376,25 @@ export default function GuidedTrainingOverlay({
 
     setRect(nextRect);
     setGuideTop(Math.min(maximumTop, Math.max(minimumTop, preferredTop)));
-  }, [completed, step.controlId]);
+  }, [activeControlId, completed]);
 
   const showCurrentTarget = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
       setIncorrect(false);
       const target =
-        findVisibleTrainingElement("scope", step.controlId) ??
-        findVisibleTrainingElement("control", step.controlId);
-      if (!target) return false;
+        findVisibleTrainingElement("scope", activeControlId) ??
+        findVisibleTrainingElement("control", activeControlId);
+      if (!target) {
+        window.dispatchEvent(new CustomEvent("zingara-guided-training-navigate", {
+          detail: { controlId: activeControlId },
+        }));
+        return false;
+      }
       target.scrollIntoView({ behavior, block: "center", inline: "nearest" });
       window.setTimeout(locate, behavior === "smooth" ? 420 : 0);
       return true;
     },
-    [locate, step.controlId],
+    [activeControlId, locate],
   );
 
   useEffect(() => {
@@ -339,6 +416,25 @@ export default function GuidedTrainingOverlay({
   }, [completed, showCurrentTarget, stepIndex]);
 
   useEffect(() => {
+    if (completed || prepared || !step.prepare) return;
+    const timer = window.setTimeout(() => {
+      const prepareTarget = findVisibleTrainingElement("control", step.prepare!.controlId);
+      const finalTarget = findVisibleTrainingElement("control", step.controlId);
+      if (!prepareTarget && finalTarget) {
+        setPrepared(true);
+        writeRunState({
+          moduleId,
+          moduleVersion: trainingModule.version,
+          prepared: true,
+          retake: retakeRef.current,
+          stepIndex,
+        });
+      }
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [completed, moduleId, prepared, step, stepIndex, trainingModule.version]);
+
+  useEffect(() => {
     if (completed) return;
     const initialLocate = window.setTimeout(locate, 0);
     const observer = new MutationObserver(locate);
@@ -358,8 +454,8 @@ export default function GuidedTrainingOverlay({
       window.clearTimeout(viewportRevealTimer);
       viewportRevealTimer = window.setTimeout(() => {
         const target =
-          findVisibleTrainingElement("scope", step.controlId) ??
-          findVisibleTrainingElement("control", step.controlId);
+          findVisibleTrainingElement("scope", activeControlId) ??
+          findVisibleTrainingElement("control", activeControlId);
         if (!target) return;
         const targetRect = target.getBoundingClientRect();
         const viewport = visibleViewport();
@@ -393,7 +489,7 @@ export default function GuidedTrainingOverlay({
       visualViewport?.removeEventListener("resize", handleVisualViewportChange);
       visualViewport?.removeEventListener("scroll", handleVisualViewportChange);
     };
-  }, [completed, locate, showCurrentTarget, step.controlId]);
+  }, [activeControlId, completed, locate, showCurrentTarget]);
 
   useEffect(() => {
     if (completed) return;
@@ -418,26 +514,58 @@ export default function GuidedTrainingOverlay({
       ) {
         return;
       }
-      const visibleControl = findVisibleTrainingElement("control", step.controlId);
-      const usedTarget = event.composedPath().some(
-        (node) =>
-          node instanceof Element &&
-          Boolean(
-            node.closest(`[data-training-control="${step.controlId}"]`) ||
-              (!visibleControl &&
-                node.closest(`[data-training-scope="${step.controlId}"]`)),
-          ),
-      );
-      if (usedTarget) persist(stepIndex + 1);
+      const expectedControlId = !prepared && step.prepare
+        ? step.prepare.controlId
+        : step.controlId;
+      const expectedEvent = !prepared && step.prepare
+        ? step.prepare.event
+        : step.event ?? "click";
+      if (event.type !== expectedEvent && !(event instanceof KeyboardEvent)) return;
+      const visibleControl = findVisibleTrainingElement("control", expectedControlId);
+      const matchedControl = event.composedPath()
+        .filter((node): node is Element => node instanceof Element)
+        .map((node) =>
+          node.closest(`[data-training-control="${expectedControlId}"]`) ??
+          (!visibleControl
+            ? node.closest(`[data-training-scope="${expectedControlId}"]`)
+            : null),
+        )
+        .find((node): node is Element => Boolean(node));
+      if (!matchedControl) return;
+      const validValues = !prepared && step.prepare
+        ? step.prepare.validValues
+        : step.validValues;
+      if (validValues && !validValues.includes(controlValue(matchedControl))) {
+        setIncorrect(true);
+        window.setTimeout(() => setIncorrect(false), 650);
+        return;
+      }
+      if (!prepared && step.prepare) {
+        setPrepared(true);
+        writeRunState({
+          moduleId,
+          moduleVersion: trainingModule.version,
+          prepared: true,
+          retake: retakeRef.current,
+          stepIndex,
+        });
+        window.requestAnimationFrame(() => showCurrentTarget("smooth"));
+        return;
+      }
+      persist(stepIndex + 1);
     };
     // Let the real Production handler run before recording training progress.
     // Advancing during capture can re-render an open modal before its React
     // onClick handler receives the event, especially in mobile Safari.
-    const eventNames = new Set([step.event ?? "click", "keydown"]);
+    const eventNames = new Set([
+      step.event ?? "click",
+      step.prepare?.event ?? "click",
+      "keydown",
+    ]);
     eventNames.forEach((eventName) => document.addEventListener(eventName, advance));
     return () =>
       eventNames.forEach((eventName) => document.removeEventListener(eventName, advance));
-  }, [completed, persist, step.controlId, step.event, step.key, stepIndex]);
+  }, [completed, moduleId, persist, prepared, showCurrentTarget, step, stepIndex, trainingModule.version]);
 
   useEffect(() => {
     if (completed || targetMissing) return;
@@ -462,8 +590,10 @@ export default function GuidedTrainingOverlay({
           Boolean(
             node.closest("[data-training-guide]") ||
               node.closest('[aria-label="Cookie notice"]') ||
-              node.closest(`[data-training-control="${step.controlId}"]`) ||
-              node.closest(`[data-training-scope="${step.controlId}"]`),
+              node.closest(`[data-training-control="${activeControlId}"]`) ||
+              node.closest(`[data-training-scope="${activeControlId}"]`) ||
+              (step.prepare &&
+                node.closest(`[data-training-control="${step.prepare.controlId}"]`)),
           ),
       );
       if (allowed) {
@@ -478,7 +608,7 @@ export default function GuidedTrainingOverlay({
     // remains native in mobile Safari.
     document.addEventListener("click", guard, true);
     return () => document.removeEventListener("click", guard, true);
-  }, [completed, step.controlId, targetMissing]);
+  }, [activeControlId, completed, step.prepare, targetMissing]);
 
   if (!progressReady) {
     return (
@@ -517,30 +647,45 @@ export default function GuidedTrainingOverlay({
   return (
     <>
       {rect && (
-        <div
-          aria-hidden="true"
-          className={`pointer-events-none fixed z-[205] rounded-xl border-2 ${incorrect ? "border-red-400" : "animate-pulse border-[#F2D66C]"}`}
-          style={{
-            boxShadow: `0 0 0 9999px ${incorrect ? "rgba(45,0,0,.64)" : "rgba(0,0,0,.7)"}, 0 0 24px rgba(242,214,108,.55)`,
-            height: rect.height + 12,
-            left: Math.max(4, rect.left - 6),
-            top: rect.top - 6,
-            width: Math.min(
-              rect.width + 12,
-              window.innerWidth - Math.max(4, rect.left - 6) - 4,
-            ),
-          }}
-        />
+        <>
+          {[
+            { height: Math.max(0, rect.top - 6), left: 0, top: 0, width: "100%" },
+            { height: rect.height + 12, left: 0, top: rect.top - 6, width: Math.max(0, rect.left - 6) },
+            { height: rect.height + 12, left: rect.right + 6, top: rect.top - 6, width: Math.max(0, window.innerWidth - rect.right - 6) },
+            { height: Math.max(0, window.innerHeight - rect.bottom - 6), left: 0, top: rect.bottom + 6, width: "100%" },
+          ].map((panel, index) => (
+            <div
+              key={index}
+              aria-hidden="true"
+              className={`pointer-events-none fixed z-[204] backdrop-blur-[2px] ${incorrect ? "bg-red-950/60" : "bg-black/65"}`}
+              style={panel}
+            />
+          ))}
+          <div
+            aria-hidden="true"
+            className={`pointer-events-none fixed z-[205] rounded-xl border-2 ${incorrect ? "training-guide-shake border-red-400" : "animate-pulse border-[#F2D66C]"}`}
+            style={{
+              boxShadow: "0 0 24px rgba(242,214,108,.55)",
+              height: rect.height + 12,
+              left: Math.max(4, rect.left - 6),
+              top: rect.top - 6,
+              width: Math.min(
+                rect.width + 12,
+                window.innerWidth - Math.max(4, rect.left - 6) - 4,
+              ),
+            }}
+          />
+        </>
       )}
       <aside
         ref={guideRef}
         data-training-guide
-        className="fixed left-1/2 z-[210] max-h-[min(42dvh,13rem)] w-[min(92vw,34rem)] -translate-x-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-[#D8C36A]/45 bg-[#080808] p-3 text-white shadow-2xl sm:p-5"
+        className={`fixed left-1/2 z-[210] max-h-[min(42dvh,13rem)] w-[min(92vw,34rem)] -translate-x-1/2 overflow-y-auto overscroll-contain rounded-2xl border bg-[#080808] p-3 text-white shadow-2xl sm:p-5 ${incorrect ? "border-red-400/70" : "border-[#D8C36A]/45"}`}
         style={{ top: guideTop }}
       >
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-            {trainingModule.number} · Step {stepIndex + 1} of {trainingModule.steps.length}
+            STEP {stepIndex + 1} OF {trainingModule.steps.length}
           </p>
           <button
             data-training-guide
@@ -549,7 +694,7 @@ export default function GuidedTrainingOverlay({
             onClick={() => void exitTraining()}
             className="min-h-9 shrink-0 rounded-full border border-white/15 px-3 text-[0.7rem] font-semibold text-zinc-200 disabled:opacity-50"
           >
-            {exiting ? "SAVING" : "EXIT TRAINING"}
+            {exiting ? "SAVING" : "EXIT"}
           </button>
         </div>
         <p className={`mt-1.5 text-[0.82rem] font-semibold leading-5 sm:mt-2 sm:text-base ${incorrect ? "text-red-200" : "text-white"}`}>
@@ -557,12 +702,12 @@ export default function GuidedTrainingOverlay({
             ? "Follow the highlighted step."
             : incorrect
               ? "Use the highlighted control."
-              : step.instruction}
+              : activeInstruction}
         </p>
         <div className="mt-3 flex flex-wrap gap-2 sm:mt-4">
           <button data-training-guide type="button" disabled={stepIndex === 0} onClick={moveBack} className="min-h-9 rounded-full border border-white/15 px-3 text-xs font-semibold disabled:opacity-35 sm:min-h-10 sm:px-4">Back</button>
           <button data-training-guide type="button" onClick={restartWorkflow} className="min-h-9 rounded-full border border-white/15 px-3 text-xs font-semibold sm:min-h-10 sm:px-4">Restart</button>
-          <button data-training-guide type="button" disabled={targetMissing} onClick={() => showCurrentTarget()} className="min-h-9 rounded-full border border-[#D8C36A]/55 px-3 text-xs font-semibold text-[#F2D66C] disabled:opacity-35 sm:min-h-10 sm:px-4">Show Me</button>
+          <button data-training-guide type="button" onClick={() => showCurrentTarget()} className="min-h-9 rounded-full border border-[#D8C36A]/55 px-3 text-xs font-semibold text-[#F2D66C] sm:min-h-10 sm:px-4">Show Me</button>
         </div>
         {progressError && (
           <p role="alert" className="mt-3 text-xs font-semibold text-red-200">

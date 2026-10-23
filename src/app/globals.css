@@ -76,6 +76,16 @@ textarea,
   }
 }
 
+@keyframes training-guide-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-0.3rem); }
+  75% { transform: translateX(0.3rem); }
+}
+
+.training-guide-shake {
+  animation: training-guide-shake 180ms ease-in-out 2;
+}
+
 @keyframes bookings-export-gold-glow {
   0%,
   100% {
@@ -101,6 +111,7 @@ textarea,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .training-guide-shake,
   .bookings-export-action:not(:disabled) {
     animation: none;
   }

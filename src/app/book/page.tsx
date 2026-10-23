@@ -898,6 +898,7 @@ export default function BookingPage({
   const trackedTelemetryEventsRef = useRef<Set<string>>(new Set());
   const showLoadRequestRef = useRef(0);
   const hasScrolledToConfirmedRef = useRef(false);
+  const trainingWorkflowRestoredRef = useRef(false);
   const venueConfig = venueSettings;
   const enabledSeatingZones = getEnabledSeatingZones(venueConfig);
   const enabledSeatingZoneIds = enabledSeatingZones.map((zone) => zone.id).join(",");
@@ -912,6 +913,110 @@ export default function BookingPage({
     isCorporateCalendarCheckout && corporatePaymentBasis === "invoice-paid";
   const isCorporateInvoice =
     isCorporateInvoiceOutstanding || isCorporateInvoicePaid;
+
+  useEffect(() => {
+    if (!guidedTrainingModuleId || trainingWorkflowRestoredRef.current || showLoadStatus !== "success") {
+      return;
+    }
+    try {
+      const saved = JSON.parse(
+        sessionStorage.getItem(`zingara-guided-training:booking:${guidedTrainingModuleId}`) ?? "null",
+      ) as {
+        activeBookingStep?: number;
+        corporateCompany?: string;
+        corporatePaymentBasis?: "online" | CorporateInvoicePaymentBasis;
+        customerInfo?: CustomerInfo;
+        isConfirmationOpen?: boolean;
+        partySize?: number;
+        paymentOption?: PaymentOption;
+        selectedZoneId?: string;
+        staffPricingMode?: "complimentary" | "friends-family" | "standard";
+      } | null;
+      if (!saved) {
+        trainingWorkflowRestoredRef.current = true;
+        return;
+      }
+      const restoredZone = enabledSeatingZones.find((zone) => zone.id === saved.selectedZoneId) ?? null;
+      const frame = window.requestAnimationFrame(() => {
+        setSelectedShowDate(guidedTrainingSyntheticShow.date);
+        setSelectedShowId(guidedTrainingSyntheticShow.id);
+        setSelectedEntryLocation("johannesburg");
+        setPartySize(saved.partySize ?? 2);
+        setSelectedZone(restoredZone);
+        setPreviewSeatingZone(null);
+        setCustomerInfo(saved.customerInfo ?? { name: "", email: "", phone: "" });
+        setCorporateCompany(saved.corporateCompany ?? "");
+        setCorporatePaymentBasis(saved.corporatePaymentBasis ?? "online");
+        setPaymentOption(saved.paymentOption ?? "full");
+        setStaffPricingMode(saved.staffPricingMode ?? "standard");
+        setIsConfirmationOpen(Boolean(saved.isConfirmationOpen));
+        setActiveBookingStep(Math.min(4, Math.max(1, saved.activeBookingStep ?? 1)));
+        trainingWorkflowRestoredRef.current = true;
+      });
+      return () => window.cancelAnimationFrame(frame);
+    } catch {
+      sessionStorage.removeItem(`zingara-guided-training:booking:${guidedTrainingModuleId}`);
+    }
+  // enabledSeatingZoneIds is the stable signature for the derived zone list.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabledSeatingZoneIds, guidedTrainingModuleId, showLoadStatus]);
+
+  useEffect(() => {
+    if (!guidedTrainingModuleId || !trainingWorkflowRestoredRef.current) return;
+    sessionStorage.setItem(
+      `zingara-guided-training:booking:${guidedTrainingModuleId}`,
+      JSON.stringify({
+        activeBookingStep,
+        corporateCompany,
+        corporatePaymentBasis,
+        customerInfo,
+        isConfirmationOpen,
+        partySize,
+        paymentOption,
+        selectedZoneId: selectedZone?.id ?? "",
+        staffPricingMode,
+      }),
+    );
+  }, [activeBookingStep, corporateCompany, corporatePaymentBasis, customerInfo, guidedTrainingModuleId, isConfirmationOpen, partySize, paymentOption, selectedZone?.id, staffPricingMode]);
+
+  useEffect(() => {
+    if (!guidedTrainingModuleId) return;
+    const navigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ controlId?: string; restart?: boolean }>).detail;
+      const controlId = detail?.controlId ?? "";
+      if (detail?.restart) {
+        sessionStorage.removeItem(`zingara-guided-training:booking:${guidedTrainingModuleId}`);
+        return;
+      }
+      setIsConfirmationOpen(controlId === "training-booking-terms" || controlId === "training-booking-confirm");
+      if (controlId === "training-booking-guests") {
+        setActiveBookingStep(1);
+        setPreviewSeatingZone(null);
+      } else if (controlId.startsWith("training-booking-zone")) {
+        setActiveBookingStep(2);
+        setPreviewSeatingZone(
+          controlId === "training-booking-zone-confirm" ? selectedZone : null,
+        );
+      } else if (controlId === "training-booking-details-open") {
+        setActiveBookingStep(2);
+        setPreviewSeatingZone(null);
+      } else if (controlId === "training-booking-details") {
+        setActiveBookingStep(3);
+        setPreviewSeatingZone(null);
+      } else if (
+        controlId === "training-booking-rate" ||
+        controlId === "training-booking-payment-option" ||
+        controlId === "training-booking-review" ||
+        controlId === "training-booking-terms" ||
+        controlId === "training-booking-confirm"
+      ) {
+        setActiveBookingStep(4);
+        setPreviewSeatingZone(null);
+      }
+    };
+    window.addEventListener("zingara-guided-training-navigate", navigate);
+    return () => window.removeEventListener("zingara-guided-training-navigate", navigate);
+  }, [guidedTrainingModuleId, selectedZone]);
 
   useEffect(() => {
     if (selectedZone && !enabledSeatingZones.some((zone) => zone.id === selectedZone.id)) {
@@ -4398,6 +4503,7 @@ export default function BookingPage({
                   <button
                     type="button"
                     data-training-control="training-booking-guests"
+                    data-training-value={String(partySize)}
                     onClick={() => setActiveBookingStep(2)}
                     className="min-h-11 whitespace-nowrap rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 sm:px-6 sm:py-3"
                   >
@@ -4979,6 +5085,12 @@ export default function BookingPage({
                 <button
                   type="button"
                   data-training-control="training-booking-details"
+                  data-training-value={
+                    customerDetailsComplete &&
+                    (!isCorporateCalendarCheckout || corporateCompany.trim())
+                      ? "valid"
+                      : "invalid"
+                  }
                   onClick={handleGuestDetailsContinue}
                   className="min-h-11 rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:py-3 sm:text-base"
                 >
@@ -5019,11 +5131,14 @@ export default function BookingPage({
                     Staff Pricing
                   </p>
                   <div
+                    data-training-scope="training-booking-rate"
                     className={`mt-3 grid gap-2 ${canUseFriendsAndFamily ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2"}`}
                     role="group"
                     aria-label="Staff pricing"
                   >
                     <button
+                      data-training-control="training-booking-rate"
+                      data-training-value="standard"
                       type="button"
                       aria-pressed={staffPricingMode === "standard"}
                       onClick={() => setStaffPricingMode("standard")}
@@ -5047,6 +5162,8 @@ export default function BookingPage({
                       </button>
                     )}
                     <button
+                      data-training-control="training-booking-rate"
+                      data-training-value="complimentary"
                       type="button"
                       aria-pressed={isComplimentary}
                       onClick={() => {
@@ -5214,6 +5331,7 @@ export default function BookingPage({
                         Payment Option
                       </span>
                       <select
+                        data-training-control="training-booking-payment-option"
                         value={
                           isCorporateInvoice
                             ? corporatePaymentBasis
@@ -5424,7 +5542,7 @@ export default function BookingPage({
                 )}
                 <button
                   type="button"
-                  data-training-control="training-booking-payment"
+                  data-training-control="training-booking-review"
                   onClick={handleContinueBooking}
                   className="min-h-12 w-full rounded-full bg-white px-6 py-2.5 text-base font-semibold text-black transition hover:scale-[1.01] hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:px-8 sm:py-4 sm:text-xl"
                 >

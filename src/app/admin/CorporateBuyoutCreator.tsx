@@ -135,6 +135,22 @@ export default function CorporateBuyoutCreator({
     return () => window.removeEventListener("keydown", handleKey);
   }, [onClose, open, saving]);
 
+  useEffect(() => {
+    if (!open || !trainingModuleId) return;
+    const navigate = (event: Event) => {
+      const controlId = (event as CustomEvent<{ controlId?: string }>).detail?.controlId;
+      if (controlId !== "training-buyout-confirm") setConfirming(false);
+      if (controlId === "training-buyout-company") {
+        setCompanyId("");
+        setContactId("");
+      } else if (controlId === "training-buyout-contact") {
+        setContactId("");
+      }
+    };
+    window.addEventListener("zingara-guided-training-navigate", navigate);
+    return () => window.removeEventListener("zingara-guided-training-navigate", navigate);
+  }, [open, trainingModuleId]);
+
   const authoritativeShow = data?.shows[0];
   const selectedCompany = data?.companies.find((company) => company.id === companyId);
   const selectedContact = selectedCompany?.contacts.find((contact) => contact.id === contactId);

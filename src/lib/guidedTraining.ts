@@ -29,6 +29,13 @@ export type GuidedTrainingStep = {
   event?: "change" | "click" | "input" | "submit";
   instruction: string;
   key: string;
+  prepare?: {
+    controlId: string;
+    event: "change" | "click" | "input";
+    instruction: string;
+    validValues?: string[];
+  };
+  validValues?: string[];
 };
 
 export type GuidedTrainingModule = {
@@ -50,13 +57,23 @@ export const guidedTrainingModules: GuidedTrainingModule[] = [
     steps: [
       { key: "create", controlId: "training-calendar-create", instruction: "Click + on the highlighted performance." },
       { key: "type", controlId: "training-booking-standard", instruction: "Choose Standard Booking." },
-      { key: "guests", controlId: "training-booking-guests", instruction: "Set 4 guests, then continue." },
+      { key: "guests", controlId: "training-booking-guests", instruction: "Set 4 guests, then continue.", validValues: ["4"] },
       { key: "zone", controlId: "training-booking-zone-golden-circle", instruction: "Choose Golden Circle." },
       { key: "zone-confirm", controlId: "training-booking-zone-confirm", instruction: "Confirm the seating section." },
       { key: "details-open", controlId: "training-booking-details-open", instruction: "Continue to Guest Details." },
-      { key: "details", controlId: "training-booking-details", instruction: "Enter Avery Daniels, avery.daniels@example.com and +27 82 000 0000, then continue." },
-      { key: "payment", controlId: "training-booking-payment", instruction: "Choose the payment option, then review the booking." },
-      { key: "terms", controlId: "training-booking-terms", instruction: "Accept the booking terms." },
+      { key: "details", controlId: "training-booking-details", instruction: "Enter Avery Daniels, avery.daniels@example.com and +27 82 000 0000, then continue.", validValues: ["valid"] },
+      {
+        key: "payment",
+        controlId: "training-booking-review",
+        instruction: "Review the booking.",
+        prepare: {
+          controlId: "training-booking-payment-option",
+          event: "change",
+          instruction: "Choose a payment option.",
+          validValues: ["full", "deposit"],
+        },
+      },
+      { key: "terms", controlId: "training-booking-terms", instruction: "Accept the booking terms.", validValues: ["checked"] },
       { key: "confirm", controlId: "training-booking-confirm", instruction: "Create the booking." },
     ],
   },
@@ -65,17 +82,33 @@ export const guidedTrainingModules: GuidedTrainingModule[] = [
     id: "corporate-booking",
     number: "02",
     title: "Create Corporate Booking",
-    version: 4,
+    version: 5,
     steps: [
       { key: "create", controlId: "training-calendar-create", instruction: "Click + on the highlighted performance." },
       { key: "type", controlId: "training-booking-corporate", instruction: "Choose Corporate Booking." },
-      { key: "guests", controlId: "training-booking-guests", instruction: "Enter 20 guests, then continue." },
+      { key: "guests", controlId: "training-booking-guests", instruction: "Enter 20 guests, then continue.", validValues: ["20"] },
       { key: "zone", controlId: "training-booking-zone-royal-booths", instruction: "Choose Private Booths." },
       { key: "zone-confirm", controlId: "training-booking-zone-confirm", instruction: "Confirm the seating section." },
       { key: "details-open", controlId: "training-booking-details-open", instruction: "Continue to Company Details." },
-      { key: "details", controlId: "training-booking-details", instruction: "Enter the company and contact details, then continue." },
-      { key: "payment", controlId: "training-booking-payment", instruction: "Choose Invoiced – Outstanding Payment, then review." },
-      { key: "terms", controlId: "training-booking-terms", instruction: "Accept the booking terms." },
+      { key: "details", controlId: "training-booking-details", instruction: "Enter the company and contact details, then continue.", validValues: ["valid"] },
+      {
+        key: "rate",
+        controlId: "training-booking-rate",
+        instruction: "Choose Standard Rate or Complimentary.",
+        validValues: ["standard", "complimentary"],
+      },
+      {
+        key: "payment",
+        controlId: "training-booking-review",
+        instruction: "Review the booking.",
+        prepare: {
+          controlId: "training-booking-payment-option",
+          event: "change",
+          instruction: "Choose a payment option.",
+          validValues: ["full", "deposit", "invoice-outstanding", "invoice-paid"],
+        },
+      },
+      { key: "terms", controlId: "training-booking-terms", instruction: "Accept the booking terms.", validValues: ["checked"] },
       { key: "confirm", controlId: "training-booking-confirm", instruction: "Create the Corporate booking." },
     ],
   },
@@ -88,10 +121,10 @@ export const guidedTrainingModules: GuidedTrainingModule[] = [
     steps: [
       { key: "create", controlId: "training-calendar-create", instruction: "Click + on the highlighted performance." },
       { key: "type", controlId: "training-booking-buyout", instruction: "Choose Buyout." },
-      { key: "company", controlId: "training-buyout-company", event: "change", instruction: "Choose the company." },
-      { key: "contact", controlId: "training-buyout-contact", event: "change", instruction: "Choose the company contact." },
+      { key: "company", controlId: "training-buyout-company", event: "change", instruction: "Choose the company.", validValues: ["academy-guided-training-company"] },
+      { key: "contact", controlId: "training-buyout-contact", event: "change", instruction: "Choose the company contact.", validValues: ["academy-guided-training-contact"] },
       { key: "package", controlId: "training-buyout-package", instruction: "Choose Full Venue Buyout." },
-      { key: "guests", controlId: "training-buyout-guests", instruction: "Confirm 400 expected guests." },
+      { key: "guests", controlId: "training-buyout-guests", instruction: "Confirm 400 expected guests.", validValues: ["400"] },
       { key: "review", controlId: "training-buyout-review", instruction: "Review the Buyout." },
       { key: "confirm", controlId: "training-buyout-confirm", instruction: "Create the Buyout." },
     ],
