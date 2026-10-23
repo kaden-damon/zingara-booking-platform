@@ -20,15 +20,9 @@ const copyFields: Array<{
 }> = [
   { field: "bannerHeading", label: "Banner Heading (Optional)" },
   { field: "bannerDescription", label: "Banner Description", multiline: true },
-  { field: "acceptAllLabel", label: "OKAY Button Label" },
-  { field: "essentialDescription", label: "Essential Description", multiline: true },
-  { field: "analyticsDescription", label: "Analytics Description", multiline: true },
-  { field: "marketingDescription", label: "Marketing Description", multiline: true },
-  { field: "preferencesHeading", label: "Advanced Preferences Heading (Optional)" },
-  { field: "essentialOnlyLabel", label: "Advanced Essential-Only Label (Optional)" },
-  { field: "managePreferencesLabel", label: "Advanced Manage Label (Optional)" },
-  { field: "savePreferencesLabel", label: "Advanced Save Label (Optional)" },
-  { field: "footerLinkLabel", label: "Advanced Footer Label (Optional)" },
+  { field: "acceptAllLabel", label: "Accept All Button Label" },
+  { field: "essentialOnlyLabel", label: "Essential Only Button Label" },
+  { field: "footerLinkLabel", label: "Footer Link Label" },
 ];
 
 export default function CookiePrivacyPreferences({
@@ -261,8 +255,7 @@ export default function CookiePrivacyPreferences({
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Public Copy</p>
               <p className="mt-1 text-sm text-zinc-500">
-                The public notice uses the description and OKAY label. Advanced
-                fields remain available for future optional preferences. Changes
+                The public notice offers Accept All or Essential Only. Changes
                 remain drafts until saved.
               </p>
             </div>
@@ -321,8 +314,8 @@ export default function CookiePrivacyPreferences({
           <div className="mx-auto max-w-xl">
             <CookieConsentPanel
               config={draft}
-              onAcknowledge={() => undefined}
-              onSavePreferences={() => undefined}
+              onAcceptAll={() => undefined}
+              onEssentialOnly={() => undefined}
               preview
             />
           </div>

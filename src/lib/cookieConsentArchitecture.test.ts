@@ -26,7 +26,8 @@ test("Admin preview is isolated and uses the simplified notice", async () => {
   const preview = await source("../app/admin/CookiePrivacyPreferences.tsx");
   assert.doesNotMatch(preview, /updateConsent|localStorage/);
   assert.match(preview, /Preview · No consent is saved/);
-  assert.match(preview, /onAcknowledge=\{\(\) => undefined\}/);
+  assert.match(preview, /onAcceptAll=\{\(\) => undefined\}/);
+  assert.match(preview, /onEssentialOnly=\{\(\) => undefined\}/);
 });
 
 test("public notice is absent from Admin and optional analytics requires an explicit choice", async () => {
@@ -35,13 +36,15 @@ test("public notice is absent from Admin and optional analytics requires an expl
   assert.match(publicConsent, /pathname\.startsWith\("\/admin"\)/);
   assert.match(publicConsent, /analytics: false/);
   assert.match(publicConsent, /marketing: false/);
-  assert.match(publicConsent, /onSavePreferences/);
+  assert.match(publicConsent, /analytics: true/);
+  assert.match(publicConsent, /marketing: true/);
+  assert.match(publicConsent, /onAcceptAll/);
+  assert.match(publicConsent, /onEssentialOnly/);
   assert.match(publicConsent, /footerLinkLabel/);
   assert.match(publicConsent, /setIsVisible\(true\)/);
-  assert.match(panel, /managePreferencesLabel/);
-  assert.match(panel, /analyticsDescription/);
-  assert.match(panel, /marketingDescription/);
-  assert.match(panel, /onAcknowledge/);
+  assert.match(panel, /config\.acceptAllLabel/);
+  assert.match(panel, /config\.essentialOnlyLabel/);
+  assert.doesNotMatch(panel, /type="checkbox"|managePreferencesLabel|onSavePreferences/);
   assert.match(panel, /\/royal-decrees\/cookie-policy/);
 });
 
@@ -49,8 +52,10 @@ test("Legal Centre cross-references Cookie and Privacy policies", async () => {
   const legal = await source("./royalDecrees.ts");
   assert.match(legal, /slug: "cookie-policy"/);
   assert.match(legal, /including the Privacy Policy and Cookie Policy/);
-  assert.match(legal, /The Cookie Policy explains the categories/);
-  assert.match(legal, /Selecting OKAY acknowledges the notice/);
+  assert.match(legal, /Cookie Policy explains how the saved choice can be changed/);
+  assert.match(legal, /Selecting Accept All permits optional Analytics and Marketing/);
+  assert.match(legal, /Selecting Essential Only keeps both optional categories off/);
+  assert.match(legal, /Advertising purchase measurement remains disabled/);
   assert.doesNotMatch(legal, /Google Analytics is active|Meta Pixel is active/);
 });
 
@@ -60,6 +65,8 @@ test("public advertising runtime is isolated behind explicit consent", async () 
   assert.match(layout, /PublicAdvertisingTracking/);
   assert.match(tracking, /ad_storage: "denied"/);
   assert.match(tracking, /analytics_storage: "denied"/);
+  assert.match(tracking, /dataLayer\?\.push\(arguments\)/);
+  assert.doesNotMatch(tracking, /dataLayer\?\.push\(args\)/);
   assert.match(tracking, /if \(consent\.analytics \|\| consent\.marketing\)/);
   assert.match(tracking, /if \(consent\.marketing\)/);
   assert.match(tracking, /window\.fbq\?\.\("consent", "revoke"\)/);

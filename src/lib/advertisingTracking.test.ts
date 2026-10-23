@@ -128,6 +128,8 @@ test("tag integration is consent controlled, single-script and purchase gated", 
   assert.match(tracking, /1434578967806435/);
   assert.match(tracking, /getElementById\(googleScriptId\)/);
   assert.match(tracking, /getElementById\(metaScriptId\)/);
+  assert.match(tracking, /dataLayer\?\.push\(arguments\)/);
+  assert.doesNotMatch(tracking, /dataLayer\?\.push\(args\)/);
   assert.match(tracking, /ad_storage: "denied"/);
   assert.match(tracking, /analytics_storage: "denied"/);
   assert.match(tracking, /window\.fbq\?\.\("consent", "revoke"\)/);

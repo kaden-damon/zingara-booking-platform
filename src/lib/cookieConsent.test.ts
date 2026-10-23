@@ -21,11 +21,14 @@ test("optional consent defaults off while Essential remains active", () => {
   assert.equal(consent.marketing, false);
 });
 
-test("simplified acknowledgement records Essential only", () => {
-  const consent = createConsent(1, { analytics: false, marketing: false });
-  assert.equal(consent.essential, true);
-  assert.equal(consent.analytics, false);
-  assert.equal(consent.marketing, false);
+test("the two consent choices record all optional categories atomically", () => {
+  const accepted = createConsent(5, { analytics: true, marketing: true });
+  const essentialOnly = createConsent(5, { analytics: false, marketing: false });
+  assert.equal(accepted.analytics, true);
+  assert.equal(accepted.marketing, true);
+  assert.equal(essentialOnly.essential, true);
+  assert.equal(essentialOnly.analytics, false);
+  assert.equal(essentialOnly.marketing, false);
 });
 
 test("custom preferences remain independent", () => {
@@ -82,17 +85,20 @@ test("disabled consent UI never implies optional permission", () => {
 
 test("configuration defaults preserve locked category semantics", () => {
   assert.equal(defaultCookieConsentConfig.enabled, true);
-  assert.equal(defaultCookieConsentConfig.consentVersion, 4);
-  assert.equal(defaultCookieConsentConfig.acceptAllLabel, "OKAY");
+  assert.equal(defaultCookieConsentConfig.consentVersion, 5);
+  assert.equal(defaultCookieConsentConfig.acceptAllLabel, "ACCEPT ALL");
+  assert.equal(defaultCookieConsentConfig.essentialOnlyLabel, "ESSENTIAL ONLY");
   assert.match(defaultCookieConsentConfig.essentialDescription, /Required/);
 });
 
-test("legacy Accept All label is safely presented as acknowledgement", () => {
+test("legacy acknowledgement label upgrades to the explicit two-choice wording", () => {
   const normalized = normalizeCookieConsentConfig({
     ...defaultCookieConsentConfig,
-    acceptAllLabel: "ACCEPT ALL",
+    acceptAllLabel: "OKAY",
+    essentialOnlyLabel: "",
   });
-  assert.equal(normalized.acceptAllLabel, "OKAY");
+  assert.equal(normalized.acceptAllLabel, "ACCEPT ALL");
+  assert.equal(normalized.essentialOnlyLabel, "ESSENTIAL ONLY");
 });
 
 test("legacy generic disclosures upgrade to the named advertising providers", () => {
@@ -105,7 +111,7 @@ test("legacy generic disclosures upgrade to the named advertising providers", ()
       "Allows optional marketing technologies where Zingara introduces them and you choose to consent.",
   });
 
-  assert.equal(normalized.consentVersion, 4);
+  assert.equal(normalized.consentVersion, 5);
   assert.match(normalized.analyticsDescription, /Google Analytics/);
   assert.match(normalized.marketingDescription, /Google Ads and Meta Pixel/);
 });
@@ -123,7 +129,6 @@ test("configuration permits blank hidden fields and optional heading", () => {
   const config = {
     ...defaultCookieConsentConfig,
     bannerHeading: "",
-    essentialOnlyLabel: "",
     footerLinkLabel: "",
     managePreferencesLabel: "",
     savePreferencesLabel: "",
@@ -151,6 +156,13 @@ test("configuration requires only active notice copy", () => {
   assert.match(
     validateCookieConsentConfig({
       ...defaultCookieConsentConfig,
+      essentialOnlyLabel: "",
+    }) ?? "",
+    /essentialOnlyLabel is required/,
+  );
+  assert.match(
+    validateCookieConsentConfig({
+      ...defaultCookieConsentConfig,
       bannerHeading: "x".repeat(81),
     }) ?? "",
     /80 characters or fewer/,
@@ -161,7 +173,7 @@ test("configuration changes are deterministic for audit fields", () => {
   const next = {
     ...defaultCookieConsentConfig,
     bannerHeading: "YOUR PRIVACY AT ZINGARA",
-    consentVersion: 5,
+    consentVersion: 6,
   };
   assert.deepEqual(
     getChangedCookieConsentFields(defaultCookieConsentConfig, next),

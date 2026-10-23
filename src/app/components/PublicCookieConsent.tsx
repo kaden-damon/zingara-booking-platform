@@ -7,7 +7,6 @@ import {
   createConsent,
   getConsent,
   updateConsent,
-  type CookieConsent,
 } from "../../lib/cookieConsent";
 import {
   defaultCookieConsentConfig,
@@ -19,7 +18,6 @@ import CookieConsentPanel from "./CookieConsentPanel";
 export default function PublicCookieConsent() {
   const pathname = usePathname();
   const [config, setConfig] = useState<CookieConsentConfig | null>(null);
-  const [consent, setConsent] = useState<CookieConsent | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const isAdmin = pathname.startsWith("/admin");
 
@@ -47,7 +45,6 @@ export default function PublicCookieConsent() {
         const storedConsent = getConsent(nextConfig.consentVersion);
 
         setConfig(nextConfig);
-        setConsent(storedConsent);
         setIsVisible(nextConfig.enabled && !storedConsent);
         window.dispatchEvent(new CustomEvent(cookieConsentReadyEvent, {
           detail: {
@@ -63,7 +60,6 @@ export default function PublicCookieConsent() {
         const storedConsent = getConsent(nextConfig.consentVersion);
 
         setConfig(nextConfig);
-        setConsent(storedConsent);
         setIsVisible(nextConfig.enabled && !storedConsent);
         window.dispatchEvent(new CustomEvent(cookieConsentReadyEvent, {
           detail: {
@@ -82,23 +78,25 @@ export default function PublicCookieConsent() {
     return null;
   }
 
-  function acknowledgeNotice() {
+  function acceptAll() {
     if (!config) return;
 
     const next = createConsent(config.consentVersion, {
-        analytics: false,
-        marketing: false,
-      });
+      analytics: true,
+      marketing: true,
+    });
     updateConsent(next);
-    setConsent(next);
     setIsVisible(false);
   }
 
-  function savePreferences(choices: { analytics: boolean; marketing: boolean }) {
+  function useEssentialOnly() {
     if (!config) return;
-    const next = createConsent(config.consentVersion, choices);
+
+    const next = createConsent(config.consentVersion, {
+      analytics: false,
+      marketing: false,
+    });
     updateConsent(next);
-    setConsent(next);
     setIsVisible(false);
   }
 
@@ -109,12 +107,8 @@ export default function PublicCookieConsent() {
           <div className="pointer-events-auto mx-auto w-full max-w-md">
             <CookieConsentPanel
               config={config}
-              initialChoices={{
-                analytics: consent?.analytics === true,
-                marketing: consent?.marketing === true,
-              }}
-              onAcknowledge={acknowledgeNotice}
-              onSavePreferences={savePreferences}
+              onAcceptAll={acceptAll}
+              onEssentialOnly={useEssentialOnly}
             />
           </div>
         </div>

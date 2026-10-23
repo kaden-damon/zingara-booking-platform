@@ -90,8 +90,8 @@ export const royalDecrees: RoyalDecree[] = [
       {
         heading: "Browser Technologies And Privacy Choices",
         body: [
-          "The platform uses essential browser technologies where required to provide security, preserve core functionality and operate booking, payment and ticket services. Optional analytics or marketing technologies are used only where implemented and permitted by the visitor's saved preferences.",
-          "Optional Analytics or Marketing consent is not a condition of using or booking through Zingara. More information is available in the Privacy Policy and Cookie Policy.",
+          "The platform uses essential browser technologies where required to provide security, preserve core functionality and operate booking, payment and ticket services. Google Analytics 4, Google Ads and Meta Pixel are optional and remain blocked unless the visitor chooses Accept All.",
+          "Visitors may choose Essential Only and continue using or booking through Zingara without optional tracking. A saved choice can be changed later through Cookie Preferences. More information is available in the Privacy Policy and Cookie Policy.",
         ],
       },
       {
@@ -366,7 +366,7 @@ export const royalDecrees: RoyalDecree[] = [
         heading: "Website And Browser Information",
         body: [
           "The platform may process limited browser and device information through essential technologies needed for security, session handling, service operation, preferences and platform reliability.",
-          "Where optional analytics or marketing technologies are implemented, related browser information is processed only in accordance with the visitor's applicable consent choice. The Cookie Policy explains the categories and how preferences can be changed.",
+          "If a visitor chooses Accept All, Google Analytics 4 may measure platform usage and Google Ads and Meta Pixel may measure advertising and booking-journey activity. Choosing Essential Only keeps those optional technologies off. Zingara does not include customer names, email addresses, telephone numbers or booking references in approved tracking payloads. The Cookie Policy explains how the saved choice can be changed.",
         ],
       },
       {
@@ -445,8 +445,8 @@ export const royalDecrees: RoyalDecree[] = [
       {
         heading: "Your Consent Choices",
         body: [
-          "Selecting OKAY acknowledges the notice and stores an Essential-only choice. It does not grant Analytics or Marketing consent.",
-          "Optional Analytics or Marketing technologies remain off unless a separate supported preference mechanism records the visitor's explicit choice. If the consent version changes after a material policy or technology change, returning visitors may be asked to review their choice again.",
+          "Selecting Accept All permits optional Analytics and Marketing technologies, including Google Analytics 4, Google Ads and Meta Pixel. Selecting Essential Only keeps both optional categories off while preserving the booking platform's essential functions.",
+          "The selected choice, consent version and recorded date are stored in the visitor's browser. Visitors can reopen Cookie Preferences to change the choice. If the consent version changes after a material policy or technology change, returning visitors may be asked to choose again.",
           "Ignoring the consent experience does not grant optional consent.",
         ],
       },
@@ -454,7 +454,7 @@ export const royalDecrees: RoyalDecree[] = [
         heading: "Analytics And Marketing Technologies",
         body: [
           "With Analytics consent, the booking platform uses Google Analytics 4 to measure page views and non-identifying booking-journey events. With Marketing consent, it uses Google Ads and Meta Pixel to measure advertising performance. Zingara does not send customer names, email addresses, telephone numbers or booking references in these tracking payloads.",
-          "Purchase measurement remains separately controlled and is sent only after authoritative payment verification. Google and Meta receive only the approved event, ZAR value and an opaque duplicate-protection identity. Cookie Marketing consent is separate from email marketing subscriptions, SMS marketing subscriptions and necessary transactional communications.",
+          "Advertising purchase measurement remains disabled until separately authorised. If enabled later, it may be sent only after authoritative payment verification and with Marketing consent. Google and Meta would receive only the approved event, ZAR value and an opaque duplicate-protection identity. Cookie Marketing consent is separate from email marketing subscriptions, SMS marketing subscriptions and necessary transactional communications.",
         ],
       },
       {

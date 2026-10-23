@@ -20,13 +20,13 @@ const legacyMarketingDescription =
   "Allows optional marketing technologies where Zingara introduces them and you choose to consent.";
 
 export const defaultCookieConsentConfig: CookieConsentConfig = {
-  acceptAllLabel: "OKAY",
+  acceptAllLabel: "ACCEPT ALL",
   analyticsDescription:
     "Allows Google Analytics to measure booking-platform usage and help improve the experience.",
   bannerDescription:
-    "Zingara uses essential technologies to operate the booking platform. With your permission, we may also use analytics technologies to understand how visitors use the platform and improve the experience.",
+    "We use essential technologies to operate bookings securely. Choose Accept All to also allow GA4, Google Ads and Meta measurement, or Essential Only to keep optional tracking off.",
   bannerHeading: "WE VALUE YOUR PRIVACY",
-  consentVersion: 4,
+  consentVersion: 5,
   enabled: true,
   essentialDescription:
     "Required for security, core preferences, booking, payment and ticket functionality.",
@@ -62,6 +62,7 @@ const textFields = [
 const requiredTextFields = new Set<CookieConsentTextField>([
   "acceptAllLabel",
   "bannerDescription",
+  "essentialOnlyLabel",
 ]);
 
 export type CookieConsentTextField = (typeof textFields)[number];
@@ -114,8 +115,12 @@ export function normalizeCookieConsentConfig(
     );
   }
 
-  if (normalized.acceptAllLabel.toUpperCase() === "ACCEPT ALL") {
+  if (normalized.acceptAllLabel.toUpperCase() === "OKAY") {
     normalized.acceptAllLabel = defaultCookieConsentConfig.acceptAllLabel;
+  }
+
+  if (!normalized.essentialOnlyLabel) {
+    normalized.essentialOnlyLabel = defaultCookieConsentConfig.essentialOnlyLabel;
   }
 
   normalized.enabled =

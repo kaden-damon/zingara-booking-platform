@@ -49,8 +49,10 @@ function isProductionTrackingHost() {
 
 function ensureGoogleCommandQueue() {
   window.dataLayer = window.dataLayer ?? [];
-  window.gtag = window.gtag ?? function gtag(...args: unknown[]) {
-    window.dataLayer?.push(args);
+  window.gtag = window.gtag ?? function gtag() {
+    // Google requires an Arguments object here; arrays are ignored by gtag.js.
+    // eslint-disable-next-line prefer-rest-params
+    window.dataLayer?.push(arguments);
   };
   return window.gtag;
 }
