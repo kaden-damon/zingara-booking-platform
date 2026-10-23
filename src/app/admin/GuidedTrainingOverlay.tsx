@@ -221,7 +221,7 @@ export default function GuidedTrainingOverlay({
     setProgressError("");
     try {
       await saveProgress(stepIndex);
-      router.push("/admin?section=academy");
+      router.push("/admin?section=academy&academySection=guided-training");
     } catch (saveError) {
       setProgressError(
         saveError instanceof Error
@@ -493,7 +493,7 @@ export default function GuidedTrainingOverlay({
             {progressError || "Your progress is being prepared."}
           </p>
           {progressError && (
-            <a href="/admin?section=academy" className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-[#D8C36A] px-6 text-sm font-bold text-black">
+            <a href="/admin?section=academy&academySection=guided-training" className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-[#D8C36A] px-6 text-sm font-bold text-black">
               RETURN TO ACADEMY
             </a>
           )}
@@ -510,7 +510,7 @@ export default function GuidedTrainingOverlay({
           <p className="mt-3 text-sm leading-6 text-zinc-400">
             You&apos;ve successfully completed this training module.
           </p>
-          <a href="/admin?section=academy" className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-[#D8C36A] px-6 text-sm font-bold text-black">
+          <a href="/admin?section=academy&academySection=guided-training" className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-[#D8C36A] px-6 text-sm font-bold text-black">
             RETURN TO ACADEMY
           </a>
         </section>

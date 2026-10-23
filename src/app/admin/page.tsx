@@ -12748,9 +12748,7 @@ export default function AdminDashboardPage({
         setAcademyWorkspace(
           academySection === "training-register"
             ? "training-register"
-            : academySection === "guided-training" &&
-                process.env.NODE_ENV !== "production" &&
-                staff.role === "super-admin"
+            : academySection === "guided-training"
               ? "guided-training"
               : "learning",
         );
@@ -29832,9 +29830,7 @@ export default function AdminDashboardPage({
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => setAcademyWorkspace("learning")} className={`min-h-11 rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.1em] ${academyWorkspace === "learning" ? "bg-[#D8C36A] text-black" : "border border-white/15 text-zinc-300"}`}>Academy</button>
-                {process.env.NODE_ENV !== "production" && currentStaff?.role === "super-admin" && (
-                  <button type="button" onClick={() => setAcademyWorkspace("guided-training")} className={`min-h-11 rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.1em] ${academyWorkspace === "guided-training" ? "bg-[#D8C36A] text-black" : "border border-white/15 text-zinc-300"}`}>Guided Training</button>
-                )}
+                <button type="button" onClick={() => setAcademyWorkspace("guided-training")} className={`min-h-11 rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.1em] ${academyWorkspace === "guided-training" ? "bg-[#D8C36A] text-black" : "border border-white/15 text-zinc-300"}`}>Guided Training</button>
                 <button type="button" onClick={() => setAcademyWorkspace("training-register")} className={`min-h-11 rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.1em] ${academyWorkspace === "training-register" ? "bg-[#D8C36A] text-black" : "border border-white/15 text-zinc-300"}`}>Training Register</button>
               </div>
             </div>

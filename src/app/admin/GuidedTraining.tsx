@@ -167,10 +167,10 @@ export default function GuidedTraining({
                 className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#D8C36A] px-4 text-sm font-bold text-black transition hover:bg-[#F2D66C]"
               >
                 {status === "completed"
-                  ? "Repeat Module"
+                  ? "Completed - Review"
                   : status === "in-progress"
-                    ? "Resume Module"
-                    : "Start Module"}
+                    ? "Continue"
+                    : "Start"}
               </a>
             </article>
           );

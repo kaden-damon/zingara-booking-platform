@@ -91,7 +91,10 @@ test("guided training launches real Production workflows behind a synthetic writ
   assert.match(overlay, /persistenceRef\.current === "preview-session"/);
   assert.match(overlay, /completedRecordRef\.current && !isComplete/);
   assert.match(overlay, /keepalive: true/);
-  assert.match(overlay, /router\.push\("\/admin\?section=academy"\)/);
+  assert.match(
+    overlay,
+    /router\.push\("\/admin\?section=academy&academySection=guided-training"\)/,
+  );
   assert.match(overlay, /elementFromPoint/);
   assert.match(overlay, /window\.visualViewport/);
   assert.match(overlay, /scrollIntoView\(\{ behavior, block: "center", inline: "nearest" \}\)/);
@@ -110,10 +113,22 @@ test("guided training launches real Production workflows behind a synthetic writ
   assert.match(startRoute, /browserOrigin\(request\)/);
   assert.match(startRoute, /request\.headers\.get\("host"\)/);
   assert.match(adminPage, /dynamic\(\(\) => import\("\.\/GuidedTraining"\)/);
+  assert.match(adminPage, />Guided Training<\/button>/);
+  assert.doesNotMatch(
+    adminPage,
+    /process\.env\.NODE_ENV !== "production"\s*&&\s*currentStaff\?\.role === "super-admin"/,
+  );
+  assert.match(
+    adminPage,
+    /academySection === "guided-training"\s*\? "guided-training"/,
+  );
   assert.doesNotMatch(
     adminPage,
     /process\.env\.NODE_ENV !== "production"\s*&&\s*typeof guidedTrainingParam/,
   );
+  assert.match(launcher, /\? "Completed - Review"/);
+  assert.match(launcher, /\? "Continue"/);
+  assert.match(launcher, /: "Start"/);
   assert.match(adminPage, /guidedTrainingPreviewStaff/);
   assert.match(adminPage, /preview\?\.persistence === "preview-session"/);
   assert.match(adminPage, /trainingBootstrap=/);
