@@ -1,6 +1,6 @@
 PHASE 50.14A - ACADEMY MODULE VISIBILITY FIX
 
-STATUS: VERIFIED; RELEASE AUTHORISED
+STATUS: COMPLETE - LIVE AND VERIFIED
 
 GOAL
 
@@ -57,3 +57,11 @@ RELEASE
   8406 and 8419, plus existing warnings; no new finding from this change
 - git diff --check: passed
 - Production build: passed with the existing ticket-PDF tracing warning
+- Functional Production commit: 21c3b2a
+- Deployment: dpl_8ev524pBSFLovNQmo6XKButEhdtv (READY)
+- Production alias: https://book.zingara.co.za
+- Authenticated Production verification: all three module cards visible; Standard,
+  Corporate, and Buyout launched at their first real guided step; Exit returned
+  to Guided Training; Buyout displayed its saved Continue state.
+- Production business-data delta: zero. Authenticated QA created one intended
+  Academy progress row for Kaden's Buyout module at step 0, status in-progress.
