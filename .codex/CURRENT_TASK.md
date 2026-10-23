@@ -38,8 +38,8 @@ Final status: P0 complete - two-seater limit and alternative dates live.
 
 - Production baseline before this P0: `0679e495e170f2084c7718f86b86982ddcddc362`; `main` and `origin/main` matched before editing.
 - The authoritative classification is an unarchived booking with exactly two guests whose lifecycle is `new`, `pending_payment`, `confirmed` or `checked_in`. Table assignment is deliberately not used because ordinary bookings receive physical tables later.
-- Read-only Production reconciliation covered 197 upcoming performances and 1,694 booking rows. Ninety-five performances have qualifying two-guest bookings; the maximum is 19.
-- The only performance at the immediate boundary is Johannesburg, 12 December 2026 at 17:00, with 19 qualifying bookings. No existing performance is at or above 20.
+- The final fully paginated read-only Production reconciliation covered 197 upcoming performances and 2,784 booking rows. One hundred and two performances have qualifying two-guest bookings.
+- Several performances already exceeded the new limit before enforcement. The highest observed count was 39 for Cape Town, 24 October 2026 at 18:00. These existing entitlements are preserved; the guard blocks only writes that would add another qualifying booking. No historical booking was changed.
 - A database trigger serialises new qualifying claims per performance and blocks only the twenty-first claim. Existing qualifying bookings remain editable; cancellation, archive, release and guest-count increases away from two remain available.
 - The same guard covers public and staff creation, reinstatement/reactivation, transfer into another performance, and amendments that change a booking into a two-guest entitlement.
 - The booking API returns a structured conflict with at most five same-venue active alternatives. Alternatives must remain publicly bookable, have the requested zone open, retain at least two ordinary seats and remain below the two-seater limit.
