@@ -1,6 +1,6 @@
 PHASE 51.5 - LEGACY HARDWARE PERFORMANCE CERTIFICATION
 
-STATUS: VERIFIED - RELEASE PENDING
+STATUS: COMPLETE
 
 DATE: 23 OCTOBER 2026
 
@@ -102,3 +102,13 @@ SAFETY
   changed.
 - Database delta is schema/read-query only: one additive index and two guarded
   optimisations to the existing read-only conversion report function.
+
+RELEASE
+
+- Application commit: 2ae1dc3f49dfeedaf5909dba6a1ab287623b9626
+- Production deployment: dpl_5p1Kshx9isr1RsUqffoDV7XmGVe8 (READY)
+- Production alias: https://book.zingara.co.za
+- Rollback commit: 4a445339c80298e1b822ab4188a37246dfe35d32
+- Production verification: `/admin` and `/book` returned HTTP 200; the release
+  window contained no runtime errors and no HTTP 5xx request records.
+- Business-data delta: none.
