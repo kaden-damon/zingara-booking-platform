@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   TWO_SEATER_BOOKING_LIMIT,
+  getTwoSeaterAlternativeContinuation,
   isQualifyingTwoSeaterBooking,
   isTwoSeaterLimitError,
   // @ts-expect-error Node's built-in TypeScript test runner requires the extension.
@@ -87,6 +88,30 @@ test("limit errors are detected without exposing database details", () => {
   assert.equal(isTwoSeaterLimitError(new Error("ZONE_CAPACITY_EXCEEDED")), false);
 });
 
+test("alternative selection resumes the furthest valid booking step", () => {
+  assert.deepEqual(
+    getTwoSeaterAlternativeContinuation({
+      customerDetailsComplete: true,
+      hasSelectedZone: true,
+    }),
+    { activeBookingStep: 4, isConfirmationOpen: true },
+  );
+  assert.deepEqual(
+    getTwoSeaterAlternativeContinuation({
+      customerDetailsComplete: false,
+      hasSelectedZone: true,
+    }),
+    { activeBookingStep: 3, isConfirmationOpen: false },
+  );
+  assert.deepEqual(
+    getTwoSeaterAlternativeContinuation({
+      customerDetailsComplete: true,
+      hasSelectedZone: false,
+    }),
+    { activeBookingStep: 2, isConfirmationOpen: false },
+  );
+});
+
 test("booking UI offers bounded alternatives and a Box Office route", async () => {
   const [page, route, server] = await Promise.all([
     source("../app/book/page.tsx"),
@@ -97,6 +122,8 @@ test("booking UI offers bounded alternatives and a Box Office route", async () =
   assert.match(page, /Choose another performance/);
   assert.match(page, /mailto:boxoffice@zingara\.co\.za/);
   assert.match(page, /selectTwoSeaterAlternative/);
+  assert.match(page, /setAlternativeCalendarBookingContext\(nextContext\)/);
+  assert.match(page, /getTwoSeaterAlternativeContinuation/);
   assert.match(route, /loadTwoSeaterAlternativeShows/);
   assert.match(server, /\.eq\("status", "active"\)/);
   assert.match(server, /alternativeCandidateLimit = 18/);

@@ -62,6 +62,7 @@ import {
   SupabaseApiError,
 } from "../../lib/supabase/apiClient";
 import {
+  getTwoSeaterAlternativeContinuation,
   TWO_SEATER_LIMIT_ERROR_CODE,
   type TwoSeaterAlternativeShow,
   type TwoSeaterLimitErrorPayload,
@@ -104,6 +105,8 @@ import {
   resolveShowZonePrice,
 } from "../../lib/showSpecificPricing";
 import {
+  buildAlternativeCalendarBookingContext,
+  buildCalendarBookingHref,
   hasValidCalendarBookingContext,
   type CalendarBookingLockContext,
 } from "../../lib/showBookingCreation";
@@ -810,7 +813,7 @@ export default function BookingPage({
   const [staffPricingMode, setStaffPricingMode] = useState<
     "complimentary" | "friends-family" | "standard"
   >("standard");
-  const calendarBookingContext = useMemo(() => {
+  const initialCalendarBookingContext = useMemo(() => {
     const candidate: CalendarBookingLockContext = {
       expectedDate:
         typeof resolvedSearchParams.expectedDate === "string"
@@ -847,6 +850,10 @@ export default function BookingPage({
     resolvedSearchParams.showLockId,
     resolvedSearchParams.showLockSession,
   ]);
+  const [alternativeCalendarBookingContext, setAlternativeCalendarBookingContext] =
+    useState<CalendarBookingLockContext | null>(null);
+  const calendarBookingContext =
+    alternativeCalendarBookingContext ?? initialCalendarBookingContext;
   const calendarBookingType: "corporate" | "standard" =
     resolvedSearchParams.bookingType === "corporate" ? "corporate" : "standard";
   const [calendarLockStatus, setCalendarLockStatus] = useState("");
@@ -1717,7 +1724,46 @@ export default function BookingPage({
 
     setTwoSeaterLimitNotice(null);
     setPaymentRedirectStatus("");
-    selectRecommendedShow(show);
+
+    if (calendarBookingContext) {
+      const nextContext = buildAlternativeCalendarBookingContext({
+        date: show.date,
+        location: alternative.location,
+        showReference: show.id,
+        time: show.time,
+      });
+
+      if (calendarBookingContext.lockId && calendarBookingContext.sessionId) {
+        void releaseShowEditLock({
+          lockId: calendarBookingContext.lockId,
+          reason: "alternative-performance-selected",
+          sessionId: calendarBookingContext.sessionId,
+        }).catch(() => undefined);
+      }
+
+      setAlternativeCalendarBookingContext(nextContext);
+      window.history.replaceState(
+        window.history.state,
+        "",
+        buildCalendarBookingHref({
+          bookingType: calendarBookingType,
+          context: nextContext,
+        }),
+      );
+    }
+
+    const continuation = getTwoSeaterAlternativeContinuation({
+      customerDetailsComplete,
+      hasSelectedZone: Boolean(selectedZone),
+    });
+    setSelectedShowDate(show.date);
+    setSelectedShowId(show.id);
+    setCalendarMonth(getMonthKey(show.date));
+    setActiveBookingStep(continuation.activeBookingStep);
+    setIsConfirmationOpen(continuation.isConfirmationOpen);
+    setBookingReference(null);
+    setAllocatedTableNumber(null);
+    setWaitlistReference(null);
   }
 
   function selectPartySize(nextPartySize: number) {
@@ -1911,7 +1957,9 @@ export default function BookingPage({
     setSelectedShowDate(lockedShow.date);
     setSelectedShowId(lockedShow.id);
     setCalendarMonth(getMonthKey(lockedShow.date));
-    setActiveBookingStep(1);
+    setActiveBookingStep((currentStep) =>
+      currentStep === 0 ? 1 : currentStep,
+    );
     setIsCalendarOpen(false);
     setCalendarLockStatus("SHOW READY ✓");
   }, [calendarBookingContext, showLoadStatus, shows]);

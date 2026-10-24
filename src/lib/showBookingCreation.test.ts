@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  buildAlternativeCalendarBookingContext,
   buildCalendarBookingHref,
   canReuseShowLock,
   hasValidCalendarBookingContext,
@@ -27,6 +28,25 @@ test("calendar booking links preserve the exact show and lock context", () => {
   assert.equal(params.get("expectedLocation"), context.expectedLocation);
   assert.equal(params.get("showLockId"), context.lockId);
   assert.equal(params.get("showLockSession"), context.sessionId);
+});
+
+test("alternative performances replace the immutable staff show snapshot without reusing a lock", () => {
+  const alternative = buildAlternativeCalendarBookingContext({
+    date: "2026-10-24",
+    location: "cape-town",
+    showReference: "show-2026-10-24-1800",
+    time: "18:00",
+  });
+
+  assert.deepEqual(alternative, {
+    expectedDate: "2026-10-24",
+    expectedLocation: "cape-town",
+    expectedTime: "18:00",
+    showReference: "show-2026-10-24-1800",
+  });
+  assert.equal(alternative.lockId, undefined);
+  assert.equal(alternative.sessionId, undefined);
+  assert.equal(hasValidCalendarBookingContext(alternative), true);
 });
 
 test("Standard and Corporate preserve show context without a shared creation lock", () => {

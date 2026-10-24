@@ -52,3 +52,17 @@ export function hasValidCalendarBookingContext(
       context.showReference?.trim(),
   );
 }
+
+export function buildAlternativeCalendarBookingContext(input: {
+  date: string;
+  location: CalendarBookingLockContext["expectedLocation"];
+  showReference: string;
+  time: string;
+}): CalendarBookingLockContext {
+  return {
+    expectedDate: input.date,
+    expectedLocation: input.location,
+    expectedTime: input.time,
+    showReference: input.showReference,
+  };
+}

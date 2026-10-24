@@ -24,6 +24,23 @@ export type TwoSeaterLimitErrorPayload = {
   limit?: number;
 };
 
+export function getTwoSeaterAlternativeContinuation(input: {
+  customerDetailsComplete: boolean;
+  hasSelectedZone: boolean;
+}) {
+  const canReturnToCheckout =
+    input.hasSelectedZone && input.customerDetailsComplete;
+
+  return {
+    activeBookingStep: canReturnToCheckout
+      ? 4
+      : input.hasSelectedZone
+        ? 3
+        : 2,
+    isConfirmationOpen: canReturnToCheckout,
+  } as const;
+}
+
 export function isTwoSeaterLimitError(error: unknown) {
   const message =
     error instanceof Error
