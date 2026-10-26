@@ -715,9 +715,16 @@ function getOperationalNotes(
 
 function isLegacyPlaceholderTable(table: TablePlanTable) {
   const zone = normalizeZone(table.section);
+  const isOperationalTemporaryTable =
+    table.is_physical !== true &&
+    table.is_override === true &&
+    table.availability_scope === "operational" &&
+    !table.merged_parent_id &&
+    !(table.merged_from?.length ?? 0);
 
   return Boolean(
     table.is_physical !== true &&
+      !isOperationalTemporaryTable &&
       zone &&
       isLegacyPlaceholderTableCode(
         zone === "private-booths" ? "royal-booths" : zone,

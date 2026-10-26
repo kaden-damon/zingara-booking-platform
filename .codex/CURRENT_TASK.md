@@ -1,53 +1,81 @@
-P0 - TWO-SEATER ALTERNATIVE DATE BOOKING FAILURE
+# P0 - Table Plan Temporary Table Export
 
 STATUS: COMPLETE - VERIFIED FOR PRODUCTION RELEASE
 
-DATE: 24 OCTOBER 2026
+DATE: 26 OCTOBER 2026
 
-OUTCOME
+## Objective
 
-- Corrected the shared public and internal alternative-performance handoff.
-- A valid alternative now replaces the selected performance while preserving
-  guest count, seating, customer details, pricing mode, and payment choice.
-- A complete booking returns to Checkout instead of restarting at date or
-  seating selection; incomplete state resumes at the furthest valid step.
-- Internal bookings now replace the immutable Admin show snapshot with the
-  selected alternative and never reuse a lock belonging to the original show.
-- The alternative snapshot is reflected in the current booking URL so refresh
-  and server validation refer to the same performance.
+Verify against authoritative Production performances that the existing Table
+Plan export includes every permanent and temporary table with the correct table
+number, zone, seating capacity, booking assignment, guest allocation, and
+approved performance-specific table state.
 
-ROOT CAUSE
+## Safety Boundary
 
-The two-seater popup reused the general recommended-show action. That action
-intentionally reset ordinary journeys to Seating and explicitly ignored Admin
-calendar journeys. For staff, the server-side calendar snapshot therefore also
-continued to identify the original performance. The booking could not continue
-authoritatively on the selected alternative.
+- Strict UX/UI freeze.
+- Do not modify Table Plan layouts, bookings, assignments, capacity, payments,
+  or Production business data.
+- Diagnose before changing code.
+- If no defect exists, make no application change or deployment.
+- If a defect is confirmed, implement and release only the smallest verified
+  export correction.
 
-SAFETY
+## Verification
 
-- Atomic 20-booking enforcement and advisory-lock concurrency remain unchanged.
-- Same-day cutoff, capacity, pricing, payment, ticket, and identity checks remain
-  authoritative at the existing server/database boundaries.
-- No automatic retry or booking creation occurs after choosing an alternative.
-- No Production bookings, customers, payments, tickets, capacity, or
-  communications were created or modified during QA.
+- Compare the export query and renderer with authoritative `show_tables`, table
+  claims, booking entitlements, and performance-specific changes.
+- Test assigned and unassigned temporary tables alongside permanent tables.
+- Confirm export totals and rows match the selected Production performance.
+- Preserve existing export performance, permissions, and financial output.
 
-VERIFICATION
+## Release Boundary
 
-- Focused alternative, staff snapshot, concurrency, cutoff, capacity, public
-  sales, and show-lifecycle tests: 75 passed.
-- One pre-existing source-text assertion in publicBookingAvailability.test.ts
-  remains stale against the previously deployed Guided Training dependency; it
-  is unrelated to this correction.
+Commit, push, and deploy only if a verified export defect requires correction.
+
+## Root Cause
+
+The export identified legacy placeholder rows solely from non-physical status,
+zone and a legacy-looking table code. One authoritative operational temporary
+table used code `GC16`, so the export incorrectly treated it as a legacy
+placeholder and rendered `UNALLOCATED (GC16)` without its authoritative table
+capacity. The live Table Plan itself remained correct.
+
+## Production Evidence
+
+- Audited 835 authoritative temporary tables across 72 Production performances.
+- 546 temporary tables are assigned; 289 are unassigned; 25 are disabled
+  performance-specific records retained for operational evidence.
+- Total temporary-table capacity audited: 4,714 seats.
+- Exactly one table was incorrectly classified by the export: Johannesburg,
+  5 September 2026 at 17:00, `GC16`, capacity 6, booking `DP-DXNYNC`.
+- Genuine legacy placeholder population: 14,910 rows, preserved unchanged.
+- Johannesburg 5 September export now contains `GC16`, capacity 6, six allocated
+  guests and booking reference `DP-DXNYNC`.
+- Cape Town 28 November export contains all 16 temporary tables: one assigned,
+  fourteen available and one disabled, with exact capacities and allocations.
+- Permanent and merged table structures remained present in both verified
+  Production-data exports.
+
+## Correction
+
+Authoritative non-physical operational override tables with no merge parent or
+members are now classified as temporary tables before applying the legacy-code
+placeholder rule. No query, workbook layout, financial calculation, permission,
+or Table Plan workflow changed.
+
+## Verification
+
+- Focused Table Plan workbook tests: 6 passed.
+- Production-data export comparison: passed for Johannesburg 5 September and
+  Cape Town 28 November 2026.
 - TypeScript: passed.
+- Changed-file ESLint: passed.
+- `git diff --check`: passed.
 - Production build and Admin performance budget: passed.
-- Changed-file ESLint exposed only existing page-level hook diagnostics; no new
-  diagnostic was introduced by this change.
-- git diff --check: passed.
-
-RELEASE
-
-- Production baseline / rollback: f2de327dfeb80017be6be7c5ff05c22aeb978d9b
-- Release commit: this P0 release commit.
 - Production business-data delta: zero.
+
+## Release
+
+- Baseline / rollback: `cfc4551e560577de40c857aad8b04b7d58bea8c3`.
+- Release commit and Production deployment recorded after publication.

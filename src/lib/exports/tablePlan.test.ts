@@ -423,6 +423,77 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.ok(sheet.model.merges.some((merge) => /^E\d+:I\d+$/.test(merge)));
 });
 
+test("Table Plan keeps operational temporary tables whose codes resemble legacy placeholders", async () => {
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [
+      booking("temporary", "TEMPORARY", 6, "temporary-gc16", {
+        booking_origin: "admin_staff",
+        section: "golden-circle",
+      }),
+      booking("legacy", "LEGACY", 4, "legacy-gc1", {
+        section: "golden-circle",
+      }),
+    ],
+    configuredZonePrices: {
+      "golden-circle": 100,
+      "middle-ring": 100,
+      "private-booths": 100,
+      "royal-balcony": 100,
+    },
+    customers: [
+      customer("temporary", "Temporary Guest"),
+      customer("legacy", "Legacy Guest"),
+    ],
+    payments: [],
+    show: {
+      date: "2026-09-05",
+      id: "show-temporary-placeholder-code",
+      name: "Temporary Table Export Test",
+      time: "17:00:00",
+      venue: "johannesburg",
+    },
+    tables: [
+      table("temporary-gc16", "GC16", "temporary", {
+        availability_scope: "operational",
+        capacity: 6,
+        is_override: true,
+        is_physical: false,
+        section: "golden-circle",
+      }),
+      table("legacy-gc1", "GC1", null, {
+        availability_scope: "public",
+        capacity: 4,
+        is_override: false,
+        is_physical: false,
+        section: "golden-circle",
+      }),
+    ],
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+
+  assert.ok(sheet);
+  const rows = Array.from(
+    { length: sheet.rowCount },
+    (_, index) => sheet.getRow(index + 1),
+  );
+  const temporaryRow = rows.find(
+    (row) => String(row.getCell(2).value ?? "") === "GC16",
+  );
+  const legacyRow = rows.find(
+    (row) => String(row.getCell(2).value ?? "") === "UNALLOCATED (GC1)",
+  );
+
+  assert.ok(temporaryRow);
+  assert.equal(temporaryRow.getCell(3).value, 6);
+  assert.equal(temporaryRow.getCell(4).value, 6);
+  assert.equal(temporaryRow.getCell(5).value, "Temporary Guest");
+  assert.equal(temporaryRow.getCell(7).value, "TEMPORARY");
+  assert.ok(legacyRow);
+  assert.equal(legacyRow.getCell(5).value, "Legacy Guest");
+});
+
 test("Table Plan applies Jacques's approved operational columns to every seating area", async () => {
   const fixtures = [
     { id: "booth", code: "1", section: "private-booths", status: "deposit_paid", paid: 550, outstanding: 1_430, expected: "Deposit" },
