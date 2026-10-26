@@ -110,7 +110,7 @@ function getRefundsEnabled() {
   return process.env.PAYFAST_REFUNDS_ENABLED?.trim().toLowerCase() === "true";
 }
 
-export async function loadRefundReadinessPayments(serviceClient: SupabaseClient) {
+async function loadRefundReadinessPayments(serviceClient: SupabaseClient) {
   const loadPage = (from: number, to: number, withCount = false) =>
     serviceClient
       .from("payments")

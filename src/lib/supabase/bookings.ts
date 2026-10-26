@@ -738,6 +738,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       paymentStatus: toDemoPaymentStatus(row.payment_status),
       promoCode: promoRedemption?.code,
       promoRedemption,
+      reference: row.booking_reference,
       reservationTableClaims,
       serviceFeeAmount: row.service_fee,
       source: row.booking_source as DemoBooking["source"],

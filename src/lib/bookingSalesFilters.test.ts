@@ -181,7 +181,10 @@ test("Bookings UI sends the composed filters to authoritative server pagination"
   assert.match(filterBody, /bookingMatchesSalesSource/);
   assert.match(filterBody, /bookingMatchesCreator/);
   assert.doesNotMatch(filterBody, /fetch\(|fetchSupabaseApi|await /);
-  assert.match(page, /getBookingsPage\(getActiveBookingListFilters\(\)\)/);
+  assert.match(
+    page,
+    /getBookingsPage\(getActiveBookingListFilters\(\), \{[\s\S]*signal: controller\.signal/,
+  );
   assert.match(page, /const bookingPagination = paginateServerItems/);
   assert.match(client, /adminBookingListSearchParams\(filters\)/);
   assert.match(page, /setBookingCreatedDateFilter\("all"\)/);
@@ -209,5 +212,6 @@ test("booking-core hydration includes creator and Corporate conversion linkage i
   assert.match(route, /corporate_request_id/);
   assert.match(route, /created_by_staff:staff_profiles/);
   assert.match(client, /corporateRequestId: row\.corporate_request_id/);
+  assert.match(client, /reference: row\.booking_reference/);
   assert.doesNotMatch(client, /createdByStaffId[\s\S]{0,200}fetch\(/);
 });

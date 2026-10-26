@@ -9,5 +9,7 @@ test("exact booking references match case-insensitively without fuzzy bypass", (
   assert.equal(isExactBookingReferenceSearch("7KMG8P", "ZNG-7KMG8P"), false);
   assert.equal(isExactBookingReferenceSearch("Chanel", "ZNG-7KMG8P"), false);
   assert.equal(isExactBookingReferenceSearch("", "ZNG-7KMG8P"), false);
+  assert.equal(isExactBookingReferenceSearch("Vodacom", undefined), false);
+  assert.equal(isExactBookingReferenceSearch("Vodacom", null), false);
 });
 
