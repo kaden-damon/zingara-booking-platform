@@ -12,6 +12,7 @@ import {
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 import { recordAuditEvent } from "@/lib/supabase/serverAudit";
+import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -58,6 +59,10 @@ function normaliseConfiguration(
 
   if (!Number.isInteger(timingOffsetDays)) {
     throw new Error("Workflow timing must be a whole number of days.");
+  }
+
+  if (workflowKey === "pre_show_reminder" && timingOffsetDays !== 1) {
+    throw new Error("Pre-show reminders must remain scheduled 24 hours before the performance.");
   }
 
   const minDays = 1;
@@ -169,6 +174,7 @@ export async function POST(request: Request) {
       new Date().toISOString(),
     );
     const reviewUrl = `${new URL(request.url).origin}/review/preview`;
+    const venueSettings = await loadServerVenueSettings(auth.serviceClient);
     const preview = await renderConfiguredWorkflowEmail({
       booking: {
         amount_paid: 3080,
@@ -196,6 +202,7 @@ export async function POST(request: Request) {
         time: "19:30:00",
         venue: "cape-town",
       },
+      venueSettings,
     });
     const previewHtml = preview.attachments.reduce(
       (html, attachment) =>

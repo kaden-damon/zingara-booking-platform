@@ -23,6 +23,13 @@ import {
 } from "@/lib/reviews/reviewServer";
 import { getReviewPreviewUrl } from "@/lib/reviews/reviews";
 import { normalizeGuestCountGrammar } from "@/lib/guestCountPresentation";
+import {
+  getCustomerExperienceTimes,
+  getExperienceLocation,
+  type CustomerExperienceTimes,
+} from "@/lib/experienceTimes";
+import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
+import type { DemoVenueSettings } from "@/lib/zingaraDemo";
 
 export type AutomatedWorkflowKey = "pre_show_reminder" | "post_show_review";
 
@@ -145,6 +152,8 @@ export const workflowTimezone = "Africa/Johannesburg" as const;
 export const controlledWorkflowRecipient = "kaden@kaden.co.za";
 export const workflowDatasetPageSize = 1000;
 export const workflowDeliveryConcurrency = 3;
+export const preShowReminderLeadMs = 24 * 60 * 60 * 1000;
+export const preShowReminderDeliveryWindowMs = 20 * 60 * 1000;
 
 async function runWithConcurrency<T>(
   values: T[],
@@ -197,14 +206,18 @@ export const defaultWorkflowConfigurations: AutomatedWorkflowConfiguration[] = [
 
 The curtain is almost ready to rise — your Zingara experience is just around the corner.
 
-We look forward to welcoming you to {{showName}} on {{showDate}} at {{showTime}}.
+We look forward to welcoming you to {{showName}}.
 
 Your booking details
 
 Booking reference: {{bookingRef}}
-Location: {{location}}
+Performance date: {{showDate}}
+City and venue: {{location}}
 Guests: {{guest_count}}
 Seating zone: {{seatingZone}}
+Grounds Open: {{groundsOpen}}
+Guest Seating: {{guestSeating}}
+Show Starts: {{showStarts}}
 
 Everything you need for the evening is available on your digital ticket:
 
@@ -224,7 +237,7 @@ The Zingara Team`,
     id: null,
     johannesburgReviewUrl: "",
     subject: "Your Zingara experience is almost here ✨",
-    timingOffsetDays: 7,
+    timingOffsetDays: 1,
     updatedAt: null,
     updatedBy: null,
     workflowKey: "pre_show_reminder",
@@ -362,6 +375,39 @@ function getShowDateTime(show: ShowRow) {
   return new Date(`${date}T${time}:00+02:00`);
 }
 
+function getReminderExperienceTimes(
+  show: ShowRow,
+  venueSettings: DemoVenueSettings,
+): CustomerExperienceTimes | null {
+  return getCustomerExperienceTimes(
+    venueSettings,
+    getExperienceLocation(show.venue),
+  );
+}
+
+export function getPreShowReminderDueAt(
+  show: WorkflowShowTemplateContext,
+  venueSettings: DemoVenueSettings,
+) {
+  const experienceTimes = getReminderExperienceTimes(show, venueSettings);
+  if (!experienceTimes) return null;
+
+  const showStartsAt = new Date(
+    `${show.date}T${experienceTimes.showStarts}:00+02:00`,
+  );
+  if (!Number.isFinite(showStartsAt.getTime())) return null;
+
+  return new Date(showStartsAt.getTime() - preShowReminderLeadMs);
+}
+
+export function isWithinPreShowReminderWindow(
+  dueAt: Date,
+  now: Date,
+) {
+  const elapsed = now.getTime() - dueAt.getTime();
+  return elapsed >= 0 && elapsed < preShowReminderDeliveryWindowMs;
+}
+
 function differenceInDays(left: Date, right: Date) {
   return Math.floor((left.getTime() - right.getTime()) / 86_400_000);
 }
@@ -480,6 +526,22 @@ function renderWorkflowTemplate(
   );
 }
 
+function getReminderTemplateVariables(
+  show: ShowRow,
+  venueSettings: DemoVenueSettings,
+): Record<string, string> | null {
+  const experienceTimes = getReminderExperienceTimes(show, venueSettings);
+  if (!experienceTimes) return null;
+
+  return {
+    groundsOpen: experienceTimes.groundsOpen,
+    guestSeating: experienceTimes.guestSeating,
+    showStarts: experienceTimes.showStarts,
+    showTime: experienceTimes.showStarts,
+    time: experienceTimes.showStarts,
+  };
+}
+
 function renderWorkflowEmailContent(
   template: string,
   booking: BookingRow,
@@ -507,6 +569,7 @@ export async function renderConfiguredWorkflowEmail(input: {
   recipientName: string;
   reviewUrl?: string;
   show: WorkflowShowTemplateContext;
+  venueSettings?: DemoVenueSettings;
 }) {
   const customer: CustomerRow = {
     email: null,
@@ -520,6 +583,11 @@ export async function renderConfiguredWorkflowEmail(input: {
 
   if (input.configuration.workflowKey === "post_show_review") {
     extras.reviewUrl = input.reviewUrl ?? "";
+  } else if (input.venueSettings) {
+    Object.assign(
+      extras,
+      getReminderTemplateVariables(input.show, input.venueSettings) ?? {},
+    );
   }
 
   const content = renderWorkflowEmailContent(
@@ -585,6 +653,7 @@ function evaluateWorkflow(
   customers: Map<string, CustomerRow>,
   communications: CommunicationRow[],
   reviewedBookingIds: Set<string>,
+  venueSettings: DemoVenueSettings,
   now: Date,
   reviewWindow?: { end: Date; start: Date },
 ) {
@@ -644,11 +713,10 @@ function evaluateWorkflow(
       continue;
     }
 
-    const showDateTime = getShowDateTime(show);
     const activationDate = new Date(config.activatedAt ?? 0);
 
     if (workflowKey === "pre_show_reminder") {
-      if (!["confirmed", "checked_in", "completed"].includes(booking.booking_status)) {
+      if (booking.booking_status !== "confirmed") {
         summary.excluded += 1;
         increment(summary.reasons, "not_confirmed_attendance");
         continue;
@@ -664,24 +732,26 @@ function evaluateWorkflow(
         continue;
       }
 
-      if (showDateTime <= now) {
+      const reminderDueAt = getPreShowReminderDueAt(show, venueSettings);
+      if (!reminderDueAt) {
         summary.excluded += 1;
-        increment(summary.reasons, "show_not_upcoming");
+        increment(summary.reasons, "missing_experience_times");
         continue;
       }
 
-      if (differenceInDays(showDateTime, now) !== config.timingOffsetDays) {
-        summary.excluded += 1;
-        increment(summary.reasons, "outside_reminder_window");
-        continue;
-      }
-
-      if (now < activationDate) {
+      if (reminderDueAt < activationDate) {
         summary.excluded += 1;
         increment(summary.reasons, "before_activation_boundary");
         continue;
       }
+
+      if (!isWithinPreShowReminderWindow(reminderDueAt, now)) {
+        summary.excluded += 1;
+        increment(summary.reasons, "outside_reminder_window");
+        continue;
+      }
     } else {
+      const showDateTime = getShowDateTime(show);
       if (reviewedBookingIds.has(booking.id)) {
         summary.excluded += 1;
         increment(summary.reasons, "already_reviewed");
@@ -712,7 +782,7 @@ function evaluateWorkflow(
     const extras: Record<string, string | number> =
       workflowKey === "post_show_review"
         ? { reviewUrl: getReviewPreviewUrl(getReviewApplicationOrigin()) }
-        : {};
+        : getReminderTemplateVariables(show, venueSettings) ?? {};
 
     const emailContent = renderWorkflowEmailContent(
       config.body,
@@ -768,6 +838,7 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
     customerRows,
     communicationRows,
     reviewRows,
+    venueSettings,
   ] = await Promise.all([
     loadWorkflowConfigurations(supabase),
     collectWorkflowRows<BookingRow>((from, to) =>
@@ -800,6 +871,7 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
     collectWorkflowRows<{ booking_id: string }>((from, to) =>
       supabase.from("guest_reviews").select("booking_id").range(from, to),
     ),
+    loadServerVenueSettings(supabase),
   ]);
 
   return {
@@ -816,6 +888,7 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
       (reviewRows ?? []).map((review) => review.booking_id as string),
     ),
     shows: new Map(showRows.map((show) => [show.id, show])),
+    venueSettings,
   };
 }
 
@@ -886,6 +959,7 @@ export async function runAutomatedWorkflows(
       dataset.customers,
       dataset.communications,
       dataset.reviewedBookingIds,
+      dataset.venueSettings,
       now,
       workflowKey === "post_show_review" ? options.reviewWindow : undefined,
     );
@@ -941,19 +1015,17 @@ export async function runAutomatedWorkflows(
         return;
       }
 
-      const reviewClaim = item.workflowKey === "post_show_review"
-        ? await claimOneTimeEmailCommunication(supabase, {
-            booking_id: item.booking.id,
-            channel: "email",
-            customer_id: customerId,
-            message: item.message,
-            show_id: item.booking.show_id,
-            subject: item.subject,
-            type: getWorkflowCommunicationType(item.workflowKey),
-          })
-        : null;
+      const deliveryClaim = await claimOneTimeEmailCommunication(supabase, {
+        booking_id: item.booking.id,
+        channel: "email",
+        customer_id: customerId,
+        message: item.message,
+        show_id: item.booking.show_id,
+        subject: item.subject,
+        type: getWorkflowCommunicationType(item.workflowKey),
+      });
 
-      if (item.workflowKey === "post_show_review" && !reviewClaim) {
+      if (!deliveryClaim) {
         results[item.workflowKey].deduplicated += 1;
         results[item.workflowKey].skipped += 1;
         return;
@@ -974,6 +1046,7 @@ export async function runAutomatedWorkflows(
             recipientName: getCustomerName(item.customer),
             reviewUrl: invitation.url,
             show: item.show,
+            venueSettings: dataset.venueSettings,
           });
           deliveryItem = {
             ...item,
@@ -987,7 +1060,7 @@ export async function runAutomatedWorkflows(
             bookingId: item.booking.id,
             message: error instanceof Error ? error.message : "Unknown error",
           });
-          await completeClaimedEmailCommunication(supabase, reviewClaim!.id, {
+          await completeClaimedEmailCommunication(supabase, deliveryClaim.id, {
             message: "Review request was not sent because its verified link could not be created.",
             status: "failed",
             subject: item.subject,
@@ -1021,15 +1094,11 @@ export async function runAutomatedWorkflows(
           ? "suppressed"
           : "failed";
 
-      if (reviewClaim) {
-        await completeClaimedEmailCommunication(supabase, reviewClaim.id, {
-          message: deliveryItem.message,
-          status: deliveryStatus,
-          subject: deliveryItem.subject,
-        });
-      } else {
-        await insertWorkflowCommunication(supabase, deliveryItem, deliveryStatus);
-      }
+      await completeClaimedEmailCommunication(supabase, deliveryClaim.id, {
+        message: deliveryItem.message,
+        status: deliveryStatus,
+        subject: deliveryItem.subject,
+      });
 
       if (sendResult.ok) {
         results[item.workflowKey].sent += 1;
