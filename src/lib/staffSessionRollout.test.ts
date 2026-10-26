@@ -33,16 +33,33 @@ test("accounts without a staff rollout cutoff are unchanged", () => {
   );
 });
 
-test("any rejected Admin session is cleared once before returning to login", () => {
+test("only an explicitly invalidated staff token triggers hard session recovery", () => {
   const apiClient = readFileSync(
     new URL("./supabase/apiClient.ts", import.meta.url),
     "utf8",
   );
 
-  assert.match(apiClient, /response\.status === 401 && path\.startsWith\("\/api\/admin\/"\)/);
+  assert.match(apiClient, /errorPayload\.code === "STAFF_SESSION_REFRESH_REQUIRED"/);
   assert.match(apiClient, /staffSessionRecoveryStarted/);
   assert.match(apiClient, /signOut\(\{ scope: "local" \}\)/);
   assert.match(apiClient, /window\.location\.replace\("\/admin"\)/);
+  assert.doesNotMatch(
+    apiClient,
+    /response\.status === 401 && path\.startsWith\("\/api\/admin\/"\)/,
+  );
+});
+
+test("venue settings do not request the protected Admin endpoint before login", () => {
+  const venueSettings = readFileSync(
+    new URL("./supabase/venueSettings.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(venueSettings, /await supabase\.auth\.getSession\(\)/);
+  assert.match(
+    venueSettings,
+    /if \(!session\.data\.session\) \{[\s\S]*return getPublicVenueSettings\(\)/,
+  );
 });
 
 test("booking search cancels superseded Admin requests", () => {

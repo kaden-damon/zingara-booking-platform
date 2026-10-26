@@ -100,7 +100,11 @@ export async function fetchSupabaseApi<T>(
       );
     }
 
-    if (response.status === 401 && path.startsWith("/api/admin/")) {
+    if (
+      response.status === 401 &&
+      errorPayload.code === "STAFF_SESSION_REFRESH_REQUIRED" &&
+      path.startsWith("/api/admin/")
+    ) {
       await recoverExpiredStaffSession(supabase);
     }
 

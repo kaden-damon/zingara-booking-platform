@@ -7,6 +7,7 @@ import {
   type EntryLocationKey,
 } from "@/lib/zingaraDemo";
 import { fetchSupabaseApi } from "./apiClient";
+import { getSupabaseClient } from "./client";
 
 type SupabaseVenueSettingsRow = {
   branding: Record<string, unknown> | null;
@@ -62,6 +63,15 @@ export async function getVenueSettings() {
   const fallbackSettings = getStoredVenueSettings();
 
   try {
+    const supabase = getSupabaseClient();
+    const session = supabase
+      ? await supabase.auth.getSession()
+      : { data: { session: null } };
+
+    if (!session.data.session) {
+      return getPublicVenueSettings();
+    }
+
     const payload = await fetchSupabaseApi<{
       settings: DemoVenueSettings | null;
     }>("/api/admin/venue-settings");
