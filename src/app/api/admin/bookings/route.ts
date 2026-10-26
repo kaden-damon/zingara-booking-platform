@@ -47,6 +47,11 @@ import {
 import { mergeAdminBookingState } from "@/lib/adminBookingStateMerge";
 import { resolveBookingCreatedWindow } from "@/lib/bookingSalesFilters";
 import { loadCorporateBuyoutBookingReviewReasons } from "@/lib/supabase/corporateBuyoutsServer";
+import {
+  authorizeTwoSeaterLimitOverride,
+  canOverrideTwoSeaterLimit,
+  normalizeTwoSeaterOverrideReason,
+} from "@/lib/twoSeaterOverrideServer";
 
 export const dynamic = "force-dynamic";
 
@@ -1814,6 +1819,7 @@ async function persistBookingShowTransfer(
     bookingReference?: string;
     destinationShowId?: string;
     expectedShowId?: string;
+    twoSeaterOverrideReason?: string;
   },
 ) {
   const auth = await requireActiveStaff(request);
@@ -1837,6 +1843,9 @@ async function persistBookingShowTransfer(
   const bookingReference = input.bookingReference?.trim();
   const destinationShowId = input.destinationShowId?.trim();
   const expectedShowId = input.expectedShowId?.trim();
+  const twoSeaterOverrideReason = normalizeTwoSeaterOverrideReason(
+    input.twoSeaterOverrideReason,
+  );
 
   if (!bookingReference || !destinationShowId || !expectedShowId) {
     return Response.json(
@@ -1920,6 +1929,27 @@ async function persistBookingShowTransfer(
     );
   }
 
+  if (twoSeaterOverrideReason) {
+    if (!canOverrideTwoSeaterLimit(role)) {
+      return Response.json(
+        { error: "You are not authorised to override the two-guest booking limit." },
+        { status: 403 },
+      );
+    }
+
+    await authorizeTwoSeaterLimitOverride(auth.serviceClient, {
+      actorAuthUserId: auth.user.id,
+      actorLocationScope: auth.staffProfile.venue_scope ?? [],
+      actorName: auth.staffProfile.full_name ?? auth.user.email,
+      actorRole: role,
+      actorStaffProfileId: auth.staffProfile.id,
+      bookingReference,
+      reason: twoSeaterOverrideReason,
+      request,
+      showId: destinationShowId,
+    });
+  }
+
   const requestId =
     request.headers.get("x-vercel-id") ??
     request.headers.get("x-request-id") ??
@@ -1958,7 +1988,16 @@ async function persistBookingShowTransfer(
           ? "The destination show does not have enough capacity in this seating zone."
           : "The booking or destination show is no longer eligible for this move.";
 
-      return Response.json({ error: publicMessage }, { status: 409 });
+      return Response.json(
+        {
+          canOverride: canOverrideTwoSeaterLimit(role),
+          code: message.includes("TWO_SEATER_BOOKING_LIMIT_REACHED")
+            ? "TWO_SEATER_BOOKING_LIMIT_REACHED"
+            : undefined,
+          error: publicMessage,
+        },
+        { status: 409 },
+      );
     }
 
     throw error;
@@ -2465,6 +2504,7 @@ async function persistBookingStateUpdate(request: Request, body: {
   expectedUpdatedAt?: string;
   financialMutation?: boolean;
   previousBooking?: DemoBooking;
+  twoSeaterOverrideReason?: string;
 }) {
   const auth = await requireActiveStaff(request);
 
@@ -2742,6 +2782,30 @@ async function persistBookingStateUpdate(request: Request, body: {
       }
     }
 
+    const twoSeaterOverrideReason = normalizeTwoSeaterOverrideReason(
+      body.twoSeaterOverrideReason,
+    );
+    if (booking.partySize === 2 && twoSeaterOverrideReason) {
+      if (!canOverrideTwoSeaterLimit(role)) {
+        return Response.json(
+          { error: "You are not authorised to override the two-guest booking limit." },
+          { status: 403 },
+        );
+      }
+
+      await authorizeTwoSeaterLimitOverride(supabase, {
+        actorAuthUserId: auth.user.id,
+        actorLocationScope: auth.staffProfile.venue_scope ?? [],
+        actorName: auth.staffProfile.full_name ?? auth.user.email,
+        actorRole: role,
+        actorStaffProfileId: auth.staffProfile.id,
+        bookingReference: booking.reference,
+        reason: twoSeaterOverrideReason,
+        request,
+        showId: String((beforeBooking as { show_id?: string }).show_id ?? ""),
+      });
+    }
+
     const { data: updatedBooking, error: updateError } = await supabase
       .from("bookings")
       .update(updatePayload)
@@ -2875,6 +2939,7 @@ async function persistBookingStateUpdate(request: Request, body: {
       return Response.json(
         {
           code: "TWO_SEATER_BOOKING_LIMIT_REACHED",
+          canOverride: canOverrideTwoSeaterLimit(role),
           error:
             "This performance has reached its limit for two-guest table requests. Keep the current guest count or choose another available performance.",
         },
@@ -3486,6 +3551,7 @@ export async function PATCH(request: Request) {
     operationalNotes?: string;
     targetTableId?: string;
     targetZone?: string;
+    twoSeaterOverrideReason?: string;
     validateOnly?: boolean;
     zoneEntitlements?: CorporateZoneEntitlement[];
   };

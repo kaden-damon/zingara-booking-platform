@@ -1006,6 +1006,7 @@ export async function createAdminBooking(
   journeyId?: string | null,
   calendarBookingContext?: CalendarBookingLockContext | null,
   allowPotentialDuplicate = false,
+  twoSeaterOverrideReason?: string,
 ) {
   const result = await fetchSupabaseApi<CreateBookingResult>(
     "/api/admin/bookings",
@@ -1015,6 +1016,7 @@ export async function createAdminBooking(
         booking,
         calendarBookingContext,
         journeyId,
+        twoSeaterOverrideReason,
       },
       method: "POST",
     },
@@ -1030,6 +1032,7 @@ export async function createAdminBooking(
 export async function updateBooking(
   booking: DemoBooking,
   previousBooking: DemoBooking = booking,
+  twoSeaterOverrideReason?: string,
 ) {
   await fetchSupabaseApi("/api/admin/bookings", {
     body: {
@@ -1037,6 +1040,7 @@ export async function updateBooking(
       booking,
       expectedUpdatedAt: previousBooking.updatedAt,
       previousBooking,
+      twoSeaterOverrideReason,
     },
     method: "PATCH",
   });
@@ -1148,6 +1152,7 @@ export async function transferBookingShow(input: {
   bookingReference: string;
   destinationShowId: string;
   expectedShowId: string;
+  twoSeaterOverrideReason?: string;
 }) {
   return fetchSupabaseApi<BookingShowTransferResult>("/api/admin/bookings", {
     body: {

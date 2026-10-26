@@ -8,9 +8,15 @@ import { getIncludedBookingFeeBreakdown } from "@/lib/zingaraDemo";
 import { resolveAddedGuestPricingBasis } from "@/lib/addedGuestFinancials";
 import { mapBookingAmendmentError } from "@/lib/bookingAmendmentErrors";
 import {
+  getAdminRoleFromName,
   getRolePermissions,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
+import {
+  authorizeTwoSeaterLimitOverride,
+  canOverrideTwoSeaterLimit,
+  normalizeTwoSeaterOverrideReason,
+} from "@/lib/twoSeaterOverrideServer";
 
 export const dynamic = "force-dynamic";
 
@@ -241,6 +247,7 @@ export async function POST(request: Request) {
         transferReleasedValueToBarTab?: boolean;
       };
       totalAmount?: number;
+      twoSeaterOverrideReason?: string;
     };
     const bookingReference = body.bookingReference?.trim().toUpperCase();
     const reason = body.reason?.trim() ?? "";
@@ -263,7 +270,7 @@ export async function POST(request: Request) {
       body.action === "guest-count"
         ? await auth.serviceClient
             .from("bookings")
-            .select("booking_origin,booking_source")
+            .select("booking_origin,booking_source,id,booking_reference,show_id,guest_count")
             .eq("booking_reference", bookingReference)
             .maybeSingle()
         : { data: null, error: null };
@@ -354,6 +361,44 @@ export async function POST(request: Request) {
       }
     }
 
+    const roleRow = Array.isArray(auth.staffProfile.roles)
+      ? auth.staffProfile.roles[0]
+      : auth.staffProfile.roles;
+    const role = getAdminRoleFromName(roleRow?.name);
+    const twoSeaterOverrideReason = normalizeTwoSeaterOverrideReason(
+      body.twoSeaterOverrideReason,
+    );
+    if (
+      body.action === "guest-count" &&
+      Number(body.guestCount) === 2 &&
+      twoSeaterOverrideReason
+    ) {
+      if (!role || !canOverrideTwoSeaterLimit(role)) {
+        return Response.json(
+          { error: "You are not authorised to override the two-guest booking limit." },
+          { status: 403 },
+        );
+      }
+      if (!bookingContext?.show_id) {
+        return Response.json(
+          { error: "The booking performance could not be resolved." },
+          { status: 409 },
+        );
+      }
+
+      await authorizeTwoSeaterLimitOverride(auth.serviceClient, {
+        actorAuthUserId: auth.user.id,
+        actorLocationScope: auth.staffProfile.venue_scope ?? [],
+        actorName: auth.staffProfile.full_name ?? auth.user.email,
+        actorRole: role,
+        actorStaffProfileId: auth.staffProfile.id,
+        bookingReference,
+        reason: twoSeaterOverrideReason,
+        request,
+        showId: bookingContext.show_id,
+      });
+    }
+
     const requestMetadata = {
       p_actor_auth_user_id: auth.user.id,
       p_actor_staff_profile_id: auth.staffProfile.id,
@@ -413,7 +458,13 @@ export async function POST(request: Request) {
           rpcName,
         });
         return Response.json(
-          { code: mappedError.code, error: mappedError.message },
+          {
+            canOverride:
+              mappedError.code === "TWO_SEATER_BOOKING_LIMIT_REACHED" &&
+              canOverrideTwoSeaterLimit(role),
+            code: mappedError.code,
+            error: mappedError.message,
+          },
           { status: mappedError.status },
         );
       }

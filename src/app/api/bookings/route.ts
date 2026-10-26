@@ -113,6 +113,11 @@ import {
   isTwoSeaterLimitError,
 } from "@/lib/twoSeaterBookingLimit";
 import { loadTwoSeaterAlternativeShows } from "@/lib/twoSeaterBookingLimitServer";
+import {
+  authorizeTwoSeaterLimitOverride,
+  canOverrideTwoSeaterLimit,
+  normalizeTwoSeaterOverrideReason,
+} from "@/lib/twoSeaterOverrideServer";
 
 export const dynamic = "force-dynamic";
 
@@ -1464,6 +1469,7 @@ export async function POST(request: Request) {
     currentShow: { date: string; id: string; venue: string };
     zoneId: DemoBooking["zoneId"];
   } | null = null;
+  let twoSeaterOverrideAllowed = false;
 
   if (!supabase) {
     return Response.json(
@@ -1478,6 +1484,7 @@ export async function POST(request: Request) {
       allowPotentialDuplicate?: boolean;
       booking?: DemoBooking;
       journeyId?: string | null;
+      twoSeaterOverrideReason?: string;
     };
     let booking = body.booking;
     const journeyId =
@@ -1568,6 +1575,19 @@ export async function POST(request: Request) {
         ? staffAuth.staffProfile.roles[0]
         : staffAuth.staffProfile.roles;
       staffRole = getAdminRoleFromName(roleRow?.name);
+      twoSeaterOverrideAllowed = canOverrideTwoSeaterLimit(staffRole);
+    }
+    const twoSeaterOverrideReason = normalizeTwoSeaterOverrideReason(
+      body.twoSeaterOverrideReason,
+    );
+    if (
+      twoSeaterOverrideReason &&
+      (!isTrustedInternalHandoff || !twoSeaterOverrideAllowed)
+    ) {
+      return Response.json(
+        { error: "You are not authorised to override the two-guest booking limit." },
+        { status: 403 },
+      );
     }
     const trustedBookingSource = resolveTrustedBookingSource({
       requestedSource: booking.source,
@@ -2254,6 +2274,33 @@ export async function POST(request: Request) {
       }
     }
 
+    if (booking.partySize === 2 && twoSeaterOverrideReason) {
+      if (
+        !staffAuthContext?.staffProfile ||
+        !staffAuthContext.user ||
+        !staffRole ||
+        !twoSeaterOverrideAllowed
+      ) {
+        return Response.json(
+          { error: "You are not authorised to override the two-guest booking limit." },
+          { status: 403 },
+        );
+      }
+
+      await authorizeTwoSeaterLimitOverride(supabase, {
+        actorAuthUserId: staffAuthContext.user.id,
+        actorLocationScope: staffAuthContext.staffProfile.venue_scope ?? [],
+        actorName:
+          staffAuthContext.staffProfile.full_name ?? staffAuthContext.user.email,
+        actorRole: staffRole,
+        actorStaffProfileId: staffAuthContext.staffProfile.id,
+        bookingReference: booking.reference,
+        reason: twoSeaterOverrideReason,
+        request,
+        showId: show.id,
+      });
+    }
+
     if (usesAtomicTableReservation(booking)) {
       const reservation = await reservePublicBookingAtomically(
         supabase,
@@ -2409,6 +2456,7 @@ export async function POST(request: Request) {
           error:
             "This performance has reached its limit for two-guest table requests. Choose another available performance or contact Box Office.",
           limit: TWO_SEATER_BOOKING_LIMIT,
+          canOverride: twoSeaterOverrideAllowed,
         },
         { status: 409 },
       );

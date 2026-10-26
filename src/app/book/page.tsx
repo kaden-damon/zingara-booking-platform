@@ -797,8 +797,11 @@ export default function BookingPage({
   const [paymentRedirectStatus, setPaymentRedirectStatus] = useState("");
   const [twoSeaterLimitNotice, setTwoSeaterLimitNotice] = useState<{
     alternatives: TwoSeaterAlternativeShow[];
+    canOverride: boolean;
     message: string;
+    retryAction: "checkout" | "corporate-invoice" | "payment-link";
   } | null>(null);
+  const [twoSeaterOverrideReason, setTwoSeaterOverrideReason] = useState("");
   const [customerValidationErrors, setCustomerValidationErrors] =
     useState<BookingCreateFieldErrors>({});
   const [postPaymentStatus, setPostPaymentStatus] =
@@ -1723,6 +1726,7 @@ export default function BookingPage({
     }
 
     setTwoSeaterLimitNotice(null);
+    setTwoSeaterOverrideReason("");
     setPaymentRedirectStatus("");
 
     if (calendarBookingContext) {
@@ -2801,7 +2805,10 @@ export default function BookingPage({
     };
   }
 
-  async function persistPendingCheckoutBooking(reference: string) {
+  async function persistPendingCheckoutBooking(
+    reference: string,
+    twoSeaterOverrideReason?: string,
+  ) {
     const booking = buildPendingCheckoutBooking(reference);
     if (guidedTrainingModuleId) {
       const bookingReference = createGuidedTrainingReference();
@@ -2820,6 +2827,8 @@ export default function BookingPage({
         booking,
         booking.journeyId,
         calendarBookingContext,
+        false,
+        twoSeaterOverrideReason,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
@@ -2838,6 +2847,7 @@ export default function BookingPage({
         booking.journeyId,
         calendarBookingContext,
         true,
+        twoSeaterOverrideReason,
       );
     }
   }
@@ -2860,7 +2870,7 @@ export default function BookingPage({
     return true;
   }
 
-  async function handlePayFastCheckout() {
+  async function handlePayFastCheckout(twoSeaterOverrideReason?: string) {
     if (isPayFastRedirecting) {
       return;
     }
@@ -2945,7 +2955,10 @@ export default function BookingPage({
     }
 
     try {
-      const persistedBooking = await persistPendingCheckoutBooking(reference);
+      const persistedBooking = await persistPendingCheckoutBooking(
+        reference,
+        twoSeaterOverrideReason,
+      );
 
       setAllocatedTableNumber(persistedBooking.tableNumber ?? null);
 
@@ -3061,9 +3074,11 @@ export default function BookingPage({
       if (twoSeaterLimit) {
         setTwoSeaterLimitNotice({
           alternatives: twoSeaterLimit.alternatives ?? [],
+          canOverride: Boolean(twoSeaterLimit.canOverride && isStaffBookingJourney),
           message:
             twoSeaterLimit.error ??
             "This performance has reached its limit for two-guest table requests.",
+          retryAction: "checkout",
         });
         setPaymentRedirectStatus("");
       }
@@ -3108,7 +3123,9 @@ export default function BookingPage({
     }
   }
 
-  async function handleCreateCorporateInvoiceBooking() {
+  async function handleCreateCorporateInvoiceBooking(
+    twoSeaterOverrideReason?: string,
+  ) {
     if (
       !isCorporateInvoice ||
       !corporateInvoiceSubmissionAllowed ||
@@ -3137,7 +3154,10 @@ export default function BookingPage({
       const reference = guidedTrainingModuleId
         ? "ZNG-PENDING"
         : await createBookingReference();
-      const persistedBooking = await persistPendingCheckoutBooking(reference);
+      const persistedBooking = await persistPendingCheckoutBooking(
+        reference,
+        twoSeaterOverrideReason,
+      );
 
       setAllocatedTableNumber(persistedBooking.tableNumber ?? null);
       setBookingReference(persistedBooking.reference);
@@ -3153,9 +3173,11 @@ export default function BookingPage({
       if (twoSeaterLimit) {
         setTwoSeaterLimitNotice({
           alternatives: twoSeaterLimit.alternatives ?? [],
+          canOverride: Boolean(twoSeaterLimit.canOverride && isStaffBookingJourney),
           message:
             twoSeaterLimit.error ??
             "This performance has reached its limit for two-guest table requests.",
+          retryAction: "corporate-invoice",
         });
         setPaymentRedirectStatus("");
         setIsPayFastRedirecting(false);
@@ -3172,7 +3194,9 @@ export default function BookingPage({
     }
   }
 
-  async function handleCreateManualPaymentLink() {
+  async function handleCreateManualPaymentLink(
+    twoSeaterOverrideReason?: string,
+  ) {
     if (
       manualCheckoutRole !== "super-admin" ||
       isManualPaymentLinkCreating ||
@@ -3227,7 +3251,10 @@ export default function BookingPage({
         setManualPaymentLinkBookingReference(reference);
       }
 
-      const persistedBooking = await persistPendingCheckoutBooking(reference);
+      const persistedBooking = await persistPendingCheckoutBooking(
+        reference,
+        twoSeaterOverrideReason,
+      );
       const result = await fetchSupabaseApi<ManualPaymentLinkApiResponse>(
         "/api/admin/bookings/payment-link",
         {
@@ -3252,6 +3279,19 @@ export default function BookingPage({
       });
       setManualPaymentLinkStatus("PAYMENT LINK CREATED ✓");
     } catch (error) {
+      const twoSeaterLimit = getTwoSeaterLimitPayload(error);
+      if (twoSeaterLimit) {
+        setTwoSeaterLimitNotice({
+          alternatives: twoSeaterLimit.alternatives ?? [],
+          canOverride: Boolean(twoSeaterLimit.canOverride && isStaffBookingJourney),
+          message:
+            twoSeaterLimit.error ??
+            "This performance has reached its limit for two-guest table requests.",
+          retryAction: "payment-link",
+        });
+        setManualPaymentLinkStatus("");
+        return;
+      }
       await refreshShowPricingAfterConflict(error);
       setManualPaymentLinkStatus(
         error instanceof Error
@@ -3261,6 +3301,30 @@ export default function BookingPage({
     } finally {
       setIsManualPaymentLinkCreating(false);
     }
+  }
+
+  function submitTwoSeaterOverride() {
+    if (!twoSeaterLimitNotice?.canOverride) return;
+
+    const reason = twoSeaterOverrideReason.trim();
+    if (reason.length < 3) {
+      setPaymentRedirectStatus("Enter a reason for overriding the limit.");
+      return;
+    }
+
+    const retryAction = twoSeaterLimitNotice.retryAction;
+    setTwoSeaterLimitNotice(null);
+    setTwoSeaterOverrideReason("");
+
+    if (retryAction === "corporate-invoice") {
+      void handleCreateCorporateInvoiceBooking(reason);
+      return;
+    }
+    if (retryAction === "payment-link") {
+      void handleCreateManualPaymentLink(reason);
+      return;
+    }
+    void handlePayFastCheckout(reason);
   }
 
   async function handleSendManualPaymentLink() {
@@ -5767,11 +5831,44 @@ export default function BookingPage({
               className="mt-2 text-2xl font-bold sm:text-3xl"
               id="two-seater-limit-title"
             >
-              Choose another performance
+              {twoSeaterLimitNotice.canOverride
+                ? "Two-guest limit reached"
+                : "Choose another performance"}
             </h2>
             <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
               {twoSeaterLimitNotice.message}
             </p>
+
+            {twoSeaterLimitNotice.canOverride ? (
+              <div className="mt-5 rounded-2xl border border-[#8D7A2F]/45 bg-black/35 p-4">
+                <label
+                  className="text-xs font-semibold uppercase tracking-[0.14em] text-[#D8C36A]"
+                  htmlFor="two-seater-override-reason"
+                >
+                  Override reason
+                </label>
+                <textarea
+                  id="two-seater-override-reason"
+                  maxLength={500}
+                  onChange={(event) =>
+                    setTwoSeaterOverrideReason(event.target.value)
+                  }
+                  placeholder="Why is this exception required?"
+                  required
+                  rows={3}
+                  value={twoSeaterOverrideReason}
+                  className="mt-2 w-full resize-none rounded-2xl border border-white/15 bg-black px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#D8C36A]"
+                />
+                <button
+                  type="button"
+                  onClick={submitTwoSeaterOverride}
+                  disabled={twoSeaterOverrideReason.trim().length < 3}
+                  className="mt-3 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-bold uppercase tracking-[0.08em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Override Limit
+                </button>
+              </div>
+            ) : null}
 
             {twoSeaterLimitNotice.alternatives.length > 0 ? (
               <div className="mt-5 grid gap-2">
@@ -5801,7 +5898,10 @@ export default function BookingPage({
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <button
                 type="button"
-                onClick={() => setTwoSeaterLimitNotice(null)}
+                onClick={() => {
+                  setTwoSeaterLimitNotice(null);
+                  setTwoSeaterOverrideReason("");
+                }}
                 className="min-h-12 rounded-full border border-white/20 px-5 text-sm font-semibold uppercase tracking-[0.08em] text-white transition hover:bg-white hover:text-black"
               >
                 Back

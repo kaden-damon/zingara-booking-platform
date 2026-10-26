@@ -512,6 +512,7 @@ import { createTicket, updateTicket } from "../../lib/supabase/tickets";
 import {
   fetchSupabaseApi,
   fetchSupabaseBlob,
+  SupabaseApiError,
 } from "../../lib/supabase/apiClient";
 import { runCancellationUiFlow } from "../../lib/bookingCancellation";
 import {
@@ -5020,6 +5021,7 @@ export default function AdminDashboardPage({
     totalAmount: number;
   } | null>(null);
   const [guestCountReconciliation, setGuestCountReconciliation] = useState<{
+    canOverrideTwoSeaterLimit: boolean;
     details: BookingReconciliationDetails;
     error: string;
     guestCount: number;
@@ -5666,7 +5668,9 @@ export default function AdminDashboardPage({
     useState(false);
   const [bookingShowTransfer, setBookingShowTransfer] = useState<{
     bookingReference: string;
+    canOverrideTwoSeaterLimit: boolean;
     destinationShowId: string;
+    overrideReason: string;
   } | null>(null);
   const [bookingShowTransferError, setBookingShowTransferError] =
     useState("");
@@ -18215,7 +18219,9 @@ export default function AdminDashboardPage({
 
     setBookingShowTransfer({
       bookingReference: booking.reference,
+      canOverrideTwoSeaterLimit: false,
       destinationShowId: "",
+      overrideReason: "",
     });
     setBookingShowTransferError("");
   }
@@ -18247,6 +18253,10 @@ export default function AdminDashboardPage({
         bookingReference: booking.reference,
         destinationShowId,
         expectedShowId,
+        twoSeaterOverrideReason:
+          bookingShowTransfer?.canOverrideTwoSeaterLimit
+            ? bookingShowTransfer.overrideReason
+            : undefined,
       });
       const nextBookings = await getBookings();
 
@@ -18261,6 +18271,17 @@ export default function AdminDashboardPage({
           : `${booking.reference} moved successfully and now Needs a table.`,
       );
     } catch (error) {
+      if (
+        error instanceof SupabaseApiError &&
+        error.code === "TWO_SEATER_BOOKING_LIMIT_REACHED" &&
+        (error.details as { canOverride?: boolean } | undefined)?.canOverride
+      ) {
+        setBookingShowTransfer((current) =>
+          current
+            ? { ...current, canOverrideTwoSeaterLimit: true }
+            : current,
+        );
+      }
       setBookingShowTransferError(
         error instanceof Error
           ? error.message
@@ -19065,6 +19086,7 @@ export default function AdminDashboardPage({
     if (!details) return;
 
     setGuestCountReconciliation({
+      canOverrideTwoSeaterLimit: false,
       details,
       error: "",
       guestCount: details.booking.guestCount,
@@ -19131,6 +19153,7 @@ export default function AdminDashboardPage({
     manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;
     manualUnitAmount?: number;
     reason: string;
+    twoSeaterOverrideReason?: string;
     retainedValueTransfer?: {
       operationId: string;
       transferGratuityToBarTab: true;
@@ -19158,6 +19181,7 @@ export default function AdminDashboardPage({
           manualUnitAmount: draft.manualUnitAmount,
           reason: draft.reason,
           retainedValueTransfer: draft.retainedValueTransfer,
+          twoSeaterOverrideReason: draft.twoSeaterOverrideReason,
         },
         method: "POST",
       });
@@ -19179,6 +19203,13 @@ export default function AdminDashboardPage({
         current
           ? {
               ...current,
+              canOverrideTwoSeaterLimit:
+                error instanceof SupabaseApiError &&
+                error.code === "TWO_SEATER_BOOKING_LIMIT_REACHED" &&
+                Boolean(
+                  (error.details as { canOverride?: boolean } | undefined)
+                    ?.canOverride,
+                ),
               error:
                 error instanceof Error
                   ? error.message
@@ -40759,10 +40790,16 @@ export default function AdminDashboardPage({
                                   autoFocus
                                   value={bookingShowTransfer.destinationShowId}
                                   onChange={(event) => {
-                                    setBookingShowTransfer({
-                                      bookingReference: booking.reference,
-                                      destinationShowId: event.target.value,
-                                    });
+                                    setBookingShowTransfer((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            canOverrideTwoSeaterLimit: false,
+                                            destinationShowId: event.target.value,
+                                            overrideReason: "",
+                                          }
+                                        : current,
+                                    );
                                     setBookingShowTransferError("");
                                   }}
                                   className="min-h-12 w-full rounded-xl border border-white/15 bg-black/50 px-4 py-3 text-sm"
@@ -40802,6 +40839,30 @@ export default function AdminDashboardPage({
                                 </div>
                               )}
 
+                              {bookingShowTransfer.canOverrideTwoSeaterLimit && (
+                                <label className="mt-4 block rounded-2xl border border-[#D8C36A]/35 bg-[#D8C36A]/5 p-4">
+                                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                                    Override reason
+                                  </span>
+                                  <textarea
+                                    rows={3}
+                                    maxLength={500}
+                                    value={bookingShowTransfer.overrideReason}
+                                    onChange={(event) =>
+                                      setBookingShowTransfer((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              overrideReason: event.target.value,
+                                            }
+                                          : current,
+                                      )
+                                    }
+                                    className="w-full resize-none rounded-xl border border-white/15 bg-black px-3 py-3 text-sm text-white outline-none focus:border-[#D8C36A]"
+                                  />
+                                </label>
+                              )}
+
                               {bookingShowTransferError && (
                                 <p
                                   role="alert"
@@ -40828,13 +40889,17 @@ export default function AdminDashboardPage({
                                   disabled={
                                     bookingIsReadOnly ||
                                     isBookingShowTransferring ||
-                                    !bookingShowTransfer.destinationShowId
+                                    !bookingShowTransfer.destinationShowId ||
+                                    (bookingShowTransfer.canOverrideTwoSeaterLimit &&
+                                      bookingShowTransfer.overrideReason.trim().length < 3)
                                   }
                                   className="min-h-12 rounded-full border border-[#D8C36A] bg-[#D8C36A] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45"
                                 >
                                   {isBookingShowTransferring
                                     ? "Moving Booking..."
-                                    : "Confirm Move"}
+                                    : bookingShowTransfer.canOverrideTwoSeaterLimit
+                                      ? "Override Limit"
+                                      : "Confirm Move"}
                                 </button>
                               </div>
                             </section>
@@ -41210,6 +41275,9 @@ export default function AdminDashboardPage({
 
       {guestCountReconciliation && (
         <GuestCountReconciliationModal
+          canOverrideTwoSeaterLimit={
+            guestCountReconciliation.canOverrideTwoSeaterLimit
+          }
           details={guestCountReconciliation.details}
           error={guestCountReconciliation.error}
           guestCount={guestCountReconciliation.guestCount}

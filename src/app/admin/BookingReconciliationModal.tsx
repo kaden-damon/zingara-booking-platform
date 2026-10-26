@@ -230,12 +230,14 @@ export function FinancialReconciliationModal(
 
 export function GuestCountReconciliationModal(
   props: BaseProps & {
+    canOverrideTwoSeaterLimit?: boolean;
     guestCount: number;
     onSave: (draft: {
       guestCount: number;
       manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;
       manualUnitAmount?: number;
       reason: string;
+      twoSeaterOverrideReason?: string;
       retainedValueTransfer?: {
         operationId: string;
         transferGratuityToBarTab: true;
@@ -428,8 +430,8 @@ export function GuestCountReconciliationModal(
         <textarea rows={3} value={draft.reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} className="w-full rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]" />
       </label>
       {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
-      {!props.result && <button type="button" disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || !manualFinancialsValid || (requiresRetainedValueTransfer && !draft.transferRetainedValue)} onClick={() => props.onSave({ guestCount: draft.guestCount, manualPaymentBasis: requiresManualFinancialBasis ? draft.manualPaymentBasis || undefined : undefined, manualUnitAmount: requiresManualFinancialBasis ? draft.manualUnitAmount : undefined, reason: draft.reason, retainedValueTransfer: requiresRetainedValueTransfer && draft.transferRetainedValue ? { operationId, transferGratuityToBarTab: true, transferReleasedValueToBarTab: true } : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
-        {props.isSaving ? "UPDATING..." : "CONFIRM GUEST COUNT"}
+      {!props.result && <button type="button" disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || !manualFinancialsValid || (requiresRetainedValueTransfer && !draft.transferRetainedValue)} onClick={() => props.onSave({ guestCount: draft.guestCount, manualPaymentBasis: requiresManualFinancialBasis ? draft.manualPaymentBasis || undefined : undefined, manualUnitAmount: requiresManualFinancialBasis ? draft.manualUnitAmount : undefined, reason: draft.reason, retainedValueTransfer: requiresRetainedValueTransfer && draft.transferRetainedValue ? { operationId, transferGratuityToBarTab: true, transferReleasedValueToBarTab: true } : undefined, twoSeaterOverrideReason: props.canOverrideTwoSeaterLimit ? draft.reason : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
+        {props.isSaving ? "UPDATING..." : props.canOverrideTwoSeaterLimit ? "OVERRIDE LIMIT" : "CONFIRM GUEST COUNT"}
       </button>}
       {props.result ? (
         <div className="mt-5 rounded-xl border border-emerald-400/25 bg-emerald-950/20 p-4">

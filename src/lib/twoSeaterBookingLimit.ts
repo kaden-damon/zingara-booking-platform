@@ -19,6 +19,7 @@ export type TwoSeaterAlternativeShow = {
 
 export type TwoSeaterLimitErrorPayload = {
   alternatives?: TwoSeaterAlternativeShow[];
+  canOverride?: boolean;
   code?: string;
   error?: string;
   limit?: number;

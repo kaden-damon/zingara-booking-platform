@@ -9,6 +9,11 @@ import {
   isTwoSeaterLimitError,
   // @ts-expect-error Node's built-in TypeScript test runner requires the extension.
 } from "./twoSeaterBookingLimit.ts";
+import {
+  canOverrideTwoSeaterLimit,
+  normalizeTwoSeaterOverrideReason,
+  // @ts-expect-error Node's built-in TypeScript test runner requires the extension.
+} from "./twoSeaterOverrideServer.ts";
 
 const source = (path: string) =>
   readFile(new URL(path, import.meta.url), "utf8");
@@ -132,4 +137,53 @@ test("booking UI offers bounded alternatives and a Box Office route", async () =
   assert.match(server, /getPublicBookingCutoff/);
   assert.match(server, /cutoff\.closed/);
   assert.match(server, /remainingSeatsByZone\[input\.zoneId\].*>= 2/s);
+});
+
+test("only authorised Box Office roles may request an override", () => {
+  assert.equal(canOverrideTwoSeaterLimit("box-office"), true);
+  assert.equal(canOverrideTwoSeaterLimit("box-office-manager"), true);
+  assert.equal(canOverrideTwoSeaterLimit("box-office-staff"), true);
+  assert.equal(canOverrideTwoSeaterLimit("super-admin"), true);
+  assert.equal(canOverrideTwoSeaterLimit("venue-manager"), false);
+  assert.equal(canOverrideTwoSeaterLimit(null), false);
+  assert.equal(normalizeTwoSeaterOverrideReason("  approved exception  "), "approved exception");
+});
+
+test("override is private, short-lived, atomic and audited", async () => {
+  const migration = await source(
+    "../../supabase/migrations/20261026153000_p0_two_seater_box_office_override.sql",
+  );
+
+  assert.match(migration, /enable row level security/);
+  assert.match(migration, /revoke all[\s\S]*from public, anon, authenticated/);
+  assert.match(migration, /expires_at timestamptz not null default \(now\(\) \+ interval '10 minutes'\)/);
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /v_current_count < v_limit/);
+  assert.match(migration, /for update/);
+  assert.match(migration, /booking\.two-seater-limit-override/);
+  assert.match(migration, /v_override\.reason/);
+  assert.match(migration, /actor_staff_profile_id/);
+  assert.doesNotMatch(migration, /delete\s+from\s+public\.bookings/i);
+  assert.doesNotMatch(migration, /update\s+public\.bookings/i);
+});
+
+test("public creation remains strict while internal paths expose an authorised retry", async () => {
+  const [bookingRoute, adminRoute, reconciliationRoute, page] =
+    await Promise.all([
+      source("../app/api/bookings/route.ts"),
+      source("../app/api/admin/bookings/route.ts"),
+      source("../app/api/admin/bookings/reconciliation/route.ts"),
+      source("../app/book/page.tsx"),
+    ]);
+
+  assert.match(
+    bookingRoute,
+    /!isTrustedInternalHandoff \|\| !twoSeaterOverrideAllowed/,
+  );
+  assert.match(bookingRoute, /validateBookingCapacityIncrease[\s\S]*authorizeTwoSeaterLimitOverride/);
+  assert.match(adminRoute, /persistBookingShowTransfer[\s\S]*authorizeTwoSeaterLimitOverride/);
+  assert.match(adminRoute, /persistBookingStateUpdate[\s\S]*authorizeTwoSeaterLimitOverride/);
+  assert.match(reconciliationRoute, /authorizeTwoSeaterLimitOverride/);
+  assert.match(page, /Override Limit/);
+  assert.match(page, /Why is this exception required\?/);
 });
