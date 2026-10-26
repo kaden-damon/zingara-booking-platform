@@ -101,14 +101,14 @@ begin
     return new;
   end if;
 
-  select authorization.*
+  select candidate.*
     into v_override
-    from public.two_seater_limit_override_authorizations authorization
-   where authorization.booking_reference = new.booking_reference
-     and authorization.show_id = new.show_id
-     and authorization.consumed_at is null
-     and authorization.expires_at >= now()
-   order by authorization.created_at desc
+    from public.two_seater_limit_override_authorizations candidate
+   where candidate.booking_reference = new.booking_reference
+     and candidate.show_id = new.show_id
+     and candidate.consumed_at is null
+     and candidate.expires_at >= now()
+   order by candidate.created_at desc
    limit 1
    for update;
 
