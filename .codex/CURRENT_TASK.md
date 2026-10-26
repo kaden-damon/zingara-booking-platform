@@ -1,6 +1,6 @@
 # P0 - Corporate Booking Search Crash
 
-STATUS: IN PROGRESS - SURGICAL FIX UNDER VERIFICATION
+STATUS: COMPLETE - PRODUCTION VERIFIED
 
 DATE: 26 OCTOBER 2026
 
@@ -51,3 +51,27 @@ called `.trim()` on `undefined` and reached the Admin error boundary.
 - Authenticated Production Corporate Booking search after deployment using
   multiple terms, clearing and rapid repeated input.
 - Confirm no browser exception, request storm or Admin error boundary.
+
+## Verification Result
+
+- Focused booking search tests: 8/8 passed.
+- Refund-readiness regression tests: 3/3 passed.
+- TypeScript, changed-file ESLint and `git diff --check`: passed. ESLint
+  retained only two existing unused-function warnings in the booking adapter.
+- Next.js Production webpack build: passed.
+- Authenticated Production verification used the deployed `6021043` bundle.
+- Search by `Chulumanco` returned two Corporate bookings, including the legacy
+  snapshot that previously crashed search.
+- Exact search by `ZNG-7A47F870` returned the authoritative booking.
+- Rapid replacement input and clearing the field completed normally; clearing
+  restored all 453 active Corporate bookings.
+- The browser console was cleared before the live test and remained at zero
+  messages with no exception or Admin error boundary afterwards.
+
+## Release
+
+- Application commit: `60210434a28276298d72146421f83fab617693c3`
+- Production deployment: `dpl_XwrSLarwSzPdp5DHgdwn2KHd6bEX`
+- Production URL: `https://book.zingara.co.za`
+- Rollback commit: `bdf34d07`
+- Production business-data delta: none.
