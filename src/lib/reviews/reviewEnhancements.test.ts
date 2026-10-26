@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { buildImmediateReviewSubject } from "./reviewNotificationSubject.ts";
+
 const root = process.cwd();
 const migrationPath = `${root}/supabase/migrations/20261015193000_phase_49_5_review_enhancements.sql`;
 
@@ -49,9 +51,28 @@ test("review alerts use configurable staff identities and exact privacy-aware su
     readFile(`${root}/src/lib/email/staffEmailNotifications.ts`, "utf8"),
   ]);
   assert.match(migration, /'new-review-alert',true,array\[v_nicky\],array\[v_kaden,v_fatima\]/);
-  assert.match(workflow, /just submitted a \$\{review\.review_privacy_requested \? "Private" : "Public"\} Review/);
+  assert.match(workflow, /buildImmediateReviewSubject/);
   assert.match(workflow, /loadManagementEmailRoute\(client, "new-review-alert"\)/);
   assert.match(settings, /key: "new-review-alert"/);
+
+  for (const rating of [1, 2, 3, 4, 5]) {
+    assert.equal(
+      buildImmediateReviewSubject({
+        publicDisplayName: "Michael S",
+        rating,
+        reviewPrivacyRequested: false,
+      }),
+      `Michael S just submitted a ${rating} star public review`,
+    );
+    assert.equal(
+      buildImmediateReviewSubject({
+        publicDisplayName: "Donna V",
+        rating,
+        reviewPrivacyRequested: true,
+      }),
+      `Donna V just submitted a ${rating} star private review`,
+    );
+  }
 });
 
 test("contact details stay selected-review-only and public APIs remain identity-safe", async () => {

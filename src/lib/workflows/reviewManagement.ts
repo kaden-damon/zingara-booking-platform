@@ -5,6 +5,7 @@ import { kadenManagementEmail, resolveInternalOperationalRecipients } from "@/li
 import { sendZingaraEmail } from "@/lib/email/smtp";
 import { loadManagementEmailRoute } from "@/lib/email/staffEmailNotifications";
 import { calculateReviewRatingAverage, isReviewAttentionRating } from "@/lib/reviews/reviewRating";
+import { buildImmediateReviewSubject } from "@/lib/reviews/reviewNotificationSubject";
 
 const timeZone = "Africa/Johannesburg";
 const adminOrigin = "https://book.zingara.co.za";
@@ -153,7 +154,11 @@ function renderReviewCard(review: ReviewContext) {
 }
 
 async function renderImmediate(review: ReviewContext) {
-  const subject = `${review.public_display_name} just submitted a ${review.review_privacy_requested ? "Private" : "Public"} Review`;
+  const subject = buildImmediateReviewSubject({
+    publicDisplayName: review.public_display_name,
+    rating: review.rating,
+    reviewPrivacyRequested: review.review_privacy_requested,
+  });
   const url = reviewUrl(review);
   const message = `${subject}\n\n${review.public_display_name}\n${review.rating}/5\n${reviewMeta(review)}\n${invitationLabel(review.invitationType)}\n${statusLabel(review.moderation_status)}\n\n${review.review_text}\n\n${url}`;
   const branded = await createBrandedCustomerEmail({ ctaLabel: "OPEN REVIEW", ctaUrl: url, heading: subject, html: renderReviewCard(review), includeAgePolicy: false, message, subject });
