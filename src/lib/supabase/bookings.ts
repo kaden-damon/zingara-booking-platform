@@ -895,7 +895,10 @@ export async function getBookings(options: GetBookingsOptions = {}) {
   return Promise.all(rows.map(toDemoBooking));
 }
 
-export async function getBookingsPage(filters: AdminBookingListFilters) {
+export async function getBookingsPage(
+  filters: AdminBookingListFilters,
+  options: { signal?: AbortSignal } = {},
+) {
   const searchParams = adminBookingListSearchParams(filters);
   searchParams.set("includeHistory", "0");
   const payload = await fetchSupabaseApi<{
@@ -905,7 +908,9 @@ export async function getBookingsPage(filters: AdminBookingListFilters) {
     promoOptions: string[];
     rows: SupabaseBookingAggregateRow[];
     total: number;
-  }>(`/api/admin/bookings?${searchParams.toString()}`);
+  }>(`/api/admin/bookings?${searchParams.toString()}`, {
+    signal: options.signal,
+  });
 
   return {
     archivedTotal: payload.archivedTotal ?? 0,

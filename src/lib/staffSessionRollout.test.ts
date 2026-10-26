@@ -33,13 +33,29 @@ test("accounts without a staff rollout cutoff are unchanged", () => {
   );
 });
 
-test("an invalidated staff token is cleared before returning to Admin login", () => {
+test("any rejected Admin session is cleared once before returning to login", () => {
   const apiClient = readFileSync(
     new URL("./supabase/apiClient.ts", import.meta.url),
     "utf8",
   );
 
-  assert.match(apiClient, /STAFF_SESSION_REFRESH_REQUIRED/);
+  assert.match(apiClient, /response\.status === 401 && path\.startsWith\("\/api\/admin\/"\)/);
+  assert.match(apiClient, /staffSessionRecoveryStarted/);
   assert.match(apiClient, /signOut\(\{ scope: "local" \}\)/);
   assert.match(apiClient, /window\.location\.replace\("\/admin"\)/);
+});
+
+test("booking search cancels superseded Admin requests", () => {
+  const adminPage = readFileSync(
+    new URL("../app/admin/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const bookingsClient = readFileSync(
+    new URL("./supabase/bookings.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(adminPage, /bookingLoadAbortControllerRef\.current\?\.abort\(\)/);
+  assert.match(adminPage, /getBookingsPage\(getActiveBookingListFilters\(\), \{[\s\S]*signal: controller\.signal/);
+  assert.match(bookingsClient, /signal: options\.signal/);
 });

@@ -5831,6 +5831,7 @@ export default function AdminDashboardPage({
   const staffIssueSubmissionIdRef = useRef("");
   const liveCustomerLoadRequestRef = useRef(0);
   const bookingLoadRequestRef = useRef(0);
+  const bookingLoadAbortControllerRef = useRef<AbortController | null>(null);
   const paymentLoadRequestRef = useRef(0);
   const bookingsRef = useRef(bookings);
   const bookingHistoryLoadRequestRef = useRef(0);
@@ -5951,6 +5952,9 @@ export default function AdminDashboardPage({
   async function loadBookingList() {
     const requestId = bookingLoadRequestRef.current + 1;
     bookingLoadRequestRef.current = requestId;
+    bookingLoadAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    bookingLoadAbortControllerRef.current = controller;
     bookingHistoryLoadRequestRef.current += 1;
     bookingHistoryLoadInFlightRef.current = false;
     bookingHistoriesLoadedRef.current = false;
@@ -5959,7 +5963,9 @@ export default function AdminDashboardPage({
     setBookings([]);
 
     try {
-      const result = await getBookingsPage(getActiveBookingListFilters());
+      const result = await getBookingsPage(getActiveBookingListFilters(), {
+        signal: controller.signal,
+      });
       const nextBookings = result.rows;
 
       if (requestId !== bookingLoadRequestRef.current) {
@@ -5973,6 +5979,10 @@ export default function AdminDashboardPage({
       void loadPaymentsForBookings(nextBookings);
       return nextBookings;
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return null;
+      }
+
       console.error("[Zingara admin] Failed to load bookings", error);
 
       if (requestId === bookingLoadRequestRef.current) {
@@ -5982,6 +5992,7 @@ export default function AdminDashboardPage({
       return null;
     } finally {
       if (requestId === bookingLoadRequestRef.current) {
+        bookingLoadAbortControllerRef.current = null;
         setIsBookingsLoading(false);
       }
     }
@@ -20984,7 +20995,10 @@ export default function AdminDashboardPage({
       void loadBookingList();
     }, bookingSearch.trim() ? 300 : 0);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      bookingLoadAbortControllerRef.current?.abort();
+    };
   }, [
     activeAdminTab,
     bookingArchiveFilter,

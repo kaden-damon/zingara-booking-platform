@@ -9,6 +9,24 @@ type ApiOptions = {
   signal?: AbortSignal;
 };
 
+let staffSessionRecoveryStarted = false;
+
+async function recoverExpiredStaffSession(
+  supabase: ReturnType<typeof getSupabaseClient>,
+) {
+  if (typeof window === "undefined" || staffSessionRecoveryStarted) {
+    return;
+  }
+
+  staffSessionRecoveryStarted = true;
+
+  try {
+    await supabase?.auth.signOut({ scope: "local" });
+  } finally {
+    window.location.replace("/admin");
+  }
+}
+
 export class SupabaseApiError extends Error {
   code?: string;
   details?: unknown;
@@ -82,13 +100,8 @@ export async function fetchSupabaseApi<T>(
       );
     }
 
-    if (
-      response.status === 401 &&
-      errorPayload.code === "STAFF_SESSION_REFRESH_REQUIRED" &&
-      typeof window !== "undefined"
-    ) {
-      await supabase?.auth.signOut({ scope: "local" });
-      window.location.replace("/admin");
+    if (response.status === 401 && path.startsWith("/api/admin/")) {
+      await recoverExpiredStaffSession(supabase);
     }
 
     throw new SupabaseApiError({
