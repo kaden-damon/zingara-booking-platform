@@ -1,6 +1,6 @@
 # P0 - Emergency Admin Login Reload Loop
 
-STATUS: IN PROGRESS
+STATUS: COMPLETE - PRODUCTION VERIFIED
 
 DATE: 26 OCTOBER 2026
 
@@ -45,6 +45,35 @@ staff without changing credentials, permissions, business data or UI.
   build pass before release.
 - Production is verified after deployment in a clean browser context and an
   authenticated existing session.
+
+## Release Verification
+
+- Focused regression tests: 16 passed.
+- TypeScript, changed-file ESLint, `git diff --check` and the Next.js webpack
+  Production build passed. ESLint reported only two pre-existing warnings in
+  `venueSettings.ts` and no errors.
+- Production deployment `dpl_AXcby5cBjeWnxgP8k555hQ1hTPq2` is Ready and
+  aliased to `https://book.zingara.co.za`.
+- A clean unauthenticated Production browser rendered a stable Admin login and
+  did not request `/api/admin/venue-settings` or reload repeatedly.
+- Post-deployment Production logs contain no recurrence of the protected venue
+  settings `401` storm.
+- An existing authenticated Production session restored normally. Corporate
+  Bookings loaded, exact-reference search returned the authoritative booking,
+  rapid search changes settled correctly, and clearing search did not crash or
+  reload Admin.
+- Vanessa Robinson remains an active Super Admin with all-venue scope. No staff
+  credentials, roles or permissions were changed.
+- The fix uses browser-standard session and fetch behaviour compatible with
+  current Chrome and Edge. Physical access to Vanessa's Windows computer was
+  not available, so native Windows confirmation remains an operational check,
+  not a claimed test result.
+
+Production commit: `50d374f9d0cd0f7d5fe2ca26fbc35a51b30b3099`.
+
+Rollback point: `f343ded90823e0c10ba8c3914542fb322fe8659d`.
+
+Production business-data delta: none.
 
 ## Safety
 
