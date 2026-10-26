@@ -58,14 +58,26 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     enabled?: unknown;
     expectedUpdatedAt?: unknown;
+    paymentPolicy?: unknown;
     showId?: unknown;
     zonePrices?: unknown;
   } | null;
   const showId = typeof body?.showId === "string" ? body.showId.trim() : "";
   const zonePrices = getSafeZonePrices(body?.zonePrices);
   const enabled = body?.enabled === true;
+  const paymentPolicy =
+    body?.paymentPolicy === "full-payment-only"
+      ? "full-payment-only"
+      : body?.paymentPolicy === "standard"
+        ? "standard"
+        : null;
 
-  if (!showId || !zonePrices || (enabled && Object.keys(zonePrices).length === 0)) {
+  if (
+    !showId ||
+    !zonePrices ||
+    !paymentPolicy ||
+    (enabled && Object.keys(zonePrices).length === 0)
+  ) {
     return Response.json(
       { error: "Enter at least one valid custom price before enabling custom pricing." },
       { status: 400 },
@@ -73,7 +85,7 @@ export async function POST(request: Request) {
   }
 
   const { data, error } = await auth.serviceClient.rpc(
-    "set_show_custom_pricing_atomic",
+    "set_show_custom_pricing_and_payment_policy_atomic",
     {
       p_actor: {
         authUserId: auth.user?.id ?? null,
@@ -88,6 +100,7 @@ export async function POST(request: Request) {
           ? body.expectedUpdatedAt
           : null,
       p_show_id: showId,
+      p_payment_policy: paymentPolicy,
       p_zone_prices: zonePrices,
     },
   );

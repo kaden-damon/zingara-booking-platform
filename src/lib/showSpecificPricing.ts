@@ -2,9 +2,12 @@ import type { DemoShow, SeatingZoneId } from "@/lib/zingaraDemo";
 
 export type ShowCustomPricing = {
   enabled: boolean;
+  paymentPolicy?: ShowPaymentPolicy;
   updatedAt?: string;
   zonePrices: Partial<Record<SeatingZoneId, number>>;
 };
+
+export type ShowPaymentPolicy = "standard" | "full-payment-only";
 
 const supportedZoneIds: SeatingZoneId[] = [
   "golden-circle",
@@ -20,7 +23,7 @@ export function isSupportedCustomPricingZone(
 }
 
 export function normalizeShowCustomPricing(
-  value: ShowCustomPricing | null | undefined,
+  value: Partial<ShowCustomPricing> | null | undefined,
 ): ShowCustomPricing {
   const zonePrices = Object.fromEntries(
     Object.entries(value?.zonePrices ?? {}).flatMap(([zoneId, price]) =>
@@ -34,9 +37,19 @@ export function normalizeShowCustomPricing(
 
   return {
     enabled: value?.enabled === true,
+    paymentPolicy:
+      value?.paymentPolicy === "full-payment-only"
+        ? "full-payment-only"
+        : "standard",
     updatedAt: value?.updatedAt,
     zonePrices,
   };
+}
+
+export function isFullPaymentOnlyPolicy(
+  value: Pick<ShowCustomPricing, "paymentPolicy"> | null | undefined,
+) {
+  return value?.paymentPolicy === "full-payment-only";
 }
 
 export function getShowSpecificZonePrice(

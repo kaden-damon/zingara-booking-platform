@@ -730,6 +730,7 @@ export type DemoBooking = {
     zoneId: SeatingZoneId;
   }>;
   paymentOption?: PaymentOption;
+  paymentPolicy?: import("@/lib/showSpecificPricing").ShowPaymentPolicy;
   paymentStatus?: PaymentStatus;
   depositPercentage?: number;
   amountPaid?: number;

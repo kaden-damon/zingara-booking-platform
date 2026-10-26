@@ -37,6 +37,9 @@ export default function ShowCustomPricingControls({
 }) {
   const initialPricing = normalizeShowCustomPricing(show.customPricing);
   const [enabled, setEnabled] = useState(initialPricing.enabled);
+  const [paymentPolicy, setPaymentPolicy] = useState(
+    initialPricing.paymentPolicy ?? "standard",
+  );
   const [drafts, setDrafts] = useState<Record<SeatingZoneId, string>>(() =>
     Object.fromEntries(
       pricingZones.map(({ id }) => [
@@ -86,6 +89,7 @@ export default function ShowCustomPricingControls({
         body: {
           enabled,
           expectedUpdatedAt: show.customPricing?.updatedAt ?? null,
+          paymentPolicy,
           showId: show.supabaseId ?? show.id,
           zonePrices,
         },
@@ -93,7 +97,7 @@ export default function ShowCustomPricingControls({
       });
       onSaved(payload.customPricing);
       setIsConfirming(false);
-      setStatus(enabled ? "Custom pricing saved." : "Normal pricing restored for new bookings.");
+      setStatus("Show pricing and payment policy saved.");
     } catch (error) {
       setStatus(
         error instanceof Error
@@ -173,6 +177,31 @@ export default function ShowCustomPricingControls({
         </div>
       )}
 
+      <label className="mt-5 block rounded-xl border border-white/10 bg-black/35 p-3 text-sm text-zinc-300">
+        <span className="font-semibold text-white">Payment Policy</span>
+        <span className="mt-1 block text-xs leading-5 text-zinc-500">
+          Choose the payment terms available for new bookings on this performance.
+        </span>
+        <select
+          aria-label="Payment policy"
+          disabled={disabled || isSaving}
+          onChange={(event) => {
+            setPaymentPolicy(
+              event.target.value === "full-payment-only"
+                ? "full-payment-only"
+                : "standard",
+            );
+            setIsConfirming(false);
+            setStatus("");
+          }}
+          value={paymentPolicy}
+          className="mt-3 min-h-11 w-full rounded-xl border border-white/15 bg-black px-3 py-2 text-white outline-none focus:border-[#D8C36A]/60"
+        >
+          <option value="standard">Standard Payment Options</option>
+          <option value="full-payment-only">Full Payment Only</option>
+        </select>
+      </label>
+
       {hasInvalidPrice && (
         <p className="mt-3 text-sm font-semibold text-red-200">
           Enter a positive valid amount, or leave the zone blank to use its normal price.
@@ -187,7 +216,7 @@ export default function ShowCustomPricingControls({
       {isConfirming && (
         <div className="mt-5 rounded-xl border border-amber-300/30 bg-amber-950/20 p-4">
           <p className="font-semibold text-amber-50">
-            Apply custom pricing to this performance?
+            Apply these settings to this performance?
           </p>
           <p className="mt-1 text-sm text-amber-100/80">
             {show.venueName ?? show.location} · {show.date} · {show.time}
@@ -203,6 +232,9 @@ export default function ShowCustomPricingControls({
           <p className="mt-3 text-sm text-amber-100">
             Existing bookings will keep the prices they were booked at.
           </p>
+          <p className="mt-1 text-sm text-amber-100">
+            Payment policy: {paymentPolicy === "full-payment-only" ? "Full Payment Only" : "Standard Payment Options"}. Existing payment agreements remain unchanged.
+          </p>
         </div>
       )}
 
@@ -215,7 +247,7 @@ export default function ShowCustomPricingControls({
               disabled={!canSave}
               className="min-h-11 rounded-full bg-[#D8C36A] px-5 py-2 text-sm font-bold text-black disabled:opacity-50"
             >
-              {isSaving ? "Saving..." : "Confirm Pricing"}
+              {isSaving ? "Saving..." : "Confirm Settings"}
             </button>
             <button
               type="button"
@@ -233,7 +265,7 @@ export default function ShowCustomPricingControls({
             disabled={!canSave}
             className="min-h-11 rounded-full border border-[#D8C36A]/45 px-5 py-2 text-sm font-semibold text-[#F2D66C] disabled:opacity-50"
           >
-            Review Pricing
+            Review Settings
           </button>
         )}
       </div>
@@ -244,7 +276,7 @@ export default function ShowCustomPricingControls({
         </p>
       )}
       <p className="mt-4 text-xs leading-5 text-zinc-500">
-        Normal pricing remains unchanged for other shows. Turning this off restores normal pricing for new bookings only.
+        Pricing and payment policies apply to new agreements for this performance only. Other shows and existing booking agreements remain unchanged.
       </p>
     </section>
   );

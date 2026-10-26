@@ -98,7 +98,10 @@ import {
   validateCorporateZoneEntitlements,
 } from "@/lib/corporateZoneEntitlements";
 import { findPotentialInternalBookingDuplicates } from "@/lib/supabase/duplicateIntegrityServer";
-import { getShowSpecificZonePrice } from "@/lib/showSpecificPricing";
+import {
+  getShowSpecificZonePrice,
+  isFullPaymentOnlyPolicy,
+} from "@/lib/showSpecificPricing";
 import { loadShowCustomPricing } from "@/lib/supabase/showSpecificPricingServer";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 import { isPublicZoneSalesOpen } from "@/lib/supabase/publicShowAvailability";
@@ -1814,6 +1817,38 @@ export async function POST(request: Request) {
       );
     }
 
+    const showCommercialConfiguration = await loadShowCustomPricing(
+      supabase,
+      show.id,
+    );
+    if (isFullPaymentOnlyPolicy(showCommercialConfiguration)) {
+      if (isComplimentaryBooking(booking)) {
+        return Response.json(
+          {
+            code: "FULL_PAYMENT_ONLY",
+            error: "This performance requires full payment. Complimentary bookings are not available.",
+          },
+          { status: 409 },
+        );
+      }
+      if (booking.paymentOption === "deposit") {
+        return Response.json(
+          {
+            code: "FULL_PAYMENT_ONLY",
+            error: "This performance requires full payment. Deposit payments are not available.",
+          },
+          { status: 409 },
+        );
+      }
+
+      booking = {
+        ...booking,
+        depositPercentage: 100,
+        paymentOption: "full",
+        paymentPolicy: "full-payment-only",
+      };
+    }
+
     if (booking.partySize === 2) {
       twoSeaterContext = {
         currentShow: {
@@ -2488,6 +2523,20 @@ export async function POST(request: Request) {
         : typeof error === "object" && error && "message" in error
           ? String(error.message ?? "")
           : "";
+
+    if (
+      transactionErrorMessage.includes("FULL_PAYMENT_ONLY") ||
+      transactionErrorMessage.includes("FULL_PAYMENT_VERIFICATION_REQUIRED")
+    ) {
+      return Response.json(
+        {
+          code: "FULL_PAYMENT_ONLY",
+          error:
+            "This performance requires full payment. Deposit or partial-payment terms are not available.",
+        },
+        { status: 409 },
+      );
+    }
 
     if (transactionErrorMessage.includes("CORPORATE_CUSTOMER_IDENTITY_AMBIGUOUS")) {
       return Response.json(

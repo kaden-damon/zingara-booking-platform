@@ -52,6 +52,8 @@ import {
   canOverrideTwoSeaterLimit,
   normalizeTwoSeaterOverrideReason,
 } from "@/lib/twoSeaterOverrideServer";
+import { isFullPaymentOnlyPolicy } from "@/lib/showSpecificPricing";
+import { loadShowCustomPricing } from "@/lib/supabase/showSpecificPricingServer";
 
 export const dynamic = "force-dynamic";
 
@@ -1858,7 +1860,7 @@ async function persistBookingShowTransfer(
     await Promise.all([
       auth.serviceClient
         .from("bookings")
-        .select("id,booking_reference,show_id,section,guest_count,booking_status,archived_at")
+        .select("id,booking_reference,show_id,section,guest_count,booking_status,payment_status,total_amount,amount_paid,balance_outstanding,notes,archived_at")
         .eq("booking_reference", bookingReference)
         .maybeSingle(),
       auth.serviceClient
@@ -1909,6 +1911,51 @@ async function persistBookingShowTransfer(
       { error: "The destination show is not active." },
       { status: 409 },
     );
+  }
+
+  const destinationCommercialConfiguration = await loadShowCustomPricing(
+    auth.serviceClient,
+    destinationShow.id,
+  );
+  if (isFullPaymentOnlyPolicy(destinationCommercialConfiguration)) {
+    const paymentOption = booking.notes?.startsWith(bookingMetadataPrefix)
+      ? (() => {
+          try {
+            return String(
+              (JSON.parse(booking.notes.slice(bookingMetadataPrefix.length)) as {
+                paymentOption?: unknown;
+              }).paymentOption ?? "",
+            );
+          } catch {
+            return "";
+          }
+        })()
+      : "";
+    const totalAmount = Number(booking.total_amount) || 0;
+    const amountPaid = Number(booking.amount_paid) || 0;
+    const outstanding = Number(booking.balance_outstanding) || 0;
+    const isFullyPaid =
+      booking.payment_status === "fully_paid" &&
+      totalAmount > 0 &&
+      amountPaid >= totalAmount &&
+      outstanding === 0;
+    const isUnpaidFullAgreement =
+      booking.payment_status === "pending_payment" &&
+      totalAmount > 0 &&
+      amountPaid === 0 &&
+      outstanding === totalAmount &&
+      paymentOption !== "deposit";
+
+    if (!isFullyPaid && !isUnpaidFullAgreement) {
+      return Response.json(
+        {
+          code: "FULL_PAYMENT_ONLY",
+          error:
+            "The destination performance requires full payment. Settle this booking in full before moving it.",
+        },
+        { status: 409 },
+      );
+    }
   }
 
   const venueScope = normalizeStaffVenueScope(auth.staffProfile.venue_scope ?? []);
@@ -1980,9 +2027,13 @@ async function persistBookingShowTransfer(
       message.includes("DESTINATION_SHOW_NOT_ACTIVE") ||
       message.includes("BOOKING_ZONE_NOT_SUPPORTED") ||
       message.includes("ZONE_CAPACITY_EXCEEDED") ||
-      message.includes("TWO_SEATER_BOOKING_LIMIT_REACHED")
+      message.includes("TWO_SEATER_BOOKING_LIMIT_REACHED") ||
+      message.includes("FULL_PAYMENT_ONLY") ||
+      message.includes("FULL_PAYMENT_VERIFICATION_REQUIRED")
     ) {
-      const publicMessage = message.includes("TWO_SEATER_BOOKING_LIMIT_REACHED")
+      const publicMessage = message.includes("FULL_PAYMENT")
+        ? "The destination performance requires full payment. Settle this booking in full before moving it."
+        : message.includes("TWO_SEATER_BOOKING_LIMIT_REACHED")
         ? "The destination performance has reached its limit for two-guest table requests."
         : message.includes("ZONE_CAPACITY_EXCEEDED")
           ? "The destination show does not have enough capacity in this seating zone."

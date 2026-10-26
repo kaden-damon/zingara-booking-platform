@@ -4,6 +4,7 @@ import { normalizeShowCustomPricing } from "@/lib/showSpecificPricing";
 
 type ShowPricingRow = {
   enabled: boolean;
+  payment_policy: "full-payment-only" | "standard";
   show_id: string;
   updated_at: string;
   zone_prices: ShowCustomPricing["zonePrices"] | null;
@@ -22,7 +23,7 @@ export async function loadShowCustomPricingMap(
 
   const { data, error } = await supabase
     .from("show_pricing_configurations")
-    .select("show_id,enabled,zone_prices,updated_at")
+    .select("show_id,enabled,payment_policy,zone_prices,updated_at")
     .in("show_id", uniqueShowIds);
 
   if (error) {
@@ -34,6 +35,7 @@ export async function loadShowCustomPricingMap(
       row.show_id,
       normalizeShowCustomPricing({
         enabled: row.enabled,
+        paymentPolicy: row.payment_policy,
         updatedAt: row.updated_at,
         zonePrices: row.zone_prices ?? {},
       }),

@@ -102,6 +102,7 @@ import { calculatePayFastTransactionAmounts } from "../../lib/payfast/transactio
 import { getTemporaryTablePricePerPerson } from "../../lib/temporaryTablePricing";
 import {
   getShowSpecificZonePrice,
+  isFullPaymentOnlyPolicy,
   resolveShowZonePrice,
 } from "../../lib/showSpecificPricing";
 import {
@@ -1043,6 +1044,16 @@ export default function BookingPage({
   const selectedShow = shows.find(
     (show) => show.id === selectedShowId,
   );
+  const requiresFullPayment = isFullPaymentOnlyPolicy(
+    selectedShow?.customPricing,
+  );
+  useEffect(() => {
+    if (!requiresFullPayment) return;
+    setPaymentOption("full");
+    setStaffPricingMode((current) =>
+      current === "complimentary" ? "standard" : current,
+    );
+  }, [requiresFullPayment]);
   const getDisplayedZonePrice = (zone: SeatingZone) =>
     resolveShowZonePrice({
       defaultPrice: getConfiguredZonePrice(venueConfig, zone),
@@ -1066,7 +1077,9 @@ export default function BookingPage({
   const isFriendsAndFamily =
     canUseFriendsAndFamily && staffPricingMode === "friends-family";
   const isComplimentary =
-    manualCheckoutRole !== "none" && staffPricingMode === "complimentary";
+    !requiresFullPayment &&
+    manualCheckoutRole !== "none" &&
+    staffPricingMode === "complimentary";
   const pricePerPerson = selectedZone
     ? isComplimentary
       ? 0
@@ -2740,6 +2753,9 @@ export default function BookingPage({
           ]
         : [],
       paymentOption,
+      paymentPolicy: requiresFullPayment
+        ? ("full-payment-only" as const)
+        : ("standard" as const),
       corporatePaymentBasis: isCorporateInvoice
         ? corporatePaymentBasis
         : undefined,
@@ -5229,7 +5245,9 @@ export default function BookingPage({
                         ? "Review the Corporate booking and invoice / EFT settlement state. No online checkout or payment link will be created."
                       : isStaffBookingJourney
                         ? "Choose how payment will be handled, then review the booking."
-                        : "Review the amount due today, choose full payment or deposit, then continue to secure checkout."}
+                        : requiresFullPayment
+                          ? "Review the full amount due, then continue to secure checkout. This performance requires full payment."
+                          : "Review the amount due today, choose full payment or deposit, then continue to secure checkout."}
                   </p>
                 </div>
                 <span className="w-fit rounded-full border border-[#D8C36A]/30 bg-black/30 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C] sm:px-4 sm:py-2 sm:text-sm">
@@ -5273,23 +5291,25 @@ export default function BookingPage({
                         Friends &amp; Family
                       </button>
                     )}
-                    <button
-                      data-training-control="training-booking-rate"
-                      data-training-value="complimentary"
-                      type="button"
-                      aria-pressed={isComplimentary}
-                      onClick={() => {
-                        setStaffPricingMode("complimentary");
-                        setCorporatePaymentBasis("online");
-                        setPaymentOption("full");
-                        setSelectedTemporaryTableId("");
-                        setPromoCodeInput("");
-                        setPromoValidationPreview(null);
-                      }}
-                      className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase ${isComplimentary ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
-                    >
-                      Complimentary
-                    </button>
+                    {!requiresFullPayment && (
+                      <button
+                        data-training-control="training-booking-rate"
+                        data-training-value="complimentary"
+                        type="button"
+                        aria-pressed={isComplimentary}
+                        onClick={() => {
+                          setStaffPricingMode("complimentary");
+                          setCorporatePaymentBasis("online");
+                          setPaymentOption("full");
+                          setSelectedTemporaryTableId("");
+                          setPromoCodeInput("");
+                          setPromoValidationPreview(null);
+                        }}
+                        className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase ${isComplimentary ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
+                      >
+                        Complimentary
+                      </button>
+                    )}
                   </div>
                   <p className="mt-2 text-xs text-zinc-400">
                     {isComplimentary
@@ -5474,9 +5494,11 @@ export default function BookingPage({
                         <option value="full">
                           Pay In Full Today
                         </option>
-                        <option value="deposit">
-                          Deposit Only ({formatCurrency(depositPerPerson)} pp)
-                        </option>
+                        {!requiresFullPayment && (
+                          <option value="deposit">
+                            Deposit Only ({formatCurrency(depositPerPerson)} pp)
+                          </option>
+                        )}
                         {isCorporateCalendarCheckout && (
                           <>
                             <option value="invoice-outstanding">
@@ -5488,6 +5510,11 @@ export default function BookingPage({
                           </>
                         )}
                       </select>
+                      {requiresFullPayment && (
+                        <span className="mt-2 block text-xs leading-5 text-[#F2D66C]">
+                          Full payment is required for this performance.
+                        </span>
+                      )}
                     </label>
 
                     {isCorporateInvoiceOutstanding && (

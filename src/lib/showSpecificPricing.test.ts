@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   getShowSpecificZonePrice,
+  isFullPaymentOnlyPolicy,
   normalizeShowCustomPricing,
   resolveShowZonePrice,
 } from "./showSpecificPricing.ts";
@@ -58,10 +59,20 @@ test("custom prices are normalized to currency precision and invalid values are 
     }),
     {
       enabled: true,
+      paymentPolicy: "standard",
       updatedAt: undefined,
       zonePrices: { "golden-circle": 1940.13 },
     },
   );
+});
+
+test("full-payment policy is explicit and defaults safely", () => {
+  assert.equal(
+    isFullPaymentOnlyPolicy({ paymentPolicy: "full-payment-only" }),
+    true,
+  );
+  assert.equal(isFullPaymentOnlyPolicy({ paymentPolicy: "standard" }), false);
+  assert.equal(normalizeShowCustomPricing(null).paymentPolicy, "standard");
 });
 
 test("booking creation resolves show pricing server-side and preserves explicit staff precedence", async () => {
