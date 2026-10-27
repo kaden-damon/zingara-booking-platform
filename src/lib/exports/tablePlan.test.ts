@@ -139,14 +139,14 @@ test("Table Plan preserves authoritative original zone and price evidence", asyn
   const sheet = workbook.getWorksheet("Table Plan");
   assert.ok(sheet);
   const rows = Array.from({ length: sheet.rowCount }, (_, index) => sheet.getRow(index + 1));
-  const movedRow = rows.find((row) => row.getCell(7).value === "MOVED");
-  const corporateRow = rows.find((row) => row.getCell(7).value === "CORP-ORIGINAL");
+  const movedRow = rows.find((row) => row.getCell(8).value === "MOVED");
+  const corporateRow = rows.find((row) => row.getCell(8).value === "CORP-ORIGINAL");
 
-  assert.equal(movedRow?.getCell(8).value, "Middle Ring");
-  assert.equal(movedRow?.getCell(12).value, 1_360);
-  assert.equal(movedRow?.getCell(12).numFmt, '"R" #,##0.00;[Red]"-R" #,##0.00;"R" 0.00');
-  assert.equal(corporateRow?.getCell(8).value, "Middle Ring: 6; Golden Circle: 4");
-  assert.equal(corporateRow?.getCell(12).value, 1_250);
+  assert.equal(movedRow?.getCell(9).value, "Middle Ring");
+  assert.equal(movedRow?.getCell(13).value, 1_360);
+  assert.equal(movedRow?.getCell(13).numFmt, '"R" #,##0.00;[Red]"-R" #,##0.00;"R" 0.00');
+  assert.equal(corporateRow?.getCell(9).value, "Middle Ring: 6; Golden Circle: 4");
+  assert.equal(corporateRow?.getCell(13).value, 1_250);
 });
 
 test("Table Plan exports physical claims with singular booking totals", async () => {
@@ -235,7 +235,7 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.ok(sheet);
   assert.ok(notes);
   const rows = Array.from({ length: sheet.rowCount }, (_, index) => sheet.getRow(index + 1));
-  const bookingRows = rows.filter((row) => String(row.getCell(5).value ?? "").includes("Guest"));
+  const bookingRows = rows.filter((row) => String(row.getCell(6).value ?? "").includes("Guest"));
   const tableCodes = rows
     .map((row) => String(row.getCell(2).value ?? ""))
     .filter((value) => /^(?:\d+|TEMP-1)$/.test(value));
@@ -277,20 +277,20 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.equal(cellNumber(subtotal600.getCell(3).value), 6);
   assert.equal(tableCodes.some((value) => value.includes("+")), false);
   assert.equal(
-    bookingRows.filter((row) => row.getCell(5).value === "Single Guest").length,
+    bookingRows.filter((row) => row.getCell(6).value === "Single Guest").length,
     1,
   );
   assert.equal(
-    bookingRows.filter((row) => row.getCell(5).value === "Two Table Guest").length,
+    bookingRows.filter((row) => row.getCell(6).value === "Two Table Guest").length,
     2,
   );
   assert.equal(
-    bookingRows.filter((row) => row.getCell(5).value === "Five Table Guest").length,
+    bookingRows.filter((row) => row.getCell(6).value === "Five Table Guest").length,
     5,
   );
   assert.deepEqual(
     bookingRows
-      .filter((row) => row.getCell(5).value === "Two Table Guest")
+      .filter((row) => row.getCell(6).value === "Two Table Guest")
       .map((row) => cellNumber(row.getCell(4).value)),
     [6, 4],
   );
@@ -300,46 +300,46 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   );
   assert.equal(
     bookingRows
-      .filter((row) => row.getCell(5).value === "Two Table Guest")
-      .reduce((total, row) => total + cellNumber(row.getCell(14).value), 0),
+      .filter((row) => row.getCell(6).value === "Two Table Guest")
+      .reduce((total, row) => total + cellNumber(row.getCell(15).value), 0),
     500,
   );
   const twoTableRows = bookingRows.filter(
-    (row) => row.getCell(5).value === "Two Table Guest",
+    (row) => row.getCell(6).value === "Two Table Guest",
   );
   assert.deepEqual(
     Array.from({ length: 19 }, (_, index) => twoTableRows[1].getCell(7 + index).value),
     Array(19).fill(null),
   );
   assert.equal(
-    bookingRows.find((row) => row.getCell(5).value === "Single Guest")
-      ?.getCell(11).value,
+    bookingRows.find((row) => row.getCell(6).value === "Single Guest")
+      ?.getCell(12).value,
     "Paid R200 · Outstanding R200",
   );
-  assert.equal(twoTableRows[0].getCell(7).value, "TWO");
-  assert.equal(twoTableRows[0].getCell(8).value, "Middle Ring");
-  assert.equal(twoTableRows[0].getCell(9).value, null);
-  assert.equal(twoTableRows[0].getCell(10).value, "Deposit");
-  assert.equal(twoTableRows[0].getCell(11).value, "Paid R500 · Outstanding R500");
-  assert.equal(twoTableRows[1].getCell(7).value, null);
-  assert.equal(twoTableRows[1].getCell(11).value, null);
+  assert.equal(twoTableRows[0].getCell(8).value, "TWO");
+  assert.equal(twoTableRows[0].getCell(9).value, "Middle Ring");
+  assert.equal(twoTableRows[0].getCell(10).value, null);
+  assert.equal(twoTableRows[0].getCell(11).value, "Deposit");
+  assert.equal(twoTableRows[0].getCell(12).value, "Paid R500 · Outstanding R500");
+  assert.equal(twoTableRows[1].getCell(8).value, null);
+  assert.equal(twoTableRows[1].getCell(12).value, null);
   const unknownMethodRow = bookingRows.find(
-    (row) => row.getCell(5).value === "Single Guest",
+    (row) => row.getCell(6).value === "Single Guest",
   );
   assert.ok(unknownMethodRow);
   assert.deepEqual(
-    [13, 14, 15, 16].map((column) => cellNumber(unknownMethodRow.getCell(column).value)),
+    [14, 15, 16, 17].map((column) => cellNumber(unknownMethodRow.getCell(column).value)),
     [0, 0, 0, 0],
   );
-  assert.equal(cellNumber(unknownMethodRow.getCell(17).value), 200);
-  assert.equal(sheet.getRow(3).getCell(11).value, "NOTES");
+  assert.equal(cellNumber(unknownMethodRow.getCell(18).value), 200);
+  assert.equal(sheet.getRow(3).getCell(12).value, "NOTES");
   assert.deepEqual(
-    Array.from({ length: 8 }, (_, index) => sheet.getRow(3).getCell(5 + index).value),
-    ["NAME", "CONTACT", "BOOKING REF", "ORIGINAL ZONE", "PAYMENT BREAKDOWN", "PAYMENT SUMMARY", "NOTES", "ORIGINAL PRICE"],
+    Array.from({ length: 9 }, (_, index) => sheet.getRow(3).getCell(5 + index).value),
+    ["COMPANY", "BOOKER", "CONTACT", "BOOKING REF", "ORIGINAL ZONE", "PAYMENT BREAKDOWN", "PAYMENT SUMMARY", "NOTES", "ORIGINAL PRICE"],
   );
   assert.deepEqual(
     Array.from({ length: 13 }, (_, index) =>
-      String(sheet.getRow(3).getCell(13 + index).value ?? "").trim(),
+      String(sheet.getRow(3).getCell(14 + index).value ?? "").trim(),
     ),
     [
       "FULL-PYT-CC",
@@ -357,36 +357,36 @@ test("Table Plan exports physical claims with singular booking totals", async ()
       "TIPS",
     ],
   );
-  assert.equal(sheet.getRow(3).getCell(18).value, "MEDIA");
-  assert.equal(sheet.columnCount, 25);
-  assert.equal(sheet.getColumn(7).width, 15.28);
-  assert.equal(sheet.getColumn(8).width, 24);
-  assert.equal(sheet.getColumn(9).width, 38.86);
-  assert.equal(sheet.getColumn(11).width, 48);
-  assert.equal(sheet.getColumn(12).width, 18);
+  assert.equal(sheet.getRow(3).getCell(19).value, "MEDIA");
+  assert.equal(sheet.columnCount, 26);
+  assert.equal(sheet.getColumn(8).width, 15.28);
+  assert.equal(sheet.getColumn(9).width, 24);
+  assert.equal(sheet.getColumn(10).width, 38.86);
+  assert.equal(sheet.getColumn(12).width, 48);
+  assert.equal(sheet.getColumn(13).width, 18);
   assert.equal(
-    rows.find((row) => row.getCell(2).value === "11")?.getCell(12).value,
+    rows.find((row) => row.getCell(2).value === "11")?.getCell(13).value,
     null,
   );
   assert.equal(
     rows.some(
       (row) =>
-        row.getCell(2).value === "11" && row.getCell(5).value === "Released Guest",
+        row.getCell(2).value === "11" && row.getCell(6).value === "Released Guest",
     ),
     false,
   );
   assert.equal(
-    bookingRows.filter((row) => row.getCell(5).value === "Released Guest")[0]
+    bookingRows.filter((row) => row.getCell(6).value === "Released Guest")[0]
       ?.getCell(2).value,
     "UNASSIGNED",
   );
   assert.equal(
-    bookingRows.filter((row) => row.getCell(5).value === "Queue Guest")[0]
+    bookingRows.filter((row) => row.getCell(6).value === "Queue Guest")[0]
       ?.getCell(2).value,
     "UNASSIGNED",
   );
   assert.equal(
-    bookingRows.filter((row) => row.getCell(5).value === "Temporary Guest")[0]
+    bookingRows.filter((row) => row.getCell(6).value === "Temporary Guest")[0]
       ?.getCell(2).value,
     "TEMP-1",
   );
@@ -400,27 +400,27 @@ test("Table Plan exports physical claims with singular booking totals", async ()
     /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
   );
   const tableTotalsRow = rows.find((row) => {
-    const value = row.getCell(13).value;
-    return value && typeof value === "object" && "formula" in value && /^SUM\(M4:M\d+\)$/.test(String(value.formula));
+    const value = row.getCell(14).value;
+    return value && typeof value === "object" && "formula" in value && /^SUM\(N4:N\d+\)$/.test(String(value.formula));
   });
   assert.ok(tableTotalsRow);
   assert.deepEqual(
     Array.from({ length: 13 }, (_, index) => {
-      const value = tableTotalsRow.getCell(13 + index).value;
+      const value = tableTotalsRow.getCell(14 + index).value;
       return value && typeof value === "object" && "formula" in value
         ? String(value.formula).slice(0, 5)
         : "";
     }),
-    Array(13).fill("SUM(M").map((value, index) => index === 0 ? value : `SUM(${String.fromCharCode(77 + index)}`),
+    Array(13).fill("SUM(N").map((value, index) => index === 0 ? value : `SUM(${String.fromCharCode(78 + index)}`),
   );
-  const checklistPaxRow = rows.find((row) => row.getCell(5).value === "PAX COUNT");
+  const checklistPaxRow = rows.find((row) => row.getCell(6).value === "PAX COUNT");
   assert.ok(checklistPaxRow);
   assert.match(
-    String((checklistPaxRow.getCell(9).value as ExcelJS.CellFormulaValue).formula),
+    String((checklistPaxRow.getCell(10).value as ExcelJS.CellFormulaValue).formula),
     /^SUM\(D\d+\)$/,
   );
-  assert.equal(checklistPaxRow.getCell(10).value, null);
-  assert.ok(sheet.model.merges.some((merge) => /^E\d+:I\d+$/.test(merge)));
+  assert.equal(checklistPaxRow.getCell(11).value, null);
+  assert.ok(sheet.model.merges.some((merge) => /^F\d+:J\d+$/.test(merge)));
 });
 
 test("Table Plan keeps operational temporary tables whose codes resemble legacy placeholders", async () => {
@@ -488,10 +488,10 @@ test("Table Plan keeps operational temporary tables whose codes resemble legacy 
   assert.ok(temporaryRow);
   assert.equal(temporaryRow.getCell(3).value, 6);
   assert.equal(temporaryRow.getCell(4).value, 6);
-  assert.equal(temporaryRow.getCell(5).value, "Temporary Guest");
-  assert.equal(temporaryRow.getCell(7).value, "TEMPORARY");
+  assert.equal(temporaryRow.getCell(6).value, "Temporary Guest");
+  assert.equal(temporaryRow.getCell(8).value, "TEMPORARY");
   assert.ok(legacyRow);
-  assert.equal(legacyRow.getCell(5).value, "Legacy Guest");
+  assert.equal(legacyRow.getCell(6).value, "Legacy Guest");
 });
 
 test("Table Plan applies Jacques's approved operational columns to every seating area", async () => {
@@ -559,18 +559,18 @@ test("Table Plan applies Jacques's approved operational columns to every seating
   assert.ok(sheet);
   for (const fixture of fixtures) {
     const row = Array.from({ length: sheet.rowCount }, (_, index) => sheet.getRow(index + 1))
-      .find((candidate) => candidate.getCell(7).value === `REF-${fixture.id.toUpperCase()}`);
+      .find((candidate) => candidate.getCell(8).value === `REF-${fixture.id.toUpperCase()}`);
     assert.ok(row, fixture.id);
     assert.equal(
-      row.getCell(9).value,
+      row.getCell(10).value,
       fixture.status === "comp_vip"
         ? "Dinner show comps, drinks and gratuity to be paid by client"
         : `Operational note for ${fixture.id}`,
     );
-    assert.equal(row.getCell(10).value, fixture.expected);
-    assert.doesNotMatch(String(row.getCell(10).value), /R\d|REF-|@|note/i);
-    assert.match(String(row.getCell(11).value), /^Paid R/);
-    assert.match(String(row.getCell(6).value), /\+27110000000$/);
+    assert.equal(row.getCell(11).value, fixture.expected);
+    assert.doesNotMatch(String(row.getCell(11).value), /R\d|REF-|@|note/i);
+    assert.match(String(row.getCell(12).value), /^Paid R/);
+    assert.match(String(row.getCell(7).value), /\+27110000000$/);
   }
   const workbookText = workbook.worksheets
     .flatMap((worksheet) => worksheet.getSheetValues())
@@ -584,6 +584,8 @@ test("Table Plan emits one payment summary for a multi-zone Corporate booking", 
     amount_paid: 2_000,
     balance_outstanding: 6_000,
     booking_origin: "admin_manual",
+    company_id: "company-authoritative",
+    company_name: "Older Company Snapshot",
     notes: '__zingara_booking_meta__:{"depositPercentage":25,"paymentOption":"deposit"}',
     total_amount: 8_000,
     zone_entitlements: [
@@ -593,6 +595,13 @@ test("Table Plan emits one payment summary for a multi-zone Corporate booking", 
   });
   const buffer = await buildTablePlanWorkbook({
     bookings: [corporateBooking],
+    companies: [
+      {
+        id: "company-authoritative",
+        legal_name: "Authoritative Company (Pty) Ltd",
+        trading_name: "Authoritative Company",
+      },
+    ],
     configuredZonePrices: {
       "golden-circle": 1_000,
       "middle-ring": 1_000,
@@ -623,23 +632,25 @@ test("Table Plan emits one payment summary for a multi-zone Corporate booking", 
   assert.ok(sheet);
   const rows = Array.from({ length: sheet.rowCount }, (_, index) =>
     sheet.getRow(index + 1),
-  ).filter((row) => row.getCell(5).value === "Corporate Guest");
+  ).filter((row) => row.getCell(6).value === "Corporate Guest");
 
   assert.equal(rows.length, 2);
+  assert.equal(rows[0].getCell(5).value, "Authoritative Company");
+  assert.equal(rows[0].getCell(6).value, "Corporate Guest");
   assert.equal(
     rows.filter(
       (row) =>
-        row.getCell(11).value ===
+        row.getCell(12).value ===
         "Paid R2,000 · Outstanding R6,000",
     ).length,
     1,
   );
   assert.equal(
-    rows.filter((row) => row.getCell(10).value === "Deposit").length,
+    rows.filter((row) => row.getCell(11).value === "Deposit").length,
     1,
   );
-  assert.equal(rows.filter((row) => row.getCell(7).value == null).length, 1);
-  assert.equal(rows.filter((row) => row.getCell(11).value == null).length, 1);
+  assert.equal(rows.filter((row) => row.getCell(8).value == null).length, 1);
+  assert.equal(rows.filter((row) => row.getCell(12).value == null).length, 1);
   assert.equal(
     rows.reduce((total, row) => total + cellNumber(row.getCell(4).value), 0),
     8,
@@ -656,6 +667,8 @@ test("Table Plan route remains batched and includes report-critical booking stat
   assert.match(route, /zone_entitlements/);
   assert.match(route, /applyTablePlanOriginalEvidence/);
   assert.match(route, /audit_events/);
+  assert.match(route, /companies/);
+  assert.match(route, /company_id,company_name/);
   assert.match(route, /await Promise\.all\(\[/);
   assert.doesNotMatch(route, /\.not\("table_id",\s*"is",\s*null\)/);
 });

@@ -104,6 +104,7 @@ type SupabasePaymentStatus =
 
 type AdminBookingRow = {
   booking_reference?: string;
+  company_id: string | null;
   customer_id: string | null;
   id: string;
   show_id: string;
@@ -396,6 +397,10 @@ function createLegacyBookingMetadataSnapshot(
     communicationHistory: [],
     companyId:
       typeof booking.company_id === "string" ? booking.company_id : undefined,
+    companyName:
+      typeof booking.company_name === "string" && booking.company_name.trim()
+        ? booking.company_name.trim()
+        : undefined,
     createdAt: String(booking.created_at ?? ""),
     customer: { email: "", name: "Imported Guest", phone: "" },
     discountAmount: Number(booking.discount_amount ?? 0),
@@ -713,6 +718,9 @@ export async function GET(request: Request) {
   const customerIds = rows
     .map((booking) => booking.customer_id)
     .filter((id): id is string => Boolean(id));
+  const companyIds = rows
+    .map((booking) => booking.company_id)
+    .filter((id): id is string => Boolean(id));
   const tableIds = rows
     .map((booking) => booking.table_id)
     .filter((id): id is string => Boolean(id));
@@ -731,6 +739,7 @@ export async function GET(request: Request) {
     { rows: communications, error: communicationsError },
     { rows: lifecycleEvents, error: lifecycleError },
     { rows: customers, error: customersError },
+    { rows: companies, error: companiesError },
     { rows: tables, error: tablesError },
     { rows: tableClaims, error: tableClaimsError },
     { rows: shows, error: showsError },
@@ -764,6 +773,15 @@ export async function GET(request: Request) {
           "id,first_name,surname,email,mobile",
           "id",
           customerIds,
+        )
+      : Promise.resolve({ rows: [], error: null }),
+    companyIds.length > 0
+      ? fetchAggregateRows(
+          serviceClient,
+          "companies",
+          "id,legal_name,trading_name",
+          "id",
+          companyIds,
         )
       : Promise.resolve({ rows: [], error: null }),
     tableIds.length > 0
@@ -824,6 +842,13 @@ export async function GET(request: Request) {
     console.error(
       "[Zingara API] Failed to load booking customer aggregate",
       customersError,
+    );
+  }
+
+  if (companiesError) {
+    console.error(
+      "[Zingara API] Failed to load booking company aggregate",
+      companiesError,
     );
   }
 
@@ -912,6 +937,19 @@ export async function GET(request: Request) {
     }
   }
 
+  const companiesById = new Map<string, unknown>();
+
+  for (const company of companies ?? []) {
+    if (
+      company &&
+      typeof company === "object" &&
+      "id" in company &&
+      typeof (company as { id?: unknown }).id === "string"
+    ) {
+      companiesById.set((company as { id: string }).id, company);
+    }
+  }
+
   const tablesById = new Map<string, unknown>();
 
   for (const table of tables ?? []) {
@@ -974,6 +1012,9 @@ export async function GET(request: Request) {
       communication_rows: communicationsByBookingId.get(booking.id) ?? [],
       customer_row: booking.customer_id
         ? customersById.get(booking.customer_id) ?? null
+        : null,
+      company_row: booking.company_id
+        ? companiesById.get(booking.company_id) ?? null
         : null,
       lifecycle_event_rows: lifecycleByBookingId.get(booking.id) ?? [],
       promo_redemption_row:

@@ -150,7 +150,7 @@ export async function GET(request: Request) {
         auth.serviceClient
           .from("bookings")
           .select(
-            "id,customer_id,table_id,booking_reference,guest_count,booking_status,payment_status,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,booking_origin",
+            "id,customer_id,company_id,company_name,table_id,booking_reference,guest_count,booking_status,payment_status,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,booking_origin",
           )
           .eq("show_id", typedShow.id),
         auth.serviceClient
@@ -185,6 +185,9 @@ export async function GET(request: Request) {
     const customerIds = Array.from(
       new Set(bookings.map((booking) => booking.customer_id).filter(Boolean)),
     ) as string[];
+    const companyIds = Array.from(
+      new Set(bookings.map((booking) => booking.company_id).filter(Boolean)),
+    ) as string[];
     const bookingIds = bookings.map((booking) => booking.id);
 
     const customerRequest = customerIds.length
@@ -194,6 +197,12 @@ export async function GET(request: Request) {
             "id,first_name,surname,email,mobile,relationship_notes,dietary_requirements",
           )
           .in("id", customerIds)
+      : Promise.resolve({ data: [], error: null });
+    const companyRequest = companyIds.length
+      ? auth.serviceClient
+          .from("companies")
+          .select("id,legal_name,trading_name")
+          .in("id", companyIds)
       : Promise.resolve({ data: [], error: null });
     const paymentRequest = bookingIds.length
       ? auth.serviceClient
@@ -222,11 +231,13 @@ export async function GET(request: Request) {
       : Promise.resolve({ data: [], error: null });
     const [
       customerResult,
+      companyResult,
       paymentResult,
       legacyPaymentEvidenceResult,
       bookingAuditResult,
     ] = await Promise.all([
       customerRequest,
+      companyRequest,
       paymentRequest,
       legacyPaymentEvidenceRequest,
       bookingAuditRequest,
@@ -234,6 +245,10 @@ export async function GET(request: Request) {
 
     if (customerResult.error) {
       throw customerResult.error;
+    }
+
+    if (companyResult.error) {
+      throw companyResult.error;
     }
 
     if (paymentResult.error) {
@@ -331,6 +346,7 @@ export async function GET(request: Request) {
         "royal-balcony": venueSettings.zonePricing["royal-balcony"].price,
       },
       customers: customersWithNameHistory,
+      companies: companyResult.data ?? [],
       legacyPaymentEvidence:
         (legacyPaymentEvidenceResult.data ?? []) as TablePlanLegacyPaymentEvidence[],
       payments: (paymentResult.data ?? []) as TablePlanPayment[],

@@ -684,6 +684,7 @@ export type DemoBooking = {
   supabaseBookingId?: string;
   customerId?: string;
   companyId?: string;
+  companyName?: string;
   corporateRequestId?: string;
   reference: string;
   showId?: string;

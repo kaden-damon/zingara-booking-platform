@@ -13,6 +13,7 @@ import {
 } from "@/lib/bookingsExport";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { normalizeShowLocation } from "@/lib/zingaraDemo";
+import { resolveBookingCompanyName } from "@/lib/bookingCompanyIdentity";
 
 const batchSize = 200;
 
@@ -241,7 +242,10 @@ export async function loadBookingsExportRows(
       }),
       bookingValue: Number(booking.total_amount) || 0,
       cancellationReason: cancellationReason(booking.notes, booking.archive_reason),
-      company: booking.company_name?.trim() || company?.trading_name?.trim() || company?.legal_name?.trim() || "",
+      company: resolveBookingCompanyName({
+        linkedCompany: company,
+        storedCompanyName: booking.company_name,
+      }),
       complimentary: booking.payment_status === "comp_vip" ? "Yes" : "No",
       createdAt: booking.created_at,
       createdBy: booking.created_by_staff_id ? staffMap.get(booking.created_by_staff_id) ?? "Staff record unavailable" : "Not recorded",

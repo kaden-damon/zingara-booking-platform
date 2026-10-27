@@ -14571,7 +14571,8 @@ export default function AdminDashboardPage({
   function buildDailyManifestExportSheet(): ExportSheet {
     const columns = [
       "Booking Reference",
-      "Guest Name",
+      "Company",
+      "Booker",
       "Contact Number",
       "Email",
       "Guests",
@@ -14596,10 +14597,11 @@ export default function AdminDashboardPage({
           "Booking Reference": booking.reference,
           "Booking Status": bookingStatusLabels[booking.status ?? "confirmed"],
           "Check-In Status": getManifestCheckInStatus(booking),
+          Company: getBookingCompanyName(booking),
           "Contact Number": booking.customer.phone || "Not recorded",
           "Deposit Paid": financials.amountPaid,
           Email: booking.customer.email || "Not recorded",
-          "Guest Name": booking.customer.name || "Unnamed Guest",
+          Booker: booking.customer.name || "Unnamed Guest",
           "Guest Notes": booking.operationalNotes || "Not recorded",
           Guests: booking.partySize,
           "Payment Status": paymentStatusLabels[financials.paymentStatus],
@@ -14629,7 +14631,8 @@ export default function AdminDashboardPage({
         "Table Number",
         "Section",
         "Status",
-        "Guest Name",
+        "Company",
+        "Booker",
         "Guests",
         "Booking Reference",
         "Booking Status",
@@ -14677,9 +14680,10 @@ export default function AdminDashboardPage({
             "Check-In Status": booking
               ? getManifestCheckInStatus(booking)
               : "Not arrived",
+            Company: booking ? getBookingCompanyName(booking) : "",
             "Deposit Paid": financials?.amountPaid ?? "Not recorded",
             "Gratuity Paid": "Not recorded",
-            "Guest Name": booking?.customer.name || "Vacant",
+            Booker: booking?.customer.name || "Vacant",
             "Guest Notes":
               booking?.operationalNotes || table.guestNotes || "Not recorded",
             Guests: booking && isPrimaryBookingTable ? booking.partySize : 0,
@@ -14707,9 +14711,10 @@ export default function AdminDashboardPage({
           "Booking Reference": booking.reference,
           "Booking Status": bookingStatusLabels[booking.status ?? "confirmed"],
           "Check-In Status": getManifestCheckInStatus(booking),
+          Company: getBookingCompanyName(booking),
           "Deposit Paid": financials.amountPaid,
           "Gratuity Paid": "Not recorded",
-          "Guest Name": booking.customer.name || "Unnamed Guest",
+          Booker: booking.customer.name || "Unnamed Guest",
           "Guest Notes": booking.operationalNotes || "Not recorded",
           Guests: booking.partySize,
           "Payment Status": paymentStatusLabels[paymentStatus],
@@ -20562,7 +20567,7 @@ export default function AdminDashboardPage({
     const status = booking.status ?? "confirmed";
     const paymentStatus = getBookingPaymentStatus(booking);
     const show = getBookingShow(booking);
-    const corporateCompanyName = getCorporateBookingCompanyName(booking);
+    const corporateCompanyName = getBookingCompanyName(booking);
 
     return [
       booking.reference,
@@ -20809,9 +20814,9 @@ export default function AdminDashboardPage({
     ].join(" · ");
   }
 
-  function getCorporateBookingCompanyName(booking: DemoBooking) {
-    if (booking.source !== "corporate-direct") {
-      return "";
+  function getBookingCompanyName(booking: DemoBooking) {
+    if (booking.companyName?.trim()) {
+      return booking.companyName.trim();
     }
 
     const linkedRequest = corporateRequests.find(
@@ -36788,6 +36793,14 @@ export default function AdminDashboardPage({
                           <h4 className="mt-1 text-lg font-semibold text-white">
                             {booking.customer.name || "Imported Guest"}
                           </h4>
+                          <p className="mt-2 text-sm text-zinc-300">
+                            <span className="text-zinc-500">Company:</span>{" "}
+                            {getBookingCompanyName(booking)}
+                          </p>
+                          <p className="mt-1 text-sm text-zinc-300">
+                            <span className="text-zinc-500">Booker:</span>{" "}
+                            {booking.customer.name || "Imported Guest"}
+                          </p>
                           <p className="mt-1 text-sm text-zinc-300">
                             {booking.partySize} guests · {getBookingZoneEntitlements(booking)
                               .map((entitlement) => `${getZoneById(entitlement.zoneId)?.title ?? entitlement.zoneId} ${entitlement.pax}`)
@@ -36949,6 +36962,14 @@ export default function AdminDashboardPage({
                           <h4 className="mt-1 text-lg font-semibold text-white">
                             {booking.customer.name || "Imported Guest"}
                           </h4>
+                          <p className="mt-2 text-sm text-zinc-300">
+                            <span className="text-zinc-500">Company:</span>{" "}
+                            {getBookingCompanyName(booking)}
+                          </p>
+                          <p className="mt-1 text-sm text-zinc-300">
+                            <span className="text-zinc-500">Booker:</span>{" "}
+                            {booking.customer.name || "Imported Guest"}
+                          </p>
                           <p className="mt-1 text-sm text-zinc-300">
                             {booking.partySize} guests · {booking.zoneTitle}
                           </p>
@@ -37660,6 +37681,14 @@ export default function AdminDashboardPage({
                           {allocatedBooking && (
                             <div className="rounded-2xl border border-amber-300/20 bg-amber-950/10 p-4 text-sm text-zinc-300">
                               <p className="font-semibold text-white">
+                                {allocatedBooking.customer.name || "Guest"}
+                              </p>
+                              <p className="mt-2">
+                                <span className="text-zinc-500">Company:</span>{" "}
+                                {getBookingCompanyName(allocatedBooking)}
+                              </p>
+                              <p className="mt-1">
+                                <span className="text-zinc-500">Booker:</span>{" "}
                                 {allocatedBooking.customer.name || "Guest"}
                               </p>
                               <p className="mt-1">
@@ -39011,8 +39040,8 @@ export default function AdminDashboardPage({
 	                const activeManagedPaymentLink =
 	                  paymentLinkDetails?.status === "active" &&
 	                  Boolean(paymentLinkDetails.paymentUrl);
-	                const corporateCompanyName =
-	                  getCorporateBookingCompanyName(booking);
+                const corporateCompanyName =
+                  getBookingCompanyName(booking);
 	                const isCorporateBooking =
 	                  booking.source === "corporate-direct";
 	                const isSystemExpiredCorporate =

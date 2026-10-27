@@ -17,6 +17,7 @@ import { fetchSupabaseApi } from "./apiClient";
 import { getOrCreateCustomerIdFromInfo } from "./customers";
 import { resolveStaffDisplayName } from "@/lib/staffDisplayName";
 import type { CalendarBookingLockContext } from "@/lib/showBookingCreation";
+import { resolveBookingCompanyName } from "@/lib/bookingCompanyIdentity";
 import {
   adminBookingListSearchParams,
   type AdminBookingListFilters,
@@ -145,6 +146,11 @@ type SupabaseBookingAggregateRow = SupabaseBookingRow & {
     id: string;
     mobile: string | null;
     surname: string | null;
+  } | null;
+  company_row?: {
+    id: string;
+    legal_name: string | null;
+    trading_name: string | null;
   } | null;
   lifecycle_event_rows?: SupabaseLifecycleEventRow[];
   promo_redemption_row?: {
@@ -718,6 +724,11 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       customer: authoritativeCustomer ?? metadataBooking.customer,
       customerId: row.customer_id,
       companyId: row.company_id ?? undefined,
+      companyName:
+        resolveBookingCompanyName({
+          linkedCompany: row.company_row,
+          storedCompanyName: row.company_name,
+        }) || undefined,
       archivedAt: row.archived_at ?? metadataBooking.archivedAt,
       archivedBy: row.archived_by ?? metadataBooking.archivedBy,
       archiveReason: row.archive_reason ?? metadataBooking.archiveReason,
@@ -784,6 +795,11 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     addonsTotal: row.addons_total,
     customerId: row.customer_id,
     companyId: row.company_id ?? undefined,
+    companyName:
+      resolveBookingCompanyName({
+        linkedCompany: row.company_row,
+        storedCompanyName: row.company_name,
+      }) || undefined,
     amountPaid: row.amount_paid,
     archivedAt: row.archived_at ?? undefined,
     archivedBy: row.archived_by ?? undefined,
