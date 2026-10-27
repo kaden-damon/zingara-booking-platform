@@ -39,8 +39,7 @@ export function validateBookingCreate(
 
   const customer = normalizeBookingCustomer(input.customer);
   const errors: BookingCreateFieldErrors = {};
-  const requiresEmail =
-    !input.isTrustedStaff || input.bookingSource === "corporate-direct";
+  const requiresEmail = !input.isTrustedStaff;
   const requiresMobile = !input.isTrustedStaff;
 
   if (!customer.name) {
@@ -57,6 +56,8 @@ export function validateBookingCreate(
     } else if (!emailPattern.test(customer.email)) {
       errors.email = "Enter a valid email address.";
     }
+  } else if (customer.email && !emailPattern.test(customer.email)) {
+    errors.email = "Enter a valid email address.";
   }
 
   if (requiresMobile) {

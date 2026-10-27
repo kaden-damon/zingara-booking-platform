@@ -5,7 +5,7 @@ import test from "node:test";
 const source = (path: string) =>
   readFile(new URL(path, import.meta.url), "utf8");
 
-test("direct Corporate checkout presents mobile as optional without weakening public checkout", async () => {
+test("direct Corporate checkout presents email and mobile as optional without weakening public checkout", async () => {
   const page = await source("../app/book/page.tsx");
 
   assert.equal(
@@ -14,7 +14,7 @@ test("direct Corporate checkout presents mobile as optional without weakening pu
   );
   assert.equal(
     page.match(/required=\{!isTrustedManualCheckout\}/g)?.length,
-    2,
+    4,
   );
   assert.doesNotMatch(
     page,
@@ -34,7 +34,7 @@ test("direct Corporate creation uses the shared trusted validator and server-sid
   assert.match(page, /if \(!validateCheckoutCustomerDetails\(\)\) \{\s*return;\s*\}/);
   assert.match(route, /const trustedBookingSource = resolveTrustedBookingSource/);
   assert.match(route, /validateBookingCreate\(\{[\s\S]*bookingSource: trustedBookingSource,[\s\S]*isTrustedStaff/);
-  assert.match(validation, /const requiresEmail =\s*!input\.isTrustedStaff \|\| input\.bookingSource === "corporate-direct"/);
+  assert.match(validation, /const requiresEmail = !input\.isTrustedStaff/);
   assert.match(validation, /const requiresMobile = !input\.isTrustedStaff/);
   assert.match(validation, /else if \(customer\.phone && !parseInternationalPhone\(customer\.phone\)\.valid\)/);
 });
@@ -49,4 +49,19 @@ test("missing Corporate mobile remains null and is omitted from optional PayFast
   assert.match(route, /if \(!mobile\) \{\s*return undefined;\s*\}/);
   assert.doesNotMatch(route, /mobile:\s*["'](?:unknown|none|n\/a|0+)["']/i);
   assert.match(payFastPhone, /if \(!trimmed\) \{\s*return \{ cellNumber: undefined, valid: true \};\s*\}/);
+});
+
+test("Buyout creation requires a linked named contact without requiring contact channels", async () => {
+  const [creator, customerRoute, buyoutMigration] = await Promise.all([
+    source("../app/admin/CorporateBuyoutCreator.tsx"),
+    source("../app/api/admin/customers/route.ts"),
+    source("../../supabase/migrations/20261008090000_phase_48_1a_buyout_existing_booking_review.sql"),
+  ]);
+
+  assert.match(creator, /if \(!selectedShow \|\| !newCompanyName\.trim\(\) \|\| !newContactName\.trim\(\)\)/);
+  assert.doesNotMatch(creator, /!newContactEmail\.trim\(\)|!newContactMobile\.trim\(\)/);
+  assert.match(customerRoute, /email: input\.email\?\.trim\(\)\.toLowerCase\(\) \|\| null/);
+  assert.match(customerRoute, /mobile: normalizePhoneForStorage\(input\.mobile\) \|\| null/);
+  assert.match(buyoutMigration, /where id = p_contact_customer_id[\s\S]*and company_id = p_company_id/);
+  assert.doesNotMatch(buyoutMigration, /v_contact\.(email|mobile) is null/);
 });

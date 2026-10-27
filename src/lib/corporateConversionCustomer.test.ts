@@ -14,12 +14,12 @@ async function source(path: string) {
 const migrationPath =
   "../../supabase/migrations/20260911100000_phase_41_2c_atomic_corporate_customer_conversion.sql";
 
-test("trusted Corporate conversion permits authoritative email-only identity", () => {
+test("trusted Corporate conversion permits a named contact without contact channels", () => {
   assert.deepEqual(
     validateBookingCreate({
       bookingSource: "corporate-direct",
       customer: {
-        email: "maureen@example.com",
+        email: "",
         name: "Maureen Prentice",
         phone: "",
       },

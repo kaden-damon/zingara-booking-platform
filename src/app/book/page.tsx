@@ -5078,10 +5078,10 @@ export default function BookingPage({
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
                     Email Address{" "}
-                    {(!isTrustedManualCheckout || isCorporateCalendarCheckout) && <span aria-hidden="true">*</span>}
+                    {!isTrustedManualCheckout && <span aria-hidden="true">*</span>}
                   </span>
                   <input
-                    required={!isTrustedManualCheckout || isCorporateCalendarCheckout}
+                    required={!isTrustedManualCheckout}
                     aria-invalid={Boolean(customerValidationErrors.email)}
                     aria-describedby={
                       customerValidationErrors.email
@@ -6160,10 +6160,10 @@ export default function BookingPage({
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 sm:mb-2 sm:text-sm">
                     Email Address{" "}
-                    {(!isTrustedManualCheckout || isCorporateCalendarCheckout) && <span aria-hidden="true">*</span>}
+                    {!isTrustedManualCheckout && <span aria-hidden="true">*</span>}
                   </span>
                   <input
-                    required={!isTrustedManualCheckout || isCorporateCalendarCheckout}
+                    required={!isTrustedManualCheckout}
                     aria-invalid={Boolean(customerValidationErrors.email)}
                     aria-describedby={
                       customerValidationErrors.email
