@@ -117,6 +117,10 @@ const XeroWorkspace = dynamic(() => import("./XeroWorkspace"));
 const BookingDocumentsSection = dynamic(
   () => import("./BookingDocumentsSection"),
 );
+const BookingActivityTimelineModal = dynamic(
+  () => import("./BookingActivityTimelineModal"),
+  { ssr: false },
+);
 const PotentialDuplicatesPanel = dynamic(
   () => import("./PotentialDuplicatesPanel"),
 );
@@ -5037,6 +5041,8 @@ export default function AdminDashboardPage({
     });
   const [currentStaff, setCurrentStaff] =
     useState<AdminSession | null>(null);
+  const [bookingActivityReference, setBookingActivityReference] =
+    useState("");
   const [activeAdminTab, setActiveAdminTab] =
     useState<AdminTab>("overview");
   const adminMoreMenuRef = useRef<HTMLDetailsElement>(null);
@@ -7477,6 +7483,12 @@ export default function AdminDashboardPage({
     canManageBookings || canCheckInGuests;
   const canViewStaffOperations = canCheckInGuests;
   const isSuperAdmin = currentStaff?.role === "super-admin";
+  const canViewBookingActivityTimeline =
+    isSuperAdmin &&
+    [
+      "e8598359-54a0-4e1f-a635-1ec8ae02cb78",
+      "3ac09b59-fc3f-4c6d-9bb3-8dd47a077188",
+    ].includes(currentStaff?.id ?? "");
   const canExecuteDataPortability = false;
   const isVenueManager = currentStaff?.role === "venue-manager";
   const canReassignBookingCustomer =
@@ -39440,13 +39452,28 @@ export default function AdminDashboardPage({
 	                                </p>
 	                              </details>
                             </div>
-                            <button
-                              type="button"
-                              onClick={closeBookingDetails}
-                              className="shrink-0 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white hover:text-black sm:px-4 sm:text-sm"
-                            >
-                              Close
-                            </button>
+                            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                              {canViewBookingActivityTimeline && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setBookingActivityReference(
+                                      booking.reference,
+                                    )
+                                  }
+                                  className="rounded-full border border-[#D8C36A]/35 px-3 py-2 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-4 sm:text-sm"
+                                >
+                                  Activity Timeline
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={closeBookingDetails}
+                                className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white hover:text-black sm:px-4 sm:text-sm"
+                              >
+                                Close
+                              </button>
+                            </div>
                           </div>
 	                          <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:p-5">
                     {bookingDetailAccessMode === "view" && (
@@ -41315,6 +41342,13 @@ export default function AdminDashboardPage({
           onSave={(draft) => void saveGuestCountReconciliation(draft)}
           reason={guestCountReconciliation.reason}
           result={guestCountReconciliation.result}
+        />
+      )}
+
+      {bookingActivityReference && (
+        <BookingActivityTimelineModal
+          bookingReference={bookingActivityReference}
+          onClose={() => setBookingActivityReference("")}
         />
       )}
 
