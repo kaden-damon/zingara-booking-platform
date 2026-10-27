@@ -27,6 +27,10 @@ const sensitiveKeyPattern =
 
 export function sanitizeTimelineText(value: string) {
   return value
+    .replace(
+      /(PayFast (?:transaction|payment received):\s*)[A-Z0-9-]+/gi,
+      "$1[private reference]",
+    )
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[private contact]")
     .replace(/(?:\+27|0)\s?\d{2}(?:[\s()-]?\d){7}\b/g, "[private contact]")
     .replace(/\b\d{12,}\b/g, "[private reference]");

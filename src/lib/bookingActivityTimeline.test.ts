@@ -51,6 +51,7 @@ test("normal Booking Details loading makes no timeline request", () => {
 test("sensitive values are removed and audit history remains immutable", () => {
   assert.match(helper, /authorization\|cookie\|password\|secret\|token\|qr/);
   assert.match(helper, /provider_transaction/);
+  assert.match(helper, /PayFast \(\?:transaction\|payment received\)/);
   assert.match(helper, /private contact/);
   assert.match(helper, /private reference/);
   assert.match(auditMigration, /audit_events are append-only/);
