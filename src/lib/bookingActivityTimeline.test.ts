@@ -20,6 +20,8 @@ const auditMigration = fs.readFileSync(
 test("timeline access is restricted to the two approved active Super Admin staff IDs", () => {
   assert.match(helper, /e8598359-54a0-4e1f-a635-1ec8ae02cb78/);
   assert.match(helper, /3ac09b59-fc3f-4c6d-9bb3-8dd47a077188/);
+  assert.match(admin, /1f8b62f8-cac9-4cf7-927d-945d96a302ce/);
+  assert.match(admin, /ff96887e-bed8-43ec-884d-0ef8634e9f12/);
   assert.match(helper, /staffProfile\.active/);
   assert.match(helper, /=== "super-admin"/);
   assert.match(route, /canAccessBookingActivityTimeline\(auth\.staffProfile\)/);

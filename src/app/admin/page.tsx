@@ -7486,8 +7486,8 @@ export default function AdminDashboardPage({
   const canViewBookingActivityTimeline =
     isSuperAdmin &&
     [
-      "e8598359-54a0-4e1f-a635-1ec8ae02cb78",
-      "3ac09b59-fc3f-4c6d-9bb3-8dd47a077188",
+      "1f8b62f8-cac9-4cf7-927d-945d96a302ce",
+      "ff96887e-bed8-43ec-884d-0ef8634e9f12",
     ].includes(currentStaff?.id ?? "");
   const canExecuteDataPortability = false;
   const isVenueManager = currentStaff?.role === "venue-manager";
