@@ -47,6 +47,7 @@ DATE: 28 OCTOBER 2026
 
 - Migration: `20261028230000_phase_54_5_seating_reconciliation_queue.sql`.
 - Applied: 28 October 2026 at 15:51 SAST.
+- Release commit: `88f9019c58c6e902fe355967c95dc20eb9e0131b`.
 - Rollback source: `c6dcb95722e8ee5b3faaeaf2c4bbd542a1436db7`.
 - Exact business-data delta: 583 booking `table_id` assignments, 739 physical
   table claims, 28 automatic-assignment activations and approved permanent-table

@@ -91,7 +91,7 @@ performances.
 
 - Migration: `20261028230000_phase_54_5_seating_reconciliation_queue.sql`.
 - Applied: 28 October 2026 at 15:51 SAST.
-- Release commit: recorded after final documentation update.
+- Release commit: `88f9019c58c6e902fe355967c95dc20eb9e0131b`.
 - Rollback source: `c6dcb95722e8ee5b3faaeaf2c4bbd542a1436db7`.
 - Business-data delta: 583 existing bookings received authoritative `table_id`
   assignments and 739 approved physical-table claims; 28 shows enabled for
