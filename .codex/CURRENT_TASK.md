@@ -1,56 +1,45 @@
-# P0 - Internal Calendar Booking Validation
+# Phase 54.1 - Authoritative Seating Configuration
 
-STATUS: COMPLETE
+STATUS: IN PROGRESS
 
-DATE: 27 OCTOBER 2026
+DATE: 28 OCTOBER 2026
 
 ## Objective
 
-Allow authorised staff to create Standard, Corporate, and Buyout bookings from
-the Admin calendar without requiring an email address or mobile number, while
-keeping the applicable contact person and guest count requirements intact.
+Introduce Richard's approved 74-table physical seating master as an additive,
+venue-specific and immutable versioned configuration for Cape Town and
+Johannesburg, ready for the future Phase 54.2 assignment engine.
 
-## Scope
+## Approved Authority
 
-- Correct the shared frontend and server-side trusted booking validation.
-- Preserve customer and company linking without placeholder contact details.
-- Prevent customer communications when no valid delivery address is present.
-- Keep public booking contact validation unchanged.
-- Preserve all payment, capacity, ticketing, Xero, audit, and concurrency rules.
+- Source: `Table Plan Template.xlsx`.
+- Source SHA-256: `43bf6bca8d0e1094aba7f05b01cc945a992dc4c77e590750db9d3dcfcd88a5b7`.
+- Golden Circle: 23 tables / 120 guests.
+- Middle Ring: 24 tables / 125 guests.
+- Private Booths: 23 tables / 138 guests.
+- Royal Balcony (ESA): 4 tables / 32 guests.
+- Total: 74 physical tables / 415 guests.
+- Table 400 is Middle Ring; Golden Circle begins at table 401.
+- The same approved master currently applies independently to both venues.
+
+## Safety Boundary
+
+- Additive configuration only; do not replace the operational table catalogue.
+- Do not change ticket-sale capacities or current show availability.
+- Do not alter existing tables, assignments, merges, temporary tables,
+  bookings, payments, tickets, exports or financial records.
+- Do not adopt any performance automatically.
+- Keep automatic assignment disabled.
+- Flag current/future physical-capacity conflicts for controlled reconciliation.
+- Preserve Phase 51 performance protections and add no booking-path requests.
 
 ## Verification
 
-- Reproduce the internal Corporate failure with blank email and mobile fields.
-- Verify trusted Standard and Corporate creation validation with blank contact
-  channels and valid contact names.
-- Verify Buyout contacts without contact channels remain eligible when properly
-  linked to their Company.
-- Verify malformed optional values still fail validation.
-- Verify public email and mobile requirements remain enforced.
-- Run focused tests, TypeScript, changed-file lint, diff checks, and a Production
-  build before release.
-
-## Safety
-
-- Use isolated fixtures only; create no Production bookings or communications.
-- Make no layout, workflow, business-rule, database, or financial changes beyond
-  the authorised validation correction.
-
-## Outcome
-
-- Removed the Corporate-only email requirement from the shared trusted booking
-  validator used by both the Admin form and authoritative booking API.
-- Internal Standard and Corporate creation now require the contact name and valid
-  guest count; email and mobile are optional but validated when supplied.
-- Both duplicated Corporate checkout forms now match the server rule. Public
-  booking and public Corporate enquiry requirements remain unchanged.
-- Buyout creation was verified to require a Company-linked named contact without
-  requiring contact channels; no Buyout code or database change was necessary.
-- Empty contact values remain null/blank, so no placeholder email or mobile is
-  generated. Internal booking creation adds no customer communication records.
-- Four focused source regressions, TypeScript, targeted non-page ESLint, and diff
-  checks passed. The webpack Production application build compiled successfully.
-- Existing whole-page lint findings and the current performance-budget manifest
-  incompatibility are unchanged baseline issues outside this surgical fix.
-- Rollback point: `d0f5500d000b06a098a0742e63c6f9e9f0ebc448`.
-- Production business-data delta: zero.
+- Exact 74-table identity, zone and maximum-capacity reconciliation.
+- Exact 415-seat total and approved zone subtotals.
+- Independent approved versions for Cape Town and Johannesburg.
+- Immutable approved configuration and service-only access.
+- No performance adoption and no automatic assignment.
+- Existing operational objects remain unchanged.
+- Focused tests, TypeScript, changed-file ESLint, diff check, migration
+  validation and Production build.
