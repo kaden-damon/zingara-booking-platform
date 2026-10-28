@@ -1,6 +1,6 @@
 # Phase 54.1 - Authoritative Seating Configuration
 
-STATUS: P0 IN PROGRESS
+STATUS: COMPLETE
 
 DATE: 28 OCTOBER 2026
 
@@ -77,3 +77,30 @@ Johannesburg, ready for the future Phase 54.2 assignment engine.
   transitions from retaining an incomplete layout.
 - Phase 54.1 approved versions remain dormant; no automatic assignment or
   ticket-sale capacity change is authorised by this repair.
+
+### P0 Outcome
+
+- Restored the unchanged 79-row operational physical catalogue to all 31
+  current/future performances that were missing one or more permanent rows.
+- Cape Town, 15 December 2026 at 18:00 now has 79 permanent physical rows:
+  24 Golden Circle, 28 Middle Ring, 4 Royal Balcony and 23 Royal Booths.
+- The affected performance remains at 28 active bookings / 198 guests and its
+  disabled `Lisa` temporary override remains intact.
+- Golden Circle and Middle Ring inherit the existing operational catalogue's
+  unconfigured state and are rendered by Floor as `Seats not set`; no capacity
+  value was guessed or introduced.
+- Added an idempotent safeguard for future show status changes so missed
+  catalogue rows self-heal without touching booking or assignment logic.
+- Completeness guard confirms zero missing operational catalogue rows across
+  current/future performances after repair.
+- Added 2,449 permanent `show_tables` rows and 31 append-only repair audit
+  events. No booking, assignment, payment, ticket, ticket-sale capacity,
+  temporary-table, merged-table or financial record changed.
+- Focused tests: 4/4 passed. TypeScript, changed-file ESLint and diff check
+  passed. Live migration rehearsal rolled back successfully before release.
+- P0 release commit: `d287e65397204ee4d45f3ab8b4ba7d923c61840a`.
+- Vercel Production deployment: `dpl_G9D7W9ZMRQSBgRyyDMQeDpfFipWb`.
+- P0 rollback point: `0fee678944d3cfc97f7d2690d825318ff6d6ba84` / deployment
+  `dpl_GW9qmvprHLWZ7qQtXK8Yxbu6YDHm`. Restored rows should remain in place if
+  application code is rolled back, because removing them would restore the
+  operational defect.

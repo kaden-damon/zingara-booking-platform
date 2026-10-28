@@ -58,5 +58,25 @@ DATE: 28 OCTOBER 2026
 - Implementation commit: `faaf34e61e1389f92cd5db6074577b6c4a62445b`.
 - Vercel deployment: `dpl_HLoWnodAxYWnKx35RNgCmDH4HbeG` (`READY`).
 - Rollback point: `fb0d65a1135d685cc467704b278e4da233693626`.
+
+## P0 Production Table Visibility Repair
+
+- Root cause predates Phase 54.1: Phase 37 seeded physical rows only for shows
+  active on 25 August 2026. Later activation did not seed the catalogue.
+- Repaired 31 current/future performances using the unchanged operational
+  79-row catalogue; 14 affected shows contained 152 active bookings / 1,918
+  guests.
+- Cape Town, 15 December 2026 at 18:00 was restored from zero to 79 permanent
+  rows while preserving 28 active bookings / 198 guests and its temporary row.
+- Added a service-only idempotent repair function, status-change safeguard,
+  append-only audit evidence and a migration completeness guard.
+- Phase 54.1 approved 74-table versions remain dormant with zero performance
+  adoptions; automatic assignment remains disabled.
+- Production data delta: 2,449 additive permanent `show_tables` rows and 31
+  repair audit events only.
+- P0 commit: `d287e65397204ee4d45f3ab8b4ba7d923c61840a`.
+- P0 deployment: `dpl_G9D7W9ZMRQSBgRyyDMQeDpfFipWb`.
+- P0 rollback: `0fee678944d3cfc97f7d2690d825318ff6d6ba84` / prior deployment
+  `dpl_GW9qmvprHLWZ7qQtXK8Yxbu6YDHm`; additive restored rows remain retained.
 - Production business-data delta: configuration metadata only; no booking,
   assignment, capacity, payment, ticket or financial record changed.
