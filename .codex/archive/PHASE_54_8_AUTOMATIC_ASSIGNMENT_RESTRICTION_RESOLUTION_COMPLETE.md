@@ -35,6 +35,9 @@ sold-out performances therefore skipped safe assignment for existing guests.
 
 - Migration:
   `20261028235900_phase_54_8_assignment_restriction_resolution.sql`.
+- Implementation commit: `b8903aa7a3cf8cccc3f0cacf01898a0a1dc6d473`.
+- Vercel Production deployment: `dpl_77bASeTTpmxkyYZ4HfkqBW4K75zR`, state
+  `READY`, aliased to `https://book.zingara.co.za`.
 - Rollback source: `8356df8cc7677ecd17c3cc2c5f6b9753948be249`.
 - Business-data delta: 52 booking table pointers, 57 table claims, 23 reconciled
   layouts (22 enabled, one manual) and 69 Phase 54.8 master rows.

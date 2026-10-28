@@ -79,6 +79,10 @@ zone, capacity and table fit are proven safe.
 
 - Migration:
   `20261028235900_phase_54_8_assignment_restriction_resolution.sql`.
+- Implementation commit:
+  `b8903aa7a3cf8cccc3f0cacf01898a0a1dc6d473`.
+- Vercel Production deployment: `dpl_77bASeTTpmxkyYZ4HfkqBW4K75zR`, state
+  `READY`, aliased to `https://book.zingara.co.za`.
 - Application rollback source:
   `8356df8cc7677ecd17c3cc2c5f6b9753948be249`.
 - Business-data delta: 52 existing bookings received authoritative `table_id`
