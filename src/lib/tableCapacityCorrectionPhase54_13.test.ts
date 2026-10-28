@@ -45,7 +45,9 @@ test("Box Office wording is plain and keeps ticket sales separate", async () => 
   const panel = await panelSource();
   assert.match(panel, /Automatic Table Assignment/);
   assert.match(panel, /of 415 guests booked/);
-  assert.match(panel, /bookings still need tables/);
+  assert.match(panel, /status\.awaitingAssignmentCount === 1 \? "booking" : "bookings"/);
+  assert.match(panel, /status\.awaitingAssignmentCount === 1 \? "needs" : "need"/);
+  assert.match(panel, /status\.awaitingAssignmentGuests === 1 \? "guest" : "guests"/);
   assert.match(panel, /tables available/);
   assert.match(panel, /Ticket sales stay open/);
   assert.match(panel, /Pause Auto Assignment/);

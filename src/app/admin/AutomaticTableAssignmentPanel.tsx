@@ -168,7 +168,7 @@ export default function AutomaticTableAssignmentPanel({
               <p>
                 {status.awaitingAssignmentCount === 0
                   ? "All bookings have tables."
-                  : `${status.awaitingAssignmentCount} bookings still need tables (${status.awaitingAssignmentGuests} guests)`}
+                  : `${status.awaitingAssignmentCount} ${status.awaitingAssignmentCount === 1 ? "booking" : "bookings"} still ${status.awaitingAssignmentCount === 1 ? "needs" : "need"} tables (${status.awaitingAssignmentGuests} ${status.awaitingAssignmentGuests === 1 ? "guest" : "guests"})`}
               </p>
               <p>{status.availableTableUnits} tables available ({status.availableSeatCapacity} seats)</p>
             </div>
