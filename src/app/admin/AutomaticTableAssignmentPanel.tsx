@@ -7,6 +7,9 @@ import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 type AssignmentStatus = {
   adoptionStatus: string;
   assignmentState: string;
+  availableSeatCapacity: number;
+  availableTableUnits: number;
+  awaitingAssignmentCount: number;
   canManageGlobal: boolean;
   eligibility: {
     eligible: boolean;
@@ -15,10 +18,23 @@ type AssignmentStatus = {
   };
   globalEnabled: boolean;
   globalThresholdPercent: number;
+  hybridAssignmentEnabled: boolean;
   occupancyGuests: number;
   occupancyPercent: number;
   pauseThresholdPercent: number;
   reviewReminderDays: number;
+  resumeJob: {
+    assignedBookings: number;
+    completedAt: string | null;
+    createdAt: string;
+    id: string;
+    lastError: string | null;
+    manualBookings: number;
+    processedBookings: number;
+    skippedBookings: number;
+    status: "pending" | "processing" | "completed" | "failed";
+    totalBookings: number;
+  } | null;
   showEnabled: boolean;
   thresholdOverrideActive: boolean;
   venue: string;
@@ -49,22 +65,43 @@ export default function AutomaticTableAssignmentPanel({
 
   useEffect(() => {
     let active = true;
-    void fetchSupabaseApi<AssignmentStatus>(
-      `/api/admin/automatic-table-assignment?showId=${encodeURIComponent(showId)}`,
-      { cache: "no-store" },
-    ).then((next) => {
-      if (!active) return;
-      setStatus(next);
-      setReminderDays(String(next.reviewReminderDays));
-      setThreshold(String(next.pauseThresholdPercent));
-    }).catch((loadError: unknown) => {
-      if (!active) return;
-      setError(loadError instanceof Error ? loadError.message : "Automatic assignment status could not be loaded.");
-    });
+    const load = async () => {
+      try {
+        const next = await fetchSupabaseApi<AssignmentStatus>(
+          `/api/admin/automatic-table-assignment?showId=${encodeURIComponent(showId)}`,
+          { cache: "no-store" },
+        );
+        if (!active) return;
+        setStatus(next);
+        setReminderDays(String(next.reviewReminderDays));
+        setThreshold(String(next.pauseThresholdPercent));
+      } catch (loadError) {
+        if (!active) return;
+        setError(loadError instanceof Error ? loadError.message : "Automatic assignment status could not be loaded.");
+      }
+    };
+    void load();
     return () => {
       active = false;
     };
   }, [showId]);
+
+  async function refreshStatus() {
+    if (pending) return;
+    setPending("refresh");
+    setError("");
+    try {
+      const next = await fetchSupabaseApi<AssignmentStatus>(
+        `/api/admin/automatic-table-assignment?showId=${encodeURIComponent(showId)}`,
+        { cache: "no-store" },
+      );
+      setStatus(next);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Assignment progress could not be loaded.");
+    } finally {
+      setPending("");
+    }
+  }
 
   async function update(action: string, global = false) {
     if (!status || pending) return;
@@ -101,6 +138,7 @@ export default function AutomaticTableAssignmentPanel({
   }
 
   const eligible = Boolean(status?.eligibility.eligible);
+  const controlsAvailable = Boolean(eligible || status?.hybridAssignmentEnabled);
   const showActive = Boolean(status?.showEnabled && status.assignmentState === "enabled");
   const requiresReason = status?.assignmentState === "threshold_paused" || status?.assignmentState === "manual_paused";
 
@@ -114,10 +152,25 @@ export default function AutomaticTableAssignmentPanel({
               ? `${status.occupancyGuests} guests · ${status.occupancyPercent}% of the approved physical layout`
               : "Loading assignment status..."}
           </p>
-          {status && !eligible && (
+          {status && (
+            <p className="mt-1 text-xs text-zinc-400">
+              {status.availableTableUnits} available table units · {status.availableSeatCapacity} physical seats · {status.awaitingAssignmentCount} awaiting assignment
+            </p>
+          )}
+          {status?.assignmentState === "threshold_paused" && (
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-amber-100">
+              Paused at {status.pauseThresholdPercent}% — Box Office approval required
+            </p>
+          )}
+          {status && !eligible && !status.hybridAssignmentEnabled && (
             <p className="mt-2 text-xs leading-5 text-amber-100">
               Manual assignment remains active. {reasonLabels[status.eligibility.reason] ?? "This performance is not eligible for automatic assignment."}
               {status.eligibility.mismatchCount > 0 ? ` ${status.eligibility.mismatchCount} approved table records need reconciliation.` : ""}
+            </p>
+          )}
+          {status?.hybridAssignmentEnabled && !eligible && (
+            <p className="mt-2 text-xs leading-5 text-zinc-400">
+              Existing seating is preserved. Automatic assignment uses only independently verified available tables.
             </p>
           )}
         </div>
@@ -145,7 +198,7 @@ export default function AutomaticTableAssignmentPanel({
                 max={100}
                 step={1}
                 value={threshold}
-                disabled={disabled || !eligible || Boolean(pending)}
+                disabled={disabled || !controlsAvailable || Boolean(pending)}
                 onChange={(event) => setThreshold(event.target.value)}
                 className="min-h-10 w-full bg-transparent text-sm text-white outline-none disabled:opacity-50"
               />
@@ -156,14 +209,14 @@ export default function AutomaticTableAssignmentPanel({
             Reason {requiresReason ? "(required)" : ""}
             <input
               value={reason}
-              disabled={disabled || !eligible || Boolean(pending)}
+              disabled={disabled || !controlsAvailable || Boolean(pending)}
               onChange={(event) => setReason(event.target.value)}
               placeholder="Operational reason"
               className="mt-2 min-h-10 w-full rounded-xl border border-white/15 bg-black px-3 text-sm font-normal normal-case tracking-normal text-white disabled:opacity-50"
             />
           </label>
           <div className="flex flex-wrap gap-2">
-            {status.adoptionStatus !== "adopted" || !status.showEnabled ? (
+            {!status.hybridAssignmentEnabled && (status.adoptionStatus !== "adopted" || !status.showEnabled) ? (
               <button
                 type="button"
                 disabled={disabled || !eligible || !status.globalEnabled || Boolean(pending)}
@@ -188,13 +241,13 @@ export default function AutomaticTableAssignmentPanel({
                 onClick={() => void update("resume")}
                 className="min-h-10 rounded-full border border-[#D8C36A]/45 px-4 text-xs font-bold uppercase text-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {pending === "resume" ? "Resuming..." : "Resume"}
+                {pending === "resume" ? "Resuming..." : "Resume Auto Assignment"}
               </button>
             )}
-            {status.adoptionStatus === "adopted" && (
+            {(status.adoptionStatus === "adopted" || status.hybridAssignmentEnabled) && (
               <button
                 type="button"
-                disabled={disabled || !eligible || Boolean(pending)}
+                disabled={disabled || !controlsAvailable || Boolean(pending)}
                 onClick={() => void update("threshold")}
                 className="min-h-10 rounded-full border border-white/15 px-4 text-xs font-bold uppercase text-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -202,6 +255,31 @@ export default function AutomaticTableAssignmentPanel({
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {status?.resumeJob && (
+        <div className="mt-3 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-zinc-300">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-semibold uppercase tracking-[0.08em] text-[#D8C36A]">
+              {status.resumeJob.status === "completed" ? "Assignment Complete" : status.resumeJob.status === "failed" ? "Assignment Stopped" : "Assigning Tables"}
+            </span>
+            <span>{status.resumeJob.processedBookings} / {status.resumeJob.totalBookings}</span>
+          </div>
+          <p className="mt-1 text-zinc-400">
+            {status.resumeJob.assignedBookings} assigned · {status.resumeJob.manualBookings} need manual review · {status.resumeJob.skippedBookings} skipped
+          </p>
+          {status.resumeJob.lastError && <p className="mt-1 text-red-200">{status.resumeJob.lastError}</p>}
+          {["pending", "processing"].includes(status.resumeJob.status) && (
+            <button
+              type="button"
+              disabled={Boolean(pending)}
+              onClick={() => void refreshStatus()}
+              className="mt-2 min-h-9 rounded-full border border-white/15 px-3 text-[0.65rem] font-bold uppercase text-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {pending === "refresh" ? "Refreshing..." : "Refresh Progress"}
+            </button>
+          )}
         </div>
       )}
 

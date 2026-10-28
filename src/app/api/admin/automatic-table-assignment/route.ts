@@ -3,8 +3,10 @@ import {
   getRolePermissions,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
+import { after } from "next/server";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type ShowRow = {
   id: string;
@@ -80,7 +82,7 @@ export async function GET(request: Request) {
     }
 
     const { data, error } = await access.auth.serviceClient.rpc(
-      "get_automatic_table_assignment_status",
+      "get_box_office_assignment_approval_status",
       { p_show_id: showId },
     );
     if (error) throw error;
@@ -138,7 +140,46 @@ export async function PUT(request: Request) {
       if (!body.action || !allowedActions.has(body.action)) {
         return Response.json({ error: "Unsupported assignment action." }, { status: 400 });
       }
-      if (body.action === "resume") {
+      const { data: currentStatus, error: statusError } =
+        await access.auth.serviceClient.rpc(
+          "get_box_office_assignment_approval_status",
+          { p_show_id: showId },
+        );
+      if (statusError) throw statusError;
+      const hybrid = Boolean(currentStatus?.hybridAssignmentEnabled) &&
+        currentStatus?.adoptionStatus !== "adopted";
+
+      if (body.action === "resume" && hybrid) {
+        const { data: resumeStatus, error } = await access.auth.serviceClient.rpc(
+          "resume_hybrid_assignment_phase_54_12",
+          {
+            p_actor_auth_user_id: access.auth.user.id,
+            p_actor_staff_profile_id: access.auth.staffProfile.id,
+            p_reason: body.reason?.trim() ?? "",
+            p_show_id: showId,
+          },
+        );
+        if (error) throw error;
+        const jobId = String(resumeStatus?.resumeJobId ?? "");
+        if (jobId) {
+          const client = access.auth.serviceClient;
+          after(async () => {
+            for (let batch = 0; batch < 20; batch += 1) {
+              const { data: progress, error: processError } = await client.rpc(
+                "process_hybrid_assignment_resume_job_phase_54_12",
+                { p_job_id: jobId, p_limit: 25 },
+              );
+              if (processError) {
+                console.error("[Automatic table assignment] Background batch failed", processError);
+                break;
+              }
+              if (progress?.status === "completed" || progress?.status === "failed") {
+                break;
+              }
+            }
+          });
+        }
+      } else if (body.action === "resume") {
         const { error } = await access.auth.serviceClient.rpc(
           "resume_and_reconcile_threshold_assignment",
           {
@@ -147,6 +188,20 @@ export async function PUT(request: Request) {
             p_limit: 100,
             p_reason: body.reason?.trim() ?? "",
             p_show_id: showId,
+          },
+        );
+        if (error) throw error;
+      } else if (hybrid && ["pause", "threshold"].includes(body.action)) {
+        const { error } = await access.auth.serviceClient.rpc(
+          "control_hybrid_table_assignment_phase_54_12",
+          {
+            p_action: body.action,
+            p_actor_auth_user_id: access.auth.user.id,
+            p_actor_staff_profile_id: access.auth.staffProfile.id,
+            p_reason: body.reason?.trim() ?? "",
+            p_show_id: showId,
+            p_threshold_percent:
+              body.thresholdPercent === undefined ? null : Number(body.thresholdPercent),
           },
         );
         if (error) throw error;
@@ -168,7 +223,7 @@ export async function PUT(request: Request) {
     }
 
     const { data, error } = await access.auth.serviceClient.rpc(
-      "get_automatic_table_assignment_status",
+      "get_box_office_assignment_approval_status",
       { p_show_id: showId },
     );
     if (error) throw error;
@@ -182,7 +237,8 @@ export async function PUT(request: Request) {
       message.includes("REASON_REQUIRED") ||
       message.includes("THRESHOLD_INVALID") ||
       message.includes("SHOW_LAYOUT_NOT_ADOPTED") ||
-      message.includes("THRESHOLD_OVERRIDE");
+      message.includes("THRESHOLD_OVERRIDE") ||
+      message.includes("HYBRID_ASSIGNMENT");
     console.error("[Automatic table assignment] Update failed", error);
     return Response.json(
       { error: known ? message.replace(/^.*?message[:=]\s*/i, "") : "Automatic assignment could not be updated." },
