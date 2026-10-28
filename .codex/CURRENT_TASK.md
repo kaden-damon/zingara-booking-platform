@@ -1,4 +1,4 @@
-# Phase 54.4 - Table Reconciliation & Auto-Assignment
+# Phase 54.5 - Seating Reconciliation & Assignment Queue
 
 STATUS: COMPLETE - PRODUCTION RECONCILIATION VERIFIED
 
@@ -6,84 +6,95 @@ DATE: 28 OCTOBER 2026
 
 ## Objective
 
-Reconcile additional future performances against the approved 74-table,
-415-seat master without displacing existing guests or processing the historical
-assignment backlog.
+Safely reconcile existing unassigned Standard and Corporate bookings against
+Richard's approved 74-table, 415-seat physical layout, reduce the assignment
+queue, and enable automatic assignment only for completely reconciled future
+performances.
 
-## Production Diagnosis
+## Verified Production Baseline
 
-- Phase 54.3 activated 62 zero-booking inactive performances.
-- Remaining performances contain 2,453 active booking records, of which 2,154
-  do not yet have authoritative physical table coverage.
-- No performance with existing bookings is safe for automatic assignment:
-  assigning only new bookings would compete with unresolved historical seating
-  demand.
-- Four additional status-restricted performances currently have no booking
-  records, assignments, overrides or merges and can be reconciled without
-  changing their restrictions: JHB 10, 14 and 15 November 2026, and CPT
-  4 February 2027.
+- Current application baseline: `c6dcb95722e8ee5b3faaeaf2c4bbd542a1436db7`.
+- Future performances still in manual mode: 123.
+- Active bookings on those performances: 2,456.
+- Active bookings without authoritative physical table coverage: 2,157,
+  representing 19,019 guests.
+- Queue bookings below the configured 70% pause threshold: 926, representing
+  5,573 guests across 79 performances.
+- Queue composition: 1,912 Standard, 240 Corporate and 5 Buyout bookings.
+- Five queue records have no safely normalised seating zone.
 
-## Implementation Boundary
+## Safety Boundary
 
-- Reconcile only the live zero-booking cohort that passes all Phase 54.3
-  catalogue-default safety checks at execution time.
-- Preserve each show's inactive, sold-out, blackout or special-event status.
-- Ensure automatic assignment executes only while a show is actually active.
-- Retain all existing guest assignments, temporary tables, merges, overrides
-  and manually configured capacities.
-- Leave every show with unassigned historical bookings in manual mode.
-- Record resolved and pending Phase 54.4 decisions with exact evidence.
-- Preserve the 70% threshold, 10-day reminder, notifications, manual overrides,
-  ticket-sale capacity, exports, pricing, payments, tickets and Xero.
+- Preserve every existing table claim and booking assignment.
+- Preserve temporary, merged, blocked, manually adjusted and override tables.
+- Keep Buyouts and multi-zone bookings in manual planning.
+- Reconcile only untouched permanent-table rows that match the approved master
+  or the prior venue catalogue default.
+- Apply only atomic best-fit assignments to active, single-zone Standard and
+  Corporate bookings while occupancy remains below the configured threshold.
+- Record every decision and assignment with immutable audit evidence.
+- Enable automatic assignment only after the full physical layout reconciles
+  and no active booking remains without authoritative table coverage.
+- Do not change ticket-sale capacity, availability, pricing, payments, tickets,
+  exports, show status or financial records.
 
-## Verification
+## Verification Plan
 
-- Rollback-only Production migration rehearsal and exact cohort counts.
-- Isolated, rolled-back end-to-end booking-to-table assignment using an adopted
-  performance temporarily made active inside the transaction.
-- Two-booking collision check confirms different physical table claims.
-- Focused reconciliation and Phase 54.2 assignment tests.
-- TypeScript, changed-file ESLint, `git diff --check`, Production build and live
-  post-release checks.
+- Execute a rollback-only Production rehearsal before applying the migration.
+- Compare assignment queue, table occupancy, booking identities and existing
+  assignments before and after the rehearsal.
+- Verify idempotency, duplicate-table prevention, threshold enforcement,
+  unresolved exception preservation and activation eligibility.
+- Run focused reconciliation and assignment tests, TypeScript,
+  changed-file ESLint, `git diff --check` and the Production build.
+- Deploy only after all integrity checks pass, then re-query Production.
 
 ## Production Outcome
 
-- Additional performances reconciled and enabled: 4.
-- Total performances using the approved automatic-assignment configuration: 66.
-- Newly reconciled shows retained their exact restrictions: one blackout, two
-  special events and one sold-out performance.
-- Remaining exceptions: 123 performances containing 2,951 historical booking
-  records. Their existing seating demand requires controlled manual
-  reconciliation before new automatic assignments can be safe.
-- Existing active booking evidence includes 2,154 bookings without authoritative
-  physical table coverage; no historical backlog was processed.
-- Phase 54.4 configuration delta: 196 untouched master rows updated and 8
-  missing master rows inserted. No assigned or operational exception row was
-  changed.
+- All 123 remaining manual-mode performances were classified with immutable
+  reconciliation evidence.
+- Safe existing assignments applied: 583 bookings / 3,514 guests, comprising
+  551 Standard and 32 Corporate bookings.
+- Physical table claims created: 739. No assigned booking was moved, split or
+  displaced.
+- Assignment queue reduced from 2,157 to 1,574 bookings (27.0%). Remaining
+  unassigned guests: 15,505.
+- Additional performances fully reconciled and activated: 28, bringing the
+  approved automatic-assignment total to 94.
+- Remaining manual performances: 95. Exact reasons: 57 inactive/restricted,
+  15 at or above the configured threshold, 5 assigned/custom-capacity
+  conflicts, 4 approved-zone capacity conflicts, 4 structural table conflicts,
+  and 10 with unresolved physical-fit exceptions.
+- Explicit physical-fit exceptions: 27 bookings / 83 guests across 10 shows.
+  They remain in manual review; no forced placement was made.
+- The first Production application attempt was rejected atomically by the
+  deferred minimum-occupancy guard. No data persisted. The final migration
+  recognises exact approved-master identities and prevents automatic or backlog
+  assignment below physical-table minimum occupancy.
 
 ## Verification Result
 
-- Rollback rehearsal: 4 additional activations, 123 exceptions, 0 status
-  changes and 0 incomplete layouts.
-- Rollback-only end-to-end Standard booking test assigned tables 206 and 204 to
-  two bookings with distinct table identities; all QA records rolled back.
-- Booking insert plus deferred assignment measured 29.293 ms.
-- 24 focused reconciliation, assignment, allocator and refresh tests passed.
+- Commit-equivalent rollback rehearsal fired all deferred constraints before
+  rollback: 583 assignments, 27 manual exceptions, 28 activations.
+- Live verification: 0 invalid assignments and 0 duplicate table claims.
+- Existing booking/table snapshots, show statuses and financial values passed
+  migration assertions unchanged.
+- Both venue defaults remain enabled at 70% with 10-day review reminders.
+- No threshold notification was generated by backlog reconciliation.
+- Minimum-occupancy lookup: 11.037 ms for 100 indexed Production rows
+  (approximately 0.11 ms per lookup).
+- 27 focused reconciliation, assignment, allocator and integrity tests passed.
 - TypeScript, changed-file ESLint, `git diff --check`, Production build and
-  unchanged Admin performance budgets passed.
-- Live Admin and booking routes returned HTTP 200; protected assignment API
-  returned HTTP 401 without authentication.
-- The 70% threshold, 10-day reminder, notification deduplication and authorised
-  manual controls remain configured. No live notification was generated because
-  the newly activated shows have zero occupancy.
+  Admin performance budgets passed.
 
 ## Release
 
-- Commit: `8d4cce4c88a18de33dd5e413d7cdd6de5f273b33`
-- Production deployment: `zingara-booking-platform-a8i34ii3y-kaden-damons-projects.vercel.app` (`READY`)
-- Migration: `20261028210000_phase_54_4_remaining_table_reconciliation.sql`
-- Rollback source commit: `8988230615f51cce919fd708df04441514ecdeb2`
-- Business-data delta: approved physical-layout configuration and immutable
-  reconciliation evidence only. No bookings, assignments, show statuses,
-  ticket-sale capacities, payments, tickets, exports or financial records
-  changed.
+- Migration: `20261028230000_phase_54_5_seating_reconciliation_queue.sql`.
+- Applied: 28 October 2026 at 15:51 SAST.
+- Release commit: recorded after final documentation update.
+- Rollback source: `c6dcb95722e8ee5b3faaeaf2c4bbd542a1436db7`.
+- Business-data delta: 583 existing bookings received authoritative `table_id`
+  assignments and 739 approved physical-table claims; 28 shows enabled for
+  future automatic assignment; 38 conflict-free layouts received approved
+  permanent-table configuration. No guest counts, prices, payments, tickets,
+  ticket-sale capacities, show statuses, exports or financial records changed.
