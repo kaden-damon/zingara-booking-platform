@@ -294,8 +294,8 @@ export const defaultVenueSettings: DemoVenueSettings = {
       depositMode: "fixed",
       depositPercentage: 40,
       enabled: true,
-      maxSeats: 148,
-      maxTables: 24,
+      maxSeats: 120,
+      maxTables: 23,
       price: 1540,
     },
     "middle-ring": {
@@ -303,8 +303,8 @@ export const defaultVenueSettings: DemoVenueSettings = {
       depositMode: "fixed",
       depositPercentage: 35,
       enabled: true,
-      maxSeats: 132,
-      maxTables: 26,
+      maxSeats: 125,
+      maxTables: 24,
       price: 1320,
     },
     "royal-balcony": {
@@ -312,7 +312,7 @@ export const defaultVenueSettings: DemoVenueSettings = {
       depositMode: "fixed",
       depositPercentage: 50,
       enabled: true,
-      maxSeats: 40,
+      maxSeats: 32,
       maxTables: 4,
       price: 1320,
     },
@@ -330,16 +330,16 @@ export const defaultVenueSettings: DemoVenueSettings = {
 
 export const venueZoneSeatCapacities = {
   "elevated-stage": 0,
-  "golden-circle": 148,
-  "middle-ring": 132,
+  "golden-circle": 120,
+  "middle-ring": 125,
   "royal-booths": 138,
-  "royal-balcony": 40,
+  "royal-balcony": 32,
 } as const;
 
 export const venueZoneTableCapacities = {
   "elevated-stage": 0,
-  "golden-circle": 24,
-  "middle-ring": 26,
+  "golden-circle": 23,
+  "middle-ring": 24,
   "royal-booths": 23,
   "royal-balcony": 4,
 } as const;

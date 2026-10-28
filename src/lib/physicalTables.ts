@@ -10,16 +10,14 @@ export type PhysicalTableDefinition = {
 
 function createDefinitions(
   zoneId: SeatingZoneId,
-  codes: Array<string | number>,
+  tables: Array<[string | number, number]>,
   minimumCapacity: number,
-  maximumCapacity: number,
-  defaultCapacity: number | null = null,
 ) {
-  return codes.map((code) => ({
+  return tables.map(([code, maximumCapacity]) => ({
     code: String(code),
-    defaultCapacity,
+    defaultCapacity: maximumCapacity,
     maximumCapacity,
-    minimumCapacity,
+    minimumCapacity: Math.min(minimumCapacity, maximumCapacity),
     zoneId,
   } satisfies PhysicalTableDefinition));
 }
@@ -27,36 +25,41 @@ function createDefinitions(
 export const physicalTableDefinitions: PhysicalTableDefinition[] = [
   ...createDefinitions(
     "royal-booths",
-    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24],
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+      .map((code) => [code, 6] as [number, number]),
     4,
-    8,
-    6,
   ),
   ...createDefinitions(
     "middle-ring",
-    [200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213,
-      300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313],
+    [
+      [200, 4], [201, 2], [202, 8], [203, 8], [204, 6], [205, 6],
+      [206, 5], [207, 4], [208, 4], [209, 4], [210, 4], [211, 6],
+      [300, 7], [301, 4], [302, 2], [303, 3], [304, 4], [305, 4],
+      [306, 6], [307, 6], [308, 6], [309, 6], [310, 6], [400, 10],
+    ],
     2,
-    8,
   ),
   ...createDefinitions(
     "golden-circle",
-    [400, 401, 402, 403, 404, 405, 500, 501, 502, 503, 504, 505],
+    [
+      [401, 6], [402, 6], [403, 4], [404, 8], [405, 8], [406, 10],
+      [500, 10], [501, 6], [502, 8], [503, 6], [504, 6], [505, 8],
+      [506, 10],
+    ],
     2,
-    12,
   ),
   ...createDefinitions(
     "golden-circle",
-    [600, 601, 602, 603, 604, 605, 606, 607, 608, 609, 610, 611],
+    [
+      [600, 2], [601, 2], [602, 4], [603, 2], [604, 2], [605, 2],
+      [606, 4], [607, 2], [608, 2], [609, 2],
+    ],
     2,
-    4,
   ),
   ...createDefinitions(
     "royal-balcony",
-    [800, 801, 900, 901],
+    [[800, 8], [801, 8], [900, 8], [901, 8]],
     2,
-    10,
-    10,
   ),
 ];
 

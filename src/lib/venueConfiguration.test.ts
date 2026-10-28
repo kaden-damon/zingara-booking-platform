@@ -46,6 +46,6 @@ test("normalizes legacy settings without overwriting their stored values", () =>
   } as Partial<typeof defaultVenueSettings>);
 
   assert.equal(settings.zonePricing[zone.id]?.price, 1540);
-  assert.equal(getConfiguredZoneMaxSeats(settings, zone), 148);
-  assert.equal(getConfiguredZoneMaxTables(settings, zone), 24);
+  assert.equal(getConfiguredZoneMaxSeats(settings, zone), 120);
+  assert.equal(getConfiguredZoneMaxTables(settings, zone), 23);
 });
