@@ -1,6 +1,6 @@
 # Phase 54.1 - Authoritative Seating Configuration
 
-STATUS: COMPLETE
+STATUS: P0 IN PROGRESS
 
 DATE: 28 OCTOBER 2026
 
@@ -61,3 +61,19 @@ Johannesburg, ready for the future Phase 54.2 assignment engine.
 - Release commit: `faaf34e61e1389f92cd5db6074577b6c4a62445b`.
 - Vercel deployment: `dpl_HLoWnodAxYWnKx35RNgCmDH4HbeG`.
 - Rollback point: `fb0d65a1135d685cc467704b278e4da233693626`.
+
+## P0 Steer - Missing Production Tables
+
+- Affected show: Cape Town, 15 December 2026 at 18:00
+  (`8d62c27d-a96a-4ee1-aebe-a6c4c02622e9`).
+- Confirmed state: 63 legacy/override rows and zero permanent physical rows.
+- Root cause: Phase 37 seeded permanent rows only for shows active on 25 August
+  2026. This show was inactive then and was activated on 1 October, but the
+  status-transition path did not seed the operational physical catalogue.
+- Scope: 31 current/future shows have zero permanent rows; 14 contain 152 active
+  bookings / 1,918 guests.
+- Repair boundary: add only missing permanent rows from the existing operational
+  catalogue, preserve every existing row and prevent future inactive-to-active
+  transitions from retaining an incomplete layout.
+- Phase 54.1 approved versions remain dormant; no automatic assignment or
+  ticket-sale capacity change is authorised by this repair.
