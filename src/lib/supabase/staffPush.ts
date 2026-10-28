@@ -28,6 +28,7 @@ const defaultVenueKey = defaultVenueSettings.venueId || "zingara-cape-town";
 
 export type StaffPushTrigger =
   | "booking-cancelled"
+  | "floor-assignment-paused"
   | "guest-checked-in"
   | "new-booking"
   | "new-corporate-request"
@@ -74,8 +75,10 @@ type StaffPushInput = {
   bookingReference?: string;
   body?: string;
   corporateRequestId?: string;
+  notificationId?: string;
   title?: string;
   trigger: StaffPushTrigger;
+  url?: string;
   waitlistId?: string;
 };
 
@@ -122,6 +125,13 @@ const rolesByTrigger: Record<StaffPushTrigger, AdminRole[]> = {
     "super-admin",
     "venue-manager",
     "box-office-staff",
+  ],
+  "floor-assignment-paused": [
+    "super-admin",
+    "venue-manager",
+    "box-office-manager",
+    "box-office-staff",
+    "floor-manager",
   ],
   "guest-checked-in": ["super-admin", "venue-manager"],
   "new-booking": ["super-admin", "venue-manager", "box-office-staff"],
@@ -183,6 +193,10 @@ function getDefaultMessage(input: StaffPushInput) {
       : "Payment needs review.";
   }
 
+  if (input.trigger === "floor-assignment-paused") {
+    return "Automatic table assignment needs Box Office review.";
+  }
+
   return "Operational broadcast sent";
 }
 
@@ -219,10 +233,17 @@ function getDefaultTitle(input: StaffPushInput) {
     return "Payment Needs Review";
   }
 
+  if (input.trigger === "floor-assignment-paused") {
+    return "Table Assignment Review";
+  }
+
   return "Operational Broadcast";
 }
 
 function getStaffNotificationUrl(input: StaffPushInput) {
+  if (input.url) {
+    return input.url;
+  }
   if (
     input.trigger === "new-booking" ||
     input.trigger === "booking-cancelled" ||
@@ -412,9 +433,16 @@ async function appendStaffNotification(input: StaffPushInput) {
   }
 
   const now = new Date().toISOString();
+  const notificationId = input.notificationId ?? `${input.trigger}-${input.bookingReference ?? "event"}-${Date.now()}`;
+  const existing = getStaffNotifications(row).find(
+    (notification) => notification.id === notificationId,
+  );
+  if (existing) {
+    return existing;
+  }
   const notification: StaffNotificationRecord = {
     createdAt: now,
-    id: `${input.trigger}-${input.bookingReference ?? "event"}-${Date.now()}`,
+    id: notificationId,
     message: getDefaultMessage(input),
     readBy: [],
     title: getDefaultTitle(input),
@@ -455,20 +483,7 @@ export async function sendStaffPushNotification(input: StaffPushInput) {
     trigger: input.trigger,
   });
   const pushConfig = getPushConfig();
-
-  if (!pushConfig.publicKey || !pushConfig.privateKey) {
-    console.info("[Zingara push diagnostics] Staff push blocked: VAPID missing", {
-      hasPrivateKey: Boolean(pushConfig.privateKey),
-      hasPublicKey: Boolean(pushConfig.publicKey),
-      trigger: input.trigger,
-    });
-    return {
-      failed: 0,
-      ok: false,
-      sent: 0,
-      subscriptionCount: 0,
-    };
-  }
+  let notificationSaved = false;
 
   let venueRow: VenueSettingsRow | null = null;
   let serviceClient: ReturnType<typeof getServiceClient> = null;
@@ -497,8 +512,23 @@ export async function sendStaffPushNotification(input: StaffPushInput) {
 
   try {
     await appendStaffNotification(input);
+    notificationSaved = true;
   } catch (error) {
     console.error("[Zingara push] Failed to save staff notification", error);
+  }
+
+  if (!pushConfig.publicKey || !pushConfig.privateKey) {
+    console.info("[Zingara push diagnostics] Staff web push skipped: VAPID missing; in-app notification retained", {
+      hasPrivateKey: Boolean(pushConfig.privateKey),
+      hasPublicKey: Boolean(pushConfig.publicKey),
+      trigger: input.trigger,
+    });
+    return {
+      failed: 0,
+      ok: notificationSaved,
+      sent: 0,
+      subscriptionCount: 0,
+    };
   }
 
   const targetRoles = new Set(rolesByTrigger[input.trigger]);
@@ -527,7 +557,7 @@ export async function sendStaffPushNotification(input: StaffPushInput) {
     );
     return {
       failed: 0,
-      ok: false,
+      ok: notificationSaved,
       sent: 0,
       subscriptionCount: 0,
     };
@@ -590,7 +620,7 @@ export async function sendStaffPushNotification(input: StaffPushInput) {
 
   return {
     failed,
-    ok: sent > 0,
+    ok: sent > 0 || notificationSaved,
     sent,
     subscriptionCount: subscriptions.length,
   };

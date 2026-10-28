@@ -12,6 +12,7 @@ import { runReviewManagementWorkflows } from "@/lib/workflows/reviewManagement";
 import { isAuthorisedWorkflowCronRequest } from "@/lib/workflows/cronAuthorization";
 import { runApprovedPlatformFeedbackCampaign } from "@/lib/platformFeedbackCampaign";
 import { runInvoiceRequestReminder } from "@/lib/workflows/invoiceRequestReminders";
+import { runAutomaticTableAssignmentNotifications } from "@/lib/workflows/automaticTableAssignmentNotifications";
 import { runLiveXeroSyncWorker } from "@/lib/xero/liveSync";
 import { runLiveXeroReconciliation } from "@/lib/xero/liveReconciliation";
 
@@ -97,6 +98,13 @@ export async function GET(request: Request) {
       console.error("[Zingara Workflows] Invoice request reminder failed", reminderError);
       invoiceRequestReminder = { reason: "failed" };
     }
+    let automaticTableAssignmentNotifications: Awaited<ReturnType<typeof runAutomaticTableAssignmentNotifications>> | { reason: "failed" };
+    try {
+      automaticTableAssignmentNotifications = await runAutomaticTableAssignmentNotifications(serviceClient);
+    } catch (notificationError) {
+      console.error("[Zingara Workflows] Automatic table assignment notifications failed", notificationError);
+      automaticTableAssignmentNotifications = { reason: "failed" };
+    }
     let xeroSync: Awaited<ReturnType<typeof runLiveXeroSyncWorker>> | { reason: "failed" };
     try {
       xeroSync = await runLiveXeroSyncWorker(serviceClient);
@@ -129,6 +137,7 @@ export async function GET(request: Request) {
 
     return Response.json({
       ...result,
+      automaticTableAssignmentNotifications,
       corporatePaymentHolds,
       dailyBookingReview,
       dineplanScheduledEmails,

@@ -147,6 +147,9 @@ const ShowCustomPricingControls = dynamic(
 const ShowZoneSalesControls = dynamic(
   () => import("./ShowZoneSalesControls"),
 );
+const AutomaticTableAssignmentPanel = dynamic(
+  () => import("./AutomaticTableAssignmentPanel"),
+);
 const SecretPasswordSettings = dynamic(
   () => import("./SecretPasswordSettings"),
 );
@@ -36546,6 +36549,14 @@ export default function AdminDashboardPage({
               </>
             )}
           </section>
+
+          {selectedShowFloorDataReady && selectedShow && canManageBookings && canManageTables && (
+            <AutomaticTableAssignmentPanel
+              key={selectedShow.supabaseId ?? selectedShow.id}
+              disabled={!canManageBookings || !canManageTables}
+              showId={selectedShow.supabaseId ?? selectedShow.id}
+            />
+          )}
 
           {selectedShowFloorDataReady && (
             <section className="mb-8 rounded-[2rem] border border-amber-300/25 bg-amber-950/10 p-5 shadow-xl shadow-black/20">
