@@ -1,6 +1,6 @@
 # Phase 54.2 - Automatic Table Assignment
 
-STATUS: IN PROGRESS
+STATUS: COMPLETE - DEPLOYED DISABLED PENDING PERFORMANCE RECONCILIATION
 
 DATE: 28 OCTOBER 2026
 
@@ -56,3 +56,45 @@ eligible performances in Cape Town and Johannesburg.
 - Enable only a verified, conflict-free future performance if one can be
   proven safe without creating a Production booking.
 - Otherwise leave every performance disabled and report the exact blocker.
+
+## Completed Outcome
+
+- Controlled automatic assignment is deployed behind the globally disabled
+  Production flag.
+- Standard and Corporate bookings are supported; Buyouts and multi-zone
+  Corporate bookings remain in the manual assignment queue.
+- Assignment is atomic, zone-bound and best-fit, with a per-show lock and
+  immutable attempt evidence.
+- The 70% threshold pauses assignment only. It does not restrict ticket sales
+  or booking creation.
+- Explicit safe layout adoption populates unset capacities for all matched
+  permanent tables from the approved 74-table master. It never overwrites
+  assigned tables, manual capacity values, temporary tables, merged tables or
+  performance-specific arrangements. Adopted permanent tables therefore do
+  not retain a `SEATS NOT SET` state.
+- Production reconciliation found 0 of 189 future performances currently safe
+  for automatic adoption. The closest operational catalogue matches 71 of the
+  74 approved tables and every future performance has configured capacity
+  conflicts. No performance was enabled or modified.
+- Production state after migration: global assignment disabled, 0 venue
+  defaults enabled, 0 shows adopted, 0 shows enabled, 0 assignment attempts
+  and 0 notification events.
+
+## Verification Result
+
+- 16 focused allocator, refresh and Phase 54.2 tests passed.
+- TypeScript, changed-file ESLint, `git diff --check`, migration rehearsal and
+  Production build passed.
+- Admin performance budget passed: 1,260,204 raw bytes, 302,648 gzip bytes and
+  160,791-byte largest gzip chunk.
+- Live Admin and public booking routes returned HTTP 200; the new Admin API
+  correctly returned HTTP 401 without authentication.
+
+## Release
+
+- Application commit: `72ccd59b8f4d79a5bc93a00b75032867b45533a6`
+- Production deployment: `dpl_HyApuLX3upW9mgW9wQYn62T4G5SB` (`READY`)
+- Rollback source commit: `be84b1fbf6380e758a071244b751389ab32794fb`
+- Production business-data delta: none. The release added schema and dormant
+  configuration only; no booking, assignment, table capacity, payment, ticket,
+  export or financial record was changed.
