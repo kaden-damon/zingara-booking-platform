@@ -1,63 +1,44 @@
-# Phase 54.9 - 70% Assignment Queue Resolution
+# Phase 54.10 - Final Seating Conflict Resolution
 
-STATUS: COMPLETE - AUTHORISED RESUME RECONCILIATION DEPLOYED
+STATUS: IN PROGRESS
 
 DATE: 28 OCTOBER 2026
 
-## Outcome
+## Objective
 
-- The 70% automatic-assignment default remains `70.00` for Cape Town and
-  Johannesburg.
-- Production contained no authorised threshold-resume audit record and no
-  active override. Consequently, zero bookings were assigned; no override was
-  manufactured.
-- The existing `RESUME` action now atomically records the authorised staff
-  exception and runs one bounded reconciliation pass for that performance's
-  waiting bookings. Any failure rolls back both operations.
-- The reconciliation revalidates staff identity, permissions, venue scope,
-  current override state, matching audit evidence, approved layout, zone,
-  minimum occupancy, table capacity and concurrent claims.
-- Existing assignments are never moved and unsuitable bookings remain in the
-  manual queue.
+Minimise the remaining manual assignment queue by correcting only proven,
+unambiguous physical-table configuration defects and atomically assigning
+bookings that safely fit Richard's approved 74-table / 415-seat layout.
 
-## Approval Queue
+## Baseline
 
-- Production snapshot at workbook generation: 1,236 threshold-held bookings /
-  13,489 guests across 44 performances.
-- All 44 performances currently fail the approved-layout check with
-  `OPERATIONAL_TABLES_DO_NOT_MATCH_APPROVED_LAYOUT`.
-- Safe proposed tables are therefore intentionally withheld. Required action:
-  reconcile the approved physical layout, then authorised Box Office staff use
-  `RESUME` with a mandatory reason.
-- Workbook:
-  `reports/phase-54-9/Phase_54_9_Box_Office_Approval_Queue.xlsx`.
-- Post-deployment live count: 1,235 threshold-held bookings / 13,484 guests
-  across 44 performances; Cape Town 566 bookings and Johannesburg 669. The
-  one-booking difference reflects ordinary live activity after the workbook's
-  timestamped snapshot.
-- Complete active assignment queue after deployment: 1,533 bookings / 15,326
-  guests across 69 performances.
+- Application and `origin/main`:
+  `2eaf25985042dcf7baf1baffabc632c17c0d6854`.
+- Active assignment queue: 1,533 bookings / 15,326 guests across 69 future
+  performances.
+- Threshold-held: 1,235 bookings across 44 performances; no authorised active
+  override exists.
+- No queued performance currently passes the approved-layout eligibility check.
 
-## Verification
+## Diagnosis
 
-- 18 focused automatic-assignment and reconciliation tests passed.
-- TypeScript, changed-file ESLint, `git diff --check`, linked migration dry run,
-  Production build and Admin performance budget passed.
-- Production functions are installed; zero active overrides, zero resume audit
-  events and zero threshold reconciliations were recorded after release.
-- Protected Production endpoint returned the expected `401 Unauthorized` for
-  an unauthenticated request.
+- 16 performances have configuration-only defects that can be corrected without
+  changing an existing assignment.
+- Five of those performances remain legitimately held by the 70% threshold.
+- Eleven below-threshold performances contain 31 bookings eligible for an
+  atomic assignment attempt after configuration repair.
+- Fifty-three performances contain genuine assigned-table, zone-capacity or
+  structural conflicts and must remain manual.
 
-## Release
+## Safety Boundary
 
-- Implementation commit:
-  `c1d37668805d3bd833610b07a5762cf88f1a16b6`.
-- Migration:
-  `20261028235930_phase_54_9_threshold_queue_resolution.sql`.
-- Vercel Production deployment:
-  `dpl_4Sr53Qs8aEJbhuFt9dC7EuvdxXhm`, state `READY`, aliased to
-  `https://book.zingara.co.za`.
-- Rollback source:
-  `749aa03c5496d45ba103c30f1e13f279c216305b`.
-- Business-data delta: none. No booking, table assignment, show status,
-  capacity, payment, ticket or financial record changed.
+- Never move or overwrite an existing table claim, temporary/merged table,
+  override or manual arrangement.
+- Never exceed approved table or zone capacity or underfill a table against its
+  minimum occupancy rule.
+- Preserve the 70% default and every existing authorised override; do not
+  manufacture a threshold exception.
+- Preserve show status, ticket availability, booking values, payments, tickets
+  and all financial records.
+- Record every configuration correction and successful assignment with
+  immutable audit evidence.
