@@ -1,6 +1,6 @@
 # Phase 54.13 - Table Capacity Correction & UX Simplification
 
-STATUS: IN PROGRESS
+STATUS: COMPLETE
 
 DATE: 28 OCTOBER 2026
 
@@ -29,15 +29,52 @@ ticket-sale or financial rules.
 - Do not manufacture a 70% override or force an assignment.
 - Keep all operations bounded, indexed, audited and idempotent.
 
-## Plan
+## Outcome
 
-1. Audit the affected show and compare it with the approved master and working
-   performances in both venues.
-2. Classify every missing capacity as safely inheritable or requiring manual
-   management review.
-3. Add the smallest guarded capacity correction and apply it only to independently
-   verified affected performances.
-4. Rewrite only automatic-assignment labels and status explanations in plain
-   Box Office language.
-5. Verify assignment eligibility, queue delta, exports, performance and responsive
-   control layout before release.
+- Root cause: earlier whole-layout reconciliation correctly skipped the affected
+  performance because its operational layout does not exactly match the approved
+  master. The later hybrid assignment path supported that layout but deliberately
+  did not inherit missing permanent-table capacities, leaving eligible tables in
+  `SEATS NOT SET`.
+- Corrected 1,884 independently safe permanent-table capacities across 55 future
+  performances: 984 rows across 33 Johannesburg shows and 900 rows across 22 Cape
+  Town shows.
+- Johannesburg, 18 December 2026 at 17:00: corrected 39 missing permanent-table
+  capacities. All 10 waiting bookings / 50 guests then received safe physical
+  table assignments without a threshold override. The queue for this performance
+  is now zero, with 51 tables / 272 seats still available.
+- Preserved nine configured capacity conflicts and three master-table mismatches
+  on the affected performance. Its reconciliation status therefore remains
+  pending rather than being falsely marked complete.
+- Left 1,244 non-matching future table rows disabled and unchanged: 1,209 use
+  table codes outside the approved master and 35 have a zone mismatch. None had
+  an assignment, merge or manual override; management must map or retire these
+  explicitly rather than the system guessing.
+- Simplified the existing automatic-assignment panel with plain-language status,
+  occupancy, waiting-booking and available-table summaries. Controls now use
+  `Auto Assignment Limit`, `Pause Auto Assignment`, `Resume Auto Assignment`,
+  `Save Limit`, and `Review Reminder`, and clearly state that ticket sales remain
+  open when automatic assignment pauses.
+- Preserved the 70% default, staff approval rules, ticket-sale capacity, show
+  statuses, exports, payments, tickets, financial records and existing seating.
+
+## Verification
+
+- 22 focused Phase 54 tests passed, plus 10 Phase 54.4/54.5 regression tests.
+- TypeScript, changed-file ESLint, migration dry-run, migration rollback rehearsal,
+  `git diff --check`, Production build and Admin performance budgets passed.
+- Admin budget: 1,260,204 raw bytes / 302,648 gzip bytes, within the established
+  limits. No polling or booking-path requests were added.
+- Production `/admin` and `/book` both returned HTTP 200 after deployment.
+- Production database checks confirmed the target queue is zero and every exact
+  approved-master permanent table now has a configured capacity.
+
+## Release
+
+- Production commit: `b028ceab82683b757e8612de7536f09a7018ab88`.
+- Vercel deployment: `dpl_8R5udSkiAfSPfE2XgebjSVgA7P1E` (`READY`).
+- Rollback application commit: `965773f1a6c2cbf0995749631de7c344693116ee`.
+- Business-data delta: 1,884 guarded permanent-table capacity/configuration
+  corrections, 10 safe booking table assignments and their table claims, plus
+  immutable audit evidence. No booking totals, payments, tickets, show status,
+  ticket-sale capacity, financial data or threshold overrides changed.
