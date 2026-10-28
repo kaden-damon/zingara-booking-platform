@@ -138,19 +138,33 @@ export async function PUT(request: Request) {
       if (!body.action || !allowedActions.has(body.action)) {
         return Response.json({ error: "Unsupported assignment action." }, { status: 400 });
       }
-      const { error } = await access.auth.serviceClient.rpc(
-        "control_automatic_table_assignment",
-        {
-          p_action: body.action,
-          p_actor_auth_user_id: access.auth.user.id,
-          p_actor_staff_profile_id: access.auth.staffProfile.id,
-          p_reason: body.reason?.trim() ?? "",
-          p_show_id: showId,
-          p_threshold_percent:
-            body.thresholdPercent === undefined ? null : Number(body.thresholdPercent),
-        },
-      );
-      if (error) throw error;
+      if (body.action === "resume") {
+        const { error } = await access.auth.serviceClient.rpc(
+          "resume_and_reconcile_threshold_assignment",
+          {
+            p_actor_auth_user_id: access.auth.user.id,
+            p_actor_staff_profile_id: access.auth.staffProfile.id,
+            p_limit: 100,
+            p_reason: body.reason?.trim() ?? "",
+            p_show_id: showId,
+          },
+        );
+        if (error) throw error;
+      } else {
+        const { error } = await access.auth.serviceClient.rpc(
+          "control_automatic_table_assignment",
+          {
+            p_action: body.action,
+            p_actor_auth_user_id: access.auth.user.id,
+            p_actor_staff_profile_id: access.auth.staffProfile.id,
+            p_reason: body.reason?.trim() ?? "",
+            p_show_id: showId,
+            p_threshold_percent:
+              body.thresholdPercent === undefined ? null : Number(body.thresholdPercent),
+          },
+        );
+        if (error) throw error;
+      }
     }
 
     const { data, error } = await access.auth.serviceClient.rpc(
@@ -167,7 +181,8 @@ export async function PUT(request: Request) {
     const known = message.includes("SHOW_LAYOUT_NOT_ELIGIBLE") ||
       message.includes("REASON_REQUIRED") ||
       message.includes("THRESHOLD_INVALID") ||
-      message.includes("SHOW_LAYOUT_NOT_ADOPTED");
+      message.includes("SHOW_LAYOUT_NOT_ADOPTED") ||
+      message.includes("THRESHOLD_OVERRIDE");
     console.error("[Automatic table assignment] Update failed", error);
     return Response.json(
       { error: known ? message.replace(/^.*?message[:=]\s*/i, "") : "Automatic assignment could not be updated." },
