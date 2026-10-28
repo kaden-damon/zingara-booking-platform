@@ -73,7 +73,7 @@ test("the Table Plan panel shows approval facts without background polling", asy
   assert.match(panel, /availableTableUnits/);
   assert.match(panel, /awaitingAssignmentCount/);
   assert.match(panel, /\["pending", "processing"\]/);
-  assert.match(panel, /Assignment Complete/);
-  assert.match(panel, /Refresh Progress/);
+  assert.match(panel, /Tables Assigned/);
+  assert.match(panel, /Refresh/);
   assert.doesNotMatch(panel, /setInterval|setTimeout/);
 });

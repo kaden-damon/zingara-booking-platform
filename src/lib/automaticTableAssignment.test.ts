@@ -63,7 +63,7 @@ test("Table Plan controls and notifications are bounded and permission protected
   assert.match(route, /permissions\.includes\("bookings:manage"\)/);
   assert.match(route, /permissions\.includes\("tables:manage"\)/);
   assert.match(route, /permissions\.includes\("settings:manage"\)/);
-  assert.match(panel, /Automatic Assignment/);
+  assert.match(panel, /Automatic Table Assignment/);
   assert.doesNotMatch(panel, /setInterval|setTimeout/);
   assert.match(workflow, /p_limit: 10/);
   assert.match(workflow, /notificationId: `automatic-table-assignment-\$\{event\.id\}`/);

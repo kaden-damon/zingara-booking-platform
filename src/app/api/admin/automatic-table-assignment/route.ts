@@ -20,6 +20,18 @@ function normalizeVenue(value: string | null) {
   return "";
 }
 
+function assignmentErrorMessage(message: string) {
+  if (message.includes("PERMISSION_REQUIRED")) return "You do not have permission to manage automatic table assignment.";
+  if (message.includes("SHOW_OUTSIDE_STAFF_SCOPE")) return "This performance is outside your venue access.";
+  if (message.includes("REASON_REQUIRED")) return "Enter a reason before continuing.";
+  if (message.includes("THRESHOLD_INVALID")) return "Enter an automatic-assignment limit between 50% and 100%.";
+  if (message.includes("THRESHOLD_OVERRIDE")) return "Box Office approval is required before automatic assignment can resume.";
+  if (message.includes("SHOW_LAYOUT_NOT_ADOPTED") || message.includes("SHOW_LAYOUT_NOT_ELIGIBLE") || message.includes("HYBRID_ASSIGNMENT")) {
+    return "Automatic table assignment is not ready for this performance.";
+  }
+  return "Automatic table assignment could not be updated.";
+}
+
 async function authorize(request: Request, showId: string) {
   const auth = await requireActiveStaff(request);
   if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
@@ -241,7 +253,7 @@ export async function PUT(request: Request) {
       message.includes("HYBRID_ASSIGNMENT");
     console.error("[Automatic table assignment] Update failed", error);
     return Response.json(
-      { error: known ? message.replace(/^.*?message[:=]\s*/i, "") : "Automatic assignment could not be updated." },
+      { error: known ? assignmentErrorMessage(message) : "Automatic table assignment could not be updated." },
       { status: known ? 409 : 500 },
     );
   }
