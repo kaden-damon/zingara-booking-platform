@@ -1,6 +1,6 @@
 # Phase 55 - Complete Seating Alignment & Automatic Assignment
 
-STATUS: IN PROGRESS
+STATUS: COMPLETE
 
 DATE: 28 OCTOBER 2026
 
@@ -13,43 +13,59 @@ bookings, and retain the configurable 70% rule for new bookings only.
 
 ## Production Baseline
 
-- `main` and `origin/main`: `e436a787c5c97ff957fdb3ac3e71739c3f4395ad`.
-- Phase 54.13 application release: `b028ceab82683b757e8612de7536f09a7018ab88`.
-- Phase 54.13 deployment: `dpl_8R5udSkiAfSPfE2XgebjSVgA7P1E` (`READY`).
-- Existing unrelated untracked audit artifacts remain user-owned and untouched.
+- Starting application and `origin/main`: `e436a787c5c97ff957fdb3ac3e71739c3f4395ad`.
+- Phase 55 application commit: `7ab1b575456ceac0319250088d34d4590ba0be99`.
+- Vercel Production deployment: `zingara-booking-platform-8fo4g42mf-kaden-damons-projects.vercel.app` (`success`).
+- Database migration: `20261028235960_phase_55_complete_seating_alignment.sql`.
 
 ## Authoritative Source
 
-- Richard's approved `Table Plan Template.xlsx` only.
+- Richard's `Table Plan Template.xlsx`, SHA-256
+  `43bf6bca8d0e1094aba7f05b01cc945a992dc4c77e590750db9d3dcfcd88a5b7`.
 - Both venues: Golden Circle 120, Middle Ring 125, Private Booths 138,
   Royal Balcony / ESA 32; total 415 seats across 74 permanent tables.
-- Individual table code, zone, minimum occupancy and maximum capacity must match
-  the workbook exactly; zone totals must never be used to infer table values.
 
-## Safety Boundary
+## Production Outcome
 
-- Do not modify completed historical performances.
-- Preserve every existing booking, guest entitlement, confirmed table assignment,
-  temporary table, merged table, operational exception and audit record.
-- Never displace guests, manufacture capacity, overwrite an assigned table or
-  weaken atomic capacity/concurrency safeguards.
-- Keep ticket-sale capacity distinct from physical seating capacity. Do not reduce
-  sold entitlements or silently alter availability where commitments conflict.
-- The one-time 70% exemption applies only to safely assignable bookings created
-  before the recorded Phase 55 activation timestamp. New bookings retain the
-  configured threshold, notifications, review reminder and approval controls.
-- No payment, ticket, Xero, customer or financial-record changes.
+- Audited 187 current/future performances: 152 now match all 74 approved table
+  identities, zones and capacities exactly; 35 retain protected assigned or
+  operational exceptions.
+- Applied 310 safe capacity corrections, 39 safe zone corrections, added 96
+  missing permanent-table rows and disabled six unassigned obsolete available
+  rows. No assigned, merged, temporary, override or historical table was changed.
+- Aligned ticket-sale limits to 120 / 125 / 138 / 32 while preserving 101
+  existing show-zone commitment exceptions representing 740 guests above the new
+  physical targets.
+- Snapshotted 1,452 eligible pre-activation bookings. Assigned 1,149 bookings /
+  10,416 guests to 2,056 physical table claims in bounded atomic batches.
+- Left 303 bookings / 4,370 guests for manual review: 298 bookings / 2,420 guests
+  have no safe table combination and five Buyouts / 1,950 guests remain manual by
+  policy. Zero candidates were skipped and zero remain pending.
+- New bookings remain governed by the configurable 70% threshold. Both venue
+  defaults remain 70%; no Production threshold override was created or changed.
 
-## Execution Plan
+## Verification
 
-1. Locate and verify the approved workbook and current Production baseline.
-2. Produce a complete read-only dry run covering every current/future performance,
-   permanent and operational table, capacity display and unassigned booking.
-3. Classify each discrepancy as safe correction, protected commitment conflict or
-   genuine manual exception; verify exact before/after counts and rollback evidence.
-4. Implement only the smallest reusable reconciliation and cutoff logic required,
-   processing independently proven safe changes in bounded, auditable batches.
-5. Verify physical and ticket capacity separation, automatic assignment, 70% cutoff,
-   exports, displays, concurrency, booking performance and business-data integrity.
-6. Commit, push and deploy only after all safety assertions pass; archive Phase 55
-   with exact Production counts, deployment and rollback references.
+- Workbook/master reconciliation: 74 tables and 415 seats per venue.
+- Migration dry run and full rollback rehearsal passed before release; the live
+  migration completed transactionally with all assertions passing.
+- 10 focused source tests passed; broader seating regression evidence remained
+  green apart from two raw Node resolver limitations on existing extensionless
+  imports. TypeScript and changed-file ESLint passed with one pre-existing warning.
+- Next.js webpack Production build compiled all routes and TypeScript. The existing
+  budget helper does not parse webpack manifests; the default Turbopack build was
+  blocked locally by an internal worker-port restriction, not application code.
+- Final Production audit: zero incompatible Phase 55 assignments, zero duplicate
+  claims, zero pending candidates and 1,149 immutable assignment audit events.
+- Live `/admin` and `/book` returned HTTP 200 after deployment.
+
+## Safety And Rollback
+
+- No booking totals, payments, tickets, Xero records, customers, show statuses,
+  temporary tables, merges or confirmed seating arrangements changed.
+- Application rollback: redeploy
+  `e436a787c5c97ff957fdb3ac3e71739c3f4395ad`.
+- Database rollback is controlled and evidence-based: preserve the Phase 55 audit
+  trail and reverse only the recorded safe configuration corrections and Phase 55
+  table claims. Do not blindly revert the migration or invalidate later bookings.
+- Existing unrelated untracked audit artifacts remain user-owned and untouched.
