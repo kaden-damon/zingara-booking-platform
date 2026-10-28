@@ -1,6 +1,6 @@
 # Phase 54.12 - Box Office Assignment Approval
 
-STATUS: IN PROGRESS
+STATUS: COMPLETE
 
 DATE: 28 OCTOBER 2026
 
@@ -48,3 +48,47 @@ progress or per-booking continuation evidence.
    seating, waiting count and job progress.
 5. Continue approved jobs asynchronously in bounded batches and expose an
    explicit progress refresh without background polling.
+
+## Outcome
+
+- Production commit: `d237f36661d0bcefbb82d68b1929c8b3158c8c8b`
+  (`Add Box Office assignment approval workflow`).
+- Vercel deployment: `dpl_13Fcc8RaFayogxTeK6quvYgc13rF`, READY and aliased to
+  `https://book.zingara.co.za`.
+- Added server-enforced management permissions, venue scope, mandatory reason,
+  immutable approval evidence and a durable per-booking resume queue.
+- An authorised resume remains active until an authorised pause or subsequent
+  explicit state change. New eligible bookings continue through the existing
+  automatic-assignment path without repeated approval.
+- Approved waiting queues run in atomic batches of 25, with independently
+  recorded assigned, manual-review and skipped outcomes. Staff can refresh
+  progress explicitly; no browser polling was added.
+- The Table Plan panel now identifies threshold-paused performances and shows
+  occupancy, available physical tables/seats, waiting bookings and job results.
+
+## Production Verification
+
+- 53 verified Phase 54.11 legacy performances received non-destructive control
+  metadata: 39 threshold-paused and 14 enabled.
+- Zero Production threshold overrides, resume jobs or resume items were created.
+- No real Production performance was resumed during QA.
+- Remaining assignment queue is unchanged from Phase 54.11: 1,500 bookings /
+  15,114 guests, including 1,230 bookings across 39 performances awaiting an
+  authorised threshold decision.
+- Admin and public booking routes both returned HTTP 200 after deployment.
+- 18 focused assignment tests passed. TypeScript, changed-file ESLint,
+  migration dry-run, `git diff --check`, Production build and Admin performance
+  budget all passed.
+
+## Rollback
+
+- Application rollback point: `baf39c458f98beea741c7f48da9bec70e671e78b`.
+- Database rollback must be forward-only. Preserve approval/job audit records if
+  the workflow has subsequently been used; no destructive migration rollback.
+
+## Business-Data Delta
+
+- Added control metadata for 53 previously verified legacy performances.
+- Added zero overrides, zero assignments and zero job records.
+- No booking, table claim, show status, ticket-sale capacity, payment, ticket,
+  customer or financial record changed.
