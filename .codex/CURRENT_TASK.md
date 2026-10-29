@@ -1,6 +1,6 @@
 # P0 - Booking Invoice Creation Not Working
 
-STATUS: VERIFIED - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE
 
 DATE: 29 OCTOBER 2026
 
@@ -50,4 +50,22 @@ numbering and duplicate prevention.
 - Next.js 16 optimized Production build passed with the supported webpack
   compiler. The local default compiler cannot bind its internal sandbox port.
 
-Production deployment and authenticated UI verification are in progress.
+## Production Verification
+
+- Application release: `65377e0`.
+- Vercel deployment completed successfully on 29 October 2026.
+- Authenticated Production Booking Details confirmed PMG GROUP, 13 guests,
+  R18,125 paid and R0 outstanding, with no existing financial document.
+- The non-mutating Production invoice preview reconciled to R18,125:
+  R16,240 ticket sales, R10 booking fee and R1,875 gratuity.
+- Xero is connected to `Zingara Productions (Pty) Ltd`, controlled live sync is
+  active, all 16 mappings are approved and the outbound attention queue is empty.
+- Tristan Chetty and Rachelle Smuts are active Super Admin staff with
+  `bookings:reconcile`; their immutable staff IDs are the only booking-invoice
+  converter identities accepted by the server.
+- No invoice draft, Xero record, contact, payment or communication was created.
+
+Rollback: `6259d46515303b56ad021d170f2a3c5f304aa083` plus reversal of the additive
+direct-invoice uniqueness index if the feature is intentionally removed.
+
+P0 COMPLETE - BOOKING INVOICE WORKFLOW VERIFIED.
