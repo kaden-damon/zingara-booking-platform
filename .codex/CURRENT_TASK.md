@@ -1,20 +1,35 @@
-# Phase 58.1 - Credit Notes & Refund Reconciliation
+# P0 - Missing Booking / CRM Customer / Payment Forensic Audit
 
 STATUS: COMPLETE
 
 DATE: 29 OCTOBER 2026
 
-Production application commit: `c06d777`
+## Incident
 
-Production deployment: `dpl_HPVEEiKGa7uWwkCLy4w94dQoA8wS`
+Fatima cannot locate the original booking for Tarnia Norman. An alleged
+R4,400 deposit may need allocation to Tamara Norman's booking.
 
-Rollback point: `034b01c8694dbdb4ddcf2dd595c608a427378908`
+## Scope
 
-Credit-note draft preparation and refund reconciliation evidence are live for
-Tristan Chetty and Rachelle Smuts. Live Xero credit-note posting remains
-disabled pending explicit accounting approval.
+- Read-only Production search across both venues, all booking states, CRM,
+  merges, audit history, payments, PayFast evidence and financial events.
+- Match funds only through authoritative references and transaction evidence.
+- Do not transfer, refund, duplicate, merge or reallocate financial records.
+- Correct only a confirmed application search/visibility defect.
 
-No Production credit note, refund, payment allocation, booking, invoice or
-customer communication was created during implementation or QA.
+## Outcome
 
-See `.codex/archive/PHASE_58_1_CREDIT_NOTES_REFUND_RECONCILIATION_COMPLETE.md`.
+- Original booking: ZNG-XD6ABJ, created for Tarnia Norman by Sharon Ricketts.
+- The linked CRM identity was edited to Tamara Norman on 27 October 2026; the
+  immutable before-values remain in the customer audit.
+- Verified PayFast deposit: R4,400 booking value, transaction 335149581,
+  processed 19 October 2026 at 08:34:48 SAST.
+- Original booking cancelled by Sharon Ricketts on 28 October 2026 at
+  06:30:51 SAST. The cancellation policy recorded the R4,400 as forfeited,
+  no-refund, with R0 refundable.
+- Replacement booking: ZNG-759ZR8. It has no verified payment allocation.
+- No refund, reversal, transfer or customer merge was found.
+- CRM historical-identity search was corrected without changing customer or
+  financial records.
+
+P0 COMPLETE - NORMAN BOOKING & PAYMENT TRACED.
