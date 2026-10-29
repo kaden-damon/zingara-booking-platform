@@ -23,6 +23,7 @@ export type Permission =
 export type StaffSession = {
   email?: string;
   id: string;
+  isPlatformOwner?: boolean;
   name: string;
   permissions?: Permission[];
   role: AdminRole;

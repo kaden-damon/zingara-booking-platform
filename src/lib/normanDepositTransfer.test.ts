@@ -6,6 +6,10 @@ const migrationUrl = new URL(
   "../../supabase/migrations/20261029223000_p0_norman_deposit_reallocation.sql",
   import.meta.url,
 );
+const platformOwnerMigrationUrl = new URL(
+  "../../supabase/migrations/20261029235000_p0_platform_owner_norman_transfer.sql",
+  import.meta.url,
+);
 const routeUrl = new URL(
   "../app/api/admin/payments/norman-deposit-transfer/route.ts",
   import.meta.url,
@@ -19,8 +23,11 @@ const paymentsRouteUrl = new URL(
   import.meta.url,
 );
 
-test("Norman deposit transfer is Fatima-approved, atomic and provider-preserving", async () => {
-  const migration = await readFile(migrationUrl, "utf8");
+test("Norman deposit transfer is management-approved, atomic and provider-preserving", async () => {
+  const [migration, platformOwnerMigration] = await Promise.all([
+    readFile(migrationUrl, "utf8"),
+    readFile(platformOwnerMigrationUrl, "utf8"),
+  ]);
 
   assert.match(migration, /3ac09b59-fc3f-4c6d-9bb3-8dd47a077188/);
   assert.match(migration, /ff96887e-bed8-43ec-884d-0ef8634e9f12/);
@@ -38,6 +45,11 @@ test("Norman deposit transfer is Fatima-approved, atomic and provider-preserving
   assert.match(migration, /booking\.payment-reallocation-in/);
   assert.doesNotMatch(migration, /provider_transaction_id\s*=/);
   assert.doesNotMatch(migration, /delete from public\.(payments|bookings)/i);
+  assert.match(platformOwnerMigration, /platform_owner_bindings/);
+  assert.match(platformOwnerMigration, /owner\.auth_user_id = staff\.user_id/);
+  assert.match(platformOwnerMigration, /role\.name = 'Super Admin'/);
+  assert.doesNotMatch(platformOwnerMigration, /provider_transaction_id\s*=/);
+  assert.doesNotMatch(platformOwnerMigration, /delete from public\.(payments|bookings)/i);
 });
 
 test("API requires authenticated explicit confirmation and the UI does not auto-submit", async () => {
@@ -50,6 +62,7 @@ test("API requires authenticated explicit confirmation and the UI does not auto-
   assert.match(route, /body\?\.confirmed !== true/);
   assert.match(route, /auth\.staffProfile\.id === fatimaStaffProfileId/);
   assert.match(route, /auth\.user\?\.id === fatimaAuthUserId/);
+  assert.match(route, /hasPlatformOwnerBinding\(auth\.staffProfile, auth\.user\)/);
   assert.match(route, /79a9090b-49d5-41f6-b1ca-e2bfcc96d75d/);
   assert.match(component, /I approve this management exception and payment transfer\./);
   assert.match(component, /disabled=\{!approved \|\| submitting\}/);

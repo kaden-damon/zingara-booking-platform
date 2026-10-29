@@ -68,7 +68,7 @@ async function getStaffProfileByUserId(
   const { data, error } = await serviceClient
     .from("staff_profiles")
     .select(
-      "id,user_id,full_name,email,role_id,active,venue_scope,roles(id,name,description,role_permissions(permissions(key)))",
+      "id,user_id,full_name,email,role_id,active,venue_scope,roles(id,name,description,role_permissions(permissions(key))),platform_owner_bindings(auth_user_id,authority)",
     )
     .eq("user_id", userId)
     .maybeSingle();

@@ -40543,8 +40543,9 @@ export default function AdminDashboardPage({
                             </p>
                           )}
                           {booking.reference === "ZNG-759ZR8" &&
-                            currentStaff?.id ===
-                              "ff96887e-bed8-43ec-884d-0ef8634e9f12" && (
+                            (currentStaff?.isPlatformOwner ||
+                              currentStaff?.id ===
+                                "ff96887e-bed8-43ec-884d-0ef8634e9f12") && (
                               <NormanDepositTransferAction
                                 onComplete={() =>
                                   void loadBookingDetails(booking.reference)

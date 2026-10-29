@@ -7,7 +7,8 @@ import {
   paymentPosition,
 } from "./bulkInvoicing.ts";
 
-test("bulk invoicing is restricted to the two approved Accounts identities", () => {
+test("bulk invoicing includes the Platform Owner and approved Accounts identities", () => {
+  assert.equal(canManageBulkInvoices("e8598359-54a0-4e1f-a635-1ec8ae02cb78"), true);
   assert.equal(canManageBulkInvoices("1c9779e7-0e7e-4c58-9fa8-a58c9b16ea0d"), true);
   assert.equal(canManageBulkInvoices("3ea8ff16-d914-477b-95fc-23380e71019a"), true);
   assert.equal(canManageBulkInvoices("00000000-0000-0000-0000-000000000000"), false);

@@ -1,4 +1,5 @@
 import { getActorRoleLabel } from "@/lib/auditTrail";
+import { hasPlatformOwnerBinding } from "@/lib/platformOwnerAccess";
 import { requireActiveStaff } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
@@ -15,19 +16,20 @@ function roleOf(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
     : auth.staffProfile?.roles;
 }
 
-function isFatima(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
+function canApproveTransfer(auth: Awaited<ReturnType<typeof requireActiveStaff>>) {
   return Boolean(
-    auth.staffProfile?.active &&
+    (auth.staffProfile?.active &&
       auth.staffProfile.id === fatimaStaffProfileId &&
-      auth.user?.id === fatimaAuthUserId,
+      auth.user?.id === fatimaAuthUserId) ||
+      hasPlatformOwnerBinding(auth.staffProfile, auth.user),
   );
 }
 
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
   if (auth.error || !auth.serviceClient || !auth.staffProfile) return auth.error;
-  if (!isFatima(auth)) {
-    return Response.json({ error: "Fatima's approval is required." }, { status: 403 });
+  if (!canApproveTransfer(auth)) {
+    return Response.json({ error: "Authorised management approval is required." }, { status: 403 });
   }
 
   const { data, error } = await auth.serviceClient
@@ -46,8 +48,8 @@ export async function POST(request: Request) {
   if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
     return auth.error;
   }
-  if (!isFatima(auth)) {
-    return Response.json({ error: "Fatima's authenticated approval is required." }, { status: 403 });
+  if (!canApproveTransfer(auth)) {
+    return Response.json({ error: "Authenticated management approval is required." }, { status: 403 });
   }
 
   const body = (await request.json().catch(() => null)) as {

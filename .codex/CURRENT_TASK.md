@@ -1,6 +1,6 @@
 # P0 - Norman R4,400 Deposit Transfer
 
-STATUS: READY - AWAITING FATIMA AUTHENTICATED APPROVAL
+STATUS: READY - AWAITING AUTHENTICATED MANAGEMENT APPROVAL
 
 DATE: 29 OCTOBER 2026
 
@@ -20,11 +20,21 @@ booking `ZNG-759ZR8`.
 
 ## Prepared control
 
-- Fatima-only Production confirmation on replacement booking `ZNG-759ZR8`.
+- Fatima and the immutably bound Platform Owner can access the Production
+  confirmation on replacement booking `ZNG-759ZR8`.
 - Exact fixed approval reason and explicit confirmation checkbox.
 - Atomic locks, idempotency, refund/reversal and Xero guards.
 - Original PayFast transaction identity and merchant reference preserved.
 - Both booking aggregates and financial metadata recalculated in one transaction.
 - Immutable reallocation ledger and booking/payment audit evidence.
 
-No financial reallocation has executed. Fatima must approve it while signed in.
+No financial reallocation has executed. Fatima or Kaden must explicitly approve
+it while signed in; loading or viewing the control never submits the transfer.
+
+## Platform Owner access audit
+
+- Kaden's immutable Platform Owner binding is included in the Admin session.
+- The Norman transfer, invoice conversion, bulk invoicing and credit-note
+  identity gates include Kaden without changing access for other staff.
+- Refunds, banking-document management and Booking Activity Timeline already
+  included Kaden and required no correction.

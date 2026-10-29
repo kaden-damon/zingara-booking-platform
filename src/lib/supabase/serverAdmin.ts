@@ -10,6 +10,7 @@ import {
   maintenanceUnavailableResponse,
 } from "@/lib/platformMaintenance";
 import { adminIpUndertaking } from "@/lib/adminIpUndertaking";
+import { hasPlatformOwnerBinding } from "@/lib/platformOwnerAccess";
 import { isStaffSessionCurrent } from "@/lib/staffSessionCutoff";
 
 export type RoleRow = {
@@ -28,6 +29,13 @@ export type StaffProfileRow = {
   email: string;
   full_name: string;
   id: string;
+  platform_owner_bindings?: Array<{
+    auth_user_id: string;
+    authority: string;
+  }> | {
+    auth_user_id: string;
+    authority: string;
+  } | null;
   role_id: string | null;
   roles?: RoleRow | RoleRow[] | null;
   user_id: string;
@@ -324,7 +332,7 @@ export async function requireActiveStaff(
 
   const { data, error } = await serviceClient
     .from("staff_profiles")
-    .select("id,user_id,full_name,email,role_id,active,venue_scope,roles(id,name,description,role_permissions(permissions(key)))")
+    .select("id,user_id,full_name,email,role_id,active,venue_scope,roles(id,name,description,role_permissions(permissions(key))),platform_owner_bindings(auth_user_id,authority)")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -474,6 +482,7 @@ export function staffProfileToSession(row: StaffProfileRow, user: User) {
   return {
     email: row.email,
     id: user.id,
+    isPlatformOwner: hasPlatformOwnerBinding(row, user),
     name: row.full_name,
     permissions: getRolePermissions(role),
     role: adminRole,

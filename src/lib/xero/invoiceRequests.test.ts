@@ -9,7 +9,14 @@ import {
 
 const source = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
-test("invoice conversion is limited to verified Tristan and Rachelle identities with existing authority", () => {
+test("invoice conversion includes the Platform Owner and approved Accounts identities", () => {
+  assert.equal(
+    canConvertRequestedQuote(
+      { active: true, id: approvedInvoiceConversionStaffProfileIds.kadenPlatformOwner },
+      true,
+    ),
+    true,
+  );
   assert.equal(
     canConvertRequestedQuote(
       { active: true, id: approvedInvoiceConversionStaffProfileIds.tristanChetty },
