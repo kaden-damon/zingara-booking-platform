@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
 export type PlatformEventType =
+  | "booking_attempt_rejected"
   | "booking_creation_failed"
   | "booking_completed"
   | "booking_reserved"
@@ -81,6 +82,7 @@ export const publicPlatformEventTypes = new Set<PlatformEventType>([
 ]);
 
 export const serverPlatformEventTypes = new Set<PlatformEventType>([
+  "booking_attempt_rejected",
   "booking_completed",
   "booking_reserved",
   "journey_failed",
@@ -95,20 +97,26 @@ const allowedMetadataKeys = new Set([
   "device",
   "environment",
   "failureKind",
+  "failureReason",
   "location",
+  "performanceDate",
+  "performanceId",
   "paymentState",
   "paymentStatus",
   "section",
+  "requestedGuests",
   "source",
   "stage",
   "status",
   "step",
   "trafficKind",
   "trafficSource",
+  "venue",
   "visitorId",
+  "quotedValue",
 ]);
 const maxStringLength = 120;
-const maxMetadataKeys = 8;
+const maxMetadataKeys = 12;
 
 function trimText(value: string | null | undefined, maxLength = 160) {
   const trimmed = value?.trim();

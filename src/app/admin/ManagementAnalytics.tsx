@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   analyticsTimezone,
@@ -25,6 +26,10 @@ import ReviewAnalyticsPanel from "./ReviewAnalyticsPanel";
 import WebsiteConversionPanel from "./WebsiteConversionPanel";
 import SalesPerformanceCalendar from "./SalesPerformanceCalendar";
 import TicketSalesReport from "./TicketSalesReport";
+
+const BookingFailureRecoveryPanel = dynamic(
+  () => import("./BookingFailureRecoveryPanel"),
+);
 
 const money = new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" });
 const integer = new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 0 });
@@ -304,6 +309,7 @@ function FilterSelect({ label, value, onChange, children }: { label: string; val
 }
 
 type AnalyticsSectionId =
+  | "booking-failures"
   | "sales-performance"
   | "filters"
   | "website-conversion"
@@ -608,6 +614,13 @@ export default function ManagementAnalytics({
             to={filters.bookingCreatedTo}
             venue={filters.venue}
           />
+        </AnalyticsSection>
+        <AnalyticsSection
+          {...sectionProps("booking-failures")}
+          title="Booking Failures & Recovery"
+          description="Blocked public booking journeys, recovery outcomes and potential booking value."
+        >
+          {openSections.includes("booking-failures") ? <BookingFailureRecoveryPanel /> : null}
         </AnalyticsSection>
         <AnalyticsSection
           {...sectionProps("guest-reviews")}

@@ -1,70 +1,58 @@
-# Phase 59.1 - Surgical COMP Correction
+# Phase 61 - Booking Failure Tracking & Lost Sales Monitoring
 
-STATUS: COMPLETE
+STATUS: RELEASE READY
 
 DATE: 29 OCTOBER 2026
 
-## Authoritative Rule
-
-- Standard, Media and Tradex COMP bookings are fully complimentary.
-- Guest payable, payment received and outstanding balance are always `R0`.
-- Each category carries an internal cash-up value of `R550` per guest only.
-- The internal value is not booking revenue, a payment or a financial obligation.
-
 ## Scope
 
-- Correct new internal Standard booking creation without changing the three
-  category controls.
-- Keep payment, PayFast and payment-link paths unavailable for every COMP type.
-- Derive cash-up values from the current guest count in Table Plan exports:
-  Standard COMP, Media column S and Tradex column T.
-- Reconcile all shifted workbook formulas and verify both venue exports.
-- Preserve existing booking, ticket, seating and historical financial records.
+- Prospectively record authoritative public booking and payment-start failures.
+- Link retries and later successful bookings by the existing anonymous journey ID.
+- Add a management-only, paginated Booking Failures & Recovery report.
+- Preserve booking performance, customer privacy and all existing conversion tracking.
 
-## Safety
+## Implementation
 
-- No historical booking or financial backfill.
-- No customer communication or Production QA booking.
-- No changes to ordinary paid booking calculations.
-- Preserve unrelated working-tree files.
-
-## Completed Correction
-
-- Standard, Media and Tradex remain fully complimentary at `R0` payable,
-  `R0` paid and `R0` outstanding.
-- No COMP category creates a payment record, payment request or PayFast link.
-- The internal cash-up value is derived as `R550 x current guest count` only
-  when generating operational Table Plan values.
-- Standard COMP uses the existing COMP field, Media uses column S and Tradex
-  uses column T. The values are excluded from revenue, payments received and
-  outstanding balances.
-- Guest-count amendments preserve the normal complimentary reconciliation path
-  and recalculate the export value from the amended guest count.
-- The Phase 59 chargeable-COMP database branch was removed without rewriting
-  any booking, payment or customer row.
+- Public rejection events are recorded server-side with the performance, venue,
+  seating zone, requested guests, quoted ZAR value, booking reference and exact
+  rejection taxonomy.
+- Recording uses Next.js `after()` and therefore starts only after the booking or
+  checkout response has been returned. Failure recording is bounded and fail-safe.
+- No public browser code, page request, effect, timer, polling task, dependency or
+  React render was added.
+- Retries are grouped by journey. Recovery uses authoritative reservation,
+  completion and payment events. Only explicit PayFast cancellation is classified
+  as abandoned; other incomplete journeys remain unresolved.
+- The management report is permission- and venue-scoped, indexed, paginated to 25
+  journeys and loaded only when its collapsed Reports section is opened.
+- Historical events remain unchanged. GA4, Google Ads, Meta and Phase 56 purchase
+  tracking are unchanged; exact server rejection data stays first-party because
+  advertising consent is not available at the server rejection boundary.
 
 ## Verification
 
-- 46 focused COMP and Table Plan tests passed.
-- Generated workbook validation passed for Johannesburg and Cape Town across
-  Standard, Media and Tradex COMP categories.
-- TypeScript passed.
-- Changed-file ESLint passed with no new errors; three existing warnings remain
-  in the booking route.
-- `git diff --check` passed.
-- Next.js Production build passed with the supported webpack builder.
-- Production database verification confirmed the chargeable-COMP branch is
-  absent while table-fit and complimentary increase safeguards remain active.
-- Production audit found no Media or Tradex Phase 59 financial records requiring
-  correction; no historical backfill was performed.
+- Focused tests: 10 passed.
+- TypeScript: passed.
+- Changed-file ESLint: passed with three pre-existing unused-symbol warnings in
+  `src/app/api/bookings/route.ts` and no errors.
+- Production Webpack build: passed.
+- Migration dry-run and apply: passed.
+- Rollback-only Production fixture: two retries grouped into one recovered journey;
+  potential value counted once; zero fixture rows persisted.
+- Indexed 30-day report query: 7.748 ms on Production.
+- Lazy report chunk: 11,183 bytes; absent from the public booking client.
+- `git diff --check`: passed.
+
+## Safety
+
+- Production business-data delta: none.
+- Schema delta: one secured reporting function and three partial telemetry indexes.
+- No historical reconstruction or backfill.
+- No customer PII is recorded or sent to GA4/Meta.
+- No booking, payment, ticket, seating, Xero or financial logic changed.
 
 ## Release
 
-- Application commit: `37e15fdca7a0e59f97e21d134eb3da28709457a1`.
-- Vercel deployment: successful on 29 October 2026.
-- Production migration: `20261029235964_phase_59_1_comp_cashup_only`, applied
-  and recorded in migration history.
-- Rollback point: `fbfb1a5`.
-- Production business-data delta: zero booking, customer, payment, ticket, Xero
-  or financial-record changes. Only the reconciliation function definition and
-  migration history changed.
+- Baseline / rollback application commit: `38ac64afa8237552c716e838af2a08f6435f9701`.
+- Migration: `20261030093000_phase_61_booking_failure_recovery_reporting.sql` applied.
+- Application commit and Production deployment: pending.

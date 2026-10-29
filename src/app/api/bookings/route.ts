@@ -132,6 +132,10 @@ import {
   isInternalShowApprovalReasonValid,
   normalizeInternalShowApprovalReason,
 } from "@/lib/internalShowBookingPolicy";
+import {
+  recordPublicBookingFailureAfterResponse,
+  type PublicBookingFailureReason,
+} from "@/lib/bookingFailureTracking";
 
 export const dynamic = "force-dynamic";
 
@@ -1068,6 +1072,7 @@ async function reservePublicBookingAtomically(
           },
           { status: 409 },
         ),
+        failureReason: "show-closed" as const,
       };
     }
     if (/PUBLIC_ZONE_SALES_CLOSED/.test(error.message)) {
@@ -1079,6 +1084,7 @@ async function reservePublicBookingAtomically(
           },
           { status: 409 },
         ),
+        failureReason: "zone-unavailable" as const,
       };
     }
     throw error;
@@ -1096,6 +1102,7 @@ async function reservePublicBookingAtomically(
         },
         { status: 409 },
       ),
+      failureReason: "concurrency-conflict" as const,
     };
   }
 
@@ -1105,6 +1112,7 @@ async function reservePublicBookingAtomically(
         { error: "Booking reservation could not be completed." },
         { status: 409 },
       ),
+      failureReason: "concurrency-conflict" as const,
     };
   }
 
@@ -1477,6 +1485,14 @@ async function withAuthoritativePublicPricing(
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const supabase = getServiceClient();
+  const requestHostname = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+    ?? request.headers.get("host")?.trim()
+    ?? "";
+  const telemetryEnvironment = requestHostname === "book.zingara.co.za"
+    ? "production" as const
+    : requestHostname.includes("vercel.app")
+      ? "preview" as const
+      : "development" as const;
   let telemetryBookingReference: string | null = null;
   let telemetryJourneyId: string | null = null;
   let twoSeaterContext: {
@@ -1484,6 +1500,42 @@ export async function POST(request: Request) {
     zoneId: DemoBooking["zoneId"];
   } | null = null;
   let twoSeaterOverrideAllowed = false;
+  let telemetryPublicBooking: DemoBooking | null = null;
+  let telemetryShow: SupabaseShowRow | null = null;
+
+  function trackPublicRejection(
+    reason: PublicBookingFailureReason,
+    statusCode: number,
+    currentBooking = telemetryPublicBooking,
+    currentShow = telemetryShow,
+  ) {
+    if (!supabase || !currentBooking || currentBooking.source !== "online") return;
+
+    recordPublicBookingFailureAfterResponse(supabase, {
+      bookingReference: currentBooking.reference,
+      environment: telemetryEnvironment,
+      journeyId: telemetryJourneyId,
+      performanceDate: currentShow?.date ?? null,
+      performanceId: currentShow?.id ?? currentBooking.showId ?? null,
+      quotedValue: currentBooking.totalPrice,
+      reason,
+      requestedGuests: currentBooking.partySize,
+      seatingZone: currentBooking.zoneTitle,
+      statusCode,
+      venue: currentShow?.venue ?? null,
+    });
+  }
+
+  function rejectPublicBooking(
+    payload: Record<string, unknown>,
+    statusCode: number,
+    reason: PublicBookingFailureReason,
+    currentBooking = telemetryPublicBooking,
+    currentShow = telemetryShow,
+  ) {
+    trackPublicRejection(reason, statusCode, currentBooking, currentShow);
+    return Response.json(payload, { status: statusCode });
+  }
 
   if (!supabase) {
     return Response.json(
@@ -1623,6 +1675,7 @@ export async function POST(request: Request) {
       customer: normalizeBookingCustomer(booking.customer),
       source: trustedBookingSource,
     };
+    telemetryPublicBooking = trustedBookingSource === "online" ? booking : null;
 
     const isTrustedStaff = Boolean(staffProfileId);
     let show: SupabaseShowRow | undefined;
@@ -1770,23 +1823,25 @@ export async function POST(request: Request) {
     );
 
     if (createValidationError) {
-      return Response.json(
+      return rejectPublicBooking(
         {
           error: createValidationError,
           fieldErrors: createValidationErrors,
         },
-        { status: 400 },
+        400,
+        "booking-validation",
       );
     }
 
     if (booking.source === "online" && isCorporatePartySize(booking.partySize)) {
-      return Response.json(
+      return rejectPublicBooking(
         {
           corporateUrl: `/corporate?guests=${Math.trunc(booking.partySize)}`,
           error:
             "Parties of 20 or more are handled through Corporate Bookings.",
         },
-        { status: 409 },
+        409,
+        "booking-validation",
       );
     }
 
@@ -1799,12 +1854,13 @@ export async function POST(request: Request) {
       (zone) => requestedZoneIds.has(zone.id) && !isSeatingZoneEnabled(lifecycleSettings, zone),
     );
     if (disabledZone && isCreate) {
-      return Response.json(
+      return rejectPublicBooking(
         {
           code: "SEATING_ZONE_DISABLED",
           error: `${disabledZone.title} is not available for new bookings. Choose another seating zone.`,
         },
-        { status: 409 },
+        409,
+        "zone-unavailable",
       );
     }
 
@@ -1813,14 +1869,15 @@ export async function POST(request: Request) {
       booking.source !== "corporate-direct" &&
       !isStandardBookingZoneGuestCountAllowed(booking.zoneId, booking.partySize)
     ) {
-      return Response.json(
+      return rejectPublicBooking(
         {
           error:
             booking.zoneId === "royal-booths"
               ? "Private Booths are available for Standard bookings from 4 guests."
               : "This seating option is not available for the selected group size.",
         },
-        { status: 400 },
+        400,
+        "booking-validation",
       );
     }
 
@@ -1832,6 +1889,7 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    telemetryShow = show;
 
     if (isTrustedStaff) {
       const { data: activeBuyout, error: activeBuyoutError } = await supabase
@@ -2027,12 +2085,15 @@ export async function POST(request: Request) {
 
     if (booking.source === "online" && !isTrustedStaff) {
       if (!isShowPubliclyBookable(show.status)) {
-        return Response.json(
+        return rejectPublicBooking(
           {
             code: "SHOW_NOT_AVAILABLE",
             error: publicShowUnavailableMessage,
           },
-          { status: 409 },
+          409,
+          show.status === "sold_out" ? "show-sold-out" : "show-closed",
+          booking,
+          show,
         );
       }
 
@@ -2055,7 +2116,7 @@ export async function POST(request: Request) {
         showLocation &&
         !isPublicBookingOpen(publicBookingSettings, showLocation)
       ) {
-        return Response.json(
+        return rejectPublicBooking(
           {
             code: "PUBLIC_BOOKINGS_NOT_OPEN",
             error:
@@ -2063,7 +2124,10 @@ export async function POST(request: Request) {
                 ? "Cape Town bookings open 9 September."
                 : "Public bookings are not currently open for this venue.",
           },
-          { status: 403 },
+          403,
+          "show-closed",
+          booking,
+          show,
         );
       }
 
@@ -2075,25 +2139,31 @@ export async function POST(request: Request) {
         });
 
         if (cutoff.closed) {
-          return Response.json(
+          return rejectPublicBooking(
             {
               code: "PUBLIC_BOOKING_CUTOFF_REACHED",
               cutoffAt: cutoff.cutoffAt,
               error:
                 "Online bookings for this performance have closed. Please contact the Box Office for assistance.",
             },
-            { status: 409 },
+            409,
+            "booking-cutoff",
+            booking,
+            show,
           );
         }
       }
 
       if (!publicZoneSalesOpen) {
-        return Response.json(
+        return rejectPublicBooking(
           {
             code: "PUBLIC_ZONE_SALES_CLOSED",
             error: "This seating zone is sold out for online bookings.",
           },
-          { status: 409 },
+          409,
+          "zone-unavailable",
+          booking,
+          show,
         );
       }
 
@@ -2326,6 +2396,7 @@ export async function POST(request: Request) {
         agreedPriceSource,
         staffProfileId ?? undefined,
       );
+      telemetryPublicBooking = booking.source === "online" ? booking : null;
 
       if (
         !hasExplicitStaffRate &&
@@ -2333,13 +2404,16 @@ export async function POST(request: Request) {
         submittedPricePerPerson > 0 &&
         Math.abs(submittedPricePerPerson - booking.pricePerPerson) >= 0.01
       ) {
-        return Response.json(
+        return rejectPublicBooking(
           {
             code: "BOOKING_PRICE_CHANGED",
             error:
               "The price changed while you were booking. Review the latest total and try again.",
           },
-          { status: 409 },
+          409,
+          "booking-validation",
+          booking,
+          show,
         );
       }
     }
@@ -2383,6 +2457,7 @@ export async function POST(request: Request) {
         showId: show.id,
       });
       if (!capacityResult.allowed) {
+        trackPublicRejection("zone-capacity-exhausted", 409, booking, show);
         return getBookingCapacityConflictResponse(capacityResult);
       }
     }
@@ -2423,6 +2498,12 @@ export async function POST(request: Request) {
       );
 
       if (reservation.error) {
+        trackPublicRejection(
+          reservation.failureReason ?? "concurrency-conflict",
+          409,
+          booking,
+          show,
+        );
         return reservation.error;
       }
 
@@ -2576,7 +2657,7 @@ export async function POST(request: Request) {
         );
       }
 
-      return Response.json(
+      return rejectPublicBooking(
         {
           alternatives,
           code: TWO_SEATER_LIMIT_ERROR_CODE,
@@ -2585,17 +2666,19 @@ export async function POST(request: Request) {
           limit: TWO_SEATER_BOOKING_LIMIT,
           canOverride: twoSeaterOverrideAllowed,
         },
-        { status: 409 },
+        409,
+        "two-seater-limit",
       );
     }
 
     if (isBookingCapacityError(error)) {
-      return Response.json(
+      return rejectPublicBooking(
         {
           error:
             "This seating zone cannot accept additional guests because its venue capacity has been reached.",
         },
-        { status: 409 },
+        409,
+        "zone-capacity-exhausted",
       );
     }
 
@@ -2661,6 +2744,7 @@ export async function POST(request: Request) {
     }
 
     console.error("[Zingara API] Booking transaction failed", error);
+    trackPublicRejection("application-error", 500);
     recordPlatformFailureEventBestEffort(
       {
         bookingReference: telemetryBookingReference,

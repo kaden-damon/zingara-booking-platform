@@ -14,6 +14,7 @@ import {
 } from "@/lib/rateLimit";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { requirePublicMaintenanceAvailable } from "@/lib/platformMaintenance";
+import { recordPaymentInitiationFailureAfterResponse } from "@/lib/bookingFailureTracking";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,14 @@ type PayFastCheckoutRequest = {
 
 export async function POST(request: Request) {
   const startedAt = Date.now();
+  const requestHostname = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+    ?? request.headers.get("host")?.trim()
+    ?? "";
+  const telemetryEnvironment = requestHostname === "book.zingara.co.za"
+    ? "production" as const
+    : requestHostname.includes("vercel.app")
+      ? "preview" as const
+      : "development" as const;
 
   try {
     const body = (await request.json()) as PayFastCheckoutRequest;
@@ -159,6 +168,14 @@ export async function POST(request: Request) {
         },
         serviceClient,
       );
+      recordPaymentInitiationFailureAfterResponse(serviceClient, {
+        bookingReference: body.bookingReference,
+        environment: telemetryEnvironment,
+        journeyId: body.journeyId ?? null,
+        quotedValue: body.amount,
+        seatingZone: body.section ?? null,
+        statusCode: 500,
+      });
 
       return Response.json(
         { error: "PayFast checkout could not be prepared." },
@@ -167,6 +184,14 @@ export async function POST(request: Request) {
     }
 
     if ("error" in attemptResult) {
+      recordPaymentInitiationFailureAfterResponse(serviceClient, {
+        bookingReference: body.bookingReference,
+        environment: telemetryEnvironment,
+        journeyId: body.journeyId ?? null,
+        quotedValue: body.amount,
+        seatingZone: body.section ?? null,
+        statusCode: attemptResult.status,
+      });
       return Response.json(
         { error: attemptResult.error },
         { status: attemptResult.status },
@@ -218,6 +243,15 @@ export async function POST(request: Request) {
         serviceClient,
       );
       }
+
+      recordPaymentInitiationFailureAfterResponse(serviceClient, {
+        bookingReference: body.bookingReference,
+        environment: telemetryEnvironment,
+        journeyId: body.journeyId ?? null,
+        quotedValue: body.amount,
+        seatingZone: body.section ?? null,
+        statusCode: checkout.status,
+      });
 
       return Response.json(
         { error: checkout.error },
