@@ -56,14 +56,18 @@ range. Results are indexed, paginated and loaded only when the section opens.
 - Migration dry-run and application passed.
 - A rollback-only Production fixture verified retry deduplication, recovery,
   timeline ordering and single-count potential value; zero fixture rows persisted.
+- The authenticated Production Reports workspace visibly exposed the report and
+  loaded it only when opened. The live prospective dataset showed one genuine
+  blocked journey, retained as unresolved without inferred recovery or loss.
 - `git diff --check` passed.
 
 ## Release
 
 - Baseline / rollback application commit: `38ac64afa8237552c716e838af2a08f6435f9701`.
 - Migration: `20261030093000_phase_61_booking_failure_recovery_reporting.sql`.
-- Application commit: pending.
-- Production deployment: pending.
+- Application commit: `538f1a4af68ee8f32de3c1d65009747f79fd963c`.
+- Production deployment: Ready on 29 October 2026 at 20:00:34 SAST
+  (`zingara-booking-platform-c74tchu7z-kaden-damons-projects.vercel.app`).
 
 ## Data Delta
 
