@@ -1,6 +1,6 @@
 # P0 - Booking Transfer Blocked
 
-STATUS: IMPLEMENTED - VERIFICATION AND RELEASE IN PROGRESS
+STATUS: COMPLETE - DEPLOYED AND VERIFIED
 
 DATE: 29 OCTOBER 2026
 
@@ -47,3 +47,30 @@ old pre-validation rejection did not create an audit event.
 
 No booking has been moved. No show status, capacity, table, payment, ticket or
 financial record has changed.
+
+## Verification and release
+
+- Focused transfer eligibility tests: 11 passed.
+- TypeScript: passed.
+- Focused changed-file ESLint: passed. The large pre-existing Admin file still
+  reports two unrelated React effect lint findings outside this correction.
+- Diff check: passed.
+- Production webpack build: passed.
+- Production migration applied and the live `transfer_booking_show_atomic`
+  function confirms SOLD OUT internal destinations are allowed to proceed to
+  authoritative validation.
+- Authenticated Production inspection confirmed `ZNG-XVFB2G` remains on its
+  original 4 November show at table 406.
+- The temporary `Kerry` table remains available, unassigned and unchanged.
+- Commit: `3644d0cbfd5add2588f02247c1aee42ba04bc189`.
+- Deployment: `dpl_2bEDR9NVjUWYE5EeapwAaMKxL9Hw`, READY at
+  `https://book.zingara.co.za`.
+- Rollback point: `eacf32f5305bc58ba965b84a949e1b9016dd40be`.
+
+## Operational result
+
+Internal staff can now select ACTIVE or SOLD OUT destination performances
+without reopening public sales. Transfers still fail closed when the actual
+venue or zone capacity is insufficient. Lisa's requested destination currently
+has six authorised Golden Circle seats remaining for a ten-guest booking, so
+the transfer is correctly rejected by the capacity safeguard.
