@@ -41,4 +41,6 @@ test("document actions distinguish types and reuse the authoritative PDF rendere
   assert.match(panel, /View PDF/);
   assert.match(panel, /Download PDF/);
   assert.match(panel, /pdfCache\.current/);
+  assert.match(panel, /Create Invoice Draft/);
+  assert.match(panel, /document=invoice/);
 });

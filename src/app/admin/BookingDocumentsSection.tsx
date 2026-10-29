@@ -51,7 +51,10 @@ type BookingDocumentDetail = BookingDocumentSummary & {
 };
 
 type DocumentDetailResponse = { document: BookingDocumentDetail };
-type DocumentListResponse = { documents: BookingDocumentSummary[] };
+type DocumentListResponse = {
+  canCreateBookingInvoice: boolean;
+  documents: BookingDocumentSummary[];
+};
 
 const actionClass =
   "inline-flex min-h-10 items-center justify-center rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-semibold text-[#F2D66C] transition hover:border-[#F2D66C] hover:bg-[#D8C36A] hover:text-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C] disabled:cursor-wait disabled:opacity-50";
@@ -91,6 +94,7 @@ export default function BookingDocumentsSection({
   const [documents, setDocuments] = useState<BookingDocumentSummary[] | null>(
     null,
   );
+  const [canCreateBookingInvoice, setCanCreateBookingInvoice] = useState(false);
   const [loading, setLoading] = useState(false);
   const [busyDocumentId, setBusyDocumentId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -116,6 +120,7 @@ export default function BookingDocumentsSection({
         `/api/admin/xero?bookingDocumentsReference=${encodeURIComponent(bookingReference)}`,
         { cache: "no-store" },
       );
+      setCanCreateBookingInvoice(result.canCreateBookingInvoice);
       setDocuments(result.documents);
     } catch (loadError) {
       setError(
@@ -236,6 +241,16 @@ export default function BookingDocumentsSection({
 
       {open && (
         <div className="mt-4 border-t border-white/10 pt-4">
+          {canCreateBookingInvoice && !loading && !error && (
+            <div className="mb-4 flex justify-end">
+              <a
+                href={`/admin?section=xero&booking=${encodeURIComponent(bookingReference)}&document=invoice`}
+                className={actionClass}
+              >
+                Create Invoice Draft
+              </a>
+            </div>
+          )}
           {loading ? (
             <p role="status" className="text-sm text-zinc-400">
               Loading documents...
@@ -289,9 +304,16 @@ export default function BookingDocumentsSection({
               ))}
             </div>
           ) : (
-            <p className="text-sm text-zinc-400">
-              No quotations or invoices are linked to this booking.
-            </p>
+            <div className="space-y-2">
+              <p className="text-sm text-zinc-400">
+                No quotations or invoices are linked to this booking.
+              </p>
+              {canCreateBookingInvoice && (
+                <p className="text-xs text-zinc-500">
+                  Create a reviewed invoice draft from the authoritative booking value.
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}

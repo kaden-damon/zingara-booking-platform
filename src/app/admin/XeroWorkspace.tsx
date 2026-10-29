@@ -32,7 +32,7 @@ type WorkspacePayload = {
   outboxAttentionCount: number; page: number; pageSize: number; total: number;
 };
 type DetailPayload = { bookingFinancials: BookingFinancials | null; document: DocumentDetail; linkedInvoice: { id: string; local_reference: string; status: string; sync_status: string; xero_document_number: string | null; xero_status: string | null } | null; versions: Array<{ created_at: string; version: number }> };
-type BookingPrefill = { booking: { billingAddress: string; bookingReference: string; bookingValue: number; companyId: string | null; contactCustomerId: string | null; customerEmail: string; customerName: string; guestCount: number; outstanding: number; paid: number; paymentStatus: string; performanceDate: string; performanceTime: string; seatingSummary: string; sourceBookingId: string; venue: "cape-town" | "johannesburg" } };
+type BookingPrefill = { booking: { billingAddress: string; bookingReference: string; bookingValue: number; companyId: string | null; contactCustomerId: string | null; customerEmail: string; customerName: string; guestCount: number; lineAmountType: XeroLineAmountType; lines: XeroDocumentLineInput[]; outstanding: number; paid: number; paymentStatus: string; performanceDate: string; performanceTime: string; seatingSummary: string; sourceBookingId: string; venue: "cape-town" | "johannesburg" } };
 type CorporatePrefill = { corporateRequest: { billingAddress: string; companyId: string | null; contactCustomerId: string | null; customerEmail: string; customerName: string; guestCount: number | null; performanceDate: string | null; seatingSummary: string | null; sourceCorporateRequestId: string; venue: "cape-town" | "johannesburg" } };
 
 const emptyLine = (): XeroDocumentLineInput => ({ description: "", mappingCategory: "corporate", quantity: "1", taxCode: null, taxRatePercent: "15", unitPrice: "0.0000" });
@@ -100,11 +100,14 @@ export default function XeroWorkspace({ initialBookingReference = "", initialCor
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
-        const result = await fetchSupabaseApi<BookingPrefill>(`/api/admin/xero?prefillBookingReference=${encodeURIComponent(initialBookingReference)}`, { cache: "no-store", signal: controller.signal });
+        const requestedKind = new URLSearchParams(window.location.search).get("document") === "invoice" ? "invoice" : "quote";
+        const result = await fetchSupabaseApi<BookingPrefill>(`/api/admin/xero?prefillBookingReference=${encodeURIComponent(initialBookingReference)}&document=${requestedKind}`, { cache: "no-store", signal: controller.signal });
         const booking = result.booking;
+        setKind(requestedKind);
         setSourceBookingId(booking.sourceBookingId); setCompanyId(booking.companyId); setContactCustomerId(booking.contactCustomerId);
         setBookingReference(booking.bookingReference); setCustomerName(booking.customerName); setCustomerEmail(booking.customerEmail); setBillingAddress(booking.billingAddress);
         setGuestCount(String(booking.guestCount)); setPerformanceDate(booking.performanceDate); setPerformanceTime(booking.performanceTime.slice(0,5)); setSeatingSummary(booking.seatingSummary); setVenue(booking.venue);
+        if (requestedKind === "invoice") { setAmountType(booking.lineAmountType); setLines(booking.lines); setPaymentTerms(booking.outstanding === 0 ? "Paid in full" : `Outstanding: ${money(Math.round(booking.outstanding * 100))}`); }
         setEditorOpen(true);
       } catch (prefillError) {
         if (!(prefillError instanceof DOMException && prefillError.name === "AbortError")) setError(prefillError instanceof Error ? prefillError.message : "The booking details couldn't be loaded.");
@@ -221,7 +224,7 @@ function Details({ payload, canConvertQuote, canRequestInvoice, busy, acceptedBy
         {["draft","revised"].includes(document.status) && <button type="button" onClick={() => edit(document)} className={secondaryButton}>Edit Draft</button>}
         <button type="button" onClick={() => downloadPdf(document)} className={secondaryButton}>Download PDF</button>
         {document.kind === "quote" && ["draft","revised"].includes(document.status) && <button type="button" disabled={busy} onClick={() => void action("send")} className={secondaryButton}>Send Quote</button>}
-        {canConvertQuote && document.kind === "invoice" && Boolean(document.source_quote_id) && ["draft","revised"].includes(document.status) && document.sync_status === "local_only" && <button type="button" disabled={busy} onClick={() => void action("queue")} className={secondaryButton}>Create in Xero</button>}
+        {canConvertQuote && document.kind === "invoice" && Boolean(document.source_quote_id || document.source_booking_id) && ["draft","revised"].includes(document.status) && document.sync_status === "local_only" && <button type="button" disabled={busy} onClick={() => void action("queue")} className={secondaryButton}>Create in Xero</button>}
         {document.kind === "quote" && !["accepted","converted"].includes(document.status) && <button type="button" disabled={busy || !acceptedBy.trim() || !acceptanceEvidence.trim()} onClick={() => void action("accept")} className={primaryButton}>Record Acceptance</button>}
         {document.kind === "quote" && document.status === "accepted" && !document.invoice_requested_at && canRequestInvoice && <button type="button" disabled={busy} onClick={() => void action("request-invoice")} className={primaryButton}>Request Invoice</button>}
         {requestOutstanding && canConvertQuote && <button type="button" disabled={busy} onClick={() => void action("convert")} className={primaryButton}>Create Invoice Draft</button>}

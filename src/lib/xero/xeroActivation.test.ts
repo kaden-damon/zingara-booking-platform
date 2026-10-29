@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { assertInitialInvoiceSyncEligibility } from "./activation.ts";
+import {
+  assertDirectBookingInvoiceSyncEligibility,
+  assertInitialInvoiceSyncEligibility,
+} from "./activation.ts";
 
 const root = new URL("../../../", import.meta.url);
 const source = (path: string) => readFile(new URL(path, root), "utf8");
@@ -88,4 +91,54 @@ test("connection controls present only the action appropriate to the current syn
   assert.match(panel, /current\?\.tenant_id && current\.sync_paused && <button[^>]*>[\s\S]*?Enable Sync/);
   assert.doesNotMatch(panel, /disabled=\{busy \|\| current\.sync_paused\}[\s\S]*Pause Sync/);
   assert.match(panel, /quietButton[\s\S]*Disconnect/);
+});
+
+const directBooking = {
+  amount_paid: 18_125,
+  archived_at: null,
+  balance_outstanding: 0,
+  booking_status: "confirmed",
+  id: "booking-1",
+  payment_status: "fully_paid",
+  total_amount: 18_125,
+};
+
+const directInvoice = {
+  created_at: "2026-10-29T10:00:00.000Z",
+  kind: "invoice",
+  source_booking_id: "booking-1",
+  source_quote_id: null,
+  status: "draft",
+  total_cents: 1_812_500,
+};
+
+test("direct booking invoices require exact fully paid booking evidence", () => {
+  const input = {
+    activationAt: "2026-10-23T10:00:00.000Z",
+    booking: directBooking,
+    canConvertRequestedQuote: true,
+    connectionStatus: "connected",
+    invoice: directInvoice,
+    liveSyncAuthorised: true,
+    syncPaused: false,
+    verifiedPaymentTotal: 18_125,
+    webhookConfigured: true,
+  };
+  assert.doesNotThrow(() => assertDirectBookingInvoiceSyncEligibility(input));
+  assert.throws(
+    () => assertDirectBookingInvoiceSyncEligibility({ ...input, verifiedPaymentTotal: 16_875 }),
+    /do not reconcile exactly/,
+  );
+  assert.throws(
+    () => assertDirectBookingInvoiceSyncEligibility({ ...input, booking: { ...directBooking, balance_outstanding: 1 } }),
+    /do not reconcile exactly/,
+  );
+  assert.throws(
+    () => assertDirectBookingInvoiceSyncEligibility({ ...input, booking: { ...directBooking, payment_status: "deposit_paid" } }),
+    /not an active, fully paid booking/,
+  );
+  assert.throws(
+    () => assertDirectBookingInvoiceSyncEligibility({ ...input, canConvertRequestedQuote: false }),
+    /Tristan or Rachelle/,
+  );
 });

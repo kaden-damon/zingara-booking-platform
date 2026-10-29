@@ -5,8 +5,15 @@ import { sendOperationalCustomerEmail, sendZingaraEmail } from "@/lib/email/smtp
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
 import { canCreateXeroInvoice, canCreateXeroQuote } from "@/lib/xero/access";
+import {
+  buildAuthoritativeBookingInvoiceDraft,
+  directBookingInvoiceRevenueCategory,
+} from "@/lib/xero/bookingInvoice";
 import { canConvertRequestedQuote } from "@/lib/xero/invoiceRequests";
-import { assertInitialInvoiceSyncEligibility } from "@/lib/xero/activation";
+import {
+  assertDirectBookingInvoiceSyncEligibility,
+  assertInitialInvoiceSyncEligibility,
+} from "@/lib/xero/activation";
 import { downloadBankingDocument, loadActiveBankingDocument } from "@/lib/xero/bankingDocuments";
 import { getXeroConfiguration } from "@/lib/xero/config";
 import { runLiveXeroSyncWorker } from "@/lib/xero/liveSync";
@@ -232,7 +239,7 @@ export async function GET(request: Request) {
   if (prefillBookingReference) {
     const { data: booking, error: bookingError } = await auth.serviceClient
       .from("bookings")
-      .select("id,booking_reference,company_id,customer_id,company_name,guest_count,section,show_id,total_amount,amount_paid,balance_outstanding,payment_status")
+      .select("id,booking_reference,booking_origin,booking_source,corporate_request_id,company_id,customer_id,company_name,guest_count,section,show_id,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,payment_status")
       .eq("booking_reference", prefillBookingReference)
       .maybeSingle();
     if (bookingError) throw bookingError;
@@ -248,6 +255,21 @@ export async function GET(request: Request) {
     if (companyResult.error) throw companyResult.error;
     const customer = customerResult.data;
     const company = companyResult.data;
+    const invoiceDraft = url.searchParams.get("document") === "invoice"
+      ? buildAuthoritativeBookingInvoiceDraft({
+          addonsTotal: Number(booking.addons_total) || 0,
+          bookingReference: booking.booking_reference,
+          discountAmount: Number(booking.discount_amount) || 0,
+          revenueCategory: directBookingInvoiceRevenueCategory({
+            bookingOrigin: booking.booking_origin,
+            bookingSource: booking.booking_source,
+            corporateRequestId: booking.corporate_request_id,
+          }),
+          serviceFee: Number(booking.service_fee) || 0,
+          subtotalAmount: Number(booking.subtotal_amount) || 0,
+          totalAmount: Number(booking.total_amount) || 0,
+        })
+      : null;
     return Response.json({
       booking: {
         billingAddress: company ? [company.billing_address_line_1, company.billing_address_line_2, company.billing_suburb, company.billing_city, company.billing_province, company.billing_postal_code, company.billing_country].filter(Boolean).join(", ") : "",
@@ -258,6 +280,8 @@ export async function GET(request: Request) {
         customerEmail: company?.billing_email || customer?.email || "",
         customerName: company?.trading_name || company?.legal_name || booking.company_name || [customer?.first_name, customer?.surname].filter(Boolean).join(" "),
         guestCount: booking.guest_count,
+        lineAmountType: invoiceDraft?.lineAmountType ?? "no-tax",
+        lines: invoiceDraft?.lines ?? [],
         outstanding: Number(booking.balance_outstanding) || 0,
         paid: Number(booking.amount_paid) || 0,
         paymentStatus: booking.payment_status,
@@ -276,7 +300,7 @@ export async function GET(request: Request) {
   if (bookingDocumentsReference) {
     const { data: booking, error: bookingError } = await auth.serviceClient
       .from("bookings")
-      .select("id,booking_reference,show_id")
+      .select("id,booking_reference,show_id,booking_status,payment_status,total_amount,amount_paid,balance_outstanding,archived_at")
       .eq("booking_reference", bookingDocumentsReference)
       .maybeSingle();
     if (bookingError) throw bookingError;
@@ -318,7 +342,18 @@ export async function GET(request: Request) {
       .limit(100);
     if (documentsError) throw documentsError;
 
-    return Response.json({ documents: documents ?? [] });
+    return Response.json({
+      canCreateBookingInvoice:
+        canConvertQuote(auth, permissions) &&
+        !booking.archived_at &&
+        booking.booking_status === "confirmed" &&
+        booking.payment_status === "fully_paid" &&
+        Math.round(Number(booking.total_amount) * 100) > 0 &&
+        Math.round(Number(booking.amount_paid) * 100) === Math.round(Number(booking.total_amount) * 100) &&
+        Math.round(Number(booking.balance_outstanding) * 100) === 0 &&
+        !(documents ?? []).some((document) => document.kind === "invoice"),
+      documents: documents ?? [],
+    });
   }
   const documentId = url.searchParams.get("documentId")?.trim();
   if (documentId) {
@@ -432,6 +467,22 @@ export async function POST(request: Request) {
     if (!venue || !allowedVenues(auth.staffProfile.venue_scope).includes(venue)) {
       return Response.json({ error: "This venue is outside your access." }, { status: 403 });
     }
+    if (validated.kind === "invoice" && input.sourceBookingId && !input.sourceCorporateRequestId) {
+      if (!canConvertQuote(auth, permissions)) {
+        return Response.json({ error: "Only Tristan or Rachelle can create a booking invoice draft." }, { status: 403 });
+      }
+      const { data: existingInvoice, error: existingInvoiceError } = await auth.serviceClient
+        .from("xero_documents")
+        .select("id")
+        .eq("kind", "invoice")
+        .eq("source_booking_id", input.sourceBookingId)
+        .limit(1)
+        .maybeSingle();
+      if (existingInvoiceError) throw existingInvoiceError;
+      if (existingInvoice) {
+        return Response.json({ error: "An invoice already exists for this booking." }, { status: 409 });
+      }
+    }
     const row = {
       ...documentRow(input, validated, auth.staffProfile.id),
       created_by_staff_profile_id: auth.staffProfile.id,
@@ -446,7 +497,12 @@ export async function POST(request: Request) {
       p_actor_staff_profile_id: auth.staffProfile.id,
       p_document: row,
     });
-    if (error) throw error;
+    if (error) {
+      if (error.code === "23505" && validated.kind === "invoice" && input.sourceBookingId) {
+        return Response.json({ error: "An invoice already exists for this booking." }, { status: 409 });
+      }
+      throw error;
+    }
     return Response.json({ document: data }, { status: 201 });
   } catch (error) {
     console.error("[Xero Foundation] Draft could not be created", error);
@@ -515,16 +571,46 @@ export async function PATCH(request: Request) {
         ? await auth.serviceClient.from("xero_documents").select("id,kind,status,accepted_version,invoice_requested_at,invoice_requested_version").eq("id", current.source_quote_id).maybeSingle()
         : { data: null, error: null };
       if (sourceQuoteError) throw sourceQuoteError;
-      assertInitialInvoiceSyncEligibility({
-        activationAt: connection.live_sync_activated_at,
-        canConvertRequestedQuote: authorisedConverter,
-        connectionStatus: connection.status,
-        invoice: current,
-        liveSyncAuthorised: process.env.XERO_LIVE_SYNC_AUTHORISED === "true",
-        quote: sourceQuote,
-        syncPaused: connection.sync_paused,
-        webhookConfigured: Boolean(getXeroConfiguration().webhookKey),
-      });
+      if (current.source_quote_id) {
+        assertInitialInvoiceSyncEligibility({
+          activationAt: connection.live_sync_activated_at,
+          canConvertRequestedQuote: authorisedConverter,
+          connectionStatus: connection.status,
+          invoice: current,
+          liveSyncAuthorised: process.env.XERO_LIVE_SYNC_AUTHORISED === "true",
+          quote: sourceQuote,
+          syncPaused: connection.sync_paused,
+          webhookConfigured: Boolean(getXeroConfiguration().webhookKey),
+        });
+      } else {
+        const { data: booking, error: bookingError } = current.source_booking_id
+          ? await auth.serviceClient
+              .from("bookings")
+              .select("id,booking_status,payment_status,total_amount,amount_paid,balance_outstanding,archived_at")
+              .eq("id", current.source_booking_id)
+              .maybeSingle()
+          : { data: null, error: null };
+        if (bookingError) throw bookingError;
+        const { data: payments, error: paymentsError } = current.source_booking_id
+          ? await auth.serviceClient
+              .from("payments")
+              .select("amount,payment_status")
+              .eq("booking_id", current.source_booking_id)
+              .in("payment_status", ["deposit_paid", "fully_paid"])
+          : { data: [], error: null };
+        if (paymentsError) throw paymentsError;
+        assertDirectBookingInvoiceSyncEligibility({
+          activationAt: connection.live_sync_activated_at,
+          booking,
+          canConvertRequestedQuote: authorisedConverter,
+          connectionStatus: connection.status,
+          invoice: current,
+          liveSyncAuthorised: process.env.XERO_LIVE_SYNC_AUTHORISED === "true",
+          syncPaused: connection.sync_paused,
+          verifiedPaymentTotal: (payments ?? []).reduce((total, payment) => total + Number(payment.amount), 0),
+          webhookConfigured: Boolean(getXeroConfiguration().webhookKey),
+        });
+      }
       documentMappingCategory(current as QueueableXeroDocument);
       const categories = [...new Set((current.lines as Array<{ mappingCategory?: string | null }>).map((line) => line.mappingCategory).filter((category): category is string => Boolean(category)))];
       if (categories.length !== current.lines.length && categories.length === 0) return Response.json({ error: "Choose an approved accounting category for every invoice line." }, { status: 409 });
