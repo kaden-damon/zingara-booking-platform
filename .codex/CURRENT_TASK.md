@@ -1,31 +1,20 @@
 # Phase 58.1 - Credit Notes & Refund Reconciliation
 
-STATUS: IN PROGRESS
+STATUS: COMPLETE
 
 DATE: 29 OCTOBER 2026
 
-## Goal
+Production application commit: `c06d777`
 
-Extend the existing booking financial documents and controlled Xero
-architecture with permissioned, durable credit-note drafts for invoiced
-bookings and read-only refund reconciliation evidence.
+Production deployment: `dpl_HPVEEiKGa7uWwkCLy4w94dQoA8wS`
 
-## Activation Boundary
+Rollback point: `034b01c8694dbdb4ddcf2dd595c608a427378908`
 
-- Draft preparation and review may be deployed for Tristan Chetty and Rachelle
-  Smuts.
-- Live Xero credit-note posting remains disabled pending explicit accounting,
-  VAT and Xero workflow approval.
-- Credit-note creation never initiates a PayFast or bank refund.
-- No Production credit note, refund, payment allocation or customer
-  communication may be created during QA.
+Credit-note draft preparation and refund reconciliation evidence are live for
+Tristan Chetty and Rachelle Smuts. Live Xero credit-note posting remains
+disabled pending explicit accounting approval.
 
-## Safety
+No Production credit note, refund, payment allocation, booking, invoice or
+customer communication was created during implementation or QA.
 
-- Preserve original invoice identity and approved venue mappings.
-- Block credits above the remaining invoiced value.
-- Preserve refund/payment records and expose reconciliation status without
-  inferring Xero evidence.
-- Preserve unrelated working-tree files and all existing business data.
-
-PHASE 58.1 IMPLEMENTATION IN PROGRESS.
+See `.codex/archive/PHASE_58_1_CREDIT_NOTES_REFUND_RECONCILIATION_COMPLETE.md`.
