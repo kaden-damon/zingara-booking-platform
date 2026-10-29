@@ -1,6 +1,6 @@
 # P0 - Guest Count Validation Defect
 
-STATUS: IN PROGRESS
+STATUS: COMPLETE - DEPLOYED AND VERIFIED
 
 DATE: 29 OCTOBER 2026
 
@@ -39,10 +39,29 @@ for future grandfathered or temporary-capacity scenarios until this release.
 
 ## Verification and release
 
-Pending focused tests, migration validation, TypeScript, changed-file ESLint,
-diff check, Production build, deployment and non-mutating Production checks.
+- Focused guest-count and financial regression tests: 23 passed.
+- TypeScript: passed.
+- Changed-file ESLint: passed.
+- Diff check: passed.
+- Migration dry run and Production application: passed.
+- Production webpack build: passed.
+- The default Turbopack build could not create its local loader process because
+  of the execution environment's port restriction; no source compilation began.
+- Rollback-only Production verification changed `ZNG-655TW7` from 35 to 33
+  inside one transaction, preserved the R55,440 total and paid amount, zero
+  balance, table assignment and sold-out show handling, then rolled back.
+- Post-verification state remains 35 guests with no persisted QA audit event.
+- Increase validation remains fail-closed and unchanged counts remain rejected.
+- Production commit: `fc1aca0a1835c384080ee7cdf48cc47ff729ac6f`.
+- Deployment: `dpl_FdCPtt6QumPwctXftQoLMZhQhkGp`, READY at
+  `https://book.zingara.co.za`.
+- Admin and public booking routes returned HTTP 200 after deployment.
+- Rollback application commit: `116d2eabf7d7205ac22872fa178c395a9a337f68`.
+- Database rollback: restore the Corporate reconciliation function definition
+  from `20261014170000_p0_corporate_guest_count_and_price_editing.sql`.
 
 ## Business-data delta
 
-No booking, assignment, table, show, payment, ticket or financial row may be
-changed by this release.
+Zero booking, assignment, table, show, payment, ticket or financial rows were
+changed. The only Production database changes are the corrected function
+definition and migration-history record.
