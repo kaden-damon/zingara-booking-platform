@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
 const approvalReason =
   "Management-approved transfer of existing deposit to replacement booking.";
@@ -19,11 +20,10 @@ export function NormanDepositTransferAction({
 
   useEffect(() => {
     let active = true;
-    fetch("/api/admin/payments/norman-deposit-transfer", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("status");
-        return (await response.json()) as { completed?: boolean };
-      })
+    fetchSupabaseApi<{ completed?: boolean }>(
+      "/api/admin/payments/norman-deposit-transfer",
+      { cache: "no-store" },
+    )
       .then((payload) => {
         if (active) setCompleted(Boolean(payload.completed));
       })
@@ -38,17 +38,17 @@ export function NormanDepositTransferAction({
     setSubmitting(true);
     setMessage("");
     try {
-      const response = await fetch("/api/admin/payments/norman-deposit-transfer", {
-        body: JSON.stringify({
-          approvalReason,
-          confirmed: true,
-          idempotencyKey,
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "The deposit could not be transferred.");
+      await fetchSupabaseApi(
+        "/api/admin/payments/norman-deposit-transfer",
+        {
+          body: {
+            approvalReason,
+            confirmed: true,
+            idempotencyKey,
+          },
+          method: "POST",
+        },
+      );
       setCompleted(true);
       setConfirming(false);
       setMessage("R4,400 transferred from ZNG-XD6ABJ.");

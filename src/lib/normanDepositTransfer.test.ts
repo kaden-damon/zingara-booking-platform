@@ -64,6 +64,8 @@ test("API requires authenticated explicit confirmation and the UI does not auto-
   assert.match(route, /auth\.user\?\.id === fatimaAuthUserId/);
   assert.match(route, /hasPlatformOwnerBinding\(auth\.staffProfile, auth\.user\)/);
   assert.match(route, /79a9090b-49d5-41f6-b1ca-e2bfcc96d75d/);
+  assert.match(component, /fetchSupabaseApi/);
+  assert.doesNotMatch(component, /await fetch\("\/api\/admin\/payments\/norman-deposit-transfer"/);
   assert.match(component, /I approve this management exception and payment transfer\./);
   assert.match(component, /disabled=\{!approved \|\| submitting\}/);
   const statusEffect = component.slice(
