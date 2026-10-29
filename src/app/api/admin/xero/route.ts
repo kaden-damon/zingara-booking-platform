@@ -10,6 +10,7 @@ import {
   directBookingInvoiceRevenueCategory,
 } from "@/lib/xero/bookingInvoice";
 import { canConvertRequestedQuote } from "@/lib/xero/invoiceRequests";
+import { canManageXeroCreditNotes } from "@/lib/xero/creditNotes";
 import {
   assertDirectBookingInvoiceSyncEligibility,
   assertInitialInvoiceSyncEligibility,
@@ -332,7 +333,7 @@ export async function GET(request: Request) {
     const { data: documents, error: documentsError } = await auth.serviceClient
       .from("xero_documents")
       .select(
-        "id,kind,local_reference,status,sync_status,total_cents,document_date,version,xero_document_number,xero_status,source_booking_reference,venue,created_at,updated_at",
+        "id,kind,local_reference,status,sync_status,total_cents,document_date,version,xero_document_id,xero_document_number,xero_status,source_booking_reference,venue,created_at,updated_at",
       )
       .eq("source_booking_reference", booking.booking_reference)
       .or(`source_booking_id.eq.${booking.id},source_booking_id.is.null`)
@@ -343,6 +344,14 @@ export async function GET(request: Request) {
     if (documentsError) throw documentsError;
 
     return Response.json({
+      canCreateCreditNote:
+        canManageXeroCreditNotes(auth.staffProfile, canCreateInvoice(auth, permissions)) &&
+        (documents ?? []).some(
+          (document) =>
+            document.kind === "invoice" &&
+            Boolean(document.xero_document_id) &&
+            !["deleted", "voided"].includes(String(document.xero_status ?? "").toLowerCase()),
+        ),
       canCreateBookingInvoice:
         canConvertQuote(auth, permissions) &&
         !booking.archived_at &&

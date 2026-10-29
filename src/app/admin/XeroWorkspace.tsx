@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createXeroDocumentPdf } from "@/lib/xero/documentPdf";
 import { calculateXeroDocumentTotals, type XeroDocumentLineInput, type XeroLineAmountType } from "@/lib/xero/documentMath";
@@ -8,6 +9,8 @@ import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 import XeroConnectionPanel from "./XeroConnectionPanel";
 import XeroBankingDocumentPanel from "./XeroBankingDocumentPanel";
 import XeroBulkInvoicingPanel from "./XeroBulkInvoicingPanel";
+
+const XeroCreditNotesPanel = dynamic(() => import("./XeroCreditNotesPanel"), { ssr: false });
 
 type DocumentRow = {
   created_at: string; customer_name: string; document_date: string; id: string;
@@ -189,6 +192,7 @@ export default function XeroWorkspace({ initialBookingReference = "", initialCor
     {loading ? <p className="mt-5 text-sm text-zinc-400">Loading accounting documents...</p> : payload?.documents.length ? <DocumentList payload={payload} busy={busy} openDocument={openDocument} pageCount={pageCount} setPage={setPage} /> : <div className="mt-4 rounded-xl border border-dashed border-white/15 p-6 text-sm text-zinc-400">No documents match these filters.</div>}
     {editorOpen && <Editor kind={kind} setKind={setKind} editingId={editingId} payload={payload} venue={venue} setVenue={setVenue} documentDate={documentDate} setDocumentDate={setDocumentDate} validUntil={validUntil} setValidUntil={setValidUntil} customerName={customerName} setCustomerName={setCustomerName} customerEmail={customerEmail} setCustomerEmail={setCustomerEmail} accountNumber={accountNumber} setAccountNumber={setAccountNumber} bookingReference={bookingReference} setBookingReference={setBookingReference} guestCount={guestCount} setGuestCount={setGuestCount} performanceDate={performanceDate} setPerformanceDate={setPerformanceDate} performanceTime={performanceTime} setPerformanceTime={setPerformanceTime} seatingSummary={seatingSummary} setSeatingSummary={setSeatingSummary} amountType={amountType} setAmountType={setAmountType} billingAddress={billingAddress} setBillingAddress={setBillingAddress} lines={lines} setLines={setLines} updateLine={updateLine} moveLine={moveLine} paymentTerms={paymentTerms} setPaymentTerms={setPaymentTerms} customerNotes={customerNotes} setCustomerNotes={setCustomerNotes} internalNotes={internalNotes} setInternalNotes={setInternalNotes} totals={totals} busy={busy} close={() => setEditorOpen(false)} save={saveDraft} />}
     {mode === "settings" && payload?.canConvertQuote && <XeroBulkInvoicingPanel />}
+    {mode === "settings" && payload?.canConvertQuote && <XeroCreditNotesPanel />}
     {selected && <Details payload={selectedPayload!} canConvertQuote={Boolean(payload?.canConvertQuote)} canRequestInvoice={Boolean(payload?.canRequestInvoice)} busy={busy} acceptedBy={acceptedBy} setAcceptedBy={setAcceptedBy} acceptanceEvidence={acceptanceEvidence} setAcceptanceEvidence={setAcceptanceEvidence} close={() => setSelectedPayload(null)} edit={editDocument} action={documentAction} />}
   </section>;
 }
