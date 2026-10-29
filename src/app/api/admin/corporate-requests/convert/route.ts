@@ -24,6 +24,12 @@ import {
 import {
   validateCorporateZoneEntitlements,
 } from "@/lib/corporateZoneEntitlements";
+import { recordAuditEvent } from "@/lib/supabase/serverAudit";
+import {
+  getInternalShowBookingDecision,
+  isInternalShowApprovalReasonValid,
+  normalizeInternalShowApprovalReason,
+} from "@/lib/internalShowBookingPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -132,9 +138,13 @@ export async function POST(request: Request) {
     booking?: DemoBooking;
     reconciliationUpdatedAt?: string;
     requestId?: string;
+    restrictedShowApprovalReason?: string;
   };
   const clientBooking = body.booking;
   const requestId = body.requestId?.trim();
+  const restrictedShowApprovalReason = normalizeInternalShowApprovalReason(
+    body.restrictedShowApprovalReason,
+  );
 
   if (!requestId || !clientBooking?.reference) {
     return Response.json(
@@ -342,7 +352,7 @@ export async function POST(request: Request) {
   const { data: showRows, error: showsError } = await auth.serviceClient
     .from("shows")
     .select("id,notes,status")
-    .in("status", ["active", "special_event", "sold_out"]);
+    .in("status", ["active", "inactive", "special_event", "sold_out"]);
   const show = (showRows ?? []).find(
     (row) =>
       row.id === booking.showId || getLegacyShowId(row.notes) === booking.showId,
@@ -353,6 +363,36 @@ export async function POST(request: Request) {
       { error: "The selected performance is no longer available." },
       { status: 409 },
     );
+  }
+
+  const { data: activeBuyout, error: activeBuyoutError } = await auth.serviceClient
+    .from("corporate_buyouts")
+    .select("id")
+    .eq("show_id", show.id)
+    .in("state", ["provisional", "awaiting_payment", "fully_paid", "confirmed"])
+    .maybeSingle();
+  if (activeBuyoutError) throw activeBuyoutError;
+
+  const internalDecision = getInternalShowBookingDecision({
+    hasActiveBuyout: Boolean(activeBuyout),
+    status: show.status,
+  });
+  if (!internalDecision.allowed) {
+    return Response.json({ error: internalDecision.reason }, { status: 409 });
+  }
+  if (internalDecision.requiresManagementApproval) {
+    if (!rolePermissions[role].includes("bookings:reconcile")) {
+      return Response.json(
+        { error: "Authorised management approval is required for this performance." },
+        { status: 403 },
+      );
+    }
+    if (!isInternalShowApprovalReasonValid(restrictedShowApprovalReason)) {
+      return Response.json(
+        { error: "Enter the management approval reason before continuing." },
+        { status: 400 },
+      );
+    }
   }
 
   for (const entitlement of booking.zoneEntitlements?.length
@@ -431,7 +471,10 @@ export async function POST(request: Request) {
     if (cookie) headers.set("cookie", cookie);
 
     const bookingResponse = await fetch(new URL("/api/admin/bookings", request.url), {
-      body: JSON.stringify({ booking: bookingWithClaim }),
+      body: JSON.stringify({
+        booking: bookingWithClaim,
+        restrictedShowApprovalReason,
+      }),
       headers,
       method: "POST",
     });
@@ -456,6 +499,30 @@ export async function POST(request: Request) {
     ) {
       throw new Error(
         "Corporate booking was created without an authoritative enquiry link.",
+      );
+    }
+
+    if (internalDecision.requiresManagementApproval) {
+      await recordAuditEvent(
+        auth.serviceClient,
+        auth.staffProfile,
+        auth.user,
+        {
+          action: "booking.restricted-show-approved",
+          afterValues: {
+            approval: internalDecision.label,
+            showId: show.id,
+            showStatus: show.status,
+          },
+          changedFields: ["showId", "showStatus"],
+          entityId: convertedRecord.row.linked_booking_id,
+          entityReference: booking.reference,
+          entityType: "booking",
+          outcome: "success",
+          reason: restrictedShowApprovalReason,
+          request,
+          sourceArea: "Corporate",
+        },
       );
     }
 

@@ -36,6 +36,7 @@ export type CorporateConversionReview = {
   paymentBasis: CorporateConversionPaymentBasis;
   paymentStatus: PaymentStatus;
   pax: number;
+  restrictedShowApprovalReason?: string;
   showId: string;
   ticketTotal: number;
   venue: "cape-town" | "johannesburg";
@@ -48,6 +49,7 @@ export type CorporateConversionReviewDraft = {
   outstandingAmount: string;
   paymentBasis: CorporateConversionPaymentBasis;
   pax: string;
+  restrictedShowApprovalReason?: string;
   showId: string;
   ticketTotal: string;
   venue: "" | CorporateConversionReview["venue"];
@@ -183,6 +185,9 @@ export function parseCorporateConversionReview(
     paymentBasis: draft.paymentBasis,
     paymentStatus,
     pax: Number(draft.pax),
+    ...(draft.restrictedShowApprovalReason?.trim()
+      ? { restrictedShowApprovalReason: draft.restrictedShowApprovalReason.trim() }
+      : {}),
     showId: draft.showId,
     ticketTotal,
     venue: draft.venue,

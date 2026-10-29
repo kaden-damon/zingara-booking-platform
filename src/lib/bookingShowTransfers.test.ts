@@ -53,10 +53,10 @@ const shows: DemoShow[] = [
   },
 ];
 
-test("active and sold-out non-current shows are eligible and date ordered", () => {
+test("active, closed and sold-out non-current shows are eligible and date ordered", () => {
   assert.deepEqual(
     getEligibleBookingTransferShows(shows, "current").map((show) => show.id),
-    ["earlier", "later", "sold-out"],
+    ["earlier", "later", "sold-out", "inactive"],
   );
 });
 
@@ -64,7 +64,7 @@ test("internal transfer destinations preserve public sold-out status", () => {
   assert.equal(isInternalBookingTransferDestinationStatus("active"), true);
   assert.equal(isInternalBookingTransferDestinationStatus("sold_out"), true);
   assert.equal(isInternalBookingTransferDestinationStatus("sold-out"), true);
-  assert.equal(isInternalBookingTransferDestinationStatus("inactive"), false);
+  assert.equal(isInternalBookingTransferDestinationStatus("inactive"), true);
   assert.equal(isInternalBookingTransferDestinationStatus("closed"), false);
   assert.equal(isInternalBookingTransferDestinationStatus("cancelled"), false);
 });
@@ -149,8 +149,15 @@ test("route keeps authentication, edit-lock, scope, and wallet protections", () 
   assert.match(route, /notifyAppleWalletBooking/);
 });
 
-test("latest database validation permits sold-out but fails closed for other inactive, over-capacity, and stale moves", () => {
+test("latest database validation permits internal operational statuses and preserves capacity guards", () => {
   const migration = readFileSync(
+    new URL(
+      "../../supabase/migrations/20261030090000_phase_60_internal_booking_status.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const transferBaseline = readFileSync(
     new URL(
       "../../supabase/migrations/20261029235959_p0_sold_out_internal_booking_transfers.sql",
       import.meta.url,
@@ -162,14 +169,13 @@ test("latest database validation permits sold-out but fails closed for other ina
     "utf8",
   );
 
-  assert.match(migration, /v_booking\.show_id <> p_expected_show_id/);
+  assert.match(transferBaseline, /v_booking\.show_id <> p_expected_show_id/);
   assert.match(
     migration,
-    /v_destination_show\.status::text not in \('active', 'sold_out'\)/,
+    /'active'', ''inactive'', ''sold_out'', ''special_event'/,
   );
-  assert.match(migration, /normalize_booking_capacity_zone\(v_booking\.section\)/);
-  assert.match(migration, /hashtextextended\(v_destination_show\.id::text \|\| ':' \|\| v_zone/);
-  assert.match(route, /isInternalBookingTransferDestinationStatus\(destinationShow\.status\)/);
+  assert.match(route, /getInternalShowBookingDecision/);
+  assert.match(route, /restrictedShowApprovalReason/);
   assert.match(route, /ZONE_CAPACITY_EXCEEDED/);
 });
 

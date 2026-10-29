@@ -1,4 +1,5 @@
 import type { BookingStatus, DemoShow } from "./zingaraDemo";
+import { getInternalShowBookingDecision } from "./internalShowBookingPolicy.ts";
 
 const transferableStatuses = new Set<BookingStatus>([
   "new",
@@ -14,9 +15,7 @@ export function isBookingEligibleForShowTransfer(status?: BookingStatus) {
 export function isInternalBookingTransferDestinationStatus(
   status?: string | null,
 ) {
-  return (
-    status === "active" || status === "sold_out" || status === "sold-out"
-  );
+  return getInternalShowBookingDecision({ status }).allowed;
 }
 
 export function getEligibleBookingTransferShows(
@@ -26,7 +25,10 @@ export function getEligibleBookingTransferShows(
   return shows
     .filter(
       (show) =>
-        isInternalBookingTransferDestinationStatus(show.operationalStatus) &&
+        getInternalShowBookingDecision({
+          hasActiveBuyout: Boolean(show.fullShowBuyout),
+          status: show.operationalStatus,
+        }).allowed &&
         !show.archivedAt &&
         show.id !== currentShowId &&
         show.supabaseId !== currentShowId,

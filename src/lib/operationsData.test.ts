@@ -181,11 +181,11 @@ test("internal show labels distinguish public availability without disabling acc
   assert.equal(getInternalShowAvailabilityLabel(show()), "Available");
   assert.equal(
     getInternalShowAvailabilityLabel(show({ operationalStatus: "sold-out" })),
-    "Sold Out",
+    "Sold Out — Internal Bookings Allowed",
   );
   assert.equal(
     getInternalShowAvailabilityLabel(show({ operationalStatus: "inactive" })),
-    "Public Closed",
+    "Closed — Internal Bookings Allowed",
   );
 });
 
@@ -212,7 +212,7 @@ test("Operations selectors share internal eligibility while public booking stays
   assert.match(page, /shows=\{permittedManifestShows\}/);
   assert.match(page, /shows=\{financialShows\}/);
   assert.match(publicPage, /function isGuestBookableShow/);
-  assert.match(publicPage, /return status === "active" \|\| status === "special-event"/);
+  assert.match(publicPage, /isShowPubliclyBookable\(status\)/);
 });
 
 test("operational date follows Africa/Johannesburg across the UTC boundary", () => {

@@ -81,6 +81,7 @@ export async function convertCorporateRequest(
   requestId: string,
   booking: import("@/lib/zingaraDemo").DemoBooking,
   reconciliationUpdatedAt?: string,
+  restrictedShowApprovalReason?: string,
 ) {
   return fetchSupabaseApi<{
     bookingReference: string;
@@ -88,7 +89,12 @@ export async function convertCorporateRequest(
     idempotent: boolean;
     request: CorporateRequest;
   }>("/api/admin/corporate-requests/convert", {
-    body: { booking, reconciliationUpdatedAt, requestId },
+    body: {
+      booking,
+      reconciliationUpdatedAt,
+      requestId,
+      restrictedShowApprovalReason,
+    },
     method: "POST",
   });
 }

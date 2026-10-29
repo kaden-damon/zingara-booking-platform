@@ -74,15 +74,15 @@ export function getInternalShowAvailabilityLabel(
   const status = show.operationalStatus ?? "active";
 
   if (status === "sold-out") {
-    return "Sold Out";
+    return "Sold Out — Internal Bookings Allowed";
   }
 
   if (status === "inactive") {
-    return "Public Closed";
+    return "Closed — Internal Bookings Allowed";
   }
 
   if (status === "special-event") {
-    return "Special Event";
+    return "Special Event — Approval Required";
   }
 
   return "Available";

@@ -127,6 +127,11 @@ import {
   canOverrideTwoSeaterLimit,
   normalizeTwoSeaterOverrideReason,
 } from "@/lib/twoSeaterOverrideServer";
+import {
+  getInternalShowBookingDecision,
+  isInternalShowApprovalReasonValid,
+  normalizeInternalShowApprovalReason,
+} from "@/lib/internalShowBookingPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -1494,6 +1499,7 @@ export async function POST(request: Request) {
       attribution?: AdvertisingAttributionInput | null;
       booking?: DemoBooking;
       journeyId?: string | null;
+      restrictedShowApprovalReason?: string;
       twoSeaterOverrideReason?: string;
     };
     let booking = body.booking;
@@ -1589,6 +1595,9 @@ export async function POST(request: Request) {
     }
     const twoSeaterOverrideReason = normalizeTwoSeaterOverrideReason(
       body.twoSeaterOverrideReason,
+    );
+    const restrictedShowApprovalReason = normalizeInternalShowApprovalReason(
+      body.restrictedShowApprovalReason,
     );
     if (
       twoSeaterOverrideReason &&
@@ -1822,6 +1831,47 @@ export async function POST(request: Request) {
         { error: "Booking show could not be resolved." },
         { status: 400 },
       );
+    }
+
+    if (isTrustedStaff) {
+      const { data: activeBuyout, error: activeBuyoutError } = await supabase
+        .from("corporate_buyouts")
+        .select("id")
+        .eq("show_id", show.id)
+        .in("state", ["provisional", "awaiting_payment", "fully_paid", "confirmed"])
+        .maybeSingle();
+
+      if (activeBuyoutError) throw activeBuyoutError;
+
+      const internalDecision = getInternalShowBookingDecision({
+        hasActiveBuyout: Boolean(activeBuyout),
+        status: show.status,
+      });
+
+      if (!internalDecision.allowed) {
+        return Response.json(
+          { code: "INTERNAL_SHOW_BLOCKED", error: internalDecision.reason },
+          { status: 409 },
+        );
+      }
+
+      if (internalDecision.requiresManagementApproval) {
+        if (
+          !staffRole ||
+          !rolePermissions[staffRole].includes("bookings:reconcile")
+        ) {
+          return Response.json(
+            { error: "Authorised management approval is required for this performance." },
+            { status: 403 },
+          );
+        }
+        if (!isInternalShowApprovalReasonValid(restrictedShowApprovalReason)) {
+          return Response.json(
+            { error: "Enter the management approval reason before continuing." },
+            { status: 400 },
+          );
+        }
+      }
     }
 
     const showCommercialConfiguration = await loadShowCustomPricing(

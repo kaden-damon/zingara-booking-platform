@@ -17,6 +17,7 @@ import {
   canOverrideTwoSeaterLimit,
   normalizeTwoSeaterOverrideReason,
 } from "@/lib/twoSeaterOverrideServer";
+import { getInternalShowBookingDecision } from "@/lib/internalShowBookingPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -282,6 +283,35 @@ export async function POST(request: Request) {
             .maybeSingle()
         : { data: null, error: null };
     if (bookingContextError) throw bookingContextError;
+    if (
+      body.action === "guest-count" &&
+      bookingContext?.show_id &&
+      Number(body.guestCount) > Number(bookingContext.guest_count)
+    ) {
+      const [showResult, buyoutResult] = await Promise.all([
+        auth.serviceClient
+          .from("shows")
+          .select("status")
+          .eq("id", bookingContext.show_id)
+          .maybeSingle(),
+        auth.serviceClient
+          .from("corporate_buyouts")
+          .select("id")
+          .eq("show_id", bookingContext.show_id)
+          .in("state", ["provisional", "awaiting_payment", "fully_paid", "confirmed"])
+          .maybeSingle(),
+      ]);
+      if (showResult.error || buyoutResult.error) {
+        throw showResult.error ?? buyoutResult.error;
+      }
+      const internalDecision = getInternalShowBookingDecision({
+        hasActiveBuyout: Boolean(buyoutResult.data),
+        status: showResult.data?.status,
+      });
+      if (!internalDecision.allowed) {
+        return Response.json({ error: internalDecision.reason }, { status: 409 });
+      }
+    }
     const isCorporateFixedTotal =
       bookingContext?.booking_origin === "corporate" &&
       bookingContext?.booking_source === "corporate-direct";

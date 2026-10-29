@@ -361,6 +361,10 @@ import {
   isBookingEligibleForShowTransfer,
 } from "../../lib/bookingShowTransfers";
 import {
+  getInternalShowBookingDecision,
+  isInternalShowApprovalReasonValid,
+} from "../../lib/internalShowBookingPolicy";
+import {
   calculateOutstandingAmount,
   isPaymentLinkEligible,
 } from "../../lib/paymentControls";
@@ -5685,6 +5689,7 @@ export default function AdminDashboardPage({
     canOverrideTwoSeaterLimit: boolean;
     destinationShowId: string;
     overrideReason: string;
+    restrictedShowApprovalReason: string;
   } | null>(null);
   const [bookingShowTransferError, setBookingShowTransferError] =
     useState("");
@@ -11826,7 +11831,7 @@ export default function AdminDashboardPage({
       (show) =>
         show.id === review.showId &&
         !show.archivedAt &&
-        ["active", "sold-out", "special-event"].includes(
+        ["active", "inactive", "sold-out", "special-event"].includes(
           show.operationalStatus ?? "active",
         ) &&
         normalizeShowLocation(show.location ?? show.venueName) === review.venue,
@@ -11980,6 +11985,7 @@ export default function AdminDashboardPage({
         request.id,
         booking,
         request.financialReconciliation?.reconciledAt,
+        review.restrictedShowApprovalReason,
       );
       const authoritativeRequest = result.request;
 
@@ -18253,6 +18259,7 @@ export default function AdminDashboardPage({
       canOverrideTwoSeaterLimit: false,
       destinationShowId: "",
       overrideReason: "",
+      restrictedShowApprovalReason: "",
     });
     setBookingShowTransferError("");
   }
@@ -18266,6 +18273,10 @@ export default function AdminDashboardPage({
     );
     const expectedShowId = currentShow?.supabaseId;
     const destinationShowId = destinationShow?.supabaseId;
+    const internalDecision = getInternalShowBookingDecision({
+      hasActiveBuyout: Boolean(destinationShow?.fullShowBuyout),
+      status: destinationShow?.operationalStatus,
+    });
 
     if (!expectedShowId || !destinationShowId || !destinationShow) {
       setBookingShowTransferError("Select an eligible active show.");
@@ -18273,6 +18284,21 @@ export default function AdminDashboardPage({
     }
 
     if (isBookingShowTransferring) {
+      return;
+    }
+
+    if (
+      internalDecision.requiresManagementApproval &&
+      (!canReconcileBookings ||
+        !isInternalShowApprovalReasonValid(
+          bookingShowTransfer?.restrictedShowApprovalReason,
+        ))
+    ) {
+      setBookingShowTransferError(
+        canReconcileBookings
+          ? "Enter the management approval reason before continuing."
+          : "Authorised management approval is required for this performance.",
+      );
       return;
     }
 
@@ -18284,6 +18310,8 @@ export default function AdminDashboardPage({
         bookingReference: booking.reference,
         destinationShowId,
         expectedShowId,
+        restrictedShowApprovalReason:
+          bookingShowTransfer?.restrictedShowApprovalReason,
         twoSeaterOverrideReason:
           bookingShowTransfer?.canOverrideTwoSeaterLimit
             ? bookingShowTransfer.overrideReason
@@ -33577,6 +33605,22 @@ export default function AdminDashboardPage({
               <p className="mt-2 text-sm leading-6 text-zinc-400">
                 {formatOperationalShowDate(calendarBookingShow.date)} · {getSouthAfricaShowTime(calendarBookingShow)}
               </p>
+              {(() => {
+                const decision = getInternalShowBookingDecision({
+                  hasActiveBuyout: Boolean(calendarBookingShow.fullShowBuyout),
+                  status: calendarBookingShow.operationalStatus,
+                });
+                return decision.label === "OPEN" ? null : (
+                  <div className="mt-4 rounded-xl border border-amber-300/25 bg-amber-950/20 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-200">
+                      {decision.label}
+                    </p>
+                    <p className="mt-1 text-sm leading-5 text-zinc-300">
+                      {decision.reason}
+                    </p>
+                  </div>
+                );
+              })()}
               <p
                 role="status"
                 className={`mt-5 whitespace-pre-line rounded-xl border p-3 text-sm font-semibold ${
@@ -39178,6 +39222,13 @@ export default function AdminDashboardPage({
                           bookingShowTransfer?.destinationShowId ||
                         show.id === bookingShowTransfer?.destinationShowId,
                     );
+                    const selectedTransferDecision =
+                      getInternalShowBookingDecision({
+                        hasActiveBuyout: Boolean(
+                          selectedTransferShow?.fullShowBuyout,
+                        ),
+                        status: selectedTransferShow?.operationalStatus,
+                      });
 
                 return (
                   <section
@@ -40891,6 +40942,7 @@ export default function AdminDashboardPage({
                                             canOverrideTwoSeaterLimit: false,
                                             destinationShowId: event.target.value,
                                             overrideReason: "",
+                                            restrictedShowApprovalReason: "",
                                           }
                                         : current,
                                     );
@@ -40930,7 +40982,37 @@ export default function AdminDashboardPage({
                                   <p className="mt-2 text-xs leading-relaxed text-amber-100/85">
                                     The current table will be removed. The same table number is used only if it is set up, free, and large enough; otherwise this booking will move to Needs a table. Pricing, payment history, ticket identity, and QR remain unchanged.
                                   </p>
+                                  {selectedTransferDecision.label !== "OPEN" && (
+                                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.1em] text-amber-200">
+                                      {selectedTransferDecision.label}
+                                    </p>
+                                  )}
                                 </div>
+                              )}
+
+                              {selectedTransferDecision.requiresManagementApproval && (
+                                <label className="mt-4 block rounded-2xl border border-[#D8C36A]/35 bg-[#D8C36A]/5 p-4">
+                                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                                    Management approval reason
+                                  </span>
+                                  <textarea
+                                    rows={3}
+                                    maxLength={500}
+                                    disabled={!canReconcileBookings}
+                                    value={bookingShowTransfer.restrictedShowApprovalReason}
+                                    onChange={(event) =>
+                                      setBookingShowTransfer((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              restrictedShowApprovalReason: event.target.value,
+                                            }
+                                          : current,
+                                      )
+                                    }
+                                    className="w-full resize-none rounded-xl border border-white/15 bg-black px-3 py-3 text-sm text-white outline-none focus:border-[#D8C36A] disabled:cursor-not-allowed disabled:opacity-50"
+                                  />
+                                </label>
                               )}
 
                               {bookingShowTransfer.canOverrideTwoSeaterLimit && (
@@ -40985,7 +41067,12 @@ export default function AdminDashboardPage({
                                     isBookingShowTransferring ||
                                     !bookingShowTransfer.destinationShowId ||
                                     (bookingShowTransfer.canOverrideTwoSeaterLimit &&
-                                      bookingShowTransfer.overrideReason.trim().length < 3)
+                                      bookingShowTransfer.overrideReason.trim().length < 3) ||
+                                    (selectedTransferDecision.requiresManagementApproval &&
+                                      (!canReconcileBookings ||
+                                        !isInternalShowApprovalReasonValid(
+                                          bookingShowTransfer.restrictedShowApprovalReason,
+                                        )))
                                   }
                                   className="min-h-12 rounded-full border border-[#D8C36A] bg-[#D8C36A] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-45"
                                 >

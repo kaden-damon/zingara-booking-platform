@@ -141,6 +141,10 @@ import {
   isShowStaffBookable,
 } from "../../lib/publicShowSales";
 import {
+  getInternalShowBookingDecision,
+  isInternalShowApprovalReasonValid,
+} from "../../lib/internalShowBookingPolicy";
+import {
   getStaffAvailabilityPresentation,
   staffBookingExtraSeatingHelp,
   staffBookingJourneyLabels,
@@ -807,6 +811,8 @@ export default function BookingPage({
     retryAction: "checkout" | "corporate-invoice" | "payment-link";
   } | null>(null);
   const [twoSeaterOverrideReason, setTwoSeaterOverrideReason] = useState("");
+  const [restrictedShowApprovalReason, setRestrictedShowApprovalReason] =
+    useState("");
   const [customerValidationErrors, setCustomerValidationErrors] =
     useState<BookingCreateFieldErrors>({});
   const [postPaymentStatus, setPostPaymentStatus] =
@@ -1050,6 +1056,17 @@ export default function BookingPage({
   const selectedShow = shows.find(
     (show) => show.id === selectedShowId,
   );
+  const internalShowDecision = getInternalShowBookingDecision({
+    hasActiveBuyout: Boolean(selectedShow?.fullShowBuyout),
+    status: selectedShow?.operationalStatus,
+  });
+  const canApproveRestrictedShow =
+    manualCheckoutRole === "box-office-manager" ||
+    manualCheckoutRole === "super-admin";
+  const restrictedShowApprovalReady =
+    !internalShowDecision.requiresManagementApproval ||
+    (canApproveRestrictedShow &&
+      isInternalShowApprovalReasonValid(restrictedShowApprovalReason));
   const requiresFullPayment = isFullPaymentOnlyPolicy(
     selectedShow?.customPricing,
   );
@@ -2863,6 +2880,7 @@ export default function BookingPage({
         calendarBookingContext,
         false,
         twoSeaterOverrideReason,
+        restrictedShowApprovalReason,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
@@ -2882,6 +2900,7 @@ export default function BookingPage({
         calendarBookingContext,
         true,
         twoSeaterOverrideReason,
+        restrictedShowApprovalReason,
       );
     }
   }
@@ -2905,6 +2924,14 @@ export default function BookingPage({
   }
 
   async function handlePayFastCheckout(twoSeaterOverrideReason?: string) {
+    if (manualCheckoutRole !== "none" && !restrictedShowApprovalReady) {
+      setPaymentRedirectStatus(
+        canApproveRestrictedShow
+          ? "Enter the management approval reason before continuing."
+          : "Authorised management approval is required for this performance.",
+      );
+      return;
+    }
     if (isPayFastRedirecting) {
       return;
     }
@@ -6714,6 +6741,37 @@ export default function BookingPage({
                   )}
                 </div>
               ) : (
+                <>
+                  {manualCheckoutRole !== "none" &&
+                    internalShowDecision.label !== "OPEN" && (
+                      <div className="mb-4 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-200">
+                          {internalShowDecision.label}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-zinc-300">
+                          {internalShowDecision.reason}
+                        </p>
+                        {internalShowDecision.requiresManagementApproval &&
+                          (canApproveRestrictedShow ? (
+                            <label className="mt-3 grid gap-2 text-sm text-zinc-300">
+                              Management approval reason
+                              <textarea
+                                rows={2}
+                                maxLength={500}
+                                value={restrictedShowApprovalReason}
+                                onChange={(event) =>
+                                  setRestrictedShowApprovalReason(event.target.value)
+                                }
+                                className="min-h-20 rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
+                              />
+                            </label>
+                          ) : (
+                            <p className="mt-3 text-sm font-semibold text-amber-100">
+                              Authorised management approval is required before this booking can continue.
+                            </p>
+                          ))}
+                      </div>
+                    )}
                 <div
                   className={
                     !isComplimentary &&
@@ -6730,9 +6788,10 @@ export default function BookingPage({
                     aria-busy={isPayFastRedirecting}
                     disabled={isComplimentary || isCorporateInvoice
                       ? isCorporateInvoice
-                        ? !corporateInvoiceSubmissionAllowed
-                        : !complimentarySubmissionEligibility.allowed || Boolean(complimentaryAddonError) || Boolean(addonValidationError)
+                        ? !corporateInvoiceSubmissionAllowed || !restrictedShowApprovalReady
+                        : !complimentarySubmissionEligibility.allowed || Boolean(complimentaryAddonError) || Boolean(addonValidationError) || !restrictedShowApprovalReady
                       : !selectedShow ||
+                        !restrictedShowApprovalReady ||
                         (isLockedCalendarCheckout &&
                           calendarLockStatus !== "SHOW READY ✓") ||
                         isPayFastRedirecting ||
@@ -6799,6 +6858,7 @@ export default function BookingPage({
                         aria-busy={isManualPaymentLinkCreating}
                         disabled={
                           !selectedShow ||
+                          !restrictedShowApprovalReady ||
                           (isLockedCalendarCheckout &&
                             calendarLockStatus !== "SHOW READY ✓") ||
                           isPayFastRedirecting ||
@@ -6822,6 +6882,7 @@ export default function BookingPage({
                       </button>
                     )}
                 </div>
+                </>
               )}
               {manualPaymentLinkStatus && (
                 <p

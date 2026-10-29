@@ -54,7 +54,11 @@ import {
 } from "@/lib/twoSeaterOverrideServer";
 import { isFullPaymentOnlyPolicy } from "@/lib/showSpecificPricing";
 import { loadShowCustomPricing } from "@/lib/supabase/showSpecificPricingServer";
-import { isInternalBookingTransferDestinationStatus } from "@/lib/bookingShowTransfers";
+import {
+  getInternalShowBookingDecision,
+  isInternalShowApprovalReasonValid,
+  normalizeInternalShowApprovalReason,
+} from "@/lib/internalShowBookingPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -1863,6 +1867,7 @@ async function persistBookingShowTransfer(
     bookingReference?: string;
     destinationShowId?: string;
     expectedShowId?: string;
+    restrictedShowApprovalReason?: string;
     twoSeaterOverrideReason?: string;
   },
 ) {
@@ -1889,6 +1894,9 @@ async function persistBookingShowTransfer(
   const expectedShowId = input.expectedShowId?.trim();
   const twoSeaterOverrideReason = normalizeTwoSeaterOverrideReason(
     input.twoSeaterOverrideReason,
+  );
+  const restrictedShowApprovalReason = normalizeInternalShowApprovalReason(
+    input.restrictedShowApprovalReason,
   );
 
   if (!bookingReference || !destinationShowId || !expectedShowId) {
@@ -1948,14 +1956,37 @@ async function persistBookingShowTransfer(
     );
   }
 
-  if (!isInternalBookingTransferDestinationStatus(destinationShow.status)) {
+  const { data: activeBuyout, error: activeBuyoutError } = await auth.serviceClient
+    .from("corporate_buyouts")
+    .select("id")
+    .eq("show_id", destinationShow.id)
+    .in("state", ["provisional", "awaiting_payment", "fully_paid", "confirmed"])
+    .maybeSingle();
+  if (activeBuyoutError) throw activeBuyoutError;
+
+  const internalDecision = getInternalShowBookingDecision({
+    hasActiveBuyout: Boolean(activeBuyout),
+    status: destinationShow.status,
+  });
+  if (!internalDecision.allowed) {
     return Response.json(
-      {
-        error:
-          "The destination show is not eligible for internal booking transfers.",
-      },
+      { error: internalDecision.reason },
       { status: 409 },
     );
+  }
+  if (internalDecision.requiresManagementApproval) {
+    if (!rolePermissions[role].includes("bookings:reconcile")) {
+      return Response.json(
+        { error: "Authorised management approval is required for this performance." },
+        { status: 403 },
+      );
+    }
+    if (!isInternalShowApprovalReasonValid(restrictedShowApprovalReason)) {
+      return Response.json(
+        { error: "Enter the management approval reason before continuing." },
+        { status: 400 },
+      );
+    }
   }
 
   const destinationCommercialConfiguration = await loadShowCustomPricing(
@@ -2112,6 +2143,25 @@ async function persistBookingShowTransfer(
     await notifyAppleWalletBooking(auth.serviceClient, result.booking_id);
   }
 
+  if (!result?.idempotent && internalDecision.requiresManagementApproval) {
+    await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+      action: "booking.restricted-show-transfer-approved",
+      afterValues: {
+        approval: internalDecision.label,
+        destinationShowId,
+        destinationShowStatus: destinationShow.status,
+      },
+      changedFields: ["showId", "showStatus"],
+      entityId: result?.booking_id ?? booking.id,
+      entityReference: bookingReference,
+      entityType: "booking",
+      outcome: "success",
+      reason: restrictedShowApprovalReason,
+      request,
+      sourceArea: "Bookings",
+    });
+  }
+
   return Response.json({
     bookingId: result?.booking_id ?? booking.id,
     bookingReference,
@@ -2155,6 +2205,19 @@ async function runBookingTransaction(request: Request, body?: unknown) {
     typeof rawRequestBody === "object" && rawRequestBody && "booking" in rawRequestBody
       ? (rawRequestBody as { booking?: DemoBooking }).booking
       : undefined;
+  const restrictedShowApprovalReason = normalizeInternalShowApprovalReason(
+    typeof rawRequestBody === "object" &&
+      rawRequestBody &&
+      "restrictedShowApprovalReason" in rawRequestBody
+      ? (rawRequestBody as { restrictedShowApprovalReason?: unknown })
+          .restrictedShowApprovalReason
+      : "",
+  );
+  let restrictedShowApproval: {
+    label: string;
+    showId: string;
+    status: string;
+  } | null = null;
   const requestBody = rawBooking
     ? {
         ...(rawRequestBody as Record<string, unknown>),
@@ -2211,10 +2274,24 @@ async function runBookingTransaction(request: Request, body?: unknown) {
       ? normalizeShowLocation(lockedShow.venue)
       : null;
 
+    const { data: activeBuyout, error: activeBuyoutError } = lockedShow
+      ? await supabase
+          .from("corporate_buyouts")
+          .select("id")
+          .eq("show_id", lockedShow.id)
+          .in("state", ["provisional", "awaiting_payment", "fully_paid", "confirmed"])
+          .maybeSingle()
+      : { data: null, error: null };
+    const internalDecision = getInternalShowBookingDecision({
+      hasActiveBuyout: Boolean(activeBuyout),
+      status: lockedShow?.status,
+    });
+
     if (
       showError ||
+      activeBuyoutError ||
       !lockedShow ||
-      lockedShow.status !== "active" ||
+      !internalDecision.allowed ||
       calendarBookingContext.showReference !== rawBooking.showId ||
       lockedShow.date !== calendarBookingContext.expectedDate ||
       lockedShow.time.slice(0, 5) !==
@@ -2228,6 +2305,26 @@ async function runBookingTransaction(request: Request, body?: unknown) {
         },
         { status: 409 },
       );
+    }
+
+    if (internalDecision.requiresManagementApproval) {
+      if (!rolePermissions[role].includes("bookings:reconcile")) {
+        return Response.json(
+          { error: "Authorised management approval is required for this performance." },
+          { status: 403 },
+        );
+      }
+      if (!isInternalShowApprovalReasonValid(restrictedShowApprovalReason)) {
+        return Response.json(
+          { error: "Enter the management approval reason before continuing." },
+          { status: 400 },
+        );
+      }
+      restrictedShowApproval = {
+        label: internalDecision.label,
+        showId: lockedShow.id,
+        status: lockedShow.status,
+      };
     }
   }
   const { data: beforeBooking } =
@@ -2351,6 +2448,27 @@ async function runBookingTransaction(request: Request, body?: unknown) {
           request,
           sourceArea: "Bookings",
         });
+
+        if (restrictedShowApproval) {
+          await recordAuditEvent(supabase, actor.staffProfile, actor.user, {
+            action: "booking.restricted-show-approved",
+            afterValues: {
+              approval: restrictedShowApproval.label,
+              showId: restrictedShowApproval.showId,
+              showStatus: restrictedShowApproval.status,
+            },
+            changedFields: ["showId", "showStatus"],
+            entityId:
+              ((afterBooking ?? beforeBooking) as { id?: string } | null)?.id ??
+              null,
+            entityReference: bookingReference,
+            entityType: "booking",
+            outcome: "success",
+            reason: restrictedShowApprovalReason,
+            request,
+            sourceArea: "Bookings",
+          });
+        }
 
         if (!beforeBooking && Number((afterBooking as { addons_total?: number } | null)?.addons_total ?? 0) >= 0) {
           const createdMetadata = parseSerializedBookingNotes(

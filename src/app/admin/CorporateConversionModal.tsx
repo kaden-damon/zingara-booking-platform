@@ -11,6 +11,10 @@ import {
 } from "../../lib/corporateConversionReview";
 import { validateCorporateZoneEntitlements } from "../../lib/corporateZoneEntitlements";
 import {
+  getInternalShowBookingDecision,
+  isInternalShowApprovalReasonValid,
+} from "../../lib/internalShowBookingPolicy";
+import {
   type CorporateRequest,
   type DemoShow,
   getShowLabel,
@@ -49,7 +53,7 @@ export default function CorporateConversionModal({
   const venue = initialVenue(request);
   const initialShow = shows.find(
     (show) =>
-      ["active", "sold-out", "special-event"].includes(
+      ["active", "inactive", "sold-out", "special-event"].includes(
         show.operationalStatus ?? "active",
       ) &&
       show.date === request.preferredDate &&
@@ -71,6 +75,7 @@ export default function CorporateConversionModal({
     outstandingAmount: financialEvidence?.outstandingAmount.toString() ?? "",
     paymentBasis: reconciledPaymentBasis ?? "unpaid",
     pax: request.guestCount?.toString() ?? "",
+    restrictedShowApprovalReason: "",
     showId: initialShow?.id ?? "",
     ticketTotal: financialEvidence?.totalObligation.toString() ?? "",
     venue,
@@ -86,7 +91,7 @@ export default function CorporateConversionModal({
       shows.filter(
         (show) =>
           !show.archivedAt &&
-          ["active", "sold-out", "special-event"].includes(
+          ["active", "inactive", "sold-out", "special-event"].includes(
             show.operationalStatus ?? "active",
           ) &&
           normalizeShowLocation(show.location ?? show.venueName) === draft.venue,
@@ -108,6 +113,11 @@ export default function CorporateConversionModal({
     0,
   );
   const totalPax = Number(draft.pax) || 0;
+  const selectedShow = eligibleShows.find((show) => show.id === draft.showId);
+  const internalShowDecision = getInternalShowBookingDecision({
+    hasActiveBuyout: Boolean(selectedShow?.fullShowBuyout),
+    status: selectedShow?.operationalStatus,
+  });
 
   useEffect(() => {
     if (!isSubmitting && !isSuccess) {
@@ -126,9 +136,16 @@ export default function CorporateConversionModal({
     }
 
     const nextErrors = validateCorporateConversionReview(draft);
+    if (
+      internalShowDecision.requiresManagementApproval &&
+      !isInternalShowApprovalReasonValid(draft.restrictedShowApprovalReason)
+    ) {
+      nextErrors.restrictedShowApprovalReason =
+        "Enter the management approval reason before continuing.";
+    }
     const review = parseCorporateConversionReview(draft);
 
-    if (!review) {
+    if (!review || Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       return;
     }
@@ -190,6 +207,36 @@ export default function CorporateConversionModal({
             </select>
             {errors.venue && <span className="text-xs text-red-300">{errors.venue}</span>}
           </label>
+
+          {internalShowDecision.label !== "OPEN" && (
+            <div className="rounded-xl border border-amber-300/25 bg-amber-950/20 px-4 py-3 text-sm text-amber-100 sm:col-span-2">
+              <p className="font-semibold uppercase tracking-[0.1em]">
+                {internalShowDecision.label}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                {internalShowDecision.reason}
+              </p>
+              {internalShowDecision.requiresManagementApproval && (
+                <label className="mt-3 grid gap-2">
+                  Management approval reason
+                  <textarea
+                    rows={2}
+                    maxLength={500}
+                    value={draft.restrictedShowApprovalReason ?? ""}
+                    onChange={(event) =>
+                      updateDraft({ restrictedShowApprovalReason: event.target.value })
+                    }
+                    className="min-h-20 rounded-xl border border-white/15 bg-black px-4 py-3 text-white outline-none focus:border-[#D8C36A]"
+                  />
+                  {errors.restrictedShowApprovalReason && (
+                    <span className="text-xs text-red-300">
+                      {errors.restrictedShowApprovalReason}
+                    </span>
+                  )}
+                </label>
+              )}
+            </div>
+          )}
 
           <label className="grid gap-2 text-sm text-zinc-300">
             Show / Date
