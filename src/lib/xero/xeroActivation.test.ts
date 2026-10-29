@@ -142,3 +142,33 @@ test("direct booking invoices require exact fully paid booking evidence", () => 
     /Tristan or Rachelle/,
   );
 });
+
+test("approved bulk booking invoices permit reconciled outstanding balances", () => {
+  assert.doesNotThrow(() => assertDirectBookingInvoiceSyncEligibility({
+    activationAt: "2026-10-20T10:00:00.000Z",
+    allowOutstanding: true,
+    booking: {
+      amount_paid: 250,
+      archived_at: null,
+      balance_outstanding: 750,
+      booking_status: "confirmed",
+      id: "booking-1",
+      payment_status: "deposit_paid",
+      total_amount: 1000,
+    },
+    canConvertRequestedQuote: true,
+    connectionStatus: "connected",
+    invoice: {
+      created_at: "2026-10-29T10:00:00.000Z",
+      kind: "invoice",
+      source_booking_id: "booking-1",
+      source_quote_id: null,
+      status: "draft",
+      total_cents: 100000,
+    },
+    liveSyncAuthorised: true,
+    syncPaused: false,
+    verifiedPaymentTotal: 250,
+    webhookConfigured: true,
+  }));
+});

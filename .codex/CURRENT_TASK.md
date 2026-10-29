@@ -1,71 +1,55 @@
-# P0 - Booking Invoice Creation Not Working
+# Phase 58.0 - Bulk Invoicing & Xero Integration
 
-STATUS: COMPLETE
+STATUS: IN PROGRESS
 
 DATE: 29 OCTOBER 2026
 
 ## Goal
 
-Restore a safe, visible invoice workflow for eligible existing bookings while
-preserving authoritative booking values, payment status, Xero identities,
-numbering and duplicate prevention.
+Extend the existing Xero document architecture with permissioned, bounded bulk
+invoice draft generation for eligible existing bookings, grouped by booking
+creation date, with durable progress and duplicate protection.
 
-## Production Case
+## Activation Boundary
 
-- Booking: `ZNG-HT3FEZ`
-- Customer/company: PMG GROUP
-- Johannesburg, 22 October 2026
-- 13 guests; reported paid total R18,125
+- Bulk draft preparation may be deployed for Tristan Chetty and Rachelle Smuts.
+- Live bulk posting remains disabled until VAT/accounting approval is confirmed.
+- No Production invoice, Xero contact, payment allocation or customer
+  communication may be created during QA.
+- Historical PayFast payments remain unchanged and are not automatically
+  allocated in Xero.
 
-## Safety Boundary
+## Safety
 
-- Read-only investigation of the Production booking and financial documents.
-- Do not create an invoice, quotation, payment, contact or communication for
-  PMG GROUP during QA.
-- Preserve existing bookings, payments, tickets, Xero records and numbering.
-- Use rollback-only fixtures for mutation-path verification.
-- Preserve unrelated working-tree changes.
+- Reuse authoritative booking values, approved mappings and the existing Xero
+  outbox/worker architecture.
+- Flag missing billing information instead of inventing it.
+- Preserve unrelated working-tree changes and all existing business data.
 
-## Verified Correction
+## Implemented
 
-- Booking Details exposes a permissioned `Create Invoice Draft` action only for
-  Tristan Chetty and Rachelle Smuts on confirmed, fully paid bookings with no
-  existing invoice.
-- The existing Xero workspace preloads an invoice from authoritative booking
-  values, including ticket sales, the included booking fee, add-ons, discounts
-  and separate gratuity treatment.
-- Xero creation fails closed unless the invoice total, booking total, verified
-  payments and zero outstanding balance reconcile exactly.
-- Duplicate direct invoices are prevented by application checks and an atomic
-  database uniqueness constraint.
-- Existing quote-to-invoice conversion remains unchanged.
+- Added the existing Xero workspace's permissioned Bulk Invoicing panel.
+- Added weekly/custom booking-date review, payment filters, selection and one
+  local invoice draft per authoritative booking.
+- Added durable batches and per-booking progress in bounded chunks of 10, with
+  a maximum of 50 bookings per batch.
+- Added strict duplicate prevention and billing/financial readiness blockers.
+- Corrected the Xero queue contract so verified direct booking invoices no
+  longer conflict with the accepted-quotation-only database guard.
+- Kept bulk Xero posting behind
+  `XERO_BULK_INVOICE_POSTING_AUTHORISED=false`/unset and visibly unavailable.
 
 ## Verification
 
-- 67 focused Xero tests passed.
+- Live read-only booking/payment classification query completed.
+- Focused Xero tests passed (15 assertions/tests across bulk, direct invoice and
+  activation coverage).
 - TypeScript passed.
 - Changed-file ESLint passed.
+- Migration dry run passed; only the Phase 58 migration is pending.
 - `git diff --check` passed.
-- Supabase migration applied successfully; no business rows changed.
-- Next.js 16 optimized Production build passed with the supported webpack
-  compiler. The local default compiler cannot bind its internal sandbox port.
+- Full Next.js Production webpack build passed. The repository performance
+  budget parser cannot read webpack's manifest format; no budget source or
+  threshold was changed.
 
-## Production Verification
-
-- Application release: `65377e0`.
-- Vercel deployment completed successfully on 29 October 2026.
-- Authenticated Production Booking Details confirmed PMG GROUP, 13 guests,
-  R18,125 paid and R0 outstanding, with no existing financial document.
-- The non-mutating Production invoice preview reconciled to R18,125:
-  R16,240 ticket sales, R10 booking fee and R1,875 gratuity.
-- Xero is connected to `Zingara Productions (Pty) Ltd`, controlled live sync is
-  active, all 16 mappings are approved and the outbound attention queue is empty.
-- Tristan Chetty and Rachelle Smuts are active Super Admin staff with
-  `bookings:reconcile`; their immutable staff IDs are the only booking-invoice
-  converter identities accepted by the server.
-- No invoice draft, Xero record, contact, payment or communication was created.
-
-Rollback: `6259d46515303b56ad021d170f2a3c5f304aa083` plus reversal of the additive
-direct-invoice uniqueness index if the feature is intentionally removed.
-
-P0 COMPLETE - BOOKING INVOICE WORKFLOW VERIFIED.
+STATUS: RELEASE IN PROGRESS

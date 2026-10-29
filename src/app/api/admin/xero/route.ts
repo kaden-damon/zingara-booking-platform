@@ -583,6 +583,13 @@ export async function PATCH(request: Request) {
           webhookConfigured: Boolean(getXeroConfiguration().webhookKey),
         });
       } else {
+        const { data: bulkItem, error: bulkItemError } = await auth.serviceClient
+          .from("xero_bulk_invoice_items")
+          .select("id,status")
+          .eq("document_id", current.id)
+          .in("status", ["draft_ready", "posting"])
+          .maybeSingle();
+        if (bulkItemError) throw bulkItemError;
         const { data: booking, error: bookingError } = current.source_booking_id
           ? await auth.serviceClient
               .from("bookings")
@@ -601,6 +608,7 @@ export async function PATCH(request: Request) {
         if (paymentsError) throw paymentsError;
         assertDirectBookingInvoiceSyncEligibility({
           activationAt: connection.live_sync_activated_at,
+          allowOutstanding: Boolean(bulkItem),
           booking,
           canConvertRequestedQuote: authorisedConverter,
           connectionStatus: connection.status,

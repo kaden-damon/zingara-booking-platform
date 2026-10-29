@@ -72,6 +72,7 @@ export function assertInitialInvoiceSyncEligibility(input: {
 
 export function assertDirectBookingInvoiceSyncEligibility(input: {
   activationAt: string | null;
+  allowOutstanding?: boolean;
   booking: DirectBookingInvoiceSyncBooking | null;
   canConvertRequestedQuote: boolean;
   connectionStatus: string;
@@ -108,14 +109,22 @@ export function assertDirectBookingInvoiceSyncEligibility(input: {
     throw new Error("Pre-activation invoice drafts remain local and cannot be sent to Xero.");
   }
   const booking = input.booking;
+  const activeBooking = ["new", "pending_payment", "confirmed", "checked_in", "completed"].includes(
+    booking?.booking_status ?? "",
+  );
   if (
     !booking ||
     booking.id !== input.invoice.source_booking_id ||
     booking.archived_at ||
-    booking.booking_status !== "confirmed" ||
-    booking.payment_status !== "fully_paid"
+    !activeBooking ||
+    (!input.allowOutstanding && (
+      booking.booking_status !== "confirmed" ||
+      booking.payment_status !== "fully_paid"
+    ))
   ) {
-    throw new Error("The linked booking is not an active, fully paid booking.");
+    throw new Error(input.allowOutstanding
+      ? "The linked booking is not eligible for bulk invoicing."
+      : "The linked booking is not an active, fully paid booking.");
   }
   const bookingTotalCents = Math.round(Number(booking.total_amount) * 100);
   const amountPaidCents = Math.round(Number(booking.amount_paid) * 100);
@@ -124,9 +133,12 @@ export function assertDirectBookingInvoiceSyncEligibility(input: {
   if (
     bookingTotalCents <= 0 ||
     input.invoice.total_cents !== bookingTotalCents ||
-    amountPaidCents !== bookingTotalCents ||
+    amountPaidCents + outstandingCents !== bookingTotalCents ||
     verifiedPaymentCents !== amountPaidCents ||
-    outstandingCents !== 0
+    (!input.allowOutstanding && (
+      amountPaidCents !== bookingTotalCents ||
+      outstandingCents !== 0
+    ))
   ) {
     throw new Error("The invoice, booking and verified payments do not reconcile exactly.");
   }
