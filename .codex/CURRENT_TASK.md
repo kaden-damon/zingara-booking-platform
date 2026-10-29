@@ -1,61 +1,29 @@
-# P0 - Invoice Draft Save Failure
+# Phase 59.1 - Surgical COMP Correction
 
-STATUS: COMPLETE
+STATUS: IN PROGRESS
 
 DATE: 29 OCTOBER 2026
 
-## Incident
+## Authoritative Rule
 
-- Booking: `ZNG-4UGGV9`.
-- User: Tristan Chetty.
-- `SAVE DRAFT` produces no visible result and no invoice draft appears in
-  Booking Details -> Financial Documents.
+- Standard, Media and Tradex COMP bookings are fully complimentary.
+- Guest payable, payment received and outstanding balance are always `R0`.
+- Each category carries an internal cash-up value of `R550` per guest only.
+- The internal value is not booking revenue, a payment or a financial obligation.
 
-## Goal
+## Scope
 
-Trace the shared direct booking-invoice workflow through the authenticated UI,
-API validation and database persistence. Correct the smallest confirmed defect,
-surface field-level validation clearly, and verify that a successful local draft
-appears immediately without sending anything to Xero or a customer.
+- Correct new internal Standard booking creation without changing the three
+  category controls.
+- Keep payment, PayFast and payment-link paths unavailable for every COMP type.
+- Derive cash-up values from the current guest count in Table Plan exports:
+  Standard COMP, Media column S and Tradex column T.
+- Reconcile all shifted workbook formulas and verify both venue exports.
+- Preserve existing booking, ticket, seating and historical financial records.
 
 ## Safety
 
-- Production diagnosis is read-only.
-- Use rollback-only fixtures for persistence verification.
-- Do not alter booking or payment values.
-- Do not create a real customer invoice or customer communication.
-- Preserve VAT, accounting, permission, idempotency and Xero safeguards.
+- No historical booking or financial backfill.
+- No customer communication or Production QA booking.
+- No changes to ordinary paid booking calculations.
 - Preserve unrelated working-tree files.
-
-## Verified Result
-
-- Root cause: the booking has no billing address. The API correctly rejected
-  the draft, but the UI rendered that rejection behind the open editor modal,
-  making `SAVE DRAFT` appear inactive.
-- The blank gratuity VAT field is valid. Gratuity remains non-VAT and the
-  authoritative total reconciles to `R19,688.00`.
-- The editor now validates required fields before submission and displays the
-  error summary and exact field message inside the modal.
-- A successful save refreshes Financial Documents and opens the persisted
-  draft immediately.
-- Tristan Chetty remains authorised through his active Super Admin profile and
-  the existing invoice-conversion allowlist.
-- Production UI verification displayed `Add a billing address.` beside the
-  field without issuing a write request.
-- A final Production read confirmed that booking `ZNG-4UGGV9` still has zero
-  invoice documents. No Xero or customer communication was triggered.
-
-## Verification
-
-- 9 focused invoice-draft, booking-invoice and document-math tests passed.
-- TypeScript passed.
-- Changed-file ESLint passed.
-- `git diff --check` passed.
-- Production build passed.
-- Vercel Production deployment completed successfully.
-
-## Release
-
-- Application commit: `4a822c8bc2add6f05f9f25cdbc1113f493c9e529`.
-- Rollback point: `94146d948f693d19224bdffa4026f48560b4ee69`.
-- Production business-data delta: zero.

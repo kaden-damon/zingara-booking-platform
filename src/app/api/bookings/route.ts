@@ -75,7 +75,7 @@ import { getPublicBookingCutoff } from "@/lib/bookingDeadlines";
 import {
   applyAuthoritativeComplimentaryBooking,
   isComplimentaryBooking,
-  isStandardComplimentaryBooking,
+  isSettledComplimentaryBooking,
   normalizeComplimentaryBookingCategory,
 } from "@/lib/internalComplimentaryBooking";
 import {
@@ -2513,7 +2513,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const paymentId = isStandardComplimentaryBooking(booking)
+    const paymentId = isSettledComplimentaryBooking(booking)
       ? undefined
       : await upsertPayment(supabase, booking, bookingId);
     const ticketId = isAwaitingExternalPayment(booking)

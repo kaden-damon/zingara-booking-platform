@@ -13,20 +13,21 @@ export function normalizeComplimentaryBookingCategory(value: unknown) {
     : null;
 }
 
-export function getComplimentaryBookingRate(
-  category: ComplimentaryBookingCategory,
-) {
-  return category === "standard" ? 0 : complimentaryCategoryRate;
+export function getComplimentaryBookingRate() {
+  return 0;
 }
 
-export function isStandardComplimentaryBooking(
-  booking: Pick<DemoBooking, "agreedPriceSource" | "complimentaryCategory">,
-) {
+export function getComplimentaryInternalValue(guestCount: number) {
   return (
-    isComplimentaryBooking(booking) &&
-    (normalizeComplimentaryBookingCategory(booking.complimentaryCategory) ??
-      "standard") === "standard"
+    Math.max(Math.trunc(Number(guestCount) || 0), 0) *
+    complimentaryCategoryRate
   );
+}
+
+export function isSettledComplimentaryBooking(
+  booking: Pick<DemoBooking, "agreedPriceSource">,
+) {
+  return isComplimentaryBooking(booking);
 }
 
 export function isComplimentaryBooking(
@@ -50,9 +51,7 @@ export function applyAuthoritativeComplimentaryBooking(input: {
     throw new Error("A valid complimentary booking category is required.");
   }
 
-  const ratePerGuest = getComplimentaryBookingRate(category);
-  const totalPrice = ratePerGuest * booking.partySize;
-  const isStandard = category === "standard";
+  const ratePerGuest = getComplimentaryBookingRate();
   const message = `Dear ${booking.customer.name}, your complimentary Zingara reservation for ${booking.partySize} ${booking.partySize === 1 ? "guest" : "guests"} on ${booking.bookingDate} has been confirmed. Section: ${booking.zoneTitle}. Live ticket: /ticket/${encodeURIComponent(booking.reference)}`;
 
   return {
@@ -60,12 +59,12 @@ export function applyAuthoritativeComplimentaryBooking(input: {
     addonsTotal: 0,
     agreedPriceSource: complimentaryPriceSource,
     amountPaid: 0,
-    balanceDue: totalPrice,
+    balanceDue: 0,
     complimentaryCategory: category,
     depositPercentage: 100,
     discountAmount: 0,
     paymentOption: "full",
-    paymentStatus: isStandard ? "comp-vip" : "pending-payment",
+    paymentStatus: "comp-vip",
     pricePerPerson: ratePerGuest,
     pricingProvenance: {
       agreedPricePerPerson: ratePerGuest,
@@ -79,23 +78,19 @@ export function applyAuthoritativeComplimentaryBooking(input: {
     promoLabel: undefined,
     promoLocation: undefined,
     serviceFeeAmount: 0,
-    status: isStandard ? "confirmed" : "pending-payment",
-    subtotalPrice: totalPrice,
-    ticketIssuedAt: isStandard
-      ? booking.ticketIssuedAt ?? createdAt
-      : undefined,
-    totalPrice,
+    status: "confirmed",
+    subtotalPrice: 0,
+    ticketIssuedAt: booking.ticketIssuedAt ?? createdAt,
+    totalPrice: 0,
     lifecycleHistory: [
       {
         createdAt,
         id: `${booking.reference}-complimentary-created`,
-        note: isStandard
-          ? "Standard complimentary booking created by authorised staff at R0 obligation."
-          : `${category === "media" ? "Media" : "Tradex"} complimentary booking created by authorised staff at R${ratePerGuest} per guest; awaiting payment.`,
-        toStatus: isStandard ? "confirmed" : "pending-payment",
+        note: `${category === "standard" ? "Standard" : category === "media" ? "Media" : "Tradex"} complimentary booking created by authorised staff at R0 guest obligation.`,
+        toStatus: "confirmed",
       },
     ],
-    communicationHistory: isStandard ? [
+    communicationHistory: [
       {
         channel: "email",
         id: `${booking.reference}-complimentary-booking-email`,
@@ -105,6 +100,6 @@ export function applyAuthoritativeComplimentaryBooking(input: {
         templateId: "email-complimentary-booking",
         trigger: "complimentary-booking",
       },
-    ] : [],
+    ],
   };
 }

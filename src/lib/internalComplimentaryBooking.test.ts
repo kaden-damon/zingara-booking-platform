@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   applyAuthoritativeComplimentaryBooking,
+  getComplimentaryInternalValue,
   isComplimentaryBooking,
 } from "./internalComplimentaryBooking.ts";
 import type { DemoBooking } from "./zingaraDemo.ts";
@@ -65,7 +66,7 @@ test("authoritative complimentary state is settled at R0 without fake payment", 
   assert.equal(result.pricingProvenance?.authorizedByStaffId, "staff-1");
   assert.equal(result.promoCode, undefined);
   assert.equal(result.communicationHistory[0]?.trigger, "complimentary-booking");
-  assert.match(result.lifecycleHistory?.[0]?.note ?? "", /R0 obligation/);
+  assert.match(result.lifecycleHistory?.[0]?.note ?? "", /R0 guest obligation/);
 });
 
 test("complimentary identity is explicit and does not classify standard pricing", () => {
@@ -76,8 +77,8 @@ test("complimentary identity is explicit and does not classify standard pricing"
   );
 });
 
-test("Media and Tradex retain COMP classification with an unpaid R550 rate", () => {
-  for (const complimentaryCategory of ["media", "tradex"] as const) {
+test("all COMP categories are settled at R0 with cash-up value kept separate", () => {
+  for (const complimentaryCategory of ["standard", "media", "tradex"] as const) {
     const result = applyAuthoritativeComplimentaryBooking({
       booking: { ...booking(), complimentaryCategory, partySize: 4 },
       createdAt: "2026-09-03T11:00:00.000Z",
@@ -86,14 +87,15 @@ test("Media and Tradex retain COMP classification with an unpaid R550 rate", () 
 
     assert.equal(result.agreedPriceSource, "complimentary");
     assert.equal(result.complimentaryCategory, complimentaryCategory);
-    assert.equal(result.pricePerPerson, 550);
-    assert.equal(result.totalPrice, 2_200);
+    assert.equal(result.pricePerPerson, 0);
+    assert.equal(result.totalPrice, 0);
     assert.equal(result.amountPaid, 0);
-    assert.equal(result.balanceDue, 2_200);
-    assert.equal(result.paymentStatus, "pending-payment");
-    assert.equal(result.status, "pending-payment");
-    assert.equal(result.ticketIssuedAt, undefined);
-    assert.deepEqual(result.communicationHistory, []);
+    assert.equal(result.balanceDue, 0);
+    assert.equal(result.paymentStatus, "comp-vip");
+    assert.equal(result.status, "confirmed");
+    assert.equal(result.ticketIssuedAt, "2026-09-03T11:00:00.000Z");
+    assert.equal(result.communicationHistory[0]?.trigger, "complimentary-booking");
+    assert.equal(getComplimentaryInternalValue(4), 2_200);
   }
 });
 
@@ -103,7 +105,7 @@ test("booking route requires trusted staff and skips payment persistence", async
   assert.match(route, /applyAuthoritativeComplimentaryBooking/);
   assert.match(
     route,
-    /const paymentId = isStandardComplimentaryBooking\(booking\)[\s\S]*?undefined[\s\S]*?: await upsertPayment/,
+    /const paymentId = isSettledComplimentaryBooking\(booking\)[\s\S]*?undefined[\s\S]*?: await upsertPayment/,
   );
 });
 
@@ -111,7 +113,7 @@ test("staff UI exposes comp controls and bypasses PayFast completion", async () 
   const page = await source("../app/book/page.tsx");
   assert.match(page, /Complimentary Booking/);
   assert.match(page, /setStaffPricingMode\("complimentary"\)/);
-  assert.match(page, /Standard COMP/);
+  assert.match(page, /Internal cash-up value/);
   assert.match(page, /Media/);
   assert.match(page, /Tradex/);
   assert.match(page, /if \(isComplimentary\) \{[\s\S]*?setBookingReference/);

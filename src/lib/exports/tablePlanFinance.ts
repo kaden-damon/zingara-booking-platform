@@ -1,3 +1,5 @@
+import { getComplimentaryInternalValue } from "../internalComplimentaryBooking";
+
 export type TablePlanFinancialPayment = {
   amount: number;
   method: string | null;
@@ -249,7 +251,6 @@ export function calculateTablePlanFinancialBreakdown(
   payments: TablePlanFinancialPayment[],
   legacyEvidence?: TablePlanLegacyPaymentEvidence | null,
 ): TablePlanFinancialBreakdown {
-  const totalAmount = toMoney(input.totalAmount);
   const authoritativePaid = toMoney(input.confirmedPaidAmount);
   const valueAllocation = input.valueAllocation;
   const category = input.complimentaryCategory ?? null;
@@ -264,7 +265,7 @@ export function calculateTablePlanFinancialBreakdown(
       ? toMoney(valueAllocation.barTabAmount)
       : toMoney(legacyEvidence?.bar_tab_paid_amount),
     complimentaryAmount: isStandardComplimentary
-      ? toMoney(legacyEvidence?.complimentary_amount) || totalAmount
+      ? getComplimentaryInternalValue(input.guestCount)
       : 0,
     fullCard: 0,
     fullEft: 0,
@@ -273,14 +274,16 @@ export function calculateTablePlanFinancialBreakdown(
     prePaidEft: 0,
     halaalMealsAmount: toMoney(legacyEvidence?.halaal_meals_amount),
     kosherMealsAmount: toMoney(legacyEvidence?.kosher_meals_amount),
-    mediaAmount: category === "media" ? totalAmount : 0,
+    mediaAmount:
+      category === "media" ? getComplimentaryInternalValue(input.guestCount) : 0,
     ticketObligation: 0,
     ticketGratuityAmount: valueAllocation
       ? toMoney(valueAllocation.ticketGratuityAmount)
       : toMoney(legacyEvidence?.ticket_gratuity_amount),
     totalPaid: isStandardComplimentary ? 0 : authoritativePaid,
     toPay: 0,
-    tradexAmount: category === "tradex" ? totalAmount : 0,
+    tradexAmount:
+      category === "tradex" ? getComplimentaryInternalValue(input.guestCount) : 0,
   };
   let classifiedPaid = 0;
 

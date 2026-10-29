@@ -727,28 +727,39 @@ test("Table Plan keeps operational notes and moves COMP wording into Payment Sum
   assert.equal(noteText.match(/Comp guest note/g)?.length, 1);
 });
 
-test("Table Plan places Media and Tradex COMP values in distinct columns without ticket-sale duplication", async () => {
+test("Table Plan places all R0 COMP cash-up values in distinct columns for both venues", async () => {
+ for (const venue of ["johannesburg", "cape-town"]) {
   const buffer = await buildTablePlanWorkbook({
     bookings: [
+      booking("standard", "STANDARD-COMP", 2, "table-399", {
+        amount_paid: 0,
+        balance_outstanding: 0,
+        booking_origin: "admin_staff",
+        notes:
+          '__zingara_booking_meta__:{"agreedPriceSource":"complimentary","complimentaryCategory":"standard","depositPercentage":100,"paymentOption":"full"}',
+        payment_status: "comp_vip",
+        section: "golden-circle",
+        total_amount: 0,
+      }),
       booking("media", "MEDIA-COMP", 4, "table-400", {
-        amount_paid: 550,
-        balance_outstanding: 1_650,
+        amount_paid: 0,
+        balance_outstanding: 0,
         booking_origin: "admin_staff",
         notes:
           '__zingara_booking_meta__:{"agreedPriceSource":"complimentary","complimentaryCategory":"media","depositPercentage":100,"paymentOption":"full"}',
-        payment_status: "deposit_paid",
+        payment_status: "comp_vip",
         section: "golden-circle",
-        total_amount: 2_200,
+        total_amount: 0,
       }),
       booking("tradex", "TRADEX-COMP", 3, "table-401", {
         amount_paid: 0,
-        balance_outstanding: 1_650,
+        balance_outstanding: 0,
         booking_origin: "admin_staff",
         notes:
           '__zingara_booking_meta__:{"agreedPriceSource":"complimentary","complimentaryCategory":"tradex","depositPercentage":100,"paymentOption":"full"}',
-        payment_status: "pending_payment",
+        payment_status: "comp_vip",
         section: "golden-circle",
-        total_amount: 1_650,
+        total_amount: 0,
       }),
     ],
     configuredZonePrices: {
@@ -757,25 +768,21 @@ test("Table Plan places Media and Tradex COMP values in distinct columns without
       "private-booths": 1_000,
       "royal-balcony": 1_000,
     },
-    customers: [customer("media", "Media Guest"), customer("tradex", "Tradex Guest")],
-    payments: [
-      {
-        amount: 550,
-        booking_id: "media",
-        method: "payfast",
-        notes: null,
-        payment_status: "deposit_paid",
-        payment_type: "deposit",
-      },
+    customers: [
+      customer("standard", "Standard Guest"),
+      customer("media", "Media Guest"),
+      customer("tradex", "Tradex Guest"),
     ],
+    payments: [],
     show: {
       date: "2026-11-05",
       id: "show-comp-categories",
       name: "COMP Categories",
       time: "17:00:00",
-      venue: "johannesburg",
+      venue,
     },
     tables: [
+      table("table-399", "399", "standard", { section: "golden-circle" }),
       table("table-400", "400", "media", { section: "golden-circle" }),
       table("table-401", "401", "tradex", { section: "golden-circle" }),
     ],
@@ -785,15 +792,22 @@ test("Table Plan places Media and Tradex COMP values in distinct columns without
   const sheet = workbook.getWorksheet("Table Plan");
   assert.ok(sheet);
   const rows = Array.from({ length: sheet.rowCount }, (_, index) => sheet.getRow(index + 1));
+  const standardRow = rows.find((row) => row.getCell(8).value === "STANDARD-COMP");
   const mediaRow = rows.find((row) => row.getCell(8).value === "MEDIA-COMP");
   const tradexRow = rows.find((row) => row.getCell(8).value === "TRADEX-COMP");
+  assert.ok(standardRow);
   assert.ok(mediaRow);
   assert.ok(tradexRow);
+  assert.equal(standardRow.getCell(12).value, "Complimentary");
+  assert.equal(standardRow.getCell(19).value, 0);
+  assert.equal(standardRow.getCell(20).value, 0);
+  assert.equal(standardRow.getCell(21).value, 1_100);
+  assert.equal(standardRow.getCell(18).value, 0);
   assert.equal(mediaRow.getCell(12).value, "Media Complimentary");
   assert.equal(mediaRow.getCell(19).value, 2_200);
   assert.equal(mediaRow.getCell(20).value, 0);
   assert.equal(mediaRow.getCell(21).value, 0);
-  assert.equal(mediaRow.getCell(15).value, 550);
+  assert.equal(mediaRow.getCell(15).value, 0);
   assert.equal(mediaRow.getCell(18).value, 0);
   assert.equal(tradexRow.getCell(12).value, "Tradex Complimentary");
   assert.equal(tradexRow.getCell(19).value, 0);
@@ -805,7 +819,8 @@ test("Table Plan places Media and Tradex COMP values in distinct columns without
   assert.equal(sheet.getCell("F124").value, "COMPS");
   assert.equal(cellNumber(sheet.getCell("J122").value), 2_200);
   assert.equal(cellNumber(sheet.getCell("J123").value), 1_650);
-  assert.equal(cellNumber(sheet.getCell("J124").value), 0);
+  assert.equal(cellNumber(sheet.getCell("J124").value), 1_100);
+ }
 });
 
 test("Table Plan route remains batched and includes report-critical booking state", () => {

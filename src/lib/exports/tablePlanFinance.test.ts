@@ -94,33 +94,26 @@ test("uses persisted paid and outstanding values without inferring either", () =
   });
 });
 
-test("keeps Media and Tradex COMP values out of ordinary ticket sales", () => {
-  for (const complimentaryCategory of ["media", "tradex"] as const) {
+test("keeps all COMP cash-up values out of payable and payment totals", () => {
+  for (const complimentaryCategory of ["standard", "media", "tradex"] as const) {
     const result = calculateTablePlanFinancialBreakdown(
       {
         complimentaryCategory,
-        confirmedPaidAmount: 550,
+        confirmedPaidAmount: 0,
         guestCount: 4,
-        paymentStatus: "deposit_paid",
-        totalAmount: 2_200,
+        paymentStatus: "comp_vip",
+        totalAmount: 0,
       },
-      [
-        {
-          amount: 550,
-          method: "payfast",
-          payment_status: "deposit_paid",
-          payment_type: "deposit",
-        },
-      ],
+      [],
     );
 
     assert.equal(result.mediaAmount, complimentaryCategory === "media" ? 2_200 : 0);
     assert.equal(result.tradexAmount, complimentaryCategory === "tradex" ? 2_200 : 0);
-    assert.equal(result.complimentaryAmount, 0);
+    assert.equal(result.complimentaryAmount, complimentaryCategory === "standard" ? 2_200 : 0);
     assert.equal(result.ticketObligation, 0);
     assert.equal(result.toPay, 0);
-    assert.equal(result.prePaidCard, 550);
-    assert.equal(result.totalPaid, 550);
+    assert.equal(result.prePaidCard, 0);
+    assert.equal(result.totalPaid, 0);
   }
 });
 
@@ -398,7 +391,7 @@ test("marks comps without inventing receipts and excludes transaction fees", () 
     ],
   );
 
-  assert.equal(complimentary.complimentaryAmount, 0);
+  assert.equal(complimentary.complimentaryAmount, 1_100);
   assert.equal(complimentary.totalPaid, 0);
   assert.equal(complimentary.toPay, 0);
   assert.equal(paid.fullCard, 550);
