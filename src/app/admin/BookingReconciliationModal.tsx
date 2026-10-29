@@ -24,6 +24,7 @@ export type BookingReconciliationDetails = {
     bookingFee: number;
     bookingReference: string;
     bookingOrigin: string | null;
+    complimentaryCategory: "standard" | "media" | "tradex" | null;
     depositAmount: number;
     guestCount: number;
     paymentStatus: string;
@@ -302,6 +303,18 @@ export function GuestCountReconciliationModal(
     booking.paymentStatus === "comp_vip" &&
     props.details.addedGuestPricingBasis.source === "complimentary" &&
     props.details.addedGuestPricingBasis.unitAmount === 0;
+  const isChargeableComp =
+    (booking.complimentaryCategory === "media" ||
+      booking.complimentaryCategory === "tradex") &&
+    props.details.addedGuestPricingBasis.source === "complimentary" &&
+    props.details.addedGuestPricingBasis.unitAmount !== null;
+  const chargeableCompTotal = isChargeableComp
+    ? Math.round(
+        draft.guestCount *
+          (props.details.addedGuestPricingBasis.unitAmount ?? 0) *
+          100,
+      ) / 100
+    : null;
   const [link, setLink] = useState<{ canSend: boolean; paymentUrl: string; token: string } | null>(null);
   const [linkStatus, setLinkStatus] = useState("");
 
@@ -356,7 +369,11 @@ export function GuestCountReconciliationModal(
           <p>New outstanding: {financials.newOutstanding === null ? "Unavailable" : `R${financials.newOutstanding.toFixed(2)}`}</p>
         </div>
       ) : (
-        <p className="mt-1 text-xs text-zinc-500">Reducing the guest count does not change the booking price or create a refund. Update payment details separately if needed.</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          {isChargeableComp
+            ? `The ${booking.complimentaryCategory === "media" ? "Media" : "Tradex"} COMP total will update to ${formatMoney(chargeableCompTotal ?? 0)}. Existing payments remain unchanged.`
+            : "Reducing the guest count does not change the booking price or create a refund. Update payment details separately if needed."}
+        </p>
       )}
       {requiresManualFinancialBasis && (
         <section className="mt-4 rounded-xl border border-amber-300/30 bg-amber-950/15 p-4">
@@ -440,7 +457,7 @@ export function GuestCountReconciliationModal(
             <p className="mt-1 text-xs text-zinc-300">
               Guest count updated. The previous table no longer fits this booking, so it now needs a table.
             </p>
-          ) : isComplimentaryIncrease ? <p className="mt-1 text-xs text-zinc-300">Guest count updated. The booking remains complimentary.</p> : props.result.added_guests > 0 ? <p className="mt-1 text-xs text-zinc-300">R{props.result.additional_amount.toFixed(2)} added · R{props.result.balance_outstanding.toFixed(2)} outstanding</p> : <p className="mt-1 text-xs text-zinc-300">Guest count updated. The booking price is unchanged.</p>}
+          ) : isComplimentaryIncrease ? <p className="mt-1 text-xs text-zinc-300">Guest count updated. The booking remains complimentary.</p> : isChargeableComp ? <p className="mt-1 text-xs text-zinc-300">Booking total updated · R{props.result.balance_outstanding.toFixed(2)} outstanding</p> : props.result.added_guests > 0 ? <p className="mt-1 text-xs text-zinc-300">R{props.result.additional_amount.toFixed(2)} added · R{props.result.balance_outstanding.toFixed(2)} outstanding</p> : <p className="mt-1 text-xs text-zinc-300">Guest count updated. The booking price is unchanged.</p>}
           {props.result.added_guests > 0 && props.result.additional_amount > 0 && (!link ? (
             <button type="button" onClick={() => void createPaymentLink()} className="mt-3 min-h-11 w-full rounded-full bg-[#D8C36A] px-4 text-xs font-semibold uppercase text-black">Create Payment Link</button>
           ) : (

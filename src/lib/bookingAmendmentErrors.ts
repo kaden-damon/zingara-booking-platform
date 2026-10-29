@@ -25,6 +25,8 @@ const ERROR_RESPONSES: Array<{
   { code: "FULL_PAYMENT_ONLY", message: "This performance requires full payment. Deposit or partial-payment terms are not available.", status: 409 },
   { code: "FULL_PAYMENT_VERIFICATION_REQUIRED", message: "Full payment must be verified before this booking can be treated as settled.", status: 409 },
   { code: "ADDED_GUEST_FINANCIAL_BASIS_REQUIRED", message: "The additional amount could not be calculated. Check the booking's payment details before adding guests.", status: 409 },
+  { code: "COMP_CATEGORY_FINANCIAL_BASIS_REQUIRED", message: "The Media or Tradex rate could not be verified. Review the booking's payment details before changing guests.", status: 409 },
+  { code: "COMP_CATEGORY_REDUCTION_FINANCIAL_REVIEW_REQUIRED", message: "This reduction would leave more paid than the revised booking total. Review the payment before reducing guests.", status: 409 },
   { code: "LEGACY_MANUAL_BASIS_NOT_ALLOWED", message: "This booking already has confirmed pricing. Use its saved payment details.", status: 409 },
   { code: "LEGACY_INCREASE_REQUIRED", message: "Manual legacy pricing can only be used when adding guests.", status: 400 },
   { code: "GUEST_COUNT_REDUCTION_REQUIRED", message: "Enter a lower guest count for this retained-value workflow.", status: 400 },

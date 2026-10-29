@@ -33,6 +33,7 @@ test("preserves Ash's operational payment column order", () => {
     "FULL-PYT/EFT",
     "TO PAY",
     "MEDIA",
+    "TRADEX",
     "COMP",
     "HALAAL MEALS",
     "KOSHER MEALS",
@@ -91,6 +92,36 @@ test("uses persisted paid and outstanding values without inferring either", () =
     depositRequirement: 550,
     outstanding: 4_950,
   });
+});
+
+test("keeps Media and Tradex COMP values out of ordinary ticket sales", () => {
+  for (const complimentaryCategory of ["media", "tradex"] as const) {
+    const result = calculateTablePlanFinancialBreakdown(
+      {
+        complimentaryCategory,
+        confirmedPaidAmount: 550,
+        guestCount: 4,
+        paymentStatus: "deposit_paid",
+        totalAmount: 2_200,
+      },
+      [
+        {
+          amount: 550,
+          method: "payfast",
+          payment_status: "deposit_paid",
+          payment_type: "deposit",
+        },
+      ],
+    );
+
+    assert.equal(result.mediaAmount, complimentaryCategory === "media" ? 2_200 : 0);
+    assert.equal(result.tradexAmount, complimentaryCategory === "tradex" ? 2_200 : 0);
+    assert.equal(result.complimentaryAmount, 0);
+    assert.equal(result.ticketObligation, 0);
+    assert.equal(result.toPay, 0);
+    assert.equal(result.prePaidCard, 550);
+    assert.equal(result.totalPaid, 550);
+  }
 });
 
 test("uses configured pricing only for a proven legacy deposit placeholder", () => {

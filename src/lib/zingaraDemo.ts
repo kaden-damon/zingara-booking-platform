@@ -701,6 +701,7 @@ export type DemoBooking = {
   serviceFeeAmount?: number;
   totalPrice: number;
   pricePerPerson: number;
+  complimentaryCategory?: "standard" | "media" | "tradex";
   agreedPriceSource?:
     | "complimentary"
     | "friends-family"

@@ -2,6 +2,7 @@ export type ComplimentarySubmissionInput = {
   customerDetailsComplete: boolean;
   hasAcceptedTerms: boolean;
   hasAvailableCapacity: boolean;
+  hasSelectedCategory: boolean;
   hasSelectedShow: boolean;
   hasSelectedZone: boolean;
   isBookingSubmitting: boolean;
@@ -37,6 +38,13 @@ export function getComplimentarySubmissionEligibility(
 
   if (!input.hasSelectedZone) {
     return { allowed: false, reason: "Select a seating zone to continue." };
+  }
+
+  if (!input.hasSelectedCategory) {
+    return {
+      allowed: false,
+      reason: "Select Standard, Media or Tradex to continue.",
+    };
   }
 
   if (!input.hasAvailableCapacity) {

@@ -154,11 +154,12 @@ export async function GET(request: Request) {
     const table = Array.isArray(booking.show_tables)
       ? booking.show_tables[0]
       : booking.show_tables;
+    const bookingMetadata = parseBookingMetadata(booking.notes);
     const addedGuestPricingBasis = resolveAddedGuestPricingBasis({
       amountPaid: Number(booking.amount_paid),
       balanceOutstanding: Number(booking.balance_outstanding),
       bookingOrigin: booking.booking_origin,
-      metadata: parseBookingMetadata(booking.notes),
+      metadata: bookingMetadata,
       paymentStatus: booking.payment_status,
       subtotalAmount: Number(booking.subtotal_amount),
       totalAmount: Number(booking.total_amount),
@@ -173,6 +174,12 @@ export async function GET(request: Request) {
         balanceOutstanding: Number(booking.balance_outstanding),
         bookingFee: breakdown.bookingFee,
         bookingReference: booking.booking_reference,
+        complimentaryCategory:
+          bookingMetadata?.complimentaryCategory === "standard" ||
+          bookingMetadata?.complimentaryCategory === "media" ||
+          bookingMetadata?.complimentaryCategory === "tradex"
+            ? bookingMetadata.complimentaryCategory
+            : null,
         bookingOrigin: booking.booking_origin,
         depositAmount:
           depositEvidence ||

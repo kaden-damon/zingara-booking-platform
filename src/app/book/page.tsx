@@ -122,6 +122,10 @@ import {
 import { getPublicBookingCutoff } from "../../lib/bookingDeadlines";
 import { getComplimentarySubmissionEligibility } from "../../lib/complimentarySubmission";
 import {
+  getComplimentaryBookingRate,
+  type ComplimentaryBookingCategory,
+} from "../../lib/internalComplimentaryBooking";
+import {
   type CorporateInvoicePaymentBasis,
   validateCorporateInvoiceFinancials,
 } from "../../lib/corporateInvoicePayments";
@@ -817,6 +821,8 @@ export default function BookingPage({
   const [staffPricingMode, setStaffPricingMode] = useState<
     "complimentary" | "friends-family" | "standard"
   >("standard");
+  const [complimentaryCategory, setComplimentaryCategory] =
+    useState<ComplimentaryBookingCategory | null>(null);
   const initialCalendarBookingContext = useMemo(() => {
     const candidate: CalendarBookingLockContext = {
       expectedDate:
@@ -1080,9 +1086,19 @@ export default function BookingPage({
     !requiresFullPayment &&
     manualCheckoutRole !== "none" &&
     staffPricingMode === "complimentary";
+  const resolvedComplimentaryCategory = isComplimentary
+    ? complimentaryCategory ??
+      (isCorporateCalendarCheckout || guidedTrainingModuleId
+        ? "standard"
+        : null)
+    : null;
+  const isStandardComplimentary =
+    isComplimentary && resolvedComplimentaryCategory === "standard";
   const pricePerPerson = selectedZone
     ? isComplimentary
-      ? 0
+      ? resolvedComplimentaryCategory
+        ? getComplimentaryBookingRate(resolvedComplimentaryCategory)
+        : 0
       : isFriendsAndFamily
       ? Number(friendsAndFamilyConfiguration?.ratePerPerson)
       : getTemporaryTablePricePerPerson({
@@ -1381,6 +1397,7 @@ export default function BookingPage({
       customerDetailsComplete,
       hasAcceptedTerms: hasAcceptedBookingTerms,
       hasAvailableCapacity: selectedZoneHasCapacity,
+      hasSelectedCategory: Boolean(resolvedComplimentaryCategory),
       hasSelectedShow: Boolean(selectedShow),
       hasSelectedZone: Boolean(selectedZone),
       isBookingSubmitting: isPayFastRedirecting,
@@ -2733,6 +2750,7 @@ export default function BookingPage({
       serviceFeeAmount,
       totalPrice: total,
       pricePerPerson,
+      complimentaryCategory: resolvedComplimentaryCategory ?? undefined,
       agreedPriceSource: isComplimentary
         ? ("complimentary" as const)
         : selectedTemporaryTable
@@ -2764,7 +2782,7 @@ export default function BookingPage({
           ? 0
           : invoiceOutstandingAmount
         : undefined,
-      paymentStatus: isComplimentary
+      paymentStatus: isStandardComplimentary
         ? ("comp-vip" as const)
         : isCorporateInvoicePaid
           ? ("fully-paid" as const)
@@ -2781,7 +2799,7 @@ export default function BookingPage({
           ? undefined
           : selectedExistingCustomerId ?? undefined,
       customer: customerInfo,
-      status: isComplimentary || isCorporateInvoicePaid
+      status: isStandardComplimentary || isCorporateInvoicePaid
         ? ("confirmed" as const)
         : ("pending-payment" as const),
       lifecycleHistory: isComplimentary ? [] : [
@@ -2992,7 +3010,7 @@ export default function BookingPage({
       if (isComplimentary) {
         setBookingReference(persistedBooking.reference);
         setPaymentRedirectStatus("");
-        setShowTicketReadyPrompt(true);
+        setShowTicketReadyPrompt(isStandardComplimentary);
         setActiveBookingStep(4);
         setIsConfirmationOpen(true);
         setIsPayFastRedirecting(false);
@@ -5261,7 +5279,10 @@ export default function BookingPage({
                       data-training-value="standard"
                       type="button"
                       aria-pressed={staffPricingMode === "standard"}
-                      onClick={() => setStaffPricingMode("standard")}
+                      onClick={() => {
+                        setStaffPricingMode("standard");
+                        setComplimentaryCategory(null);
+                      }}
                       className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold uppercase ${staffPricingMode === "standard" ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
                     >
                       Standard Rate
@@ -5272,6 +5293,7 @@ export default function BookingPage({
                         aria-pressed={isFriendsAndFamily}
                         onClick={() => {
                           setStaffPricingMode("friends-family");
+                          setComplimentaryCategory(null);
                           setSelectedTemporaryTableId("");
                           setPromoCodeInput("");
                           setPromoValidationPreview(null);
@@ -5289,6 +5311,11 @@ export default function BookingPage({
                         aria-pressed={isComplimentary}
                         onClick={() => {
                           setStaffPricingMode("complimentary");
+                          setComplimentaryCategory(
+                            isCorporateCalendarCheckout || guidedTrainingModuleId
+                              ? "standard"
+                              : null,
+                          );
                           setCorporatePaymentBasis("online");
                           setPaymentOption("full");
                           setSelectedTemporaryTableId("");
@@ -5301,9 +5328,36 @@ export default function BookingPage({
                       </button>
                     )}
                   </div>
+                  {isComplimentary && !isCorporateCalendarCheckout && (
+                    <div
+                      className="mt-3 grid grid-cols-3 gap-2"
+                      role="group"
+                      aria-label="Complimentary category"
+                    >
+                      {([
+                        ["standard", "Standard"],
+                        ["media", "Media"],
+                        ["tradex", "Tradex"],
+                      ] as const).map(([category, label]) => (
+                        <button
+                          key={category}
+                          type="button"
+                          aria-pressed={complimentaryCategory === category}
+                          onClick={() => setComplimentaryCategory(category)}
+                          className={`min-h-11 rounded-full border px-2 py-2 text-xs font-semibold uppercase ${complimentaryCategory === category ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <p className="mt-2 text-xs text-zinc-400">
                     {isComplimentary
-                      ? "100% complimentary booking. No payment or Booking Fee will be created."
+                      ? resolvedComplimentaryCategory === "standard"
+                        ? "Standard COMP · R0 per guest. No payment or Booking Fee will be created."
+                        : resolvedComplimentaryCategory
+                          ? `${resolvedComplimentaryCategory === "media" ? "Media" : "Tradex"} COMP · ${formatCurrency(getComplimentaryBookingRate(resolvedComplimentaryCategory))} per guest. The balance remains outstanding until paid.`
+                          : "Select Standard, Media or Tradex."
                       : isFriendsAndFamily
                       ? `${formatCurrency(Number(friendsAndFamilyConfiguration?.ratePerPerson))} per person. This agreed rate is saved with the booking.`
                       : "The configured zone price applies."}
@@ -6359,7 +6413,9 @@ export default function BookingPage({
                       Step 6 · Complete
                     </p>
                         <p className="mt-1 text-base font-bold text-white">
-                          Booking Confirmed
+                          {isComplimentary && !isStandardComplimentary
+                            ? "Booking Created"
+                            : "Booking Confirmed"}
                         </p>
                     <div className="mt-3 grid grid-cols-2 gap-2 sm:mt-4 sm:gap-3">
                       <div>
@@ -6383,7 +6439,7 @@ export default function BookingPage({
                           Booking Amount
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
-                          {formatCurrency(amountDueNow)}
+                          {formatCurrency(isComplimentary ? total : amountDueNow)}
                         </p>
                       </div>
                       <div>
@@ -6402,7 +6458,9 @@ export default function BookingPage({
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
                           {formatCurrency(
-                            payFastTransaction.providerGrossAmount,
+                            isComplimentary
+                              ? balanceDue
+                              : payFastTransaction.providerGrossAmount,
                           )}
                         </p>
                       </div>
@@ -6411,7 +6469,11 @@ export default function BookingPage({
                           Status
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
-                          {isComplimentary ? "Complimentary" : "Confirmed"}
+                          {isComplimentary
+                            ? isStandardComplimentary
+                              ? "Standard COMP"
+                              : "Awaiting Payment"
+                            : "Confirmed"}
                         </p>
                       </div>
                     </div>
@@ -6422,6 +6484,7 @@ export default function BookingPage({
                     )}
                   </div>
 
+                  {(!isComplimentary || isStandardComplimentary) && (
                   <div className="rounded-[1.25rem] border border-[#D8C36A]/45 bg-black p-3 shadow-[0_0_45px_rgba(216,195,106,0.16)] sm:rounded-[1.5rem] sm:p-6">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-5">
                       <div className="min-w-0">
@@ -6544,6 +6607,7 @@ export default function BookingPage({
                       )}
                     </div>
                   </div>
+                  )}
 
                   {showTicketReadyPrompt && shouldShowInstallOpportunity && (
                     <div className="rounded-[1.25rem] border border-[#D8C36A]/40 bg-[radial-gradient(circle_at_top,#241B0A_0%,#111111_48%,#050505_100%)] p-4 shadow-[0_0_36px_rgba(216,195,106,0.14)] sm:rounded-[1.5rem] sm:p-5">

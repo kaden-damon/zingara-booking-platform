@@ -9429,6 +9429,7 @@ export default function AdminDashboardPage({
   });
   const complimentaryBookings = monthlyBookings.filter(
     (booking) =>
+      booking.agreedPriceSource === "complimentary" ||
       booking.totalPrice === 0 ||
       getBookingPaymentStatus(booking) === "comp-vip",
   );
@@ -14897,6 +14898,7 @@ export default function AdminDashboardPage({
       "Booking Reference",
       "Guest / Company",
       "Guests",
+      "COMP Category",
       "Complimentary Reason",
       "Complimentary Value",
       "Created By",
@@ -14911,6 +14913,9 @@ export default function AdminDashboardPage({
 
         return {
           "Booking Reference": booking.reference,
+          "COMP Category": booking.complimentaryCategory
+            ? booking.complimentaryCategory.toUpperCase()
+            : "STANDARD",
           "Complimentary Reason": booking.operationalNotes || "Not recorded",
           "Complimentary Value": getBookingFinancials(booking).totalPrice,
           "Created By": "Not recorded",
@@ -15060,6 +15065,7 @@ export default function AdminDashboardPage({
         "Booking Type": bookingType === "corporate" ? "Corporate" : "Standard",
         "Corporate flag": bookingType === "corporate" ? "Yes" : "No",
         "Complimentary flag":
+          booking.agreedPriceSource === "complimentary" ||
           financials.paymentStatus === "comp-vip" || financials.totalPrice === 0
             ? "Yes"
             : "No",
@@ -39231,6 +39237,12 @@ export default function AdminDashboardPage({
 	                              VIP
 	                            </span>
 	                          )}
+	                          {booking.agreedPriceSource === "complimentary" &&
+	                            booking.complimentaryCategory && (
+	                              <span className="inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-purple-300/40 bg-purple-950/30 px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] text-purple-200">
+	                                {booking.complimentaryCategory} COMP
+	                              </span>
+	                            )}
 	                          {isCorporateBooking && (
 	                            <span className="inline-flex min-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-[#D8C36A]/35 bg-[#D8C36A]/10 px-2.5 py-1 text-[0.54rem] font-semibold uppercase leading-none tracking-[0.06em] text-[#F2D66C]">
 	                              Corporate

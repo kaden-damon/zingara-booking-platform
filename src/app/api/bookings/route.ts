@@ -75,6 +75,8 @@ import { getPublicBookingCutoff } from "@/lib/bookingDeadlines";
 import {
   applyAuthoritativeComplimentaryBooking,
   isComplimentaryBooking,
+  isStandardComplimentaryBooking,
+  normalizeComplimentaryBookingCategory,
 } from "@/lib/internalComplimentaryBooking";
 import {
   applyCorporateInvoiceFinancials,
@@ -2187,8 +2189,29 @@ export async function POST(request: Request) {
         );
       }
 
+      const complimentaryCategory =
+        normalizeComplimentaryBookingCategory(booking.complimentaryCategory) ??
+        (booking.bookingOrigin === "admin_staff" ? null : "standard");
+
+      if (!complimentaryCategory) {
+        return Response.json(
+          { error: "Select Standard, Media or Tradex for this complimentary booking." },
+          { status: 400 },
+        );
+      }
+
+      if (
+        booking.bookingOrigin !== "admin_staff" &&
+        complimentaryCategory !== "standard"
+      ) {
+        return Response.json(
+          { error: "Media and Tradex categories are available only in Standard booking creation." },
+          { status: 409 },
+        );
+      }
+
       booking = applyAuthoritativeComplimentaryBooking({
-        booking,
+        booking: { ...booking, complimentaryCategory },
         staffProfileId,
       });
       agreedPriceSource = "complimentary";
@@ -2440,7 +2463,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const paymentId = isComplimentaryBooking(booking)
+    const paymentId = isStandardComplimentaryBooking(booking)
       ? undefined
       : await upsertPayment(supabase, booking, bookingId);
     const ticketId = isAwaitingExternalPayment(booking)

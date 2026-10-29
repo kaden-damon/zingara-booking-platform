@@ -8,6 +8,7 @@ const validInput = {
   customerDetailsComplete: true,
   hasAcceptedTerms: true,
   hasAvailableCapacity: true,
+  hasSelectedCategory: true,
   hasSelectedShow: true,
   hasSelectedZone: true,
   isBookingSubmitting: false,
@@ -30,6 +31,16 @@ test("missing required customer details disables complimentary submission", () =
 
   assert.equal(result.allowed, false);
   assert.match(result.reason, /customer details/i);
+});
+
+test("new complimentary booking requires an explicit category", () => {
+  const result = getComplimentarySubmissionEligibility({
+    ...validInput,
+    hasSelectedCategory: false,
+  });
+
+  assert.equal(result.allowed, false);
+  assert.match(result.reason, /Standard, Media or Tradex/);
 });
 
 test("unaccepted terms disable complimentary submission", () => {

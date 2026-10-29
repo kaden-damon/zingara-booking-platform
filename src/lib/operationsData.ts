@@ -115,7 +115,8 @@ export function getOperationalDashboardMetrics(bookings: DemoBooking[]) {
         bookings: metrics.bookings + 1,
         complimentaryBookings:
           metrics.complimentaryBookings +
-          (booking.paymentStatus === "comp-vip" || booking.totalPrice === 0
+          (booking.agreedPriceSource === "complimentary" ||
+          booking.paymentStatus === "comp-vip" || booking.totalPrice === 0
             ? 1
             : 0),
         corporateBookings:

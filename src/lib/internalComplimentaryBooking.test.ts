@@ -20,6 +20,7 @@ function booking(): DemoBooking {
     amountPaid: 0,
     balanceDue: 4100,
     bookingDate: "2026-10-17 17:00",
+    complimentaryCategory: "standard",
     communicationHistory: [],
     createdAt: "2026-09-03T10:00:00.000Z",
     customer: {
@@ -75,13 +76,34 @@ test("complimentary identity is explicit and does not classify standard pricing"
   );
 });
 
+test("Media and Tradex retain COMP classification with an unpaid R550 rate", () => {
+  for (const complimentaryCategory of ["media", "tradex"] as const) {
+    const result = applyAuthoritativeComplimentaryBooking({
+      booking: { ...booking(), complimentaryCategory, partySize: 4 },
+      createdAt: "2026-09-03T11:00:00.000Z",
+      staffProfileId: "staff-1",
+    });
+
+    assert.equal(result.agreedPriceSource, "complimentary");
+    assert.equal(result.complimentaryCategory, complimentaryCategory);
+    assert.equal(result.pricePerPerson, 550);
+    assert.equal(result.totalPrice, 2_200);
+    assert.equal(result.amountPaid, 0);
+    assert.equal(result.balanceDue, 2_200);
+    assert.equal(result.paymentStatus, "pending-payment");
+    assert.equal(result.status, "pending-payment");
+    assert.equal(result.ticketIssuedAt, undefined);
+    assert.deepEqual(result.communicationHistory, []);
+  }
+});
+
 test("booking route requires trusted staff and skips payment persistence", async () => {
   const route = await source("../app/api/bookings/route.ts");
   assert.match(route, /isComplimentaryBooking\(booking\) && !isTrustedStaff/);
   assert.match(route, /applyAuthoritativeComplimentaryBooking/);
   assert.match(
     route,
-    /const paymentId = isComplimentaryBooking\(booking\)[\s\S]*?undefined[\s\S]*?: await upsertPayment/,
+    /const paymentId = isStandardComplimentaryBooking\(booking\)[\s\S]*?undefined[\s\S]*?: await upsertPayment/,
   );
 });
 
@@ -89,7 +111,9 @@ test("staff UI exposes comp controls and bypasses PayFast completion", async () 
   const page = await source("../app/book/page.tsx");
   assert.match(page, /Complimentary Booking/);
   assert.match(page, /setStaffPricingMode\("complimentary"\)/);
-  assert.match(page, /No payment option, Booking Fee, payment link or PayFast checkout applies/);
+  assert.match(page, /Standard COMP/);
+  assert.match(page, /Media/);
+  assert.match(page, /Tradex/);
   assert.match(page, /if \(isComplimentary\) \{[\s\S]*?setBookingReference/);
   assert.match(page, /permissions\?\.includes\("bookings:manage"\)/);
 });
@@ -99,7 +123,7 @@ test("public UI cannot enter complimentary mode", async () => {
   assert.match(page, /\{manualCheckoutRole !== "none" && \(/);
   assert.match(
     page,
-    /manualCheckoutRole !== "none" && staffPricingMode === "complimentary"/,
+    /manualCheckoutRole !== "none" &&\s*staffPricingMode === "complimentary"/,
   );
 });
 

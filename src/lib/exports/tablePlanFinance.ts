@@ -35,6 +35,7 @@ export type TablePlanFinancialBreakdown = {
   barGratuityAmount: number;
   barTabPaidAmount: number;
   complimentaryAmount: number;
+  mediaAmount: number;
   fullCard: number;
   fullEft: number;
   methodUnknownPaid: number;
@@ -46,6 +47,7 @@ export type TablePlanFinancialBreakdown = {
   ticketGratuityAmount: number;
   totalPaid: number;
   toPay: number;
+  tradexAmount: number;
 };
 
 export type TablePlanPaymentSummary = {
@@ -63,6 +65,7 @@ export const tablePlanFinancialColumnHeaders = [
   "FULL-PYT/EFT",
   "TO PAY",
   "MEDIA",
+  "TRADEX",
   "COMP",
   "HALAAL MEALS",
   "KOSHER MEALS",
@@ -90,6 +93,7 @@ export function getTablePlanToPayTotalFormula(
 
 type TablePlanFinancialInput = {
   bookingOrigin?: string | null;
+  complimentaryCategory?: "standard" | "media" | "tradex" | null;
   confirmedPaidAmount: number;
   configuredUnitPrice?: number;
   guestCount: number;
@@ -248,15 +252,18 @@ export function calculateTablePlanFinancialBreakdown(
   const totalAmount = toMoney(input.totalAmount);
   const authoritativePaid = toMoney(input.confirmedPaidAmount);
   const valueAllocation = input.valueAllocation;
-  const isComplimentary = legacyEvidence
+  const category = input.complimentaryCategory ?? null;
+  const isComplimentary = category !== null || (legacyEvidence
     ? legacyEvidence.complimentary === true
-    : input.paymentStatus === "comp_vip";
+    : input.paymentStatus === "comp_vip");
+  const isStandardComplimentary =
+    isComplimentary && (category === null || category === "standard");
   const breakdown: TablePlanFinancialBreakdown = {
     barGratuityAmount: toMoney(legacyEvidence?.bar_gratuity_amount),
     barTabPaidAmount: valueAllocation
       ? toMoney(valueAllocation.barTabAmount)
       : toMoney(legacyEvidence?.bar_tab_paid_amount),
-    complimentaryAmount: isComplimentary
+    complimentaryAmount: isStandardComplimentary
       ? toMoney(legacyEvidence?.complimentary_amount) || totalAmount
       : 0,
     fullCard: 0,
@@ -266,12 +273,14 @@ export function calculateTablePlanFinancialBreakdown(
     prePaidEft: 0,
     halaalMealsAmount: toMoney(legacyEvidence?.halaal_meals_amount),
     kosherMealsAmount: toMoney(legacyEvidence?.kosher_meals_amount),
+    mediaAmount: category === "media" ? totalAmount : 0,
     ticketObligation: 0,
     ticketGratuityAmount: valueAllocation
       ? toMoney(valueAllocation.ticketGratuityAmount)
       : toMoney(legacyEvidence?.ticket_gratuity_amount),
-    totalPaid: isComplimentary ? 0 : authoritativePaid,
+    totalPaid: isStandardComplimentary ? 0 : authoritativePaid,
     toPay: 0,
+    tradexAmount: category === "tradex" ? totalAmount : 0,
   };
   let classifiedPaid = 0;
 
@@ -315,7 +324,7 @@ export function calculateTablePlanFinancialBreakdown(
       breakdown.barGratuityAmount +
       breakdown.halaalMealsAmount +
       breakdown.kosherMealsAmount;
-    breakdown.methodUnknownPaid = isComplimentary
+    breakdown.methodUnknownPaid = isStandardComplimentary
       ? 0
       : toMoney(
           authoritativePaid - classifiedPaid - recoveredAncillaryAmount,
