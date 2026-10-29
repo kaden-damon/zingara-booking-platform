@@ -24,6 +24,7 @@ test("Norman deposit transfer is Fatima-approved, atomic and provider-preserving
 
   assert.match(migration, /3ac09b59-fc3f-4c6d-9bb3-8dd47a077188/);
   assert.match(migration, /ff96887e-bed8-43ec-884d-0ef8634e9f12/);
+  assert.match(migration, /79a9090b-49d5-41f6-b1ca-e2bfcc96d75d/);
   assert.match(migration, /Management-approved transfer of existing deposit to replacement booking\./);
   assert.match(migration, /for update/);
   assert.match(migration, /pg_advisory_xact_lock/);
@@ -49,6 +50,7 @@ test("API requires authenticated explicit confirmation and the UI does not auto-
   assert.match(route, /body\?\.confirmed !== true/);
   assert.match(route, /auth\.staffProfile\.id === fatimaStaffProfileId/);
   assert.match(route, /auth\.user\?\.id === fatimaAuthUserId/);
+  assert.match(route, /79a9090b-49d5-41f6-b1ca-e2bfcc96d75d/);
   assert.match(component, /I approve this management exception and payment transfer\./);
   assert.match(component, /disabled=\{!approved \|\| submitting\}/);
   const statusEffect = component.slice(
