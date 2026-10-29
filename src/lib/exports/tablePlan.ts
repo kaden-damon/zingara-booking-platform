@@ -79,6 +79,7 @@ export type TablePlanBooking = {
   booking_status: string;
   company_id?: string | null;
   company_name?: string | null;
+  corporate_request_id?: string | null;
   customer_id: string | null;
   dietary_requirements: string | null;
   guest_count: number;
@@ -88,6 +89,7 @@ export type TablePlanBooking = {
   original_zone_entitlements?: Array<{ pax: number; zoneId: SeatingZoneId }> | null;
   payment_status: string;
   section: string;
+  supplemental_operational_notes?: string[];
   table_id: string | null;
   total_amount: number;
   zone_entitlements?: Array<{ pax: number; zoneId: SeatingZoneId }> | null;
@@ -188,8 +190,8 @@ const contactColumn = 7;
 const bookingReferenceColumn = 8;
 const originalZoneColumn = 9;
 const notesColumn = 10;
-const paymentTypeColumn = 11;
-const paymentSummaryColumn = 12;
+const paymentSummaryColumn = 11;
+const paymentTypeColumn = 12;
 const originalPriceColumn = 13;
 const firstFinancialColumn = 14;
 const lastFinancialColumn = 26;
@@ -239,11 +241,13 @@ const operationalColumnHeaders = [
   "CONTACT",
   "BOOKING REF",
   "ORIGINAL ZONE",
-  "PAYMENT BREAKDOWN",
-  "PAYMENT SUMMARY",
   "NOTES",
+  "PAYMENT SUMMARY",
+  "PAYMENT BREAKDOWN",
   "ORIGINAL PRICE",
 ] as const;
+const complimentaryPaymentNote =
+  "Dinner show comps, drinks and gratuity to be paid by client";
 
 export function neutralizeSpreadsheetFormula(value: string) {
   return /^[=+\-@]/.test(value.trimStart()) ? `'${value}` : value;
@@ -664,11 +668,18 @@ function getBookingNotes(booking: TablePlanBooking) {
     const metadata = JSON.parse(
       booking.notes.slice(bookingMetadataPrefix.length),
     ) as {
+      bookingNotes?: string;
       guestNotes?: string;
+      internalNotes?: string;
       operationalNotes?: string;
     };
 
-    return [metadata.guestNotes, metadata.operationalNotes]
+    return [
+      metadata.bookingNotes,
+      metadata.guestNotes,
+      metadata.internalNotes,
+      metadata.operationalNotes,
+    ]
       .map(sanitizeOperationalReportNotes)
       .filter(Boolean)
       .join(" | ");
@@ -721,16 +732,18 @@ function getOperationalNotes(
   booking: TablePlanBooking,
   customer: TablePlanCustomer | undefined,
 ) {
-  return [
+  const combinedNotes = [
     booking.dietary_requirements,
     customer?.dietary_requirements,
     getBookingNotes(booking),
+    ...(booking.supplemental_operational_notes ?? []),
     sanitizeOperationalReportNotes(customer?.relationship_notes),
   ]
     .map((value) => value?.trim() ?? "")
     .filter(Boolean)
-    .filter((value, index, values) => values.indexOf(value) === index)
-    .join(" | ");
+    .join("\n");
+
+  return sanitizeOperationalReportNotes(combinedNotes);
 }
 
 function isLegacyPlaceholderTable(table: TablePlanTable) {
@@ -846,6 +859,17 @@ function resolveTablePlanPaymentType(booking: TablePlanBooking) {
   return "Unpaid";
 }
 
+function formatOperationalPaymentSummary(
+  booking: TablePlanBooking,
+  paymentSummary: ReturnType<typeof resolveTablePlanPaymentSummary>,
+) {
+  const summary = formatTablePlanPaymentSummary(paymentSummary);
+
+  return booking.payment_status.trim().toLowerCase() === "comp_vip"
+    ? `${summary} · ${complimentaryPaymentNote}`
+    : summary;
+}
+
 function setMoneyValue(cell: Cell, value: number) {
   cell.value = Math.max(Number(value) || 0, 0);
   cell.numFmt = southAfricanCurrencyNumberFormat;
@@ -902,18 +926,16 @@ function populateBookingDataRow(
     ? neutralizeSpreadsheetFormula(formatOriginalZones(booking) ?? "") || null
     : null;
   row.getCell(notesColumn).value = includeBookingDetails
-    ? booking.payment_status.trim().toLowerCase() === "comp_vip"
-      ? "Dinner show comps, drinks and gratuity to be paid by client"
-      : operationalNotes
-        ? neutralizeSpreadsheetFormula(operationalNotes)
-        : null
+    ? operationalNotes
+      ? neutralizeSpreadsheetFormula(operationalNotes)
+      : null
     : null;
   row.getCell(paymentTypeColumn).value = includeBookingDetails
     ? resolveTablePlanPaymentType(booking)
     : null;
   if (!includeBookingDetails) return;
   row.getCell(paymentSummaryColumn).value = neutralizeSpreadsheetFormula(
-    formatTablePlanPaymentSummary(paymentSummary),
+    formatOperationalPaymentSummary(booking, paymentSummary),
   );
   if (booking.original_price_per_person == null) {
     row.getCell(originalPriceColumn).value = null;
@@ -1729,9 +1751,9 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   tablePlan.getColumn(7).width = 20.29;
   tablePlan.getColumn(8).width = 15.28;
   tablePlan.getColumn(9).width = 24;
-  tablePlan.getColumn(10).width = 38.86;
+  tablePlan.getColumn(10).width = 48;
   tablePlan.getColumn(11).width = 53.55;
-  tablePlan.getColumn(12).width = 48;
+  tablePlan.getColumn(12).width = 38.86;
   tablePlan.getColumn(13).width = 18;
   notes.getColumn(1).width = 6.78;
   notes.getColumn(2).width = 6;

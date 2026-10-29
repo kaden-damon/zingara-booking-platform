@@ -313,15 +313,16 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   );
   assert.equal(
     bookingRows.find((row) => row.getCell(6).value === "Single Guest")
-      ?.getCell(12).value,
+      ?.getCell(11).value,
     "Paid R200 · Outstanding R200",
   );
   assert.equal(twoTableRows[0].getCell(8).value, "TWO");
   assert.equal(twoTableRows[0].getCell(9).value, "Middle Ring");
   assert.equal(twoTableRows[0].getCell(10).value, null);
-  assert.equal(twoTableRows[0].getCell(11).value, "Deposit");
-  assert.equal(twoTableRows[0].getCell(12).value, "Paid R500 · Outstanding R500");
+  assert.equal(twoTableRows[0].getCell(11).value, "Paid R500 · Outstanding R500");
+  assert.equal(twoTableRows[0].getCell(12).value, "Deposit");
   assert.equal(twoTableRows[1].getCell(8).value, null);
+  assert.equal(twoTableRows[1].getCell(11).value, null);
   assert.equal(twoTableRows[1].getCell(12).value, null);
   const unknownMethodRow = bookingRows.find(
     (row) => row.getCell(6).value === "Single Guest",
@@ -332,10 +333,10 @@ test("Table Plan exports physical claims with singular booking totals", async ()
     [0, 0, 0, 0],
   );
   assert.equal(cellNumber(unknownMethodRow.getCell(18).value), 200);
-  assert.equal(sheet.getRow(3).getCell(12).value, "NOTES");
+  assert.equal(sheet.getRow(3).getCell(10).value, "NOTES");
   assert.deepEqual(
     Array.from({ length: 9 }, (_, index) => sheet.getRow(3).getCell(5 + index).value),
-    ["COMPANY", "BOOKER", "CONTACT", "BOOKING REF", "ORIGINAL ZONE", "PAYMENT BREAKDOWN", "PAYMENT SUMMARY", "NOTES", "ORIGINAL PRICE"],
+    ["COMPANY", "BOOKER", "CONTACT", "BOOKING REF", "ORIGINAL ZONE", "NOTES", "PAYMENT SUMMARY", "PAYMENT BREAKDOWN", "ORIGINAL PRICE"],
   );
   assert.deepEqual(
     Array.from({ length: 13 }, (_, index) =>
@@ -361,8 +362,8 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.equal(sheet.columnCount, 26);
   assert.equal(sheet.getColumn(8).width, 15.28);
   assert.equal(sheet.getColumn(9).width, 24);
-  assert.equal(sheet.getColumn(10).width, 38.86);
-  assert.equal(sheet.getColumn(12).width, 48);
+  assert.equal(sheet.getColumn(10).width, 48);
+  assert.equal(sheet.getColumn(12).width, 38.86);
   assert.equal(sheet.getColumn(13).width, 18);
   assert.equal(
     rows.find((row) => row.getCell(2).value === "11")?.getCell(13).value,
@@ -563,13 +564,17 @@ test("Table Plan applies Jacques's approved operational columns to every seating
     assert.ok(row, fixture.id);
     assert.equal(
       row.getCell(10).value,
-      fixture.status === "comp_vip"
-        ? "Dinner show comps, drinks and gratuity to be paid by client"
-        : `Operational note for ${fixture.id}`,
+      `Operational note for ${fixture.id}`,
     );
-    assert.equal(row.getCell(11).value, fixture.expected);
-    assert.doesNotMatch(String(row.getCell(11).value), /R\d|REF-|@|note/i);
-    assert.match(String(row.getCell(12).value), /^Paid R/);
+    assert.equal(row.getCell(12).value, fixture.expected);
+    assert.doesNotMatch(String(row.getCell(12).value), /R\d|REF-|@|note/i);
+    assert.match(String(row.getCell(11).value), /^Paid R/);
+    if (fixture.status === "comp_vip") {
+      assert.match(
+        String(row.getCell(11).value),
+        /Dinner show comps, drinks and gratuity to be paid by client/,
+      );
+    }
     assert.match(String(row.getCell(7).value), /\+27110000000$/);
   }
   const workbookText = workbook.worksheets
@@ -640,21 +645,82 @@ test("Table Plan emits one payment summary for a multi-zone Corporate booking", 
   assert.equal(
     rows.filter(
       (row) =>
-        row.getCell(12).value ===
+        row.getCell(11).value ===
         "Paid R2,000 · Outstanding R6,000",
     ).length,
     1,
   );
   assert.equal(
-    rows.filter((row) => row.getCell(11).value === "Deposit").length,
+    rows.filter((row) => row.getCell(12).value === "Deposit").length,
     1,
   );
   assert.equal(rows.filter((row) => row.getCell(8).value == null).length, 1);
+  assert.equal(rows.filter((row) => row.getCell(11).value == null).length, 1);
   assert.equal(rows.filter((row) => row.getCell(12).value == null).length, 1);
   assert.equal(
     rows.reduce((total, row) => total + cellNumber(row.getCell(4).value), 0),
     8,
   );
+});
+
+test("Table Plan keeps operational notes and moves COMP wording into Payment Summary", async () => {
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [
+      booking("comp-notes", "COMP-NOTES", 4, "table-400", {
+        amount_paid: 0,
+        balance_outstanding: 0,
+        notes:
+          '__zingara_booking_meta__:{"operationalNotes":"Comp guest note"}',
+        payment_status: "comp_vip",
+        section: "golden-circle",
+        supplemental_operational_notes: [
+          "Corporate special request",
+          "Comp guest note",
+        ],
+        total_amount: 4_000,
+      }),
+    ],
+    configuredZonePrices: {
+      "golden-circle": 1_000,
+      "middle-ring": 1_000,
+      "private-booths": 1_000,
+      "royal-balcony": 1_000,
+    },
+    customers: [customer("comp-notes", "Comp Guest")],
+    payments: [],
+    show: {
+      date: "2026-10-29",
+      id: "show-comp-notes",
+      name: "COMP Notes Test",
+      time: "17:00:00",
+      venue: "cape-town",
+    },
+    tables: [
+      table("table-400", "400", "comp-notes", {
+        section: "golden-circle",
+      }),
+    ],
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+  const notes = workbook.getWorksheet("Notes");
+
+  assert.ok(sheet);
+  assert.ok(notes);
+  const row = Array.from({ length: sheet.rowCount }, (_, index) =>
+    sheet.getRow(index + 1),
+  ).find((candidate) => candidate.getCell(8).value === "COMP-NOTES");
+  assert.ok(row);
+  assert.equal(row.getCell(10).value, "Comp guest note | Corporate special request");
+  assert.match(
+    String(row.getCell(11).value),
+    /^Paid R0 · Outstanding R0 · Dinner show comps, drinks and gratuity to be paid by client$/,
+  );
+  assert.equal(row.getCell(12).value, "Complimentary");
+  const noteText = notes.getSheetValues().flat(Infinity).join(" | ");
+  assert.match(noteText, /Comp guest note \| Corporate special request/);
+  assert.equal(noteText.match(/Comp guest note/g)?.length, 1);
 });
 
 test("Table Plan route remains batched and includes report-critical booking state", () => {
@@ -668,6 +734,8 @@ test("Table Plan route remains batched and includes report-critical booking stat
   assert.match(route, /applyTablePlanOriginalEvidence/);
   assert.match(route, /audit_events/);
   assert.match(route, /companies/);
+  assert.match(route, /corporate_requests/);
+  assert.match(route, /corporate_booking_operations/);
   assert.match(route, /company_id,company_name/);
   assert.match(route, /await Promise\.all\(\[/);
   assert.doesNotMatch(route, /\.not\("table_id",\s*"is",\s*null\)/);

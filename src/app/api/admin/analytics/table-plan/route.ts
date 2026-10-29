@@ -38,6 +38,28 @@ type CustomerNameAuditRow = {
   entity_id: string;
 };
 
+type CorporateRequestNoteRow = {
+  id: string;
+  notes: string | null;
+};
+
+type CorporateOperationsNoteRow = {
+  accessibility_notes: string | null;
+  alcohol_restrictions: string | null;
+  bar_limit_instructions: string | null;
+  bar_requests: string | null;
+  booking_id: string;
+  dietary_notes: string | null;
+  event_requirements: string | null;
+  function_notes: string | null;
+  running_order: string | null;
+  special_requests: string | null;
+};
+
+function nonEmptyNotes(values: Array<string | null | undefined>) {
+  return values.map((value) => value?.trim() ?? "").filter(Boolean);
+}
+
 function normalizeNameValue(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
@@ -150,7 +172,7 @@ export async function GET(request: Request) {
         auth.serviceClient
           .from("bookings")
           .select(
-            "id,customer_id,company_id,company_name,table_id,booking_reference,guest_count,booking_status,payment_status,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,booking_origin",
+            "id,customer_id,company_id,company_name,corporate_request_id,table_id,booking_reference,guest_count,booking_status,payment_status,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,booking_origin",
           )
           .eq("show_id", typedShow.id),
         auth.serviceClient
@@ -187,6 +209,13 @@ export async function GET(request: Request) {
     ) as string[];
     const companyIds = Array.from(
       new Set(bookings.map((booking) => booking.company_id).filter(Boolean)),
+    ) as string[];
+    const corporateRequestIds = Array.from(
+      new Set(
+        bookings
+          .map((booking) => booking.corporate_request_id)
+          .filter(Boolean),
+      ),
     ) as string[];
     const bookingIds = bookings.map((booking) => booking.id);
 
@@ -229,18 +258,36 @@ export async function GET(request: Request) {
           .in("entity_id", bookingIds)
           .order("created_at", { ascending: true })
       : Promise.resolve({ data: [], error: null });
+    const corporateRequestNotesRequest = corporateRequestIds.length
+      ? auth.serviceClient
+          .from("corporate_requests")
+          .select("id,notes")
+          .in("id", corporateRequestIds)
+      : Promise.resolve({ data: [], error: null });
+    const corporateOperationsNotesRequest = bookingIds.length
+      ? auth.serviceClient
+          .from("corporate_booking_operations")
+          .select(
+            "booking_id,event_requirements,running_order,dietary_notes,accessibility_notes,special_requests,function_notes,bar_limit_instructions,alcohol_restrictions,bar_requests",
+          )
+          .in("booking_id", bookingIds)
+      : Promise.resolve({ data: [], error: null });
     const [
       customerResult,
       companyResult,
       paymentResult,
       legacyPaymentEvidenceResult,
       bookingAuditResult,
+      corporateRequestNotesResult,
+      corporateOperationsNotesResult,
     ] = await Promise.all([
       customerRequest,
       companyRequest,
       paymentRequest,
       legacyPaymentEvidenceRequest,
       bookingAuditRequest,
+      corporateRequestNotesRequest,
+      corporateOperationsNotesRequest,
     ]);
 
     if (customerResult.error) {
@@ -263,6 +310,14 @@ export async function GET(request: Request) {
       throw bookingAuditResult.error;
     }
 
+    if (corporateRequestNotesResult.error) {
+      throw corporateRequestNotesResult.error;
+    }
+
+    if (corporateOperationsNotesResult.error) {
+      throw corporateOperationsNotesResult.error;
+    }
+
     const auditsByBookingId = new Map<string, TablePlanBookingAudit[]>();
 
     for (const audit of (bookingAuditResult.data ?? []) as TablePlanBookingAudit[]) {
@@ -272,12 +327,41 @@ export async function GET(request: Request) {
       ]);
     }
 
-    const bookingsWithOriginalEvidence = bookings.map((booking) =>
-      applyTablePlanOriginalEvidence(
+    const corporateRequestNotesById = new Map(
+      ((corporateRequestNotesResult.data ?? []) as CorporateRequestNoteRow[]).map(
+        (row) => [row.id, nonEmptyNotes([row.notes])],
+      ),
+    );
+    const corporateOperationsNotesByBookingId = new Map(
+      (
+        (corporateOperationsNotesResult.data ?? []) as CorporateOperationsNoteRow[]
+      ).map((row) => [
+        row.booking_id,
+        nonEmptyNotes([
+          row.event_requirements,
+          row.running_order,
+          row.dietary_notes,
+          row.accessibility_notes,
+          row.special_requests,
+          row.function_notes,
+          row.bar_limit_instructions,
+          row.alcohol_restrictions,
+          row.bar_requests,
+        ]),
+      ]),
+    );
+    const bookingsWithOriginalEvidence = bookings.map((booking) => ({
+      ...applyTablePlanOriginalEvidence(
         booking,
         auditsByBookingId.get(booking.id) ?? [],
       ),
-    );
+      supplemental_operational_notes: [
+        ...(booking.corporate_request_id
+          ? corporateRequestNotesById.get(booking.corporate_request_id) ?? []
+          : []),
+        ...(corporateOperationsNotesByBookingId.get(booking.id) ?? []),
+      ],
+    }));
 
     const customers = (customerResult.data ?? []) as TablePlanCustomer[];
     const emailNamedCustomerIds = customers

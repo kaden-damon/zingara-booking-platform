@@ -1,60 +1,66 @@
-# Phase 55.1 - Box Office Verification & Handover
+# Phase 55.3 - Table Plan Export Corrections
 
-STATUS: COMPLETE
+STATUS: COMPLETE - RELEASE VERIFIED
 
-DATE: 28 OCTOBER 2026
+DATE: 29 OCTOBER 2026
 
-## Outcome
+## Root Cause And Correction
 
-- Authenticated Production Floor & Arrivals was inspected directly. Automatic
-  assignment status, occupancy, available tables/seats, queue, threshold, reason,
-  pause/resume, reminder, temporary-table and merged-table controls are present.
-- The Production display reconciles the approved 415-seat master: Golden Circle
-  120, Middle Ring 125, Private Booths 138 and Royal Balcony 32. Public seats,
-  grandfathered staff-only capacity and physical table seats are shown separately.
-- Server-side authorization requires booking and table management permissions,
-  venue scope and a reason for pause/resume. Venue defaults additionally require
-  settings management permission.
-- One confirmed wording defect was corrected: singular queue summaries now read
-  `1 booking ... needs ...` rather than `1 bookings ... need ...`.
-- Remaining queue: 303 bookings / 4,370 guests across 58 performances. Every row
-  is classified, prioritized and given an exact Box Office action in the handover
-  workbook.
+- The workbook headers and populated values had drifted out of alignment: booking
+  notes were written under the displayed `PAYMENT BREAKDOWN` heading while the
+  payment label and payment summary occupied the following columns.
+- The export queried current booking, customer and dietary notes, but omitted the
+  linked Corporate request and Corporate operations note sources.
+- Complimentary bookings replaced their real row note with a fixed explanation,
+  making the explanation appear in the wrong displayed column.
+- The generator now uses the exact order `NOTES`, `PAYMENT SUMMARY`,
+  `PAYMENT BREAKDOWN`, preserving all other columns and financial formulas.
+- Current, legacy Dineplan, amended booking metadata, customer/dietary, linked
+  Corporate request and Corporate operations notes are sanitized, deduplicated
+  and preserved. Private audit prose, email addresses and payment credentials are
+  not added.
+- Complimentary operational notes remain in `NOTES`; the existing complimentary
+  explanation is appended to the authoritative paid/outstanding summary in
+  `PAYMENT SUMMARY`; `PAYMENT BREAKDOWN` remains `Complimentary`.
 
-## Handover Workbook
+## Production Assignment Audit
 
-`reports/Phase_55_1_Box_Office_Assignment_Handover_2026-10-28.xlsx`
+- Assignment audit population: 1,858 distinct Phase 54-55 bookings / 14,556
+  guests / 2,935 current table claims across 113 performances.
+- Active export population: 1,856 bookings / 14,549 guests.
+- Two Cape Town bookings were assigned historically and later cancelled and
+  archived; they correctly have no current claims and are excluded from exports.
+- Every one of the 1,856 active assigned booking references appeared in its
+  generated workbook. Missing assignments: zero.
+- Show-level booking counts and guest totals reconciled with zero mismatches.
+- Cape Town and Johannesburg samples included permanent, temporary, merged,
+  multi-table and unassigned operational rows.
 
-Breakdown:
+## Notes And COMP Verification
 
-- Grandfathered capacity exceptions: 196 bookings / 1,785 guests.
-- No safe table combination: 66 bookings / 494 guests.
-- No physical table seats available: 34 bookings / 120 guests.
-- Buyout manual planning: 5 bookings / 1,950 guests.
-- Insufficient physical table seats: 2 bookings / 21 guests.
-- Priority within 7 days: 69 bookings / 637 guests.
+- Booking-level note coverage before: 1,003 assigned bookings.
+- Booking-level note coverage after: 1,004 assigned bookings.
+- Twenty-three assigned bookings had linked Corporate note sources; one gained a
+  previously absent note and 22 gained additional deduplicated operational detail.
+- Note content mismatches after generation: zero.
+- Complimentary bookings audited: 71. Payment-summary or breakdown failures: zero.
 
 ## Verification
 
-- Focused automatic-assignment, approval, capacity, wording and master-layout
-  tests: 20 passed. The standalone Table Plan export test could not resolve the
-  repository path alias under Node's native test runner; the unchanged export code
-  was covered by the successful Production build.
+- Focused Table Plan, finance and operational-reporting tests: 38 passed.
 - TypeScript, changed-file ESLint and `git diff --check`: passed.
-- Next.js Production webpack build: passed. Turbopack was unavailable in the
-  restricted local worker environment because it could not bind its helper port.
-- No new requests, polling, effects or database work were introduced.
-- Authenticated desktop Production UI was inspected. An authenticated mobile
-  session was not available for direct visual inspection, so mobile visual QA is
-  not claimed; the responsive control structure and Production build passed.
-- Production routes after deployment: `/admin` 200 and `/book` 200.
+- Production webpack build and route compilation: passed.
+- Turbopack could not bind its restricted local helper port; no application defect
+  was reported. The repository-supported webpack build completed successfully.
+- Both generated XLSX sample packages passed archive integrity checks and were
+  rendered for visual inspection.
 
 ## Release
 
-- Application commit: `d45d805` (`Polish Box Office assignment summary`).
-- Vercel Production deployment: successful.
-- Rollback application commit: `5c1bf38e73ddf10945fcd1ca14c1d0166bb69c2a`.
-- Business-data delta: none. No booking, assignment, table, capacity, payment,
-  ticket, customer, Xero or financial record changed.
+- Rollback application commit: `edbca535f28973004713770d13efc7fcf1836ec9`.
+- Application commit and Production deployment are recorded in the final release
+  report for the commit containing this phase record.
+- Production business-data delta: none. No booking, assignment, table, capacity,
+  payment, ticket, customer, show, Xero or financial record changed.
 
-PHASE 55.1 COMPLETE - BOX OFFICE READY FOR OPERATIONAL HANDOVER.
+PHASE 55.3 COMPLETE - TABLE PLAN EXPORTS VERIFIED & CORRECTED.
