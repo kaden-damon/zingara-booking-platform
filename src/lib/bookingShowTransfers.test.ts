@@ -6,6 +6,7 @@ import {
   buildBookingShowTransferConfirmation,
   getEligibleBookingTransferShows,
   isBookingEligibleForShowTransfer,
+  isInternalBookingTransferDestinationStatus,
 } from "./bookingShowTransfers.ts";
 import type { DemoShow } from "./zingaraDemo.ts";
 
@@ -36,6 +37,14 @@ const shows: DemoShow[] = [
   },
   {
     date: "2026-09-05",
+    id: "sold-out",
+    label: "Sold Out",
+    operationalStatus: "sold-out",
+    supabaseId: "sold-out-db",
+    time: "18:00",
+  },
+  {
+    date: "2026-09-05",
     id: "inactive",
     label: "Inactive",
     operationalStatus: "inactive",
@@ -44,11 +53,20 @@ const shows: DemoShow[] = [
   },
 ];
 
-test("only active non-current shows are eligible and date ordered", () => {
+test("active and sold-out non-current shows are eligible and date ordered", () => {
   assert.deepEqual(
     getEligibleBookingTransferShows(shows, "current").map((show) => show.id),
-    ["earlier", "later"],
+    ["earlier", "later", "sold-out"],
   );
+});
+
+test("internal transfer destinations preserve public sold-out status", () => {
+  assert.equal(isInternalBookingTransferDestinationStatus("active"), true);
+  assert.equal(isInternalBookingTransferDestinationStatus("sold_out"), true);
+  assert.equal(isInternalBookingTransferDestinationStatus("sold-out"), true);
+  assert.equal(isInternalBookingTransferDestinationStatus("inactive"), false);
+  assert.equal(isInternalBookingTransferDestinationStatus("closed"), false);
+  assert.equal(isInternalBookingTransferDestinationStatus("cancelled"), false);
 });
 
 test("completed, checked-in, cancelled, refunded, and no-show bookings fail closed", () => {
@@ -131,10 +149,10 @@ test("route keeps authentication, edit-lock, scope, and wallet protections", () 
   assert.match(route, /notifyAppleWalletBooking/);
 });
 
-test("database validation fails closed for inactive, over-capacity, and stale moves", () => {
+test("latest database validation permits sold-out but fails closed for other inactive, over-capacity, and stale moves", () => {
   const migration = readFileSync(
     new URL(
-      "../../supabase/migrations/20260901200000_phase_39_39_booking_show_transfer.sql",
+      "../../supabase/migrations/20261029235959_p0_sold_out_internal_booking_transfers.sql",
       import.meta.url,
     ),
     "utf8",
@@ -145,9 +163,13 @@ test("database validation fails closed for inactive, over-capacity, and stale mo
   );
 
   assert.match(migration, /v_booking\.show_id <> p_expected_show_id/);
-  assert.match(migration, /v_destination_show\.status::text <> 'active'/);
+  assert.match(
+    migration,
+    /v_destination_show\.status::text not in \('active', 'sold_out'\)/,
+  );
   assert.match(migration, /normalize_booking_capacity_zone\(v_booking\.section\)/);
   assert.match(migration, /hashtextextended\(v_destination_show\.id::text \|\| ':' \|\| v_zone/);
+  assert.match(route, /isInternalBookingTransferDestinationStatus\(destinationShow\.status\)/);
   assert.match(route, /ZONE_CAPACITY_EXCEEDED/);
 });
 
@@ -187,15 +209,13 @@ test("ticket presentation resolves the moved booking without changing ticket ide
   assert.match(walletMigration, /after update of booking_status, payment_status, section, table_id, show_id/);
 });
 
-test("Admin UX keeps show transfers separate from table moves and warns about outcomes", () => {
+test("Admin UX keeps show transfers explicit and warns about outcomes", () => {
   const page = readFileSync(
     new URL("../app/admin/page.tsx", import.meta.url),
     "utf8",
   );
 
-  assert.match(page, /Move To Table \/ Zone/);
   assert.match(page, /Move to Another Show/);
-  assert.match(page, /Existing pricing, payment history, ticket reference, UUID, and QR remain unchanged/);
-  assert.match(page, /Floor Assignment Queue/);
+  assert.match(page, /Pricing, payment history, ticket identity, and QR remain unchanged/);
   assert.doesNotMatch(page, /confirmBookingShowTransfer[\s\S]{0,1600}sendCustomer/);
 });

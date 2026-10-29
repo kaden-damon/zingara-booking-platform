@@ -11,6 +11,14 @@ export function isBookingEligibleForShowTransfer(status?: BookingStatus) {
   return status ? transferableStatuses.has(status) : true;
 }
 
+export function isInternalBookingTransferDestinationStatus(
+  status?: string | null,
+) {
+  return (
+    status === "active" || status === "sold_out" || status === "sold-out"
+  );
+}
+
 export function getEligibleBookingTransferShows(
   shows: DemoShow[],
   currentShowId?: string | null,
@@ -18,7 +26,7 @@ export function getEligibleBookingTransferShows(
   return shows
     .filter(
       (show) =>
-        show.operationalStatus === "active" &&
+        isInternalBookingTransferDestinationStatus(show.operationalStatus) &&
         !show.archivedAt &&
         show.id !== currentShowId &&
         show.supabaseId !== currentShowId,

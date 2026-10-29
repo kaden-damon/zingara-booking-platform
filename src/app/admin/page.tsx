@@ -40866,7 +40866,7 @@ export default function AdminDashboardPage({
 
                               <label className="mt-5 block">
                                 <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                                  New Active Show
+                                  New Performance
                                 </span>
                                 <select
                                   autoFocus

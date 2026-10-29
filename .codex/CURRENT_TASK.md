@@ -1,40 +1,49 @@
-# P0 - Norman R4,400 Deposit Transfer
+# P0 - Booking Transfer Blocked
 
-STATUS: READY - AWAITING AUTHENTICATED MANAGEMENT APPROVAL
+STATUS: IMPLEMENTED - VERIFICATION AND RELEASE IN PROGRESS
 
 DATE: 29 OCTOBER 2026
 
-## Goal
+## Incident
 
-Prepare a secure, atomic and audited management-approved transfer of PayFast
-transaction `335149581` from cancelled booking `ZNG-XD6ABJ` to replacement
-booking `ZNG-759ZR8`.
+Lisa Rodderick attempted to move `ZNG-XVFB2G`, a 10-guest Golden Circle
+Corporate complimentary booking for Kerry, from JHB 4 November to JHB
+12 November 2026. The destination is marked SOLD OUT and has an available
+10-seat temporary operational table named `Kerry`.
 
-## Approval boundary
+## Root cause
 
-- Application corrections may be implemented and released autonomously.
-- The financial reallocation must not execute until Fatima Meeran provides
-  explicit authenticated confirmation in Production.
-- Preserve the original PayFast transaction, cancellation and forfeiture audit.
-- No refund, new payment, customer communication or Xero write.
+The Admin show picker, API precheck and atomic transfer function all treated
+SOLD OUT as wholly ineligible for internal transfers. This conflated public
+sales status with authorised internal booking movement and prevented the
+authoritative zone-capacity guard from making the actual decision.
 
-## Prepared control
+## Capacity finding
 
-- Fatima and the immutably bound Platform Owner can access the Production
-  confirmation on replacement booking `ZNG-759ZR8`.
-- Exact fixed approval reason and explicit confirmation checkbox.
-- Atomic locks, idempotency, refund/reversal and Xero guards.
-- Original PayFast transaction identity and merchant reference preserved.
-- Both booking aggregates and financial metadata recalculated in one transaction.
-- Immutable reallocation ledger and booking/payment audit evidence.
+The destination Golden Circle currently has 126 active guests against an
+effective operational capacity of 132, leaving six authorised seats. The
+10-seat `Kerry` table is physically suitable but contributes to that same
+operational capacity; it does not create capacity beyond 132. Lisa's current
+10-guest transfer therefore remains legitimately capacity-blocked.
 
-No financial reallocation has executed. Fatima or Kaden must explicitly approve
-it while signed in; loading or viewing the control never submits the transfer.
+## Correction
 
-## Platform Owner access audit
+- Internal transfer destinations may be ACTIVE or SOLD OUT.
+- CLOSED, inactive, cancelled and archived destinations remain blocked.
+- Public availability is unchanged.
+- Atomic zone capacity, two-seater, payment-policy, venue-scope, concurrency,
+  table-compatibility, audit and financial safeguards remain in force.
+- The UI, API and database function use the same eligibility rule.
 
-- Kaden's immutable Platform Owner binding is included in the Admin session.
-- The Norman transfer, invoice conversion, bulk invoicing and credit-note
-  identity gates include Kaden without changing access for other staff.
-- Refunds, banking-document management and Booking Activity Timeline already
-  included Kaden and required no correction.
+## Shared scope
+
+There are 29 current/future SOLD OUT performances across both venues. Twenty-
+seven have operational room in at least one zone and 24 contain temporary
+tables. The false status gate affected every otherwise eligible internal move
+to those shows. Only Lisa's failed attempt is directly evidenced because the
+old pre-validation rejection did not create an audit event.
+
+## Safety
+
+No booking has been moved. No show status, capacity, table, payment, ticket or
+financial record has changed.

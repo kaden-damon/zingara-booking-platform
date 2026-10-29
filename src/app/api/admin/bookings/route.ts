@@ -54,6 +54,7 @@ import {
 } from "@/lib/twoSeaterOverrideServer";
 import { isFullPaymentOnlyPolicy } from "@/lib/showSpecificPricing";
 import { loadShowCustomPricing } from "@/lib/supabase/showSpecificPricingServer";
+import { isInternalBookingTransferDestinationStatus } from "@/lib/bookingShowTransfers";
 
 export const dynamic = "force-dynamic";
 
@@ -1947,9 +1948,12 @@ async function persistBookingShowTransfer(
     );
   }
 
-  if (destinationShow.status !== "active") {
+  if (!isInternalBookingTransferDestinationStatus(destinationShow.status)) {
     return Response.json(
-      { error: "The destination show is not active." },
+      {
+        error:
+          "The destination show is not eligible for internal booking transfers.",
+      },
       { status: 409 },
     );
   }
