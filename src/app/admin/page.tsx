@@ -121,6 +121,11 @@ const BookingActivityTimelineModal = dynamic(
   () => import("./BookingActivityTimelineModal"),
   { ssr: false },
 );
+const NormanDepositTransferAction = dynamic(() =>
+  import("./NormanDepositTransferAction").then(
+    (module) => module.NormanDepositTransferAction,
+  ),
+);
 const PotentialDuplicatesPanel = dynamic(
   () => import("./PotentialDuplicatesPanel"),
 );
@@ -40537,6 +40542,15 @@ export default function AdminDashboardPage({
                               }
                             </p>
                           )}
+                          {booking.reference === "ZNG-759ZR8" &&
+                            currentStaff?.id ===
+                              "ff96887e-bed8-43ec-884d-0ef8634e9f12" && (
+                              <NormanDepositTransferAction
+                                onComplete={() =>
+                                  void loadBookingDetails(booking.reference)
+                                }
+                              />
+                            )}
                         </div>
 
 	                        {isCorporateBooking && corporateCompanyName && (

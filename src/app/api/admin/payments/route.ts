@@ -9,6 +9,9 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const paymentFields =
+  "id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at,provider_gross_amount,provider_transaction_id,transaction_fee_amount";
+
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
 
@@ -40,16 +43,51 @@ export async function GET(request: Request) {
         .filter(Boolean),
     ),
   ).slice(0, 100);
-  let paymentsQuery = auth.serviceClient
-    .from("payments")
-    .select("id,booking_id,payment_type,payment_status,amount,method,reference,notes,processed_at,created_at,provider_gross_amount,provider_transaction_id,transaction_fee_amount")
-    .order("created_at", { ascending: false });
-
   if (references.length > 0) {
-    paymentsQuery = paymentsQuery.in("reference", references);
+    const bookingResult = await auth.serviceClient
+      .from("bookings")
+      .select("id")
+      .in("booking_reference", references);
+    if (bookingResult.error) {
+      return Response.json({ error: "Payments could not be loaded." }, { status: 500 });
+    }
+    const bookingIds = (bookingResult.data ?? []).map((booking) => booking.id);
+    const [referenceResult, bookingResultPayments] = await Promise.all([
+      auth.serviceClient
+        .from("payments")
+        .select(paymentFields)
+        .in("reference", references)
+        .order("created_at", { ascending: false }),
+      bookingIds.length
+        ? auth.serviceClient
+            .from("payments")
+            .select(paymentFields)
+            .in("booking_id", bookingIds)
+            .order("created_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    const error = referenceResult.error ?? bookingResultPayments.error;
+    if (error) {
+      console.error("[Zingara API] Failed to load payments", error);
+      return Response.json({ error: "Payments could not be loaded." }, { status: 500 });
+    }
+    const rows = new Map<
+      string,
+      NonNullable<typeof referenceResult.data>[number]
+    >();
+    for (const payment of [
+      ...(referenceResult.data ?? []),
+      ...(bookingResultPayments.data ?? []),
+    ]) {
+      rows.set(payment.id, payment);
+    }
+    return Response.json({ rows: [...rows.values()] });
   }
 
-  const { data, error } = await paymentsQuery;
+  const { data, error } = await auth.serviceClient
+    .from("payments")
+    .select(paymentFields)
+    .order("created_at", { ascending: false });
 
   if (error) {
     console.error("[Zingara API] Failed to load payments", error);
