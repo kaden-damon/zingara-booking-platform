@@ -121,5 +121,6 @@ export function getAdvertisingPurchaseEligibility(input: {
 }
 
 export function advertisingPurchaseDispatchAuthorized() {
-  return process.env.ADVERTISING_PURCHASE_CONVERSIONS_AUTHORISED === "true";
+  return process.env.ADVERTISING_PURCHASE_CONVERSIONS_AUTHORISED === "true" &&
+    process.env.ADVERTISING_SERVER_PURCHASE_CONVERSIONS_AUTHORISED !== "true";
 }

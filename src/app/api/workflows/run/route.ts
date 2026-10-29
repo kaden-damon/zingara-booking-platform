@@ -15,6 +15,7 @@ import { runInvoiceRequestReminder } from "@/lib/workflows/invoiceRequestReminde
 import { runAutomaticTableAssignmentNotifications } from "@/lib/workflows/automaticTableAssignmentNotifications";
 import { runLiveXeroSyncWorker } from "@/lib/xero/liveSync";
 import { runLiveXeroReconciliation } from "@/lib/xero/liveReconciliation";
+import { runAdvertisingConversionWorker } from "@/lib/advertisingConversionOutbox";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -119,6 +120,13 @@ export async function GET(request: Request) {
       console.error("[Zingara Workflows] Xero reconciliation failed", xeroError);
       xeroReconciliation = { reason: "failed" };
     }
+    let advertisingConversions: Awaited<ReturnType<typeof runAdvertisingConversionWorker>> | { reason: "failed" };
+    try {
+      advertisingConversions = await runAdvertisingConversionWorker(serviceClient);
+    } catch (conversionError) {
+      console.error("[Zingara Workflows] Advertising conversion delivery failed", conversionError);
+      advertisingConversions = { reason: "failed" };
+    }
     let telemetryCleanup: Awaited<ReturnType<typeof cleanupPlatformTelemetry>> =
       null;
 
@@ -137,6 +145,7 @@ export async function GET(request: Request) {
 
     return Response.json({
       ...result,
+      advertisingConversions,
       automaticTableAssignmentNotifications,
       corporatePaymentHolds,
       dailyBookingReview,

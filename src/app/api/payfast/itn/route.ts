@@ -41,6 +41,10 @@ import {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculatePayFastBookingReconciliation } from "@/lib/payfast/transactionFee";
 import { releaseValidatedFailedPublicPaymentHold } from "@/lib/workflows/publicPaymentHolds";
+import {
+  enqueueVerifiedAdvertisingPurchase,
+  runAdvertisingConversionWorker,
+} from "@/lib/advertisingConversionOutbox";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -1293,6 +1297,20 @@ export async function POST(request: Request) {
       signatureValid,
       sourceValid: sourceIpValid,
     });
+
+    if (result.paymentId) {
+      const conversionClient = supabase;
+      after(async () => {
+        try {
+          await enqueueVerifiedAdvertisingPurchase(conversionClient, result.paymentId as string);
+          await runAdvertisingConversionWorker(conversionClient, { limit: 3 });
+        } catch (error) {
+          console.error("[Zingara Advertising] Deferred Purchase enqueue failed", {
+            message: error instanceof Error ? error.message : "Unknown conversion error",
+          });
+        }
+      });
+    }
 
     const journeyId =
       typeof (booking as unknown as { journeyId?: unknown }).journeyId === "string"

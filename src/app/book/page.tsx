@@ -3034,16 +3034,6 @@ export default function BookingPage({
         setShowTicketReadyPrompt(true);
         setActiveBookingStep(4);
         setIsConfirmationOpen(true);
-        trackPlatformEvent({
-          bookingReference: confirmedBooking.reference,
-          eventType: "payment_initiated",
-          journeyId,
-          metadata: {
-            section: selectedZone.title,
-            stage: "Zero-value booking completed",
-            source: "zero-value-promo",
-          },
-        });
         setIsPayFastRedirecting(false);
         return;
       }

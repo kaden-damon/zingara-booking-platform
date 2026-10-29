@@ -22,6 +22,7 @@ import {
   adminBookingListSearchParams,
   type AdminBookingListFilters,
 } from "@/lib/adminBookingList";
+import { getAdvertisingAttributionSnapshot } from "@/lib/advertisingAttribution";
 
 type SupabaseBookingStatus =
   | "cancelled"
@@ -1006,7 +1007,11 @@ export type CreateBookingResult = {
 
 export async function createBooking(booking: DemoBooking, journeyId?: string | null) {
   const result = await fetchSupabaseApi<CreateBookingResult>("/api/bookings", {
-    body: { booking, journeyId },
+    body: {
+      attribution: getAdvertisingAttributionSnapshot(),
+      booking,
+      journeyId,
+    },
     method: "POST",
   });
 

@@ -99,6 +99,10 @@ import {
 } from "@/lib/corporateZoneEntitlements";
 import { findPotentialInternalBookingDuplicates } from "@/lib/supabase/duplicateIntegrityServer";
 import {
+  type AdvertisingAttributionInput,
+  recordAdvertisingAttributionBestEffort,
+} from "@/lib/advertisingAttribution";
+import {
   getShowSpecificZonePrice,
   isFullPaymentOnlyPolicy,
 } from "@/lib/showSpecificPricing";
@@ -1485,6 +1489,7 @@ export async function POST(request: Request) {
     const rawBody = await request.text();
     const body = JSON.parse(rawBody) as {
       allowPotentialDuplicate?: boolean;
+      attribution?: AdvertisingAttributionInput | null;
       booking?: DemoBooking;
       journeyId?: string | null;
       twoSeaterOverrideReason?: string;
@@ -2350,6 +2355,13 @@ export async function POST(request: Request) {
 
       if (reservation.bookingId) {
         await syncLifecycleEvents(supabase, booking, reservation.bookingId);
+        if (!isTrustedStaff) {
+          await recordAdvertisingAttributionBestEffort(supabase, {
+            attribution: body.attribution,
+            bookingId: reservation.bookingId,
+            journeyId,
+          });
+        }
       }
       customerId = reservation.customerId;
 
@@ -2436,6 +2448,13 @@ export async function POST(request: Request) {
       : await upsertTicket(supabase, booking, bookingId);
 
     await syncLifecycleEvents(supabase, booking, bookingId);
+    if (!isTrustedStaff) {
+      await recordAdvertisingAttributionBestEffort(supabase, {
+        attribution: body.attribution,
+        bookingId,
+        journeyId,
+      });
+    }
     if (!isAwaitingExternalPayment(booking)) {
       await syncCommunications(supabase, booking, bookingId, customerId, show.id);
       console.info("[Zingara push diagnostics] New booking trigger queued", {
