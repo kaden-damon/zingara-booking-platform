@@ -722,6 +722,109 @@ test("Table Plan keeps operational notes and writes the exact COMP wording into 
   assert.equal(noteText.match(/Comp guest note/g)?.length, 1);
 });
 
+test("Table Plan lets retained Dineplan evidence override damaged COMP classifications", async () => {
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [
+      booking("paid-standard", "PAID-STANDARD", 4, "table-200", {
+        amount_paid: 0,
+        balance_outstanding: 0,
+        payment_status: "comp_vip",
+        total_amount: 0,
+      }),
+      booking("paid-corporate", "PAID-CORPORATE", 8, "table-201", {
+        amount_paid: 0,
+        balance_outstanding: 0,
+        booking_origin: "data_import",
+        payment_status: "comp_vip",
+        total_amount: 0,
+      }),
+      booking("genuine-comp", "GENUINE-COMP", 3, "table-202", {
+        amount_paid: 0,
+        balance_outstanding: 0,
+        payment_status: "comp_vip",
+        total_amount: 0,
+      }),
+    ],
+    configuredZonePrices: {
+      "golden-circle": 1_000,
+      "middle-ring": 1_000,
+      "private-booths": 1_000,
+      "royal-balcony": 1_000,
+    },
+    customers: [
+      customer("paid-standard", "Paid Standard"),
+      customer("paid-corporate", "Paid Corporate"),
+      customer("genuine-comp", "Genuine Comp"),
+    ],
+    legacyPaymentEvidence: [
+      {
+        booking_id: "paid-standard",
+        complimentary: false,
+        full_card_amount: 4_000,
+        full_eft_amount: 0,
+        pre_paid_card_amount: 0,
+        pre_paid_eft_amount: 0,
+        source_ticket_amount: 4_000,
+      },
+      {
+        booking_id: "paid-corporate",
+        complimentary: false,
+        full_card_amount: 0,
+        full_eft_amount: 8_000,
+        pre_paid_card_amount: 0,
+        pre_paid_eft_amount: 0,
+        source_ticket_amount: 8_000,
+      },
+      {
+        booking_id: "genuine-comp",
+        complimentary: true,
+        complimentary_amount: 1_650,
+        full_card_amount: 0,
+        full_eft_amount: 0,
+        pre_paid_card_amount: 0,
+        pre_paid_eft_amount: 0,
+        source_ticket_amount: 0,
+      },
+    ],
+    payments: [],
+    show: {
+      date: "2026-10-30",
+      id: "show-dineplan-classification",
+      name: "Dineplan Classification",
+      time: "17:00:00",
+      venue: "johannesburg",
+    },
+    tables: [
+      table("table-200", "200", "paid-standard"),
+      table("table-201", "201", "paid-corporate"),
+      table("table-202", "202", "genuine-comp"),
+    ],
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+  assert.ok(sheet);
+  const rows = Array.from({ length: sheet.rowCount }, (_, index) => sheet.getRow(index + 1));
+  const paidStandard = rows.find((row) => row.getCell(8).value === "PAID-STANDARD");
+  const paidCorporate = rows.find((row) => row.getCell(8).value === "PAID-CORPORATE");
+  const genuineComp = rows.find((row) => row.getCell(8).value === "GENUINE-COMP");
+
+  assert.equal(paidStandard?.getCell(12).value, "Full Payment for Show & Meal");
+  assert.equal(paidStandard?.getCell(14).value, 4_000);
+  assert.equal(paidStandard?.getCell(21).value, 0);
+  assert.equal(
+    paidCorporate?.getCell(12).value,
+    "Full Payment for Show & Meal + Gratuity",
+  );
+  assert.equal(paidCorporate?.getCell(17).value, 8_000);
+  assert.equal(paidCorporate?.getCell(21).value, 0);
+  assert.equal(
+    genuineComp?.getCell(12).value,
+    "Complimentary, Dinner show comps, drinks and gratuity to be paid by client",
+  );
+  assert.equal(genuineComp?.getCell(21).value, 1_650);
+});
+
 test("Table Plan places all R0 COMP cash-up values in distinct columns for both venues", async () => {
  for (const venue of ["johannesburg", "cape-town"]) {
   const buffer = await buildTablePlanWorkbook({

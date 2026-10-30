@@ -875,23 +875,49 @@ function insertTradexChecklistRow(worksheet: Worksheet, rowOffset: number) {
   }
 }
 
-function resolveTablePlanPaymentType(booking: TablePlanBooking) {
+function resolveTablePlanPaymentType(
+  booking: TablePlanBooking,
+  legacyPaymentEvidence: TablePlanLegacyPaymentEvidence | undefined,
+) {
   const paymentStatus = booking.payment_status.trim().toLowerCase();
   const amountPaid = Math.max(Number(booking.amount_paid) || 0, 0);
   const outstanding = Math.max(Number(booking.balance_outstanding) || 0, 0);
+  const legacyPaid = legacyPaymentEvidence
+    ? [
+        legacyPaymentEvidence.full_card_amount,
+        legacyPaymentEvidence.pre_paid_card_amount,
+        legacyPaymentEvidence.pre_paid_eft_amount,
+        legacyPaymentEvidence.full_eft_amount,
+      ].reduce((total, amount) => total + Math.max(Number(amount) || 0, 0), 0)
+    : 0;
+  const legacyTicketAmount = Math.max(
+    Number(legacyPaymentEvidence?.source_ticket_amount) || 0,
+    0,
+  );
 
   const category = getBookingPaymentMetadata(booking).complimentaryCategory;
-  if (category !== null || paymentStatus === "comp_vip") {
+  const isComplimentary =
+    category !== null ||
+    (legacyPaymentEvidence
+      ? legacyPaymentEvidence.complimentary
+      : paymentStatus === "comp_vip");
+
+  if (isComplimentary) {
     return complimentaryPaymentNote;
   }
-  if (paymentStatus === "fully_paid" || (amountPaid > 0 && outstanding <= 0)) {
+  if (
+    paymentStatus === "fully_paid" ||
+    (amountPaid > 0 && outstanding <= 0) ||
+    (legacyPaid > 0 && legacyTicketAmount > 0 && legacyPaid >= legacyTicketAmount)
+  ) {
     return booking.guest_count >= 6
       ? "Full Payment for Show & Meal + Gratuity"
       : "Full Payment for Show & Meal";
   }
   if (
     paymentStatus === "deposit_paid" ||
-    amountPaid > 0
+    amountPaid > 0 ||
+    legacyPaid > 0
   ) {
     return "Deposit";
   }
@@ -967,7 +993,7 @@ function populateBookingDataRow(
       : null
     : null;
   row.getCell(paymentSummaryColumn).value = includeBookingDetails
-    ? resolveTablePlanPaymentType(booking)
+    ? resolveTablePlanPaymentType(booking, legacyPaymentEvidence)
     : null;
   if (!includeBookingDetails) return;
   row.getCell(paymentBreakdownColumn).value = neutralizeSpreadsheetFormula(
