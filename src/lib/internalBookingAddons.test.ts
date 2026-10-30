@@ -203,14 +203,16 @@ test("financial removal identifies a credit instead of manufacturing a refund", 
   assert.equal(result.createsCredit, true);
 });
 
-test("public Standard cannot retrieve or submit internal add-ons", async () => {
+test("public Standard can submit only the venue dietary catalogue", async () => {
   const [page, bookingRoute, catalogueRoute] = await Promise.all([
     source("../app/book/page.tsx"),
     source("../app/api/bookings/route.ts"),
     source("../app/api/admin/booking-addons/route.ts"),
   ]);
-  assert.match(page, /manualCheckoutRole !== "none" && addonCatalogue\.length > 0/);
-  assert.match(bookingRoute, /Booking add-ons are available only through authorised staff booking creation/);
+  assert.match(page, /getPublicDietaryAddonCatalogue/);
+  assert.match(bookingRoute, /getPublicDietaryAddonCatalogue/);
+  assert.match(bookingRoute, /Only the available dietary meal add-ons may be selected online/);
+  assert.match(bookingRoute, /allowCustomPricing: Boolean\(\s*isTrustedStaff/);
   assert.match(catalogueRoute, /requireActiveStaff\(request\)/);
   assert.match(catalogueRoute, /includes\("bookings:manage"\)/);
 });

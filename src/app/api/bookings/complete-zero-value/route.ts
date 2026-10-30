@@ -12,6 +12,8 @@ import {
 } from "@/lib/zingaraDemo";
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import { createZingaraTicketEmail } from "@/lib/email/ticketEmail";
+import { notifyConfirmedDietaryOrderByBookingId } from "@/lib/email/dietaryOrderNotification";
+import { after } from "next/server";
 import {
   formatCustomerExperienceSchedule,
   getCustomerExperienceTimes,
@@ -655,6 +657,19 @@ export async function POST(request: Request) {
       void sendStaffPushNotification({
         bookingReference,
         trigger: "new-booking",
+      });
+      after(async () => {
+        try {
+          await notifyConfirmedDietaryOrderByBookingId(supabase, {
+            bookingId: row.id,
+            confirmationKey: "booking-confirmed",
+          });
+        } catch (notificationError) {
+          console.error(
+            "[Zingara Dietary] Confirmation notification failed",
+            notificationError,
+          );
+        }
       });
     }
 

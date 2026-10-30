@@ -38,14 +38,18 @@ export default function InternalBookingAddonsEditor({
   catalogue,
   disabled = false,
   heading,
+  maximumQuantityById = {},
   onChange,
+  unavailableReasonById = {},
   value,
 }: {
   canCustomPrice: boolean;
   catalogue: BookingAddon[];
   disabled?: boolean;
   heading: string;
+  maximumQuantityById?: Record<string, number>;
   onChange: (addons: BookingAddon[]) => void;
+  unavailableReasonById?: Record<string, string>;
   value: BookingAddon[];
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -60,7 +64,11 @@ export default function InternalBookingAddonsEditor({
   );
 
   function updateCatalogueQuantity(id: string, rawQuantity: string) {
-    const quantity = Math.max(1, Math.trunc(Number(rawQuantity) || 1));
+    const requestedQuantity = Math.max(1, Math.trunc(Number(rawQuantity) || 1));
+    const maximumQuantity = maximumQuantityById[id];
+    const quantity = Number.isFinite(maximumQuantity)
+      ? Math.min(requestedQuantity, maximumQuantity)
+      : requestedQuantity;
     onChange(
       value.map((item) =>
         item.id === id
@@ -179,6 +187,8 @@ export default function InternalBookingAddonsEditor({
           <div className="mt-3 space-y-2">
             {catalogue.map((catalogueItem) => {
               const selected = value.find((item) => item.id === catalogueItem.id);
+              const unavailableReason = unavailableReasonById[catalogueItem.id];
+              const maximumQuantity = maximumQuantityById[catalogueItem.id];
               const catalogueUnitPrice = Number(
                 catalogueItem.catalogueUnitPrice ??
                   catalogueItem.unitPrice ??
@@ -194,7 +204,7 @@ export default function InternalBookingAddonsEditor({
                       <input
                         type="checkbox"
                         checked={Boolean(selected)}
-                        disabled={disabled}
+                        disabled={disabled || Boolean(unavailableReason && !selected)}
                         onChange={(event) =>
                           onChange(
                             event.target.checked
@@ -217,6 +227,7 @@ export default function InternalBookingAddonsEditor({
                         aria-label={`${catalogueItem.name} quantity`}
                         type="number"
                         min={1}
+                        max={maximumQuantity}
                         step={1}
                         value={selected?.quantity ?? 1}
                         disabled={disabled || !selected}
@@ -245,6 +256,9 @@ export default function InternalBookingAddonsEditor({
                     <p className="mt-2 text-right text-xs text-amber-200">
                       Booking price {money(agreedUnitPrice)} each · Catalogue {money(catalogueUnitPrice)}
                     </p>
+                  )}
+                  {unavailableReason && (
+                    <p className="mt-2 text-xs text-amber-200">{unavailableReason}</p>
                   )}
                 </div>
               );

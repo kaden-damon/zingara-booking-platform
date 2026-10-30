@@ -141,7 +141,7 @@ export async function claimStaffEmailDelivery(
   input: {
     ccStaffProfileIds: string[];
     eventKey: string;
-    notificationKey: ManagementEmailNotificationKey | "quote-accepted" | "training-acknowledgement";
+    notificationKey: ManagementEmailNotificationKey | "dietary-order" | "quote-accepted" | "training-acknowledgement";
     toStaffProfileIds: string[];
   },
 ) {

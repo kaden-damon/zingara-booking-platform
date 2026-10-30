@@ -48,6 +48,11 @@ export function validateNewCorporateAddonSelections(value: unknown) {
   }
 }
 
+export const restrictedDietaryAddonIds = [
+  "dietary-strictly-halaal",
+  "dietary-kosher",
+] as const;
+
 const johannesburgDietaryAddons: BookingAddon[] = [
   { id: "dietary-strictly-halaal", kind: "catalogue", name: "Strictly Halaal", price: 250, pricingType: "priced", quantity: 1, unitPrice: 250 },
   { id: "dietary-kosher", kind: "catalogue", name: "Kosher", price: 500, pricingType: "priced", quantity: 1, unitPrice: 500 },
@@ -63,6 +68,12 @@ export function getBookingAddonCatalogue(
   return location === "johannesburg"
     ? [...bookingAddonCatalogue, ...johannesburgDietaryAddons]
     : bookingAddonCatalogue;
+}
+
+export function getPublicDietaryAddonCatalogue(
+  location?: EntryLocationKey | null,
+) {
+  return location === "johannesburg" ? [...johannesburgDietaryAddons] : [];
 }
 
 export const serviceFeeGuestThreshold = 6;

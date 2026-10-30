@@ -15,6 +15,7 @@ import {
 } from "@/lib/zingaraDemo";
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
 import { createZingaraTicketEmail } from "@/lib/email/ticketEmail";
+import { notifyConfirmedDietaryOrderByBookingId } from "@/lib/email/dietaryOrderNotification";
 import {
   formatCustomerExperienceSchedule,
   getCustomerExperienceTimes,
@@ -1037,6 +1038,13 @@ async function confirmPayment(
           persistedPayment.provider_transaction_id ?? undefined,
         ),
       ]);
+
+      if (!bookingWasConfirmed) {
+        await notifyConfirmedDietaryOrderByBookingId(supabase, {
+          bookingId,
+          confirmationKey: "booking-confirmed",
+        });
+      }
 
       if (!wasConfirmed) {
         if (!bookingWasConfirmed) {

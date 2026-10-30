@@ -185,16 +185,17 @@ test("managed balance link creation uses authoritative outstanding without sendi
   assert.doesNotMatch(route, /body\.amount/);
 });
 
-test("public and Corporate booking paths remain isolated", async () => {
+test("public dietary meals remain constrained while Corporate safeguards stay isolated", async () => {
   const [publicPage, publicRoute, corporatePage] = await Promise.all([
     source("../app/book/page.tsx"),
     source("../app/api/bookings/route.ts"),
     source("../app/corporate/page.tsx"),
   ]);
 
-  assert.match(publicPage, /manualCheckoutRole !== "none" && addonCatalogue\.length > 0/);
-  assert.match(publicRoute, /Booking add-ons are available only through authorised staff booking creation/);
-  assert.match(publicRoute, /location: normalizeShowLocation\(show\.venue\)/);
+  assert.match(publicPage, /getPublicDietaryAddonCatalogue/);
+  assert.match(publicPage, /unavailableDietaryReasonById/);
+  assert.match(publicRoute, /Only the available dietary meal add-ons may be selected online/);
+  assert.match(publicRoute, /enforceDietaryAddonOrdering/);
   assert.match(corporatePage, /hasAcknowledgedAgePolicy/);
 });
 

@@ -36,6 +36,9 @@ import {
   hasPricedBookingAddons,
   normalizeInternalBookingAddons,
 } from "@/lib/bookingAddons";
+import { after } from "next/server";
+import { notifyConfirmedDietaryOrderByBookingId } from "@/lib/email/dietaryOrderNotification";
+import { enforceDietaryAddonOrdering } from "@/lib/dietaryAddonOrdering";
 import {
   getBookingCapacityConflictResponse,
   validateBookingCapacityIncrease,
@@ -3260,7 +3263,7 @@ async function persistBookingMetadataUpdate(
 
   const { data: show, error: showError } = await auth.serviceClient
     .from("shows")
-    .select("venue")
+    .select("date,time,venue")
     .eq("id", (beforeBooking as { show_id: string }).show_id)
     .maybeSingle();
 
@@ -3307,11 +3310,17 @@ async function persistBookingMetadataUpdate(
   let addons: NonNullable<DemoBooking["addons"]>;
 
   try {
-    addons = normalizeInternalBookingAddons(requestedAddons, {
+    const normalizedAddons = normalizeInternalBookingAddons(requestedAddons, {
       allowCustomPricing: rolePermissions[role].includes("bookings:reconcile"),
       existingAddons: previousMetadata?.addons ?? [],
       location,
     });
+    addons = enforceDietaryAddonOrdering({
+      date: String(show?.date ?? ""),
+      existingAddons: previousMetadata?.addons ?? [],
+      requestedAddons: normalizedAddons,
+      time: String(show?.time ?? ""),
+    }).addons;
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "Booking add-ons are invalid." },
@@ -3559,6 +3568,28 @@ async function persistBookingMetadataUpdate(
     }
 
     throw auditError;
+  }
+
+  if (
+    addonsChanged &&
+    ["confirmed", "checked_in"].includes(
+      String((beforeBooking as { booking_status?: string }).booking_status ?? ""),
+    )
+  ) {
+    after(async () => {
+      try {
+        await notifyConfirmedDietaryOrderByBookingId(auth.serviceClient!, {
+          bookingId: (beforeBooking as { id: string }).id,
+          confirmationKey: nextUpdatedAt,
+          existingAddons: previousAddons,
+        });
+      } catch (notificationError) {
+        console.error(
+          "[Zingara Dietary] Confirmed order notification failed",
+          notificationError,
+        );
+      }
+    });
   }
 
   return Response.json({

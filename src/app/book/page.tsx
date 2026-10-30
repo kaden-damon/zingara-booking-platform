@@ -122,6 +122,14 @@ import {
 import { getPublicBookingCutoff } from "../../lib/bookingDeadlines";
 import { getComplimentarySubmissionEligibility } from "../../lib/complimentarySubmission";
 import {
+  getPublicDietaryAddonCatalogue,
+  restrictedDietaryAddonIds,
+} from "../../lib/bookingAddons";
+import {
+  dietaryAddonCutoffMessage,
+  getDietaryAddonOrderingState,
+} from "../../lib/dietaryAddonOrdering";
+import {
   getComplimentaryBookingRate,
   complimentaryCategoryRate,
   type ComplimentaryBookingCategory,
@@ -1056,6 +1064,21 @@ export default function BookingPage({
 
   const selectedShow = shows.find(
     (show) => show.id === selectedShowId,
+  );
+  const dietaryOrderingState = selectedShow
+    ? getDietaryAddonOrderingState({
+        date: selectedShow.date,
+        time: selectedShow.time,
+      })
+    : null;
+  const unavailableDietaryReasonById =
+    dietaryOrderingState && !dietaryOrderingState.isOrderable
+      ? Object.fromEntries(
+          restrictedDietaryAddonIds.map((id) => [id, dietaryAddonCutoffMessage]),
+        )
+      : {};
+  const dietaryAddonsUnavailable = Boolean(
+    dietaryOrderingState && !dietaryOrderingState.isOrderable,
   );
   const internalShowDecision = getInternalShowBookingDecision({
     hasActiveBuyout: Boolean(selectedShow?.fullShowBuyout),
@@ -2112,7 +2135,17 @@ export default function BookingPage({
       return;
     }
     if (manualCheckoutRole === "none") {
-      return;
+      const catalogue = getPublicDietaryAddonCatalogue(selectedEntryLocation);
+      const timer = window.setTimeout(() => {
+        setAddonCatalogue(catalogue);
+        setCanCustomPriceAddons(false);
+        setSelectedAddons((current) =>
+          current.filter((addon) =>
+            catalogue.some((catalogueAddon) => catalogueAddon.id === addon.id),
+          ),
+        );
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
 
     let active = true;
@@ -2146,6 +2179,24 @@ export default function BookingPage({
       active = false;
     };
   }, [guidedTrainingModuleId, manualCheckoutRole, selectedEntryLocation]);
+
+  useEffect(() => {
+    if (
+      !isComplimentary &&
+      !dietaryAddonsUnavailable
+    ) return;
+    const timer = window.setTimeout(() => {
+      setSelectedAddons((current) =>
+        current.filter(
+          (addon) =>
+            !restrictedDietaryAddonIds.includes(
+              addon.id as (typeof restrictedDietaryAddonIds)[number],
+            ),
+        ),
+      );
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [dietaryAddonsUnavailable, isComplimentary]);
 
   useEffect(() => {
     if (guidedTrainingModuleId) {
@@ -5392,7 +5443,7 @@ export default function BookingPage({
                 </div>
               )}
 
-              {manualCheckoutRole !== "none" && addonCatalogue.length > 0 && (
+              {addonCatalogue.length > 0 && (
                 <div className="mb-4 sm:mb-5">
                   <InternalBookingAddonsEditor
                     canCustomPrice={canCustomPriceAddons}
@@ -5400,6 +5451,7 @@ export default function BookingPage({
                     disabled={isPayFastRedirecting}
                     heading={isCorporateCalendarCheckout ? "Corporate Add-Ons" : "Add-Ons"}
                     onChange={setSelectedAddons}
+                    unavailableReasonById={unavailableDietaryReasonById}
                     value={selectedAddons}
                   />
                   {complimentaryAddonError && (

@@ -10,6 +10,7 @@ import { saveBookingMetadata } from "../../lib/supabase/bookings";
 import { fetchSupabaseApi } from "../../lib/supabase/apiClient";
 import type { BookingAddon } from "../../lib/zingaraDemo";
 import { calculateBookingAddonFinancialUpdate } from "../../lib/bookingAddons";
+import { restrictedDietaryAddonIds } from "../../lib/bookingAddons";
 import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEditor";
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
 
@@ -67,6 +68,10 @@ export function BookingMetadataDraftEditor({
   const [error, setError] = useState("");
   const [catalogue, setCatalogue] = useState<BookingAddon[]>([]);
   const [canCustomPrice, setCanCustomPrice] = useState(false);
+  const [dietaryOrdering, setDietaryOrdering] = useState<{
+    isOrderable: boolean;
+    message: string;
+  } | null>(null);
   const inFlightRef = useRef(false);
   const dirty = isBookingMetadataDraftDirty(draft, baseline);
   const addonsDirty = JSON.stringify(draft.addons) !== JSON.stringify(baseline.addons);
@@ -82,13 +87,18 @@ export function BookingMetadataDraftEditor({
 
   useEffect(() => {
     let active = true;
-    fetchSupabaseApi<{ canCustomPrice: boolean; catalogue: BookingAddon[] }>(
+    fetchSupabaseApi<{
+      canCustomPrice: boolean;
+      catalogue: BookingAddon[];
+      dietaryOrdering: { isOrderable: boolean; message: string } | null;
+    }>(
       `/api/admin/booking-addons?bookingReference=${encodeURIComponent(bookingReference)}`,
     )
       .then((payload) => {
         if (!active) return;
         setCatalogue(payload.catalogue ?? []);
         setCanCustomPrice(Boolean(payload.canCustomPrice));
+        setDietaryOrdering(payload.dietaryOrdering ?? null);
       })
       .catch(() => undefined);
     return () => { active = false; };
@@ -158,11 +168,28 @@ export function BookingMetadataDraftEditor({
           catalogue={catalogue}
           disabled={disabled || saveState === "saving" || catalogue.length === 0}
           heading="Edit Add-Ons"
+          maximumQuantityById={
+            dietaryOrdering && !dietaryOrdering.isOrderable
+              ? Object.fromEntries(
+                  restrictedDietaryAddonIds.map((id) => [
+                    id,
+                    baseline.addons.find((addon) => addon.id === id)?.quantity ?? 0,
+                  ]),
+                )
+              : undefined
+          }
           onChange={(addons) => {
             setDraft((current) => ({ ...current, addons }));
             setSaveState("idle");
             setError("");
           }}
+          unavailableReasonById={
+            dietaryOrdering && !dietaryOrdering.isOrderable
+              ? Object.fromEntries(
+                  restrictedDietaryAddonIds.map((id) => [id, dietaryOrdering.message]),
+                )
+              : undefined
+          }
           value={draft.addons}
         />
         {addonsDirty && (

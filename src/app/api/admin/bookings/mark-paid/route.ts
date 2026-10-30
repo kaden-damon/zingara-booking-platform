@@ -1,4 +1,6 @@
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
+import { after } from "next/server";
+import { notifyConfirmedDietaryOrderByBookingId } from "@/lib/email/dietaryOrderNotification";
 import {
   getRolePermissions,
   requireActiveStaff,
@@ -206,6 +208,21 @@ export async function POST(request: Request) {
     }
 
     const result = data as MarkPaidResult;
+    if (result.booking_status === "confirmed") {
+      after(async () => {
+        try {
+          await notifyConfirmedDietaryOrderByBookingId(auth.serviceClient!, {
+            bookingId: booking.id,
+            confirmationKey: "booking-confirmed",
+          });
+        } catch (notificationError) {
+          console.error(
+            "[Zingara Dietary] EFT confirmation notification failed",
+            notificationError,
+          );
+        }
+      });
+    }
     return Response.json({
       message: result.idempotent
         ? "This EFT payment was already recorded."

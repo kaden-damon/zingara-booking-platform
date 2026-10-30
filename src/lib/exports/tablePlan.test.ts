@@ -844,3 +844,56 @@ test("Table Plan route remains batched and includes report-critical booking stat
   assert.match(route, /await Promise\.all\(\[/);
   assert.doesNotMatch(route, /\.not\("table_id",\s*"is",\s*null\)/);
 });
+
+test("Table Plan exports authoritative dietary quantities and clears only D79:K79 fill", async () => {
+  const dietaryBooking = booking("dietary", "DIETARY", 4, "table-500", {
+    notes:
+      '__zingara_booking_meta__:{"addons":[{"id":"dietary-strictly-halaal","kind":"catalogue","name":"Strictly Halaal","price":500,"quantity":2,"unitPrice":250},{"id":"dietary-kosher","kind":"catalogue","name":"Kosher","price":1500,"quantity":3,"unitPrice":500}]}',
+    section: "golden-circle",
+  });
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [dietaryBooking],
+    configuredZonePrices: {
+      "golden-circle": 1_000,
+      "middle-ring": 1_000,
+      "private-booths": 1_000,
+      "royal-balcony": 1_000,
+    },
+    customers: [customer("dietary", "Dietary Guest")],
+    legacyPaymentEvidence: [{
+      booking_id: "dietary",
+      complimentary: false,
+      full_card_amount: 0,
+      full_eft_amount: 0,
+      halaal_meals_amount: 999,
+      kosher_meals_amount: 999,
+      pre_paid_card_amount: 0,
+      pre_paid_eft_amount: 0,
+    }],
+    payments: [],
+    show: {
+      date: "2026-11-10",
+      id: "show-dietary",
+      name: "Dietary Test",
+      time: "19:30:00",
+      venue: "johannesburg",
+    },
+    tables: [table("table-500", "500", "dietary", { section: "golden-circle" })],
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+  assert.ok(sheet);
+  const dietaryRow = Array.from(
+    { length: sheet.rowCount },
+    (_, index) => sheet.getRow(index + 1),
+  ).find((row) => row.getCell(8).value === "DIETARY");
+  assert.ok(dietaryRow);
+  assert.equal(dietaryRow.getCell(22).value, 2);
+  assert.equal(dietaryRow.getCell(23).value, 3);
+  assert.equal(dietaryRow.getCell(22).numFmt, "0");
+  assert.equal(dietaryRow.getCell(23).numFmt, "0");
+  for (let column = 4; column <= 11; column += 1) {
+    assert.equal(sheet.getRow(79).getCell(column).fill.pattern, "none");
+  }
+});

@@ -5,6 +5,10 @@ import {
 } from "@/lib/supabase/serverAdmin";
 import { rolePermissions } from "@/lib/zingaraAccess";
 import { normalizeShowLocation } from "@/lib/zingaraDemo";
+import {
+  dietaryAddonCutoffMessage,
+  getDietaryAddonOrderingState,
+} from "@/lib/dietaryAddonOrdering";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +35,7 @@ export async function GET(request: Request) {
   const searchParams = new URL(request.url).searchParams;
   const bookingReference = searchParams.get("bookingReference")?.trim();
   let location = normalizeShowLocation(searchParams.get("location"));
+  let performance: { date: string; time: string } | null = null;
 
   if (bookingReference) {
     const { data: booking, error: bookingError } = await auth.serviceClient
@@ -44,12 +49,15 @@ export async function GET(request: Request) {
     if (booking?.show_id) {
       const { data: show, error: showError } = await auth.serviceClient
         .from("shows")
-        .select("venue")
+        .select("date,time,venue")
         .eq("id", booking.show_id)
         .maybeSingle();
 
       if (showError) throw showError;
       location = normalizeShowLocation(show?.venue);
+      performance = show?.date && show?.time
+        ? { date: show.date, time: show.time }
+        : null;
     }
   }
 
@@ -57,6 +65,12 @@ export async function GET(request: Request) {
     {
       canCustomPrice: permissions.includes("bookings:reconcile"),
       catalogue: getBookingAddonCatalogue(location),
+      dietaryOrdering: performance
+        ? {
+            ...getDietaryAddonOrderingState(performance),
+            message: dietaryAddonCutoffMessage,
+          }
+        : null,
       location,
     },
     { headers: { "Cache-Control": "private, no-store" } },

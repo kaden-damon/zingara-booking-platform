@@ -21,12 +21,15 @@ import {
   getBookingTicketState,
   getTicketUrl,
 } from "@/lib/zingaraDemo";
+import { after } from "next/server";
 import { calculatePublicBookingPricing } from "@/lib/pricing";
 import {
   getBookingAddonTotal,
+  getPublicDietaryAddonCatalogue,
   hasPricedBookingAddons,
   normalizeInternalBookingAddons,
 } from "@/lib/bookingAddons";
+import { enforceDietaryAddonOrdering } from "@/lib/dietaryAddonOrdering";
 import {
   enforceCorporateBookingSource,
   isCorporatePartySize,
@@ -54,6 +57,7 @@ import {
 import { validatePromoCode } from "@/lib/supabase/promoCodes";
 import { normalizeTemporaryTableCustomPrice } from "@/lib/temporaryTablePricing";
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
+import { notifyConfirmedDietaryOrderByBookingId } from "@/lib/email/dietaryOrderNotification";
 import {
   recordPlatformEventBestEffort,
   recordPlatformFailureEventBestEffort,
@@ -1680,51 +1684,61 @@ export async function POST(request: Request) {
     const isTrustedStaff = Boolean(staffProfileId);
     let show: SupabaseShowRow | undefined;
 
-    if (
-      !isTrustedStaff &&
-      ((booking.addons?.length ?? 0) > 0 || Number(booking.addonsTotal) > 0)
-    ) {
+    show = await getSupabaseShowRow(supabase, booking);
+
+    if (!show) {
       return Response.json(
-        { error: "Booking add-ons are available only through authorised staff booking creation." },
-        { status: 403 },
+        { error: "Booking show could not be resolved." },
+        { status: 400 },
       );
     }
 
-    if (isTrustedStaff) {
-      show = await getSupabaseShowRow(supabase, booking);
-
-      if (!show) {
+    try {
+      const location = normalizeShowLocation(show.venue);
+      const publicAddonIds = new Set(
+        getPublicDietaryAddonCatalogue(location).map((addon) => addon.id),
+      );
+      if (
+        !isTrustedStaff &&
+        (booking.addons ?? []).some((addon) => !publicAddonIds.has(addon.id))
+      ) {
         return Response.json(
-          { error: "Booking show could not be resolved." },
-          { status: 400 },
+          { error: "Only the available dietary meal add-ons may be selected online." },
+          { status: 403 },
         );
       }
-
-      try {
-        const addons = normalizeInternalBookingAddons(booking.addons, {
-          allowCustomPricing: Boolean(
-            staffRole && rolePermissions[staffRole].includes("bookings:reconcile"),
-          ),
-          location: normalizeShowLocation(show.venue),
-        });
-        booking = {
-          ...booking,
-          addons,
-          addonsTotal: getBookingAddonTotal(addons),
-        };
-      } catch (error) {
-        return Response.json(
-          {
-            error:
-              error instanceof Error
-                ? error.message
-                : "Booking add-ons are invalid.",
-          },
-          { status: 400 },
-        );
-      }
-    } else {
-      booking = { ...booking, addons: [], addonsTotal: 0 };
+      const normalizedAddons = normalizeInternalBookingAddons(booking.addons, {
+        allowCustomPricing: Boolean(
+          isTrustedStaff &&
+            staffRole &&
+            rolePermissions[staffRole].includes("bookings:reconcile"),
+        ),
+        location,
+      });
+      const { addons } = enforceDietaryAddonOrdering({
+        date: show.date,
+        requestedAddons: normalizedAddons,
+        time: show.time,
+      });
+      booking = {
+        ...booking,
+        addons,
+        addonsTotal: getBookingAddonTotal(addons),
+      };
+    } catch (error) {
+      return Response.json(
+        {
+          code:
+            error && typeof error === "object" && "code" in error
+              ? String(error.code)
+              : undefined,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Booking add-ons are invalid.",
+        },
+        { status: 400 },
+      );
     }
 
     if (
@@ -2554,6 +2568,19 @@ export async function POST(request: Request) {
         supabase,
       );
 
+      if (reservation.bookingId && !isAwaitingExternalPayment(booking)) {
+        after(async () => {
+          try {
+            await notifyConfirmedDietaryOrderByBookingId(supabase, {
+              bookingId: reservation.bookingId as string,
+              confirmationKey: "booking-confirmed",
+            });
+          } catch (error) {
+            console.error("[Zingara Dietary] Confirmation notification failed", error);
+          }
+        });
+      }
+
       return Response.json({
         bookingId: reservation.bookingId,
         customerId,
@@ -2622,6 +2649,16 @@ export async function POST(request: Request) {
           bookingReference: booking.reference,
           result,
         });
+      });
+      after(async () => {
+        try {
+          await notifyConfirmedDietaryOrderByBookingId(supabase, {
+            bookingId,
+            confirmationKey: "booking-confirmed",
+          });
+        } catch (error) {
+          console.error("[Zingara Dietary] Confirmation notification failed", error);
+        }
       });
     }
     recoverPlatformIncidentBestEffort(

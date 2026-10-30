@@ -6,6 +6,7 @@ import {
   getCustomerDisplayName,
 } from "@/lib/customerNameStatus";
 import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
+import { getRestrictedDietaryQuantities } from "@/lib/dietaryAddonOrdering";
 import {
   resolveBookingCompanyName,
   type BookingCompanyIdentity,
@@ -232,7 +233,7 @@ const dynamicMergeAddresses = [
   "A73:A83",
   "E100:G100",
 ];
-const monetaryColumns = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27];
+const monetaryColumns = [14, 15, 16, 17, 18, 19, 20, 21, 24, 25, 26, 27];
 const southAfricanCurrencyNumberFormat = tablePlanCurrencyNumberFormat;
 
 const operationalColumnHeaders = [
@@ -689,13 +690,14 @@ function getBookingNotes(booking: TablePlanBooking) {
 }
 
 function getBookingPaymentMetadata(booking: TablePlanBooking): {
+  dietaryQuantities: ReturnType<typeof getRestrictedDietaryQuantities>;
   complimentaryCategory: "standard" | "media" | "tradex" | null;
   depositPercentage: number | null;
   paymentOption: string | null;
   valueAllocation: TablePlanValueAllocation | null;
 } {
   if (!booking.notes?.startsWith(bookingMetadataPrefix)) {
-    return { complimentaryCategory: null, depositPercentage: null, paymentOption: null, valueAllocation: null };
+    return { complimentaryCategory: null, depositPercentage: null, dietaryQuantities: getRestrictedDietaryQuantities([]), paymentOption: null, valueAllocation: null };
   }
 
   try {
@@ -704,6 +706,7 @@ function getBookingPaymentMetadata(booking: TablePlanBooking): {
     ) as {
       depositPercentage?: number;
       complimentaryCategory?: string;
+      addons?: DemoBooking["addons"];
       paymentOption?: string;
       valueAllocation?: TablePlanValueAllocation;
     };
@@ -732,11 +735,12 @@ function getBookingPaymentMetadata(booking: TablePlanBooking): {
       depositPercentage: Number.isFinite(Number(metadata.depositPercentage))
         ? Number(metadata.depositPercentage)
         : null,
+      dietaryQuantities: getRestrictedDietaryQuantities(metadata.addons),
       paymentOption: metadata.paymentOption?.trim().toLowerCase() || null,
       valueAllocation,
     };
   } catch {
-    return { complimentaryCategory: null, depositPercentage: null, paymentOption: null, valueAllocation: null };
+    return { complimentaryCategory: null, depositPercentage: null, dietaryQuantities: getRestrictedDietaryQuantities([]), paymentOption: null, valueAllocation: null };
   }
 }
 
@@ -982,8 +986,10 @@ function populateBookingDataRow(
   setMoneyValue(row.getCell(19), financials.mediaAmount);
   setMoneyValue(row.getCell(20), financials.tradexAmount);
   setMoneyValue(row.getCell(21), financials.complimentaryAmount);
-  setMoneyValue(row.getCell(22), financials.halaalMealsAmount);
-  setMoneyValue(row.getCell(23), financials.kosherMealsAmount);
+  row.getCell(22).value = paymentMetadata.dietaryQuantities["dietary-strictly-halaal"];
+  row.getCell(22).numFmt = "0";
+  row.getCell(23).value = paymentMetadata.dietaryQuantities["dietary-kosher"];
+  row.getCell(23).numFmt = "0";
   setMoneyValue(row.getCell(24), financials.ticketGratuityAmount);
   setMoneyValue(row.getCell(25), financials.barTabPaidAmount);
   setMoneyValue(row.getCell(26), financials.barGratuityAmount);
@@ -1186,7 +1192,8 @@ function updateTablePlanFormulas(
   } as const;
 
   for (const [column, columnNumber] of Object.entries(columnNumbers)) {
-    setMoneyFormula(
+    const setter = column === "V" || column === "W" ? setFormula : setMoneyFormula;
+    setter(
       worksheet.getCell(`${column}${tableTotalsRow}`),
       `SUM(${column}4:${column}${finalTableRow})`,
       sumRows(worksheet, dataRows, columnNumber),
@@ -1323,12 +1330,12 @@ function updateTablePlanFormulas(
     `SUM(X${tableTotalsRow})`,
     sumRows(worksheet, dataRows, 24),
   );
-  setMoneyFormula(
+  setFormula(
     worksheet.getCell(`J${131 + checklistOffset}`),
     `SUM(V${tableTotalsRow})`,
     sumRows(worksheet, dataRows, 22),
   );
-  setMoneyFormula(
+  setFormula(
     worksheet.getCell(`J${132 + checklistOffset}`),
     `SUM(W${tableTotalsRow})`,
     sumRows(worksheet, dataRows, 23),
@@ -1785,6 +1792,12 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   );
 
   updateTablePlanFormulas(tablePlan, layouts, rowOffset, totalCapacity);
+  for (let column = 4; column <= 11; column += 1) {
+    tablePlan.getRow(79).getCell(column).fill = {
+      pattern: "none",
+      type: "pattern",
+    };
+  }
   populateNotesSheet(notes, notesEntries, input.show.date);
 
   const location = input.show.venue === "johannesburg" ? "JHB" : "CPT";
