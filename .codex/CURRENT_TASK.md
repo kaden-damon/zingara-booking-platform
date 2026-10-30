@@ -1,6 +1,6 @@
 # Phase 68 - Floor Capacity & Seating Integrity
 
-STATUS: IN PROGRESS - VERIFIED CORRECTIONS UNDER TEST
+STATUS: COMPLETE - RELEASED TO PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -43,9 +43,33 @@ Table Plan exports.
 - Use the authoritative Supabase show ID for Floor booking and capacity totals.
 - Add no new capacity lock or business rule.
 
-## Pending
+## Completed Correction
 
-- Complete focused implementation and regression tests.
-- Apply the narrowly scoped allocator migration.
-- Commit, push, deploy and verify authenticated Production behaviour.
-- Record final audit counts, release evidence and rollback point.
+- Single-table fit remains the first assignment rule.
+- When a split is unavoidable, application and database allocators now prefer
+  compatible tables that are close in the approved master order before
+  unused-seat optimisation.
+- Floor counts, queue filtering and table hydration now use the authoritative
+  show ID rather than a potentially stale legacy alias.
+- Existing assignments, capacities, ticket availability and business records
+  were not changed.
+
+## Verification And Release
+
+- Focused Phase 68 tests, capacity-model tests, TypeScript, diff checks and the
+  webpack Production build passed.
+- Migration `20261030235900_phase_68_seating_proximity.sql` applied
+  successfully and read-back verified both live allocator functions.
+- Application commit: `419002aac89d7d6d93dda0af4ba18d7fb3266a2d`.
+- Production deployment: `dpl_E4vY19Co48wS9Ew74BdTTnd2JgmX` (`Ready`).
+- Post-release read-only verification confirmed `ZNG-MKA3M2` remains assigned
+  to tables 205 and 302; no historical seating was changed.
+- The available Chrome profile reached the stable Production Admin login but
+  was not authenticated. Direct authenticated visual Floor verification was
+  therefore not claimed in this execution.
+
+## Rollback
+
+- Application rollback point: `d3a59ccdead68760ae88bb4ef5d91d19ea3ec0eb`.
+- The migration changes allocator function ordering only; it performs no
+  booking, table, capacity, payment or ticket data mutation.
