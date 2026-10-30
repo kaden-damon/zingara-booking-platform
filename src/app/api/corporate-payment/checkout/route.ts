@@ -133,6 +133,7 @@ export async function POST(request: Request) {
       customer: booking.customer,
       itemDescription: `Corporate booking payment ${bookingReference}`,
       itemName: "The Royal Countess Zingara Corporate Booking",
+      paymentAttemptId: attempt.attempt.payment_id,
       preparedAmount: attempt.attempt.amount_due ?? balanceDue,
       section: booking.zoneTitle,
     });

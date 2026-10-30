@@ -1,60 +1,53 @@
-# Remove Booking Details Unsaved Changes Confirmation
+# Phase 65 - Balance Payment Reconciliation & Table Plan Integrity
 
-STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
+STATUS: IMPLEMENTED AND VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
 
 DATE: 30 OCTOBER 2026
 
 ## Baseline
 
 - Authoritative checkout: `/Users/kadendamon/.codex/worktrees/phase-50-12-admin-performance/zingara-booking-platform`
-- Verified starting commit: `5337bb1af61b3837cc186e646062caa4224b14ed` (`HEAD` and `origin/main`).
+- Starting application commit: `00515e4fbe4e20400666f5da8f0dfd7defe51d3a` (`HEAD` and `origin/main`).
 - Existing user-owned Markdown records and report artifacts remain preserved and excluded.
-
-## Objective
-
-Remove only the Booking Details `Unsaved Changes` confirmation and its close/booking-switch navigation guards while preserving explicit `Save Changes`, local draft behaviour and all unrelated operational or financial confirmations.
 
 ## Verified Diagnosis
 
-- Booking metadata edits are held locally by `BookingMetadataDraftEditor` and persist only when `Save Changes` is explicitly used.
-- Parent state opens the confirmation only when closing Booking Details or switching to another booking while the metadata draft is dirty.
-- The popup uses three dedicated state values plus a discard handler; none participates in persistence.
-- A separate dirty-state check prevents customer-profile refresh from replacing an active local draft and is not part of the popup navigation guard.
+- Checkout preparation reused the newest pending payment row for a booking and changed its amount for subsequent attempts.
+- ITN amount validation and atomic confirmation also selected the newest pending row rather than the checkout that generated the signed callback.
+- Delayed or out-of-order callbacks could therefore validate against, or update, a different payment attempt.
+- Table Plan already loads every payment row for the selected performance and caps payment buckets against the booking aggregate. Its discrepancies originate when the authoritative payment row/aggregate is incomplete or mismatched, not from pagination or venue filtering.
+- Settled bookings retained active historical payment links that could no longer represent a payable balance.
 
-## Safety Boundaries
+## Production Read-Only Audit
 
-- Closing or switching bookings discards the unpersisted local draft and never saves automatically.
-- Saved booking information and the existing narrow save API remain unchanged.
-- Destructive, payment, financial, seating and table-assignment confirmations remain unchanged.
+- 6,965 bookings audited: 2,403 Cape Town and 4,562 Johannesburg.
+- 348 bookings have managed payment links: 132 Cape Town and 216 Johannesburg.
+- 1,629 durable PayFast ITN receipts were inspected. All are processed, fully validated and linked to payment rows; 32 repeated callbacks were deduplicated safely.
+- 130 bookings contain two to four confirmed PayFast payments. All 130 reconcile exactly to the booking aggregate with R0.00 discrepancy.
+- 3,552 confirmed PayFast rows total R20,474,429.70 across both venues.
+- Eight older linked bookings have R151,194.50 of aggregate value not represented by normalized confirmed payment rows. Their evidence predates durable ITN receipts or reflects imported/manual history, so no financial row was manufactured or changed.
+- 44 active links belong to authoritatively settled bookings and are eligible for safe revocation while preserving their records and metadata.
 
-## Progress
+## Implementation
 
-- Removed the three popup-specific parent state values, the discard handler and the complete confirmation modal.
-- Closing Booking Details now releases the existing edit lock and closes immediately. Switching bookings clears the outgoing local dirty marker and loads the selected booking immediately.
-- The metadata editor, `Save Changes` request, failed-draft preservation and customer-refresh protection remain unchanged.
+- Every checkout now creates a distinct pending payment attempt.
+- The signed PayFast payload carries the payment attempt ID in `custom_str3`.
+- ITN validation binds to that exact booking-owned attempt. Legacy callbacks use an exact amount match and never consume an unrelated pending amount.
+- Atomic confirmation serializes by booking, preserves provider-transaction idempotency and isolates the selected attempt before reusing the established financial core.
+- Completed bookings revoke remaining active links without deleting historical evidence.
+- Existing Table Plan columns, formulas and design are unchanged; regression coverage verifies deposit plus multiple balance payments, pending/failed rows and duplicate-safe totals.
 
 ## Verification
 
-- 32 focused metadata and internal add-on tests passed.
-- 44 additional booking persistence, lock, transfer, amendment and management tests passed. Three unrelated baseline tests remain failing: two stale Admin-navigation expectations and one extensionless-import resolution failure in the table-move test.
+- 54 focused tests passed.
 - TypeScript passed.
-- Changed test-file ESLint passed. The large Admin page retains two pre-existing React effect lint errors and existing warnings outside the Phase change.
+- Changed-file ESLint passed with two pre-existing warnings in the ITN route and no errors.
 - `git diff --check` passed.
-- Next.js 16.3.4 webpack Production compilation passed. The separate performance-budget script still rejects the current client-reference manifest format, an existing tooling incompatibility unrelated to this change.
-- No database migration is required.
+- Supabase linked migration dry run passed and identified only the Phase 65 migration.
+- Next.js 16.3.4 webpack Production compilation and TypeScript passed. The separate pre-existing Admin client-reference performance-budget parser still rejects the current manifest format.
 
-## Production Release
+## Safety
 
-- Application commit: `abf30b3f3cf4d8a21299ba54155bdbb3f2bacfec` (`fix: remove booking unsaved changes prompt`), pushed to `origin/main`.
-- Vercel Production deployment: `dpl_9z4p6fyonUxNCA4VahBw8cpWfndc` (`READY`), aliased to `https://book.zingara.co.za`.
-- Rollback point: `5337bb1af61b3837cc186e646062caa4224b14ed`.
-- No migration was required or applied.
-
-## Production Verification
-
-- Authenticated Admin loaded successfully and `/admin` returned HTTP 200.
-- On booking `ZNG-8D9834`, a harmless local note suffix was entered without saving. Booking Details closed immediately with no confirmation; reopening showed the original authoritative note and no QA suffix.
-- A second unsaved local suffix was entered and the interface switched directly to `ZNG-82JLBS` with no confirmation or stale draft.
-- `Save Changes` remains present and the focused tests confirm it retains its single explicit persistence request and failed-draft handling.
-- No destructive or financial confirmation was changed.
-- Production business-data delta: none. No booking field, payment, seating, ticket, financial record or communication was created or changed.
+- No real payment, charge, refund or customer communication was created.
+- No booking, payment, ticket, seating, VAT or Xero value was changed during investigation or QA.
+- Ambiguous historical financial gaps remain untouched for manual reconciliation.

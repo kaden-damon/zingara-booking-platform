@@ -12,6 +12,7 @@ import { normalizePayFastCellNumber } from "@/lib/payfast/phone";
 export type PayFastCheckoutPayload = {
   amount?: number;
   preparedAmount?: number;
+  paymentAttemptId?: string;
   bookingReference: string;
   customer?: {
     email?: string;
@@ -75,7 +76,7 @@ export async function preparePayFastCheckoutAttempt(
 ) {
   const transaction = calculatePayFastTransactionAmounts(payload.amount);
   const { data: attemptData, error: attemptError } =
-    await serviceClient.rpc("prepare_payfast_checkout_attempt", {
+    await serviceClient.rpc("prepare_payfast_checkout_attempt_v2", {
       p_amount: transaction.bookingAppliedAmount,
       p_booking_reference: payload.bookingReference,
       p_transaction_fee: transaction.transactionFeeAmount,
@@ -188,6 +189,7 @@ export async function createExistingBookingPayFastCheckout(
       cellNumber: normalizedPhone.cellNumber,
       customString1: payload.bookingReference,
       customString2: payload.section,
+      customString3: payload.paymentAttemptId,
       emailAddress: payload.customer?.email,
       itemDescription:
         payload.itemDescription ??

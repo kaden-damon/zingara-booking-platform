@@ -1,4 +1,4 @@
-import { getComplimentaryInternalValue } from "../internalComplimentaryBooking";
+import { getComplimentaryInternalValue } from "../internalComplimentaryBooking.ts";
 
 export type TablePlanFinancialPayment = {
   amount: number;

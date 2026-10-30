@@ -347,6 +347,7 @@ export async function createPayFastCheckoutForBookingLink(
   row: PaymentLinkBookingRow,
   customer: PaymentLinkCustomerRow | null,
   preparedAmount: number,
+  paymentAttemptId?: string,
 ): Promise<PaymentLinkCheckoutResult> {
   const outstandingAmount = getOutstandingAmount(row);
 
@@ -374,6 +375,7 @@ export async function createPayFastCheckoutForBookingLink(
     },
     itemDescription: `Zingara booking payment ${row.booking_reference}`,
     itemName: "The Royal Countess Zingara Booking",
+    paymentAttemptId,
     section: row.section ?? booking?.zoneTitle,
   });
 

@@ -162,6 +162,17 @@ function getPaymentAmount(data: PayFastItnData) {
   return Number.parseFloat(data.amount_gross || data.amount_net || "0");
 }
 
+function getCheckoutPaymentId(data: PayFastItnData) {
+  const value = data.custom_str3?.trim();
+
+  return value &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+    ? value
+    : null;
+}
+
 function getOptionalAmount(value: string | undefined) {
   const amount = value === undefined ? Number.NaN : Number.parseFloat(value);
   return Number.isFinite(amount) ? amount : null;
@@ -171,6 +182,7 @@ function getReceiptEvidence(data: PayFastItnData) {
   return {
     customString1: data.custom_str1 ?? null,
     customString2: data.custom_str2 ?? null,
+    customString3: data.custom_str3 ?? null,
     itemDescription: data.item_description ?? null,
     itemName: data.item_name ?? null,
   };
@@ -263,6 +275,8 @@ async function getExpectedPayFastAmounts(
   booking: DemoBooking,
   row: BookingRow,
 ) {
+  const checkoutPaymentId = getCheckoutPaymentId(data);
+
   if (data.pf_payment_id) {
     const { data: confirmedPayment, error } = await supabase
       .from("payments")
@@ -280,22 +294,44 @@ async function getExpectedPayFastAmounts(
     }
   }
 
-  const { data: pendingPayment, error } = await supabase
+  if (checkoutPaymentId) {
+    const { data: checkoutPayment, error } = await supabase
+      .from("payments")
+      .select("amount,payment_status,provider_gross_amount,provider_transaction_id,transaction_fee_amount")
+      .eq("id", checkoutPaymentId)
+      .eq("booking_id", row.id)
+      .eq("payment_status", "pending_payment")
+      .is("provider_transaction_id", null)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!checkoutPayment) {
+      throw new Error("PayFast checkout attempt does not match the booking");
+    }
+
+    return toStoredTransactionAmounts(checkoutPayment as PaymentAmountRow);
+  }
+
+  const providerGrossAmount = getPaymentAmount(data);
+  const { data: pendingPayments, error } = await supabase
     .from("payments")
     .select("amount,payment_status,provider_gross_amount,provider_transaction_id,transaction_fee_amount")
     .eq("booking_id", row.id)
     .eq("payment_status", "pending_payment")
     .is("provider_transaction_id", null)
+    .eq("provider_gross_amount", providerGrossAmount)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(2);
 
   if (error) {
     throw error;
   }
 
-  if (pendingPayment && Number((pendingPayment as PaymentAmountRow).amount) > 0) {
-    return toStoredTransactionAmounts(pendingPayment as PaymentAmountRow);
+  if (
+    pendingPayments?.length === 1 &&
+    Number((pendingPayments[0] as PaymentAmountRow).amount) > 0
+  ) {
+    return toStoredTransactionAmounts(pendingPayments[0] as PaymentAmountRow);
   }
 
   const total = booking.totalPrice || row.total_amount || 0;
@@ -591,13 +627,14 @@ async function confirmPaymentCore(
   updatedBooking: DemoBooking,
 ) {
   const { data: coreResult, error } = await supabase.rpc(
-    "confirm_payfast_payment_core",
+    "confirm_payfast_payment_core_v2",
     {
       p_amount: amount,
       p_amount_paid: amountPaid,
       p_balance_outstanding: balanceDue,
       p_booking_notes: serializeBookingMetadata(updatedBooking),
       p_booking_reference: booking.reference,
+      p_checkout_payment_id: getCheckoutPaymentId(data),
       p_payment_notes: createPayFastPaymentNotes(data),
       p_payment_status: status,
       p_payment_type: paymentType,

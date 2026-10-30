@@ -214,6 +214,7 @@ export async function POST(request: Request) {
       {
         amount: body.amount,
         preparedAmount: attemptResult.attempt.amount_due,
+        paymentAttemptId: attemptResult.attempt.payment_id,
         bookingReference: body.bookingReference,
         customer: body.customer,
         itemDescription: body.itemDescription,

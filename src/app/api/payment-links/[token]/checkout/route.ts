@@ -112,6 +112,7 @@ export async function POST(_request: Request, context: PaymentLinkCheckoutContex
 
     const paymentAmount = getPaymentLinkCheckoutAmount(link, booking);
     let preparedAmount = paymentAmount;
+    let paymentAttemptId: string | undefined;
 
     if (paymentAmount > 0) {
       const attempt = await preparePayFastCheckoutAttempt(supabase, {
@@ -127,6 +128,7 @@ export async function POST(_request: Request, context: PaymentLinkCheckoutContex
       }
 
       preparedAmount = attempt.attempt.booking_applied_amount ?? paymentAmount;
+      paymentAttemptId = attempt.attempt.payment_id;
     }
 
     const customer = await loadCustomerForPaymentLink(
@@ -138,6 +140,7 @@ export async function POST(_request: Request, context: PaymentLinkCheckoutContex
       booking,
       customer,
       preparedAmount,
+      paymentAttemptId,
     );
 
     if (checkout.status === "already_paid") {
