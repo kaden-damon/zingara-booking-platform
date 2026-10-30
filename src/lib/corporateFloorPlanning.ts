@@ -1,5 +1,4 @@
 import type { SeatingZoneId } from "./zingaraDemo";
-import { supportsMultiTableBookingFulfilment } from "./bookingSeatingAvailability.ts";
 
 export const corporateFloorZones = [
   "golden-circle",
@@ -163,75 +162,21 @@ export function findTemporaryCapacityMix(
   return null;
 }
 
-function findExistingTableMix(
+function findExistingSingleTable(
   requiredSeats: number,
   tables: FloorPlanningTable[],
 ) {
-  type TableMixState = {
-    capacity: number;
-    minimumOccupancy: number;
-    tables: FloorPlanningTable[];
-  };
-  const states = new Map<string, TableMixState>([
-    ["0:0", { capacity: 0, minimumOccupancy: 0, tables: [] }],
-  ]);
-  const maximumCapacity = Math.max(
-    requiredSeats + Math.max(...tables.map((table) => table.capacity), 0),
-    requiredSeats,
-  );
-
-  const sortSpan = (candidateTables: FloorPlanningTable[]) => {
-    if (candidateTables.length <= 1) return 0;
-    const orders = candidateTables.map((table) => table.sortOrder);
-    if (orders.some((order) => order === undefined)) {
-      return Number.MAX_SAFE_INTEGER;
-    }
-    return Math.max(...(orders as number[])) - Math.min(...(orders as number[]));
-  };
-
-  for (const table of tables) {
-    for (const state of [...states.values()].sort(
-      (left, right) => right.capacity - left.capacity,
-    )) {
-      const capacity = state.capacity + table.capacity;
-      if (capacity > maximumCapacity) continue;
-
-      const minimumOccupancy =
-        state.minimumOccupancy + Math.max(table.minimumOccupancy ?? 1, 1);
-      const nextTables = [...state.tables, table];
-      const key = `${capacity}:${minimumOccupancy}`;
-      const existing = states.get(key);
-      if (
-        !existing ||
-        nextTables.length < existing.tables.length ||
-        (nextTables.length === existing.tables.length &&
-          sortSpan(nextTables) < sortSpan(existing.tables))
-      ) {
-        states.set(key, { capacity, minimumOccupancy, tables: nextTables });
-      }
-    }
-  }
-
-  return [...states.values()]
+  return tables
     .filter(
-      (state) =>
-        state.capacity >= requiredSeats &&
-        state.minimumOccupancy <= requiredSeats,
+      (table) =>
+        table.capacity >= requiredSeats &&
+        Math.max(table.minimumOccupancy ?? 1, 1) <= requiredSeats,
     )
     .sort(
       (left, right) =>
-        left.tables.length - right.tables.length ||
-        sortSpan(left.tables) - sortSpan(right.tables) ||
         left.capacity - right.capacity ||
-        left.tables
-          .map((table) => table.tableCode)
-          .join("+")
-          .localeCompare(
-            right.tables.map((table) => table.tableCode).join("+"),
-            "en",
-            { numeric: true },
-          ),
-    )[0]?.tables;
+        left.tableCode.localeCompare(right.tableCode, "en", { numeric: true }),
+    )[0];
 }
 
 function countCapacities(capacities: number[]) {
@@ -280,110 +225,54 @@ export function buildZoneFloorCapacityPlan(input: {
   );
 
   for (const booking of orderedBookings) {
-    if (
-      !booking.isCorporate &&
-      !supportsMultiTableBookingFulfilment(input.zoneId)
-    ) {
-      const existingIndex = availableTables.findIndex(
-        (table) => table.capacity >= booking.pax,
+    const existingTable = findExistingSingleTable(
+      booking.pax,
+      availableTables,
+    );
+    if (existingTable) {
+      availableTables = availableTables.filter(
+        (table) => table.id !== existingTable.id,
       );
-      if (existingIndex >= 0) {
-        const [table] = availableTables.splice(existingIndex, 1);
-        bookingPlans.push({
-          bookingReference: booking.reference,
-          existingTableCodes: [table.tableCode],
-          existingTableIds: [table.id],
-          isCorporate: false,
-          newCapacities: [],
-          pax: booking.pax,
-          unresolvedReason: null,
-        });
-        continue;
-      }
+      bookingPlans.push({
+        bookingReference: booking.reference,
+        existingTableCodes: [existingTable.tableCode],
+        existingTableIds: [existingTable.id],
+        isCorporate: booking.isCorporate,
+        newCapacities: [],
+        pax: booking.pax,
+        unresolvedReason: null,
+      });
+      continue;
+    }
 
-      const capacity = allowedTemporaryCapacities.find(
-        (candidate) => candidate >= booking.pax,
-      );
-      rawOperationalShortfall += booking.pax;
-      if (!capacity) {
-        bookingPlans.push({
-          bookingReference: booking.reference,
-          existingTableCodes: [],
-          existingTableIds: [],
-          isCorporate: false,
-          newCapacities: [],
-          pax: booking.pax,
-          unresolvedReason:
-            "No approved single temporary-table capacity can serve this Standard booking.",
-        });
-        continue;
-      }
+    rawOperationalShortfall += booking.pax;
+    const temporaryCapacity = allowedTemporaryCapacities.find(
+      (capacity) => capacity >= booking.pax,
+    );
 
-      plannedCapacities.push(capacity);
+    if (!temporaryCapacity) {
       bookingPlans.push({
         bookingReference: booking.reference,
         existingTableCodes: [],
         existingTableIds: [],
-        isCorporate: false,
-        newCapacities: [capacity],
-        pax: booking.pax,
-        unresolvedReason: null,
-      });
-      continue;
-    }
-
-    const existingMix = findExistingTableMix(booking.pax, availableTables);
-    if (existingMix) {
-      const selected = new Set(existingMix.map((table) => table.id));
-      availableTables = availableTables.filter((table) => !selected.has(table.id));
-      bookingPlans.push({
-        bookingReference: booking.reference,
-        existingTableCodes: existingMix.map((table) => table.tableCode),
-        existingTableIds: existingMix.map((table) => table.id),
         isCorporate: booking.isCorporate,
         newCapacities: [],
         pax: booking.pax,
-        unresolvedReason: null,
+        unresolvedReason:
+          "No single available operational table can seat the complete booking. Manual Box Office resolution is required.",
       });
       continue;
     }
 
-    const existingCapacity = availableTables.reduce(
-      (total, table) => total + table.capacity,
-      0,
-    );
-    const existingTableCodes = availableTables.map((table) => table.tableCode);
-    const existingTableIds = availableTables.map((table) => table.id);
-    availableTables = [];
-    const requiredSeats = Math.max(booking.pax - existingCapacity, 0);
-    rawOperationalShortfall += requiredSeats;
-    const temporaryMix = findTemporaryCapacityMix(
-      requiredSeats,
-      allowedTemporaryCapacities,
-    );
-
-    if (!temporaryMix) {
-      bookingPlans.push({
-        bookingReference: booking.reference,
-        existingTableCodes,
-        existingTableIds,
-        isCorporate: booking.isCorporate,
-        newCapacities: [],
-        pax: booking.pax,
-        unresolvedReason: "No approved temporary-table capacity mix can satisfy the shortfall.",
-      });
-      continue;
-    }
-
-    plannedCapacities.push(...temporaryMix.capacities);
+    plannedCapacities.push(temporaryCapacity);
     bookingPlans.push({
       bookingReference: booking.reference,
-      existingTableCodes,
-      existingTableIds,
+      existingTableCodes: [],
+      existingTableIds: [],
       isCorporate: booking.isCorporate,
-      newCapacities: temporaryMix.capacities,
+      newCapacities: [temporaryCapacity],
       pax: booking.pax,
-      unresolvedReason: null,
+      unresolvedReason: `No existing single table fits. Create one reviewed ${temporaryCapacity}-seat temporary table and assign it manually.`,
     });
   }
 

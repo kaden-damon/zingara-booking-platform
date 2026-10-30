@@ -283,118 +283,6 @@ function getUnitType(table: MutableTable): FloorAllocationProposal["targetType"]
   return table.mergedFrom.length > 0 ? "merged" : "temporary";
 }
 
-function chooseMergeMembers(
-  availableTables: MutableTable[],
-  pax: number,
-  remainingCapacityBudget: number,
-) {
-  const candidates = availableTables
-    .filter(
-      (table) =>
-        table.isPhysical &&
-        table.capacityConfigured &&
-        table.mergeable &&
-        !table.mergedParentId &&
-        table.mergedFrom.length === 0,
-    )
-    .sort(compareTableCodes);
-  const states = new Map<
-    string,
-    { addedCapacity: number; capacity: number; members: MutableTable[] }
-  >();
-  states.set("0:0", { addedCapacity: 0, capacity: 0, members: [] });
-
-  for (const table of candidates) {
-    const minimum = table.capacityConfigured
-      ? Number(table.capacity)
-      : Number(table.minimumCapacity ?? 0);
-    const maximum = table.capacityConfigured
-      ? Number(table.capacity)
-      : Number(table.maximumCapacity ?? 0);
-
-    if (minimum <= 0 || maximum < minimum) {
-      continue;
-    }
-
-    for (const state of [...states.values()]) {
-      const members = [...state.members, table];
-      const minimumOccupancy = members.reduce(
-        (total, member) => total + Number(member.minimumCapacity ?? 1),
-        0,
-      );
-      const baseCapacity = state.capacity + minimum;
-      const maximumCapacity =
-        state.members.reduce(
-          (total, member) =>
-            total +
-            (member.capacityConfigured
-              ? Number(member.capacity)
-              : Number(member.maximumCapacity ?? 0)),
-          0,
-        ) + maximum;
-      const requiredCapacity = Math.max(baseCapacity, pax);
-
-      if (members.length >= 2 && pax < minimumOccupancy) {
-        continue;
-      }
-
-      if (members.length < 2 || requiredCapacity > maximumCapacity) {
-        states.set(`${members.length}:${maximumCapacity}`, {
-          addedCapacity:
-            state.addedCapacity + (table.capacityConfigured ? 0 : minimum),
-          capacity: baseCapacity,
-          members,
-        });
-        continue;
-      }
-
-      const addedCapacity = members.reduce(
-        (total, member) =>
-          total + (member.capacityConfigured ? 0 : Number(member.minimumCapacity)),
-        0,
-      );
-      const extraNeeded = requiredCapacity - baseCapacity;
-
-      if (addedCapacity + extraNeeded > remainingCapacityBudget) {
-        continue;
-      }
-
-      states.set(`${members.length}:${requiredCapacity}`, {
-        addedCapacity: addedCapacity + extraNeeded,
-        capacity: requiredCapacity,
-        members,
-      });
-    }
-  }
-
-  return [...states.values()]
-    .filter((state) => state.members.length >= 2 && state.capacity >= pax)
-    .sort(
-      (left, right) =>
-        left.members.length - right.members.length ||
-        getMasterOrderSpan(left.members) - getMasterOrderSpan(right.members) ||
-        left.capacity - right.capacity ||
-        left.addedCapacity - right.addedCapacity ||
-        left.members
-          .map((member) => member.tableCode)
-          .join("+")
-          .localeCompare(
-            right.members.map((member) => member.tableCode).join("+"),
-            "en",
-            { numeric: true },
-          ),
-    )[0];
-}
-
-function getMasterOrderSpan(tables: FloorAllocatorTable[]) {
-  if (tables.length <= 1) return 0;
-  const orders = tables.map((table) => table.sortOrder);
-  if (orders.some((order) => order === undefined)) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-  return Math.max(...(orders as number[])) - Math.min(...(orders as number[]));
-}
-
 export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
   const tablesById = new Map(input.tables.map((table) => [table.id, table]));
   const capacityTablesById = getCapacityTablesById(input.tables);
@@ -492,8 +380,8 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
       .map((table) => ({ ...table, plannedCapacity: table.capacity }));
     availableTables = [...availableTables, ...existingMergedParents];
 
-    const optionCount = (booking: FloorAllocatorBooking) => {
-      const individualOptions = availableTables.filter((table) => {
+    const optionCount = (booking: FloorAllocatorBooking) =>
+      availableTables.filter((table) => {
         if (booking.pax < getMinimumOccupancy(table, tablesById)) {
           return false;
         }
@@ -501,16 +389,8 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
         if (table.capacityConfigured) {
           return getTableCapacity(table) >= booking.pax;
         }
-
         return Number(table.maximumCapacity) >= booking.pax;
       }).length;
-      const mergeOption = chooseMergeMembers(
-        availableTables,
-        booking.pax,
-        remainingCapacityBudget,
-      );
-      return individualOptions + (mergeOption ? 1 : 0);
-    };
 
     const orderedBookings = [...zoneBookings].sort(
       (left, right) =>
@@ -587,93 +467,16 @@ export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {
         continue;
       }
 
-      const merge = chooseMergeMembers(
-        availableTables,
-        booking.pax,
-        remainingCapacityBudget,
-      );
-
-      if (!merge) {
-        unresolved.push({
-          bookingReference: booking.reference,
-          currentAssignment,
-          pax: booking.pax,
-          reason:
-            zoneDemand > input.zoneCeilings[zone]
-              ? `Confirmed ${zone} demand is ${zoneDemand}/${input.zoneCeilings[zone]}; excess demand remains for manual resolution.`
-              : `No safe table or flat merge fits within the ${input.zoneCeilings[zone]}-seat ceiling.`,
-          zone,
-        });
-        continue;
-      }
-
-      let mergeCapacity = 0;
-      let extraNeeded = Math.max(
-        booking.pax -
-          merge.members.reduce(
-            (total, member) =>
-              total +
-              (member.capacityConfigured
-                ? Number(member.capacity)
-                : Number(member.minimumCapacity)),
-            0,
-          ),
-        0,
-      );
-
-      for (const member of merge.members) {
-        if (member.capacityConfigured) {
-          mergeCapacity += Number(member.capacity);
-          continue;
-        }
-
-        const minimum = Number(member.minimumCapacity);
-        const extra = Math.min(
-          extraNeeded,
-          Number(member.maximumCapacity) - minimum,
-        );
-        const capacity = minimum + extra;
-        extraNeeded -= extra;
-        mergeCapacity += capacity;
-        remainingCapacityBudget -= capacity;
-        member.plannedCapacity = capacity;
-        capacityProposals.push({
-          capacity,
-          expectedUpdatedAt: member.updatedAt,
-          tableCode: member.tableCode,
-          tableId: member.id,
-          zone,
-        });
-      }
-
-      const mergeId = `merge:${booking.id}`;
-      const memberIds = new Set(merge.members.map((member) => member.id));
-      const memberTableCodes = merge.members.map((member) => member.tableCode);
-      merges.push({
-        capacity: mergeCapacity,
-        id: mergeId,
-        memberTableCodes,
-        memberTableIds: [...memberIds],
-        zone,
-      });
-      allocations.push({
-        bookingId: booking.id,
+      unresolved.push({
         bookingReference: booking.reference,
         currentAssignment,
-        expectedBookingUpdatedAt: booking.updatedAt,
-        expectedPreviousTableId: booking.tableId,
         pax: booking.pax,
-        targetCapacity: mergeCapacity,
-        targetLabel: memberTableCodes.join("+"),
-        targetMergeId: mergeId,
-        targetTableId: null,
-        targetType: "merged",
-        unusedSeats: mergeCapacity - booking.pax,
+        reason:
+          zoneDemand > input.zoneCeilings[zone]
+            ? `Confirmed ${zone} demand is ${zoneDemand}/${input.zoneCeilings[zone]}; the booking remains unassigned for manual Box Office resolution.`
+            : "No single available operational table can seat the complete booking. Manual Box Office resolution is required.",
         zone,
       });
-      availableTables = availableTables.filter(
-        (candidate) => !memberIds.has(candidate.id),
-      );
     }
   }
 

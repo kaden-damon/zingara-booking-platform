@@ -1,75 +1,78 @@
-# Phase 68 - Floor Capacity & Seating Integrity
+# Phase 68 Follow-up - Strict Single-Table Allocation
 
-STATUS: COMPLETE - RELEASED TO PRODUCTION
+STATUS: RELEASE READY - VERIFIED CORRECTION
 
 DATE: 30 OCTOBER 2026
 
 ## Objective
 
-Keep single-table seating as the first choice, prefer compatible nearby tables
-when a split is genuinely required, and ensure Floor capacity and assignment
-counts use the same authoritative show and booking data as Booking Details and
-Table Plan exports.
+Enforce the authoritative rule that automatic seating may assign or recommend
+exactly one suitable operational table per booking. Existing valid merged
+tables count as one table unit. If none fits, the booking remains valid and
+enters manual Box Office seating resolution.
 
-## Verified Production Baseline
+## Verified Root Cause
 
-- Starting commit: `d3a59ccdead68760ae88bb4ef5d91d19ea3ec0eb`.
-- Phase 62 single-table priority remains present in the Floor recommendation
-  path and current database allocators begin by selecting the smallest fitting
-  single approved table.
-- A current eight-guest Middle Ring booking, `ZNG-MKA3M2`, was assigned tables
-  205 and 302 on 30 October. No approved eight-seat permanent table was free,
-  so a split was necessary; however, the database chose the exact-capacity pair
-  without considering the approved master table order, placing the tables far
-  apart.
-- 5,948 active bookings were audited. There are no cross-show claims, invalid
-  claimed-table statuses or primary-table ownership mismatches.
-- 2,541 future active bookings reconcile exactly to their zone entitlements.
-  No future populated seating zone exceeds its authoritative operational
-  capacity.
-- 455 future bookings currently use more than one table. Six have a valid
-  single-table alternative available now and require operational review; they
-  will not be moved automatically because availability at the original
-  assignment time is not retained.
+- The Phase 68 application recommendation helper still fell back to creating a
+  multi-table combination when no single table fitted.
+- The initial-floor planner could automatically propose and create a merged
+  table from multiple permanent tables.
+- The show-wide capacity planner could recommend multiple existing tables or a
+  multi-table temporary-capacity mix.
+- Three live database assignment engines and the Phase 54.5 preflight loop
+  could accumulate multiple table claims before assigning a booking.
+- Manual multi-table assignment is already isolated behind authenticated
+  `bookings:manage` plus `tables:manage` permissions and writes staff-attributed
+  audit evidence.
+
+## Production Audit
+
+- Existing active split allocations: 481.
+- Future active split allocations: 456.
+- Cape Town split allocations: 230.
+- Johannesburg split allocations: 251.
+- These records remain unchanged for operational review.
+- The six Phase 68 single-table review candidates were retrieved with current
+  assignments and current available alternatives. Full details are retained in
+  the Phase 68 archive.
 
 ## Correction Boundary
 
-- Preserve every existing assignment and historical record.
-- Keep single-table priority ahead of every combination.
-- For unavoidable combinations, use approved master order to prefer compatible
-  nearby tables before unused-seat optimisation.
-- Keep all atomic ownership, minimum occupancy, zone, show, threshold and
-  concurrency checks server-side.
-- Use the authoritative Supabase show ID for Floor booking and capacity totals.
-- Add no new capacity lock or business rule.
+- Remove every automatic multi-table recommendation and assignment fallback.
+- Continue accepting otherwise valid bookings when no table fits.
+- Preserve existing assignments, valid merged tables, manual splitting,
+  capacities, payments, tickets and all booking eligibility rules.
+- Apply no historical reseating or business-data correction.
 
-## Completed Correction
+## Verified Correction
 
-- Single-table fit remains the first assignment rule.
-- When a split is unavoidable, application and database allocators now prefer
-  compatible tables that are close in the approved master order before
-  unused-seat optimisation.
-- Floor counts, queue filtering and table hydration now use the authoritative
-  show ID rather than a potentially stale legacy alias.
-- Existing assignments, capacities, ticket availability and business records
-  were not changed.
+- Shared table recommendations return one existing physical, temporary or valid
+  merged operational table, or no recommendation.
+- Initial-floor planning no longer creates automatic merges.
+- Show-wide planning no longer combines existing or temporary tables for one
+  booking. A single reviewed temporary-table option may be shown for manual
+  creation; the booking remains unassigned until Box Office acts.
+- The reviewed assignment API rejects every automatic table set whose size is
+  not exactly one.
+- The pending migration makes all four database automatic-assignment loops stop
+  after one candidate and adds a fail-closed cardinality guard.
+- Existing manual multi-table RPC permissions and staff-attributed audit history
+  remain unchanged.
 
-## Verification And Release
+## Verification
 
-- Focused Phase 68 tests, capacity-model tests, TypeScript, diff checks and the
-  webpack Production build passed.
-- Migration `20261030235900_phase_68_seating_proximity.sql` applied
-  successfully and read-back verified both live allocator functions.
-- Application commit: `419002aac89d7d6d93dda0af4ba18d7fb3266a2d`.
-- Production deployment: `dpl_E4vY19Co48wS9Ew74BdTTnd2JgmX` (`Ready`).
-- Post-release read-only verification confirmed `ZNG-MKA3M2` remains assigned
-  to tables 205 and 302; no historical seating was changed.
-- The available Chrome profile reached the stable Production Admin login but
-  was not authenticated. Direct authenticated visual Floor verification was
-  therefore not claimed in this execution.
+- Focused seating, planning, permission and booking-eligibility tests: 42/42.
+- TypeScript: passed.
+- Changed-file ESLint: no errors; one pre-existing warning remains in
+  `zingaraDemo.ts`.
+- Production webpack build: passed.
+- Migration dry run: only
+  `20261030235910_phase_68_strict_single_table_assignment.sql` pending.
+- Read-only validation matched every migration pattern against the live
+  Production function definitions.
 
-## Rollback
+## Pending Release Evidence
 
-- Application rollback point: `d3a59ccdead68760ae88bb4ef5d91d19ea3ec0eb`.
-- The migration changes allocator function ordering only; it performs no
-  booking, table, capacity, payment or ticket data mutation.
+- Commit and push the verified correction.
+- Apply the migration and verify all four live functions.
+- Verify the resulting Production deployment and record the final rollback.

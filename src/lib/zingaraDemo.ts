@@ -1,6 +1,5 @@
 import {
   getPhysicalTableDefinition,
-  getPhysicalTableSortOrder,
   isLegacyPlaceholderTableCode,
 } from "@/lib/physicalTables";
 import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
@@ -3783,76 +3782,6 @@ export function isValidMergedOperationalTable(
   );
 }
 
-function isAutoMergeCandidate(table: DemoTable) {
-  return (
-    isAllocatableTable(table) &&
-    table.mergeable !== false &&
-    !table.mergedFrom?.length
-  );
-}
-
-function getTableCombinationNumber(tables: DemoTable[]) {
-  return tables.map((table) => table.tableNumber).join(" + ");
-}
-
-function createCombinedTable(
-  showId: string,
-  zoneId: SeatingZoneId,
-  sourceTables: DemoTable[],
-): DemoTable {
-  const tableNumber = getTableCombinationNumber(sourceTables);
-  const seatCapacity = sourceTables.reduce(
-    (totalSeats, table) => totalSeats + table.seatCapacity,
-    0,
-  );
-
-  return {
-    id: `${showId}-${zoneId}-auto-merge-${sourceTables
-      .map((table) => table.id)
-      .join("-")}`,
-    showId,
-    zoneId,
-    tableNumber,
-    baseSeatCapacity: seatCapacity,
-    baseStatus: "available",
-    baseGuestNotes: `Combined from ${tableNumber}`,
-    baseMergeable: true,
-    seatCapacity,
-    status: "available",
-    guestNotes: `Combined from ${tableNumber}`,
-    mergeable: true,
-    mergedFrom: sourceTables.map((table) => table.id),
-  };
-}
-
-function getMasterOrderSpan(tables: DemoTable[]) {
-  if (tables.length <= 1) return 0;
-  const orders = tables.map((table) =>
-    getPhysicalTableSortOrder(table.zoneId, table.tableNumber),
-  );
-  if (orders.some((order) => order === undefined)) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-  return Math.max(...(orders as number[])) - Math.min(...(orders as number[]));
-}
-
-function compareTableAllocations(
-  firstAllocation: TableAllocation,
-  secondAllocation: TableAllocation,
-) {
-  return (
-    firstAllocation.sourceTables.length -
-      secondAllocation.sourceTables.length ||
-    getMasterOrderSpan(firstAllocation.sourceTables) -
-      getMasterOrderSpan(secondAllocation.sourceTables) ||
-    firstAllocation.wastedSeats - secondAllocation.wastedSeats ||
-    firstAllocation.table.seatCapacity - secondAllocation.table.seatCapacity ||
-    getTableSortValue(firstAllocation.table.tableNumber).localeCompare(
-      getTableSortValue(secondAllocation.table.tableNumber),
-    )
-  );
-}
-
 export function getOperationalTableMinimumOccupancy(
   table: DemoTable,
   tables: DemoTable[],
@@ -3881,77 +3810,6 @@ export function getOperationalTableMinimumOccupancy(
   }
 
   return 1;
-}
-
-function getCompatibleMergedAllocation(
-  tables: DemoTable[],
-  showId: string,
-  zoneId: SeatingZoneId,
-  partySize: number,
-) {
-  const mergeCandidates = tables
-    .filter(
-      (table) =>
-        table.showId === showId &&
-        table.zoneId === zoneId &&
-        isAutoMergeCandidate(table),
-    )
-    .sort(
-      (firstTable, secondTable) =>
-        firstTable.seatCapacity - secondTable.seatCapacity ||
-        getTableSortValue(firstTable.tableNumber).localeCompare(
-          getTableSortValue(secondTable.tableNumber),
-        ),
-    );
-  const allocations: TableAllocation[] = [];
-  const maxTablesToMerge = Math.min(4, mergeCandidates.length);
-
-  function collectCombinations(
-    startIndex: number,
-    sourceTables: DemoTable[],
-    targetTableCount: number,
-  ) {
-    if (sourceTables.length === targetTableCount) {
-      const seatCapacity = sourceTables.reduce(
-        (totalSeats, table) => totalSeats + table.seatCapacity,
-        0,
-      );
-      const minimumOccupancy = sourceTables.reduce(
-        (totalGuests, table) =>
-          totalGuests + getOperationalTableMinimumOccupancy(table, tables),
-        0,
-      );
-
-      if (partySize >= minimumOccupancy && seatCapacity >= partySize) {
-        allocations.push({
-          isCombination: true,
-          sourceTables,
-          table: createCombinedTable(showId, zoneId, sourceTables),
-          wastedSeats: seatCapacity - partySize,
-        });
-      }
-
-      return;
-    }
-
-    for (
-      let tableIndex = startIndex;
-      tableIndex < mergeCandidates.length;
-      tableIndex += 1
-    ) {
-      collectCombinations(
-        tableIndex + 1,
-        [...sourceTables, mergeCandidates[tableIndex]],
-        targetTableCount,
-      );
-    }
-  }
-
-  for (let tableCount = 2; tableCount <= maxTablesToMerge; tableCount += 1) {
-    collectCombinations(0, [], tableCount);
-  }
-
-  return allocations.sort(compareTableAllocations)[0];
 }
 
 export function findBestTableAllocation(
@@ -3990,7 +3848,7 @@ export function findBestTableAllocation(
     };
   }
 
-  return getCompatibleMergedAllocation(tables, showId, zoneId, partySize);
+  return undefined;
 }
 
 export function getTableAllocationDisplay(

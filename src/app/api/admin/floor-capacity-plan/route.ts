@@ -633,7 +633,7 @@ export async function POST(request: Request) {
         (!bookingPlan && !isExactIdempotentReplay) ||
         bookingPlan?.unresolvedReason ||
         (bookingPlan?.newCapacities.length ?? 0) > 0 ||
-        requestedTableIds.length === 0 ||
+        requestedTableIds.length !== 1 ||
         (bookingPlan &&
           JSON.stringify(requestedTableIds) !==
             JSON.stringify(bookingPlan.existingTableIds)) ||

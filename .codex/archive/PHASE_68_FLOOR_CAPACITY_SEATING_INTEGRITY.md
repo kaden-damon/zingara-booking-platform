@@ -103,3 +103,63 @@ was originally assigned. No assignment will be changed automatically.
 Phase 68 is released. New eligible assignments retain one-table priority and
 unavoidable splits now prefer physically compatible nearby tables. Historical
 review candidates remain unchanged for Box Office assessment.
+
+## Follow-up - Strict Single-Table Rule
+
+On 30 October 2026, Box Office clarified the authoritative business rule:
+automatic seating must never split one booking across multiple tables. An
+existing valid merged table is one operational table; creating a merge or
+claiming separate tables must remain a manual, authorised action.
+
+### Verified Additional Root Cause
+
+- `findBestTableAllocation` still built a multi-table fallback after exhausting
+  single operational tables.
+- `buildInitialFloorPlan` could create a merged parent automatically.
+- `buildZoneFloorCapacityPlan` could recommend multiple existing or temporary
+  tables for one booking.
+- Production functions `try_automatic_table_assignment`,
+  `try_automatic_table_assignment_phase_54_5`,
+  `try_hybrid_table_assignment_phase_54_11` and
+  `try_phase55_existing_booking_assignment` could accumulate more than one
+  table before completing an automatic assignment.
+
+### Historical Review Baseline
+
+- Active split allocations: 481.
+- Future active split allocations: 456.
+- Cape Town: 230; Johannesburg: 251.
+- No historical assignment was changed.
+
+The six Phase 68 review candidates at the read-only snapshot were:
+
+| Booking | Performance | Guests | Zone | Current tables | Available single table | Review reason |
+| --- | --- | ---: | --- | --- | --- | --- |
+| `ZNG-BJ2HVX` | JHB, 30 Oct 2026 17:00 | 8 | Middle Ring | 205 + 300 | 316 (8) | Current split; one fitting table is available now, but original availability is not retained. |
+| `ZNG-FE7Y5R` | JHB, 12 Nov 2026 17:00 | 4 | Golden Circle | 601 + 603 | 602 (4) | Current split; one fitting table is available now, but original availability is not retained. |
+| `ZNG-8S8TDX` | CPT, 18 Nov 2026 18:00 | 8 | Middle Ring | 210 + 309 | 203 (8) | Current split; one fitting table is available now, but original availability is not retained. |
+| `ZNG-CK395Q` | CPT, 18 Nov 2026 18:00 | 8 | Middle Ring | 207 + 307 | 203 (8) | Current split; the same available table is a competing option and requires Box Office review. |
+| `ZNG-QB3LX4` | CPT, 18 Nov 2026 18:00 | 7 | Middle Ring | 209 + 308 | 300 (7) | Current split; one fitting table is available now, but original availability is not retained. |
+| `ZNG-WMQKTX` | CPT, 25 Nov 2026 18:00 | 18 | Middle Ring | 203 + 400 | SANLAM (130) | Current split; a show-specific operational table fits, but suitability requires Box Office review. |
+
+These are operational review candidates, not approved reseating instructions.
+The follow-up implementation and release evidence will be added below without
+rewriting the completed Phase 68 release history.
+
+### Follow-up Correction Verified
+
+- Removed automatic multi-table fallback from the shared recommendation helper.
+- Removed automatic merge creation from initial-floor planning.
+- Restricted show-wide recommendations to one existing operational table or
+  one reviewed temporary-table proposal for manual Box Office action.
+- Added an API cardinality guard requiring exactly one recommended table.
+- Prepared a fail-closed migration for every active automatic database engine.
+- Preserved valid merged parents as one operational table unit.
+- Preserved the service-role-only manual split RPC, its authenticated
+  `bookings:manage` and `tables:manage` checks, and staff-attributed audit event.
+
+Focused tests passed 42/42, TypeScript passed, changed-file ESLint reported no
+errors, the Production webpack build passed, and the linked migration dry run
+listed only the Phase 68 follow-up migration. Booking eligibility tests confirm
+that lack of one suitable table does not block valid Standard or Corporate
+bookings; it routes the seating exception to manual resolution.

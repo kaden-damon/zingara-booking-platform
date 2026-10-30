@@ -74,7 +74,7 @@ test("temporary planning prefers exact fit, then minimum tables", () => {
   });
 });
 
-test("multi-table zones plan combined tables for Standard and Corporate bookings", () => {
+test("Standard and Corporate bookings are never given multi-table plans", () => {
   const plan = buildZoneFloorCapacityPlan({
     activeEntitlementPax: 73,
     allowedTemporaryCapacities: [6, 7],
@@ -98,16 +98,12 @@ test("multi-table zones plan combined tables for Standard and Corporate bookings
   const corporate = plan.bookingPlans.find(
     (booking) => booking.bookingReference === "CORP-65",
   );
-  assert.equal(standard?.unresolvedReason, null);
-  assert.deepEqual(standard?.existingTableCodes, ["A", "B"]);
+  assert.match(standard?.unresolvedReason ?? "", /single available operational table/i);
+  assert.deepEqual(standard?.existingTableCodes, []);
   assert.equal(standard?.isCorporate, false);
-  assert.equal(corporate?.unresolvedReason, null);
-  assert.equal(
-    (corporate?.existingTableCodes.length ?? 0) +
-      (corporate?.newCapacities.length ?? 0) >
-      1,
-    true,
-  );
+  assert.match(corporate?.unresolvedReason ?? "", /single available operational table/i);
+  assert.deepEqual(corporate?.existingTableCodes, []);
+  assert.deepEqual(corporate?.newCapacities, []);
   assert.equal(plan.capacityRequiredPhysicalTables, 2);
 });
 
@@ -136,10 +132,15 @@ test("reviewed planning resolves 146/150 capacity without double-counting queued
     [2, 2, 2],
   );
   assert.equal(plan.zoneCapacityInsufficient, false);
-  assert.equal(plan.bookingPlans.every((booking) => !booking.unresolvedReason), true);
+  assert.equal(
+    plan.bookingPlans.every((booking) =>
+      booking.unresolvedReason?.includes("assign it manually"),
+    ),
+    true,
+  );
 });
 
-test("18-pax Standard Private Booth booking is fulfilled by three 6-seat booths", () => {
+test("18-pax Standard booking remains unassigned without one suitable booth", () => {
   const plan = buildZoneFloorCapacityPlan({
     activeEntitlementPax: 18,
     allowedTemporaryCapacities: [6],
@@ -158,9 +159,12 @@ test("18-pax Standard Private Booth booking is fulfilled by three 6-seat booths"
     zoneId: "royal-booths",
   });
 
-  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["1", "2", "3"]);
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, []);
   assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
-  assert.equal(plan.bookingPlans[0]?.unresolvedReason, null);
+  assert.match(
+    plan.bookingPlans[0]?.unresolvedReason ?? "",
+    /manual Box Office resolution/i,
+  );
   assert.equal(plan.queuedPax, 18);
 });
 
@@ -206,7 +210,7 @@ test("one suitable table is preferred over an exact multi-table combination", ()
   assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
 });
 
-test("a necessary split prefers nearby master tables over a distant exact fit", () => {
+test("a necessary split is rejected from automatic recommendation", () => {
   const plan = buildZoneFloorCapacityPlan({
     activeEntitlementPax: 8,
     allowedTemporaryCapacities: [],
@@ -224,9 +228,10 @@ test("a necessary split prefers nearby master tables over a distant exact fit", 
     zoneId: "middle-ring",
   });
 
-  assert.deepEqual(
-    [...(plan.bookingPlans[0]?.existingTableCodes ?? [])].sort(),
-    ["205", "206"],
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, []);
+  assert.match(
+    plan.bookingPlans[0]?.unresolvedReason ?? "",
+    /manual Box Office resolution/i,
   );
 });
 
@@ -263,7 +268,7 @@ test("reviewed table mixes enforce the combined minimum occupancy", () => {
   assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
 });
 
-test("a unique 23-seat temporary table participates in a valid large-group mix", () => {
+test("smaller tables are not combined around a large temporary table", () => {
   const plan = buildZoneFloorCapacityPlan({
     activeEntitlementPax: 25,
     allowedTemporaryCapacities: [8, 12],
@@ -292,9 +297,12 @@ test("a unique 23-seat temporary table participates in a valid large-group mix",
     zoneId: "golden-circle",
   });
 
-  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["401", "506"]);
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, []);
   assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
-  assert.equal(plan.bookingPlans[0]?.unresolvedReason, null);
+  assert.match(
+    plan.bookingPlans[0]?.unresolvedReason ?? "",
+    /manual Box Office resolution/i,
+  );
 });
 
 test("migration keeps Corporate zone transfer financial state immutable and service-role only", () => {
@@ -339,6 +347,7 @@ test("Admin routes require authoritative permissions and reviewed creation", () 
   assert.match(bookingRoute, /includes\("bookings:manage"\)/);
   assert.match(planRoute, /includes\("tables:manage"\)/);
   assert.match(planRoute, /body\.confirmCreate !== true/);
+  assert.match(planRoute, /requestedTableIds\.length !== 1/);
   assert.match(planRoute, /FLOOR PLAN CHANGED - REVIEW AGAIN/);
 });
 
@@ -359,5 +368,5 @@ test("Booking Details exposes separate Corporate zone and table controls", () =>
   assert.match(entitlementEditor, /SAVED ✓/);
   assert.match(adminPage, /Find tables/);
   assert.match(adminPage, /REVIEW & CREATE/);
-  assert.match(adminPage, /CAPACITY REQUIRED/i);
+  assert.match(adminPage, /Tables with seats not set/i);
 });

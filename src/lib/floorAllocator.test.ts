@@ -128,7 +128,7 @@ test("does not preserve or propose a permanent table below minimum occupancy", (
   assert.equal(result.unresolved.length, 1);
 });
 
-test("a planned merge prefers nearby master tables over a distant exact fit", () => {
+test("initial planning leaves a booking unassigned instead of creating a merge", () => {
   const result = plan(
     [booking("eight", 8, "middle-ring")],
     [
@@ -138,7 +138,9 @@ test("a planned merge prefers nearby master tables over a distant exact fit", ()
     ],
   );
 
-  assert.deepEqual(result.merges[0]?.memberTableCodes, ["205", "206"]);
+  assert.equal(result.merges.length, 0);
+  assert.equal(result.allocations.length, 0);
+  assert.equal(result.unresolved.length, 1);
 });
 
 test("temporary operational capacity can fit a smaller party", () => {
@@ -260,7 +262,7 @@ test("never invents capacity for a CAPACITY REQUIRED physical table", () => {
   assert.equal(blocked.unresolved.length, 1);
 });
 
-test("uses existing units first and proposes a flat merge only when required", () => {
+test("uses one existing unit and sends larger groups to manual resolution", () => {
   const result = plan(
     [
       booking("small", 4, "royal-booths"),
@@ -273,14 +275,11 @@ test("uses existing units first and proposes a flat merge only when required", (
     ],
   );
 
-  assert.equal(result.merges.length, 1);
-  assert.equal(result.merges[0]?.memberTableIds.length, 2);
-  assert.equal(result.allocations.length, 2);
-  assert.equal(
-    result.allocations.find((allocation) => allocation.bookingId === "large")
-      ?.targetType,
-    "merged",
-  );
+  assert.equal(result.merges.length, 0);
+  assert.equal(result.allocations.length, 1);
+  assert.equal(result.allocations[0]?.bookingId, "small");
+  assert.equal(result.unresolved.length, 1);
+  assert.equal(result.unresolved[0]?.bookingReference, "BOOKING-large");
 });
 
 test("produces the same plan for an unchanged snapshot", () => {

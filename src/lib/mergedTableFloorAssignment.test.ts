@@ -58,7 +58,7 @@ test("IFF-sized parties can use one valid operational merged parent", () => {
   assert.equal(allocation?.wastedSeats, 7);
 });
 
-test("a necessary combination prefers nearby approved tables", () => {
+test("separate tables are never combined automatically", () => {
   const allocation = findBestTableAllocation(
     [
       table("205", { seatCapacity: 6 }),
@@ -70,10 +70,7 @@ test("a necessary combination prefers nearby approved tables", () => {
     8,
   );
 
-  assert.deepEqual(
-    allocation?.sourceTables.map((candidate) => candidate.tableNumber),
-    ["205", "206"],
-  );
+  assert.equal(allocation, undefined);
 });
 
 test("disabled linked children remain contained by the merged parent", () => {
