@@ -1,6 +1,6 @@
 # Phase 62 - Table Merge & Seating Integrity
 
-STATUS: IMPLEMENTED LOCALLY - AWAITING RELEASE AUTHORISATION
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -32,8 +32,26 @@ DATE: 30 OCTOBER 2026
 - Scoped ESLint: passed.
 - Diff validation: passed.
 - Next.js 16 Webpack Production build: passed.
-- No migration was applied and no Production data was changed.
+- Pre-release verification did not apply the migration or change Production data.
 
-## Release Boundary
+## Production Release
 
-No commit, push, migration or deployment was performed. Authenticated Production mutation testing remains intentionally outstanding until explicit release authorisation. After deployment, use isolated unassigned tables on two performances to verify merge, authoritative refresh, restore and cross-show isolation without changing existing bookings.
+- Commit: `d624b5e6ec671f54d1263a7e73d76fde97951770`.
+- Migration: `20261030120000` applied successfully; linked migration history is aligned.
+- Vercel deployment: `8n7HCR89Z9m7dqBtU83v5EL3dkjb` (`READY`, 30 October 2026 at 11:44:27 SAST).
+- Rollback application point: `edd7dadb853d12e42fcaf7c1af8d598a7f8a46ba`.
+
+## Production Verification
+
+- Controlled authenticated QA used JHB 14 November 2026, a zero-booking Special Event performance.
+- Tables 207 and 208 merged into `207+208` at capacity 8; the Floor refreshed immediately and displayed both physical members as blocked children.
+- Restore completed successfully and returned both physical members to separate available 4-seat tables with null parent links and no booking assignments.
+- JHB 15 November remained independent with zero merged tables and unchanged 207/208 rows.
+- CPT 31 October showed single-table recommendations including table 315 and table 19; no assignment was executed.
+- Final integrity remained identical to the pre-release baseline: 6,903 bookings, 5,750 payments, 36,883 table rows, 297 merged parents and 1,027 links. Missing, cross-show, cross-section and assigned child counts remained zero.
+
+## Business-Data Delta
+
+- No booking, payment, financial, capacity or persistent seating assignment changed.
+- The controlled merge was restored completely. The only operational evidence added is the immutable successful merge/unmerge audit pair for Kaden Damon at 11:45:33 and 11:45:44 SAST.
+- Phase 62 is complete.

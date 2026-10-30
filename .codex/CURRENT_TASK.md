@@ -1,6 +1,6 @@
 # Phase 62 - Table Merge & Seating Integrity
 
-STATUS: IMPLEMENTED LOCALLY - AWAITING RELEASE AUTHORISATION
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -47,14 +47,26 @@ Correct the Floor & Arrivals merge restoration, recommendation ordering and show
 - `git diff --check`: passed.
 - Next.js 16 Webpack Production build: passed.
 - Default Turbopack build could not run because this environment blocks its internal compiler port. The existing Admin performance-budget script still reports the known unsupported Next.js 16 client-reference manifest format.
-- Migration list confirms `20261030120000` is local-only and unapplied.
+- The pre-release migration dry run confirmed `20261030120000` was the only pending migration.
 
-## Outstanding Release Verification
+## Production Release
 
-- Apply the pending migration only after explicit release authorisation.
-- Deploy the application changes, then verify authenticated merge, immediate refresh, restore, show switching and recommendation behaviour using isolated unassigned tables on at least two performances.
-- No Production seating records should be repaired or changed automatically.
+- Application commit: `d624b5e6ec671f54d1263a7e73d76fde97951770`.
+- Migration `20261030120000_phase_62_table_restore_delete_guard.sql` applied successfully and is present in linked migration history.
+- Vercel Production deployment: `8n7HCR89Z9m7dqBtU83v5EL3dkjb` (`READY`, completed 30 October 2026 at 11:44:27 SAST).
+- Rollback application commit: `edd7dadb853d12e42fcaf7c1af8d598a7f8a46ba`. The migration is intentionally forward-safe; rollback would restore the previous trigger definition only if required, without changing table data.
 
-## Release Boundary
+## Authenticated Production Verification
 
-Implementation may be prepared and verified locally. Production migration, commit, push and deployment require separate explicit authorisation.
+- Kaden Damon merged JHB 14 November 2026 Middle Ring tables 207 and 208 on a zero-booking performance. The UI immediately displayed `207+208` with combined capacity 8 and both source tables blocked under that parent.
+- Restore succeeded and immediately returned tables 207 and 208 to separate available 4-seat rows with null merge parents and no bookings.
+- JHB 15 November 2026 retained its independent zero-merge layout and separate 4-seat tables 207 and 208.
+- CPT 31 October 2026 displayed single-table recommendations (including table 315 and table 19) where suitable; no booking assignment was executed.
+- Pre/post integrity counts remained 6,903 bookings, 5,750 payments, 36,883 table rows, 297 merged parents and 1,027 member links. Structural exceptions remained zero.
+- Production Admin returned HTTP 200.
+
+## Business-Data Delta
+
+- No booking, payment, financial, capacity or persistent seating assignment changed.
+- The controlled zero-booking merge was fully restored. Two immutable audit events record Kaden's successful merge and restore at 11:45:33 and 11:45:44 SAST.
+- Migration history and the trigger definition changed as authorised.
