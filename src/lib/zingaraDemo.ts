@@ -408,7 +408,7 @@ export const seatingZones = [
     title: "Private Booths",
     subtitle: "Your Private Velvet Haven",
     description:
-      "Private 6-seater booths with exceptional views and privacy.",
+      "Private booth seating is available from 4 guests. Your booking remains for the guest count selected.",
     price: 1420,
     colour: "bg-[#5B001B] border-[#A34063]",
     adminColour: "border-[#A34063] bg-[#5B001B]",

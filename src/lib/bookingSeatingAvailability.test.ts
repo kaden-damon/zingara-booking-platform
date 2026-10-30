@@ -45,6 +45,31 @@ test("Standard bookings allow one guest in ordinary seating sections", () => {
   }
 });
 
+test("public Standard booking preserves every requested party size from one to six", () => {
+  for (const partySize of [1, 2, 3, 4, 5, 6]) {
+    for (const zoneId of ["golden-circle", "middle-ring", "royal-balcony"]) {
+      const limits = getStandardBookingZoneGuestLimits(zoneId, {
+        maxGuests: 20,
+        minGuests: 2,
+      });
+      const result = getBookingSeatingEligibility({
+        ...limits,
+        partySize,
+        remainingSeats: 20,
+        supportsMultiTableFulfilment: true,
+      });
+
+      assert.equal(result.isAvailable, true, `${zoneId}: ${partySize} guests`);
+    }
+
+    assert.equal(
+      isStandardBookingZoneGuestCountAllowed("royal-booths", partySize),
+      partySize >= standardPrivateBoothGuestLimits.minGuests,
+      `royal-booths: ${partySize} guests`,
+    );
+  }
+});
+
 test("one remaining public seat accepts one guest and rejects two", () => {
   const limits = getStandardBookingZoneGuestLimits("middle-ring", {
     maxGuests: 20,
@@ -167,6 +192,17 @@ test("Standard Private Booth bookings can exceed one booth while Corporate routi
     }),
     { maxGuests: 8, minGuests: 4 },
   );
+});
+
+test("public booth guidance states the actual minimum without implying six tickets", async () => {
+  const demo = await readFile(
+    new URL("./zingaraDemo.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(demo, /Private booth seating is available from 4 guests/);
+  assert.match(demo, /booking remains for the guest count selected/);
+  assert.doesNotMatch(demo, /Private 6-seater booths/);
 });
 
 test("Private Booth booking eligibility uses zone capacity instead of one-table capacity", () => {

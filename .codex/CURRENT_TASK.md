@@ -1,65 +1,55 @@
-# Phase 61 - Booking Failure Tracking & Lost Sales Monitoring
+# P0 - Public Booking Failure
 
-STATUS: COMPLETE - PRODUCTION VERIFIED
+STATUS: COMPLETE - RELEASE READY
 
-DATE: 29 OCTOBER 2026
+DATE: 30 OCTOBER 2026
 
-## Scope
+## Objective
 
-- Prospectively record authoritative public booking and payment-start failures.
-- Link retries and later successful bookings by the existing anonymous journey ID.
-- Add a management-only, paginated Booking Failures & Recovery report.
-- Preserve booking performance, customer privacy and all existing conversion tracking.
+Verify the complete public booking journey for one to six guests across both
+venues, identify why a four-person customer believed six guests were required,
+and release the smallest verified correction without changing booking rules.
 
-## Implementation
+## Root Cause
 
-- Public rejection events are recorded server-side with the performance, venue,
-  seating zone, requested guests, quoted ZAR value, booking reference and exact
-  rejection taxonomy.
-- Recording uses Next.js `after()` and therefore starts only after the booking or
-  checkout response has been returned. Failure recording is bounded and fail-safe.
-- No public browser code, page request, effect, timer, polling task, dependency or
-  React render was added.
-- Retries are grouped by journey. Recovery uses authoritative reservation,
-  completion and payment events. Only explicit PayFast cancellation is classified
-  as abandoned; other incomplete journeys remain unresolved.
-- The management report is permission- and venue-scoped, indexed, paginated to 25
-  journeys and loaded only when its collapsed Reports section is opened.
-- Historical events remain unchanged. GA4, Google Ads, Meta and Phase 56 purchase
-  tracking are unchanged; exact server rejection data stays first-party because
-  advertising consent is not available at the server rejection boundary.
+- Production keeps a selected four-person party unchanged through show,
+  seating and customer-detail steps.
+- Standard public booking permits one to nineteen guests; Private Booths have
+  the existing legitimate minimum of four guests.
+- The available booth option was described as a "Private 6-seater booth". On a
+  performance where Booths were the only available zone, this could reasonably
+  be read as a six-ticket minimum even though the system accepted four guests.
+- Phase 61 telemetry contains no four-person rejection. Current captured
+  failures are two-person quota rejections.
+
+## Correction
+
+- Private Booth guidance now states that seating is available from four guests
+  and that the booking remains for the selected guest count.
+- No selector, availability, capacity, pricing or validation logic changed.
 
 ## Verification
 
-- Focused tests: 10 passed.
-- TypeScript: passed.
-- Changed-file ESLint: passed with three pre-existing unused-symbol warnings in
-  `src/app/api/bookings/route.ts` and no errors.
-- Production Webpack build: passed.
-- Migration dry-run and apply: passed.
-- Rollback-only Production fixture: two retries grouped into one recovered journey;
-  potential value counted once; zero fixture rows persisted.
-- Indexed 30-day report query: 7.748 ms on Production.
-- Lazy report chunk: 11,183 bytes; absent from the public booking client.
-- Authenticated Production UI: report is visible under
-  `Reports -> Sales & Performance -> Booking Failures & Recovery`, loads only
-  when opened and displays filters, recovery metrics and the journey timeline.
-- Prospective Production capture: one genuine blocked journey was visible after
-  release; it remained unresolved rather than being assigned a guessed outcome.
-- `git diff --check`: passed.
+- Production UI before release: Cape Town and Johannesburg both retained four
+  guests through seating and Guest Details at a 390 x 844 mobile viewport.
+- Johannesburg UI retained every selected count from one through six exactly.
+- Representative open shows in both venues had live public capacity for every
+  tested count; ordinary zones accept one through six and Booths accept four
+  through six under the existing minimum-four rule.
+- Phase 61 Production telemetry: five rejection events across three journeys,
+  all for two guests and all classified as the existing two-seater limit; no
+  four-person rejection was recorded.
+- Focused tests: 41 relevant checks passed. One additional direct Node test file
+  could not resolve the project's `@/` alias in that runner; TypeScript passed.
+- TypeScript and changed-file ESLint passed. ESLint reported one pre-existing
+  unused-variable warning and no errors.
+- Next.js 16 Webpack Production build passed. The default Turbopack build could
+  not start a local loader worker in the restricted test environment.
+- `git diff --check` passed.
 
 ## Safety
 
+- No real booking, payment or customer record will be created during QA.
+- Pricing, capacity, seating, ticketing and payment rules remain unchanged.
+- No public journey redesign is included in this P0.
 - Production business-data delta: none.
-- Schema delta: one secured reporting function and three partial telemetry indexes.
-- No historical reconstruction or backfill.
-- No customer PII is recorded or sent to GA4/Meta.
-- No booking, payment, ticket, seating, Xero or financial logic changed.
-
-## Release
-
-- Baseline / rollback application commit: `38ac64afa8237552c716e838af2a08f6435f9701`.
-- Migration: `20261030093000_phase_61_booking_failure_recovery_reporting.sql` applied.
-- Application commit: `538f1a4af68ee8f32de3c1d65009747f79fd963c`.
-- Production deployment: Ready on 29 October 2026 at 20:00:34 SAST
-  (`zingara-booking-platform-c74tchu7z-kaden-damons-projects.vercel.app`).
