@@ -25,13 +25,14 @@ test("public waitlist endpoint cannot enumerate or bulk-upsert entries", async (
   const route = await source("../app/api/waitlist/route.ts");
 
   assert.match(route, /available through authenticated Admin/);
-  assert.match(route, /if \(!submittedEntry \|\| body\.entries\)/);
-  assert.match(route, /id: `WLT-\$\{crypto\.randomUUID\(\)\}`/);
-  assert.match(route, /status: "waiting"/);
+  assert.match(route, /createSecretGuestListEntry/);
+  assert.match(route, /entryInput =/);
+  assert.doesNotMatch(route, /body\.entries|body\.entry/);
   assert.match(route, /requirePublicMaintenanceAvailable/);
   assert.match(route, /scope: "waitlist_ip"/);
   assert.match(route, /scope: "waitlist_contact"/);
-  assert.doesNotMatch(route, /return Response\.json\(persistedEntries/);
+  assert.match(route, /entryInput\.partySize >= 20/);
+  assert.doesNotMatch(route, /persistWaitlistEntries/);
 });
 
 test("guest push delivery requires authenticated communication authority", async () => {

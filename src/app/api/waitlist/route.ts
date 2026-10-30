@@ -1,10 +1,11 @@
+import { after } from "next/server";
+import { sendSecretGuestListNotification } from "@/lib/email/secretGuestListEmail";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
-import { persistWaitlistEntries } from "@/lib/supabase/waitlistServer";
+import { createSecretGuestListEntry } from "@/lib/supabase/waitlistServer";
 import {
   checkRateLimit,
   rateLimitResponse,
 } from "@/lib/rateLimit";
-import { type DemoWaitlistEntry } from "@/lib/zingaraDemo";
 import { requirePublicMaintenanceAvailable } from "@/lib/platformMaintenance";
 
 export const dynamic = "force-dynamic";
@@ -39,28 +40,20 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json().catch(() => ({}))) as {
-      entries?: DemoWaitlistEntry[];
-      entry?: DemoWaitlistEntry;
+      email?: unknown;
+      firstName?: unknown;
+      mobile?: unknown;
+      partySize?: unknown;
+      showId?: unknown;
+      surname?: unknown;
     };
-    const submittedEntry = body.entry;
-
-    if (!submittedEntry || body.entries) {
-      return Response.json(
-        { error: "One waitlist entry is required." },
-        { status: 400 },
-      );
-    }
-
-    const now = new Date().toISOString();
-    const entry: DemoWaitlistEntry = {
-      ...submittedEntry,
-      bookingReference: undefined,
-      communicationHistory: [],
-      convertedAt: undefined,
-      createdAt: now,
-      id: `WLT-${crypto.randomUUID()}`,
-      promotedAt: undefined,
-      status: "waiting",
+    const entryInput = {
+      email: typeof body.email === "string" ? body.email.trim().toLowerCase() : "",
+      firstName: typeof body.firstName === "string" ? body.firstName.trim() : "",
+      mobile: typeof body.mobile === "string" ? body.mobile.trim() : "",
+      partySize: Number(body.partySize),
+      showId: typeof body.showId === "string" ? body.showId.trim() : "",
+      surname: typeof body.surname === "string" ? body.surname.trim() : "",
     };
 
     const ipLimit = await checkRateLimit(
@@ -70,7 +63,7 @@ export async function POST(request: Request) {
         scope: "waitlist_ip",
         windowSeconds: 300,
       },
-      [entry.showId],
+      [entryInput.showId],
       serviceClient,
     );
 
@@ -93,7 +86,7 @@ export async function POST(request: Request) {
         scope: "waitlist_contact",
         windowSeconds: 600,
       },
-      [entry.customer.email, entry.customer.phone],
+      [entryInput.email, entryInput.mobile],
       serviceClient,
     );
 
@@ -110,30 +103,47 @@ export async function POST(request: Request) {
     }
 
     if (
-      !entry.showId ||
-      !Number.isInteger(entry.partySize) ||
-      entry.partySize < 1 ||
-      entry.partySize >= 20 ||
-      entry.customer.name.trim().length < 2 ||
+      !entryInput.showId ||
+      !Number.isInteger(entryInput.partySize) ||
+      entryInput.partySize < 1 ||
+      entryInput.partySize >= 20 ||
+      entryInput.firstName.length < 1 ||
+      entryInput.surname.length < 1 ||
+      entryInput.firstName.length > 80 ||
+      entryInput.surname.length > 80 ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-        entry.customer.email.trim().toLowerCase(),
+        entryInput.email,
       ) ||
-      entry.customer.phone.replace(/\D/g, "").length < 7
+      entryInput.email.length > 254 ||
+      entryInput.mobile.length > 30 ||
+      entryInput.mobile.replace(/\D/g, "").length < 7
     ) {
       return Response.json(
-        { error: "Complete all required waitlist details." },
+        { error: "Complete all required Secret Guest List details." },
         { status: 400 },
       );
     }
 
-    const persistedEntries = await persistWaitlistEntries(serviceClient, [
-      entry,
-    ]);
-    const createdEntry = persistedEntries.find(
-      (candidate) => candidate.id === entry.id,
-    );
+    const result = await createSecretGuestListEntry(serviceClient, entryInput);
 
-    return Response.json({ entry: createdEntry ?? entry }, { status: 201 });
+    if (result.created) {
+      after(async () => {
+        try {
+          await sendSecretGuestListNotification(serviceClient, {
+            customerId: result.customerId,
+            entry: result.entry,
+            showId: result.showId,
+          });
+        } catch (error) {
+          console.error("[Secret Guest List] Staff notification failed", error);
+        }
+      });
+    }
+
+    return Response.json(
+      { duplicate: !result.created, entry: result.entry },
+      { status: result.created ? 201 : 200 },
+    );
   } catch (error) {
     console.error("[Zingara API] Failed to save waitlist entry", error);
 

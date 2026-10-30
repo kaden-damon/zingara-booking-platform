@@ -1,66 +1,62 @@
-# Phase 66 - Dineplan Booking Classification & Table Plan Integrity
+# Phase 67 - The Secret Guest List
 
-STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
+STATUS: RELEASE IN PROGRESS
 
 DATE: 30 OCTOBER 2026
 
-## Baseline
+## Objective
+
+Add a concise customer enquiry for sold-out performances and parties that no
+available seating zone can accommodate, using the existing Waitlist,
+Communications, Staff Emails and branded Microsoft 365 email infrastructure.
+
+## Verified Baseline
 
 - Authoritative checkout: `/Users/kadendamon/.codex/worktrees/phase-50-12-admin-performance/zingara-booking-platform`
-- Starting application commit: `f58e570d2ab9df5ed8a1d6c9db6c46244e3a259e` (`HEAD` and `origin/main`).
-- Existing user-owned Markdown records and report artifacts remain preserved and excluded.
+- Starting commit: `83cbae6f2428d02c6fd787d27a5ed7943afa4f7c` (`HEAD` and `origin/main`).
+- The public booking page already submits into `waitlist_entries`, but only for
+  otherwise bookable shows with no compatible seating zone.
+- Manually SOLD OUT performances cannot currently open the waitlist form.
+- The existing form is an inline, expanded section with additional seating and
+  notes fields rather than the approved compact enquiry.
+- Public waitlist submissions are rate-limited, but duplicate creation is not
+  atomically prevented. Historical active duplicates exist and must remain
+  untouched.
+- Staff Emails already provides personal subscriptions and protected routing;
+  Communications already records internal email delivery evidence.
+- Verified active recipient profiles exist for Sharon Ricketts, Rasmus
+  Bjerregaard, Fatima MB, Michael Davis, Lisa Rodderick, Kaden Damon, Tracy
+  Maltman and Nicky-Anne De Beer.
 
-## Verified Diagnosis
+## Implementation Boundary
 
-- The Table Plan financial columns already treated retained Dineplan payment evidence as authoritative.
-- The Payment Summary description independently treated every `comp_vip` status as Complimentary and ignored retained evidence explicitly classifying an import as non-complimentary.
-- This split classification caused paid legacy Standard and Corporate bookings to display as Complimentary while their payment columns retained the recovered Dineplan values.
+- Reuse the existing waitlist record and Admin workflow.
+- Keep sold-out performances non-bookable and preserve all availability,
+  seating, checkout and payment safeguards.
+- Prevent new duplicate enquiries atomically without rewriting historical rows.
+- Route branded staff email through authoritative profile IDs and individual
+  Staff Emails preferences, preserving TO and CC placement.
+- Record the notification in Communications with durable delivery idempotency.
+- Preserve unrelated user-owned Markdown records and report artifacts.
 
-## Production Read-Only Audit
+## Verified Implementation
 
-- 6,969 bookings audited: 2,406 Cape Town and 4,563 Johannesburg.
-- 1,775 imported bookings and all 1,507 retained Dineplan evidence rows were checked.
-- 26 Johannesburg imports have `comp_vip` status but authoritative retained evidence explicitly records `complimentary = false`: 3 Standard/admin-source and 23 Corporate-source bookings.
-- 21 of those 26 contain R590,580.00 of explicit recovered paid evidence. Five are explicitly non-complimentary but have no classified payment method and must remain Unpaid rather than being represented as COMP.
-- No retained evidence row marked Complimentary conflicts with a non-COMP booking status.
-- 119 zero-value imported `comp_vip` bookings have no separate retained evidence row. They have no contradictory evidence and remain unchanged; they were not inferred to be paid or reclassified.
-
-## Implementation
-
-- Payment Summary now uses the same retained Dineplan complimentary classification as the financial columns.
-- Explicit non-COMP evidence overrides a damaged legacy `comp_vip` fallback.
-- Recovered full payment and deposit evidence produces the matching existing Payment Summary wording.
-- Explicit complimentary metadata and retained complimentary evidence continue to produce the approved COMP description and cash-up values.
-- No application query, export column, workbook format, booking workflow or database record changed.
-
-## Verification
-
-- 31 focused Table Plan workbook and finance tests passed.
-- TypeScript passed.
-- Changed-file ESLint passed.
-- `git diff --check` passed.
-- Supabase linked migration dry run is fully up to date; no Phase 66 migration is required.
-- Next.js 16.3.4 webpack Production build and TypeScript compilation passed.
-- The separate pre-existing Admin performance-budget parser still rejects the current client-reference manifest format.
-
-## Safety
-
-- No booking, payment, VAT, deposit, refund, ticket, seating, customer or financial record was changed.
-- No historical row was reclassified because the authoritative retained evidence already supports correct export interpretation.
-- Genuine Standard, Media and Tradex complimentary behavior remains covered and unchanged.
+- Added the approved mobile-first invitation and compact panel for SOLD OUT
+  performances and insufficient party availability.
+- SOLD OUT performances remain non-bookable and cannot enter checkout.
+- Added atomic, contact-and-performance duplicate prevention without changing
+  historical Waitlist records.
+- Added individual Staff Emails preferences, verified TO/CC profile routing,
+  branded asynchronous email delivery, direct Admin links and Communications
+  evidence.
+- 20 focused tests, TypeScript, targeted ESLint, `git diff --check` and the
+  Next.js webpack Production build passed.
+- Rendered UI verification passed at 390 x 844 and 1440 x 900 with no browser
+  runtime errors.
+- The single Phase 67 migration applied successfully. A rollback-only Production
+  call verified create/retry idempotency and left no QA rows.
 
 ## Release
 
-- Application commit: `ca465f6ff8e0f7004bc2d41bf6634e1033c4be81` (`fix: correct legacy table plan classifications`), pushed to `origin/main`.
-- Vercel Production deployment completed successfully: GitHub deployment `7443260978`, environment URL `https://zingara-booking-platform-866czhuoz-kaden-damons-projects.vercel.app`, aliased to `https://book.zingara.co.za`.
-- Rollback application commit: `f58e570d2ab9df5ed8a1d6c9db6c46244e3a259e`.
-
-## Production Verification
-
-- Authenticated Admin generated the JHB 14 October, JHB 20 September and CPT 30 October Table Plan workbooks successfully.
-- Affected Corporate import `DP-NKN8PC` now exports as `Full Payment for Show & Meal + Gratuity`, retains R18,480.00 in Full EFT and R0.00 in COMP.
-- Affected Standard import `DP-QMXFQC` now exports as `Full Payment for Show & Meal + Gratuity`, retains R22,440.00 in Full EFT and R0.00 in COMP.
-- Evidence-backed genuine Dineplan COMP `DP-JHB-AADB5980E0A3` retains the exact Complimentary wording and R5,500.00 COMP value.
-- The live CPT workbook contains 57 bookings: 36 full payment, 11 deposits, 2 unpaid and 8 legitimate complimentary; all 8 COMP descriptions align with the 8 COMP financial rows.
-- The live JHB 20 September workbook contains 92 bookings: 80 full payment, 11 deposits and 1 legitimate complimentary; its single COMP description aligns with its single COMP financial row.
-- Business-data delta: none. The release changed export interpretation only; no Production row, financial value or booking classification was updated.
+Pending application commit, Vercel Production deployment and authenticated live
+verification.

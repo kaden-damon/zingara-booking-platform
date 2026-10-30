@@ -6,7 +6,7 @@ import { getAdminAuthSession } from "@/lib/supabase/auth";
 type PersonalSetting = {
   description: string;
   enabled: boolean;
-  key: "daily-booking-review";
+  key: "daily-booking-review" | "secret-guest-list";
   label: string;
   mode: "personal";
 };

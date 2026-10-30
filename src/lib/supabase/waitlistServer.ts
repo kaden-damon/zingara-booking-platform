@@ -103,6 +103,75 @@ function serializeWaitlistNotes(entry: DemoWaitlistEntry) {
   return `${waitlistMetadataPrefix}${JSON.stringify(entry)}`;
 }
 
+export async function createSecretGuestListEntry(
+  serviceClient: ServiceClient,
+  input: {
+    email: string;
+    firstName: string;
+    mobile: string;
+    partySize: number;
+    showId: string;
+    surname: string;
+  },
+) {
+  const showId = await getSupabaseShowId(serviceClient, input.showId);
+
+  if (!showId) {
+    throw new Error("The selected performance is unavailable.");
+  }
+
+  const now = new Date().toISOString();
+  const entry: DemoWaitlistEntry = {
+    communicationHistory: [],
+    createdAt: now,
+    customer: {
+      email: input.email.trim().toLowerCase(),
+      name: `${input.firstName.trim()} ${input.surname.trim()}`,
+      phone: input.mobile.trim(),
+    },
+    id: `WLT-${crypto.randomUUID()}`,
+    notes: "Submitted via The Secret Guest List.",
+    partySize: input.partySize,
+    showId: input.showId,
+    status: "waiting",
+  };
+  const { data, error } = await serviceClient.rpc(
+    "create_secret_guest_list_entry",
+    {
+      p_email: entry.customer.email,
+      p_entry_metadata: entry,
+      p_first_name: input.firstName.trim(),
+      p_guest_count: input.partySize,
+      p_mobile: entry.customer.phone,
+      p_show_id: showId,
+      p_surname: input.surname.trim(),
+    },
+  );
+
+  if (error) throw error;
+
+  const result = (data?.[0] ?? null) as
+    | {
+        customer_id: string;
+        entry_metadata: DemoWaitlistEntry | null;
+        waitlist_entry_id: string;
+        was_created: boolean;
+      }
+    | null;
+
+  if (!result) {
+    throw new Error("The Secret Guest List request could not be saved.");
+  }
+
+  return {
+    created: result.was_created,
+    customerId: result.customer_id,
+    entry: result.entry_metadata ?? entry,
+    showId,
+    waitlistEntryId: result.waitlist_entry_id,
+  };
+}
+
 function getCustomerKey(customer: CustomerInfo) {
   const email = customer.email?.trim().toLowerCase();
   const phone = customer.phone?.replace(/\D/g, "");

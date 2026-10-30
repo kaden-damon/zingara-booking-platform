@@ -8,6 +8,12 @@ export const staffEmailNotificationRegistry = [
     mode: "personal",
   },
   {
+    description: "An alert when a guest asks about room on a sold-out performance.",
+    key: "secret-guest-list",
+    label: "The Secret Guest List",
+    mode: "personal",
+  },
+  {
     description: "A concise alert whenever a new Corporate enquiry is received.",
     key: "corporate-enquiry",
     label: "New Corporate Enquiries",
@@ -37,6 +43,9 @@ export type ManagementEmailNotificationKey = Extract<
   (typeof staffEmailNotificationRegistry)[number],
   { mode: "management" }
 >["key"];
+export type StaffEmailRouteKey =
+  | ManagementEmailNotificationKey
+  | "secret-guest-list";
 
 type StaffRecipient = {
   email: string;
@@ -47,7 +56,7 @@ type StaffRecipient = {
 export type ManagementEmailRoute = {
   cc: StaffRecipient[];
   enabled: boolean;
-  key: ManagementEmailNotificationKey;
+  key: StaffEmailRouteKey;
   to: StaffRecipient[];
 };
 
@@ -89,7 +98,7 @@ export async function loadPersonalEmailSubscriptions(
 
 export async function loadManagementEmailRoute(
   client: SupabaseClient,
-  notificationKey: ManagementEmailNotificationKey,
+  notificationKey: StaffEmailRouteKey,
 ): Promise<ManagementEmailRoute> {
   const { data: route, error } = await client
     .from("management_email_notification_routes")
@@ -141,7 +150,7 @@ export async function claimStaffEmailDelivery(
   input: {
     ccStaffProfileIds: string[];
     eventKey: string;
-    notificationKey: ManagementEmailNotificationKey | "dietary-order" | "quote-accepted" | "training-acknowledgement";
+    notificationKey: StaffEmailRouteKey | "dietary-order" | "quote-accepted" | "training-acknowledgement";
     toStaffProfileIds: string[];
   },
 ) {

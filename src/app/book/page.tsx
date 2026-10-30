@@ -18,6 +18,7 @@ import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEdit
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import PublicMaintenanceBoundary from "./PublicMaintenanceBoundary";
+import SecretGuestListPanel from "./SecretGuestListPanel";
 import {
   registerZingaraPushSubscription,
 } from "../../lib/browserNotifications";
@@ -73,13 +74,11 @@ import {
   getCustomPricedTemporaryTables,
 } from "../../lib/supabase/shows";
 import { getPublicVenueSettings, getVenueSettings } from "../../lib/supabase/venueSettings";
-import { createWaitlistEntry } from "../../lib/supabase/waitlist";
 import {
   type BookingAddon,
   type CustomerInfo,
   type DemoBooking,
   type DemoVenueSettings,
-  type DemoWaitlistEntry,
   type GuestTicket,
   type PaymentOption,
   type PromoDiscountType,
@@ -556,12 +555,6 @@ async function createBookingReference() {
   return payload.reference;
 }
 
-function createWaitlistReference() {
-  return `WLT-${Date.now().toString(36).toUpperCase()}-${Math.floor(
-    Math.random() * 900 + 100,
-  )}`;
-}
-
 function getCurrencyCents(value: number) {
   return Math.round(Math.max(Number(value) || 0, 0) * 100);
 }
@@ -787,16 +780,7 @@ export default function BookingPage({
       phone: "",
     });
   const [customerNotes, setCustomerNotes] = useState("");
-  const [waitlistInfo, setWaitlistInfo] =
-    useState<CustomerInfo>({
-      name: "",
-      email: "",
-      phone: "",
-    });
-  const [waitlistZoneId, setWaitlistZoneId] = useState("");
-  const [waitlistNotes, setWaitlistNotes] = useState("");
-  const [waitlistReference, setWaitlistReference] =
-    useState<string | null>(null);
+  const [secretGuestListShowId, setSecretGuestListShowId] = useState("");
   const [bookingReference, setBookingReference] =
     useState<string | null>(null);
   const [allocatedTableNumber, setAllocatedTableNumber] =
@@ -1064,6 +1048,9 @@ export default function BookingPage({
 
   const selectedShow = shows.find(
     (show) => show.id === selectedShowId,
+  );
+  const secretGuestListShow = shows.find(
+    (show) => show.id === secretGuestListShowId,
   );
   const dietaryOrderingState = selectedShow
     ? getDietaryAddonOrderingState({
@@ -1740,7 +1727,6 @@ export default function BookingPage({
     setIsConfirmationOpen(false);
     setBookingReference(null);
     setAllocatedTableNumber(null);
-    setWaitlistReference(null);
   }
 
   function selectShowDate(dateValue: string) {
@@ -1779,7 +1765,6 @@ export default function BookingPage({
     setIsConfirmationOpen(false);
     setBookingReference(null);
     setAllocatedTableNumber(null);
-    setWaitlistReference(null);
   }
 
   function selectTwoSeaterAlternative(alternative: TwoSeaterAlternativeShow) {
@@ -1839,7 +1824,6 @@ export default function BookingPage({
     setIsConfirmationOpen(continuation.isConfirmationOpen);
     setBookingReference(null);
     setAllocatedTableNumber(null);
-    setWaitlistReference(null);
   }
 
   function selectPartySize(nextPartySize: number) {
@@ -1857,7 +1841,6 @@ export default function BookingPage({
     setIsConfirmationOpen(false);
     setBookingReference(null);
     setAllocatedTableNumber(null);
-    setWaitlistReference(null);
     setSelectedZone((currentZone) =>
       currentZone &&
       !isAvailableForBooking(
@@ -2756,31 +2739,6 @@ export default function BookingPage({
     if (detailsAreValid) {
       setActiveBookingStep(4);
     }
-  }
-
-  async function handleJoinWaitlist() {
-    if (!selectedShowId || !selectedShow) {
-      return;
-    }
-
-    const desiredZone = seatingZones.find(
-      (zone) => zone.id === waitlistZoneId,
-    );
-    const reference = createWaitlistReference();
-    const entry: DemoWaitlistEntry = {
-      id: reference,
-      showId: selectedShowId,
-      desiredZoneId: desiredZone?.id,
-      desiredZoneTitle: desiredZone?.title,
-      partySize,
-      customer: waitlistInfo,
-      notes: waitlistNotes,
-      status: "waiting",
-      createdAt: new Date().toISOString(),
-    };
-
-    const persistedEntry = await createWaitlistEntry(entry);
-    setWaitlistReference(persistedEntry.id);
   }
 
   function buildPendingCheckoutBooking(reference: string) {
@@ -4484,7 +4442,8 @@ export default function BookingPage({
                       showDateSet.has(dateValue) &&
                       dateShows.some(
                         (show) =>
-                          isGuestBookableShow(show) &&
+                          (isGuestBookableShow(show) ||
+                            getGuestShowStatus(show) === "sold-out") &&
                           !isShowPastPublicCutoff(show),
                       );
                     const dateCutoffClosed =
@@ -4569,8 +4528,8 @@ export default function BookingPage({
                     isGuestBookableShow(show) && !cutoffClosed;
 
                   return (
+                    <div className="w-full" key={show.id}>
                     <button
-                      key={show.id}
                       type="button"
                       disabled={!isBookableTime}
                       onClick={() => selectShowTime(show.id)}
@@ -4619,6 +4578,16 @@ export default function BookingPage({
                           : bookingCalendarStatusLabels[showStatus]}
                       </span>
                     </button>
+                    {!isStaffBookingJourney &&
+                      showStatus === "sold-out" &&
+                      !cutoffClosed && (
+                        <div className="mt-2 rounded-2xl border border-[#D8C36A]/30 bg-[#D8C36A]/5 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#D8C36A]">The Secret Guest List</p>
+                          <p className="mt-1.5 text-sm leading-5 text-zinc-300">Sold out? Not so fast… we might still have a trick up our sleeve.</p>
+                          <button className="mt-3 min-h-11 rounded-full bg-[#D8C36A] px-5 text-sm font-bold uppercase tracking-[0.08em] text-black transition hover:bg-[#F2D66C]" onClick={() => setSecretGuestListShowId(show.id)} type="button">See If There&apos;s Room</button>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -4945,156 +4914,23 @@ export default function BookingPage({
               )}
             </div>
             {canJoinWaitlist && (
-              <div className="mt-6 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-5 text-amber-100">
-                <p className="text-sm font-semibold uppercase tracking-[0.16em]">
-                  {isStaffBookingJourney ? "Not enough seats" : "No Seating Capacity Available"}
-                </p>
-                <p className="mt-2 text-sm leading-6">
-                  {isStaffBookingJourney
-                    ? `Not enough seats for ${partySize} ${partySize === 1 ? "guest" : "guests"}. Choose another section, guest count or show.`
-                    : `The selected show currently has no seating that can safely host ${partySize} ${partySize === 1 ? "guest" : "guests"}. You can adjust party size, choose another show time, or join the waitlist below.`}
-                </p>
-              </div>
+              isStaffBookingJourney ? (
+                <div className="mt-6 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-5 text-amber-100">
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em]">Not enough seats</p>
+                  <p className="mt-2 text-sm leading-6">Not enough seats for {partySize} {partySize === 1 ? "guest" : "guests"}. Choose another section, guest count or show.</p>
+                </div>
+              ) : (
+                <div className="mt-6 rounded-2xl border border-[#D8C36A]/35 bg-[#D8C36A]/5 p-5 text-white">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">The Secret Guest List</p>
+                  <h3 className="mt-1.5 text-xl font-bold">Sold out? Not so fast…</h3>
+                  <p className="mt-2 text-sm leading-6 text-zinc-300">The tent may be full, but we might just have a trick up our sleeve. Tell us when you&apos;d like to join the magic and how many seats you&apos;re after.</p>
+                  <button className="mt-4 min-h-11 rounded-full bg-[#D8C36A] px-5 text-sm font-bold uppercase tracking-[0.08em] text-black transition hover:bg-[#F2D66C]" onClick={() => setSecretGuestListShowId(selectedShowId)} type="button">See If There&apos;s Room</button>
+                </div>
+              )
             )}
           </div>
           )}
             </>
-          )}
-
-          {canJoinWaitlist && (
-            <section className="rounded-[2rem] border border-[#D8C36A]/40 bg-[radial-gradient(circle_at_top,#24180D_0%,#111_48%,#050505_100%)] p-8 shadow-2xl shadow-[#8D7A2F]/10">
-              <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
-                Waitlist
-              </p>
-              <h2 className="text-3xl font-bold">
-                Join The Waitlist
-              </h2>
-              <p className="mt-3 text-zinc-400">
-                No seating section currently has enough remaining
-                capacity for this party size. Leave your details and
-                the box office can promote or convert your request
-                when capacity opens.
-              </p>
-
-              <form
-                className="mt-6 grid grid-cols-1 gap-4"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  handleJoinWaitlist();
-                }}
-              >
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <label>
-                    <span className="mb-2 block text-sm font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                      Full Name
-                    </span>
-                    <input
-                      required
-                      value={waitlistInfo.name}
-                      onChange={(event) =>
-                        setWaitlistInfo((currentInfo) => ({
-                          ...currentInfo,
-                          name: event.target.value,
-                        }))
-                      }
-                      className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 text-lg"
-                    />
-                  </label>
-
-                  <label>
-                    <span className="mb-2 block text-sm font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                      Email
-                    </span>
-                    <input
-                      required
-                      type="email"
-                      value={waitlistInfo.email}
-                      onChange={(event) =>
-                        setWaitlistInfo((currentInfo) => ({
-                          ...currentInfo,
-                          email: event.target.value,
-                        }))
-                      }
-                      className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 text-lg"
-                    />
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <label>
-                    <span className="mb-2 block text-sm font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                      Phone
-                    </span>
-                    <input
-                      required
-                      type="tel"
-                      value={waitlistInfo.phone}
-                      onChange={(event) =>
-                        setWaitlistInfo((currentInfo) => ({
-                          ...currentInfo,
-                          phone: event.target.value,
-                        }))
-                      }
-                      className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 text-lg"
-                    />
-                  </label>
-
-                  <label>
-                    <span className="mb-2 block text-sm font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                      Preferred Seating
-                    </span>
-                    <select
-                      value={waitlistZoneId}
-                      onChange={(event) =>
-                        setWaitlistZoneId(event.target.value)
-                      }
-                      className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 text-lg"
-                    >
-                      <option value="">Any available zone</option>
-                      {enabledSeatingZones.map((zone) => (
-                        <option key={zone.id} value={zone.id}>
-                          {zone.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <label>
-                  <span className="mb-2 block text-sm font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                    Guest Notes
-                  </span>
-                  <textarea
-                    value={waitlistNotes}
-                    onChange={(event) =>
-                      setWaitlistNotes(event.target.value)
-                    }
-                    className="min-h-28 w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 text-lg"
-                  />
-                </label>
-
-                {waitlistReference && (
-                  <div className="rounded-2xl border border-emerald-400/40 bg-emerald-950/30 p-5">
-                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-300">
-                      Waitlist Request Saved
-                    </p>
-                    <p className="mt-2 text-2xl font-bold">
-                      Reference: {waitlistReference}
-                    </p>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={Boolean(waitlistReference)}
-                  className="rounded-full bg-white px-8 py-4 text-xl font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {waitlistReference
-                    ? "Waitlist Request Stored"
-                    : "Join Waitlist"}
-                </button>
-              </form>
-            </section>
           )}
 
           {selectedZone && activeBookingStep === 3 && (
@@ -6962,6 +6798,21 @@ export default function BookingPage({
             </form>
           </div>
         </div>
+      )}
+
+      {secretGuestListShow && (
+        <SecretGuestListPanel
+          initialPartySize={partySize}
+          onClose={() => setSecretGuestListShowId("")}
+          open={Boolean(secretGuestListShowId)}
+          performanceLabel={getCompactShowDateTime(secretGuestListShow)}
+          showId={secretGuestListShow.supabaseId ?? secretGuestListShow.id}
+          venueLabel={
+            getShowVenueKey(secretGuestListShow)
+              ? getEntryLocationLabel(getShowVenueKey(secretGuestListShow))
+              : secretGuestListShow.venueName ?? "Zingara"
+          }
+        />
       )}
 
       <button
