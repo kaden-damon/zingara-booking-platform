@@ -1,6 +1,6 @@
 # Phase 64 - Dietary Add-ons & Table Plan Corrections
 
-STATUS: VERIFIED - READY FOR PRODUCTION RELEASE
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -24,4 +24,12 @@ DATE: 30 OCTOBER 2026
 
 ## Release
 
-Pending commit, push, Production deployment and read-only Production verification.
+- Application commit `cebd75760d2d77219a63a65de19d0e0e8f279a6f` was pushed to `origin/main`.
+- Vercel Production deployment `dpl_75c3F3TGcJ44DW9RcHJnyjM28hg4` reached `READY` and is aliased to `https://book.zingara.co.za`.
+- Rollback point: `16d1cb03832a179a2d16188c9416385b8f94c3ec`.
+- No database migration was required or applied.
+- Live public verification confirmed that a four-guest Johannesburg booking reaches Payment inside the 72-hour window, both restricted meals are unavailable, and checkout remains available. No booking or payment was submitted.
+- Authenticated Production Admin and Floor & Arrivals loaded successfully after deployment.
+- No real dietary notification was sent. Confirmation gating, Fatima staff lookup, delivery claims and duplicate prevention were verified through focused tests and read-only Production configuration checks.
+- Generated workbook verification covers dietary quantities in V/W and the D79:K79 fill correction. No Production export was regenerated solely for QA.
+- Production business-data delta: none.

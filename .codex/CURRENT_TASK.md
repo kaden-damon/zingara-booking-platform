@@ -1,6 +1,6 @@
 # Phase 64 - Dietary Add-ons & Table Plan Corrections
 
-STATUS: VERIFIED - READY FOR PRODUCTION RELEASE
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -50,6 +50,17 @@ Enforce the approved 72-hour ordering window only for new or increased Kosher an
 - Existing Production metadata contains the configured dietary add-ons only in Johannesburg; Phase 64 preserves that venue scope rather than inventing Cape Town pricing.
 - No database migration is required; the existing delivery ledger and RPC support the new idempotent notification key.
 
-## Release Pending
+## Production Release
 
-- Commit, push, Vercel Production deployment and read-only Production verification remain to be recorded.
+- Application commit: `cebd75760d2d77219a63a65de19d0e0e8f279a6f` (`feat: enforce dietary ordering window`), pushed to `origin/main`.
+- Vercel Production deployment: `dpl_75c3F3TGcJ44DW9RcHJnyjM28hg4` (`READY`), aliased to `https://book.zingara.co.za`.
+- Rollback point: `16d1cb03832a179a2d16188c9416385b8f94c3ec`.
+- No database migration was required or applied.
+
+## Production Verification
+
+- The live public Johannesburg flow was exercised through show, zone, four guests, customer details and Payment without submitting the booking. Inside 72 hours, both restricted meals were disabled while `Continue To Payment` remained available.
+- The authenticated Production Admin and Floor & Arrivals workspace loaded successfully with current seating, assignment and capacity data after deployment.
+- Fatima's active staff identity and configured email destination were verified read-only. Notification generation, confirmation gating and deduplication were verified by focused tests; no real dietary order or email was created during QA.
+- Table Plan quantity extraction, V/W placement, totals and D79:K79 formatting were verified against generated workbook tests. No Production export was downloaded or regenerated solely for QA.
+- Production business-data delta: none. No booking, payment, seating, financial, email-delivery or customer record was created or changed.
