@@ -1,6 +1,6 @@
 # Phase 68 Follow-up - Overall Capacity Integrity & Legacy Adjustment Review
 
-STATUS: RELEASE IN PROGRESS
+STATUS: COMPLETE - RELEASED TO PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -57,8 +57,37 @@ and align Admin, database, Floor and Table Plan calculations.
   `20261030235920_capacity_integrity_legacy_ratchet.sql` is pending.
 - Business-data mutation during verification: zero.
 
-## Release Gate
+## Production Release
 
-Commit, migration, deployment and authenticated/read-only Production
-verification are pending. Stop if the migration preflight detects any active
-Full Show Buyout whose combined occupancy exceeds authoritative capacity.
+- Application commit: `826e0eff0aba4722b4c5f7b5da7a8f1eccfef611`.
+- Migration: `20261030235920_capacity_integrity_legacy_ratchet.sql`, applied
+  successfully through the linked Production workflow.
+- Deployment ID: `dpl_E8eG1awVAfDXs9bL4UsLm5sufGET`.
+- Deployment URL:
+  `https://zingara-booking-platform-5qn4le57e-kaden-damons-projects.vercel.app`.
+- Production alias: `https://book.zingara.co.za`.
+- Deployment status: `Ready`.
+- Rollback commit: `23b86d2257c04393a7708663257e97c83c84cd85`.
+
+## Production Verification
+
+- Live read-back returned 740 future show/zone states, zero states above
+  effective capacity and zero states with reusable legacy headroom.
+- All five active Full Show Buyouts remain within combined authoritative
+  capacity and the new database guard is enabled.
+- The 24 adjustment and 101 Phase 55 exception records remain intact.
+- Authenticated Kaden Admin loaded after deployment. Floor & Arrivals for JHB
+  30 October showed permanent public capacities of 120, 125, 138 and 32, while
+  every displayed additional seat reconciled to valid temporary-table rows for
+  that performance. Public seats remained independently base-capacity limited.
+- The public booking journey and Admin routes returned HTTP 200 from the
+  Production alias.
+- Business-data delta: zero. No booking, assignment, table, capacity record,
+  payment, ticket, Xero record or communication was inserted, updated or
+  deleted by the migration or release verification.
+
+## Final Status
+
+Overall capacity integrity is released. New reusable operational seating can
+only come from valid show-specific temporary tables. Historical compatibility
+evidence protects existing commitments without authorising future headroom.

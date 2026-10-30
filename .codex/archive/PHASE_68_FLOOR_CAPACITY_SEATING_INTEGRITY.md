@@ -262,3 +262,43 @@ operational seating above the permanent layout.
 
 Release evidence will be appended after the controlled migration and
 Production deployment complete.
+
+### Capacity Integrity Production Release
+
+- Application commit: `826e0eff0aba4722b4c5f7b5da7a8f1eccfef611`.
+- Migration: `20261030235920_capacity_integrity_legacy_ratchet.sql`, applied
+  successfully through the linked Production workflow.
+- Deployment ID: `dpl_E8eG1awVAfDXs9bL4UsLm5sufGET`.
+- Deployment URL:
+  `https://zingara-booking-platform-5qn4le57e-kaden-damons-projects.vercel.app`.
+- Production alias: `https://book.zingara.co.za`.
+- Deployment status: `Ready`.
+- Rollback commit: `23b86d2257c04393a7708663257e97c83c84cd85`.
+
+Post-release database verification returned 740 future show/zone states, zero
+states above effective capacity, zero states with reusable legacy headroom,
+five safe active Full Show Buyouts and an enabled combined-capacity guard. The
+24 operational adjustment records and 101 Phase 55 exception records remain
+unchanged as historical evidence.
+
+Authenticated Production verification used Kaden's active Admin session. Floor
+& Arrivals loaded with the approved permanent capacities and independent public
+availability. For JHB 30 October, the displayed additional capacity reconciled
+exactly to valid performance-specific temporary tables: Golden Circle 20,
+Middle Ring 50, Private Booths 8 and Royal Balcony 40. No legacy adjustment was
+needed to provide reusable headroom. The public booking and Admin routes both
+returned HTTP 200 after deployment.
+
+Business-data delta is zero. No booking, assignment, show table, capacity
+record, payment, ticket, Xero record or communication was inserted, updated or
+deleted. The migration changed functions, permissions and a validation trigger
+only.
+
+### Capacity Integrity Final Status
+
+The correction is live. Permanent seating and valid show-specific temporary
+tables are the only sources of reusable operational capacity. Legacy evidence
+continues to protect existing historical commitments but cannot authorise new
+capacity. Admin prechecks, Floor capacity state and database enforcement now
+share the same authoritative calculation, and unallocated Full Show Buyouts no
+longer fall back to Middle Ring reporting.
