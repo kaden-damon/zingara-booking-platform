@@ -1,6 +1,6 @@
 # P0 - Public Booking Failure
 
-STATUS: COMPLETE - RELEASE READY
+STATUS: COMPLETE - PRODUCTION VERIFIED
 
 DATE: 30 OCTOBER 2026
 
@@ -46,6 +46,9 @@ and release the smallest verified correction without changing booking rules.
 - Next.js 16 Webpack Production build passed. The default Turbopack build could
   not start a local loader worker in the restricted test environment.
 - `git diff --check` passed.
+- Production mobile verification passed at 390 x 844: the corrected Booth
+  guidance rendered, four guests remained selected through Guest Details, and
+  no booking or payment was submitted.
 
 ## Safety
 
@@ -53,3 +56,9 @@ and release the smallest verified correction without changing booking rules.
 - Pricing, capacity, seating, ticketing and payment rules remain unchanged.
 - No public journey redesign is included in this P0.
 - Production business-data delta: none.
+
+## Release
+
+- Rollback application commit: `e1cb780f1a794f230bb379ac7867923424cd2974`.
+- Application commit: `6c81f10f1b960de0d06a5a73fd7ccb15da434a68`.
+- Vercel Production deployment completed successfully on 30 October 2026.
