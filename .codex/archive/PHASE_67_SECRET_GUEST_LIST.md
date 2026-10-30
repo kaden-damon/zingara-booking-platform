@@ -1,6 +1,6 @@
 # Phase 67 - The Secret Guest List
 
-STATUS: RELEASE IN PROGRESS
+STATUS: COMPLETE - PRODUCTION LIVE
 
 DATE: 30 OCTOBER 2026
 
@@ -72,5 +72,33 @@ DATE: 30 OCTOBER 2026
 
 ## Release Evidence
 
-Pending application commit, Vercel Production deployment and authenticated live
-verification.
+- Commit `7e5f1e908eaf120deb97213b5388e122cd83bed8` was pushed to
+  `origin/main`.
+- Vercel Production served fresh immutable assets for the release. Verified
+  response identifier:
+  `cpt1::iad1::8lzfd-1793378707263-3e83b23836e9`.
+- Live Johannesburg verification on 4 November 2026 confirmed that a SOLD OUT
+  date can be selected for enquiry while its show action remains non-bookable.
+  The invitation and complete Secret Guest List panel rendered correctly.
+- The live panel passed at 390 x 844 with no horizontal overflow and with every
+  required field and the CTA visible and reachable.
+- An available Johannesburg performance on 5 November 2026 still progressed to
+  the ordinary guest-count step.
+- Direct unauthenticated Waitlist retrieval returned HTTP 401. The enabled
+  Production notification route contains the exact approved five TO and three
+  CC staff profile IDs. Individual preferences remain opt-out and default to
+  enabled when no subscription row exists, as established by the existing
+  Staff Emails model.
+- No enquiry was submitted and no email was sent in live QA. Notification
+  delivery, preferences, Communications logging and duplicate suppression were
+  verified with focused tests and rollback-only database execution.
+- Release QA created no customer, Waitlist, booking, payment or communication
+  records. Existing business data and historical Waitlist entries were
+  unchanged.
+
+## Rollback
+
+- Application rollback point: `83cbae6f2428d02c6fd787d27a5ed7943afa4f7c`.
+- The migration is additive. If application rollback is required, the added
+  function and notification route can remain dormant without changing existing
+  Waitlist behavior or records.

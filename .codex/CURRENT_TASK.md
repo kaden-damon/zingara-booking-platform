@@ -1,6 +1,6 @@
 # Phase 67 - The Secret Guest List
 
-STATUS: RELEASE IN PROGRESS
+STATUS: COMPLETE - PRODUCTION LIVE
 
 DATE: 30 OCTOBER 2026
 
@@ -58,5 +58,23 @@ Communications, Staff Emails and branded Microsoft 365 email infrastructure.
 
 ## Release
 
-Pending application commit, Vercel Production deployment and authenticated live
-verification.
+- Application commit `7e5f1e908eaf120deb97213b5388e122cd83bed8` was pushed
+  to `origin/main`.
+- Production served the new immutable application assets with a fresh Vercel
+  response (`x-vercel-id: cpt1::iad1::8lzfd-1793378707263-3e83b23836e9`).
+- Live Production verification used Johannesburg, 4 November 2026. The SOLD OUT
+  date was selectable for enquiry, the performance action remained disabled,
+  and the approved invitation opened the pre-populated panel.
+- The live panel passed a 390 x 844 mobile viewport check with no horizontal
+  overflow; all required fields and the CTA were visible and reachable.
+- Johannesburg, 5 November 2026 remained available and progressed into the
+  unchanged guest-count step, confirming the normal booking path still works.
+- The public Waitlist endpoint rejected unauthenticated record retrieval with
+  HTTP 401. The Production notification route contains the exact five TO and
+  three CC staff profile IDs and remains enabled.
+- No public enquiry was submitted and no staff email was sent during Production
+  QA. The idempotent creation, notification preference and Communications paths
+  were verified through focused tests and rollback-only database checks.
+- Production business-data delta: the Phase 67 function and notification route
+  were added. No customer, Waitlist, booking, payment or communication record
+  was created or changed by release verification.
