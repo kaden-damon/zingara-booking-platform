@@ -39,7 +39,7 @@ and release the smallest verified correction without changing booking rules.
 - Phase 61 Production telemetry: five rejection events across three journeys,
   all for two guests and all classified as the existing two-seater limit; no
   four-person rejection was recorded.
-- Focused tests: 41 relevant checks passed. One additional direct Node test file
+- Focused tests: 40 relevant checks passed. One additional direct Node test file
   could not resolve the project's `@/` alias in that runner; TypeScript passed.
 - TypeScript and changed-file ESLint passed. ESLint reported one pre-existing
   unused-variable warning and no errors.
