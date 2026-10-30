@@ -4,6 +4,7 @@ export type EmailCommunicationPayload = {
   batch_id?: string | null;
   booking_id: string | null;
   channel: string;
+  created_by?: string | null;
   customer_id: string | null;
   message: string;
   sent_at: string | null;

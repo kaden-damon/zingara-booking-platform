@@ -36,6 +36,8 @@ test("shared shell carries Zingara branding and email-safe presentation", async 
   assert.match(shell, /ZINGARA/);
   assert.match(shell, /THE ROYAL COUNTESS/);
   assert.match(shell, /role="presentation"/);
+  assert.match(shell, /<meta charset="utf-8"/);
+  assert.match(shell, /width=device-width, initial-scale=1/);
   assert.match(shell, /style="margin:0;padding:0;background:#0a0908/);
   assert.doesNotMatch(shell, /<script|javascript:/i);
 });

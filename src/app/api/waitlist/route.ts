@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { sendSecretGuestListCustomerAcknowledgement } from "@/lib/email/secretGuestListAcknowledgementEmail";
 import { sendSecretGuestListNotification } from "@/lib/email/secretGuestListEmail";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { createSecretGuestListEntry } from "@/lib/supabase/waitlistServer";
@@ -128,15 +129,29 @@ export async function POST(request: Request) {
 
     if (result.created) {
       after(async () => {
-        try {
-          await sendSecretGuestListNotification(serviceClient, {
+        const notifications = await Promise.allSettled([
+          sendSecretGuestListNotification(serviceClient, {
             customerId: result.customerId,
             entry: result.entry,
             showId: result.showId,
-          });
-        } catch (error) {
-          console.error("[Secret Guest List] Staff notification failed", error);
-        }
+          }),
+          sendSecretGuestListCustomerAcknowledgement(serviceClient, {
+            customerId: result.customerId,
+            entry: result.entry,
+            showId: result.showId,
+          }),
+        ]);
+
+        notifications.forEach((notification, index) => {
+          if (notification.status === "rejected") {
+            console.error(
+              index === 0
+                ? "[Secret Guest List] Staff notification failed"
+                : "[Secret Guest List] Customer acknowledgement failed",
+              notification.reason,
+            );
+          }
+        });
       });
     }
 

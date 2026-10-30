@@ -4,6 +4,15 @@ STATUS: COMPLETE - PRODUCTION LIVE
 
 DATE: 30 OCTOBER 2026
 
+## Customer Acknowledgement Follow-up
+
+STATUS: IMPLEMENTATION IN PROGRESS
+
+- Automatic delivery must remain disabled until Kaden approves one isolated
+  Production-template email sent to his authoritative staff address.
+- The follow-up reuses the existing Waitlist acceptance, branded customer email,
+  Microsoft 365 and Communications infrastructure.
+
 ## Baseline and Diagnosis
 
 - Starting commit: `83cbae6f2428d02c6fd787d27a5ed7943afa4f7c`.

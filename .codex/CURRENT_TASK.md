@@ -1,8 +1,39 @@
-# Phase 67 - The Secret Guest List
+# Phase 67 Follow-up - Customer Acknowledgement
 
-STATUS: COMPLETE - PRODUCTION LIVE
+STATUS: IMPLEMENTATION IN PROGRESS
 
 DATE: 30 OCTOBER 2026
+
+## Objective
+
+Add an immediate branded customer acknowledgement to successful Secret Guest
+List enquiries while keeping automatic customer delivery disabled until Kaden
+approves a Production-template test email.
+
+## Release Boundary
+
+- Reuse the existing customer HTML shell, Microsoft 365 sender, Communications
+  records and Waitlist acceptance path.
+- Run acknowledgement work only after the public response and never create a
+  booking, reserve seats or change availability.
+- Use an atomic Communications claim so retries and duplicate enquiries cannot
+  generate duplicate customer emails.
+- Preserve the existing Box Office notification routing and preferences.
+- Deploy with the workflow configuration disabled, then send one isolated test
+  email to Kaden without creating a customer enquiry or notifying staff.
+
+## Baseline
+
+- Starting commit: `aad49826ab9232e627eb5b00d892650577d60124`.
+- Phase 67 is live and its public submission returns before deferred staff email
+  work begins.
+- Customer operational emails already use the branded shell, legal links,
+  Microsoft 365 sender, suppression controls and Communications records.
+- No automatic Secret Guest List customer acknowledgement exists yet.
+
+---
+
+## Prior Phase 67 Release Evidence
 
 ## Objective
 
