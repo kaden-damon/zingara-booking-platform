@@ -88,3 +88,16 @@ test("Floor data reuses its existing request for authoritative capacity", async 
   assert.match(page, /getAuthoritativeShowZoneCapacity/);
   assert.match(page, /mergeShowZoneCapacityStates/);
 });
+
+test("Floor counts hydrated temporary tables using operational table state", async () => {
+  const adminPage = await readFile("src/app/admin/page.tsx", "utf8");
+
+  assert.match(
+    adminPage,
+    /table\.showId === authoritativeSelectedShowId &&\s+isTemporaryOperationalTable\(table\)/,
+  );
+  assert.doesNotMatch(
+    adminPage,
+    /selectedShowOverrideCount = tables\.filter\([\s\S]{0,160}table\.showOverride/,
+  );
+});

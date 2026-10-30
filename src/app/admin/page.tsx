@@ -22194,11 +22194,13 @@ export default function AdminDashboardPage({
     ? formatOperationalShowDate(selectedShow.date)
     : "No date selected";
   const selectedShowOverrideCount = tables.filter(
-    (table) => table.showId === selectedShowId && table.showOverride,
+    (table) =>
+      table.showId === authoritativeSelectedShowId &&
+      isTemporaryOperationalTable(table),
   ).length;
   const selectedShowMergedCount = tables.filter(
     (table) =>
-      table.showId === selectedShowId && table.mergedFrom?.length,
+      table.showId === authoritativeSelectedShowId && table.mergedFrom?.length,
   ).length;
   const selectedShowWaitlist = hasHydrated
     ? waitlist.filter(
