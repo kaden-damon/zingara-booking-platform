@@ -82,6 +82,99 @@ function cellNumber(value: ExcelJS.CellValue) {
   return 0;
 }
 
+test("Table Plan keeps every permanent table in the original master-template section", async () => {
+  const expectedOrder = [
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20,
+    21, 22, 23, 24, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210,
+    211, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310, 400, 401,
+    402, 403, 404, 405, 406, 500, 501, 502, 503, 504, 505, 506, 600, 601,
+    602, 603, 604, 605, 606, 607, 608, 609, 900, 901, 800, 801,
+  ];
+  const tables = expectedOrder.map((code) =>
+    table(`table-${code}`, String(code), null, {
+      section: code >= 200 ? "middle-ring" : "private-booths",
+    }),
+  );
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [],
+    configuredZonePrices: {
+      "golden-circle": 100,
+      "middle-ring": 100,
+      "private-booths": 100,
+      "royal-balcony": 100,
+    },
+    customers: [],
+    payments: [],
+    show: {
+      date: "2026-10-30",
+      id: "show-master-section-regression",
+      name: "Master Section Regression",
+      time: "18:00:00",
+      venue: "cape-town",
+    },
+    tables,
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+  assert.ok(sheet);
+  const rows = Array.from(
+    { length: sheet.rowCount },
+    (_, index) => sheet.getRow(index + 1),
+  );
+  const exportedTableOrder = rows
+    .map((row) => Number(row.getCell(2).value))
+    .filter((value) => expectedOrder.includes(value));
+  assert.deepEqual(exportedTableOrder, expectedOrder);
+
+  const table400Row = rows.find(
+    (row) => String(row.getCell(2).value ?? "") === "400",
+  );
+  assert.equal(String(table400Row?.getCell(1).value ?? "").trim(), "GOLD CIRCLE");
+});
+
+test("Table Plan preserves show-specific sections for temporary tables", async () => {
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [],
+    configuredZonePrices: {
+      "golden-circle": 100,
+      "middle-ring": 100,
+      "private-booths": 100,
+      "royal-balcony": 100,
+    },
+    customers: [],
+    payments: [],
+    show: {
+      date: "2026-10-30",
+      id: "show-specific-section-regression",
+      name: "Show-specific Section Regression",
+      time: "18:00:00",
+      venue: "cape-town",
+    },
+    tables: [
+      table("temporary-400", "400", null, {
+        is_override: true,
+        is_physical: false,
+        section: "middle-ring",
+      }),
+    ],
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+  assert.ok(sheet);
+  const rows = Array.from(
+    { length: sheet.rowCount },
+    (_, index) => sheet.getRow(index + 1),
+  );
+
+  const row = rows.find(
+    (candidate) => String(candidate.getCell(2).value ?? "") === "400",
+  );
+  assert.ok(row);
+  assert.equal(String(row.getCell(1).value ?? "").trim(), "MIDDLE RING");
+});
+
 test("Table Plan preserves authoritative original zone and price evidence", async () => {
   const moved = applyTablePlanOriginalEvidence(
     booking("moved", "MOVED", 4, "table-400", {

@@ -208,6 +208,43 @@ const supportedZoneOrder: TablePlanZoneId[] = [
   "golden-circle",
   "royal-balcony",
 ];
+const masterTemplatePermanentTables: Array<{
+  codes: number[];
+  zone: TablePlanZoneId;
+}> = [
+  {
+    codes: [
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 24,
+    ],
+    zone: "private-booths",
+  },
+  {
+    codes: [
+      200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 300, 301,
+      302, 303, 304, 305, 306, 307, 308, 309, 310,
+    ],
+    zone: "middle-ring",
+  },
+  {
+    codes: [
+      400, 401, 402, 403, 404, 405, 406, 500, 501, 502, 503, 504, 505, 506,
+      600, 601, 602, 603, 604, 605, 606, 607, 608, 609,
+    ],
+    zone: "golden-circle",
+  },
+  { codes: [900, 901, 800, 801], zone: "royal-balcony" },
+];
+const masterTemplatePermanentTableZones = new Map<string, TablePlanZoneId>(
+  masterTemplatePermanentTables.flatMap(({ codes, zone }) =>
+    codes.map((code) => [String(code), zone]),
+  ),
+);
+const masterTemplatePermanentTableOrder = new Map(
+  masterTemplatePermanentTables
+    .flatMap(({ codes }) => codes)
+    .map((code, index) => [String(code), index]),
+);
 const tablePlanGroups: Array<{
   baseSlots: number;
   baseSubtotalRow: number;
@@ -286,6 +323,22 @@ function normalizeZone(section: string): TablePlanZoneId | null {
   }
 
   return null;
+}
+
+function resolveTablePlanExportZone(table: TablePlanTable) {
+  if (
+    table.is_physical &&
+    !table.is_override &&
+    !table.merged_parent_id &&
+    !table.merged_from?.length
+  ) {
+    const masterZone = masterTemplatePermanentTableZones.get(
+      table.table_code.trim(),
+    );
+    if (masterZone) return masterZone;
+  }
+
+  return normalizeZone(table.section);
 }
 
 function parseBookingMetadataValue(value: unknown) {
@@ -450,6 +503,27 @@ function compareTableCodes(left: TablePlanTable, right: TablePlanTable) {
     leftParts.suffix.localeCompare(rightParts.suffix) ||
     left.id.localeCompare(right.id)
   );
+}
+
+function compareTablePlanExportRows(
+  left: TablePlanOperationalRow,
+  right: TablePlanOperationalRow,
+) {
+  const leftOrder = masterTemplatePermanentTableOrder.get(
+    left.table.table_code.trim(),
+  );
+  const rightOrder = masterTemplatePermanentTableOrder.get(
+    right.table.table_code.trim(),
+  );
+
+  if (leftOrder !== undefined || rightOrder !== undefined) {
+    return (
+      (leftOrder ?? Number.MAX_SAFE_INTEGER) -
+      (rightOrder ?? Number.MAX_SAFE_INTEGER)
+    );
+  }
+
+  return compareTableCodes(left.table, right.table);
 }
 
 function getTablePlanGroupId(
@@ -1528,7 +1602,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   ) as Record<TablePlanGroupId, TablePlanOperationalRow[]>;
 
   for (const operationalRow of operationalRows) {
-    const zone = normalizeZone(operationalRow.table.section);
+    const zone = resolveTablePlanExportZone(operationalRow.table);
 
     if (!zone) {
       if (operationalRow.state !== "blocked") {
@@ -1546,14 +1620,10 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   }
 
   for (const zone of supportedZoneOrder) {
-    operationalRowsByZone[zone].sort((left, right) =>
-      compareTableCodes(left.table, right.table),
-    );
+    operationalRowsByZone[zone].sort(compareTablePlanExportRows);
   }
   for (const group of tablePlanGroups) {
-    operationalRowsByGroup[group.id].sort((left, right) =>
-      compareTableCodes(left.table, right.table),
-    );
+    operationalRowsByGroup[group.id].sort(compareTablePlanExportRows);
   }
 
   const legacyBookingIds = new Set(
