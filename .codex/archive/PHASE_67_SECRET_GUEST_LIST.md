@@ -6,12 +6,27 @@ DATE: 30 OCTOBER 2026
 
 ## Customer Acknowledgement Follow-up
 
-STATUS: IMPLEMENTATION IN PROGRESS
+STATUS: DEPLOYED - CUSTOMER ACTIVATION AWAITING KADEN APPROVAL
 
 - Automatic delivery must remain disabled until Kaden approves one isolated
   Production-template email sent to his authoritative staff address.
 - The follow-up reuses the existing Waitlist acceptance, branded customer email,
   Microsoft 365 and Communications infrastructure.
+- Commit `d542509cc32c032d263d44f06fc7dc9c834a5be0` deployed through Vercel
+  deployment `dpl_CtsGJsXW2qzVYGQ7uJescC3SU7JB`.
+- Migration `20261030223000_phase_67_customer_acknowledgement.sql` is applied.
+  The workflow remains `enabled = false` with no activation timestamp.
+- 37 focused tests, TypeScript, changed-file ESLint, diff validation, migration
+  validation and the webpack Production build passed.
+- The Production-template email passed a 390 x 844 rendered check without
+  horizontal overflow.
+- Microsoft 365 accepted one isolated preview to `kaden@kaden.co.za` with the
+  exact subject `🎪 You're on Zingara's Secret Guest List!`.
+- Communications record `5ad56ae4-050d-4430-9e96-ddde2cccc252` records the
+  preview as sent at 19:28:37 SAST. No Waitlist enquiry or staff notification
+  was created by the preview.
+- Activation requires Kaden's explicit approval, followed only by enabling the
+  existing workflow row and recording its activation timestamp.
 
 ## Baseline and Diagnosis
 

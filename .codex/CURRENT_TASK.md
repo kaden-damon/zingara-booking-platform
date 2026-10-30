@@ -1,6 +1,6 @@
 # Phase 67 Follow-up - Customer Acknowledgement
 
-STATUS: IMPLEMENTATION IN PROGRESS
+STATUS: DEPLOYED - CUSTOMER ACTIVATION AWAITING KADEN APPROVAL
 
 DATE: 30 OCTOBER 2026
 
@@ -30,6 +30,59 @@ approves a Production-template test email.
 - Customer operational emails already use the branded shell, legal links,
   Microsoft 365 sender, suppression controls and Communications records.
 - No automatic Secret Guest List customer acknowledgement exists yet.
+
+## Implemented
+
+- Added the approved branded acknowledgement with the exact subject, headline,
+  subheading, request summary, next-step wording, legal notice, transactional
+  notice and existing Legal Centre footer.
+- Customer delivery runs only after a newly created Secret Guest List enquiry
+  has been accepted. It remains outside the public response path.
+- Added an atomic Communications claim keyed to customer, performance, channel
+  and subject. Concurrent retries, repeated callbacks and duplicate submissions
+  cannot send a second acknowledgement.
+- Customer acknowledgement uses the existing operational email suppression,
+  branded HTML shell and Microsoft 365 sender. Existing Box Office notification
+  delivery is unchanged and runs independently.
+- Added UTF-8 and mobile viewport metadata to the shared customer email shell so
+  approved punctuation and mobile widths render consistently.
+- Added the existing workflow configuration
+  `secret_guest_list_customer_acknowledgement`, seeded disabled with no
+  activation timestamp.
+
+## Verification
+
+- 37 focused customer-email, Secret Guest List, staff-routing and security tests
+  passed.
+- TypeScript, changed-file ESLint, `git diff --check`, migration dry-run and the
+  Next.js webpack Production build passed.
+- The generated Production-template email passed a 390 x 844 rendered check
+  with no horizontal overflow. Branding, dynamic performance details, legal
+  notice and footer links were visible and correctly aligned.
+- Migration `20261030223000_phase_67_customer_acknowledgement.sql` applied and
+  the linked Production schema is up to date.
+
+## Production Release
+
+- Application commit: `d542509cc32c032d263d44f06fc7dc9c834a5be0`.
+- Vercel deployment: `dpl_CtsGJsXW2qzVYGQ7uJescC3SU7JB`.
+- Production URL:
+  `https://zingara-booking-platform-qeu5u6p8v-kaden-damons-projects.vercel.app`
+  with aliases including `https://book.zingara.co.za`.
+- One isolated preview was sent to `kaden@kaden.co.za`. Microsoft 365 accepted
+  the send and Communications record `5ad56ae4-050d-4430-9e96-ddde2cccc252`
+  records status `sent` at 19:28:37 SAST.
+- The preview used Johannesburg, 4 November 2026 at 17:00 for four guests. It
+  created no customer enquiry and triggered no Box Office notification.
+- Automatic customer acknowledgements remain disabled and `activated_at` is
+  null.
+
+## Approval Gate
+
+After Kaden approves the preview, the only pending activation is to set the
+existing `secret_guest_list_customer_acknowledgement` workflow configuration to
+`enabled = true` and record `activated_at = now()`. No application redeployment,
+new migration or booking-data change is required.
 
 ---
 
