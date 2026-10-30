@@ -1,6 +1,6 @@
 # Remove Booking Details Unsaved Changes Confirmation
 
-STATUS: VERIFIED - READY FOR PRODUCTION RELEASE
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -35,4 +35,10 @@ Remove the Booking Details unsaved-draft confirmation and its close/booking-swit
 
 ## Release
 
-Pending commit, push, deployment and authenticated Production verification.
+- Application commit `abf30b3f3cf4d8a21299ba54155bdbb3f2bacfec` was pushed to `origin/main`.
+- Vercel Production deployment `dpl_9z4p6fyonUxNCA4VahBw8cpWfndc` reached `READY` and is aliased to `https://book.zingara.co.za`.
+- Rollback point: `5337bb1af61b3837cc186e646062caa4224b14ed`.
+- No migration was required.
+- Authenticated Production verification confirmed an unsaved local draft closes without a prompt, is absent when the booking is reopened, and does not block switching to another booking.
+- `Save Changes` remains present; no save was executed during Production QA.
+- Production business-data delta: none.

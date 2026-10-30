@@ -1,6 +1,6 @@
 # Remove Booking Details Unsaved Changes Confirmation
 
-STATUS: VERIFIED - READY FOR PRODUCTION RELEASE
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -43,6 +43,18 @@ Remove only the Booking Details `Unsaved Changes` confirmation and its close/boo
 - Next.js 16.3.4 webpack Production compilation passed. The separate performance-budget script still rejects the current client-reference manifest format, an existing tooling incompatibility unrelated to this change.
 - No database migration is required.
 
-## Release Pending
+## Production Release
 
-- Commit, push, Vercel Production deployment and authenticated Production verification remain to be recorded.
+- Application commit: `abf30b3f3cf4d8a21299ba54155bdbb3f2bacfec` (`fix: remove booking unsaved changes prompt`), pushed to `origin/main`.
+- Vercel Production deployment: `dpl_9z4p6fyonUxNCA4VahBw8cpWfndc` (`READY`), aliased to `https://book.zingara.co.za`.
+- Rollback point: `5337bb1af61b3837cc186e646062caa4224b14ed`.
+- No migration was required or applied.
+
+## Production Verification
+
+- Authenticated Admin loaded successfully and `/admin` returned HTTP 200.
+- On booking `ZNG-8D9834`, a harmless local note suffix was entered without saving. Booking Details closed immediately with no confirmation; reopening showed the original authoritative note and no QA suffix.
+- A second unsaved local suffix was entered and the interface switched directly to `ZNG-82JLBS` with no confirmation or stale draft.
+- `Save Changes` remains present and the focused tests confirm it retains its single explicit persistence request and failed-draft handling.
+- No destructive or financial confirmation was changed.
+- Production business-data delta: none. No booking field, payment, seating, ticket, financial record or communication was created or changed.
