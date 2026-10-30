@@ -190,8 +190,8 @@ const contactColumn = 7;
 const bookingReferenceColumn = 8;
 const originalZoneColumn = 9;
 const notesColumn = 10;
-const paymentSummaryColumn = 11;
-const paymentTypeColumn = 12;
+const paymentBreakdownColumn = 11;
+const paymentSummaryColumn = 12;
 const originalPriceColumn = 13;
 const firstFinancialColumn = 14;
 const lastFinancialColumn = 27;
@@ -242,12 +242,12 @@ const operationalColumnHeaders = [
   "BOOKING REF",
   "ORIGINAL ZONE",
   "NOTES",
-  "PAYMENT SUMMARY",
   "PAYMENT BREAKDOWN",
+  "PAYMENT SUMMARY",
   "ORIGINAL PRICE",
 ] as const;
 const complimentaryPaymentNote =
-  "Dinner show comps, drinks and gratuity to be paid by client";
+  "Complimentary, Dinner show comps, drinks and gratuity to be paid by client";
 
 export function neutralizeSpreadsheetFormula(value: string) {
   return /^[=+\-@]/.test(value.trimStart()) ? `'${value}` : value;
@@ -877,10 +877,8 @@ function resolveTablePlanPaymentType(booking: TablePlanBooking) {
   const outstanding = Math.max(Number(booking.balance_outstanding) || 0, 0);
 
   const category = getBookingPaymentMetadata(booking).complimentaryCategory;
-  if (category === "media") return "Media Complimentary";
-  if (category === "tradex") return "Tradex Complimentary";
-  if (category === "standard" || paymentStatus === "comp_vip") {
-    return "Complimentary";
+  if (category !== null || paymentStatus === "comp_vip") {
+    return complimentaryPaymentNote;
   }
   if (paymentStatus === "fully_paid" || (amountPaid > 0 && outstanding <= 0)) {
     return booking.guest_count >= 6
@@ -897,17 +895,10 @@ function resolveTablePlanPaymentType(booking: TablePlanBooking) {
   return "Unpaid";
 }
 
-function formatOperationalPaymentSummary(
-  booking: TablePlanBooking,
+function formatOperationalPaymentBreakdown(
   paymentSummary: ReturnType<typeof resolveTablePlanPaymentSummary>,
 ) {
-  const summary = formatTablePlanPaymentSummary(paymentSummary);
-  const category = getBookingPaymentMetadata(booking).complimentaryCategory;
-
-  return category === "standard" ||
-    booking.payment_status.trim().toLowerCase() === "comp_vip"
-    ? `${summary} · ${complimentaryPaymentNote}`
-    : summary;
+  return formatTablePlanPaymentSummary(paymentSummary);
 }
 
 function setMoneyValue(cell: Cell, value: number) {
@@ -971,12 +962,12 @@ function populateBookingDataRow(
       ? neutralizeSpreadsheetFormula(operationalNotes)
       : null
     : null;
-  row.getCell(paymentTypeColumn).value = includeBookingDetails
+  row.getCell(paymentSummaryColumn).value = includeBookingDetails
     ? resolveTablePlanPaymentType(booking)
     : null;
   if (!includeBookingDetails) return;
-  row.getCell(paymentSummaryColumn).value = neutralizeSpreadsheetFormula(
-    formatOperationalPaymentSummary(booking, paymentSummary),
+  row.getCell(paymentBreakdownColumn).value = neutralizeSpreadsheetFormula(
+    formatOperationalPaymentBreakdown(paymentSummary),
   );
   if (booking.original_price_per_person == null) {
     row.getCell(originalPriceColumn).value = null;
@@ -1000,7 +991,7 @@ function populateBookingDataRow(
 
 function clearSecondaryBookingFinancials(row: Row) {
   for (
-    let column = paymentSummaryColumn;
+    let column = paymentBreakdownColumn;
     column <= lastFinancialColumn;
     column += 1
   ) {
