@@ -681,6 +681,7 @@ export type BookingLifecycleEvent = {
 };
 export type DemoBooking = {
   buyoutReviewReason?: string;
+  capacityZoneExcluded?: boolean;
   supabaseBookingId?: string;
   customerId?: string;
   companyId?: string;

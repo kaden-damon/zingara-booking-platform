@@ -115,6 +115,8 @@ function getExpandedClaimTables(booking: DemoBooking, tablesById: Map<string, De
 }
 
 function getZonePax(booking: DemoBooking, zoneId: SeatingZoneId) {
+  if (booking.capacityZoneExcluded) return 0;
+
   const entitlements = booking.zoneEntitlements ?? [];
   const matchingEntitlement = entitlements.find(
     (entitlement) => entitlement.zoneId === zoneId,

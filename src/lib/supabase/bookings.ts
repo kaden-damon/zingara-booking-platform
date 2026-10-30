@@ -700,6 +700,9 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
   const metadataBooking = parseBookingNotes(row.notes);
   const promoRedemption = getPersistedPromoRedemption(row);
   const reservationTableClaims = getReservationTableClaims(row);
+  const capacityZoneExcluded =
+    row.section?.trim().toLowerCase() === "full show buyout" &&
+    !row.zone_entitlements?.length;
 
   if (metadataBooking) {
     const authoritativeCustomer = getDemoCustomerFromCustomerRow(
@@ -735,6 +738,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       archiveReason: row.archive_reason ?? metadataBooking.archiveReason,
       balanceDue: row.balance_outstanding,
       buyoutReviewReason: row.buyout_review_reason ?? undefined,
+      capacityZoneExcluded,
       bookingOrigin: row.booking_origin ?? "legacy_unknown",
       createdAt: row.created_at,
       corporateRequestId: row.corporate_request_id ?? undefined,
@@ -807,6 +811,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     archiveReason: row.archive_reason ?? undefined,
     balanceDue: row.balance_outstanding,
     buyoutReviewReason: row.buyout_review_reason ?? undefined,
+    capacityZoneExcluded,
     bookingOrigin: row.booking_origin ?? "legacy_unknown",
     bookingDate: "",
     communicationHistory: [],

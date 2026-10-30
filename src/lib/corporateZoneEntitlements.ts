@@ -82,10 +82,13 @@ export function parseCorporateZoneEntitlementEdit(
 }
 
 export function getBookingZoneEntitlements(booking: {
+  capacityZoneExcluded?: boolean;
   partySize: number;
   zoneEntitlements?: CorporateZoneEntitlement[];
   zoneId: SeatingZoneId;
 }) {
+  if (booking.capacityZoneExcluded) return [];
+
   return booking.zoneEntitlements?.length
     ? booking.zoneEntitlements
     : [{ pax: booking.partySize, zoneId: booking.zoneId }];

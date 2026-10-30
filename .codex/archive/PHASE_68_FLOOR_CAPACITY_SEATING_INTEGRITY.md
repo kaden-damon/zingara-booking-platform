@@ -196,3 +196,69 @@ in recommendation, planning, reviewed API and database assignment paths. A
 valid existing merged parent remains one operational table. No suitable single
 table leaves the booking unassigned for authorised manual Box Office action
 without blocking booking creation, checkout or payment.
+
+## Follow-up - Overall Capacity Integrity & Legacy Adjustment Review
+
+On 30 October 2026, the capacity model was reviewed against the clarified
+business rule that only valid show-specific temporary tables may add new
+operational seating above the permanent layout.
+
+### Verified Legacy Evidence
+
+- `show_zone_operational_capacity_adjustments`: 24 retained records across 18
+  performances, 306 seats. Their reasons identify corporate expiry recovery,
+  capacity reconciliation and named booking restoration work.
+- `phase55_show_zone_capacity_exceptions`: 101 retained records across 44
+  performances, 740 seats. These snapshot historical commitments that exceeded
+  the approved permanent layout during Phase 55 reconciliation.
+- Thirty-eight future performances currently rely on historical compatibility
+  protection in 69 show/zone combinations. The protected active overage is 414
+  guests above permanent plus valid temporary-table capacity.
+- The records are historical compatibility evidence, not physical seating.
+  Deleting them or immediately removing their protection would invalidate
+  legitimate existing commitments.
+
+### Confirmed Defects
+
+- The authoritative capacity function added legacy adjustment and Phase 55
+  exception values to reusable operational capacity.
+- Admin prechecks duplicated part of the calculation locally and could disagree
+  with the database guard.
+- An unallocated `Full Show Buyout` had no zone entitlement and could therefore
+  fall through generic reporting logic into Middle Ring.
+- The generic zone guard did not protect combined show occupancy when a Full
+  Show Buyout had no zone allocation.
+
+### Correction Prepared and Verified
+
+- The pending migration applies a compatibility ratchet. It protects only the
+  active historical overage proven by retained evidence, provides no reusable
+  headroom, and automatically contracts when active occupancy falls.
+- Permanent seating plus valid, performance-specific temporary tables are the
+  only sources of new reusable operational capacity.
+- The existing Admin shows response now includes the authoritative capacity
+  state, avoiding another browser request. Admin prechecks call the same
+  database calculation.
+- A database trigger validates Full Show Buyouts against combined show
+  occupancy and authoritative capacity.
+- Operational reporting, Floor data and Table Plan no longer attribute an
+  unallocated Full Show Buyout to Middle Ring.
+- Existing assignments, temporary tables, strict single-table automation and
+  public base availability remain unchanged.
+
+### Verification Evidence
+
+- 732 future show/zone states dry-run against the ratchet: zero existing active
+  bookings invalidated and zero legacy reusable headroom remaining.
+- Focused capacity and seating tests: 38/38 passed.
+- TypeScript and Production webpack compilation passed.
+- Changed-file lint introduced no new error. Two pre-existing Admin effect
+  warnings remain outside the changed logic.
+- Migration transaction rollback validation and linked dry run passed. The
+  preflight rejects deployment if any active Full Show Buyout already exceeds
+  combined authoritative capacity.
+- No Production booking, table, capacity, payment, ticket or financial record
+  was changed during investigation or verification.
+
+Release evidence will be appended after the controlled migration and
+Production deployment complete.

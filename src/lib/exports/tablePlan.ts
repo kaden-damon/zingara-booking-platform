@@ -526,6 +526,9 @@ function buildExportOperationalRows(
       archivedAt: booking.archived_at ?? undefined,
       bookingDate: "",
       communicationHistory: [],
+      capacityZoneExcluded:
+        booking.section.trim().toLowerCase() === "full show buyout" &&
+        !booking.zone_entitlements?.length,
       createdAt: "",
       customer: { email: "", name: "", phone: "" },
       partySize: Math.max(Number(booking.guest_count) || 0, 0),

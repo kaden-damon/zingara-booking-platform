@@ -1,14 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   type SeatingZoneId,
-  getVenueZoneSeatCapacity,
-  defaultVenueSettings,
-  getConfiguredZoneMaxSeats,
-  normalizeVenueSettings,
   getZoneSectionLookupTitles,
   seatingZones,
 } from "@/lib/zingaraDemo";
-import { getEffectiveOperationalZoneCapacity } from "@/lib/operationalZoneCapacity";
 import { getBookingZonePax } from "@/lib/capacityModel";
 
 const capacityErrorPrefix = "ZONE_CAPACITY_EXCEEDED";
@@ -27,6 +22,13 @@ type ExistingBookingRow = {
   section: string | null;
   show_id: string;
   zone_entitlements?: Array<{ pax: number; zoneId: SeatingZoneId }> | null;
+};
+
+type BookingCapacityStateRow = {
+  active_entitlement_pax: number;
+  base_capacity: number;
+  effective_operational_capacity: number;
+  temporary_capacity: number;
 };
 
 export type BookingCapacityInput = {
@@ -113,88 +115,53 @@ export async function validateBookingCapacityIncrease(
     return { allowed: true as const };
   }
 
-  let query = supabase
-    .from("bookings")
-    .select("id,guest_count,section,zone_entitlements")
-    .eq("show_id", input.showId)
-    .is("archived_at", null)
-    .in("booking_status", [...occupyingBookingStatuses]);
-
-  if (existing?.id) {
-    query = query.neq("id", existing.id);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    throw error;
-  }
-
-  const existingEntitlement = (data ?? []).reduce((total, row) => {
-    const rowZoneId = normalizeBookingZone(String(row.section ?? ""));
-    if (!rowZoneId) return total;
-
-    return total + getBookingZonePax({
-      partySize: Math.max(Number(row.guest_count) || 0, 0),
-      status: "confirmed",
-      zoneEntitlements: Array.isArray(row.zone_entitlements)
-        ? row.zone_entitlements as Array<{ pax: number; zoneId: SeatingZoneId }>
-        : null,
-      zoneId: rowZoneId,
-    }, zoneId);
-  }, 0);
-  const { data: settingsData, error: settingsError } = await supabase
-    .from("venue_settings")
-    .select("settings")
-    .eq("venue_key", defaultVenueSettings.venueId)
-    .maybeSingle();
-
-  if (settingsError) {
-    throw settingsError;
-  }
-
-  const settings = normalizeVenueSettings(
-    (settingsData as { settings?: Parameters<typeof normalizeVenueSettings>[0] } | null)?.settings,
+  const { data: stateData, error: stateError } = await supabase.rpc(
+    "booking_capacity_zone_state",
+    {
+      p_excluded_table_id: null,
+      p_show_id: input.showId,
+      p_zone: zoneId,
+    },
   );
-  const zone = seatingZones.find((candidate) => candidate.id === zoneId);
-  const baseCapacity = zone
-    ? getConfiguredZoneMaxSeats(settings, zone)
-    : getVenueZoneSeatCapacity(zoneId);
-  let temporaryCapacity = 0;
 
-  if (input.capacityScope !== "base") {
-    const { data: temporaryTables, error: temporaryTablesError } = await supabase
-      .from("show_tables")
-      .select("show_id,section,capacity,capacity_configured,status,is_physical,is_override,availability_scope,merged_from,merged_parent_id")
-      .eq("show_id", input.showId)
-      .eq("is_physical", false)
-      .eq("is_override", true)
-      .eq("availability_scope", "operational")
-      .is("merged_parent_id", null);
-
-    if (temporaryTablesError) {
-      throw temporaryTablesError;
-    }
-
-    temporaryCapacity = getEffectiveOperationalZoneCapacity({
-      baseCapacity,
-      showId: input.showId,
-      tables: (temporaryTables ?? []).map((table) => ({
-        availabilityScope: table.availability_scope,
-        capacityConfigured: table.capacity_configured,
-        mergedFrom: table.merged_from,
-        mergedInto: table.merged_parent_id,
-        physicalTable: table.is_physical,
-        seatCapacity: table.capacity,
-        showId: table.show_id,
-        status: table.status,
-        zoneId: normalizeBookingZone(String(table.section ?? "")) ?? "elevated-stage",
-      })),
-      zoneId,
-    }).temporaryCapacity;
+  if (stateError) {
+    throw stateError;
   }
 
-  const capacity = baseCapacity + temporaryCapacity;
+  const state = (
+    Array.isArray(stateData) ? stateData[0] : stateData
+  ) as BookingCapacityStateRow | null;
+
+  if (!state) {
+    throw new Error("Authoritative capacity state is unavailable.");
+  }
+
+  const currentBookingEntitlement =
+    sameEntitlementBucket && existingOccupies && existing
+      ? getBookingZonePax(
+          {
+            partySize: Math.max(Number(existing.guest_count) || 0, 0),
+            status: "confirmed",
+            zoneEntitlements: Array.isArray(existing.zone_entitlements)
+              ? existing.zone_entitlements
+              : null,
+            zoneId,
+          },
+          zoneId,
+        )
+      : 0;
+  const existingEntitlement = Math.max(
+    Number(state.active_entitlement_pax) - currentBookingEntitlement,
+    0,
+  );
+  const baseCapacity = Math.max(Number(state.base_capacity) || 0, 0);
+  const temporaryCapacity = Math.max(
+    Number(state.temporary_capacity) || 0,
+    0,
+  );
+  const capacity = input.capacityScope === "base"
+    ? baseCapacity
+    : Math.max(Number(state.effective_operational_capacity) || 0, 0);
   const resultingEntitlement = existingEntitlement + nextGuestCount;
 
   if (resultingEntitlement <= capacity) {

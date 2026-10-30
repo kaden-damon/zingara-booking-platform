@@ -71,6 +71,22 @@ type SupabaseBookingReferenceRow = {
   id: string;
 };
 
+type SupabaseShowZoneCapacityStateRow = {
+  active_entitlement_pax: number;
+  assignable_table_capacity: number;
+  base_capacity: number;
+  base_sellable_remaining: number;
+  capacity_required_count: number;
+  effective_operational_capacity: number;
+  operational_remaining: number;
+  represented_physical_capacity: number;
+  representation_headroom: number;
+  reserved_table_capacity: number;
+  show_id: string;
+  temporary_capacity: number;
+  zone_id: SeatingZoneId;
+};
+
 type SupabaseShowWrite = {
   date: string;
   description: string | null;
@@ -380,6 +396,29 @@ async function loadShowTableRows(showIds: string[]) {
   return rows;
 }
 
+async function loadShowZoneCapacityStates(showIds: string[]) {
+  if (showIds.length === 0) {
+    return [];
+  }
+
+  const serviceClient = getServiceClient();
+
+  if (!serviceClient) {
+    throw new Error("Supabase service role is not configured.");
+  }
+
+  const { data, error } = await serviceClient.rpc(
+    "booking_capacity_zone_states",
+    { p_show_ids: showIds },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as SupabaseShowZoneCapacityStateRow[];
+}
+
 function getScopedShowRowsForTables(
   showRows: SupabaseShowRow[],
   tableMonth: string | null,
@@ -612,9 +651,11 @@ export async function GET(request: Request) {
       tableLocation,
       tableShow,
     );
-    const tableRows = await loadShowTableRows(
-      tableShowRows.map((row) => row.id),
-    );
+    const tableShowIds = tableShowRows.map((row) => row.id);
+    const [tableRows, capacityStateRows] = await Promise.all([
+      loadShowTableRows(tableShowIds),
+      loadShowZoneCapacityStates(tableShowIds),
+    ]);
     const bookingReferenceById = await loadBookingReferences(
       tableRows.flatMap((row) => (row.booking_id ? [row.booking_id] : [])),
     );
@@ -631,8 +672,29 @@ export async function GET(request: Request) {
         ),
       )
       .filter((table): table is DemoTable => Boolean(table));
+    const capacityStates = capacityStateRows.flatMap((state) => {
+      const showId = showReferenceById.get(state.show_id);
 
-    return Response.json({ shows, tables });
+      return showId
+        ? [{
+            activeEntitlementPax: state.active_entitlement_pax,
+            assignableTableCapacity: state.assignable_table_capacity,
+            baseCapacity: state.base_capacity,
+            baseSellableRemaining: state.base_sellable_remaining,
+            capacityRequiredCount: state.capacity_required_count,
+            effectiveOperationalCapacity: state.effective_operational_capacity,
+            operationalRemaining: state.operational_remaining,
+            representedPhysicalCapacity: state.represented_physical_capacity,
+            representationHeadroom: state.representation_headroom,
+            reservedTableCapacity: state.reserved_table_capacity,
+            showId,
+            temporaryCapacity: state.temporary_capacity,
+            zoneId: state.zone_id,
+          }]
+        : [];
+    });
+
+    return Response.json({ capacityStates, shows, tables });
   } catch (error) {
     console.error("[Zingara API] Failed to load shows", error);
 

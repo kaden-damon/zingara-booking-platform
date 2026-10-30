@@ -2,6 +2,7 @@ import {
   type DemoTable,
   type DemoShow,
   type EntryLocationKey,
+  type SeatingZoneId,
   getStoredDemoShows,
   normalizeShowLocation,
   storeDemoShows,
@@ -153,10 +154,26 @@ function toSupabaseShow(show: DemoShow): SupabaseShowWrite {
 }
 
 export type ShowsWithTables = {
+  capacityStates: ShowZoneCapacityState[];
   shows: DemoShow[];
   showsLoaded: boolean;
   tables: DemoTable[];
   tablesLoaded: boolean;
+};
+export type ShowZoneCapacityState = {
+  activeEntitlementPax: number;
+  assignableTableCapacity: number;
+  baseCapacity: number;
+  baseSellableRemaining: number;
+  capacityRequiredCount: number;
+  effectiveOperationalCapacity: number;
+  operationalRemaining: number;
+  representedPhysicalCapacity: number;
+  representationHeadroom: number;
+  reservedTableCapacity: number;
+  showId: string;
+  temporaryCapacity: number;
+  zoneId: SeatingZoneId;
 };
 export type ShowTableScope = {
   metadataOnly?: boolean;
@@ -214,6 +231,7 @@ export async function getShowsWithTables(
 
     const queryString = searchParams.toString();
     const payload = await fetchSupabaseApi<{
+      capacityStates?: ShowZoneCapacityState[];
       shows?: DemoShow[];
       tables?: DemoTable[];
     }>(`/api/admin/shows${queryString ? `?${queryString}` : ""}`);
@@ -221,6 +239,7 @@ export async function getShowsWithTables(
     const shows = showsLoaded ? payload.shows ?? [] : getStoredDemoShows();
 
     return {
+      capacityStates: payload.capacityStates ?? [],
       shows,
       showsLoaded,
       tables: payload.tables ?? [],
@@ -230,6 +249,7 @@ export async function getShowsWithTables(
     console.error("[Zingara Supabase] Failed to load shows", error);
 
     return {
+      capacityStates: [],
       shows: getStoredDemoShows(),
       showsLoaded: false,
       tables: [],

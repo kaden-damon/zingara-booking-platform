@@ -4,6 +4,7 @@ import {
   type ChangeEvent,
   type FormEvent,
   use,
+  useCallback,
   useDeferredValue,
   useEffect,
   useId,
@@ -463,6 +464,7 @@ import {
 import {
   type BulkShowScheduleInput,
   type BulkShowScheduleResult,
+  type ShowZoneCapacityState,
   createBulkShowSchedule,
   createOperationalShowTable,
   getShowCalendarOccupancy,
@@ -2196,12 +2198,33 @@ function getZoneTables(
     );
 }
 
+function getShowZoneCapacityStateKey(
+  showId: string,
+  zoneId: SeatingZoneId,
+) {
+  return `${showId}|${zoneId}`;
+}
+
+function mergeShowZoneCapacityStates(
+  current: Record<string, ShowZoneCapacityState>,
+  incoming: ShowZoneCapacityState[],
+) {
+  return incoming.reduce(
+    (next, state) => ({
+      ...next,
+      [getShowZoneCapacityStateKey(state.showId, state.zoneId)]: state,
+    }),
+    { ...current },
+  );
+}
+
 function getZoneStats(
   tables: DemoTable[],
   bookings: DemoBooking[],
   showId: string,
   zone: SeatingZone,
   capacityOverride?: number,
+  authoritativeCapacity?: ShowZoneCapacityState,
 ) {
   const zoneTables = getZoneTables(tables, showId, zone.id);
   const inventoryStats = getFloorInventoryStats(zoneTables);
@@ -2233,21 +2256,40 @@ function getZoneStats(
   });
 
   return {
-    baseCapacity: state.baseCapacity,
-    baseSellableRemaining: state.baseSellableRemaining,
-    bookedSeats: state.activeEntitlementPax,
+    baseCapacity: authoritativeCapacity?.baseCapacity ?? state.baseCapacity,
+    baseSellableRemaining:
+      authoritativeCapacity?.baseSellableRemaining ?? state.baseSellableRemaining,
+    bookedSeats:
+      authoritativeCapacity?.activeEntitlementPax ?? state.activeEntitlementPax,
     ...inventoryStats,
-    assignableTableCapacity: state.assignableCapacity,
-    effectiveOperationalCapacity: state.effectiveOperationalCapacity,
-    overCapacitySeats: state.overOperationalCapacity,
-    remainingSeats: state.operationalRemaining,
-    representedPhysicalCapacity: state.representedPhysicalCapacity,
-    representationHeadroom: state.representationHeadroom,
+    assignableTableCapacity:
+      authoritativeCapacity?.assignableTableCapacity ?? state.assignableCapacity,
+    effectiveOperationalCapacity:
+      authoritativeCapacity?.effectiveOperationalCapacity ??
+      state.effectiveOperationalCapacity,
+    overCapacitySeats: authoritativeCapacity
+      ? Math.max(
+          authoritativeCapacity.activeEntitlementPax -
+            authoritativeCapacity.effectiveOperationalCapacity,
+          0,
+        )
+      : state.overOperationalCapacity,
+    remainingSeats:
+      authoritativeCapacity?.operationalRemaining ?? state.operationalRemaining,
+    representedPhysicalCapacity:
+      authoritativeCapacity?.representedPhysicalCapacity ??
+      state.representedPhysicalCapacity,
+    representationHeadroom:
+      authoritativeCapacity?.representationHeadroom ??
+      state.representationHeadroom,
     rawAssignableTableCapacity: state.rawAssignableCapacity,
     rawOperationalTableCapacity: state.rawOperationalTableCapacity,
     tableFitSlack: state.tableFitSlack,
-    temporaryCapacity: state.temporaryCapacity,
-    totalCapacity: state.effectiveOperationalCapacity,
+    temporaryCapacity:
+      authoritativeCapacity?.temporaryCapacity ?? state.temporaryCapacity,
+    totalCapacity:
+      authoritativeCapacity?.effectiveOperationalCapacity ??
+      state.effectiveOperationalCapacity,
   };
 }
 
@@ -5616,6 +5658,9 @@ export default function AdminDashboardPage({
   const [tables, setTables] = useState<DemoTable[]>(() =>
     defaultShows.flatMap((show) => createTablesForShow(show.id)),
   );
+  const [showZoneCapacityStates, setShowZoneCapacityStates] = useState<
+    Record<string, ShowZoneCapacityState>
+  >({});
   const [newTables, setNewTables] =
     useState<NewTablesByZone>(getBlankNewTables);
   const [mergeSelections, setMergeSelections] =
@@ -8587,6 +8632,12 @@ export default function AdminDashboardPage({
           nextShowBookings,
         );
 
+        setShowZoneCapacityStates((current) =>
+          mergeShowZoneCapacityStates(
+            current,
+            nextShowPayload.capacityStates,
+          ),
+        );
         setBookings(nextShowBookings);
         void loadPaymentsForBookings(nextShowBookings);
         setTables((currentTables) =>
@@ -8750,6 +8801,26 @@ export default function AdminDashboardPage({
 
     return shows.find((show) => getShowIdentityValues(show).includes(showId));
   }
+  const getAuthoritativeShowZoneCapacity = useCallback(
+    (showId: string, zoneId: SeatingZoneId) => {
+      const show = shows.find((candidate) =>
+        getOperationalShowIdentityValues(candidate).includes(showId),
+      );
+      const references = [showId, show?.id, show?.supabaseId].filter(
+        (reference): reference is string => Boolean(reference),
+      );
+
+      return references
+        .map(
+          (reference) =>
+            showZoneCapacityStates[
+              getShowZoneCapacityStateKey(reference, zoneId)
+            ],
+        )
+        .find(Boolean);
+    },
+    [showZoneCapacityStates, shows],
+  );
   function bookingBelongsToShow(booking: DemoBooking, show?: DemoShow | null) {
     return bookingBelongsToOperationalShow(booking, show);
   }
@@ -9000,6 +9071,7 @@ export default function AdminDashboardPage({
             analyticsSelectedShow.id,
             zone,
             getConfiguredZoneMaxSeats(venueSettings, zone),
+            getAuthoritativeShowZoneCapacity(analyticsSelectedShow.id, zone.id),
           ).totalCapacity,
         0,
       )
@@ -12839,6 +12911,10 @@ export default function AdminDashboardPage({
         authoritativeSelectedShowId,
         zone,
         getConfiguredZoneMaxSeats(venueConfig, zone),
+        getAuthoritativeShowZoneCapacity(
+          authoritativeSelectedShowId,
+          zone.id,
+        ),
       );
       const preview = previewPhysicalRepresentationMutation({
         currentTableCapacity:
@@ -13545,6 +13621,12 @@ export default function AdminDashboardPage({
             persistedBookings,
           );
 
+          setShowZoneCapacityStates((current) =>
+            mergeShowZoneCapacityStates(
+              current,
+              nextShowPayload.capacityStates,
+            ),
+          );
           setTables((currentTables) =>
             mergeTablesForShows(currentTables, refreshedTables, [showId]),
           );
@@ -18421,6 +18503,9 @@ export default function AdminDashboardPage({
       nextBookings,
     );
 
+    setShowZoneCapacityStates((current) =>
+      mergeShowZoneCapacityStates(current, nextShowPayload.capacityStates),
+    );
     setBookings((currentBookings) => [
       ...currentBookings.filter(
         (booking) => !booking.showId || !showAliases.has(booking.showId),
@@ -21284,6 +21369,10 @@ export default function AdminDashboardPage({
               authoritativeSelectedShowId,
               zone,
               getConfiguredZoneMaxSeats(venueConfig, zone),
+              getAuthoritativeShowZoneCapacity(
+                authoritativeSelectedShowId,
+                zone.id,
+              ),
             ).totalCapacity,
           0,
         )
@@ -21332,6 +21421,7 @@ export default function AdminDashboardPage({
     activeBookingsForOperations,
     authoritativeSelectedShowId,
     bookings,
+    getAuthoritativeShowZoneCapacity,
     selectedShow,
     shouldPrepareSelectedShow,
     tables,
@@ -21393,6 +21483,10 @@ export default function AdminDashboardPage({
               effectiveCheckInShowId,
               zone,
               getConfiguredZoneMaxSeats(venueConfig, zone),
+              getAuthoritativeShowZoneCapacity(
+                effectiveCheckInShowId,
+                zone.id,
+              ),
             ).totalCapacity,
           0,
         )
@@ -21441,6 +21535,7 @@ export default function AdminDashboardPage({
     effectiveCheckInShow,
     effectiveCheckInShowId,
     hideCancelledConcierge,
+    getAuthoritativeShowZoneCapacity,
     tables,
     venueConfig,
   ]);
@@ -21849,6 +21944,9 @@ export default function AdminDashboardPage({
 
     setShows(nextShows);
     setBookings(nextBookings);
+    setShowZoneCapacityStates((current) =>
+      mergeShowZoneCapacityStates(current, nextShowPayload.capacityStates),
+    );
     setTables((currentTables) =>
       mergeTablesForShows(
         currentTables,
@@ -22282,6 +22380,7 @@ export default function AdminDashboardPage({
           show.id,
           zone,
           getConfiguredZoneMaxSeats(venueConfig, zone),
+          getAuthoritativeShowZoneCapacity(show.id, zone.id),
         ).totalCapacity,
       0,
     );
@@ -36455,6 +36554,10 @@ export default function AdminDashboardPage({
                     authoritativeSelectedShowId,
                     zone,
                     getConfiguredZoneMaxSeats(venueConfig, zone),
+                    getAuthoritativeShowZoneCapacity(
+                      authoritativeSelectedShowId,
+                      zone.id,
+                    ),
                   );
                   const isActive =
                     floorZoneFilter === "all" ||
@@ -36491,6 +36594,10 @@ export default function AdminDashboardPage({
                     authoritativeSelectedShowId,
                     zone,
                     getConfiguredZoneMaxSeats(venueConfig, zone),
+                    getAuthoritativeShowZoneCapacity(
+                      authoritativeSelectedShowId,
+                      zone.id,
+                    ),
                   );
                   const floorZoneTables = getZoneTables(
                     tables,
@@ -37109,6 +37216,10 @@ export default function AdminDashboardPage({
               authoritativeSelectedShowId,
               zone,
               getConfiguredZoneMaxSeats(venueConfig, zone),
+              getAuthoritativeShowZoneCapacity(
+                authoritativeSelectedShowId,
+                zone.id,
+              ),
             );
             const availableMergeTargets = zoneTables.filter(
               (table) =>
