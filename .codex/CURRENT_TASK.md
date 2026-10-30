@@ -1,6 +1,6 @@
 # Phase 63 - Payment Summary Export Correction
 
-STATUS: VERIFIED - RELEASE IN PROGRESS
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -43,4 +43,21 @@ Correct the authoritative Table Plan booking export so column K is `PAYMENT BREA
 
 ## Release
 
-- Pending commit, push, Production deployment and authenticated live export confirmation.
+- Application and phase-record commit: `c8048c7` (`fix: correct table plan payment summaries`).
+- Commit pushed to `origin/main`.
+- Vercel Production deployment: `HjKXbA99qA7QfPQPe2uaQ337Rrf5` (`READY`, completed 30 October 2026 at 11:52:12 SAST).
+- Rollback commit: `67cd8b946c15353146e09e594875ba10326d3f69`.
+
+## Authenticated Production Verification
+
+- Kaden Damon's authenticated Production session generated `Zingara_Table_Plan_CPT_2026-10-30.xlsx` through Reports -> Operations Reports -> Table Plan.
+- All nine repeated workbook header rows label column K `PAYMENT BREAKDOWN` and column L `PAYMENT SUMMARY`.
+- All 11 complimentary rows in the live workbook contain exactly `Complimentary, Dinner show comps, drinks and gratuity to be paid by client` in column L.
+- Complimentary column K values remain the existing `Paid R0 · Outstanding R0` breakdown.
+- Representative fully paid rows retained their paid/outstanding values and `Full Payment for Show & Meal + Gratuity` summary; representative deposit rows retained `Deposit`.
+- Workbook sheets, column alignment and all financial columns remained present.
+
+## Business-Data Delta
+
+- No booking, payment, VAT, financial, seating, capacity or customer record changed.
+- One authenticated report generation was recorded through the existing export audit workflow; the generated workbook was read-only.
