@@ -269,7 +269,7 @@ test("complimentary priced add-ons fail closed while invoice paths retain add-on
   assert.match(route, /applyCorporateInvoiceFinancials\(booking\)/);
 });
 
-test("Booking Details uses local draft, one save, financial preview and unsaved guard", async () => {
+test("Booking Details uses a local draft, one explicit save and financial preview", async () => {
   const [editor, page] = await Promise.all([
     source("../app/admin/BookingMetadataDraftEditor.tsx"),
     source("../app/admin/page.tsx"),
@@ -279,7 +279,7 @@ test("Booking Details uses local draft, one save, financial preview and unsaved 
   assert.match(editor, /setDraft\(\(current\)/);
   assert.equal(editor.match(/await saveBookingMetadata\(/g)?.length, 1);
   assert.match(editor, /No payment, refund, link or communication is created automatically/);
-  assert.match(page, /dirtyBookingMetadataReference === expandedBookingReference/);
+  assert.doesNotMatch(page, /Unsaved Changes/);
 });
 
 test("one authoritative add-on edit preserves payments and revokes stale active links", async () => {

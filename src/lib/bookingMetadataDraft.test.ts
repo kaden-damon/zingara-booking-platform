@@ -87,14 +87,15 @@ test("cancellation and refund evidence remain outside generic metadata editing",
   );
 });
 
-test("dirty close and booking navigation require an explicit discard decision", async () => {
+test("dirty close and booking switching do not open an unsaved-changes guard", async () => {
   const page = await readFile(pagePath, "utf8");
 
-  assert.match(page, /dirtyBookingMetadataReference === expandedBookingReference/);
-  assert.match(page, /Unsaved Changes/);
-  assert.match(page, /Discard Changes/);
-  assert.match(page, /Keep Editing/);
-  assert.match(page, /pendingBookingDetailsReference/);
+  assert.doesNotMatch(page, /Unsaved Changes/);
+  assert.doesNotMatch(page, /Discard Changes/);
+  assert.doesNotMatch(page, /Keep Editing/);
+  assert.doesNotMatch(page, /pendingBookingDetailsReference/);
+  assert.match(page, /function closeBookingDetails\(\) \{\s*forceCloseBookingDetails\(\);\s*\}/);
+  assert.match(page, /if \(reference !== expandedBookingReference\) \{\s*setDirtyBookingMetadataReference\(""\);/);
 });
 
 test("metadata route enforces auth, permission, venue scope, lock and stale revision", async () => {

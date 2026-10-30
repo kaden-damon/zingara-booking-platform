@@ -5676,10 +5676,6 @@ export default function AdminDashboardPage({
     useState("");
   const [dirtyBookingMetadataReference, setDirtyBookingMetadataReference] =
     useState("");
-  const [pendingBookingDetailsReference, setPendingBookingDetailsReference] =
-    useState<string | null>(null);
-  const [isBookingUnsavedWarningOpen, setIsBookingUnsavedWarningOpen] =
-    useState(false);
   const [bookingShowTransfer, setBookingShowTransfer] = useState<{
     bookingReference: string;
     canOverrideTwoSeaterLimit: boolean;
@@ -6252,14 +6248,8 @@ export default function AdminDashboardPage({
     reference: string,
     accessMode: "edit" | "view" = "edit",
   ) {
-    if (
-      expandedBookingReference &&
-      dirtyBookingMetadataReference === expandedBookingReference &&
-      reference !== expandedBookingReference
-    ) {
-      setPendingBookingDetailsReference(reference);
-      setIsBookingUnsavedWarningOpen(true);
-      return;
+    if (reference !== expandedBookingReference) {
+      setDirtyBookingMetadataReference("");
     }
 
     setBookingDetailAccessMode(accessMode);
@@ -8143,31 +8133,13 @@ export default function AdminDashboardPage({
 
   function forceCloseBookingDetails(reason = "closed") {
     setDirtyBookingMetadataReference("");
-    setIsBookingUnsavedWarningOpen(false);
-    setPendingBookingDetailsReference(null);
     void releaseCurrentBookingLock(reason);
     setExpandedBookingReference("");
     setBookingDetailAccessMode("edit");
   }
 
   function closeBookingDetails() {
-    if (dirtyBookingMetadataReference === expandedBookingReference) {
-      setPendingBookingDetailsReference(null);
-      setIsBookingUnsavedWarningOpen(true);
-      return;
-    }
-
     forceCloseBookingDetails();
-  }
-
-  function discardBookingMetadataDraft() {
-    const nextReference = pendingBookingDetailsReference;
-
-    forceCloseBookingDetails("discarded-unsaved-changes");
-
-    if (nextReference) {
-      void loadBookingDetails(nextReference);
-    }
   }
 
   function closeShowEditor() {
@@ -41397,44 +41369,6 @@ export default function AdminDashboardPage({
           }
           request={corporateFinancialRequest}
         />
-      )}
-
-      {isBookingUnsavedWarningOpen && (
-        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/80 p-4 text-white backdrop-blur-md">
-          <section
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="booking-unsaved-title"
-            className="w-full max-w-md rounded-[1.5rem] border border-amber-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/50"
-          >
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200">
-              Unsaved Changes
-            </p>
-            <h2 id="booking-unsaved-title" className="mt-3 text-xl font-bold">
-              You have unsaved changes to this booking.
-            </h2>
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={discardBookingMetadataDraft}
-                className="min-h-11 rounded-full border border-red-300/35 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.1em] text-red-200 transition hover:bg-red-300 hover:text-black"
-              >
-                Discard Changes
-              </button>
-              <button
-                type="button"
-                autoFocus
-                onClick={() => {
-                  setIsBookingUnsavedWarningOpen(false);
-                  setPendingBookingDetailsReference(null);
-                }}
-                className="min-h-11 rounded-full border border-[#D8C36A] bg-[#D8C36A] px-5 py-2.5 text-xs font-bold uppercase tracking-[0.1em] text-black transition hover:bg-[#F2D66C]"
-              >
-                Keep Editing
-              </button>
-            </div>
-          </section>
-        </div>
       )}
 
       {financialReconciliation && (
