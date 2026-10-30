@@ -1,6 +1,6 @@
 # Phase 68 Follow-up - Strict Single-Table Allocation
 
-STATUS: RELEASE READY - VERIFIED CORRECTION
+STATUS: COMPLETE - RELEASED TO PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -71,8 +71,33 @@ enters manual Box Office seating resolution.
 - Read-only validation matched every migration pattern against the live
   Production function definitions.
 
-## Pending Release Evidence
+## Production Release
 
-- Commit and push the verified correction.
-- Apply the migration and verify all four live functions.
-- Verify the resulting Production deployment and record the final rollback.
+- Application commit: `81a9b1efb6a208cebf84f86a4e3a94198a7336cc`.
+- Migration: `20261030235910_phase_68_strict_single_table_assignment.sql`,
+  applied successfully through the linked Production workflow.
+- Deployment ID: `dpl_5SEnPUKhWXCinXisvHQzxMVkTMXA`.
+- Deployment URL:
+  `https://zingara-booking-platform-neswt2cfw-kaden-damons-projects.vercel.app`.
+- Production aliases include `https://book.zingara.co.za`.
+- Deployment status: `Ready`.
+- Rollback commit: `ca3bbedd701db8072de6d629d7be5f9f24a55249`.
+
+## Production Verification
+
+- Live read-back confirmed all four automatic assignment functions stop after
+  the first candidate and contain the fail-closed multi-table guard.
+- Active historical split allocations remain exactly 481 after release.
+- All six review candidates retain their original assigned table sets.
+- The current-time future subset is 445; the earlier 456 snapshot included
+  performances that have since crossed the future-performance boundary.
+- The public booking journey and stable Admin login render from the released
+  Production deployment.
+- No authenticated Admin session was available in the controlled browser, so
+  authenticated visual Floor interaction was not represented as completed.
+
+## Business-Data Delta
+
+Zero. No booking, assignment, show table, capacity, payment, ticket, Xero or
+communication record was changed. The migration replaced function definitions
+only, and no historical booking was reseated.

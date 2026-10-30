@@ -163,3 +163,36 @@ errors, the Production webpack build passed, and the linked migration dry run
 listed only the Phase 68 follow-up migration. Booking eligibility tests confirm
 that lack of one suitable table does not block valid Standard or Corporate
 bookings; it routes the seating exception to manual resolution.
+
+### Follow-up Production Release
+
+- Application commit: `81a9b1efb6a208cebf84f86a4e3a94198a7336cc`.
+- Migration: `20261030235910_phase_68_strict_single_table_assignment.sql`,
+  applied successfully.
+- Deployment ID: `dpl_5SEnPUKhWXCinXisvHQzxMVkTMXA`.
+- Deployment URL:
+  `https://zingara-booking-platform-neswt2cfw-kaden-damons-projects.vercel.app`.
+- Production aliases: `book.zingara.co.za`, `www.book.zingara.co.za` and the
+  established Vercel aliases.
+- Deployment status: `Ready`.
+- Rollback commit: `ca3bbedd701db8072de6d629d7be5f9f24a55249`.
+
+Live read-back confirmed that all four automatic assignment functions stop
+after the first table candidate and reject any candidate set with more than one
+table. The active historical split count remains 481 and all six named review
+candidates retain their original assignments. The current-time future subset
+is 445 because the date/time boundary advanced after the earlier snapshot; no
+historical assignment was removed or changed.
+
+The released public booking journey and stable Admin login rendered correctly.
+An authenticated Admin session was unavailable in the controlled browser, so
+authenticated visual Floor interaction was not claimed. Business-data delta is
+zero: only application code and function definitions changed.
+
+### Follow-up Final Status
+
+Phase 68 follow-up is complete and released. Automatic splitting is prevented
+in recommendation, planning, reviewed API and database assignment paths. A
+valid existing merged parent remains one operational table. No suitable single
+table leaves the booking unassigned for authorised manual Box Office action
+without blocking booking creation, checkout or payment.
