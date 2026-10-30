@@ -1,6 +1,6 @@
 # Phase 66 - Dineplan Booking Classification & Table Plan Integrity
 
-STATUS: RELEASE READY - PRODUCTION DEPLOYMENT PENDING
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -39,8 +39,10 @@ The workbook used two classification paths. Financial columns honored `legacy_bo
 
 ## Release Evidence
 
-- Application commit: pending.
-- Deployment identifier: pending.
-- Production verification: pending.
+- Application commit: `ca465f6ff8e0f7004bc2d41bf6634e1033c4be81`.
+- Deployment identifier: GitHub/Vercel Production deployment `7443260978` (`https://zingara-booking-platform-866czhuoz-kaden-damons-projects.vercel.app`), aliased to `https://book.zingara.co.za`.
+- Authenticated Production exports verified JHB affected Corporate `DP-NKN8PC` and Standard `DP-QMXFQC` as full payment with R18,480.00 and R22,440.00 respectively in Full EFT and zero COMP value.
+- Evidence-backed genuine Dineplan COMP `DP-JHB-AADB5980E0A3` retains the approved Complimentary wording and R5,500.00 COMP value.
+- Live JHB and CPT workbooks generated successfully. Every Complimentary description in the sampled workbooks aligned with a COMP financial row.
 - Rollback: `f58e570d2ab9df5ed8a1d6c9db6c46244e3a259e`.
 - Business-data delta: none.

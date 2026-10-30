@@ -1,6 +1,6 @@
 # Phase 66 - Dineplan Booking Classification & Table Plan Integrity
 
-STATUS: RELEASE READY - PRODUCTION DEPLOYMENT PENDING
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -51,7 +51,16 @@ DATE: 30 OCTOBER 2026
 
 ## Release
 
-- Application commit: pending.
-- Vercel Production deployment: pending.
-- Production export verification: pending.
+- Application commit: `ca465f6ff8e0f7004bc2d41bf6634e1033c4be81` (`fix: correct legacy table plan classifications`), pushed to `origin/main`.
+- Vercel Production deployment completed successfully: GitHub deployment `7443260978`, environment URL `https://zingara-booking-platform-866czhuoz-kaden-damons-projects.vercel.app`, aliased to `https://book.zingara.co.za`.
 - Rollback application commit: `f58e570d2ab9df5ed8a1d6c9db6c46244e3a259e`.
+
+## Production Verification
+
+- Authenticated Admin generated the JHB 14 October, JHB 20 September and CPT 30 October Table Plan workbooks successfully.
+- Affected Corporate import `DP-NKN8PC` now exports as `Full Payment for Show & Meal + Gratuity`, retains R18,480.00 in Full EFT and R0.00 in COMP.
+- Affected Standard import `DP-QMXFQC` now exports as `Full Payment for Show & Meal + Gratuity`, retains R22,440.00 in Full EFT and R0.00 in COMP.
+- Evidence-backed genuine Dineplan COMP `DP-JHB-AADB5980E0A3` retains the exact Complimentary wording and R5,500.00 COMP value.
+- The live CPT workbook contains 57 bookings: 36 full payment, 11 deposits, 2 unpaid and 8 legitimate complimentary; all 8 COMP descriptions align with the 8 COMP financial rows.
+- The live JHB 20 September workbook contains 92 bookings: 80 full payment, 11 deposits and 1 legitimate complimentary; its single COMP description aligns with its single COMP financial row.
+- Business-data delta: none. The release changed export interpretation only; no Production row, financial value or booking classification was updated.
