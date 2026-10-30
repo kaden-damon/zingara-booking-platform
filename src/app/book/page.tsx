@@ -1077,6 +1077,7 @@ export default function BookingPage({
     setStaffPricingMode((current) =>
       current === "complimentary" ? "standard" : current,
     );
+    setComplimentaryCategory(null);
   }, [requiresFullPayment]);
   const getDisplayedZonePrice = (zone: SeatingZone) =>
     resolveShowZonePrice({
@@ -1421,6 +1422,7 @@ export default function BookingPage({
       isShowLockReady:
         !isLockedCalendarCheckout || calendarLockStatus === "SHOW READY ✓",
       isTrustedStaff: isTrustedManualCheckout,
+      requiresCategory: isComplimentary,
     });
   const corporateInvoiceFinancialError = isCorporateInvoice
     ? validateCorporateInvoiceFinancials({
@@ -5362,9 +5364,9 @@ export default function BookingPage({
                       aria-label="Complimentary category"
                     >
                       {([
-                        ["standard", "Standard"],
-                        ["media", "Media"],
-                        ["tradex", "Tradex"],
+                        ["standard", "Standard COMP"],
+                        ["media", "Media COMP"],
+                        ["tradex", "Tradex COMP"],
                       ] as const).map(([category, label]) => (
                         <button
                           key={category}
@@ -5382,7 +5384,7 @@ export default function BookingPage({
                     {isComplimentary
                       ? resolvedComplimentaryCategory
                         ? `${resolvedComplimentaryCategory === "standard" ? "Standard" : resolvedComplimentaryCategory === "media" ? "Media" : "Tradex"} COMP · R0 payable. Internal cash-up value ${formatCurrency(complimentaryCategoryRate)} per guest.`
-                        : "Select Standard, Media or Tradex."
+                        : "Select a complimentary category: Standard, Media or Tradex."
                       : isFriendsAndFamily
                       ? `${formatCurrency(Number(friendsAndFamilyConfiguration?.ratePerPerson))} per person. This agreed rate is saved with the booking.`
                       : "The configured zone price applies."}

@@ -14,6 +14,7 @@ const validInput = {
   isBookingSubmitting: false,
   isShowLockReady: true,
   isTrustedStaff: true,
+  requiresCategory: true,
 };
 
 test("valid complimentary booking enables submission without payment state", () => {
@@ -40,7 +41,18 @@ test("new complimentary booking requires an explicit category", () => {
   });
 
   assert.equal(result.allowed, false);
-  assert.match(result.reason, /Standard, Media or Tradex/);
+  assert.match(result.reason, /complimentary category: Standard, Media or Tradex/);
+});
+
+test("paid booking eligibility never requires a complimentary category", () => {
+  assert.deepEqual(
+    getComplimentarySubmissionEligibility({
+      ...validInput,
+      hasSelectedCategory: false,
+      requiresCategory: false,
+    }),
+    { allowed: true, reason: "" },
+  );
 });
 
 test("unaccepted terms disable complimentary submission", () => {
@@ -96,8 +108,21 @@ test("page uses complimentary eligibility without payment-option or payment-link
   assert.ok(eligibilityStart > 0 && eligibilityEnd > eligibilityStart);
   assert.doesNotMatch(eligibilityCall, /paymentOption/);
   assert.doesNotMatch(eligibilityCall, /isManualPaymentLinkCreating/);
+  assert.match(eligibilityCall, /requiresCategory: isComplimentary/);
   assert.match(page, /complimentarySubmissionEligibility\.allowed/);
   assert.match(page, /complimentarySubmissionEligibility\.reason/);
+});
+
+test("staff booking type and complimentary category labels are unambiguous", async () => {
+  const [adminPage, bookingPage] = await Promise.all([
+    readFile(new URL("../app/admin/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/book/page.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(adminPage, />\s*Standard Booking\s*</);
+  assert.match(bookingPage, /\["standard", "Standard COMP"\]/);
+  assert.match(bookingPage, /\["media", "Media COMP"\]/);
+  assert.match(bookingPage, /\["tradex", "Tradex COMP"\]/);
 });
 
 test("standard and Friends & Family retain their existing checkout guard", async () => {

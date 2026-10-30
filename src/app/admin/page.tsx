@@ -33639,7 +33639,7 @@ export default function AdminDashboardPage({
                     onClick={() => openCalendarBookingCheckout("standard")}
                     className="min-h-12 rounded-full bg-[#D8C36A] px-5 py-3 text-sm font-bold uppercase text-black transition hover:bg-[#F2D66C]"
                   >
-                    Standard
+                    Standard Booking
                   </button>
                   <button
                     type="button"

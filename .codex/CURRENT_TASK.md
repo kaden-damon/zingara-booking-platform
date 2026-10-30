@@ -1,64 +1,64 @@
-# P0 - Public Booking Failure
+# P0 - COMP Selection Blocking Bookings
 
-STATUS: COMPLETE - PRODUCTION VERIFIED
+STATUS: RELEASE READY
 
 DATE: 30 OCTOBER 2026
 
 ## Objective
 
-Verify the complete public booking journey for one to six guests across both
-venues, identify why a four-person customer believed six guests were required,
-and release the smallest verified correction without changing booking rules.
+Restore unambiguous internal Standard and complimentary booking creation while
+preserving the explicit COMP category selection, R0 guest payable amount and
+R550-per-guest internal cash-up value.
 
-## Root Cause
+## Production Diagnosis
 
-- Production keeps a selected four-person party unchanged through show,
-  seating and customer-detail steps.
-- Standard public booking permits one to nineteen guests; Private Booths have
-  the existing legitimate minimum of four guests.
-- The available booth option was described as a "Private 6-seater booth". On a
-  performance where Booths were the only available zone, this could reasonably
-  be read as a six-ticket minimum even though the system accepted four guests.
-- Phase 61 telemetry contains no four-person rejection. Current captured
-  failures are two-person quota rejections.
+- Authenticated Production QA reproduced the complete Standard booking flow up
+  to, but not including, the final write.
+- `STANDARD` in the calendar popup selects the Standard booking workflow. It is
+  not the `STANDARD` complimentary category introduced in Phase 59.
+- Ordinary Standard Rate bookings use the paid checkout branch, but the shared
+  eligibility helper still required a COMP category whenever another paid flow
+  reused it. The helper did not encode whether complimentary mode was active.
+- After selecting Complimentary, the separate Standard, Media and Tradex choice
+  is intentionally required. Selecting Standard COMP persists through Review
+  and enables CREATE BOOKING once the existing terms requirement is satisfied.
+- The exact client message can only be emitted while the flow is still treated
+  as Complimentary or while the shared helper is reused by a paid flow. The
+  duplicate `STANDARD` labels made Standard Booking and Standard COMP easy to
+  confuse, leaving the pricing mode complimentary when a paid booking was
+  intended.
 
 ## Correction
 
-- Private Booth guidance now states that seating is available from four guests
-  and that the booking remains for the selected guest count.
-- No selector, availability, capacity, pricing or validation logic changed.
-
-## Verification
-
-- Production UI before release: Cape Town and Johannesburg both retained four
-  guests through seating and Guest Details at a 390 x 844 mobile viewport.
-- Johannesburg UI retained every selected count from one through six exactly.
-- Representative open shows in both venues had live public capacity for every
-  tested count; ordinary zones accept one through six and Booths accept four
-  through six under the existing minimum-four rule.
-- Phase 61 Production telemetry: five rejection events across three journeys,
-  all for two guests and all classified as the existing two-seater limit; no
-  four-person rejection was recorded.
-- Focused tests: 40 relevant checks passed. One additional direct Node test file
-  could not resolve the project's `@/` alias in that runner; TypeScript passed.
-- TypeScript and changed-file ESLint passed. ESLint reported one pre-existing
-  unused-variable warning and no errors.
-- Next.js 16 Webpack Production build passed. The default Turbopack build could
-  not start a local loader worker in the restricted test environment.
-- `git diff --check` passed.
-- Production mobile verification passed at 390 x 844: the corrected Booth
-  guidance rendered, four guests remained selected through Guest Details, and
-  no booking or payment was submitted.
+- Distinguish Standard Booking from Standard COMP in the existing controls.
+- Make validation copy explicitly identify the missing complimentary category.
+- Require a COMP category only when Complimentary is explicitly active.
+- Clear the COMP category whenever a full-payment policy returns the flow to
+  paid Standard pricing; the existing Standard Rate and Friends & Family actions
+  already clear it synchronously.
+- Do not change pricing, payment, API persistence or database logic.
 
 ## Safety
 
-- No real booking, payment or customer record will be created during QA.
-- Pricing, capacity, seating, ticketing and payment rules remain unchanged.
-- No public journey redesign is included in this P0.
-- Production business-data delta: none.
+- No Production booking, customer, payment or financial record is created in QA.
+- All booking, seating, payment and COMP financial safeguards remain unchanged.
+
+## Verification
+
+- Authenticated Production paid Standard flow reached the enabled final CREATE
+  BOOKING action with Standard Rate selected and no COMP category; the write was
+  intentionally not executed.
+- Authenticated Production Standard COMP selection persisted through Review and
+  enabled the same final action after terms acceptance; no booking was created.
+- Nineteen focused submission and Phase 59/59.1 financial tests passed.
+- TypeScript and `git diff --check` passed.
+- Next.js 16 Webpack Production build passed.
+- Changed-file ESLint remains blocked by pre-existing errors in the two large
+  Admin/booking components; the edited helper, test and API route add no errors.
+- The legacy Admin performance-budget checker cannot parse the Webpack manifest;
+  no bundle, dependency, request, render or background-work change was made.
 
 ## Release
 
-- Rollback application commit: `e1cb780f1a794f230bb379ac7867923424cd2974`.
-- Application commit: `6c81f10f1b960de0d06a5a73fd7ccb15da434a68`.
-- Vercel Production deployment completed successfully on 30 October 2026.
+- Production baseline and rollback: `fe2defee485aaeae969d1a74ee3dd9f1cb5bf476`.
+- Production business-data delta: none.

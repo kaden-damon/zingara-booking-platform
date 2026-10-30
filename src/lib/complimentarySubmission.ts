@@ -8,6 +8,7 @@ export type ComplimentarySubmissionInput = {
   isBookingSubmitting: boolean;
   isShowLockReady: boolean;
   isTrustedStaff: boolean;
+  requiresCategory: boolean;
 };
 
 export type ComplimentarySubmissionEligibility = {
@@ -40,10 +41,10 @@ export function getComplimentarySubmissionEligibility(
     return { allowed: false, reason: "Select a seating zone to continue." };
   }
 
-  if (!input.hasSelectedCategory) {
+  if (input.requiresCategory && !input.hasSelectedCategory) {
     return {
       allowed: false,
-      reason: "Select Standard, Media or Tradex to continue.",
+      reason: "Select a complimentary category: Standard, Media or Tradex.",
     };
   }
 

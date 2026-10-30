@@ -2315,7 +2315,7 @@ export async function POST(request: Request) {
 
       if (!complimentaryCategory) {
         return Response.json(
-          { error: "Select Standard, Media or Tradex for this complimentary booking." },
+          { error: "Select a complimentary category: Standard, Media or Tradex." },
           { status: 400 },
         );
       }
