@@ -13,6 +13,7 @@ import {
 } from "@/lib/capacityModel";
 import {
   getPhysicalTableDefinition,
+  getPhysicalTableSortOrder,
   physicalTableDefinitions,
 } from "@/lib/physicalTables";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
@@ -388,6 +389,7 @@ async function loadPlan(
                 tables,
                 zoneId,
               ),
+              sortOrder: getPhysicalTableSortOrder(zoneId, table.table_code),
               tableCode: table.table_code,
             } satisfies FloorPlanningTable,
           ]

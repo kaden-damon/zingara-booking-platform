@@ -77,11 +77,25 @@ const definitionsByKey = new Map(
   ]),
 );
 
+const sortOrderByKey = new Map(
+  physicalTableDefinitions.map((definition, index) => [
+    `${definition.zoneId}:${definition.code}`,
+    index,
+  ]),
+);
+
 export function getPhysicalTableDefinition(
   zoneId: SeatingZoneId,
   tableCode: string,
 ) {
   return definitionsByKey.get(`${zoneId}:${tableCode.trim()}`);
+}
+
+export function getPhysicalTableSortOrder(
+  zoneId: SeatingZoneId,
+  tableCode: string,
+) {
+  return sortOrderByKey.get(`${zoneId}:${tableCode.trim()}`);
 }
 
 export function isLegacyPlaceholderTableCode(

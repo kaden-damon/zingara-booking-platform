@@ -12836,7 +12836,7 @@ export default function AdminDashboardPage({
       const stats = getZoneStats(
         tables,
         activeBookingsForOperations,
-        selectedShowId,
+        authoritativeSelectedShowId,
         zone,
         getConfiguredZoneMaxSeats(venueConfig, zone),
       );
@@ -21231,7 +21231,7 @@ export default function AdminDashboardPage({
     const selectedShowFloorAssignmentBookings = activeShowBookings
       .filter(
         (booking) =>
-          booking.showId === selectedShowId &&
+          booking.showId === authoritativeSelectedShowId &&
           getBookingZoneEntitlements(booking).some((entitlement) =>
             !(booking.reservationTableClaims ?? []).some(
               (claim) =>
@@ -21248,7 +21248,8 @@ export default function AdminDashboardPage({
     const selectedShowLegacyAssignments = tables
       .filter(
         (table) =>
-          table.showId === selectedShowId && isLegacyFloorPlaceholder(table),
+          table.showId === authoritativeSelectedShowId &&
+          isLegacyFloorPlaceholder(table),
       )
       .flatMap((table) => {
         const booking = activeShowBookings.find(
@@ -21280,7 +21281,7 @@ export default function AdminDashboardPage({
             getZoneStats(
               tables,
               activeShowBookings,
-              selectedShowId,
+              authoritativeSelectedShowId,
               zone,
               getConfiguredZoneMaxSeats(venueConfig, zone),
             ).totalCapacity,
@@ -21301,7 +21302,7 @@ export default function AdminDashboardPage({
       selectedShowBlockedTables: shouldPrepareSelectedShow
         ? tables.filter(
             (table) =>
-              table.showId === selectedShowId &&
+              table.showId === authoritativeSelectedShowId &&
               isFloorInventoryTable(table) &&
               table.capacityConfigured !== false &&
               table.status === "disabled",
@@ -21329,9 +21330,9 @@ export default function AdminDashboardPage({
     };
   }, [
     activeBookingsForOperations,
+    authoritativeSelectedShowId,
     bookings,
     selectedShow,
-    selectedShowId,
     shouldPrepareSelectedShow,
     tables,
     venueConfig,
@@ -36451,7 +36452,7 @@ export default function AdminDashboardPage({
                   const stats = getZoneStats(
                     tables,
                     activeBookingsForOperations,
-                    selectedShowId,
+                    authoritativeSelectedShowId,
                     zone,
                     getConfiguredZoneMaxSeats(venueConfig, zone),
                   );
@@ -36487,13 +36488,13 @@ export default function AdminDashboardPage({
                   const stats = getZoneStats(
                     tables,
                     activeBookingsForOperations,
-                    selectedShowId,
+                    authoritativeSelectedShowId,
                     zone,
                     getConfiguredZoneMaxSeats(venueConfig, zone),
                   );
                   const floorZoneTables = getZoneTables(
                     tables,
-                    selectedShowId,
+                    authoritativeSelectedShowId,
                     zone.id,
                   ).filter(isFloorInventoryTable);
                   const zoneOccupancyCounts = floorZoneTables.reduce(
@@ -37098,14 +37099,14 @@ export default function AdminDashboardPage({
             .map((zone) => {
             const allZoneTables = getZoneTables(
               tables,
-              selectedShowId,
+              authoritativeSelectedShowId,
               zone.id,
             );
             const zoneTables = allZoneTables.filter(isFloorInventoryTable);
             const stats = getZoneStats(
               tables,
               activeBookingsForOperations,
-              selectedShowId,
+              authoritativeSelectedShowId,
               zone,
               getConfiguredZoneMaxSeats(venueConfig, zone),
             );

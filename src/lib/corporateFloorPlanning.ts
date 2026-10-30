@@ -30,6 +30,7 @@ export type FloorPlanningTable = {
   id: string;
   kind: "merged" | "physical" | "temporary";
   minimumOccupancy?: number;
+  sortOrder?: number;
   tableCode: string;
 };
 
@@ -179,6 +180,15 @@ function findExistingTableMix(
     requiredSeats,
   );
 
+  const sortSpan = (candidateTables: FloorPlanningTable[]) => {
+    if (candidateTables.length <= 1) return 0;
+    const orders = candidateTables.map((table) => table.sortOrder);
+    if (orders.some((order) => order === undefined)) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+    return Math.max(...(orders as number[])) - Math.min(...(orders as number[]));
+  };
+
   for (const table of tables) {
     for (const state of [...states.values()].sort(
       (left, right) => right.capacity - left.capacity,
@@ -191,7 +201,12 @@ function findExistingTableMix(
       const nextTables = [...state.tables, table];
       const key = `${capacity}:${minimumOccupancy}`;
       const existing = states.get(key);
-      if (!existing || nextTables.length < existing.tables.length) {
+      if (
+        !existing ||
+        nextTables.length < existing.tables.length ||
+        (nextTables.length === existing.tables.length &&
+          sortSpan(nextTables) < sortSpan(existing.tables))
+      ) {
         states.set(key, { capacity, minimumOccupancy, tables: nextTables });
       }
     }
@@ -206,6 +221,7 @@ function findExistingTableMix(
     .sort(
       (left, right) =>
         left.tables.length - right.tables.length ||
+        sortSpan(left.tables) - sortSpan(right.tables) ||
         left.capacity - right.capacity ||
         left.tables
           .map((table) => table.tableCode)

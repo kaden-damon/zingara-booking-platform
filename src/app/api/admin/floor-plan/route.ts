@@ -6,6 +6,7 @@ import {
   type FloorAllocatorTable,
   type FloorAllocatorZone,
 } from "@/lib/floorAllocator";
+import { getPhysicalTableSortOrder } from "@/lib/physicalTables";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
   getRolePermissions,
@@ -273,6 +274,7 @@ async function loadAuthoritativeFloorPlan(
         mergedParentId: table.merged_parent_id,
         minimumCapacity: venueTable?.minimum_capacity ?? table.capacity,
         showId: table.show_id,
+        sortOrder: getPhysicalTableSortOrder(zone, table.table_code),
         status: table.status,
         tableCode: table.table_code,
         updatedAt: table.updated_at,

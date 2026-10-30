@@ -1,5 +1,6 @@
 import {
   getPhysicalTableDefinition,
+  getPhysicalTableSortOrder,
   isLegacyPlaceholderTableCode,
 } from "@/lib/physicalTables";
 import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
@@ -3824,14 +3825,27 @@ function createCombinedTable(
   };
 }
 
+function getMasterOrderSpan(tables: DemoTable[]) {
+  if (tables.length <= 1) return 0;
+  const orders = tables.map((table) =>
+    getPhysicalTableSortOrder(table.zoneId, table.tableNumber),
+  );
+  if (orders.some((order) => order === undefined)) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return Math.max(...(orders as number[])) - Math.min(...(orders as number[]));
+}
+
 function compareTableAllocations(
   firstAllocation: TableAllocation,
   secondAllocation: TableAllocation,
 ) {
   return (
-    firstAllocation.wastedSeats - secondAllocation.wastedSeats ||
     firstAllocation.sourceTables.length -
       secondAllocation.sourceTables.length ||
+    getMasterOrderSpan(firstAllocation.sourceTables) -
+      getMasterOrderSpan(secondAllocation.sourceTables) ||
+    firstAllocation.wastedSeats - secondAllocation.wastedSeats ||
     firstAllocation.table.seatCapacity - secondAllocation.table.seatCapacity ||
     getTableSortValue(firstAllocation.table.tableNumber).localeCompare(
       getTableSortValue(secondAllocation.table.tableNumber),

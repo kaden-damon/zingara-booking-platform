@@ -37,6 +37,7 @@ export type FloorAllocatorTable = {
   mergedParentId: string | null;
   minimumCapacity: number | null;
   showId: string;
+  sortOrder?: number;
   status: string;
   tableCode: string;
   updatedAt: string;
@@ -371,6 +372,7 @@ function chooseMergeMembers(
     .sort(
       (left, right) =>
         left.members.length - right.members.length ||
+        getMasterOrderSpan(left.members) - getMasterOrderSpan(right.members) ||
         left.capacity - right.capacity ||
         left.addedCapacity - right.addedCapacity ||
         left.members
@@ -382,6 +384,15 @@ function chooseMergeMembers(
             { numeric: true },
           ),
     )[0];
+}
+
+function getMasterOrderSpan(tables: FloorAllocatorTable[]) {
+  if (tables.length <= 1) return 0;
+  const orders = tables.map((table) => table.sortOrder);
+  if (orders.some((order) => order === undefined)) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return Math.max(...(orders as number[])) - Math.min(...(orders as number[]));
 }
 
 export function buildInitialFloorPlan(input: PlannerInput): InitialFloorPlan {

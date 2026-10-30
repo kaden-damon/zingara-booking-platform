@@ -206,6 +206,30 @@ test("one suitable table is preferred over an exact multi-table combination", ()
   assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
 });
 
+test("a necessary split prefers nearby master tables over a distant exact fit", () => {
+  const plan = buildZoneFloorCapacityPlan({
+    activeEntitlementPax: 8,
+    allowedTemporaryCapacities: [],
+    availableTables: [
+      { capacity: 6, id: "205", kind: "physical", sortOrder: 29, tableCode: "205" },
+      { capacity: 5, id: "206", kind: "physical", sortOrder: 30, tableCode: "206" },
+      { capacity: 2, id: "302", kind: "physical", sortOrder: 38, tableCode: "302" },
+    ],
+    capacityRequiredPhysicalTables: 0,
+    claimedReservedCapacity: 0,
+    queuedBookings: [
+      { id: "booking", isCorporate: true, pax: 8, reference: "CORP-8" },
+    ],
+    zoneCapacity: 125,
+    zoneId: "middle-ring",
+  });
+
+  assert.deepEqual(
+    [...(plan.bookingPlans[0]?.existingTableCodes ?? [])].sort(),
+    ["205", "206"],
+  );
+});
+
 test("reviewed table mixes enforce the combined minimum occupancy", () => {
   const plan = buildZoneFloorCapacityPlan({
     activeEntitlementPax: 2,

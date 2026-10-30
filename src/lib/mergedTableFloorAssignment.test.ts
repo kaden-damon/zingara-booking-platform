@@ -58,6 +58,24 @@ test("IFF-sized parties can use one valid operational merged parent", () => {
   assert.equal(allocation?.wastedSeats, 7);
 });
 
+test("a necessary combination prefers nearby approved tables", () => {
+  const allocation = findBestTableAllocation(
+    [
+      table("205", { seatCapacity: 6 }),
+      table("206", { seatCapacity: 5 }),
+      table("302", { seatCapacity: 2 }),
+    ],
+    showId,
+    zoneId,
+    8,
+  );
+
+  assert.deepEqual(
+    allocation?.sourceTables.map((candidate) => candidate.tableNumber),
+    ["205", "206"],
+  );
+});
+
 test("disabled linked children remain contained by the merged parent", () => {
   const { children, parent, tables } = mergedInventory();
 

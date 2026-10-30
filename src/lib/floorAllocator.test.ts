@@ -128,6 +128,19 @@ test("does not preserve or propose a permanent table below minimum occupancy", (
   assert.equal(result.unresolved.length, 1);
 });
 
+test("a planned merge prefers nearby master tables over a distant exact fit", () => {
+  const result = plan(
+    [booking("eight", 8, "middle-ring")],
+    [
+      table("205", "middle-ring", { capacity: 6, minimumCapacity: 2, sortOrder: 29 }),
+      table("206", "middle-ring", { capacity: 5, minimumCapacity: 2, sortOrder: 30 }),
+      table("302", "middle-ring", { capacity: 2, minimumCapacity: 2, sortOrder: 38 }),
+    ],
+  );
+
+  assert.deepEqual(result.merges[0]?.memberTableCodes, ["205", "206"]);
+});
+
 test("temporary operational capacity can fit a smaller party", () => {
   const result = plan(
     [booking("two-pax", 2, "royal-booths")],
