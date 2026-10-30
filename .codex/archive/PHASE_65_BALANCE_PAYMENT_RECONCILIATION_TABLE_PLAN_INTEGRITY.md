@@ -1,6 +1,6 @@
 # Phase 65 - Balance Payment Reconciliation & Table Plan Integrity
 
-STATUS: IMPLEMENTED AND VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -26,6 +26,19 @@ Resolve intermittent balance-payment reconciliation and Table Plan payment discr
 - Historical aggregate/payment-row gaps: eight bookings, R151,194.50. These are imported, manual, platform-era or pre-durable-receipt records and remain unchanged pending authoritative manual evidence.
 - Obsolete active links on settled bookings: 44, safe to revoke without deleting records.
 
+The eight normalized-history gaps requiring manual evidence are:
+
+- `DP-BL21NC`: R1,732.50
+- `DP-JHB-3DAB35803661`: R17,160.00
+- `DP-JHB-959E062D2E68`: R2,200.00
+- `ZNG-98R23K`: R113,220.00
+- `ZNG-FEED5M`: R2,200.00
+- `ZNG-GQEC53`: R9,202.00
+- `ZNG-HZRDAT`: R4,400.00
+- `ZNG-JNSLL3`: R1,080.00
+
+These figures are differences between the booking aggregate and normalized confirmed payment rows. They are not proof of missing cash and were not automatically corrected.
+
 ## Correction
 
 - Added a distinct checkout-attempt function and indexed pending-attempt lookup.
@@ -46,4 +59,12 @@ Resolve intermittent balance-payment reconciliation and Table Plan payment discr
 
 ## Release Evidence
 
-Pending controlled Production release.
+- Application commit: `99640c8c14313b738d1a128aba0deee32e394a51`.
+- Supabase migration `20261030190000_phase_65_balance_payment_reconciliation.sql` applied successfully.
+- Vercel Production deployment: GitHub deployment `7442936761`; environment `https://zingara-booking-platform-8pfnl1022-kaden-damons-projects.vercel.app`; `https://book.zingara.co.za` HTTP 200.
+- Production functions and index verified present.
+- Forty-four settled-booking links were revoked with preserved records and metadata; zero remain active.
+- All 1,630 durable receipts are processed and linked after release.
+- All 130 multi-PayFast-payment bookings retain R0.00 aggregate discrepancy.
+- Rollback commit: `00515e4fbe4e20400666f5da8f0dfd7defe51d3a`.
+- Business-data delta: payment-link status/metadata only. No financial, booking, payment, ticket, seating, communication or Xero row changed.

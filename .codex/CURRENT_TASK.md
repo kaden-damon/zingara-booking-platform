@@ -1,6 +1,6 @@
 # Phase 65 - Balance Payment Reconciliation & Table Plan Integrity
 
-STATUS: IMPLEMENTED AND VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
@@ -51,3 +51,19 @@ DATE: 30 OCTOBER 2026
 - No real payment, charge, refund or customer communication was created.
 - No booking, payment, ticket, seating, VAT or Xero value was changed during investigation or QA.
 - Ambiguous historical financial gaps remain untouched for manual reconciliation.
+
+## Production Release
+
+- Application commit: `99640c8c14313b738d1a128aba0deee32e394a51` (`fix: reconcile balance payment attempts`), pushed to `origin/main`.
+- Migration `20261030190000_phase_65_balance_payment_reconciliation.sql` applied successfully through the linked Supabase workflow.
+- Vercel Production deployment completed successfully: GitHub deployment `7442936761`, environment URL `https://zingara-booking-platform-8pfnl1022-kaden-damons-projects.vercel.app`, aliased to `https://book.zingara.co.za`.
+- Rollback application commit: `00515e4fbe4e20400666f5da8f0dfd7defe51d3a`.
+
+## Production Verification
+
+- Production exposes both Phase 65 functions and the pending-attempt index.
+- The migration revoked 44 obsolete active links across 44 settled bookings; zero settled bookings retain an active link.
+- All 1,630 durable ITN receipts present after release are processed and linked to payment rows; no receipt is incomplete or unprocessed.
+- All 130 multi-PayFast-payment bookings still reconcile exactly to their booking aggregates.
+- `https://book.zingara.co.za/book` returns HTTP 200 from Vercel.
+- Business-data delta: 44 payment-link status changes from `active` to `revoked`, with a retained Phase 65 reason in metadata. No booking, payment, PayFast reference, VAT, refund, ticket, seating, customer, communication or Xero record changed.
