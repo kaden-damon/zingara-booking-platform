@@ -68,6 +68,11 @@ and align Admin, database, Floor and Table Plan calculations.
 - Production alias: `https://book.zingara.co.za`.
 - Deployment status: `Ready`.
 - Rollback commit: `23b86d2257c04393a7708663257e97c83c84cd85`.
+- Floor hydration correction commit:
+  `90292b01bc980d96dead22ad68727a96e9cf10d4`.
+- Final application deployment ID: `dpl_5puPBBhuGP9LLXTz9BMRNSCCToyN`.
+- Final application deployment URL:
+  `https://zingara-booking-platform-kf2iu3yyq-kaden-damons-projects.vercel.app`.
 
 ## Production Verification
 
@@ -79,7 +84,10 @@ and align Admin, database, Floor and Table Plan calculations.
 - Authenticated Kaden Admin loaded after deployment. Floor & Arrivals for JHB
   30 October showed permanent public capacities of 120, 125, 138 and 32, while
   every displayed additional seat reconciled to valid temporary-table rows for
-  that performance. Public seats remained independently base-capacity limited.
+  that performance. A hydration defect in the temporary-table summary was
+  corrected and the hard-refreshed Production UI now shows 17 active temporary
+  tables, matching the 17 authoritative rows. Public seats remained
+  independently base-capacity limited.
 - The public booking journey and Admin routes returned HTTP 200 from the
   Production alias.
 - Business-data delta: zero. No booking, assignment, table, capacity record,

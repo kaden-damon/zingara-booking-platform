@@ -274,6 +274,11 @@ Production deployment complete.
 - Production alias: `https://book.zingara.co.za`.
 - Deployment status: `Ready`.
 - Rollback commit: `23b86d2257c04393a7708663257e97c83c84cd85`.
+- Floor hydration correction commit:
+  `90292b01bc980d96dead22ad68727a96e9cf10d4`.
+- Final application deployment ID: `dpl_5puPBBhuGP9LLXTz9BMRNSCCToyN`.
+- Final application deployment URL:
+  `https://zingara-booking-platform-kf2iu3yyq-kaden-damons-projects.vercel.app`.
 
 Post-release database verification returned 740 future show/zone states, zero
 states above effective capacity, zero states with reusable legacy headroom,
@@ -286,8 +291,12 @@ Authenticated Production verification used Kaden's active Admin session. Floor
 availability. For JHB 30 October, the displayed additional capacity reconciled
 exactly to valid performance-specific temporary tables: Golden Circle 20,
 Middle Ring 50, Private Booths 8 and Royal Balcony 40. No legacy adjustment was
-needed to provide reusable headroom. The public booking and Admin routes both
-returned HTTP 200 after deployment.
+needed to provide reusable headroom. The Floor summary initially counted a
+legacy client-only flag and displayed zero temporary tables despite those
+authoritative rows. The hydration correction now counts operational temporary
+tables directly; authenticated Production displays 17 active temporary tables,
+matching the database. The public booking and Admin routes both returned HTTP
+200 after deployment.
 
 Business-data delta is zero. No booking, assignment, show table, capacity
 record, payment, ticket, Xero record or communication was inserted, updated or
