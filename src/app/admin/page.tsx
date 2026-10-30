@@ -34,6 +34,7 @@ import type {
 import type { BoxOfficeFinancialReport } from "@/lib/boxOfficeFinancialReport";
 import { getJohannesburgDateKey } from "@/lib/managementAnalytics";
 import { createPdfBytesFromPageContent } from "@/lib/exports/zingaraTextPdf";
+import { replaceShowScopedRows } from "@/lib/showScopedState";
 import { useReportGenerationLock } from "./useReportGenerationLock";
 import { getReportGenerationLockMessage } from "../../lib/reportGenerationLock";
 
@@ -2364,12 +2365,7 @@ function mergeTablesForShows(
   nextTables: DemoTable[],
   showIds: string[],
 ) {
-  const showIdSet = new Set(showIds);
-
-  return [
-    ...currentTables.filter((table) => !table.showId || !showIdSet.has(table.showId)),
-    ...nextTables,
-  ];
+  return replaceShowScopedRows(currentTables, nextTables, showIds);
 }
 
 function getTableOccupancy(

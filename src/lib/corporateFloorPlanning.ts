@@ -205,8 +205,8 @@ function findExistingTableMix(
     )
     .sort(
       (left, right) =>
-        left.capacity - right.capacity ||
         left.tables.length - right.tables.length ||
+        left.capacity - right.capacity ||
         left.tables
           .map((table) => table.tableCode)
           .join("+")

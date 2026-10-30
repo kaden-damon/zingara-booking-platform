@@ -1,64 +1,60 @@
-# P0 - COMP Selection Blocking Bookings
+# Phase 62 - Table Merge & Seating Integrity
 
-STATUS: RELEASE READY
+STATUS: IMPLEMENTED LOCALLY - AWAITING RELEASE AUTHORISATION
 
 DATE: 30 OCTOBER 2026
 
+## Baseline
+
+- Authoritative checkout: `/Users/kadendamon/.codex/worktrees/phase-50-12-admin-performance/zingara-booking-platform`
+- Baseline commit: `edd7dadb853d12e42fcaf7c1af8d598a7f8a46ba` (`HEAD` and `origin/main` at task start).
+- Existing user-owned Markdown records and report artifacts are preserved.
+- No commit, push, migration application or deployment is authorised.
+
 ## Objective
 
-Restore unambiguous internal Standard and complimentary booking creation while
-preserving the explicit COMP category selection, R0 guest payable amount and
-R550-per-guest internal cash-up value.
+Correct the Floor & Arrivals merge restoration, recommendation ordering and show-isolation defects without changing existing bookings, assignments, capacities, financial records or historical Production seating data.
 
-## Production Diagnosis
+## Verified Diagnosis
 
-- Authenticated Production QA reproduced the complete Standard booking flow up
-  to, but not including, the final write.
-- `STANDARD` in the calendar popup selects the Standard booking workflow. It is
-  not the `STANDARD` complimentary category introduced in Phase 59.
-- Ordinary Standard Rate bookings use the paid checkout branch, but the shared
-  eligibility helper still required a COMP category whenever another paid flow
-  reused it. The helper did not encode whether complimentary mode was active.
-- After selecting Complimentary, the separate Standard, Media and Tradex choice
-  is intentionally required. Selecting Standard COMP persists through Review
-  and enables CREATE BOOKING once the existing terms requirement is satisfied.
-- The exact client message can only be emitted while the flow is still treated
-  as Complimentary or while the shared helper is reused by a paid flow. The
-  duplicate `STANDARD` labels made Standard Booking and Standard COMP easy to
-  confuse, leaving the pricing mode complimentary when a paid booking was
-  intended.
+- Production merge relationships are currently structurally show-scoped: 297 merged parents and 1,027 child links were inspected read-only, with no missing children, cross-show children, parent/link mismatches, cross-section children or assigned child rows.
+- The live `show_tables` capacity trigger handles inserts and updates through `NEW`, but is also installed for deletes without a delete branch. Deleting a merged parent during atomic restore therefore raises `TABLE_CAPACITY_REQUIRED`, which the API masks with the generic save error.
+- The reviewed floor-planning recommendation path ranks lowest combined capacity before table count, allowing multiple exact-fit tables to beat one suitable table.
+- Client table replacement removes only the requested show identifier. Where the authoritative and display show identifiers differ, an older alias can remain in memory and present stale floor state.
 
-## Correction
+## Planned Safe Corrections
 
-- Distinguish Standard Booking from Standard COMP in the existing controls.
-- Make validation copy explicitly identify the missing complimentary category.
-- Require a COMP category only when Complimentary is explicitly active.
-- Clear the COMP category whenever a full-payment policy returns the flow to
-  paid Standard pricing; the existing Standard Rate and Friends & Family actions
-  already clear it synchronously.
-- Do not change pricing, payment, API persistence or database logic.
+1. Make the table-capacity trigger return `OLD` for deletes while retaining all insert/update validation.
+2. Prioritise the fewest suitable tables before spare capacity in the affected recommendation path.
+3. Replace both requested and returned show aliases when refreshing Floor state.
+4. Add focused regression tests and validate the new migration locally only.
 
-## Safety
+## Local Outcome
 
-- No Production booking, customer, payment or financial record is created in QA.
-- All booking, seating, payment and COMP financial safeguards remain unchanged.
+- Added a delete branch to the authoritative `show_tables` capacity trigger. Insert and update capacity validation remains unchanged; atomic unmerge can now delete the merged parent and restore its physical members.
+- Preserved the existing unmerge transaction, which locks the parent and members, rejects attached bookings, verifies matching show/zone membership, retains member capacities and restores each member to `available` or `disabled` according to its existing capacity configuration.
+- Changed reviewed seating recommendations to rank the fewest tables first, then the least unused capacity. One suitable table now wins over a tighter multi-table combination; combinations remain available when no single table fits.
+- Hardened client Floor refreshes to replace both requested and returned show identifiers, preventing stale alias-keyed rows from surviving navigation while preserving all independent performances.
+- Added actionable handling when a merged parent or member has an attached booking.
 
 ## Verification
 
-- Authenticated Production paid Standard flow reached the enabled final CREATE
-  BOOKING action with Standard Rate selected and no COMP category; the write was
-  intentionally not executed.
-- Authenticated Production Standard COMP selection persisted through Review and
-  enabled the same final action after terms acceptance; no booking was created.
-- Nineteen focused submission and Phase 59/59.1 financial tests passed.
-- TypeScript and `git diff --check` passed.
-- Next.js 16 Webpack Production build passed.
-- Changed-file ESLint remains blocked by pre-existing errors in the two large
-  Admin/booking components; the edited helper, test and API route add no errors.
-- The legacy Admin performance-budget checker cannot parse the Webpack manifest;
-  no bundle, dependency, request, render or background-work change was made.
+- Read-only Production integrity audit: 297 merged parents / 1,027 child links; zero missing children, cross-show children, parent/link mismatches, cross-section children or assigned child rows.
+- Focused Phase 62 regression tests: 5 passed.
+- Floor allocator regression tests: 9 passed.
+- TypeScript: passed.
+- Scoped changed-file ESLint: passed. The large Admin component retains two pre-existing effect findings and existing warnings outside the changed lines.
+- `git diff --check`: passed.
+- Next.js 16 Webpack Production build: passed.
+- Default Turbopack build could not run because this environment blocks its internal compiler port. The existing Admin performance-budget script still reports the known unsupported Next.js 16 client-reference manifest format.
+- Migration list confirms `20261030120000` is local-only and unapplied.
 
-## Release
+## Outstanding Release Verification
 
-- Production baseline and rollback: `fe2defee485aaeae969d1a74ee3dd9f1cb5bf476`.
-- Production business-data delta: none.
+- Apply the pending migration only after explicit release authorisation.
+- Deploy the application changes, then verify authenticated merge, immediate refresh, restore, show switching and recommendation behaviour using isolated unassigned tables on at least two performances.
+- No Production seating records should be repaired or changed automatically.
+
+## Release Boundary
+
+Implementation may be prepared and verified locally. Production migration, commit, push and deployment require separate explicit authorisation.

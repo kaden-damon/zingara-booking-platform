@@ -806,6 +806,7 @@ export async function POST(request: Request) {
     if (
       message.includes("AT_LEAST_TWO_TABLES_REQUIRED") ||
       message.includes("MERGED_MEMBER_STATE_INVALID") ||
+      message.includes("MERGED_MEMBER_HAS_BOOKING") ||
       message.includes("MERGED_TABLE_CODE_CONFLICT") ||
       message.includes("MERGED_TABLE_HAS_BOOKING") ||
       message.includes("MERGED_TABLE_NOT_EXTENDABLE") ||
@@ -814,7 +815,9 @@ export async function POST(request: Request) {
     ) {
       return Response.json(
         {
-          error: message.includes("MERGED_TABLE_HAS_BOOKING")
+          error:
+            message.includes("MERGED_TABLE_HAS_BOOKING") ||
+            message.includes("MERGED_MEMBER_HAS_BOOKING")
             ? "Reallocate the attached booking before restoring the physical tables."
             : "One or more tables changed before the merge could be saved. Refresh and retry.",
         },

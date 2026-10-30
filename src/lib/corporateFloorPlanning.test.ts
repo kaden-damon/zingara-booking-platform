@@ -184,6 +184,28 @@ test("existing temporary tables remain assignable even when their size is not ap
   assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
 });
 
+test("one suitable table is preferred over an exact multi-table combination", () => {
+  const plan = buildZoneFloorCapacityPlan({
+    activeEntitlementPax: 10,
+    allowedTemporaryCapacities: [6],
+    availableTables: [
+      { capacity: 5, id: "five-a", kind: "physical", tableCode: "101" },
+      { capacity: 5, id: "five-b", kind: "physical", tableCode: "102" },
+      { capacity: 12, id: "twelve", kind: "physical", tableCode: "103" },
+    ],
+    capacityRequiredPhysicalTables: 0,
+    claimedReservedCapacity: 0,
+    queuedBookings: [
+      { id: "booking", isCorporate: true, pax: 10, reference: "CORP-10" },
+    ],
+    zoneCapacity: 120,
+    zoneId: "golden-circle",
+  });
+
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["103"]);
+  assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
+});
+
 test("reviewed table mixes enforce the combined minimum occupancy", () => {
   const plan = buildZoneFloorCapacityPlan({
     activeEntitlementPax: 2,
