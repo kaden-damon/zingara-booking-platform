@@ -1,101 +1,70 @@
-# Phase 68 Follow-up - Overall Capacity Integrity & Legacy Adjustment Review
+# P0 - Table Plan Export Regression
 
-STATUS: COMPLETE - RELEASED TO PRODUCTION
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 30 OCTOBER 2026
 
 ## Objective
 
-Make permanent seating plus valid show-specific temporary tables the only
-source of reusable operational capacity. Preserve historical over-capacity
-commitments without allowing legacy recovery records to authorise new seats,
-and align Admin, database, Floor and Table Plan calculations.
+Restore the original Table Plan master-template section grouping and ordering
+without changing seating, booking or financial data.
 
-## Verified Production Findings
+## Root Cause
 
-- `show_zone_operational_capacity_adjustments` contains 24 retained recovery
-  records across 18 performances, representing 306 seats.
-- `phase55_show_zone_capacity_exceptions` contains 101 retained historical
-  exception records across 44 performances, representing 740 seats.
-- Thirty-eight future performances currently rely on historical compatibility
-  protection in 69 show/zone combinations. Their active bookings exceed the
-  approved permanent layout plus valid temporary-table capacity by 414 guests.
-- The existing capacity function treated both legacy sources as reusable
-  operational headroom. These records were created for migration, restoration
-  and reconciliation compatibility; they are not physical tables.
-- Admin capacity prechecks independently recomputed capacity and could disagree
-  with the database guard.
-- Unallocated Full Show Buyouts could fall back to Middle Ring in operational
-  reporting. The generic zone trigger also did not validate combined show
-  occupancy for an unallocated Full Show Buyout.
+Phase 55 commit `7ab1b575456ceac0319250088d34d4590ba0be99` moved
+permanent table 400 from Golden Circle to Middle Ring in the approved physical
+layout data. The existing exporter grouped permanent tables from each mutable
+`show_tables.section` value, so the Phase 55 migration caused table 400 to
+render inside the Middle Ring workbook block.
 
-## Safe Correction
+- Phase 55 migration activation: 28 October 2026 at 19:42:53.737827 SAST.
+- Phase 55 Vercel deployment completed: 28 October 2026 at 19:43:35 SAST.
+- Earliest retained affected export: 30 October 2026 at 11:52:45 SAST.
+- Four retained 30 October CPT exports reproduce the defect.
+- Production contains 171 table-400 performance rows saved as Middle Ring:
+  130 Cape Town and 41 Johannesburg. These performances could produce the
+  incorrect export grouping. Historical export-download counts are not stored.
 
-- Introduce a compatibility ratchet: active historical overage is protected up
-  to retained evidence, but it provides zero reusable headroom and shrinks as
-  bookings reduce or cancel.
-- Keep permanent capacity and valid show-specific temporary tables as the only
-  reusable operational capacity sources.
-- Route Admin prechecks and Floor capacity presentation through the same
-  authoritative database calculation, within the existing request path.
-- Add a database guard for combined Full Show Buyout occupancy.
-- Exclude unallocated Full Show Buyouts from zone attribution so they no longer
-  appear as Middle Ring occupancy.
-- Preserve all legacy evidence, bookings, assignments and temporary tables.
+## Correction
+
+- The export now owns the original 74-table master mapping and intended order.
+- Permanent tables use that immutable workbook mapping for section placement.
+- Table 400 exports under Golden Circle.
+- Royal Balcony retains the original `900, 901, 800, 801` order.
+- Temporary, merged and overridden tables continue to use their authoritative
+  show-specific saved sections.
+- No database migration or seating-data correction was made.
 
 ## Verification
 
-- Compatibility dry run: 732 future show/zone states evaluated; zero active
-  bookings invalidated and zero legacy reusable headroom retained.
-- Focused capacity, booking, seating and temporary-table tests: 38/38 passed.
-- TypeScript: passed.
-- Production webpack compilation: passed. The existing Admin performance-budget
-  parser does not support the webpack client-reference manifest format.
-- Changed-file lint has no new errors. Two pre-existing Admin effect warnings
-  remain outside this correction.
-- Migration transaction rollback validation and linked dry run passed; only
-  `20261030235920_capacity_integrity_legacy_ratchet.sql` is pending.
-- Business-data mutation during verification: zero.
+- Focused Table Plan export suite: 12/12 passed.
+- Changed-file ESLint and `git diff --check`: passed.
+- Next.js 16.3.4 Webpack Production build and TypeScript: passed.
+- Existing performance-budget parser retains its known unsupported Webpack
+  client-reference manifest limitation.
+- Authenticated Production CPT export:
+  `Zingara_Table_Plan_CPT_2026-10-30 (4).xlsx`.
+  Table 400 is Golden Circle; the `207+208` merge and seven unassigned rows
+  remain present; 57 bookings and 273 guests reconcile to Production.
+- Authenticated Production JHB export:
+  `Zingara_Table_Plan_JHB_2026-10-30.xlsx`.
+  Table 400 is Golden Circle; all 74 permanent tables retain master order;
+  361 guests reconcile to Production.
+- Both live workbooks contain zero formula errors and retain Payment Breakdown,
+  Payment Summary, Media, Tradex, COMP, Halaal and Kosher columns.
 
 ## Production Release
 
-- Application commit: `826e0eff0aba4722b4c5f7b5da7a8f1eccfef611`.
-- Migration: `20261030235920_capacity_integrity_legacy_ratchet.sql`, applied
-  successfully through the linked Production workflow.
-- Deployment ID: `dpl_E8eG1awVAfDXs9bL4UsLm5sufGET`.
+- Application commit: `9b5a4b984948c00554c96a6e0dd98ab7caf48365`.
+- Deployment ID: `dpl_HYpSRz9MXbcesErFAzP7GRyWx8Z5`.
 - Deployment URL:
-  `https://zingara-booking-platform-5qn4le57e-kaden-damons-projects.vercel.app`.
+  `https://zingara-booking-platform-llsymcj5m-kaden-damons-projects.vercel.app`.
 - Production alias: `https://book.zingara.co.za`.
-- Deployment status: `Ready`.
-- Rollback commit: `23b86d2257c04393a7708663257e97c83c84cd85`.
-- Floor hydration correction commit:
-  `90292b01bc980d96dead22ad68727a96e9cf10d4`.
-- Final application deployment ID: `dpl_5puPBBhuGP9LLXTz9BMRNSCCToyN`.
-- Final application deployment URL:
-  `https://zingara-booking-platform-kf2iu3yyq-kaden-damons-projects.vercel.app`.
+- Deployment completed: 30 October 2026 at 23:28:00 SAST.
+- Rollback point: `b65b74b02f65d31a1834e5ace5eb052777ff6113`.
 
-## Production Verification
+## Business-Data Delta
 
-- Live read-back returned 740 future show/zone states, zero states above
-  effective capacity and zero states with reusable legacy headroom.
-- All five active Full Show Buyouts remain within combined authoritative
-  capacity and the new database guard is enabled.
-- The 24 adjustment and 101 Phase 55 exception records remain intact.
-- Authenticated Kaden Admin loaded after deployment. Floor & Arrivals for JHB
-  30 October showed permanent public capacities of 120, 125, 138 and 32, while
-  every displayed additional seat reconciled to valid temporary-table rows for
-  that performance. A hydration defect in the temporary-table summary was
-  corrected and the hard-refreshed Production UI now shows 17 active temporary
-  tables, matching the 17 authoritative rows. Public seats remained
-  independently base-capacity limited.
-- The public booking journey and Admin routes returned HTTP 200 from the
-  Production alias.
-- Business-data delta: zero. No booking, assignment, table, capacity record,
-  payment, ticket, Xero record or communication was inserted, updated or
-  deleted by the migration or release verification.
-
-## Final Status
-
-Overall capacity integrity is released. New reusable operational seating can
-only come from valid show-specific temporary tables. Historical compatibility
-evidence protects existing commitments without authorising future headroom.
+Zero. No booking, seating assignment, table, capacity, payment, VAT, customer,
+ticket, Xero or financial record changed. Only workbook generation logic and
+regression coverage changed.
