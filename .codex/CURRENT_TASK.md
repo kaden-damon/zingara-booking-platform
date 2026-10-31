@@ -1,6 +1,6 @@
 # Waitlist Communications & Data Integrity
 
-STATUS: VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE - PRODUCTION RELEASED AND VERIFIED
 
 DATE: 31 OCTOBER 2026
 
@@ -53,20 +53,36 @@ Office reminder using the existing communications infrastructure.
 - TypeScript: passed.
 - Targeted ESLint: passed for all changed Waitlist and communication modules.
 - Next.js 16.3.4 webpack Production build: passed.
-- Migration dry run: one pending migration only.
+- Migration dry run identified one pending migration; the same migration then
+  applied successfully to Production.
+- Rollback-only Production execution verified first-create, cross-source
+  duplicate suppression and a legitimate separate-performance submission. The
+  transaction left zero test customers or enquiries.
+- Authenticated Production Waitlist inspection confirmed Compact view, preserved
+  historical duplicates and Nicci Richardson's 12/10/2026 09:04 SAST display.
+- Production contains 390 Waitlist rows and zero standard acknowledgement
+  Communications after release, confirming there was no historical replay.
 - The large Admin page retains two unrelated pre-existing effect-lint findings.
 - The default Turbopack build cannot bind its local compiler port in this
   execution environment; the webpack Production build completed successfully.
 
 ## Release
 
-- Application commit: pending.
-- Migration: `20261031060000_waitlist_communications_integrity.sql` pending.
-- Production deployment: pending.
-- Production verification: pending.
+- Application commit: `a11e8c71bb9921abb205ab9ac92db6932f505386`.
+- Migration `20261031060000_waitlist_communications_integrity.sql` applied
+  successfully to Production.
+- Vercel Production deployment: `CLxjUtfWUzu7KfaMe1NWsCsq9nLH`.
+- Deployment completed at 07:35:55 SAST on 31 October 2026.
+- Live Admin returned HTTP 200 and the deployed public endpoint returned the new
+  bounded Waitlist validation response without creating an enquiry.
+- Both acknowledgement workflows are enabled. Two new management routes each
+  contain the authoritative five TO and three CC recipients, and both new
+  idempotency indexes are present.
+- Rollback point: `b8aa675d5a9b22167629468cff5b180377344009`.
 
 ## Business-Data Delta
 
-Planned migration adds workflow/routing configuration, atomic submission logic
-and idempotency indexes. It does not update, merge or delete historical Waitlist,
-booking, seating, payment, ticket or financial records.
+The migration added one workflow configuration, two notification routes, atomic
+submission logic and two idempotency indexes. It did not update, merge or delete
+historical Waitlist records. Release verification created no customer, enquiry,
+booking, communication, seating, payment, ticket or financial record.

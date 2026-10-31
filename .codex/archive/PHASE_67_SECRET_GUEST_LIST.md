@@ -34,30 +34,8 @@ STATUS: COMPLETE - PRODUCTION ACTIVE
 
 ### Approval-Gate Evidence
 
-- Automatic delivery must remain disabled until Kaden approves one isolated
-  Production-template email sent to his authoritative staff address.
-
-## Waitlist Communications & Data Integrity Follow-up
-
-STATUS: VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
-
-- A strict Production audit found 131 confirmed rapid-retry duplicate rows in
-  93 customer/performance groups. All were legacy standard Waitlist submissions;
-  the Secret Guest List atomic path had no confirmed duplicates.
-- Historical rows and audit evidence are preserved without deletion or merging.
-- Both sources now share one atomic, contact-and-performance duplicate guard.
-- New standard Waitlist enquiries reuse the Phase 67 staff notification route
-  and branded email infrastructure.
-- Standard Waitlist customers receive an asynchronous, idempotent acknowledgement
-  only after a newly accepted enquiry. The subject is
-  `You're on Zingara's Waitlist!`; historical entries are not replayed.
-- The existing live Secret Guest List acknowledgement remains unchanged.
-- A bounded daily reminder is scheduled for the 08:00 SAST hour and includes
-  future active/contacted enquiries from both sources only.
-- Two independent existing-style preferences were added: `New Waitlist Enquiry`
-  and `Daily Waitlist Reminder`.
-- Nicci Richardson's 12 October 2026 09:04 SAST timestamp is the correct display
-  of the authoritative creation time; no historical correction is required.
+- Before activation, automatic delivery remained disabled until Kaden approved
+  one isolated Production-template email sent to his authoritative staff address.
 - The follow-up reuses the existing Waitlist acceptance, branded customer email,
   Microsoft 365 and Communications infrastructure.
 - Commit `d542509cc32c032d263d44f06fc7dc9c834a5be0` deployed through Vercel
@@ -75,6 +53,43 @@ STATUS: VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
   was created by the preview.
 - Activation requires Kaden's explicit approval, followed only by enabling the
   existing workflow row and recording its activation timestamp.
+
+## Waitlist Communications & Data Integrity Follow-up
+
+STATUS: COMPLETE - PRODUCTION RELEASED AND VERIFIED
+
+- A strict Production audit found 131 confirmed rapid-retry duplicate rows in
+  93 customer/performance groups. All were legacy standard Waitlist submissions;
+  the Secret Guest List atomic path had no confirmed duplicates.
+- Historical rows and audit evidence remain preserved without deletion or
+  merging. Production still contains 390 Waitlist rows after release.
+- Both sources now share one atomic, contact-and-performance duplicate guard.
+- New standard Waitlist enquiries reuse the Phase 67 staff notification route
+  and branded email infrastructure.
+- Standard Waitlist customers receive an asynchronous, idempotent acknowledgement
+  only after a newly accepted enquiry. The subject is
+  `You're on Zingara's Waitlist!`; zero historical entries were replayed.
+- The existing live Secret Guest List acknowledgement remains enabled and
+  unchanged.
+- A bounded daily reminder runs during the 08:00 SAST hour and includes future
+  active/contacted enquiries from both sources only.
+- Two independent existing-style preferences are live: `New Waitlist Enquiry`
+  and `Daily Waitlist Reminder`.
+- Nicci Richardson's 12 October 2026 09:04 SAST timestamp is the correct display
+  of the authoritative creation time and was verified in authenticated
+  Production.
+- Commit `a11e8c71bb9921abb205ab9ac92db6932f505386` was pushed to
+  `origin/main` and deployed through Vercel deployment
+  `CLxjUtfWUzu7KfaMe1NWsCsq9nLH` at 07:35:55 SAST on 31 October 2026.
+- Migration `20261031060000_waitlist_communications_integrity.sql` applied
+  successfully.
+- Rollback-only Production verification passed atomic first-create,
+  cross-source duplicate suppression and separate-performance creation, then
+  left zero test records.
+- Two notification routes each retain five authoritative TO and three CC staff;
+  two idempotency indexes and both customer acknowledgement workflows are active.
+- Release verification created no customer, Waitlist, booking, communication,
+  seating, payment, ticket or financial record.
 
 ## Baseline and Diagnosis
 
