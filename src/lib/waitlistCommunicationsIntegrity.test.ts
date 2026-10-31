@@ -78,3 +78,21 @@ test("daily reminder is SAST scheduled, actionable-only and idempotent", async (
   assert.match(preferences, /key: "new-waitlist-enquiry"/);
   assert.match(preferences, /key: "daily-waitlist-reminder"/);
 });
+
+test("all Waitlist staff routes use Kaden as the only CC recipient", async () => {
+  const migration = await source(
+    "../../supabase/migrations/20261031080000_waitlist_email_recipient_correction.sql",
+  );
+
+  for (const notificationKey of [
+    "secret-guest-list",
+    "new-waitlist-enquiry",
+    "daily-waitlist-reminder",
+  ]) {
+    assert.match(migration, new RegExp(`'${notificationKey}'`));
+  }
+  assert.match(migration, /v_cc uuid\[\] := array\[[\s\S]*e8598359-54a0-4e1f-a635-1ec8ae02cb78[\s\S]*\];/);
+  assert.doesNotMatch(migration, /a021d26b-3a16-46b5-b184-6f33e58d1884/);
+  assert.doesNotMatch(migration, /eb6ce1ab-50c8-415a-a858-23ad58300ad8/);
+  assert.match(migration, /v_route_count <> 3/);
+});

@@ -91,6 +91,22 @@ STATUS: COMPLETE - PRODUCTION RELEASED AND VERIFIED
 - Release verification created no customer, Waitlist, booking, communication,
   seating, payment, ticket or financial record.
 
+## Waitlist Email Recipient Correction
+
+STATUS: VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
+
+- Production has three enabled Waitlist-specific staff routes:
+  `secret-guest-list`, `new-waitlist-enquiry` and `daily-waitlist-reminder`.
+- Before correction, all three routes used the approved five TO recipients but
+  included Kaden, Tracy and Nicky-Anne in CC.
+- Delivery resolves recipients exclusively from these management routes and then
+  applies each staff member's personal subscription; no alternate or fallback
+  Waitlist recipient list exists in application code.
+- The correction retains Sharon, Rasmus, Fatima, Michael and Lisa in TO, retains
+  Kaden as the sole CC, and removes Tracy and Nicky-Anne from all three routes.
+- Customer acknowledgements, templates, Communications logging, duplicate
+  prevention and historical deliveries remain unchanged.
+
 ## Baseline and Diagnosis
 
 - Starting commit: `83cbae6f2428d02c6fd787d27a5ed7943afa4f7c`.
