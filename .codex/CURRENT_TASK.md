@@ -1,6 +1,6 @@
 # Waitlist Print Function
 
-STATUS: IMPLEMENTED AND LOCALLY VERIFIED - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 31 OCTOBER 2026
 
@@ -26,14 +26,28 @@ without changing loading, records, actions or the default Compact view.
 - Generated markup verifies A4 landscape sizing, repeated table headings, safe
   row page breaks, complete matching rows, totals and escaped customer content.
 - Existing Admin page retains two unrelated legacy effect-lint findings.
-- Authenticated Production print inspection remains pending deployment.
+- Authenticated Production print inspection passed.
 - No migration is required.
 
 ## Release
 
-Pending verified commit and Production deployment.
+- Application commit: `fddb24a2a428df0ea44316f21b727821769f6c3f`.
+- Vercel Production deployment: `CYRwVDjUFGyz9CqBjqZSvYVXFBtz`.
+- Vercel status: success.
+- Authenticated Production verification completed at approximately 07:14 SAST
+  on 31 October 2026 using Kaden Damon's account.
+- Compact filtered preview: 1 matching enquiry, 2 guests, 1 A4 sheet.
+- Expanded unfiltered preview: all 16 matching enquiries, 48 guests, 2 A4
+  sheets with the table heading repeated on page 2.
+- The printed performance, SAST print time, contact, status, availability,
+  source and totals matched the live filtered Waitlist.
+- Responsive verification at 390 x 841 confirmed the Print control remains
+  clear and accessible without changing Compact as the default.
+- Production alias `https://book.zingara.co.za/admin` remained available.
+- No mutation action was executed during verification.
+- Rollback point: `ad4bde17f4c57691558ebbcfa2231381ad2181c3`.
 
 ## Business-Data Delta
 
-Expected: zero. No Waitlist, booking, seating, payment or financial records are
-modified by printing.
+Zero. No Waitlist, booking, seating, payment or financial records changed. No
+migration was applied.
