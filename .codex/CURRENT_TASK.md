@@ -1,8 +1,20 @@
 # Secret Guest List ON/OFF Control
 
-STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+STATUS: FOLLOW-UP RELEASE IN PROGRESS - PRODUCTION FEATURE OFF
 
 DATE: 31 OCTOBER 2026
+
+## Toggle Clarity Follow-up
+
+- Production database and public settings both confirm the feature is OFF.
+- The original control used a muted inherited colour for its moving label/thumb,
+  making the OFF state visually weak and the two states difficult to compare.
+- The corrected control uses a green ON track, grey OFF track, white positional
+  thumb and an explicit label that always agrees with the saved state.
+- Admin reads bypass browser and route caches. Failed saves visibly report the
+  error and reload the authoritative server value before re-enabling the switch.
+- Application release and authenticated desktop/mobile verification are in
+  progress.
 
 ## Objective
 

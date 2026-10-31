@@ -59,7 +59,7 @@ export async function GET(request: Request) {
     return Response.json({
       enabled: configuration.enabled,
       updatedAt: configuration.updated_at,
-    });
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("[Secret Guest List] Feature status could not be loaded", error);
     return Response.json(
@@ -122,7 +122,10 @@ export async function PATCH(request: Request) {
       },
     );
 
-    return Response.json({ enabled: data.enabled, updatedAt: data.updated_at });
+    return Response.json(
+      { enabled: data.enabled, updatedAt: data.updated_at },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   } catch (error) {
     console.error("[Secret Guest List] Feature status could not be saved", error);
     return Response.json(

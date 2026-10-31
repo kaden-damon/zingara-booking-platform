@@ -33,10 +33,11 @@ test("public booking exposes the approved compact Secret Guest List experience",
 });
 
 test("management feature control hides public prompts and blocks direct submissions", async () => {
-  const [page, publicRoute, adminRoute, settings, migration] = await Promise.all([
+  const [page, publicRoute, adminRoute, control, settings, migration] = await Promise.all([
     source("../app/book/page.tsx"),
     source("../app/api/waitlist/route.ts"),
     source("../app/api/admin/secret-guest-list/route.ts"),
+    source("../app/admin/SecretGuestListSettings.tsx"),
     source("./supabase/venueSettings.ts"),
     source("../../supabase/migrations/20261031120000_secret_guest_list_feature_control.sql"),
   ]);
@@ -48,6 +49,12 @@ test("management feature control hides public prompts and blocks direct submissi
   assert.match(publicRoute, /status: 409/);
   assert.match(adminRoute, /settings:manage/);
   assert.match(adminRoute, /secret_guest_list\.feature_status_updated/);
+  assert.match(adminRoute, /Cache-Control.*private, no-store/);
+  assert.match(control, /cache: "no-store"/);
+  assert.match(control, /border-emerald-300 bg-emerald-600/);
+  assert.match(control, /border-zinc-400 bg-zinc-600/);
+  assert.match(control, /The saved setting has been restored/);
+  assert.match(control, /setFeature\(await requestFeatureState\(\)\)/);
   assert.match(migration, /'secret_guest_list_feature',[\s\S]*false/);
   assert.match(migration, /p_source = 'secret-guest-list'[\s\S]*configuration\.enabled/);
   assert.match(migration, /p_source not in \('waitlist', 'secret-guest-list'\)/);

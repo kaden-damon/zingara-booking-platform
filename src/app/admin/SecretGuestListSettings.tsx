@@ -14,6 +14,7 @@ async function requestFeatureState(init?: RequestInit) {
 
   const response = await fetch("/api/admin/secret-guest-list", {
     ...init,
+    cache: "no-store",
     headers: {
       ...init?.headers,
       Authorization: `Bearer ${auth.session.access_token}`,
@@ -62,13 +63,25 @@ export default function SecretGuestListSettings() {
         method: "PATCH",
       });
       setFeature(next);
-      setStatus(`The Secret Guest List is now ${enabled ? "ON" : "OFF"}.`);
+      setStatus(`The Secret Guest List is now ${next.enabled ? "ON" : "OFF"}.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The setting could not be saved.");
+      const saveError =
+        caught instanceof Error ? caught.message : "The setting could not be saved.";
+
+      try {
+        setFeature(await requestFeatureState());
+        setError(`${saveError} The saved setting has been restored.`);
+      } catch {
+        setFeature(null);
+        setError(`${saveError} Refresh the page to reload the saved setting.`);
+      }
     } finally {
       setLoading(false);
     }
   }
+
+  const enabled = feature?.enabled === true;
+  const ready = feature !== null;
 
   return (
     <section className="mb-5 rounded-lg border border-[#D8C36A]/30 bg-zinc-950/80 p-4 sm:p-5">
@@ -83,18 +96,31 @@ export default function SecretGuestListSettings() {
         <button
           type="button"
           role="switch"
-          aria-checked={feature?.enabled ?? false}
-          aria-label="The Secret Guest List"
-          disabled={loading || !feature}
-          onClick={() => void update(!feature?.enabled)}
-          className={`flex h-11 w-24 shrink-0 items-center rounded-full border px-1.5 transition ${
-            feature?.enabled
-              ? "justify-end border-emerald-300/40 bg-emerald-300/15 text-emerald-100"
-              : "justify-start border-white/15 bg-black/40 text-zinc-500"
-          } disabled:cursor-not-allowed disabled:opacity-45`}
+          aria-busy={loading}
+          aria-checked={enabled}
+          aria-label={`The Secret Guest List is ${ready ? (enabled ? "ON" : "OFF") : "loading"}`}
+          disabled={loading || !ready}
+          onClick={() => void update(!enabled)}
+          className={`relative h-12 w-28 shrink-0 rounded-full border-2 p-1 text-white shadow-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2D66C] focus-visible:ring-offset-2 focus-visible:ring-offset-black ${
+            ready
+              ? enabled
+                ? "border-emerald-300 bg-emerald-600"
+                : "border-zinc-400 bg-zinc-600"
+              : "border-zinc-700 bg-zinc-800"
+          } disabled:cursor-not-allowed disabled:opacity-65`}
         >
-          <span className="flex h-8 min-w-10 items-center justify-center rounded-full bg-current px-2 text-xs font-bold text-black">
-            {feature?.enabled ? "ON" : "OFF"}
+          <span
+            aria-hidden="true"
+            className={`absolute left-1 top-1 h-9 w-9 rounded-full bg-white shadow-md transition-transform duration-200 ${
+              enabled ? "translate-x-16" : "translate-x-0"
+            }`}
+          />
+          <span
+            className={`absolute inset-0 flex items-center text-xs font-extrabold tracking-[0.12em] ${
+              enabled ? "justify-start pl-4" : "justify-end pr-4"
+            }`}
+          >
+            {ready ? (enabled ? "ON" : "OFF") : "..."}
           </span>
         </button>
       </div>

@@ -1,8 +1,19 @@
 # Secret Guest List ON/OFF Control
 
-STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+STATUS: FOLLOW-UP RELEASE IN PROGRESS - PRODUCTION FEATURE OFF
 
 DATE: 31 OCTOBER 2026
+
+## Toggle Clarity Follow-up
+
+- Authoritative Production state remains OFF.
+- Replace the low-contrast inherited-colour thumb with explicit green ON and grey
+  OFF tracks, a white positional thumb and a matching state label.
+- Fetch the saved value without caching on every page/session load.
+- After a failed update, show the failure and restore the authoritative server
+  state instead of leaving an uncertain local value.
+- Focused tests, TypeScript, targeted lint and the Next.js Production build pass.
+- Deployment and authenticated responsive verification are in progress.
 
 ## Root Cause
 
