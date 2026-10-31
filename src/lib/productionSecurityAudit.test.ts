@@ -25,9 +25,10 @@ test("public waitlist endpoint cannot enumerate or bulk-upsert entries", async (
   const route = await source("../app/api/waitlist/route.ts");
 
   assert.match(route, /available through authenticated Admin/);
-  assert.match(route, /createSecretGuestListEntry/);
+  assert.match(route, /createPublicWaitlistEntry/);
   assert.match(route, /entryInput =/);
-  assert.doesNotMatch(route, /body\.entries|body\.entry/);
+  assert.doesNotMatch(route, /body\.entries/);
+  assert.match(route, /body\.entry/);
   assert.match(route, /requirePublicMaintenanceAvailable/);
   assert.match(route, /scope: "waitlist_ip"/);
   assert.match(route, /scope: "waitlist_contact"/);

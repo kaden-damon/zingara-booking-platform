@@ -6,10 +6,58 @@ DATE: 30 OCTOBER 2026
 
 ## Customer Acknowledgement Follow-up
 
-STATUS: DEPLOYED - CUSTOMER ACTIVATION AWAITING KADEN APPROVAL
+STATUS: COMPLETE - PRODUCTION ACTIVE
+
+### Production Activation
+
+- Kaden Damon explicitly approved immediate Production activation on
+  31 October 2026.
+- The existing `secret_guest_list_customer_acknowledgement` workflow was enabled
+  at `2026-10-31 07:20:00.250368 SAST`.
+- The configuration records Kaden's authoritative auth user ID as `updated_by`.
+- Immutable audit event `3c578834-3421-4699-81e2-9cba9dc3da53` records Kaden's
+  active Super Admin/platform-owner identity, the explicit approval reason and
+  the `enabled` / `activatedAt` change.
+- Post-activation verification confirmed the workflow is enabled with the
+  approved branded subject unchanged.
+- The existing staff route remains enabled with five TO and three CC recipients;
+  no staff email preferences or routing records changed.
+- The one-time Communications uniqueness index remains present. Customer
+  acknowledgement Communications stayed at one pre-activation preview record,
+  confirming that activation did not replay historical enquiries or send email.
+- The deployed public Waitlist path invokes the acknowledgement only after a
+  newly accepted enquiry and runs it asynchronously alongside the unchanged
+  Box Office notification.
+- No code, migration, commit, deployment, enquiry, booking, customer email or
+  business-data change was required beyond the single workflow configuration
+  activation and its append-only audit event.
+
+### Approval-Gate Evidence
 
 - Automatic delivery must remain disabled until Kaden approves one isolated
   Production-template email sent to his authoritative staff address.
+
+## Waitlist Communications & Data Integrity Follow-up
+
+STATUS: VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
+
+- A strict Production audit found 131 confirmed rapid-retry duplicate rows in
+  93 customer/performance groups. All were legacy standard Waitlist submissions;
+  the Secret Guest List atomic path had no confirmed duplicates.
+- Historical rows and audit evidence are preserved without deletion or merging.
+- Both sources now share one atomic, contact-and-performance duplicate guard.
+- New standard Waitlist enquiries reuse the Phase 67 staff notification route
+  and branded email infrastructure.
+- Standard Waitlist customers receive an asynchronous, idempotent acknowledgement
+  only after a newly accepted enquiry. The subject is
+  `You're on Zingara's Waitlist!`; historical entries are not replayed.
+- The existing live Secret Guest List acknowledgement remains unchanged.
+- A bounded daily reminder is scheduled for the 08:00 SAST hour and includes
+  future active/contacted enquiries from both sources only.
+- Two independent existing-style preferences were added: `New Waitlist Enquiry`
+  and `Daily Waitlist Reminder`.
+- Nicci Richardson's 12 October 2026 09:04 SAST timestamp is the correct display
+  of the authoritative creation time; no historical correction is required.
 - The follow-up reuses the existing Waitlist acceptance, branded customer email,
   Microsoft 365 and Communications infrastructure.
 - Commit `d542509cc32c032d263d44f06fc7dc9c834a5be0` deployed through Vercel

@@ -35,12 +35,12 @@ test("submission is atomic, duplicate-safe and leaves booking capacity untouched
   const [route, server, migration] = await Promise.all([
     source("../app/api/waitlist/route.ts"),
     source("./supabase/waitlistServer.ts"),
-    source("../../supabase/migrations/20261030210000_phase_67_secret_guest_list.sql"),
+    source("../../supabase/migrations/20261031060000_waitlist_communications_integrity.sql"),
   ]);
 
   assert.match(route, /after\(async \(\) =>/);
   assert.match(route, /duplicate: !result\.created/);
-  assert.match(server, /create_secret_guest_list_entry/);
+  assert.match(server, /create_public_waitlist_entry/);
   assert.match(migration, /pg_advisory_xact_lock/g);
   assert.match(migration, /waitlist\.status in \('active', 'contacted'\)/);
   assert.match(migration, /insert into public\.waitlist_entries/);

@@ -6,6 +6,7 @@ import {
 } from "@/lib/workflows/automatedWorkflows";
 import { runCorporatePaymentHolds } from "@/lib/workflows/corporatePaymentHolds";
 import { runDailyBookingReview } from "@/lib/workflows/dailyBookingReview";
+import { runDailyWaitlistReminder } from "@/lib/workflows/dailyWaitlistReminder";
 import { runDineplanScheduledEmails } from "@/lib/workflows/dineplanScheduledEmails";
 import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
 import { runReviewManagementWorkflows } from "@/lib/workflows/reviewManagement";
@@ -66,6 +67,13 @@ export async function GET(request: Request) {
     } catch (dailyReviewError) {
       console.error("[Zingara Workflows] Daily Booking Review failed", dailyReviewError);
       dailyBookingReview = { reason: "failed", sent: 0, skipped: 0 };
+    }
+    let dailyWaitlistReminder: Awaited<ReturnType<typeof runDailyWaitlistReminder>> | { reason: "failed"; sent: false };
+    try {
+      dailyWaitlistReminder = await runDailyWaitlistReminder(serviceClient);
+    } catch (waitlistReminderError) {
+      console.error("[Zingara Workflows] Daily Waitlist Reminder failed", waitlistReminderError);
+      dailyWaitlistReminder = { reason: "failed", sent: false };
     }
     const publicPaymentHolds = await runPublicPaymentHoldCleanup(serviceClient);
     let reviewManagement: Awaited<ReturnType<typeof runReviewManagementWorkflows>> | { reason: "failed" };
@@ -149,6 +157,7 @@ export async function GET(request: Request) {
       automaticTableAssignmentNotifications,
       corporatePaymentHolds,
       dailyBookingReview,
+      dailyWaitlistReminder,
       dineplanScheduledEmails,
       invoiceRequestReminder,
       platformFeedback,

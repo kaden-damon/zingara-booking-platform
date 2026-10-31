@@ -36,6 +36,8 @@ type SupabaseShowRow = {
 const waitlistMetadataPrefix = "__zingara_waitlist_meta__:";
 const showMetadataPrefix = "__zingara_show_meta__:";
 
+export type PublicWaitlistSource = "secret-guest-list" | "waitlist";
+
 function toSupabaseWaitlistStatus(
   status: WaitlistStatus,
 ): SupabaseWaitlistStatus {
@@ -103,15 +105,24 @@ function serializeWaitlistNotes(entry: DemoWaitlistEntry) {
   return `${waitlistMetadataPrefix}${JSON.stringify(entry)}`;
 }
 
-export async function createSecretGuestListEntry(
+function splitPublicWaitlistName(name: string) {
+  const [firstName = "", ...surnameParts] = name.trim().split(/\s+/);
+
+  return { firstName, surname: surnameParts.join(" ") };
+}
+
+export async function createPublicWaitlistEntry(
   serviceClient: ServiceClient,
   input: {
+    customerName: string;
+    desiredZoneId?: DemoWaitlistEntry["desiredZoneId"];
+    desiredZoneTitle?: string;
     email: string;
-    firstName: string;
     mobile: string;
+    notes?: string;
     partySize: number;
     showId: string;
-    surname: string;
+    source: PublicWaitlistSource;
   },
 ) {
   const showId = await getSupabaseShowId(serviceClient, input.showId);
@@ -121,30 +132,38 @@ export async function createSecretGuestListEntry(
   }
 
   const now = new Date().toISOString();
+  const name = splitPublicWaitlistName(input.customerName);
   const entry: DemoWaitlistEntry = {
     communicationHistory: [],
     createdAt: now,
     customer: {
       email: input.email.trim().toLowerCase(),
-      name: `${input.firstName.trim()} ${input.surname.trim()}`,
+      name: input.customerName.trim(),
       phone: input.mobile.trim(),
     },
+    desiredZoneId: input.desiredZoneId,
+    desiredZoneTitle: input.desiredZoneTitle?.trim() || undefined,
     id: `WLT-${crypto.randomUUID()}`,
-    notes: "Submitted via The Secret Guest List.",
+    notes:
+      input.source === "secret-guest-list"
+        ? "Submitted via The Secret Guest List."
+        : input.notes?.trim() ?? "",
     partySize: input.partySize,
     showId: input.showId,
     status: "waiting",
   };
   const { data, error } = await serviceClient.rpc(
-    "create_secret_guest_list_entry",
+    "create_public_waitlist_entry",
     {
+      p_desired_section: entry.desiredZoneTitle ?? null,
       p_email: entry.customer.email,
       p_entry_metadata: entry,
-      p_first_name: input.firstName.trim(),
+      p_first_name: name.firstName,
       p_guest_count: input.partySize,
       p_mobile: entry.customer.phone,
       p_show_id: showId,
-      p_surname: input.surname.trim(),
+      p_source: input.source,
+      p_surname: name.surname,
     },
   );
 
@@ -160,7 +179,7 @@ export async function createSecretGuestListEntry(
     | null;
 
   if (!result) {
-    throw new Error("The Secret Guest List request could not be saved.");
+    throw new Error("The Waitlist request could not be saved.");
   }
 
   return {
@@ -170,6 +189,27 @@ export async function createSecretGuestListEntry(
     showId,
     waitlistEntryId: result.waitlist_entry_id,
   };
+}
+
+export async function createSecretGuestListEntry(
+  serviceClient: ServiceClient,
+  input: {
+    email: string;
+    firstName: string;
+    mobile: string;
+    partySize: number;
+    showId: string;
+    surname: string;
+  },
+) {
+  return createPublicWaitlistEntry(serviceClient, {
+    customerName: `${input.firstName.trim()} ${input.surname.trim()}`,
+    email: input.email,
+    mobile: input.mobile,
+    partySize: input.partySize,
+    showId: input.showId,
+    source: "secret-guest-list",
+  });
 }
 
 function getCustomerKey(customer: CustomerInfo) {

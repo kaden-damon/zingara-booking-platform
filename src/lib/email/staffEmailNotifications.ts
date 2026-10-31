@@ -14,6 +14,18 @@ export const staffEmailNotificationRegistry = [
     mode: "personal",
   },
   {
+    description: "An immediate alert when a guest joins the standard Waitlist.",
+    key: "new-waitlist-enquiry",
+    label: "New Waitlist Enquiry",
+    mode: "personal",
+  },
+  {
+    description: "The daily summary of outstanding Waitlist enquiries.",
+    key: "daily-waitlist-reminder",
+    label: "Daily Waitlist Reminder",
+    mode: "personal",
+  },
+  {
     description: "A concise alert whenever a new Corporate enquiry is received.",
     key: "corporate-enquiry",
     label: "New Corporate Enquiries",
@@ -45,7 +57,7 @@ export type ManagementEmailNotificationKey = Extract<
 >["key"];
 export type StaffEmailRouteKey =
   | ManagementEmailNotificationKey
-  | "secret-guest-list";
+  | PersonalEmailNotificationKey;
 
 type StaffRecipient = {
   email: string;

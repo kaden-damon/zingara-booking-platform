@@ -4,6 +4,7 @@ import test from "node:test";
 import type { DemoWaitlistEntry } from "./zingaraDemo.ts";
 import {
   filterWaitlistEntries,
+  formatWaitlistTimestamp,
   getWaitlistSource,
   summarizeWaitlistEntries,
 } from "./waitlistView.ts";
@@ -68,4 +69,11 @@ test("summarises the currently visible entries and active guests", () => {
     removed: 0,
     waiting: 1,
   });
+});
+
+test("formats authoritative Waitlist timestamps explicitly in SAST", () => {
+  assert.equal(
+    formatWaitlistTimestamp("2026-10-12T07:04:07.368Z"),
+    "12/10/2026 09:04",
+  );
 });

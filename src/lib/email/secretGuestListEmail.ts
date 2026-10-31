@@ -18,21 +18,26 @@ function formatPerformance(date: string, time: string) {
   }).format(new Date(`${date}T${time}+02:00`));
 }
 
-export async function sendSecretGuestListNotification(
+export async function sendWaitlistStaffNotification(
   supabase: SupabaseClient,
   input: {
     customerId: string;
     entry: DemoWaitlistEntry;
     showId: string;
+    source: "secret-guest-list" | "waitlist";
   },
 ) {
+  const notificationKey =
+    input.source === "secret-guest-list"
+      ? "secret-guest-list"
+      : "new-waitlist-enquiry";
   const [{ data: show, error: showError }, route] = await Promise.all([
     supabase
       .from("shows")
       .select("date,time,venue")
       .eq("id", input.showId)
       .maybeSingle(),
-    loadManagementEmailRoute(supabase, "secret-guest-list"),
+    loadManagementEmailRoute(supabase, notificationKey),
   ]);
   if (showError) throw showError;
   if (!show || !route.enabled) return;
@@ -43,7 +48,7 @@ export async function sendSecretGuestListNotification(
         enabled: await isPersonalEmailSubscriptionEnabled(
           supabase,
           recipient.id,
-          "secret-guest-list",
+          notificationKey,
         ),
         recipient,
       })),
@@ -53,7 +58,7 @@ export async function sendSecretGuestListNotification(
         enabled: await isPersonalEmailSubscriptionEnabled(
           supabase,
           recipient.id,
-          "secret-guest-list",
+          notificationKey,
         ),
         recipient,
       })),
@@ -61,10 +66,16 @@ export async function sendSecretGuestListNotification(
   ]);
   const to = toEnabled.filter((item) => item.enabled).map((item) => item.recipient);
   const cc = ccEnabled.filter((item) => item.enabled).map((item) => item.recipient);
-  const subject = `The Secret Guest List · ${input.entry.customer.name}`;
+  const sourceLabel =
+    input.source === "secret-guest-list"
+      ? "The Secret Guest List"
+      : "New Waitlist Enquiry";
+  const subject = `${sourceLabel} · ${input.entry.customer.name}`;
   const performance = formatPerformance(show.date, show.time);
   const message = [
-    "A guest has joined The Secret Guest List.",
+    input.source === "secret-guest-list"
+      ? "A guest has joined The Secret Guest List."
+      : "A guest has joined the Waitlist.",
     "",
     `Guest: ${input.entry.customer.name}`,
     `Mobile: ${input.entry.customer.phone}`,
@@ -72,12 +83,14 @@ export async function sendSecretGuestListNotification(
     `Venue: ${show.venue}`,
     `Performance: ${performance}`,
     `Guests: ${input.entry.partySize}`,
+    `Preferred seating: ${input.entry.desiredZoneTitle || "Any eligible seating section"}`,
+    `Enquiry source: ${sourceLabel}`,
     `Reference: ${input.entry.id}`,
   ].join("\n");
   const deliveryId = await claimStaffEmailDelivery(supabase, {
     ccStaffProfileIds: cc.map((member) => member.id),
     eventKey: input.entry.id,
-    notificationKey: "secret-guest-list",
+    notificationKey,
     toStaffProfileIds: to.map((member) => member.id),
   });
 
@@ -89,7 +102,7 @@ export async function sendSecretGuestListNotification(
 
   if (to.length === 0) {
     result = {
-      error: "All primary Secret Guest List recipients disabled this email.",
+      error: `All primary ${sourceLabel} recipients disabled this email.`,
       ok: false,
       suppressed: true,
     };
@@ -97,7 +110,7 @@ export async function sendSecretGuestListNotification(
     const branded = await createBrandedCustomerEmail({
       ctaLabel: "OPEN WAITLIST ENTRY",
       ctaUrl: `/admin?waitlist=${encodeURIComponent(input.entry.id)}`,
-      heading: "The Secret Guest List",
+      heading: sourceLabel,
       includeAgePolicy: false,
       includeSecurityNotice: false,
       message,
@@ -131,4 +144,18 @@ export async function sendSecretGuestListNotification(
       type: "custom_message",
     }),
   ]);
+}
+
+export async function sendSecretGuestListNotification(
+  supabase: SupabaseClient,
+  input: {
+    customerId: string;
+    entry: DemoWaitlistEntry;
+    showId: string;
+  },
+) {
+  return sendWaitlistStaffNotification(supabase, {
+    ...input,
+    source: "secret-guest-list",
+  });
 }

@@ -12,9 +12,12 @@ import type { DemoWaitlistEntry } from "@/lib/zingaraDemo";
 
 export const secretGuestListAcknowledgementSubject =
   "🎪 You're on Zingara's Secret Guest List!";
+export const standardWaitlistAcknowledgementSubject =
+  "You're on Zingara's Waitlist!";
 
 const KADEN_STAFF_PROFILE_ID = "e8598359-54a0-4e1f-a635-1ec8ae02cb78";
 const workflowKey = "secret_guest_list_customer_acknowledgement";
+const standardWorkflowKey = "standard_waitlist_customer_acknowledgement";
 
 function escapeHtml(value: string | number) {
   return String(value)
@@ -120,20 +123,91 @@ export async function createSecretGuestListAcknowledgementEmail(input: {
   };
 }
 
-export async function sendSecretGuestListCustomerAcknowledgement(
+export async function createStandardWaitlistAcknowledgementEmail(input: {
+  customerName: string;
+  date: string;
+  guestCount: number;
+  time: string;
+  venue: string;
+}) {
+  const performance = formatPerformance(input.date, input.time);
+  const venue = formatVenue(input.venue);
+  const legalNotice =
+    "This email acknowledges receipt of an enquiry only. It does not constitute a confirmed booking, reservation or guarantee of availability. No seats have been reserved. A booking is confirmed only upon receipt of an official Zingara booking confirmation.";
+  const message = [
+    "YOU'RE ON THE WAITLIST!",
+    "A little Zingara magic might still be on the way…",
+    "",
+    `Hello ${input.customerName},`,
+    "",
+    "We've received your Waitlist enquiry. Our Box Office team will contact you if suitable seating becomes available.",
+    "",
+    "YOUR WAITLIST ENQUIRY",
+    `Performance: ${performance}`,
+    `Venue: ${venue}`,
+    `Number of guests: ${input.guestCount}`,
+    "",
+    "WHAT HAPPENS NEXT?",
+    "",
+    "Box Office will review your request and contact you using the details you provided if suitable seating becomes available.",
+    "",
+    "The Zingara Team",
+    "",
+    "LEGAL NOTICE",
+    legalNotice,
+    "",
+    "This is a transactional acknowledgement sent because a Waitlist enquiry was submitted to Zingara.",
+  ].join("\n");
+  const html = `
+    <p style="margin:0;color:#d8c36a;font-size:13px;font-weight:700;letter-spacing:1.4px;text-align:center;">A LITTLE ZINGARA MAGIC MIGHT STILL BE ON THE WAY…</p>
+    <p style="margin:22px 0 16px;color:#fffaf0;font-size:15px;line-height:1.65;">Hello ${escapeHtml(input.customerName)},</p>
+    <p style="margin:0 0 22px;color:#fffaf0;font-size:15px;line-height:1.65;">We&#39;ve received your Waitlist enquiry. Our Box Office team will contact you if suitable seating becomes available.</p>
+    <div style="margin:0 0 24px;padding:18px;border:1px solid #4f4525;border-radius:14px;background:#0e0c0a;">
+      <div style="margin-bottom:13px;color:#f2d66c;font-size:12px;font-weight:700;letter-spacing:1.4px;">YOUR WAITLIST ENQUIRY</div>
+      <div style="color:#fffaf0;font-size:14px;line-height:1.75;"><strong>Performance:</strong> ${escapeHtml(performance)}<br /><strong>Venue:</strong> ${escapeHtml(venue)}<br /><strong>Number of guests:</strong> ${escapeHtml(input.guestCount)}</div>
+    </div>
+    <div style="margin:0 0 10px;color:#f2d66c;font-size:12px;font-weight:700;letter-spacing:1.4px;">WHAT HAPPENS NEXT?</div>
+    <p style="margin:0 0 22px;color:#fffaf0;font-size:15px;line-height:1.65;">Box Office will review your request and contact you using the details you provided if suitable seating becomes available.<br /><br />The Zingara Team</p>
+    <div style="margin:0 0 16px;padding:16px;border:1px solid #4f4525;border-radius:12px;background:#0e0c0a;">
+      <div style="color:#f2d66c;font-size:11px;font-weight:700;letter-spacing:1.3px;">LEGAL NOTICE</div>
+      <div style="margin-top:8px;color:#c4bfb7;font-size:12px;line-height:1.65;">${escapeHtml(legalNotice)}</div>
+    </div>
+    <p style="margin:0;color:#8f8a83;font-size:11px;line-height:1.6;">This is a transactional acknowledgement sent because a Waitlist enquiry was submitted to Zingara.</p>`;
+  const branded = await createBrandedCustomerEmail({
+    heading: "YOU'RE ON THE WAITLIST!",
+    html,
+    includeAgePolicy: false,
+    includePrimaryCta: false,
+    includeSecurityNotice: false,
+    message,
+    subject: standardWaitlistAcknowledgementSubject,
+  });
+
+  return {
+    ...branded,
+    performance,
+    subject: standardWaitlistAcknowledgementSubject,
+    venue,
+  };
+}
+
+export async function sendWaitlistCustomerAcknowledgement(
   supabase: SupabaseClient,
   input: {
     customerId: string;
     entry: DemoWaitlistEntry;
     showId: string;
+    source: "secret-guest-list" | "waitlist";
   },
 ) {
+  const configurationKey =
+    input.source === "secret-guest-list" ? workflowKey : standardWorkflowKey;
   const [{ data: configuration, error: configurationError }, { data: show, error: showError }] =
     await Promise.all([
       supabase
         .from("workflow_configurations")
         .select("enabled")
-        .eq("workflow_key", workflowKey)
+        .eq("workflow_key", configurationKey)
         .maybeSingle(),
       supabase
         .from("shows")
@@ -145,14 +219,23 @@ export async function sendSecretGuestListCustomerAcknowledgement(
   if (configurationError) throw configurationError;
   if (showError) throw showError;
   if (!configuration?.enabled) return { status: "disabled" as const };
-  if (!show) throw new Error("Secret Guest List performance was not found.");
+  if (!show) throw new Error("Waitlist performance was not found.");
 
-  const email = await createSecretGuestListAcknowledgementEmail({
-    date: show.date,
-    guestCount: input.entry.partySize,
-    time: show.time,
-    venue: show.venue,
-  });
+  const email =
+    input.source === "secret-guest-list"
+      ? await createSecretGuestListAcknowledgementEmail({
+          date: show.date,
+          guestCount: input.entry.partySize,
+          time: show.time,
+          venue: show.venue,
+        })
+      : await createStandardWaitlistAcknowledgementEmail({
+          customerName: input.entry.customer.name,
+          date: show.date,
+          guestCount: input.entry.partySize,
+          time: show.time,
+          venue: show.venue,
+        });
   const claim = await claimOneTimeEmailCommunication(supabase, {
     booking_id: null,
     channel: "email",
@@ -183,6 +266,20 @@ export async function sendSecretGuestListCustomerAcknowledgement(
   });
 
   return { error: result.ok ? null : result.error, status } as const;
+}
+
+export async function sendSecretGuestListCustomerAcknowledgement(
+  supabase: SupabaseClient,
+  input: {
+    customerId: string;
+    entry: DemoWaitlistEntry;
+    showId: string;
+  },
+) {
+  return sendWaitlistCustomerAcknowledgement(supabase, {
+    ...input,
+    source: "secret-guest-list",
+  });
 }
 
 export async function sendSecretGuestListCustomerAcknowledgementPreview(

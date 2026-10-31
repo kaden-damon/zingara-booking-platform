@@ -39,6 +39,7 @@ import { replaceShowScopedRows } from "@/lib/showScopedState";
 import {
   buildWaitlistPrintHtml,
   filterWaitlistEntries,
+  formatWaitlistTimestamp,
   getWaitlistSource,
   summarizeWaitlistEntries,
   type WaitlistGuestCountFilter,
@@ -22306,9 +22307,9 @@ export default function AdminDashboardPage({
         canConvert,
         contactLabel: contactLabel || "No contact details",
         convertedAt: entry.convertedAt
-          ? formatSouthAfricanTimestamp(entry.convertedAt)
+          ? formatWaitlistTimestamp(entry.convertedAt)
           : undefined,
-        createdAt: formatSouthAfricanTimestamp(entry.createdAt),
+        createdAt: formatWaitlistTimestamp(entry.createdAt),
         guestName: entry.customer.name || "Unnamed Guest",
         hasAvailableSeating,
         id: entry.id,
@@ -22316,7 +22317,7 @@ export default function AdminDashboardPage({
         partySize: entry.partySize,
         performanceLabel: getShowLabel(selectedShow),
         promotedAt: entry.promotedAt
-          ? formatSouthAfricanTimestamp(entry.promotedAt)
+          ? formatWaitlistTimestamp(entry.promotedAt)
           : undefined,
         sourceLabel:
           getWaitlistSource(entry) === "secret-guest-list"

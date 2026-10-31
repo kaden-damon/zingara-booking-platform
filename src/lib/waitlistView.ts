@@ -41,6 +41,24 @@ export type WaitlistPrintInput = {
 
 const secretGuestListNote = "submitted via the secret guest list.";
 
+export function formatWaitlistTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = new Intl.DateTimeFormat("en-ZA", {
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    month: "2-digit",
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+  }).formatToParts(date);
+  const part = (type: string) =>
+    parts.find((item) => item.type === type)?.value ?? "";
+
+  return `${part("day")}/${part("month")}/${part("year")} ${part("hour")}:${part("minute")}`;
+}
+
 export function getWaitlistSource(entry: DemoWaitlistEntry): WaitlistSource {
   return entry.notes.trim().toLowerCase().startsWith(secretGuestListNote)
     ? "secret-guest-list"

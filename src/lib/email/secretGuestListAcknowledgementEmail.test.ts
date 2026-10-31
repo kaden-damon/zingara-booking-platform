@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   createSecretGuestListAcknowledgementEmail,
+  createStandardWaitlistAcknowledgementEmail,
   secretGuestListAcknowledgementSubject,
+  standardWaitlistAcknowledgementSubject,
 } from "./secretGuestListAcknowledgementEmail.ts";
 
 async function source(path: string) {
@@ -50,13 +52,34 @@ test("automatic acknowledgement is disabled by configuration and claimed before 
   );
   assert.match(email, /kind: "waitlist_update"/);
   assert.match(route, /Promise\.allSettled/);
-  assert.match(route, /sendSecretGuestListNotification/);
-  assert.match(route, /sendSecretGuestListCustomerAcknowledgement/);
+  assert.match(route, /sendWaitlistStaffNotification/);
+  assert.match(route, /sendWaitlistCustomerAcknowledgement/);
   assert.match(
     migration,
     /secret_guest_list_customer_acknowledgement',[\s\S]*false,/,
   );
   assert.match(migration, /communications_secret_guest_list_ack_once_uidx/);
+});
+
+test("standard Waitlist acknowledgement keeps the approved transactional safeguards", async () => {
+  const email = await createStandardWaitlistAcknowledgementEmail({
+    customerName: "Nicci Richardson",
+    date: "2026-10-31",
+    guestCount: 10,
+    time: "17:00:00",
+    venue: "johannesburg",
+  });
+
+  assert.equal(standardWaitlistAcknowledgementSubject, "You're on Zingara's Waitlist!");
+  assert.match(email.html, /data-zingara-customer-email="true"/);
+  assert.match(email.html, /Hello Nicci Richardson/);
+  assert.match(email.html, /Saturday, 31 October 2026 at 17:00/);
+  assert.match(email.html, /Number of guests:<\/strong> 10/);
+  assert.match(email.html, /if suitable seating becomes available/);
+  assert.match(email.html, /does not constitute a confirmed booking/);
+  assert.match(email.html, /No seats have been reserved/);
+  assert.match(email.html, /Privacy Policy/);
+  assert.match(email.html, /Terms &amp; Conditions/);
 });
 
 test("preview resolves Kaden by stable staff id and cannot create an enquiry", async () => {

@@ -10,6 +10,8 @@ test("personal subscriptions and management routing are separate", () => {
     [
       { key: "daily-booking-review", mode: "personal" },
       { key: "secret-guest-list", mode: "personal" },
+      { key: "new-waitlist-enquiry", mode: "personal" },
+      { key: "daily-waitlist-reminder", mode: "personal" },
       { key: "corporate-enquiry", mode: "management" },
       { key: "new-review-alert", mode: "management" },
       { key: "invoice-request-reminders", mode: "management" },
@@ -41,7 +43,7 @@ test("Secret Guest List uses authoritative routing plus each recipient's own pre
   ]) {
     assert.match(migration, new RegExp(id));
   }
-  assert.match(workflow, /loadManagementEmailRoute\(supabase, "secret-guest-list"\)/);
+  assert.match(workflow, /loadManagementEmailRoute\(supabase, notificationKey\)/);
   assert.match(workflow, /isPersonalEmailSubscriptionEnabled/);
   assert.match(workflow, /toEnabled\.filter/);
   assert.match(workflow, /ccEnabled\.filter/);
