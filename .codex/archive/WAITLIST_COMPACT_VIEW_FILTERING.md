@@ -1,6 +1,6 @@
 # Waitlist Compact View & Filtering
 
-STATUS: IMPLEMENTED AND LOCALLY VERIFIED - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 31 OCTOBER 2026
 
@@ -34,9 +34,20 @@ filterable presentation without changing its data, permissions or actions.
 
 ## Release Evidence
 
-Pending Production commit, deployment and authenticated UI verification.
+- Application commit: `9955a532e9cf368163d09be0f8d2dcc0b9a473a6`.
+- Production deployment: GitHub deployment `7454449140`; Vercel deployment
+  `JB4vQx6wLSgPMGohRdaKMbUKcwwq`.
+- Completed: 31 October 2026 at 07:04:20 SAST.
+- Production alias: `https://book.zingara.co.za/admin` (HTTP 200).
+- Authenticated desktop verification confirmed Compact as the default, entry
+  expansion, Expanded view, all existing operational actions, search and source
+  filtering, and accurate filtered counters and guest totals.
+- Responsive verification at 390 x 841 confirmed controls and entries stack
+  cleanly without overlap.
+- No Waitlist action was executed during verification.
+- Rollback point: `e0de8da4635ee1567c54ae7bb6c68e68135ad1b0`.
 
 ## Business-Data Delta
 
-Zero expected. No Waitlist, booking, seating, payment or financial record is
-changed by this interface-only release.
+Zero. No Waitlist, booking, seating, payment or financial record changed. No
+migration was applied.

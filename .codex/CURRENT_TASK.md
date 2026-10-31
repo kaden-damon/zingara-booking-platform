@@ -1,6 +1,6 @@
 # Waitlist Compact View & Filtering
 
-STATUS: IMPLEMENTED AND LOCALLY VERIFIED - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE - RELEASED AND VERIFIED IN PRODUCTION
 
 DATE: 31 OCTOBER 2026
 
@@ -37,10 +37,21 @@ existing Waitlist, Secret Guest List and booking-conversion workflows.
 
 ## Release
 
-Application commit, deployment identifier and authenticated Production evidence
-will be recorded after the controlled release completes.
+- Application commit: `9955a532e9cf368163d09be0f8d2dcc0b9a473a6`.
+- Production deployment: GitHub deployment `7454449140`; Vercel deployment
+  `JB4vQx6wLSgPMGohRdaKMbUKcwwq`.
+- Deployment completed at 07:04:20 SAST on 31 October 2026.
+- Production alias `https://book.zingara.co.za/admin` returned HTTP 200.
+- Authenticated Production verification with Kaden Damon's account confirmed:
+  Compact opens by default; search and enquiry-source filters combine correctly;
+  visible counters and guest totals recalculate correctly; Expanded and individual
+  entry detail expose the existing Promote, Convert To Booking and Remove actions.
+- Responsive verification at 390 x 841 confirmed clean stacked controls and
+  compact entries without overlap.
+- No mutation action was executed during verification.
+- Rollback point: `e0de8da4635ee1567c54ae7bb6c68e68135ad1b0`.
 
 ## Business-Data Delta
 
-Expected: zero. This change does not mutate Waitlist, booking, seating, payment
-or financial records.
+Zero. This change did not mutate Waitlist, booking, seating, payment or financial
+records. No migration was applied.
