@@ -2,8 +2,8 @@ import {
   loadManagementEmailRoute,
   loadPersonalEmailSubscriptions,
   staffEmailNotificationRegistry,
-  type ManagementEmailNotificationKey,
   type PersonalEmailNotificationKey,
+  type StaffEmailRouteKey,
 } from "@/lib/email/staffEmailNotifications";
 import {
   getRolePermissions,
@@ -39,11 +39,11 @@ function isPersonalKey(value: unknown): value is PersonalEmailNotificationKey {
   );
 }
 
-function isManagementKey(
+function isRoutedKey(
   value: unknown,
-): value is ManagementEmailNotificationKey {
+): value is StaffEmailRouteKey {
   return staffEmailNotificationRegistry.some(
-    (item) => item.mode === "management" && item.key === value,
+    (item) => item.routed && item.key === value,
   );
 }
 
@@ -52,14 +52,12 @@ async function responsePayload(
   includeStaffOptions = true,
 ) {
   const canManage = canManageOrganisation(auth.staffProfile!);
-  const managementKeys = staffEmailNotificationRegistry
-    .filter((item) => item.mode === "management")
+  const routedKeys = staffEmailNotificationRegistry
+    .filter((item) => item.routed)
     .map((item) => item.key);
   const [personal, managementRoutes, staffOptions, bookingExperienceFeedback] = await Promise.all([
     loadPersonalEmailSubscriptions(auth.serviceClient!, auth.staffProfile!.id),
-    canManage
-      ? Promise.all(managementKeys.map((key) => loadManagementEmailRoute(auth.serviceClient!, key)))
-      : Promise.resolve([]),
+    Promise.all(routedKeys.map((key) => loadManagementEmailRoute(auth.serviceClient!, key))),
     canManage && includeStaffOptions
       ? auth.serviceClient!
           .from("staff_profiles")
@@ -82,7 +80,9 @@ async function responsePayload(
           status: bookingExperienceFeedback.status,
         }
       : null,
-    management: managementRoutes,
+    management: managementRoutes.map((route) =>
+      canManage ? route : { ...route, cc: [], to: [] },
+    ),
     personal,
     staffOptions: (staffOptions.data ?? []).map((staff) => ({
       email: staff.email,
@@ -206,7 +206,7 @@ export async function PATCH(request: Request) {
       return Response.json(await responsePayload(auth));
     }
 
-    if (body?.action === "management" && isManagementKey(body.notificationKey)) {
+    if (body?.action === "management" && isRoutedKey(body.notificationKey)) {
       if (!canManageOrganisation(auth.staffProfile)) {
         return Response.json(
           { error: "Management access is required to change email routing." },

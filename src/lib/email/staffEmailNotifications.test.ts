@@ -6,15 +6,15 @@ import { staffEmailNotificationRegistry } from "./staffEmailNotifications.ts";
 
 test("personal subscriptions and management routing are separate", () => {
   assert.deepEqual(
-    staffEmailNotificationRegistry.map(({ key, mode }) => ({ key, mode })),
+    staffEmailNotificationRegistry.map(({ key, mode, routed }) => ({ key, mode, routed })),
     [
-      { key: "daily-booking-review", mode: "personal" },
-      { key: "secret-guest-list", mode: "personal" },
-      { key: "new-waitlist-enquiry", mode: "personal" },
-      { key: "daily-waitlist-reminder", mode: "personal" },
-      { key: "corporate-enquiry", mode: "management" },
-      { key: "new-review-alert", mode: "management" },
-      { key: "invoice-request-reminders", mode: "management" },
+      { key: "daily-booking-review", mode: "personal", routed: false },
+      { key: "secret-guest-list", mode: "personal", routed: true },
+      { key: "new-waitlist-enquiry", mode: "personal", routed: true },
+      { key: "daily-waitlist-reminder", mode: "personal", routed: true },
+      { key: "corporate-enquiry", mode: "management", routed: true },
+      { key: "new-review-alert", mode: "management", routed: true },
+      { key: "invoice-request-reminders", mode: "management", routed: true },
     ],
   );
 });
@@ -112,11 +112,35 @@ test("Email Notifications UI keeps personal and management controls distinct", a
     "utf8",
   );
 
-  assert.match(card, /Your email subscriptions/);
-  assert.match(card, /Management-controlled recipients/);
-  assert.match(card, /Only authorised management/);
+  assert.match(card, /Your notifications/);
+  assert.match(card, /Organisation workflows/);
+  assert.match(card, /Organisation switches and recipients require management access/);
   assert.match(card, /New Corporate Enquiries/);
   assert.match(card, /New Review Alerts/);
   assert.match(card, /Invoice Request Reminders/);
-  assert.match(card, /sm:grid-cols-2/);
+  assert.match(card, /role="switch"/);
+});
+
+test("Waitlist routing correction uses only the six approved staff identities", async () => {
+  const migration = await readFile(
+    new URL(
+      "../../../supabase/migrations/20261031110000_staff_email_recipient_correction.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  for (const id of [
+    "bb58fd74-5995-4544-803a-6baaf0ec129b",
+    "92edf75d-06bf-4d40-a142-52b2862a3795",
+    "d185b639-054d-4c4f-8f6b-3c1e6fc205af",
+    "fe8dff17-a040-4296-afa1-49c058d070f4",
+    "e8598359-54a0-4e1f-a635-1ec8ae02cb78",
+    "a021d26b-3a16-46b5-b184-6f33e58d1884",
+  ]) {
+    assert.match(migration, new RegExp(id));
+  }
+  assert.doesNotMatch(migration, /3ac09b59-fc3f-4c6d-9bb3-8dd47a077188/);
+  assert.doesNotMatch(migration, /eb6ce1ab-50c8-415a-a858-23ad58300ad8/);
+  assert.match(migration, /v_route_count <> 3/);
 });

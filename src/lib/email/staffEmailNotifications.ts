@@ -6,42 +6,49 @@ export const staffEmailNotificationRegistry = [
     key: "daily-booking-review",
     label: "Daily Booking Review",
     mode: "personal",
+    routed: false,
   },
   {
     description: "An alert when a guest asks about room on a sold-out performance.",
     key: "secret-guest-list",
     label: "The Secret Guest List",
     mode: "personal",
+    routed: true,
   },
   {
     description: "An immediate alert when a guest joins the standard Waitlist.",
     key: "new-waitlist-enquiry",
     label: "New Waitlist Enquiry",
     mode: "personal",
+    routed: true,
   },
   {
     description: "The daily summary of outstanding Waitlist enquiries.",
     key: "daily-waitlist-reminder",
     label: "Daily Waitlist Reminder",
     mode: "personal",
+    routed: true,
   },
   {
     description: "A concise alert whenever a new Corporate enquiry is received.",
     key: "corporate-enquiry",
     label: "New Corporate Enquiries",
     mode: "management",
+    routed: true,
   },
   {
     description: "An immediate alert whenever a guest submits a review.",
     key: "new-review-alert",
     label: "New Review Alerts",
     mode: "management",
+    routed: true,
   },
   {
     description: "One morning summary when accepted quotations are waiting for Accounts.",
     key: "invoice-request-reminders",
     label: "Invoice Request Reminders",
     mode: "management",
+    routed: true,
   },
 ] as const;
 
@@ -55,9 +62,10 @@ export type ManagementEmailNotificationKey = Extract<
   (typeof staffEmailNotificationRegistry)[number],
   { mode: "management" }
 >["key"];
-export type StaffEmailRouteKey =
-  | ManagementEmailNotificationKey
-  | PersonalEmailNotificationKey;
+export type StaffEmailRouteKey = Extract<
+  (typeof staffEmailNotificationRegistry)[number],
+  { routed: true }
+>["key"];
 
 type StaffRecipient = {
   email: string;

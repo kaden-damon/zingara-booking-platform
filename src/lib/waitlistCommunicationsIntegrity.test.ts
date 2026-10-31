@@ -79,9 +79,9 @@ test("daily reminder is SAST scheduled, actionable-only and idempotent", async (
   assert.match(preferences, /key: "daily-waitlist-reminder"/);
 });
 
-test("all Waitlist staff routes use Kaden as the only CC recipient", async () => {
+test("all Waitlist staff routes use the approved TO and CC recipients", async () => {
   const migration = await source(
-    "../../supabase/migrations/20261031080000_waitlist_email_recipient_correction.sql",
+    "../../supabase/migrations/20261031110000_staff_email_recipient_correction.sql",
   );
 
   for (const notificationKey of [
@@ -91,8 +91,9 @@ test("all Waitlist staff routes use Kaden as the only CC recipient", async () =>
   ]) {
     assert.match(migration, new RegExp(`'${notificationKey}'`));
   }
-  assert.match(migration, /v_cc uuid\[\] := array\[[\s\S]*e8598359-54a0-4e1f-a635-1ec8ae02cb78[\s\S]*\];/);
-  assert.doesNotMatch(migration, /a021d26b-3a16-46b5-b184-6f33e58d1884/);
+  assert.match(migration, /v_to uuid\[\] := array\[[\s\S]*bb58fd74-5995-4544-803a-6baaf0ec129b[\s\S]*92edf75d-06bf-4d40-a142-52b2862a3795[\s\S]*d185b639-054d-4c4f-8f6b-3c1e6fc205af[\s\S]*fe8dff17-a040-4296-afa1-49c058d070f4[\s\S]*\];/);
+  assert.match(migration, /v_cc uuid\[\] := array\[[\s\S]*e8598359-54a0-4e1f-a635-1ec8ae02cb78[\s\S]*a021d26b-3a16-46b5-b184-6f33e58d1884[\s\S]*\];/);
+  assert.doesNotMatch(migration, /3ac09b59-fc3f-4c6d-9bb3-8dd47a077188/);
   assert.doesNotMatch(migration, /eb6ce1ab-50c8-415a-a858-23ad58300ad8/);
   assert.match(migration, /v_route_count <> 3/);
 });

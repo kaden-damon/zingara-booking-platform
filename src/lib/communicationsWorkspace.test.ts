@@ -54,7 +54,7 @@ test("Communication history uses bounded authoritative server pages", () => {
 
 test("Staff and guest settings mount only in their selected tabs", () => {
   assert.match(admin, /activeCommunicationsTab === "staff-emails"/);
-  assert.match(admin, /EmailNotificationsSettings showPersonal=\{false\}/);
+  assert.match(admin, /<EmailNotificationsSettings \/>/);
   assert.match(admin, /activeCommunicationsTab === "guest-emails"/);
   assert.match(admin, /activeCommunicationsTab === "broadcasts"/);
 });

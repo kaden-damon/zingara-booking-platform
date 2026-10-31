@@ -35301,7 +35301,7 @@ export default function AdminDashboardPage({
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 {[
                   ["Active guest workflows", String(automatedWorkflows.filter((workflow) => workflow.enabled).length)],
-                  ["Staff email workflows", "4 managed"],
+                  ["Staff email workflows", "Open settings"],
                   ["Recent activity", "Open History"],
                   ["Failed communications", "Check History"],
                   ["Next scheduled runs", "Open Staff Emails"],
@@ -35575,7 +35575,7 @@ export default function AdminDashboardPage({
 
             {activeCommunicationsTab === "staff-emails" && (
               <div className="space-y-4">
-                <EmailNotificationsSettings showPersonal={false} />
+                <EmailNotificationsSettings />
                 <DailyBookingReviewWorkflowCard isSuperAdmin={isSuperAdmin} />
                 <ReviewManagementWorkflowCard isSuperAdmin={isSuperAdmin} />
               </div>
