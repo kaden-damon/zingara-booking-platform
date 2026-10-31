@@ -1,6 +1,6 @@
 # Waitlist Email Recipient Correction
 
-STATUS: VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE - PRODUCTION RELEASED AND VERIFIED
 
 DATE: 31 OCTOBER 2026
 
@@ -35,18 +35,28 @@ acknowledgements.
 
 ## Verification
 
-- Focused route test: pending final run.
-- Migration dry run: pending.
-- Production route verification: pending.
+- Focused Waitlist communications tests: 5/5 passed.
+- Targeted ESLint, TypeScript and diff validation passed.
+- Migration dry run identified exactly one pending migration before release.
+- Production verification confirmed all three routes are enabled with five TO
+  recipients and one CC recipient.
+- All six effective recipients currently have their individual preference
+  enabled. Personal preference rows were not changed.
+- Tracy and Nicky-Anne are absent from TO and CC on every Waitlist-specific
+  route. Application inspection confirmed no alternate or fallback list.
 
 ## Release
 
-- Commit: pending.
-- Migration: `20261031080000_waitlist_email_recipient_correction.sql` pending.
-- Production deployment: pending.
+- Commit: `0228727b6554df43325aa0813f71fe09cc0471df`.
+- Migration `20261031080000_waitlist_email_recipient_correction.sql` applied
+  successfully to Production.
+- Vercel Production deployment: `BJ1ySRnxSiN5exT7o4JA5wVkL9wv`.
+- Deployment completed at 07:44:10 SAST on 31 October 2026.
+- Rollback point: `214e9e50ec00b98a1dbcdeca893fd0fa84ff46a9`.
 
 ## Business-Data Delta
 
-Planned delta is limited to the TO/CC arrays and `updated_at` value on three
-Waitlist management routing rows. No email will be sent and no historical
-notification will be replayed.
+The TO/CC arrays and `updated_at` value changed on exactly three Waitlist
+management routing rows. No subscription, communication, customer, Waitlist,
+booking, payment, seating, ticket or financial record changed. No email was sent
+and no historical notification was replayed.

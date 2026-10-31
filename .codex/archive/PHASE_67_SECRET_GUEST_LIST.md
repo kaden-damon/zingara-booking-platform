@@ -93,7 +93,7 @@ STATUS: COMPLETE - PRODUCTION RELEASED AND VERIFIED
 
 ## Waitlist Email Recipient Correction
 
-STATUS: VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE - PRODUCTION RELEASED AND VERIFIED
 
 - Production has three enabled Waitlist-specific staff routes:
   `secret-guest-list`, `new-waitlist-enquiry` and `daily-waitlist-reminder`.
@@ -106,6 +106,19 @@ STATUS: VERIFIED LOCALLY - PRODUCTION RELEASE IN PROGRESS
   Kaden as the sole CC, and removes Tracy and Nicky-Anne from all three routes.
 - Customer acknowledgements, templates, Communications logging, duplicate
   prevention and historical deliveries remain unchanged.
+- Production verification confirmed each route is enabled with the exact five
+  TO recipients and Kaden as the sole CC; all six personal preferences are
+  currently enabled.
+- Tracy and Nicky-Anne are absent from every Waitlist-specific TO/CC array and
+  cannot be resolved through alternate or fallback routing.
+- Focused tests passed 5/5, with targeted ESLint, TypeScript, diff validation and
+  migration dry run also passing.
+- Commit `0228727b6554df43325aa0813f71fe09cc0471df` deployed through Vercel
+  deployment `BJ1ySRnxSiN5exT7o4JA5wVkL9wv` at 07:44:10 SAST on
+  31 October 2026.
+- Migration `20261031080000_waitlist_email_recipient_correction.sql` applied
+  successfully. Exactly three routing rows changed; no email or historical
+  notification was sent.
 
 ## Baseline and Diagnosis
 
