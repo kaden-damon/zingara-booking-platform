@@ -1,6 +1,6 @@
 # Secret Guest List ON/OFF Control
 
-STATUS: RELEASE IN PROGRESS - PRODUCTION FEATURE OFF
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 31 OCTOBER 2026
 
@@ -39,5 +39,20 @@ accepted Secret Guest List payloads without checking a feature state.
 
 ## Release Evidence
 
-Application commit, Vercel deployment identifier and authenticated Production
-verification will be recorded after the application release completes.
+- Application commit: `f5226995b33489fdf97ff374f7490bde7e9c762c`.
+- Vercel deployment: `4TFJEGnf1LysAzRd7G633vwtU9nH`, completed at
+  11:49:23 SAST on 31 October 2026.
+- Kaden's authenticated Production interface shows the management control under
+  Settings > Venue > Public Booking with value OFF.
+- The live public booking calendar contains no Secret Guest List label or
+  `See If There's Room` action.
+- The Production public settings endpoint reports the feature disabled and the
+  direct submission endpoint returns HTTP 409 while OFF.
+- The management endpoint requires authenticated staff access and returned HTTP
+  401 without a session.
+- Rollback-only Production verification proved standard Waitlist acceptance,
+  Secret Guest List rejection while OFF and restoration while ON. No fixture was
+  retained.
+- Public booking and ticket routes are healthy. Business-data delta is one OFF
+  workflow configuration row only; historical enquiries and all unrelated data
+  are unchanged.

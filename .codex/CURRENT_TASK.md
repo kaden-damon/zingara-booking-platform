@@ -1,6 +1,6 @@
 # Secret Guest List ON/OFF Control
 
-STATUS: RELEASE IN PROGRESS - PRODUCTION FEATURE OFF
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 31 OCTOBER 2026
 
@@ -41,5 +41,17 @@ preserving the standard Waitlist, existing enquiries and every booking path.
 
 ## Release
 
-- Application commit, Vercel deployment and authenticated Production interface
-  verification are in progress.
+- Application commit: `f5226995b33489fdf97ff374f7490bde7e9c762c`.
+- Vercel deployment: `4TFJEGnf1LysAzRd7G633vwtU9nH`, completed at
+  11:49:23 SAST on 31 October 2026.
+- Kaden's authenticated Production session confirmed the switch is visible at
+  Settings > Venue > Public Booking and displays OFF.
+- The live public booking calendar contains no Secret Guest List invitation or
+  CTA for restricted performances.
+- The live public settings response reports `secretGuestList: false`; a direct
+  submission returns HTTP 409, and the management endpoint rejects an
+  unauthenticated request with HTTP 401.
+- Rollback-only Production verification confirmed standard Waitlist submission,
+  OFF rejection and ON restoration without retaining test records.
+- Public booking and ticket routes return HTTP 200. No booking, payment, ticket,
+  seating, customer, communication or financial record changed.
