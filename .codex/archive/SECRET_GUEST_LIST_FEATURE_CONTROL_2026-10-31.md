@@ -1,6 +1,6 @@
 # Secret Guest List ON/OFF Control
 
-STATUS: FOLLOW-UP RELEASE IN PROGRESS - PRODUCTION FEATURE OFF
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION - FEATURE OFF
 
 DATE: 31 OCTOBER 2026
 
@@ -13,7 +13,15 @@ DATE: 31 OCTOBER 2026
 - After a failed update, show the failure and restore the authoritative server
   state instead of leaving an uncertain local value.
 - Focused tests, TypeScript, targeted lint and the Next.js Production build pass.
-- Deployment and authenticated responsive verification are in progress.
+- Application commit `9769445c60a561329b4dd504fcd55d30c25d376e`
+  deployed successfully as Vercel deployment `ArPzLjeZgoPnp9FxsfMNih4LAfko` at
+  12:10:43 SAST.
+- Kaden's fresh authenticated Production Admin page reported the switch as
+  `The Secret Guest List is OFF`. Desktop and 390 x 841 responsive inspection
+  confirmed a clear grey OFF track, left-positioned white thumb and explicit
+  OFF label without overlap.
+- The live public settings response remains false, direct Secret Guest List
+  submission returns HTTP 409, and the saved database state remains OFF.
 
 ## Root Cause
 
@@ -67,3 +75,8 @@ accepted Secret Guest List payloads without checking a feature state.
 - Public booking and ticket routes are healthy. Business-data delta is one OFF
   workflow configuration row only; historical enquiries and all unrelated data
   are unchanged.
+- Follow-up verification reran the rollback-only state check: the standard
+  Waitlist remained accepted, OFF rejected Secret Guest List submissions, and
+  ON restored the feature inside the rolled-back transaction. Final Production
+  state remained OFF with 404 Waitlist records and 39 Secret Guest List entries
+  unchanged.

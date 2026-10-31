@@ -1,6 +1,6 @@
 # Secret Guest List ON/OFF Control
 
-STATUS: FOLLOW-UP RELEASE IN PROGRESS - PRODUCTION FEATURE OFF
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION - FEATURE OFF
 
 DATE: 31 OCTOBER 2026
 
@@ -13,8 +13,16 @@ DATE: 31 OCTOBER 2026
   thumb and an explicit label that always agrees with the saved state.
 - Admin reads bypass browser and route caches. Failed saves visibly report the
   error and reload the authoritative server value before re-enabling the switch.
-- Application release and authenticated desktop/mobile verification are in
-  progress.
+- Application commit `9769445c60a561329b4dd504fcd55d30c25d376e`
+  deployed successfully as Vercel deployment `ArPzLjeZgoPnp9FxsfMNih4LAfko` at
+  12:10:43 SAST.
+- Kaden's fresh authenticated Production Admin page reported the switch as
+  `The Secret Guest List is OFF`. Desktop and 390 x 841 responsive inspection
+  confirmed the grey OFF track, left-positioned white thumb and explicit OFF
+  label remain clear without overlap.
+- Production remains OFF after release. The public settings response reports
+  `secretGuestList: false`, and direct Secret Guest List submissions return
+  HTTP 409 before persistence.
 
 ## Objective
 
@@ -67,3 +75,8 @@ preserving the standard Waitlist, existing enquiries and every booking path.
   OFF rejection and ON restoration without retaining test records.
 - Public booking and ticket routes return HTTP 200. No booking, payment, ticket,
   seating, customer, communication or financial record changed.
+- Follow-up release verification reused the rollback-only Production check:
+  standard Waitlist submission remained accepted, OFF rejected Secret Guest
+  List submission, and ON restored the feature inside a rolled-back transaction.
+  The final authoritative state remained OFF with 404 Waitlist records and 39
+  identified Secret Guest List enquiries unchanged.
