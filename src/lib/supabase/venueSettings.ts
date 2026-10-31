@@ -84,6 +84,10 @@ export async function getVenueSettings() {
 }
 
 export async function getPublicVenueSettings() {
+  return (await getPublicBookingSettings()).settings;
+}
+
+export async function getPublicBookingSettings() {
   const fallbackSettings = getStoredVenueSettings();
 
   try {
@@ -96,15 +100,22 @@ export async function getPublicVenueSettings() {
     }
 
     const payload = (await response.json()) as {
+      features?: { secretGuestList?: boolean };
       settings?: DemoVenueSettings | null;
     };
 
-    return payload.settings
-      ? normalizeVenueSettings(payload.settings)
-      : fallbackSettings;
+    return {
+      features: { secretGuestList: payload.features?.secretGuestList === true },
+      settings: payload.settings
+        ? normalizeVenueSettings(payload.settings)
+        : fallbackSettings,
+    };
   } catch (error) {
     console.error("[Zingara Supabase] Failed to load public venue settings", error);
-    return fallbackSettings;
+    return {
+      features: { secretGuestList: false },
+      settings: fallbackSettings,
+    };
   }
 }
 

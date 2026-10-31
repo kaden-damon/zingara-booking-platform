@@ -13,6 +13,7 @@ test("public booking exposes the approved compact Secret Guest List experience",
   ]);
 
   assert.match(page, /getGuestShowStatus\(show\) === "sold-out"/);
+  assert.match(page, /secretGuestListEnabled &&/);
   assert.match(page, /setSecretGuestListShowId\(show\.id\)/);
   assert.match(page, /setSecretGuestListShowId\(selectedShowId\)/);
   assert.match(page, /<SecretGuestListPanel/);
@@ -29,6 +30,28 @@ test("public booking exposes the approved compact Secret Guest List experience",
     assert.match(panel, new RegExp(field));
   }
   assert.doesNotMatch(panel, /Preferred Seating|Guest Notes|account|password/i);
+});
+
+test("management feature control hides public prompts and blocks direct submissions", async () => {
+  const [page, publicRoute, adminRoute, settings, migration] = await Promise.all([
+    source("../app/book/page.tsx"),
+    source("../app/api/waitlist/route.ts"),
+    source("../app/api/admin/secret-guest-list/route.ts"),
+    source("./supabase/venueSettings.ts"),
+    source("../../supabase/migrations/20261031120000_secret_guest_list_feature_control.sql"),
+  ]);
+
+  assert.match(page, /secretGuestListEnabled && secretGuestListShow/);
+  assert.match(settings, /features: \{ secretGuestList: false \}/);
+  assert.match(publicRoute, /loadSecretGuestListFeatureEnabled/);
+  assert.match(publicRoute, /source === "secret-guest-list"/);
+  assert.match(publicRoute, /status: 409/);
+  assert.match(adminRoute, /settings:manage/);
+  assert.match(adminRoute, /secret_guest_list\.feature_status_updated/);
+  assert.match(migration, /'secret_guest_list_feature',[\s\S]*false/);
+  assert.match(migration, /p_source = 'secret-guest-list'[\s\S]*configuration\.enabled/);
+  assert.match(migration, /p_source not in \('waitlist', 'secret-guest-list'\)/);
+  assert.doesNotMatch(migration, /update public\.waitlist_entries|delete from public\.waitlist_entries/);
 });
 
 test("submission is atomic, duplicate-safe and leaves booking capacity untouched", async () => {

@@ -152,6 +152,9 @@ const ReviewManagementWorkflowCard = dynamic(() =>
 const EmailNotificationsSettings = dynamic(
   () => import("./EmailNotificationsSettings"),
 );
+const SecretGuestListSettings = dynamic(
+  () => import("./SecretGuestListSettings"),
+);
 const PlatformFeedbackCampaignSettings = dynamic(
   () => import("./PlatformFeedbackCampaignSettings"),
 );
@@ -30776,6 +30779,10 @@ export default function AdminDashboardPage({
             </div>
           </section>
         )}
+
+        {activeAdminTab === "settings" &&
+          activeSettingsTab === "venue" &&
+          canManageSettings && <SecretGuestListSettings />}
 
         {activeAdminTab === "settings" &&
           activeSettingsTab === "venue" &&

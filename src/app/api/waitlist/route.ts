@@ -12,6 +12,7 @@ import {
   rateLimitResponse,
 } from "@/lib/rateLimit";
 import { requirePublicMaintenanceAvailable } from "@/lib/platformMaintenance";
+import { loadSecretGuestListFeatureEnabled } from "@/lib/secretGuestListFeature";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,16 @@ export async function POST(request: Request) {
           : "",
       source,
     };
+
+    if (
+      source === "secret-guest-list" &&
+      !(await loadSecretGuestListFeatureEnabled(serviceClient))
+    ) {
+      return Response.json(
+        { error: "The Secret Guest List is currently unavailable." },
+        { status: 409 },
+      );
+    }
 
     const ipLimit = await checkRateLimit(
       request,
@@ -201,6 +212,13 @@ export async function POST(request: Request) {
       { status: result.created ? 201 : 200 },
     );
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("The Secret Guest List is currently unavailable")
+    ) {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
+
     console.error("[Zingara API] Failed to save waitlist entry", error);
 
     return Response.json(

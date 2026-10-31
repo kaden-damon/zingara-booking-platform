@@ -1,63 +1,45 @@
-# Staff Emails Recipient Correction & UX Cleanup
+# Secret Guest List ON/OFF Control
 
-STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+STATUS: RELEASE IN PROGRESS - PRODUCTION FEATURE OFF
 
 DATE: 31 OCTOBER 2026
 
 ## Objective
 
-Correct Waitlist staff routing and make Communications > Staff Emails a compact,
-complete and permission-safe control surface.
+Provide one management-only ON/OFF control for The Secret Guest List while
+preserving the standard Waitlist, existing enquiries and every booking path.
 
-## Verified Baseline
+## Verified Implementation
 
-- The three Waitlist routes are enabled in Production.
-- Before correction, Sharon, Rasmus, Fatima, Michael and Lisa were TO; Kaden was
-  the only CC recipient.
-- The registry already defined all three Waitlist workflows, but the API exposed
-  only management-mode routes and the Staff Emails page explicitly hid personal
-  preferences. This made the Waitlist workflows absent from the interface.
-- Individual preference rows are currently empty, so the established default is
-  enabled for every eligible routed recipient.
-
-## Implementation
-
-- Route all three Waitlist workflows TO Sharon, Rasmus, Michael and Lisa; CC
-  Kaden and Tracy. Fatima and Nicky-Anne are absent from both arrays.
-- Preserve each recipient's independent subscription and every unrelated route.
-- Expose all six routed organisation workflows and all four personal
-  subscriptions from the existing authenticated API.
-- Keep organisation changes behind `settings:manage`; other staff receive a
-  view-only workflow status and can change only their own eligible preferences.
-- Replace the long card presentation with compact grouped rows, immediate ON/OFF
-  switches and on-demand recipient editing.
-- Keep Daily Booking Review and Review Management advanced settings in their
-  established, separately protected controls below the compact list.
+- Admin location: Settings > Venue > Public Booking > The Secret Guest List.
+- Staff require the existing `settings:manage` permission in both the interface
+  and the server API.
+- Public booking settings carry the feature state in the existing venue-settings
+  request, with no extra page-load request.
+- OFF removes both sold-out and insufficient-availability invitations and the
+  enquiry panel.
+- The public API and the atomic database function both reject direct Secret Guest
+  List submissions while OFF.
+- Standard Waitlist submissions, staff routing, customer acknowledgements and
+  historical enquiries are unchanged.
+- ON restores the established feature without a code release.
 
 ## Verification
 
-- Focused Communications, routing and Waitlist tests: 16/16 passed.
-- TypeScript and targeted ESLint passed.
+- Focused Secret Guest List and Waitlist tests: 9/9 passed.
+- TypeScript passed.
+- Targeted ESLint passed with no errors; four pre-existing unused-code warnings
+  remain in shared venue-settings modules.
 - Next.js 16.3.4 webpack Production build passed, including all 27 static pages.
-- Migration dry-run found exactly one pending migration.
-- Rollback-only Production execution confirmed the exact four TO and two CC
-  identities on all three routes, then left Production unchanged.
-- Customer acknowledgement workflows remain enabled and unchanged.
+- Migration dry run found exactly one pending migration.
+- Production migration `20261031120000_secret_guest_list_feature_control.sql`
+  applied successfully at 11:46:23 SAST.
+- Production feature state is OFF; both customer acknowledgement workflows remain
+  ON and unchanged.
+- Historical record counts are unchanged: 404 total Waitlist entries, including
+  39 identified Secret Guest List enquiries.
 
 ## Release
 
-- Application commit: `606915ef6c17f72904569deffe193c6e6a50e8fb`.
-- Production migration: `20261031110000_staff_email_recipient_correction.sql`.
-- Vercel deployment: `ANUShHYPyZo8ddrsVf8VJFgj2CHw`, completed at
-  08:22:15 SAST on 31 October 2026.
-- Authenticated Production verification with Kaden's Super Admin session
-  confirmed the compact Staff Emails interface, four personal switches, six
-  organisation workflows, protected recipient editing and approval-gated
-  campaign remaining OFF.
-- Production data verification confirmed all three Waitlist routes are enabled
-  with TO Sharon, Rasmus, Michael and Lisa; CC Kaden and Tracy. Fatima and
-  Nicky-Anne are absent.
-- Secret Guest List and standard Waitlist customer acknowledgements remain
-  enabled. No messages were sent during verification.
-- Business-data delta: three staff routing rows only. No booking, customer,
-  communication, payment, seating or financial records changed.
+- Application commit, Vercel deployment and authenticated Production interface
+  verification are in progress.

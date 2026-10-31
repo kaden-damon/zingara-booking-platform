@@ -3,6 +3,7 @@ import {
   normalizeVenueSettings,
 } from "@/lib/zingaraDemo";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
+import { loadSecretGuestListFeatureEnabled } from "@/lib/secretGuestListFeature";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +17,20 @@ export async function GET() {
     );
   }
 
-  const { data, error } = await serviceClient
-    .from("venue_settings")
-    .select("venue_key,name,settings")
-    .eq("venue_key", defaultVenueSettings.venueId)
-    .maybeSingle();
+  const [{ data, error }, secretGuestList] = await Promise.all([
+    serviceClient
+      .from("venue_settings")
+      .select("venue_key,name,settings")
+      .eq("venue_key", defaultVenueSettings.venueId)
+      .maybeSingle(),
+    loadSecretGuestListFeatureEnabled(serviceClient).catch((featureError) => {
+      console.error(
+        "[Zingara API] Failed to load Secret Guest List feature status",
+        featureError,
+      );
+      return false;
+    }),
+  ]);
 
   if (error) {
     console.error("[Zingara API] Failed to load public venue settings", error);
@@ -42,6 +52,7 @@ export async function GET() {
   } = settings.operationalSettings;
 
   return Response.json({
+    features: { secretGuestList },
     settings: {
       ...settings,
       operationalSettings: publicOperationalSettings,

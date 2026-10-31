@@ -73,7 +73,7 @@ import {
   type CustomPricedTemporaryTable,
   getCustomPricedTemporaryTables,
 } from "../../lib/supabase/shows";
-import { getPublicVenueSettings, getVenueSettings } from "../../lib/supabase/venueSettings";
+import { getPublicBookingSettings, getVenueSettings } from "../../lib/supabase/venueSettings";
 import {
   type BookingAddon,
   type CustomerInfo,
@@ -781,6 +781,7 @@ export default function BookingPage({
     });
   const [customerNotes, setCustomerNotes] = useState("");
   const [secretGuestListShowId, setSecretGuestListShowId] = useState("");
+  const [secretGuestListEnabled, setSecretGuestListEnabled] = useState(false);
   const [bookingReference, setBookingReference] =
     useState<string | null>(null);
   const [allocatedTableNumber, setAllocatedTableNumber] =
@@ -1880,12 +1881,19 @@ export default function BookingPage({
       setShowLoadStatus("loading");
 
       try {
-        const [nextShows, nextVenueSettings] = guidedTrainingModuleId
-          ? [[guidedTrainingSyntheticShow], guidedTrainingVenueSettings]
+        const [nextShows, bookingSettings] = guidedTrainingModuleId
+          ? [
+              [guidedTrainingSyntheticShow],
+              {
+                features: { secretGuestList: false },
+                settings: guidedTrainingVenueSettings,
+              },
+            ]
           : await Promise.all([
               getPublicShows({ operational: Boolean(calendarBookingContext) }),
-              getPublicVenueSettings(),
+              getPublicBookingSettings(),
             ]);
+        const nextVenueSettings = bookingSettings.settings;
 
         if (!isMounted || requestId !== showLoadRequestRef.current) {
           return;
@@ -1897,6 +1905,10 @@ export default function BookingPage({
 
         setShows(nextShows);
         setVenueSettings(nextVenueSettings);
+        setSecretGuestListEnabled(bookingSettings.features.secretGuestList);
+        if (!bookingSettings.features.secretGuestList) {
+          setSecretGuestListShowId("");
+        }
         setSelectedShowId((currentShowId) =>
           nextGuestVisibleShows.some(
             (show) =>
@@ -4578,7 +4590,8 @@ export default function BookingPage({
                           : bookingCalendarStatusLabels[showStatus]}
                       </span>
                     </button>
-                    {!isStaffBookingJourney &&
+                    {secretGuestListEnabled &&
+                      !isStaffBookingJourney &&
                       showStatus === "sold-out" &&
                       !cutoffClosed && (
                         <div className="mt-2 rounded-2xl border border-[#D8C36A]/30 bg-[#D8C36A]/5 p-4">
@@ -4919,14 +4932,14 @@ export default function BookingPage({
                   <p className="text-sm font-semibold uppercase tracking-[0.16em]">Not enough seats</p>
                   <p className="mt-2 text-sm leading-6">Not enough seats for {partySize} {partySize === 1 ? "guest" : "guests"}. Choose another section, guest count or show.</p>
                 </div>
-              ) : (
+              ) : secretGuestListEnabled ? (
                 <div className="mt-6 rounded-2xl border border-[#D8C36A]/35 bg-[#D8C36A]/5 p-5 text-white">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">The Secret Guest List</p>
                   <h3 className="mt-1.5 text-xl font-bold">Sold out? Not so fast…</h3>
                   <p className="mt-2 text-sm leading-6 text-zinc-300">The tent may be full, but we might just have a trick up our sleeve. Tell us when you&apos;d like to join the magic and how many seats you&apos;re after.</p>
                   <button className="mt-4 min-h-11 rounded-full bg-[#D8C36A] px-5 text-sm font-bold uppercase tracking-[0.08em] text-black transition hover:bg-[#F2D66C]" onClick={() => setSecretGuestListShowId(selectedShowId)} type="button">See If There&apos;s Room</button>
                 </div>
-              )
+              ) : null
             )}
           </div>
           )}
@@ -6800,7 +6813,7 @@ export default function BookingPage({
         </div>
       )}
 
-      {secretGuestListShow && (
+      {secretGuestListEnabled && secretGuestListShow && (
         <SecretGuestListPanel
           initialPartySize={partySize}
           onClose={() => setSecretGuestListShowId("")}
