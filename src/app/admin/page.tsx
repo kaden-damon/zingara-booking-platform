@@ -37,6 +37,7 @@ import { getJohannesburgDateKey } from "@/lib/managementAnalytics";
 import { createPdfBytesFromPageContent } from "@/lib/exports/zingaraTextPdf";
 import { replaceShowScopedRows } from "@/lib/showScopedState";
 import {
+  buildWaitlistPrintHtml,
   filterWaitlistEntries,
   getWaitlistSource,
   summarizeWaitlistEntries,
@@ -22326,6 +22327,41 @@ export default function AdminDashboardPage({
       };
     },
   );
+  const waitlistPrintFilterSummary = [
+    waitlistStatusFilter === "all"
+      ? "All statuses"
+      : `Status: ${waitlistStatusFilter}`,
+    waitlistGuestCountFilter === "all"
+      ? "All guest counts"
+      : `Guests: ${waitlistGuestCountFilter}`,
+    waitlistSourceFilter === "all"
+      ? "All enquiry sources"
+      : waitlistSourceFilter === "secret-guest-list"
+        ? "Source: Secret Guest List"
+        : "Source: Waitlist",
+    waitlistSearch.trim() ? `Search: ${waitlistSearch.trim()}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  function printFilteredWaitlist() {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      showWorkflowToast("⚠ The printable Waitlist window was blocked by the browser.");
+      return;
+    }
+    printWindow.document.write(
+      buildWaitlistPrintHtml({
+        entries: waitlistDisplayEntries,
+        filterSummary: waitlistPrintFilterSummary,
+        performanceLabel: getShowLabel(selectedShow),
+        printedAt: formatSouthAfricanTimestamp(new Date().toISOString()),
+      }),
+    );
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
   const selectedCommunicationTemplate =
     communicationTemplates.find(
       (template) => template.id === selectedTemplateId,
@@ -35101,6 +35137,21 @@ export default function AdminDashboardPage({
                       </button>
                     ))}
                   </div>
+                  <button
+                    type="button"
+                    aria-label="Print filtered waitlist"
+                    title="Print filtered waitlist"
+                    disabled={waitlistDisplayEntries.length === 0}
+                    onClick={printFilteredWaitlist}
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">
+                      <path d="M6 9V3h12v6" />
+                      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                      <rect width="12" height="8" x="6" y="13" />
+                    </svg>
+                    Print
+                  </button>
                 </div>
               </div>
             </div>

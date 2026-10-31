@@ -36,3 +36,12 @@ test("compact entries preserve all existing operational actions", async () => {
   assert.match(list, /Available Seating/);
   assert.match(list, /aria-expanded=\{isExpanded\}/);
 });
+
+test("Waitlist print uses the complete filtered result set without changing view", async () => {
+  const page = await source("../app/admin/page.tsx");
+
+  assert.match(page, /aria-label="Print filtered waitlist"/);
+  assert.match(page, /entries: waitlistDisplayEntries/);
+  assert.match(page, /buildWaitlistPrintHtml/);
+  assert.match(page, /useState<WaitlistViewMode>\("compact"\)/);
+});
