@@ -36,8 +36,16 @@ import type { BoxOfficeFinancialReport } from "@/lib/boxOfficeFinancialReport";
 import { getJohannesburgDateKey } from "@/lib/managementAnalytics";
 import { createPdfBytesFromPageContent } from "@/lib/exports/zingaraTextPdf";
 import { replaceShowScopedRows } from "@/lib/showScopedState";
+import {
+  filterWaitlistEntries,
+  getWaitlistSource,
+  summarizeWaitlistEntries,
+  type WaitlistGuestCountFilter,
+  type WaitlistSourceFilter,
+} from "@/lib/waitlistView";
 import { useReportGenerationLock } from "./useReportGenerationLock";
 import { getReportGenerationLockMessage } from "../../lib/reportGenerationLock";
+import type { WaitlistDisplayEntry } from "./WaitlistEntryList";
 
 const BookingReviewInvitations = dynamic(
   () => import("./BookingReviewInvitations"),
@@ -52,6 +60,9 @@ const BookingMetadataDraftEditor = dynamic(() =>
 );
 const CompactBookingList = dynamic(() =>
   import("./CompactBookingList").then((module) => module.CompactBookingList),
+);
+const WaitlistEntryList = dynamic(() =>
+  import("./WaitlistEntryList").then((module) => module.WaitlistEntryList),
 );
 const CorporateBookingOperationsPanel = dynamic(
   () => import("./CorporateBookingOperationsPanel"),
@@ -807,9 +818,6 @@ type PayFastRefundAvailabilityQaResult = {
   querySucceeded: boolean;
   refundable: boolean;
 };
-type WaitlistReport = Record<WaitlistStatus, number> & {
-  activeGuests: number;
-};
 type TableOccupancyState =
   | "available"
   | "blocked"
@@ -963,20 +971,6 @@ const paymentStatusClasses: Record<PaymentStatus, string> = {
   refunded: "border-red-300/40 bg-red-950/30 text-red-200",
 };
 
-const waitlistStatusLabels: Record<WaitlistStatus, string> = {
-  converted: "Converted",
-  promoted: "Promoted",
-  removed: "Removed",
-  waiting: "Waiting",
-};
-
-const waitlistStatusClasses: Record<WaitlistStatus, string> = {
-  converted:
-    "border-emerald-400/40 bg-emerald-950/30 text-emerald-300",
-  promoted: "border-sky-300/40 bg-sky-950/30 text-sky-200",
-  removed: "border-red-400/40 bg-red-950/30 text-red-300",
-  waiting: "border-amber-300/40 bg-amber-950/30 text-amber-200",
-};
 
 const bookingSourceLabels: Record<BookingSource, string> = {
   admin: "Manual/Admin",
@@ -1095,6 +1089,7 @@ type BookingArchiveFilter = "active" | "all" | "archived";
 type CustomerArchiveFilter = "active" | "all" | "archived";
 type CustomerNameStatusFilter = "all" | "complete" | "incomplete";
 type BookingViewMode = "compact" | "grid" | "list";
+type WaitlistViewMode = "compact" | "expanded";
 type FloorZoneFilter = SeatingZoneId | "all";
 type OperationsTab =
   | "dashboard"
@@ -2058,14 +2053,6 @@ function getNextRelevantOperationalShow(shows: DemoShow[]) {
   return getDefaultOperationalShow(shows, getCurrentSouthAfricaDate());
 }
 
-
-const defaultWaitlistReport: WaitlistReport = {
-  activeGuests: 0,
-  converted: 0,
-  promoted: 0,
-  removed: 0,
-  waiting: 0,
-};
 
 const communicationChannelLabels: Record<
   CommunicationChannel,
@@ -5005,6 +4992,15 @@ export default function AdminDashboardPage({
       source: "bookings" | "customers" | "direct";
     }>({ source: "direct" });
   const [waitlistSearch, setWaitlistSearch] = useState("");
+  const [waitlistViewMode, setWaitlistViewMode] =
+    useState<WaitlistViewMode>("compact");
+  const [expandedWaitlistEntryId, setExpandedWaitlistEntryId] = useState("");
+  const [waitlistStatusFilter, setWaitlistStatusFilter] =
+    useState<WaitlistStatus | "all">("all");
+  const [waitlistGuestCountFilter, setWaitlistGuestCountFilter] =
+    useState<WaitlistGuestCountFilter>("all");
+  const [waitlistSourceFilter, setWaitlistSourceFilter] =
+    useState<WaitlistSourceFilter>("all");
   const [staffSearch, setStaffSearch] = useState("");
   const [ticketValidationInput, setTicketValidationInput] =
     useState("");
@@ -22264,47 +22260,71 @@ export default function AdminDashboardPage({
       label: dashboardWidgetLabels[widgetId],
     }),
   );
-  const waitlistSearchTerm = waitlistSearch.trim().toLowerCase();
-  const filteredWaitlist = selectedShowWaitlist.filter((entry) => {
-    if (!waitlistSearchTerm) {
-      return true;
-    }
-
-    return (
-      entry.id.toLowerCase().includes(waitlistSearchTerm) ||
-      entry.customer.name
-        .toLowerCase()
-        .includes(waitlistSearchTerm) ||
-      entry.customer.email
-        .toLowerCase()
-        .includes(waitlistSearchTerm) ||
-      entry.customer.phone
-        .toLowerCase()
-        .includes(waitlistSearchTerm) ||
-      (entry.desiredZoneTitle ?? "")
-        .toLowerCase()
-        .includes(waitlistSearchTerm) ||
-      waitlistStatusLabels[entry.status]
-        .toLowerCase()
-        .includes(waitlistSearchTerm)
-    );
-  });
-  const waitlistReport = selectedShowWaitlist.reduce(
-    (report, entry) => {
-      const status = waitlistStatusLabels[entry.status]
-        ? entry.status
-        : "waiting";
+  const waitlistPerformanceSearchText = selectedShow
+    ? [
+        getShowLabel(selectedShow),
+        selectedShow.date,
+        selectedShow.location,
+        selectedShow.venueName ?? "",
+      ].join(" ")
+    : "";
+  const shouldPrepareWaitlistWorkspace =
+    activeAdminTab === "operations" &&
+    activeOperationsTab === "waitlist" &&
+    canManageWaitlist;
+  const filteredWaitlist = shouldPrepareWaitlistWorkspace
+    ? filterWaitlistEntries(
+        selectedShowWaitlist,
+        {
+          guestCount: waitlistGuestCountFilter,
+          search: waitlistSearch,
+          source: waitlistSourceFilter,
+          status: waitlistStatusFilter,
+        },
+        waitlistPerformanceSearchText,
+      )
+    : [];
+  const waitlistReport = summarizeWaitlistEntries(filteredWaitlist);
+  const waitlistDisplayEntries: WaitlistDisplayEntry[] = filteredWaitlist.map(
+    (entry) => {
+      const allocation = findWaitlistConversionTable(entry);
+      const hasAvailableSeating = Boolean(allocation);
+      const canConvert =
+        hasAvailableSeating &&
+        entry.status !== "converted" &&
+        entry.status !== "removed";
+      const contactLabel = [entry.customer.email, entry.customer.phone]
+        .filter(Boolean)
+        .join(" · ");
 
       return {
-        ...report,
-        [status]: report[status] + 1,
-        activeGuests:
-          status === "waiting" || status === "promoted"
-            ? report.activeGuests + (entry.partySize ?? 0)
-            : report.activeGuests,
+        availabilityLabel: allocation
+          ? `${allocation.zone.title} · Table ${allocation.table.tableNumber} · ${allocation.table.seatCapacity} seats`
+          : "No suitable table available",
+        bookingReference: entry.bookingReference,
+        canConvert,
+        contactLabel: contactLabel || "No contact details",
+        convertedAt: entry.convertedAt
+          ? formatSouthAfricanTimestamp(entry.convertedAt)
+          : undefined,
+        createdAt: formatSouthAfricanTimestamp(entry.createdAt),
+        guestName: entry.customer.name || "Unnamed Guest",
+        hasAvailableSeating,
+        id: entry.id,
+        notes: entry.notes,
+        partySize: entry.partySize,
+        performanceLabel: getShowLabel(selectedShow),
+        promotedAt: entry.promotedAt
+          ? formatSouthAfricanTimestamp(entry.promotedAt)
+          : undefined,
+        sourceLabel:
+          getWaitlistSource(entry) === "secret-guest-list"
+            ? "Secret Guest List"
+            : "Waitlist",
+        status: entry.status,
+        zoneLabel: entry.desiredZoneTitle ?? "Any eligible seating zone",
       };
     },
-    defaultWaitlistReport,
   );
   const selectedCommunicationTemplate =
     communicationTemplates.find(
@@ -27031,7 +27051,13 @@ export default function AdminDashboardPage({
                 <button
                   key={tab}
                   type="button"
-                  onClick={() => setActiveOperationsTab(tab)}
+                  onClick={() => {
+                    setActiveOperationsTab(tab);
+                    if (tab === "waitlist") {
+                      setWaitlistViewMode("compact");
+                      setExpandedWaitlistEntryId("");
+                    }
+                  }}
                   className={`min-w-max shrink-0 whitespace-nowrap rounded-2xl px-3 py-3 text-[0.66rem] font-semibold uppercase tracking-[0.08em] transition sm:px-4 sm:text-xs sm:tracking-[0.1em] ${
                     activeOperationsTab === tab
                       ? "bg-[#D8C36A] text-black shadow-[0_0_24px_rgba(216,195,106,0.2)]"
@@ -34996,35 +35022,13 @@ export default function AdminDashboardPage({
         {activeAdminTab === "operations" &&
           activeOperationsTab === "waitlist" &&
           canManageWaitlist && (
-          <section className="mb-10 rounded-2xl border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#22170C_0%,#101010_48%,#050505_100%)] p-6 shadow-2xl shadow-[#8D7A2F]/10">
-            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
+          <section className="mb-10 rounded-lg border border-[#8D7A2F]/35 bg-[radial-gradient(circle_at_top,#22170C_0%,#101010_48%,#050505_100%)] p-4 shadow-2xl shadow-[#8D7A2F]/10 sm:p-6">
+            <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+              <div className="min-w-0">
                 <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
                   Waitlist & Over-Capacity
                 </p>
-                <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-3xl font-bold">
-                    Guest Demand Queue
-                  </h2>
-
-                  <label className="flex min-w-[260px] flex-col gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                      Selected Performance
-                    </span>
-                    <PerformanceCalendarSelector
-                      buttonClassName="rounded-full border border-[#D8C36A]/35 bg-black/45 px-5 py-3 text-left text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition hover:border-[#D8C36A]/70 focus:border-[#D8C36A]/70"
-                      emptyLabel="No active performances"
-                      label="Waitlist Performance"
-                      locations={permittedManifestLocations}
-                      onSelect={(showId) => {
-                        setSelectedShowId(showId);
-                        setWaitlistSearch("");
-                      }}
-                      selectedShowId={selectedShowId}
-                      shows={floorSelectableShows}
-                    />
-                  </label>
-                </div>
+                <h2 className="text-2xl font-bold sm:text-3xl">Guest Demand Queue</h2>
                 <p className="mt-2 text-zinc-400">
                   Track waitlisted guests for{" "}
                   <span className="font-semibold text-white">
@@ -35032,7 +35036,29 @@ export default function AdminDashboardPage({
                   </span>{" "}
                   and convert them when a suitable table opens.
                 </p>
-                <label className="group relative mt-4 block w-full max-w-md">
+              </div>
+
+              <div className="flex w-full flex-col gap-3 xl:max-w-3xl">
+                <label className="flex min-w-0 flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                    Performance & Venue
+                  </span>
+                  <PerformanceCalendarSelector
+                    buttonClassName="min-h-11 w-full rounded-full border border-[#D8C36A]/35 bg-black/45 px-5 py-3 text-left text-sm font-semibold text-white shadow-[0_0_18px_rgba(216,195,106,0.1)] outline-none transition hover:border-[#D8C36A]/70 focus:border-[#D8C36A]/70"
+                    emptyLabel="No active performances"
+                    label="Waitlist Performance"
+                    locations={permittedManifestLocations}
+                    onSelect={(showId) => {
+                      setSelectedShowId(showId);
+                      setWaitlistSearch("");
+                      setExpandedWaitlistEntryId("");
+                    }}
+                    selectedShowId={selectedShowId}
+                    shows={floorSelectableShows}
+                  />
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <label className="group relative block min-w-0 flex-1">
                   <span className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-[#F2D66C]">
                     <svg
                       aria-hidden="true"
@@ -35055,195 +35081,109 @@ export default function AdminDashboardPage({
                     placeholder="Search guests or references"
                     className="h-11 w-full rounded-full border border-white/10 bg-black/45 pl-12 pr-4 text-sm text-white shadow-[0_0_18px_rgba(216,195,106,0.08)] transition placeholder:text-zinc-600 focus:border-[#D8C36A]/55 focus:outline-none"
                   />
-                </label>
+                  </label>
+                  <div role="group" aria-label="Waitlist view mode" className="grid grid-cols-2 gap-1 rounded-full border border-white/15 bg-black/35 p-1">
+                    {(["compact", "expanded"] as WaitlistViewMode[]).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => {
+                          setWaitlistViewMode(mode);
+                          setExpandedWaitlistEntryId("");
+                        }}
+                        className={`min-h-9 rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition ${
+                          waitlistViewMode === mode
+                            ? "bg-[#D8C36A] text-black"
+                            : "text-zinc-300 hover:text-white"
+                        }`}
+                      >
+                        {mode === "compact" ? "Compact" : "Expanded"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-5">
-              <div className="rounded-2xl border border-amber-300/25 bg-amber-950/20 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-200">
-                  Waiting
-                </p>
-                <p className="mt-2 text-3xl font-bold">
-                  {waitlistReport.waiting}
-                </p>
-              </div>
+            <div className="mb-4 grid gap-2 sm:grid-cols-3">
+              <label className="relative">
+                <span className="sr-only">Filter Waitlist status</span>
+                <select value={waitlistStatusFilter} onChange={(event) => setWaitlistStatusFilter(event.target.value as WaitlistStatus | "all")} className="h-11 w-full appearance-none rounded-full border border-white/15 bg-black/35 px-4 pr-9 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70">
+                  <option value="all">All statuses</option>
+                  <option value="waiting">Waiting</option>
+                  <option value="promoted">Promoted</option>
+                  <option value="converted">Converted</option>
+                  <option value="removed">Removed</option>
+                </select>
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs text-zinc-500">▾</span>
+              </label>
+              <label className="relative">
+                <span className="sr-only">Filter Waitlist guest count</span>
+                <select value={waitlistGuestCountFilter} onChange={(event) => setWaitlistGuestCountFilter(event.target.value as WaitlistGuestCountFilter)} className="h-11 w-full appearance-none rounded-full border border-white/15 bg-black/35 px-4 pr-9 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70">
+                  <option value="all">All guest counts</option>
+                  <option value="1-2">1–2 guests</option>
+                  <option value="3-4">3–4 guests</option>
+                  <option value="5-6">5–6 guests</option>
+                  <option value="7-plus">7+ guests</option>
+                </select>
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs text-zinc-500">▾</span>
+              </label>
+              <label className="relative">
+                <span className="sr-only">Filter Waitlist enquiry source</span>
+                <select value={waitlistSourceFilter} onChange={(event) => setWaitlistSourceFilter(event.target.value as WaitlistSourceFilter)} className="h-11 w-full appearance-none rounded-full border border-white/15 bg-black/35 px-4 pr-9 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70">
+                  <option value="all">All enquiry sources</option>
+                  <option value="secret-guest-list">Secret Guest List</option>
+                  <option value="waitlist">Waitlist</option>
+                </select>
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs text-zinc-500">▾</span>
+              </label>
+            </div>
 
-              <div className="rounded-2xl border border-sky-300/25 bg-sky-950/20 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-200">
-                  Promoted
-                </p>
-                <p className="mt-2 text-3xl font-bold">
-                  {waitlistReport.promoted}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-emerald-400/25 bg-emerald-950/20 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">
-                  Converted
-                </p>
-                <p className="mt-2 text-3xl font-bold">
-                  {waitlistReport.converted}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-red-400/25 bg-red-950/20 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-300">
-                  Removed
-                </p>
-                <p className="mt-2 text-3xl font-bold">
-                  {waitlistReport.removed}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[#D8C36A]/25 bg-black/35 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                  Active Guests
-                </p>
-                <p className="mt-2 text-3xl font-bold">
-                  {waitlistReport.activeGuests}
-                </p>
-              </div>
+            <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {([
+                ["Waiting", waitlistReport.waiting, "text-amber-200"],
+                ["Promoted", waitlistReport.promoted, "text-sky-200"],
+                ["Converted", waitlistReport.converted, "text-emerald-300"],
+                ["Removed", waitlistReport.removed, "text-red-300"],
+                ["Active Guests", waitlistReport.activeGuests, "text-[#D8C36A]"],
+              ] as Array<[string, number, string]>).map(([label, value, colour]) => (
+                <div key={label} className="rounded-lg border border-white/10 bg-black/30 px-3 py-3">
+                  <p className={`text-[0.68rem] font-semibold uppercase tracking-[0.08em] ${colour}`}>{label}</p>
+                  <p className="mt-1 text-xl font-bold text-white">{value}</p>
+                </div>
+              ))}
             </div>
 
             {selectedShowWaitlist.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-black/30 p-6 text-zinc-400">
+              <div className="rounded-lg border border-white/10 bg-black/30 p-6 text-zinc-400">
                 No waitlist entries have been created for this show.
               </div>
             ) : filteredWaitlist.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-black/30 p-6 text-zinc-400">
-                No waitlist entries match that search.
+              <div className="rounded-lg border border-white/10 bg-black/30 p-6 text-zinc-400">
+                No waitlist entries match the current search and filters.
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4">
-                {filteredWaitlist.map((entry) => {
-                  const allocation =
-                    findWaitlistConversionTable(entry);
-                  const canConvert =
-                    Boolean(allocation) &&
-                    entry.status !== "converted" &&
-                    entry.status !== "removed";
-
-                  return (
-                    <article
-                      key={entry.id}
-                      className="rounded-2xl border border-white/10 bg-black/35 p-5"
-                    >
-                      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-3">
-                            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
-                              {entry.id}
-                            </p>
-                            <span
-                              className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] ${
-                                waitlistStatusClasses[entry.status]
-                              }`}
-                            >
-                              {waitlistStatusLabels[entry.status]}
-                            </span>
-                            {entry.bookingReference && (
-                              <span className="rounded-full border border-emerald-400/30 bg-emerald-950/30 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-300">
-                                {entry.bookingReference}
-                              </span>
-                            )}
-                          </div>
-
-                          <h3 className="mt-3 text-2xl font-bold">
-                            {entry.customer.name || "Unnamed Guest"}
-                          </h3>
-                          <p className="mt-1 text-zinc-400">
-                            {entry.partySize} guests ·{" "}
-                            {entry.desiredZoneTitle ??
-                              "Any eligible seating zone"}
-                          </p>
-                          <p className="mt-2 text-sm text-zinc-500">
-                            {entry.customer.email || "No email"} ·{" "}
-                            {entry.customer.phone || "No phone"}
-                          </p>
-                          {entry.notes && (
-                            <p className="mt-3 rounded-xl border border-white/10 bg-zinc-950 px-4 py-3 text-sm text-zinc-300">
-                              {entry.notes}
-                            </p>
-                          )}
-                          <div className="mt-4 flex flex-wrap gap-2 text-xs uppercase tracking-[0.14em] text-zinc-500">
-                            <span>
-                              Joined{" "}
-                              {formatSouthAfricanTimestamp(entry.createdAt)}
-                            </span>
-                            {entry.promotedAt && (
-                              <span>
-                                Promoted{" "}
-                                {formatSouthAfricanTimestamp(entry.promotedAt)}
-                              </span>
-                            )}
-                            {entry.convertedAt && (
-                              <span>
-                                Converted{" "}
-                                {formatSouthAfricanTimestamp(entry.convertedAt)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="w-full rounded-2xl border border-white/10 bg-zinc-950 p-4 lg:max-w-sm">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                            Conversion Availability
-                          </p>
-                          {allocation ? (
-                            <p className="mt-2 text-sm text-emerald-300">
-                              {allocation.zone.title} · Table{" "}
-                              {allocation.table.tableNumber} ·{" "}
-                              {allocation.table.seatCapacity} seats
-                            </p>
-                          ) : (
-                            <p className="mt-2 text-sm text-amber-200">
-                              No valid table is currently available
-                              for this party size.
-                            </p>
-                          )}
-
-                          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-1">
-                            <button
-                              type="button"
-                              disabled={entry.status !== "waiting"}
-                              onClick={() =>
-                                promoteWaitlistEntry(entry)
-                              }
-                              className="rounded-full border border-sky-300/40 px-4 py-2 text-sm font-semibold text-sky-200 transition hover:bg-sky-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
-                            >
-                              Promote
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!canConvert}
-                              onClick={() =>
-                                convertWaitlistEntry(entry)
-                              }
-                              className="rounded-full border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
-                            >
-                              Convert To Booking
-                            </button>
-                            <button
-                              type="button"
-                              disabled={
-                                entry.status === "converted" ||
-                                entry.status === "removed"
-                              }
-                              onClick={() =>
-                                removeWaitlistEntry(entry)
-                              }
-                              className="rounded-full border border-red-300/40 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+              <WaitlistEntryList
+                entries={waitlistDisplayEntries}
+                expandedEntryId={expandedWaitlistEntryId}
+                mode={waitlistViewMode}
+                onConvert={(entryId) => {
+                  const entry = filteredWaitlist.find((item) => item.id === entryId);
+                  if (entry) convertWaitlistEntry(entry);
+                }}
+                onPromote={(entryId) => {
+                  const entry = filteredWaitlist.find((item) => item.id === entryId);
+                  if (entry) promoteWaitlistEntry(entry);
+                }}
+                onRemove={(entryId) => {
+                  const entry = filteredWaitlist.find((item) => item.id === entryId);
+                  if (entry) removeWaitlistEntry(entry);
+                }}
+                onToggleEntry={(entryId) => {
+                  if (waitlistViewMode === "expanded") return;
+                  setExpandedWaitlistEntryId((current) => current === entryId ? "" : entryId);
+                }}
+              />
             )}
           </section>
         )}
