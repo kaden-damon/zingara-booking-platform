@@ -133,7 +133,7 @@ test("Table Plan keeps every permanent table in the original master-template sec
   assert.equal(String(table400Row?.getCell(1).value ?? "").trim(), "GOLD CIRCLE");
 });
 
-test("Table Plan preserves show-specific sections for temporary tables", async () => {
+test("Table Plan uses authoritative number families for temporary numeric tables", async () => {
   const buffer = await buildTablePlanWorkbook({
     bookings: [],
     configuredZonePrices: {
@@ -172,7 +172,108 @@ test("Table Plan preserves show-specific sections for temporary tables", async (
     (candidate) => String(candidate.getCell(2).value ?? "") === "400",
   );
   assert.ok(row);
+  assert.equal(String(row.getCell(1).value ?? "").trim(), "GOLD CIRCLE");
+});
+
+test("Table Plan preserves show-specific sections for named temporary tables", async () => {
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [],
+    configuredZonePrices: {
+      "golden-circle": 100,
+      "middle-ring": 100,
+      "private-booths": 100,
+      "royal-balcony": 100,
+    },
+    customers: [],
+    payments: [],
+    show: {
+      date: "2026-10-30",
+      id: "show-specific-named-table-regression",
+      name: "Named Temporary Table Regression",
+      time: "18:00:00",
+      venue: "johannesburg",
+    },
+    tables: [
+      table("temporary-kerry", "Kerry", null, {
+        is_override: true,
+        is_physical: false,
+        section: "middle-ring",
+      }),
+    ],
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+  assert.ok(sheet);
+  const row = Array.from(
+    { length: sheet.rowCount },
+    (_, index) => sheet.getRow(index + 1),
+  ).find((candidate) => String(candidate.getCell(2).value ?? "") === "Kerry");
+
+  assert.ok(row);
   assert.equal(String(row.getCell(1).value ?? "").trim(), "MIDDLE RING");
+});
+
+test("Table Plan keeps every repeated heading yellow when dynamic rows reach row 79", async () => {
+  const codes = [
+    ...Array.from({ length: 12 }, (_, index) => index + 1),
+    ...Array.from({ length: 12 }, (_, index) => index + 14),
+    ...Array.from({ length: 15 }, (_, index) => index + 200),
+    ...Array.from({ length: 16 }, (_, index) => index + 300),
+    ...Array.from({ length: 8 }, (_, index) => index + 400),
+    ...Array.from({ length: 7 }, (_, index) => index + 500),
+    ...Array.from({ length: 11 }, (_, index) => index + 600),
+    900,
+    901,
+    800,
+    801,
+  ];
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [],
+    configuredZonePrices: {
+      "golden-circle": 100,
+      "middle-ring": 100,
+      "private-booths": 100,
+      "royal-balcony": 100,
+    },
+    customers: [],
+    payments: [],
+    show: {
+      date: "2026-11-03",
+      id: "show-dynamic-heading-regression",
+      name: "Dynamic Heading Regression",
+      time: "17:00:00",
+      venue: "johannesburg",
+    },
+    tables: codes.map((code) =>
+      table(`table-${code}`, String(code), null, {
+        section:
+          code < 100
+            ? "private-booths"
+            : code < 400
+              ? "middle-ring"
+              : code < 700
+                ? "golden-circle"
+                : "royal-balcony",
+      }),
+    ),
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+  assert.ok(sheet);
+  assert.equal(sheet.getRow(79).getCell(14).value, "FULL-PYT-CC");
+
+  const headingRows = Array.from(
+    { length: sheet.rowCount },
+    (_, index) => sheet.getRow(index + 1),
+  ).filter((row) => row.getCell(14).value === "FULL-PYT-CC");
+  for (const headingRow of headingRows) {
+    for (let column = 2; column <= 27; column += 1) {
+      assert.equal(headingRow.getCell(column).fill.pattern, "solid");
+      assert.equal(headingRow.getCell(column).fill.fgColor?.argb, "FFFFFF99");
+    }
+  }
 });
 
 test("Table Plan preserves authoritative original zone and price evidence", async () => {
@@ -1041,7 +1142,7 @@ test("Table Plan route remains batched and includes report-critical booking stat
   assert.doesNotMatch(route, /\.not\("table_id",\s*"is",\s*null\)/);
 });
 
-test("Table Plan exports authoritative dietary quantities and clears only D79:K79 fill", async () => {
+test("Table Plan exports authoritative dietary quantities without clearing yellow headings", async () => {
   const dietaryBooking = booking("dietary", "DIETARY", 4, "table-500", {
     notes:
       '__zingara_booking_meta__:{"addons":[{"id":"dietary-strictly-halaal","kind":"catalogue","name":"Strictly Halaal","price":500,"quantity":2,"unitPrice":250},{"id":"dietary-kosher","kind":"catalogue","name":"Kosher","price":1500,"quantity":3,"unitPrice":500}]}',
@@ -1089,7 +1190,15 @@ test("Table Plan exports authoritative dietary quantities and clears only D79:K7
   assert.equal(dietaryRow.getCell(23).value, 3);
   assert.equal(dietaryRow.getCell(22).numFmt, "0");
   assert.equal(dietaryRow.getCell(23).numFmt, "0");
-  for (let column = 4; column <= 11; column += 1) {
-    assert.equal(sheet.getRow(79).getCell(column).fill.pattern, "none");
+  const headingRows = Array.from(
+    { length: sheet.rowCount },
+    (_, index) => sheet.getRow(index + 1),
+  ).filter((row) => row.getCell(14).value === "FULL-PYT-CC");
+  assert.ok(headingRows.length > 1);
+  for (const headingRow of headingRows) {
+    for (let column = 2; column <= 27; column += 1) {
+      assert.equal(headingRow.getCell(column).fill.pattern, "solid");
+      assert.equal(headingRow.getCell(column).fill.fgColor?.argb, "FFFFFF99");
+    }
   }
 });

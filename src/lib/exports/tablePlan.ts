@@ -235,16 +235,31 @@ const masterTemplatePermanentTables: Array<{
   },
   { codes: [900, 901, 800, 801], zone: "royal-balcony" },
 ];
-const masterTemplatePermanentTableZones = new Map<string, TablePlanZoneId>(
-  masterTemplatePermanentTables.flatMap(({ codes, zone }) =>
-    codes.map((code) => [String(code), zone]),
-  ),
-);
 const masterTemplatePermanentTableOrder = new Map(
   masterTemplatePermanentTables
     .flatMap(({ codes }) => codes)
     .map((code, index) => [String(code), index]),
 );
+
+function resolveAuthoritativeTableNumberZone(
+  tableCode: string,
+): TablePlanZoneId | null {
+  if (!/^\d+$/.test(tableCode.trim())) return null;
+
+  const tableNumber = Number(tableCode.trim());
+
+  if (
+    (tableNumber >= 1 && tableNumber <= 12) ||
+    (tableNumber >= 14 && tableNumber <= 24)
+  ) {
+    return "private-booths";
+  }
+  if (tableNumber >= 200 && tableNumber <= 399) return "middle-ring";
+  if (tableNumber >= 400 && tableNumber <= 699) return "golden-circle";
+  if (tableNumber >= 800 && tableNumber <= 999) return "royal-balcony";
+
+  return null;
+}
 const tablePlanGroups: Array<{
   baseSlots: number;
   baseSubtotalRow: number;
@@ -326,19 +341,32 @@ function normalizeZone(section: string): TablePlanZoneId | null {
 }
 
 function resolveTablePlanExportZone(table: TablePlanTable) {
-  if (
-    table.is_physical &&
-    !table.is_override &&
-    !table.merged_parent_id &&
-    !table.merged_from?.length
-  ) {
-    const masterZone = masterTemplatePermanentTableZones.get(
-      table.table_code.trim(),
-    );
-    if (masterZone) return masterZone;
-  }
+  const authoritativeNumberZone = resolveAuthoritativeTableNumberZone(
+    table.table_code,
+  );
+  if (authoritativeNumberZone) return authoritativeNumberZone;
 
   return normalizeZone(table.section);
+}
+
+function clearIncorrectRedHighlight(worksheet: Worksheet) {
+  const redFillPattern = /^(?:FF)?(?:FF0000|C00000|F4CCCC)$/i;
+
+  for (let column = 4; column <= 11; column += 1) {
+    const cell = worksheet.getRow(79).getCell(column);
+    const fill = cell.fill;
+    const foreground =
+      fill.type === "pattern" && fill.fgColor && "argb" in fill.fgColor
+        ? fill.fgColor.argb ?? ""
+        : "";
+
+    if (!redFillPattern.test(foreground)) continue;
+
+    cell.style = {
+      ...cloneStyle(cell),
+      fill: { pattern: "none", type: "pattern" },
+    };
+  }
 }
 
 function parseBookingMetadataValue(value: unknown) {
@@ -1891,12 +1919,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   );
 
   updateTablePlanFormulas(tablePlan, layouts, rowOffset, totalCapacity);
-  for (let column = 4; column <= 11; column += 1) {
-    tablePlan.getRow(79).getCell(column).fill = {
-      pattern: "none",
-      type: "pattern",
-    };
-  }
+  clearIncorrectRedHighlight(tablePlan);
   populateNotesSheet(notes, notesEntries, input.show.date);
 
   const location = input.show.venue === "johannesburg" ? "JHB" : "CPT";
