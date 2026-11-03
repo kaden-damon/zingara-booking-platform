@@ -112,13 +112,13 @@ test("Meta CAPI uses the verified payment amount and stable event id without PII
   assert.doesNotMatch(requestBody, /email|phone|booking_reference/i);
 });
 
-test("Meta readiness verifies the configured dataset without sending an event", async () => {
+test("Meta readiness verifies token identity without requiring dataset-management access", async () => {
   let method = "GET";
   let requestUrl = "";
   const fetchImpl = (async (input: URL | RequestInfo, init?: RequestInit) => {
     requestUrl = String(input);
     method = init?.method ?? "GET";
-    return new Response(JSON.stringify({ id: "1434578967806435" }), {
+    return new Response(JSON.stringify({ id: "system-user-id" }), {
       status: 200,
     });
   }) as typeof fetch;
@@ -131,15 +131,73 @@ test("Meta readiness verifies the configured dataset without sending an event", 
   });
 
   assert.deepEqual(result, {
-    accepted: true,
+    accepted: false,
     apiVersion: defaultMetaApiVersion,
     configured: true,
-    datasetMatches: true,
+    datasetMatches: null,
+    deliveryVerified: false,
     status: 200,
+    testEventConfigured: false,
+    testEventRequired: true,
+    tokenAccepted: true,
   });
   assert.equal(method, "GET");
-  assert.match(requestUrl, /\/1434578967806435\?fields=id$/);
+  assert.match(requestUrl, /\/me\?fields=id$/);
   assert.doesNotMatch(requestUrl, /token|access_token/i);
+});
+
+test("Meta readiness verifies delivery only through an isolated Test Events request", async () => {
+  let requestBody = "";
+  let requestMethod = "";
+  let requestUrl = "";
+  const result = await verifyMetaCapiConfiguration({
+    env: {
+      META_CAPI_ACCESS_TOKEN: "token",
+      META_CAPI_TEST_EVENT_CODE: "TEST12345",
+      META_PIXEL_ID: "1434578967806435",
+    },
+    fetchImpl: (async (input: URL | RequestInfo, init?: RequestInit) => {
+      requestBody = String(init?.body ?? "");
+      requestMethod = init?.method ?? "GET";
+      requestUrl = String(input);
+      return new Response(JSON.stringify({ events_received: 1, fbtrace_id: "trace" }), {
+        status: 200,
+      });
+    }) as typeof fetch,
+    mode: "test_event",
+  });
+
+  const payload = JSON.parse(requestBody);
+  assert.equal(result.accepted, true);
+  assert.equal(result.datasetMatches, true);
+  assert.equal(result.deliveryVerified, true);
+  assert.equal(result.testEventRequired, false);
+  assert.equal(result.tokenAccepted, true);
+  assert.equal(requestMethod, "POST");
+  assert.match(requestUrl, /\/1434578967806435\/events$/);
+  assert.equal(payload.test_event_code, "TEST12345");
+  assert.equal(payload.data[0].event_name, "ZingaraCapiReadiness");
+  assert.doesNotMatch(requestBody, /Purchase|email|phone|booking_reference/i);
+});
+
+test("Meta readiness never sends a test event without an Events Manager code", async () => {
+  let called = false;
+  const result = await verifyMetaCapiConfiguration({
+    env: {
+      META_CAPI_ACCESS_TOKEN: "token",
+      META_PIXEL_ID: "1434578967806435",
+    },
+    fetchImpl: (async () => {
+      called = true;
+      throw new Error("must not be called");
+    }) as typeof fetch,
+    mode: "test_event",
+  });
+
+  assert.equal(called, false);
+  assert.equal(result.accepted, false);
+  assert.equal(result.deliveryVerified, false);
+  assert.equal(result.testEventRequired, true);
 });
 
 test("Meta readiness exposes a redacted provider error message", async () => {
@@ -162,7 +220,8 @@ test("Meta readiness exposes a redacted provider error message", async () => {
     accepted: false,
     apiVersion: defaultMetaApiVersion,
     configured: true,
-    datasetMatches: false,
+    datasetMatches: null,
+    deliveryVerified: false,
     providerError: {
       code: 100,
       message: "Object [dataset] rejected access_token=[redacted] at [url]",
@@ -171,6 +230,9 @@ test("Meta readiness exposes a redacted provider error message", async () => {
       type: "OAuthException",
     },
     status: 400,
+    testEventConfigured: false,
+    testEventRequired: true,
+    tokenAccepted: false,
   });
   assert.doesNotMatch(
     JSON.stringify(result),
@@ -178,7 +240,7 @@ test("Meta readiness exposes a redacted provider error message", async () => {
   );
 });
 
-test("Meta readiness classifies an inaccessible dataset without exposing provider text", async () => {
+test("Meta readiness classifies an inaccessible identity request without exposing provider text", async () => {
   const result = await verifyMetaCapiConfiguration({
     env: {
       META_CAPI_ACCESS_TOKEN: "token",
@@ -198,6 +260,27 @@ test("Meta readiness classifies an inaccessible dataset without exposing provide
     result.providerError?.message,
     "Unsupported get request. Object does not exist or is not accessible.",
   );
+});
+
+test("Meta readiness distinguishes delivery permission rejection", async () => {
+  const result = await verifyMetaCapiConfiguration({
+    env: {
+      META_CAPI_ACCESS_TOKEN: "token",
+      META_CAPI_TEST_EVENT_CODE: "TEST12345",
+      META_PIXEL_ID: "1434578967806435",
+    },
+    fetchImpl: (async () => new Response(JSON.stringify({
+      error: {
+        code: 100,
+        message: "(#100) Missing Permission",
+        type: "OAuthException",
+      },
+    }), { status: 400 })) as typeof fetch,
+    mode: "test_event",
+  });
+
+  assert.equal(result.providerError?.reason, "delivery_permission_missing");
+  assert.equal(result.deliveryVerified, false);
 });
 
 test("GA4 server purchase uses one payment transaction value and identity", async () => {
@@ -269,6 +352,7 @@ test("migration and ITN preserve post-activation idempotent non-blocking deliver
   assert.match(itn, /after\(async \(\) => \{[\s\S]*enqueueVerifiedAdvertisingPurchase/);
   assert.match(workflow, /runAdvertisingConversionWorker/);
   assert.match(readinessRoute, /settings:manage/);
+  assert.match(readinessRoute, /export async function POST/);
   assert.match(readinessRoute, /Cache-Control.*private, no-store/);
   assert.doesNotMatch(readinessRoute, /META_CAPI_ACCESS_TOKEN/);
 });

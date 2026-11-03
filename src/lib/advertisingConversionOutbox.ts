@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const ga4MeasurementId = "G-PP7C1SBY8N";
@@ -56,6 +56,13 @@ function validActivation(value: string | undefined) {
 function validMetaPixelId(value: string | undefined) {
   const normalized = value?.trim();
   return normalized && /^\d{5,30}$/.test(normalized) ? normalized : null;
+}
+
+function validMetaTestEventCode(value: string | undefined) {
+  const normalized = value?.trim();
+  return normalized && /^TEST[A-Z0-9_-]{1,64}$/.test(normalized)
+    ? normalized
+    : null;
 }
 
 function metaApiVersion(env: AdvertisingEnvironment) {
@@ -155,6 +162,9 @@ function metaReadinessFailureReason(error: Record<string, unknown>) {
   if (message.includes("version") || message.includes("unknown path")) {
     return "api_version_unsupported";
   }
+  if (message.includes("missing permission") || message.includes("permission denied")) {
+    return "delivery_permission_missing";
+  }
   return "request_rejected";
 }
 
@@ -221,38 +231,94 @@ async function deliverMeta(
 }
 
 export async function verifyMetaCapiConfiguration(
-  options: { env?: AdvertisingEnvironment; fetchImpl?: typeof fetch } = {},
+  options: {
+    env?: AdvertisingEnvironment;
+    fetchImpl?: typeof fetch;
+    mode?: "identity" | "test_event";
+  } = {},
 ) {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
   const pixelId = validMetaPixelId(env.META_PIXEL_ID);
   const token = env.META_CAPI_ACCESS_TOKEN;
   const version = metaApiVersion(env);
+  const mode = options.mode ?? "identity";
+  const testEventCode = validMetaTestEventCode(env.META_CAPI_TEST_EVENT_CODE);
 
   if (!pixelId || !token) {
     return {
       accepted: false,
       apiVersion: version,
       configured: false,
-      datasetMatches: false,
+      datasetMatches: null,
+      deliveryVerified: false,
+      testEventConfigured: false,
+      testEventRequired: true,
+      tokenAccepted: false,
+    };
+  }
+
+  if (mode === "test_event" && !testEventCode) {
+    return {
+      accepted: false,
+      apiVersion: version,
+      configured: true,
+      datasetMatches: null,
+      deliveryVerified: false,
+      testEventConfigured: false,
+      testEventRequired: true,
+      tokenAccepted: null,
     };
   }
 
   try {
     const response = await fetchImpl(
-      `https://graph.facebook.com/${encodeURIComponent(version)}/${pixelId}?fields=id`,
-      { headers: { Authorization: `Bearer ${token}` } },
+      mode === "test_event"
+        ? `https://graph.facebook.com/${encodeURIComponent(version)}/${pixelId}/events`
+        : `https://graph.facebook.com/${encodeURIComponent(version)}/me?fields=id`,
+      mode === "test_event"
+        ? {
+            body: JSON.stringify({
+              data: [{
+                action_source: "website",
+                event_id: `zingara_capi_readiness_${Date.now()}_${randomUUID()}`,
+                event_name: "ZingaraCapiReadiness",
+                event_source_url: "https://book.zingara.co.za/book",
+                event_time: Math.floor(Date.now() / 1_000),
+                user_data: {
+                  external_id: [
+                    createHash("sha256")
+                      .update("zingara-meta-capi-readiness")
+                      .digest("hex"),
+                  ],
+                },
+              }],
+              test_event_code: testEventCode,
+            }),
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            method: "POST",
+          }
+        : { headers: { Authorization: `Bearer ${token}` } },
     );
     const body = await responseBody(response);
-    const datasetMatches = response.ok && String(body.id ?? "") === pixelId;
+    const tokenAccepted = mode === "identity"
+      ? response.ok && Boolean(body.id)
+      : response.ok;
+    const deliveryVerified = mode === "test_event" &&
+      response.ok &&
+      Number(body.events_received) > 0;
     const providerError = body.error && typeof body.error === "object"
       ? body.error as Record<string, unknown>
       : null;
     return {
-      accepted: response.ok && datasetMatches,
+      accepted: deliveryVerified,
       apiVersion: version,
       configured: true,
-      datasetMatches,
+      datasetMatches: deliveryVerified ? true : null,
+      deliveryVerified,
       ...(providerError ? {
         providerError: {
           code: Number(providerError.code) || null,
@@ -263,14 +329,21 @@ export async function verifyMetaCapiConfiguration(
         },
       } : {}),
       status: response.status,
+      testEventConfigured: Boolean(testEventCode),
+      testEventRequired: !deliveryVerified,
+      tokenAccepted,
     };
   } catch {
     return {
       accepted: false,
       apiVersion: version,
       configured: true,
-      datasetMatches: false,
+      datasetMatches: null,
+      deliveryVerified: false,
       status: 0,
+      testEventConfigured: Boolean(testEventCode),
+      testEventRequired: true,
+      tokenAccepted: false,
     };
   }
 }

@@ -14,7 +14,10 @@ function roleOf(
   return Array.isArray(profile.roles) ? profile.roles[0] : profile.roles;
 }
 
-export async function GET(request: Request) {
+async function runReadiness(
+  request: Request,
+  mode: "identity" | "test_event",
+) {
   const auth = await requireActiveStaff(request);
 
   if (auth.error || !auth.staffProfile) {
@@ -28,9 +31,20 @@ export async function GET(request: Request) {
     );
   }
 
-  const readiness = await verifyMetaCapiConfiguration();
+  const readiness = await verifyMetaCapiConfiguration({ mode });
+  const successful = mode === "identity"
+    ? readiness.tokenAccepted === true
+    : readiness.accepted;
   return Response.json(readiness, {
     headers: { "Cache-Control": "private, no-store" },
-    status: readiness.accepted ? 200 : 503,
+    status: successful ? 200 : 503,
   });
+}
+
+export async function GET(request: Request) {
+  return runReadiness(request, "identity");
+}
+
+export async function POST(request: Request) {
+  return runReadiness(request, "test_event");
 }
