@@ -1,3 +1,49 @@
+# P0 Table Plan Export & Seating Classification Integrity
+
+STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 3 NOVEMBER 2026
+
+## Incident And Correction
+
+- JHB 3 November 2026 placed numbered temporary table `408` in Middle Ring and
+  omitted yellow repeated headings in a large dynamic export.
+- The prior permanent-table fix covered only the exact 74 master codes. The
+  temporary-plan allocator could continue from legacy cross-zone numbers.
+  Sixteen retained temporary rows across four performances have this mismatch.
+- Exact numeric table codes now export in the approved number families while
+  preserving the booking's authoritative `ORIGINAL ZONE`. Named temporary
+  tables and merged codes retain their show-specific saved section.
+- Future temporary plans allocate atomically inside the selected zone family.
+  Existing rows were not renamed or rewritten.
+- Phase 64's unconditional `D79:K79` fill clearing mutated shared Excel styles.
+  It now clears only recognised red fills on cloned styles, preserving every
+  yellow repeated heading.
+
+## Verification And Release
+
+- Focused tests: 16/16 passed. TypeScript, changed-file ESLint, whitespace
+  validation and the Next.js Webpack Production build passed.
+- Migration `20261103135000_p0_table_plan_seating_classification.sql` applied.
+- Fresh authenticated Production exports:
+  `Zingara_Table_Plan_JHB_2026-11-03 (2).xlsx` and
+  `Zingara_Table_Plan_CPT_2026-11-03 (2).xlsx`.
+- JHB table `408` now appears under `GOLD CIRCLE`; Brenton Veeran remains 10
+  guests and `ORIGINAL ZONE` remains `Middle Ring`. All JHB and CPT repeated
+  headings are yellow; Notes, payment, COMP and dietary columns remain present.
+- Application commit: `6af231b0`.
+- Production deployment: `dpl_3h1g2KJyEmpSRs5DjMe64vqX4r8D`, Ready and aliased
+  to `book.zingara.co.za` at 13:54:10 SAST.
+- Rollback: revert `6af231b0` and restore the previous function definition from
+  `20260910143000_phase_41_1x_a_incremental_temporary_capacity_recovery.sql`.
+- Business-data delta: zero.
+
+## Archive
+
+- `.codex/archive/P0_TABLE_PLAN_EXPORT_SEATING_CLASSIFICATION_INTEGRITY_COMPLETE.md`
+
+---
+
 # P0 Box Office Seating Override Booking Failure
 
 STATUS: COMPLETE - MIGRATED AND DEPLOYED
