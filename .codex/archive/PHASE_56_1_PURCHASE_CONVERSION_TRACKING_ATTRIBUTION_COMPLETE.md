@@ -150,3 +150,34 @@ PHASE 56.1 COMPLETE - VERIFIED PURCHASE CONVERSION TRACKING DEPLOYED DISABLED.
   only remaining action is to supply a Test Events code from the configured
   dataset. Successful receipt of that isolated POST is the required proof before
   future-only Meta CAPI activation.
+
+### Meta Test Events Verification And Activation - 3 November 2026
+
+- Jurelle supplied the configured dataset's Test Events code. It was added as a
+  protected Production-only Vercel secret, used for the isolated provider check,
+  and removed immediately after successful verification. The value was never
+  written to source, browser code, logs, commits or Markdown.
+- Deployment `dpl_EQWqmCY8VDurww4kn5sMUxdTHPcH` reached Ready with the temporary
+  protected setting and was aliased to `book.zingara.co.za`.
+- The management-only delivery check sent one synthetic
+  `ZingaraCapiReadiness` Test Events event to
+  `POST /v26.0/{dataset_id}/events`. It was not a Purchase and contained no
+  customer, booking or payment data.
+- Meta returned HTTP 200 with `accepted=true`, `deliveryVerified=true`,
+  `datasetMatches=true`, `tokenAccepted=true` and no provider error. This proves
+  the existing token can deliver events to the configured dataset; no token or
+  permission replacement is required.
+- Future-only CAPI delivery was activated at `2026-11-03T07:50:53Z`
+  (`09:50:53 SAST`) through `ADVERTISING_META_CAPI_ENABLED=true` and the matching
+  activation boundary. Deployment `dpl_2zx9DHZGFJcikzPiyZ2AY7ShdnGS` reached
+  Ready and was aliased to the Production domain.
+- Focused readiness and delivery safeguards passed 12/12. Consent gating,
+  authoritative PayFast confirmation, stable payment event IDs, destination
+  outbox idempotency, bounded retries and browser/server deduplication are
+  unchanged.
+- The post-activation read-only audit found 307 succeeded GA4 outbox rows and
+  zero Meta rows. No historical payment was backfilled, queued or replayed.
+  Future Meta rows are limited to eligible verified payments occurring on or
+  after the activation timestamp.
+- Production Admin returned HTTP 200 after activation. Booking, payment, ticket,
+  customer and financial business-data delta: none.

@@ -48,7 +48,7 @@ DATE: 3 NOVEMBER 2026
 
 ## Previous Task: Meta Pixel & Conversions API Integration
 
-STATUS: APPLICATION RELEASED - TOKEN ACCEPTED; TEST-EVENT DELIVERY PROOF PENDING
+STATUS: COMPLETE - META CAPI VERIFIED AND ACTIVE FOR FUTURE ELIGIBLE PAYMENTS
 
 DATE: 3 NOVEMBER 2026
 
@@ -139,13 +139,23 @@ affecting booking and payment workflows.
 
 ## Safe Activation Boundary
 
-- Meta CAPI remains disabled. No activation timestamp was set and no historical
-  or current Purchase was sent to Meta.
-- No replacement token or permission change is justified by the former GET
-  failure. Jurelle only needs to provide a Test Events code for the configured
-  dataset so the protected POST check can prove delivery without a Purchase.
-- Enable Meta only with a new UTC activation timestamp after provider acceptance
-  succeeds. Payments before that timestamp must never be queued.
-- Do not send fabricated Purchase events or replay historical payments.
-- A Meta Test Events code is still required if an Events Manager test-event
-  receipt is required; no fabricated Purchase test was sent.
+- Jurelle supplied a dataset Test Events code on 3 November 2026. It was stored
+  as a protected Production-only setting, used once, and removed immediately
+  after verification. Its value was not recorded in source, logs or Markdown.
+- The protected `POST /v26.0/{dataset_id}/events` check returned HTTP 200 with
+  `accepted=true`, `deliveryVerified=true`, `datasetMatches=true` and
+  `tokenAccepted=true`. Meta therefore accepted the configured token for event
+  delivery to the configured dataset.
+- The check sent one synthetic `ZingaraCapiReadiness` Test Events event. It was
+  not a Purchase and contained no customer data, booking data or payment data.
+- Meta CAPI was enabled for future eligible payments from
+  `2026-11-03T07:50:53Z` (`09:50:53 SAST`). The existing consent, authoritative
+  PayFast confirmation, payment-level idempotency and browser/server
+  deduplication controls remain unchanged.
+- Activation deployment `dpl_2zx9DHZGFJcikzPiyZ2AY7ShdnGS` reached Ready and
+  was aliased to `book.zingara.co.za` on 3 November 2026. The preceding
+  test-setting deployment was `dpl_EQWqmCY8VDurww4kn5sMUxdTHPcH`.
+- Post-activation Production evidence contains 307 succeeded GA4 outbox rows and
+  zero Meta rows. No historical payment was queued or replayed; Meta rows can be
+  created only for eligible verified payments occurring on or after the
+  activation timestamp.
