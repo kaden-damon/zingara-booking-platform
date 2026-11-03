@@ -1,3 +1,49 @@
+# P0 Guest Count Reduction & Retained Value Transfer
+
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 3 NOVEMBER 2026
+
+## Incident And Root Cause
+
+- The reported reference `ZNG-M7HYQ3` belongs to a different 18-guest booking.
+  Jane Grobler's authoritative booking is `DP-J7SPNC`: Johannesburg,
+  20 November 2026, 70 Middle Ring guests, fully paid R103,950.
+- Production UI reproduction confirmed that the retained-value confirmation
+  kept `CONFIRM GUEST COUNT` disabled without explaining the missing action.
+  No amendment request reached the API, so the atomic database path did not
+  fail and no partial amendment existed.
+- A rollback-only Production call proved the existing permissioned atomic RPC
+  accepts Jane's 70-to-64 reduction and preserves her merged 70-seat table.
+
+## Correction And Verification
+
+- The explicit bar-tab transfer confirmation remains mandatory. The final
+  button now provides an actionable inline instruction when that confirmation
+  is missing instead of appearing inert.
+- Verified calculation: R92,400 ticket evidence / 70 = R1,320 per guest;
+  R7,920 released ticket value + R11,550 gratuity = R19,470 final bar tab;
+  R84,480 final ticket value; R103,950 retained; refund R0.
+- Focused tests passed 29/29; TypeScript, changed-file ESLint, diff validation
+  and the Next.js Webpack Production build passed. The local Turbopack worker
+  remains unable to bind its compiler port in this environment; Vercel's clean
+  Production build is the release gate.
+- Authenticated Production UI verification reproduced the exact 70-to-64
+  workflow after deployment and confirmed the clear missing-confirmation
+  message. The modal was closed without submitting the live amendment.
+- Application commit: `b2807abb46699d82d21a064be66583bf353466c6`.
+- Production deployment: `dpl_8WbtzWZuxES8jB41m8dLHL1AWPx3`, Ready and
+  aliased to `book.zingara.co.za` at 14:11:55 SAST.
+- No migration was required. Rollback: revert `b2807abb` and redeploy.
+- Business-data delta: zero. Jane remains at 70 guests, R103,950 paid,
+  R0 outstanding, with no retained-reduction audit event.
+
+## Archive
+
+- `.codex/archive/P0_GUEST_COUNT_REDUCTION_RETAINED_VALUE_TRANSFER_COMPLETE.md`
+
+---
+
 # P0 Table Plan Export & Seating Classification Integrity
 
 STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
