@@ -1,6 +1,6 @@
 # Meta Pixel & Conversions API Integration
 
-STATUS: APPLICATION RELEASED - META CAPI ACTIVATION BLOCKED SAFELY
+STATUS: APPLICATION RELEASED - TOKEN ACCEPTED; TEST-EVENT DELIVERY PROOF PENDING
 
 DATE: 3 NOVEMBER 2026
 
@@ -34,13 +34,14 @@ affecting booking and payment workflows.
 - Keep Purchase server-only when the Phase 56.1 server path is authorised. Each
   verified PayFast deposit, balance or full payment uses its own stable payment
   event ID and actual ZAR transaction value.
-- Add a management-only, non-event readiness endpoint that verifies token access
-  and dataset identity without generating a conversion.
+- Add a management-only readiness endpoint with two deliberately separate checks:
+  a passive token identity check and an optional synthetic Test Events delivery
+  check. Dataset delivery is never inferred from unrelated object-read access.
 
 ## Verification
 
 - Focused advertising and consent tests: 27/27 passed.
-- Additional provider-readiness regression tests: 9/9 passed.
+- Final provider-readiness regression tests: 12/12 passed.
 - TypeScript passed.
 - Changed-file ESLint passed.
 - Diff validation passed.
@@ -70,13 +71,31 @@ affecting booking and payment workflows.
 - Production now contains 301 successful GA4 deliveries and still contains zero
   Meta outbox rows.
 
+## Permission Error Resolution
+
+- The HTTP 400 `OAuthException` code 100 `(#100) Missing Permission` came from
+  `GET /v26.0/{dataset_id}?fields=id`. That operation tests dataset-object read
+  access, not the `POST /v26.0/{dataset_id}/events` operation used by CAPI.
+- Commit `8ee27acf6cd2792ffcd438217ea7dcb06404e37a` replaces that false gate with
+  `GET /v26.0/me?fields=id` for passive token authentication and an optional
+  synthetic, non-Purchase Test Events POST for actual delivery proof.
+- Production deployment `dpl_DHSfS6PtdspULodkuUNf45W7jz32` was Ready and
+  aliased to `book.zingara.co.za` on 3 November 2026 at 08:44:58 SAST.
+- Authenticated Production verification returned HTTP 200 with
+  `tokenAccepted=true`, `deliveryVerified=false`, `datasetMatches=null` and
+  `testEventRequired=true`. The existing token is active; dataset delivery has
+  not yet been tested because no `META_CAPI_TEST_EVENT_CODE` is configured.
+- Production contains 304 successful GA4 outbox rows and zero Meta rows. No
+  Purchase, synthetic event or historical conversion was queued or sent by
+  this correction.
+
 ## Safe Activation Boundary
 
 - Meta CAPI remains disabled. No activation timestamp was set and no historical
   or current Purchase was sent to Meta.
-- Jurelle must grant the token's system user access to the configured dataset
-  with the required Conversions API permission, or provide a replacement token
-  with that permission, then repeat the protected readiness check.
+- No replacement token or permission change is justified by the former GET
+  failure. Jurelle only needs to provide a Test Events code for the configured
+  dataset so the protected POST check can prove delivery without a Purchase.
 - Enable Meta only with a new UTC activation timestamp after provider acceptance
   succeeds. Payments before that timestamp must never be queued.
 - Do not send fabricated Purchase events or replay historical payments.

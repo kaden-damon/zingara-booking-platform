@@ -121,3 +121,32 @@ PHASE 56.1 COMPLETE - VERIFIED PURCHASE CONVERSION TRACKING DEPLOYED DISABLED.
   with the required Conversions API permission, or provide a replacement token
   with that permission. A Meta Test Events code is still required for test-event
   receipt verification after readiness succeeds.
+
+### Meta Permission Root Cause Resolution - 3 November 2026
+
+- The earlier permission conclusion was not supported by the operation tested.
+  The failing request was `GET /v26.0/{dataset_id}?fields=id`, which requires
+  dataset-object read access and is not the CAPI event-delivery operation.
+- Meta CAPI delivery uses `POST /v26.0/{dataset_id}/events`. Commit
+  `8ee27acf6cd2792ffcd438217ea7dcb06404e37a` now separates passive token
+  authentication from actual Test Events delivery verification.
+- The passive management-only check uses `GET /v26.0/me?fields=id`, sends no
+  event and does not require dataset-management access. The optional POST check
+  requires a validated `META_CAPI_TEST_EVENT_CODE` and sends one synthetic
+  `ZingaraCapiReadiness` event, never a Purchase and never customer data.
+- Production deployment `dpl_DHSfS6PtdspULodkuUNf45W7jz32` reached Ready and
+  was aliased to `book.zingara.co.za` at 08:44:58 SAST.
+- Authenticated Production verification returned HTTP 200 with
+  `tokenAccepted=true`, proving the configured token is active. Delivery and
+  dataset association remain deliberately unclaimed because no Test Events code
+  is configured: `deliveryVerified=false`, `datasetMatches=null` and
+  `testEventRequired=true`.
+- Focused readiness tests passed 12/12. TypeScript, changed-file ESLint and diff
+  validation passed.
+- Production contains 304 successful GA4 outbox rows and zero Meta rows. CAPI
+  remains disabled, no activation timestamp was set, and no event or historical
+  conversion was transmitted by the readiness correction.
+- No token regeneration or permission change is currently justified. Jurelle's
+  only remaining action is to supply a Test Events code from the configured
+  dataset. Successful receipt of that isolated POST is the required proof before
+  future-only Meta CAPI activation.
