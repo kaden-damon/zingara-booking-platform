@@ -3170,7 +3170,9 @@ export default function BookingPage({
         setPaymentRedirectStatus(
           isAvailabilityConflict || isPriceConflict
             ? message
-            : `Payment could not be started. ${message}`,
+            : checkoutOperation === "create_booking"
+              ? `Booking could not be created. ${message}`
+              : `Payment could not be started. ${message}`,
         );
       }
       trackPlatformEvent({

@@ -167,6 +167,20 @@ test("override is private, short-lived, atomic and audited", async () => {
   assert.doesNotMatch(migration, /update\s+public\.bookings/i);
 });
 
+test("new-booking overrides defer their booking relationship until commit", async () => {
+  const migration = await source(
+    "../../supabase/migrations/20261103090000_p0_two_seater_override_creation_fk.sql",
+  );
+
+  assert.match(
+    migration,
+    /foreign key \(booking_id\)[\s\S]*references public\.bookings\(id\)[\s\S]*deferrable initially deferred/,
+  );
+  assert.doesNotMatch(migration, /insert\s+into\s+public\.bookings/i);
+  assert.doesNotMatch(migration, /update\s+public\.bookings/i);
+  assert.doesNotMatch(migration, /delete\s+from\s+public\.bookings/i);
+});
+
 test("public creation remains strict while internal paths expose an authorised retry", async () => {
   const [bookingRoute, adminRoute, reconciliationRoute, page] =
     await Promise.all([
@@ -186,4 +200,8 @@ test("public creation remains strict while internal paths expose an authorised r
   assert.match(reconciliationRoute, /authorizeTwoSeaterLimitOverride/);
   assert.match(page, /Override Limit/);
   assert.match(page, /Why is this exception required\?/);
+  assert.match(
+    page,
+    /checkoutOperation === "create_booking"[\s\S]*Booking could not be created\.[\s\S]*Payment could not be started\./,
+  );
 });
