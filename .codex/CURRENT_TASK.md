@@ -1,6 +1,6 @@
 # Meta Pixel & Conversions API Integration
 
-STATUS: RELEASE IN PROGRESS - META DELIVERY NOT YET ACTIVATED
+STATUS: APPLICATION RELEASED - META CAPI ACTIVATION BLOCKED SAFELY
 
 DATE: 3 NOVEMBER 2026
 
@@ -16,7 +16,7 @@ affecting booking and payment workflows.
   AddPaymentInfo only after Marketing consent and never on Admin routes.
 - Phase 56.1 already provides ITN-authoritative payment-level Purchase events,
   an atomic destination outbox, bounded retries, leases and idempotency.
-- Production has 357 consented attribution records and 299 successful GA4
+- Production initially had 357 consented attribution records and 299 successful GA4
   Purchase deliveries. No Meta outbox rows or historical Meta backlog exist.
 - `META_PIXEL_ID` and `META_CAPI_ACCESS_TOKEN` are present as Production-only
   Vercel secrets. Their values were not exposed.
@@ -40,6 +40,7 @@ affecting booking and payment workflows.
 ## Verification
 
 - Focused advertising and consent tests: 27/27 passed.
+- Additional provider-readiness regression tests: 9/9 passed.
 - TypeScript passed.
 - Changed-file ESLint passed.
 - Diff validation passed.
@@ -47,11 +48,31 @@ affecting booking and payment workflows.
   unrelated Admin files. Vercel's clean Production build remains the release
   gate; no failure referenced changed Meta files.
 
-## Release Boundary
+## Production Release
 
-- Enable Meta only with a new UTC activation timestamp after the application
-  release is ready. Payments before that timestamp must never be queued.
+- Application commits: `84f9ba441ce15993b3222bf1e7285b4fe0390eed`,
+  `cef67e910988dd137cdb8bfd80563cd76acb960d` and
+  `c6c2caf19e31a24ab3639eb65f0e9faba30b0e22`.
+- Final Vercel deployment `HodNbxDY9HVQde6Cqyb6WAbh4cqi` reached Ready on
+  3 November 2026 at 08:04:25 SAST.
+- Authenticated Production Admin loaded successfully. The management-only
+  readiness request reached Meta without exposing credentials or sending an
+  event.
+- Meta rejected the configured dataset/token readiness lookup with HTTP 400,
+  provider code 100 and type `OAuthException` (`request_rejected`). Dataset
+  identity and provider acceptance therefore remain unverified.
+- Production now contains 359 consented attribution rows and 300 successful GA4
+  deliveries. It still contains zero Meta outbox rows.
+
+## Safe Activation Boundary
+
+- Meta CAPI remains disabled. No activation timestamp was set and no historical
+  or current Purchase was sent to Meta.
+- Replace or correct the CAPI token/dataset association in Vercel, then repeat
+  the protected readiness check. The token must be generated for the exact
+  dataset configured by `META_PIXEL_ID` and permitted to use Conversions API.
+- Enable Meta only with a new UTC activation timestamp after provider acceptance
+  succeeds. Payments before that timestamp must never be queued.
 - Do not send fabricated Purchase events or replay historical payments.
-- Confirm the authenticated readiness endpoint, live consent behavior, empty
-  pre-activation Meta queue and healthy public booking routes before declaring
-  completion.
+- A Meta Test Events code is still required if an Events Manager test-event
+  receipt is required; no fabricated Purchase test was sent.

@@ -63,7 +63,7 @@ PHASE 56.1 COMPLETE - VERIFIED PURCHASE CONVERSION TRACKING DEPLOYED DISABLED.
 
 - Existing Pixel funnel events, consent controls, PayFast ITN authority,
   payment-level outbox idempotency and retry safeguards were retained.
-- Production contains 357 consented attribution rows and 299 successful GA4
+- Production initially contained 357 consented attribution rows and 299 successful GA4
   Purchase deliveries, confirming the shared server outbox is operational.
 - No Meta outbox rows or historical Meta backlog existed before activation.
 - Production Vercel configuration contains `META_PIXEL_ID` and
@@ -76,6 +76,23 @@ PHASE 56.1 COMPLETE - VERIFIED PURCHASE CONVERSION TRACKING DEPLOYED DISABLED.
   full-payment transaction. Browser funnel events do not create Purchases.
 - A management-only readiness check verifies dataset identity and token access
   without sending a fabricated conversion.
-- Focused advertising and consent tests passed 27/27; TypeScript, changed-file
-  lint and diff validation passed. Production activation and provider
-  verification remain pending the controlled release.
+- Focused advertising and consent tests passed 27/27; the final readiness suite
+  passed 9/9. TypeScript, changed-file lint and diff validation passed.
+- Application commits `84f9ba441ce15993b3222bf1e7285b4fe0390eed`,
+  `cef67e910988dd137cdb8bfd80563cd76acb960d` and
+  `c6c2caf19e31a24ab3639eb65f0e9faba30b0e22` reached Production. Final Vercel
+  deployment `HodNbxDY9HVQde6Cqyb6WAbh4cqi` was Ready at 08:04:25 SAST.
+- The authenticated management-only readiness check reached Meta without
+  sending an event, but Meta rejected the configured dataset/token lookup with
+  HTTP 400, code 100, type `OAuthException` and safe classification
+  `request_rejected`. Dataset identity and provider acceptance are not verified.
+- Meta CAPI was therefore not activated. No activation timestamp was set, no
+  Meta outbox row exists and no Purchase event or historical backlog was sent.
+- Post-release Production evidence: 359 consented attribution rows and 300 GA4
+  Purchase rows, all GA4 rows successful, with zero Meta rows. Booking, payment,
+  ticket and financial data were unchanged.
+- Required next action: provide a CAPI access token generated for the exact
+  configured dataset with Conversions API permission, repeat readiness, then
+  set a fresh UTC activation timestamp. A Meta Test Events code is additionally
+  required for an Events Manager test-event receipt; no fabricated Purchase was
+  sent.
