@@ -96,3 +96,28 @@ PHASE 56.1 COMPLETE - VERIFIED PURCHASE CONVERSION TRACKING DEPLOYED DISABLED.
   set a fresh UTC activation timestamp. A Meta Test Events code is additionally
   required for an Events Manager test-event receipt; no fabricated Purchase was
   sent.
+
+### Corrected Credential Retest - 3 November 2026
+
+- The corrected `META_CAPI_ACCESS_TOKEN` and existing `META_PIXEL_ID` were
+  verified as present, protected Production-only Vercel secrets without exposing
+  either value.
+- Vercel automatically redeployed the corrected secret as deployment
+  `9WYg3HZTR3MrmhYCi2tRq3U4C55Y`, Ready at 08:21:15 SAST.
+- Follow-up commit `59e63b0dedd4299b62d22f239a2f56d97731671b`
+  added sanitised provider messages to the management-only readiness response;
+  tests passed 9/9 with TypeScript, changed-file lint and diff validation.
+- Production deployment `94SwdXrVC19XyhYV4PSx1dq8B57S` was Ready at
+  08:26:29 SAST. The authenticated protected retest reached Meta without
+  generating a conversion.
+- Meta again rejected readiness with HTTP 400, code 100, null subcode, type
+  `OAuthException` and sanitised message `(#100) Missing Permission`. This is a
+  permissions failure; dataset identity and provider acceptance remain
+  unverified.
+- CAPI remains disabled and no activation timestamp was set. Production contains
+  301 successful GA4 outbox rows and zero Meta rows, proving no historical or
+  current Purchase was sent or queued by the retest.
+- Jurelle must grant the token's system user access to the configured dataset
+  with the required Conversions API permission, or provide a replacement token
+  with that permission. A Meta Test Events code is still required for test-event
+  receipt verification after readiness succeeds.
