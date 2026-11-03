@@ -163,10 +163,37 @@ test("Meta readiness exposes only non-secret provider error metadata", async () 
     apiVersion: defaultMetaApiVersion,
     configured: true,
     datasetMatches: false,
-    providerError: { code: 100, subcode: 33, type: "OAuthException" },
+    providerError: {
+      code: 100,
+      reason: "request_rejected",
+      subcode: 33,
+      type: "OAuthException",
+    },
     status: 400,
   });
   assert.doesNotMatch(JSON.stringify(result), /Sensitive provider detail|token/);
+});
+
+test("Meta readiness classifies an inaccessible dataset without exposing provider text", async () => {
+  const result = await verifyMetaCapiConfiguration({
+    env: {
+      META_CAPI_ACCESS_TOKEN: "token",
+      META_PIXEL_ID: "1434578967806435",
+    },
+    fetchImpl: (async () => new Response(JSON.stringify({
+      error: {
+        code: 100,
+        message: "Unsupported get request. Object does not exist or is not accessible.",
+        type: "OAuthException",
+      },
+    }), { status: 400 })) as typeof fetch,
+  });
+
+  assert.equal(result.providerError?.reason, "dataset_not_accessible");
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /Unsupported get request|Object does not exist/,
+  );
 });
 
 test("GA4 server purchase uses one payment transaction value and identity", async () => {

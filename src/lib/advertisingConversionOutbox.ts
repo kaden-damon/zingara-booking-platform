@@ -140,6 +140,24 @@ function providerFailure(response: Response, body: Record<string, unknown>): Del
   };
 }
 
+function metaReadinessFailureReason(error: Record<string, unknown>) {
+  const code = Number(error.code) || null;
+  const message = typeof error.message === "string"
+    ? error.message.toLowerCase()
+    : "";
+
+  if (code === 190 || message.includes("access token")) {
+    return "access_token_rejected";
+  }
+  if (message.includes("unsupported get request") || message.includes("does not exist")) {
+    return "dataset_not_accessible";
+  }
+  if (message.includes("version") || message.includes("unknown path")) {
+    return "api_version_unsupported";
+  }
+  return "request_rejected";
+}
+
 async function deliverMeta(
   row: ConversionRow,
   attribution: AttributionRow,
@@ -227,6 +245,7 @@ export async function verifyMetaCapiConfiguration(
       ...(providerError ? {
         providerError: {
           code: Number(providerError.code) || null,
+          reason: metaReadinessFailureReason(providerError),
           subcode: Number(providerError.error_subcode) || null,
           type: typeof providerError.type === "string" ? providerError.type : null,
         },
