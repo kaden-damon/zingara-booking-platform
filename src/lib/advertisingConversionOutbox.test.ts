@@ -3,8 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { normalizeAdvertisingAttribution } from "./advertisingAttribution.ts";
 import {
+  defaultMetaApiVersion,
   deliverAdvertisingConversion,
   getAdvertisingConversionReadiness,
+  verifyMetaCapiConfiguration,
 } from "./advertisingConversionOutbox.ts";
 
 const row = {
@@ -52,7 +54,7 @@ test("server conversion destinations remain independently disabled until fully c
     ADVERTISING_SERVER_PURCHASE_CONVERSIONS_AUTHORISED: "true",
     GA4_MEASUREMENT_PROTOCOL_API_SECRET: "secret",
     META_CAPI_ACCESS_TOKEN: "token",
-    META_CAPI_API_VERSION: "v99.0",
+    META_PIXEL_ID: "1434578967806435",
   });
   assert.equal(readiness.authorized, true);
   assert.deepEqual(readiness.configured.sort(), ["ga4", "meta"]);
@@ -78,14 +80,21 @@ test("attribution normalization requires explicit current consent evidence", () 
 
 test("Meta CAPI uses the verified payment amount and stable event id without PII", async () => {
   let requestBody = "";
-  const fetchImpl = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+  let requestUrl = "";
+  let authorization = "";
+  const fetchImpl = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    requestUrl = String(input);
+    authorization = new Headers(init?.headers).get("authorization") ?? "";
     requestBody = String(init?.body ?? "");
     return new Response(JSON.stringify({ events_received: 1, fbtrace_id: "trace" }), {
       status: 200,
     });
   }) as typeof fetch;
   const result = await deliverAdvertisingConversion(row, attribution, {
-    env: { META_CAPI_ACCESS_TOKEN: "token", META_CAPI_API_VERSION: "v99.0" },
+    env: {
+      META_CAPI_ACCESS_TOKEN: "token",
+      META_PIXEL_ID: "1434578967806435",
+    },
     fetchImpl,
   });
   const payload = JSON.parse(requestBody);
@@ -94,7 +103,43 @@ test("Meta CAPI uses the verified payment amount and stable event id without PII
   assert.equal(payload.data[0].custom_data.currency, "ZAR");
   assert.equal(payload.data[0].event_id, row.event_id);
   assert.equal(payload.data[0].event_name, "Purchase");
+  assert.equal(
+    requestUrl,
+    `https://graph.facebook.com/${defaultMetaApiVersion}/1434578967806435/events`,
+  );
+  assert.equal(authorization, "Bearer token");
+  assert.doesNotMatch(requestUrl, /token|access_token/i);
   assert.doesNotMatch(requestBody, /email|phone|booking_reference/i);
+});
+
+test("Meta readiness verifies the configured dataset without sending an event", async () => {
+  let method = "GET";
+  let requestUrl = "";
+  const fetchImpl = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    requestUrl = String(input);
+    method = init?.method ?? "GET";
+    return new Response(JSON.stringify({ id: "1434578967806435" }), {
+      status: 200,
+    });
+  }) as typeof fetch;
+  const result = await verifyMetaCapiConfiguration({
+    env: {
+      META_CAPI_ACCESS_TOKEN: "token",
+      META_PIXEL_ID: "1434578967806435",
+    },
+    fetchImpl,
+  });
+
+  assert.deepEqual(result, {
+    accepted: true,
+    apiVersion: defaultMetaApiVersion,
+    configured: true,
+    datasetMatches: true,
+    status: 200,
+  });
+  assert.equal(method, "GET");
+  assert.match(requestUrl, /\/1434578967806435\?fields=id$/);
+  assert.doesNotMatch(requestUrl, /token|access_token/i);
 });
 
 test("GA4 server purchase uses one payment transaction value and identity", async () => {
@@ -150,10 +195,11 @@ test("Google Ads upload retains click attribution and payment-level order id", a
 });
 
 test("migration and ITN preserve post-activation idempotent non-blocking delivery", async () => {
-  const [migration, itn, workflow] = await Promise.all([
+  const [migration, itn, workflow, readinessRoute] = await Promise.all([
     readFile(new URL("../../supabase/migrations/20261029143000_phase_56_1_purchase_conversion_outbox.sql", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payfast/itn/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/workflows/run/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/qa/meta-capi-readiness/route.ts", import.meta.url), "utf8"),
   ]);
   assert.match(migration, /unique \(payment_id, destination\)/);
   assert.match(migration, /a\.booking_id=o\.booking_id and a\.expires_at <= now\(\)/);
@@ -164,4 +210,7 @@ test("migration and ITN preserve post-activation idempotent non-blocking deliver
   assert.match(migration, /booking_origin = 'customer_public'/);
   assert.match(itn, /after\(async \(\) => \{[\s\S]*enqueueVerifiedAdvertisingPurchase/);
   assert.match(workflow, /runAdvertisingConversionWorker/);
+  assert.match(readinessRoute, /settings:manage/);
+  assert.match(readinessRoute, /Cache-Control.*private, no-store/);
+  assert.doesNotMatch(readinessRoute, /META_CAPI_ACCESS_TOKEN/);
 });

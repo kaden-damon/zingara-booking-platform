@@ -1,82 +1,57 @@
-# Secret Guest List ON/OFF Control
+# Meta Pixel & Conversions API Integration
 
-STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION - FEATURE OFF
+STATUS: RELEASE IN PROGRESS - META DELIVERY NOT YET ACTIVATED
 
-DATE: 31 OCTOBER 2026
-
-## Toggle Clarity Follow-up
-
-- Production database and public settings both confirm the feature is OFF.
-- The original control used a muted inherited colour for its moving label/thumb,
-  making the OFF state visually weak and the two states difficult to compare.
-- The corrected control uses a green ON track, grey OFF track, white positional
-  thumb and an explicit label that always agrees with the saved state.
-- Admin reads bypass browser and route caches. Failed saves visibly report the
-  error and reload the authoritative server value before re-enabling the switch.
-- Application commit `9769445c60a561329b4dd504fcd55d30c25d376e`
-  deployed successfully as Vercel deployment `ArPzLjeZgoPnp9FxsfMNih4LAfko` at
-  12:10:43 SAST.
-- Kaden's fresh authenticated Production Admin page reported the switch as
-  `The Secret Guest List is OFF`. Desktop and 390 x 841 responsive inspection
-  confirmed the grey OFF track, left-positioned white thumb and explicit OFF
-  label remain clear without overlap.
-- Production remains OFF after release. The public settings response reports
-  `secretGuestList: false`, and direct Secret Guest List submissions return
-  HTTP 409 before persistence.
+DATE: 3 NOVEMBER 2026
 
 ## Objective
 
-Provide one management-only ON/OFF control for The Secret Guest List while
-preserving the standard Waitlist, existing enquiries and every booking path.
+Complete the existing consent-gated Meta Pixel and verified PayFast Purchase
+Conversions API integration without duplicating the Phase 56.1 outbox or
+affecting booking and payment workflows.
 
-## Verified Implementation
+## Verified Baseline
 
-- Admin location: Settings > Venue > Public Booking > The Secret Guest List.
-- Staff require the existing `settings:manage` permission in both the interface
-  and the server API.
-- Public booking settings carry the feature state in the existing venue-settings
-  request, with no extra page-load request.
-- OFF removes both sold-out and insufficient-availability invitations and the
-  enquiry panel.
-- The public API and the atomic database function both reject direct Secret Guest
-  List submissions while OFF.
-- Standard Waitlist submissions, staff routing, customer acknowledgements and
-  historical enquiries are unchanged.
-- ON restores the established feature without a code release.
+- Meta Pixel already records PageView, ViewContent, InitiateCheckout and
+  AddPaymentInfo only after Marketing consent and never on Admin routes.
+- Phase 56.1 already provides ITN-authoritative payment-level Purchase events,
+  an atomic destination outbox, bounded retries, leases and idempotency.
+- Production has 357 consented attribution records and 299 successful GA4
+  Purchase deliveries. No Meta outbox rows or historical Meta backlog exist.
+- `META_PIXEL_ID` and `META_CAPI_ACCESS_TOKEN` are present as Production-only
+  Vercel secrets. Their values were not exposed.
+- Global server Purchase authority and attribution capture are active. Meta is
+  not yet an enabled destination.
+
+## Implementation
+
+- Use the server-provided `META_PIXEL_ID` for both browser Pixel and CAPI instead
+  of a duplicated source-code constant.
+- Keep the CAPI access token server-only and send it in the Authorization header,
+  never in source, browser bundles, URLs, logs or records.
+- Default to supported Graph API `v26.0`, while retaining an optional validated
+  environment override.
+- Keep Purchase server-only when the Phase 56.1 server path is authorised. Each
+  verified PayFast deposit, balance or full payment uses its own stable payment
+  event ID and actual ZAR transaction value.
+- Add a management-only, non-event readiness endpoint that verifies token access
+  and dataset identity without generating a conversion.
 
 ## Verification
 
-- Focused Secret Guest List and Waitlist tests: 9/9 passed.
+- Focused advertising and consent tests: 27/27 passed.
 - TypeScript passed.
-- Targeted ESLint passed with no errors; four pre-existing unused-code warnings
-  remain in shared venue-settings modules.
-- Next.js 16.3.4 webpack Production build passed, including all 27 static pages.
-- Migration dry run found exactly one pending migration.
-- Production migration `20261031120000_secret_guest_list_feature_control.sql`
-  applied successfully at 11:46:23 SAST.
-- Production feature state is OFF; both customer acknowledgement workflows remain
-  ON and unchanged.
-- Historical record counts are unchanged: 404 total Waitlist entries, including
-  39 identified Secret Guest List enquiries.
+- Changed-file ESLint passed.
+- Diff validation passed.
+- The local full build reached an existing compiler-worker restriction in three
+  unrelated Admin files. Vercel's clean Production build remains the release
+  gate; no failure referenced changed Meta files.
 
-## Release
+## Release Boundary
 
-- Application commit: `f5226995b33489fdf97ff374f7490bde7e9c762c`.
-- Vercel deployment: `4TFJEGnf1LysAzRd7G633vwtU9nH`, completed at
-  11:49:23 SAST on 31 October 2026.
-- Kaden's authenticated Production session confirmed the switch is visible at
-  Settings > Venue > Public Booking and displays OFF.
-- The live public booking calendar contains no Secret Guest List invitation or
-  CTA for restricted performances.
-- The live public settings response reports `secretGuestList: false`; a direct
-  submission returns HTTP 409, and the management endpoint rejects an
-  unauthenticated request with HTTP 401.
-- Rollback-only Production verification confirmed standard Waitlist submission,
-  OFF rejection and ON restoration without retaining test records.
-- Public booking and ticket routes return HTTP 200. No booking, payment, ticket,
-  seating, customer, communication or financial record changed.
-- Follow-up release verification reused the rollback-only Production check:
-  standard Waitlist submission remained accepted, OFF rejected Secret Guest
-  List submission, and ON restored the feature inside a rolled-back transaction.
-  The final authoritative state remained OFF with 404 Waitlist records and 39
-  identified Secret Guest List enquiries unchanged.
+- Enable Meta only with a new UTC activation timestamp after the application
+  release is ready. Payments before that timestamp must never be queued.
+- Do not send fabricated Purchase events or replay historical payments.
+- Confirm the authenticated readiness endpoint, live consent behavior, empty
+  pre-activation Meta queue and healthy public booking routes before declaring
+  completion.

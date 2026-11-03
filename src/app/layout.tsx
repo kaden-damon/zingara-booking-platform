@@ -91,7 +91,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <PwaRuntime />
-        <PublicAdvertisingTracking />
+        <PublicAdvertisingTracking metaPixelId={process.env.META_PIXEL_ID ?? null} />
         <PublicTrafficTelemetry />
         <ZingaraHeader />
         {children}

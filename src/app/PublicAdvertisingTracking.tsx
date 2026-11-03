@@ -10,6 +10,7 @@ import {
 import {
   applyAdvertisingConsent,
   canRetryAdvertisingPurchaseVerification,
+  configureMetaPixelId,
   trackAdvertisingPageView,
   trackVerifiedAdvertisingPurchase,
 } from "@/lib/advertisingTracking";
@@ -17,8 +18,16 @@ import { getBookingJourneyId } from "@/lib/browserPlatformTelemetry";
 
 type ConsentDetail = Pick<CookieConsent, "analytics" | "marketing">;
 
-export default function PublicAdvertisingTracking() {
+export default function PublicAdvertisingTracking({
+  metaPixelId,
+}: {
+  metaPixelId: string | null;
+}) {
   const pathname = usePathname();
+
+  useEffect(() => {
+    configureMetaPixelId(metaPixelId);
+  }, [metaPixelId]);
 
   useEffect(() => {
     if (pathname.startsWith("/admin")) return;

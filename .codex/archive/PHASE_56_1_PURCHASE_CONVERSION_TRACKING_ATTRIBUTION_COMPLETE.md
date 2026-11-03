@@ -58,3 +58,24 @@ DATE: 29 OCTOBER 2026
   record changed; no conversion was queued or transmitted.
 
 PHASE 56.1 COMPLETE - VERIFIED PURCHASE CONVERSION TRACKING DEPLOYED DISABLED.
+
+## Meta Activation Follow-up - 3 November 2026
+
+- Existing Pixel funnel events, consent controls, PayFast ITN authority,
+  payment-level outbox idempotency and retry safeguards were retained.
+- Production contains 357 consented attribution rows and 299 successful GA4
+  Purchase deliveries, confirming the shared server outbox is operational.
+- No Meta outbox rows or historical Meta backlog existed before activation.
+- Production Vercel configuration contains `META_PIXEL_ID` and
+  `META_CAPI_ACCESS_TOKEN` as protected secrets. No secret value was exposed.
+- The follow-up removes the duplicated dataset constant, passes the same
+  server-provided dataset ID to Pixel and CAPI, defaults to Graph API `v26.0`,
+  and keeps the token out of URLs and browser code.
+- Purchase remains server-only under the authorised Phase 56.1 path: one stable
+  event identity and actual ZAR value per verified PayFast deposit, balance or
+  full-payment transaction. Browser funnel events do not create Purchases.
+- A management-only readiness check verifies dataset identity and token access
+  without sending a fabricated conversion.
+- Focused advertising and consent tests passed 27/27; TypeScript, changed-file
+  lint and diff validation passed. Production activation and provider
+  verification remain pending the controlled release.

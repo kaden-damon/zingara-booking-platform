@@ -5,7 +5,6 @@ export const ga4MeasurementId = "G-PP7C1SBY8N";
 export const googleAdsId = "AW-18530431025";
 export const googleAdsPurchaseDestination =
   "AW-18530431025/mApNCLCkxaUdELHg_4NF";
-export const metaPixelId = "1434578967806435";
 
 type AdvertisingMetadata = Record<string, boolean | number | string | null>;
 type GoogleTag = (...args: unknown[]) => void;
@@ -41,6 +40,26 @@ let currentConsent: Pick<CookieConsent, "analytics" | "marketing"> = {
 let purchaseDispatchAvailable: boolean | null = null;
 let googlePageViewPath = "";
 let metaPageViewPath = "";
+let configuredMetaPixelId: string | null = null;
+
+export function configureMetaPixelId(value: string | null | undefined) {
+  const normalized =
+    typeof value === "string" && /^\d{5,30}$/.test(value.trim())
+      ? value.trim()
+      : null;
+
+  if (
+    typeof window !== "undefined" &&
+    window.__zingaraMetaInitialized &&
+    configuredMetaPixelId &&
+    normalized !== configuredMetaPixelId
+  ) {
+    return false;
+  }
+
+  configuredMetaPixelId = normalized;
+  return Boolean(normalized);
+}
 
 function isProductionTrackingHost() {
   return typeof window !== "undefined" &&
@@ -68,6 +87,8 @@ function ensureGoogleScript() {
 }
 
 function ensureMetaPixel() {
+  if (!configuredMetaPixelId) return false;
+
   if (!window.fbq) {
     const pixel: MetaPixel = function metaPixel(...args: unknown[]) {
       if (pixel.callMethod) {
@@ -92,9 +113,11 @@ function ensureMetaPixel() {
   }
 
   if (!window.__zingaraMetaInitialized) {
-    window.fbq?.("init", metaPixelId);
+    window.fbq?.("init", configuredMetaPixelId);
     window.__zingaraMetaInitialized = true;
   }
+
+  return true;
 }
 
 export function applyAdvertisingConsent(consent: Pick<CookieConsent, "analytics" | "marketing">) {
@@ -152,8 +175,7 @@ export function applyAdvertisingConsent(consent: Pick<CookieConsent, "analytics"
     window.__zingaraGoogleAdsConfigured = true;
   }
 
-  if (consent.marketing) {
-    ensureMetaPixel();
+  if (consent.marketing && ensureMetaPixel()) {
     window.fbq?.("consent", "grant");
   } else if (window.__zingaraMetaInitialized) {
     window.fbq?.("consent", "revoke");

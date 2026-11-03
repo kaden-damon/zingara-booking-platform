@@ -115,9 +115,10 @@ test("journey and public-origin checks fail closed", () => {
 });
 
 test("tag integration is consent controlled, single-script and purchase gated", async () => {
-  const [tracking, component, route, consent, telemetry] = await Promise.all([
+  const [tracking, component, layout, route, consent, telemetry] = await Promise.all([
     readFile(new URL("./advertisingTracking.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/PublicAdvertisingTracking.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/advertising/purchase/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PublicCookieConsent.tsx", import.meta.url), "utf8"),
     readFile(new URL("./browserPlatformTelemetry.ts", import.meta.url), "utf8"),
@@ -125,7 +126,10 @@ test("tag integration is consent controlled, single-script and purchase gated", 
 
   assert.match(tracking, /G-PP7C1SBY8N/);
   assert.match(tracking, /AW-18530431025\/mApNCLCkxaUdELHg_4NF/);
-  assert.match(tracking, /1434578967806435/);
+  assert.match(tracking, /configureMetaPixelId/);
+  assert.doesNotMatch(tracking, /1434578967806435/);
+  assert.match(component, /configureMetaPixelId\(metaPixelId\)/);
+  assert.match(layout, /process\.env\.META_PIXEL_ID/);
   assert.match(tracking, /getElementById\(googleScriptId\)/);
   assert.match(tracking, /getElementById\(metaScriptId\)/);
   assert.match(tracking, /dataLayer\?\.push\(arguments\)/);

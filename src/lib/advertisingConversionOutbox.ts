@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const ga4MeasurementId = "G-PP7C1SBY8N";
-const metaPixelId = "1434578967806435";
+export const defaultMetaApiVersion = "v26.0";
 
 type Destination = "ga4" | "google_ads" | "meta";
 type DestinationActivations = Partial<Record<Destination, string>>;
@@ -53,6 +53,18 @@ function validActivation(value: string | undefined) {
   return new Date(value).toISOString();
 }
 
+function validMetaPixelId(value: string | undefined) {
+  const normalized = value?.trim();
+  return normalized && /^\d{5,30}$/.test(normalized) ? normalized : null;
+}
+
+function metaApiVersion(env: AdvertisingEnvironment) {
+  const configured = env.META_CAPI_API_VERSION?.trim();
+  return configured && /^v\d+\.\d+$/.test(configured)
+    ? configured
+    : defaultMetaApiVersion;
+}
+
 function configuredDestinations(env: AdvertisingEnvironment) {
   const activations: DestinationActivations = {};
   const ga4StartedAt = validActivation(env.ADVERTISING_GA4_SERVER_STARTED_AT);
@@ -64,8 +76,8 @@ function configuredDestinations(env: AdvertisingEnvironment) {
   const metaStartedAt = validActivation(env.ADVERTISING_META_CAPI_STARTED_AT);
   if (
     enabled(env.ADVERTISING_META_CAPI_ENABLED) &&
+    validMetaPixelId(env.META_PIXEL_ID) &&
     env.META_CAPI_ACCESS_TOKEN &&
-    env.META_CAPI_API_VERSION &&
     metaStartedAt
   ) activations.meta = metaStartedAt;
   const googleAdsStartedAt = validActivation(
@@ -137,9 +149,10 @@ async function deliverMeta(
   if (!attribution.marketing_consent) {
     return { error: "Marketing consent is not present.", retryable: false, succeeded: false };
   }
-  const version = env.META_CAPI_API_VERSION;
+  const version = metaApiVersion(env);
+  const pixelId = validMetaPixelId(env.META_PIXEL_ID);
   const token = env.META_CAPI_ACCESS_TOKEN;
-  if (!version || !token) {
+  if (!pixelId || !token) {
     return { error: "Meta CAPI configuration is incomplete.", retryable: false, succeeded: false };
   }
 
@@ -147,7 +160,7 @@ async function deliverMeta(
     Object.entries({ fbc: attribution.fbc, fbp: attribution.fbp }).filter(([, value]) => value),
   );
   const response = await fetchImpl(
-    `https://graph.facebook.com/${encodeURIComponent(version)}/${metaPixelId}/events?access_token=${encodeURIComponent(token)}`,
+    `https://graph.facebook.com/${encodeURIComponent(version)}/${pixelId}/events`,
     {
       body: JSON.stringify({
         data: [{
@@ -164,7 +177,10 @@ async function deliverMeta(
           user_data: userData,
         }],
       }),
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
       method: "POST",
     },
   );
@@ -173,6 +189,49 @@ async function deliverMeta(
     return providerFailure(response, body);
   }
   return { evidence: compactEvidence(body), succeeded: true };
+}
+
+export async function verifyMetaCapiConfiguration(
+  options: { env?: AdvertisingEnvironment; fetchImpl?: typeof fetch } = {},
+) {
+  const env = options.env ?? process.env;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const pixelId = validMetaPixelId(env.META_PIXEL_ID);
+  const token = env.META_CAPI_ACCESS_TOKEN;
+  const version = metaApiVersion(env);
+
+  if (!pixelId || !token) {
+    return {
+      accepted: false,
+      apiVersion: version,
+      configured: false,
+      datasetMatches: false,
+    };
+  }
+
+  try {
+    const response = await fetchImpl(
+      `https://graph.facebook.com/${encodeURIComponent(version)}/${pixelId}?fields=id`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const body = await responseBody(response);
+    const datasetMatches = response.ok && String(body.id ?? "") === pixelId;
+    return {
+      accepted: response.ok && datasetMatches,
+      apiVersion: version,
+      configured: true,
+      datasetMatches,
+      status: response.status,
+    };
+  } catch {
+    return {
+      accepted: false,
+      apiVersion: version,
+      configured: true,
+      datasetMatches: false,
+      status: 0,
+    };
+  }
 }
 
 async function deliverGa4(
