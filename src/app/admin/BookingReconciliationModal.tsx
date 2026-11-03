@@ -258,6 +258,7 @@ export function GuestCountReconciliationModal(
     transferRetainedValue: false,
   });
   const [operationId] = useState(() => crypto.randomUUID());
+  const [submissionError, setSubmissionError] = useState("");
   const validation = validateGuestCountReconciliation(draft);
   const calculatedFinancials = calculateAddedGuestFinancials({
     basis: props.details.addedGuestPricingBasis,
@@ -344,6 +345,38 @@ export function GuestCountReconciliationModal(
     } catch (error) {
       setLinkStatus(error instanceof Error ? error.message : "Payment link could not be sent.");
     }
+  }
+
+  function submitGuestCount() {
+    if (requiresRetainedValueTransfer && !draft.transferRetainedValue) {
+      setSubmissionError(
+        "Confirm the retained value transfer to Bar Tab before saving.",
+      );
+      return;
+    }
+
+    setSubmissionError("");
+    props.onSave({
+      guestCount: draft.guestCount,
+      manualPaymentBasis: requiresManualFinancialBasis
+        ? draft.manualPaymentBasis || undefined
+        : undefined,
+      manualUnitAmount: requiresManualFinancialBasis
+        ? draft.manualUnitAmount
+        : undefined,
+      reason: draft.reason,
+      retainedValueTransfer:
+        requiresRetainedValueTransfer && draft.transferRetainedValue
+          ? {
+              operationId,
+              transferGratuityToBarTab: true,
+              transferReleasedValueToBarTab: true,
+            }
+          : undefined,
+      twoSeaterOverrideReason: props.canOverrideTwoSeaterLimit
+        ? draft.reason
+        : undefined,
+    });
   }
 
   return (
@@ -436,7 +469,7 @@ export function GuestCountReconciliationModal(
             <p>Total Amount Paid<br /><strong>{formatMoney(booking.amountPaid)}</strong></p>
             <p>Refund<br /><strong>{formatMoney(0)}</strong></p>
           </div>
-          <button type="button" aria-pressed={draft.transferRetainedValue} onClick={() => setDraft((current) => ({ ...current, transferRetainedValue: !current.transferRetainedValue }))} className={`mt-4 min-h-11 w-full rounded-full border px-4 text-xs font-semibold uppercase ${draft.transferRetainedValue ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/20 text-white"}`}>
+          <button type="button" aria-pressed={draft.transferRetainedValue} onClick={() => { setSubmissionError(""); setDraft((current) => ({ ...current, transferRetainedValue: !current.transferRetainedValue })); }} className={`mt-4 min-h-11 w-full rounded-full border px-4 text-xs font-semibold uppercase ${draft.transferRetainedValue ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/20 text-white"}`}>
             {draft.transferRetainedValue ? "Transfer Confirmed" : "Transfer Released Value + Gratuity to Bar Tab"}
           </button>
         </section>
@@ -446,8 +479,8 @@ export function GuestCountReconciliationModal(
         <span className="mb-2 block text-xs font-semibold uppercase text-zinc-400">Reason for change *</span>
         <textarea rows={3} value={draft.reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} className="w-full rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]" />
       </label>
-      {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
-      {!props.result && <button type="button" disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || !manualFinancialsValid || (requiresRetainedValueTransfer && !draft.transferRetainedValue)} onClick={() => props.onSave({ guestCount: draft.guestCount, manualPaymentBasis: requiresManualFinancialBasis ? draft.manualPaymentBasis || undefined : undefined, manualUnitAmount: requiresManualFinancialBasis ? draft.manualUnitAmount : undefined, reason: draft.reason, retainedValueTransfer: requiresRetainedValueTransfer && draft.transferRetainedValue ? { operationId, transferGratuityToBarTab: true, transferReleasedValueToBarTab: true } : undefined, twoSeaterOverrideReason: props.canOverrideTwoSeaterLimit ? draft.reason : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
+      {(submissionError || props.error) && <p id="guest-count-reconciliation-error" role="alert" className="mt-3 text-sm text-red-200">{submissionError || props.error}</p>}
+      {!props.result && <button type="button" aria-describedby={submissionError ? "guest-count-reconciliation-error" : undefined} disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || !manualFinancialsValid} onClick={submitGuestCount} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
         {props.isSaving ? "UPDATING..." : props.canOverrideTwoSeaterLimit ? "OVERRIDE LIMIT" : "CONFIRM GUEST COUNT"}
       </button>}
       {props.result ? (

@@ -29,6 +29,26 @@ test("paid guest reduction preserves retained value without double-transferring 
   );
 });
 
+test("Jane Grobler's 70-to-64 reduction retains the fully paid value", () => {
+  assert.deepEqual(
+    calculatePaidGuestReductionAllocation({
+      currentBarTabAmount: 0,
+      currentGuestCount: 70,
+      newGuestCount: 64,
+      sourceGratuityAmount: 11_550,
+      sourceTicketAmount: 92_400,
+    }),
+    {
+      barTabAmount: 19_470,
+      gratuityTransferred: 11_550,
+      releasedTicketValue: 7_920,
+      ticketAmount: 84_480,
+      ticketUnitAmount: 1_320,
+      totalRetainedValue: 103_950,
+    },
+  );
+});
+
 async function source(path: string) {
   return readFile(new URL(path, import.meta.url), "utf8");
 }
