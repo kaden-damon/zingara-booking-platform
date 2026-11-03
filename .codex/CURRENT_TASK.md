@@ -1,4 +1,52 @@
-# Meta Pixel & Conversions API Integration
+# P0 Box Office Seating Override Booking Failure
+
+STATUS: COMPLETE - MIGRATED AND DEPLOYED
+
+DATE: 3 NOVEMBER 2026
+
+## Incident
+
+- Authorised Box Office two-seater overrides reached the final booking step but
+  failed before persistence with `Booking transaction failed`.
+- Production recorded 13 failed `create_booking` events across five booking
+  references between 12:38:01 and 16:24:28 SAST on 2 November 2026.
+- All five failed references have zero bookings, payments and tickets, confirming
+  retries did not create duplicate business records.
+
+## Root Cause And Correction
+
+- `enforce_two_seater_booking_limit()` is a `BEFORE INSERT` trigger. It consumed
+  the valid override and linked `booking_id = NEW.id` before the new booking row
+  existed, causing foreign-key error `23503`.
+- Migration `20261103090000_p0_two_seater_override_creation_fk.sql` makes only
+  that foreign key `DEFERRABLE INITIALLY DEFERRED`, so it is checked after the
+  booking insert completes in the same transaction. Failed transactions still
+  roll back authorization consumption and audit evidence atomically.
+- Checkout errors now distinguish booking persistence failures from actual
+  PayFast preparation failures. Complimentary creation errors no longer claim
+  that payment could not be started.
+- Roles, mandatory reasons, quota enforcement, capacity validation, one-table
+  automatic assignment, payment logic and ticket rules are unchanged.
+
+## Verification And Release
+
+- Focused two-seater tests passed 10/10; complimentary tests passed 7/7;
+  provenance tests passed 5/5; TypeScript and migration dry-run passed.
+- Existing unrelated `paymentStart` source assertions and a direct Node module
+  resolution test remain stale; neither failure references the changed logic.
+- Production constraint verification reports `condeferrable=true` and
+  `condeferred=true`.
+- A rollback-only Production transaction exercised the formerly failing
+  pre-insert relationship and persisted zero fixture rows.
+- Authenticated Production Admin loaded successfully after deployment. No live
+  booking, payment, ticket or customer record was created for QA.
+- Application commit: `a4910fc4`.
+- Migration applied: `20261103090000_p0_two_seater_override_creation_fk.sql`.
+- Production deployment: `dpl_82X7gxcMgKiSiededRQxCxVyFaa3`, Ready and aliased
+  to `book.zingara.co.za` at 09:28:46 SAST.
+- Business-data delta: none. Only the foreign-key timing metadata changed.
+
+## Previous Task: Meta Pixel & Conversions API Integration
 
 STATUS: APPLICATION RELEASED - TOKEN ACCEPTED; TEST-EVENT DELIVERY PROOF PENDING
 
