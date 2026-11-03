@@ -216,11 +216,21 @@ export async function verifyMetaCapiConfiguration(
     );
     const body = await responseBody(response);
     const datasetMatches = response.ok && String(body.id ?? "") === pixelId;
+    const providerError = body.error && typeof body.error === "object"
+      ? body.error as Record<string, unknown>
+      : null;
     return {
       accepted: response.ok && datasetMatches,
       apiVersion: version,
       configured: true,
       datasetMatches,
+      ...(providerError ? {
+        providerError: {
+          code: Number(providerError.code) || null,
+          subcode: Number(providerError.error_subcode) || null,
+          type: typeof providerError.type === "string" ? providerError.type : null,
+        },
+      } : {}),
       status: response.status,
     };
   } catch {

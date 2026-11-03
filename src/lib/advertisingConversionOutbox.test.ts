@@ -142,6 +142,33 @@ test("Meta readiness verifies the configured dataset without sending an event", 
   assert.doesNotMatch(requestUrl, /token|access_token/i);
 });
 
+test("Meta readiness exposes only non-secret provider error metadata", async () => {
+  const result = await verifyMetaCapiConfiguration({
+    env: {
+      META_CAPI_ACCESS_TOKEN: "token",
+      META_PIXEL_ID: "1434578967806435",
+    },
+    fetchImpl: (async () => new Response(JSON.stringify({
+      error: {
+        code: 100,
+        error_subcode: 33,
+        message: "Sensitive provider detail",
+        type: "OAuthException",
+      },
+    }), { status: 400 })) as typeof fetch,
+  });
+
+  assert.deepEqual(result, {
+    accepted: false,
+    apiVersion: defaultMetaApiVersion,
+    configured: true,
+    datasetMatches: false,
+    providerError: { code: 100, subcode: 33, type: "OAuthException" },
+    status: 400,
+  });
+  assert.doesNotMatch(JSON.stringify(result), /Sensitive provider detail|token/);
+});
+
 test("GA4 server purchase uses one payment transaction value and identity", async () => {
   let requestBody = "";
   const fetchImpl = (async (_input: URL | RequestInfo, init?: RequestInit) => {
