@@ -158,6 +158,17 @@ function metaReadinessFailureReason(error: Record<string, unknown>) {
   return "request_rejected";
 }
 
+function sanitizedMetaProviderMessage(error: Record<string, unknown>) {
+  if (typeof error.message !== "string") return null;
+  return error.message
+    .replace(/access_token\s*(?:=|:)\s*["']?[^&\s"']+/gi, "access_token=[redacted]")
+    .replace(/\bEA[A-Za-z0-9_-]{20,}\b/g, "[redacted-token]")
+    .replace(/\b\d{5,30}\b/g, "[dataset]")
+    .replace(/https?:\/\/\S+/gi, "[url]")
+    .trim()
+    .slice(0, 300);
+}
+
 async function deliverMeta(
   row: ConversionRow,
   attribution: AttributionRow,
@@ -245,6 +256,7 @@ export async function verifyMetaCapiConfiguration(
       ...(providerError ? {
         providerError: {
           code: Number(providerError.code) || null,
+          message: sanitizedMetaProviderMessage(providerError),
           reason: metaReadinessFailureReason(providerError),
           subcode: Number(providerError.error_subcode) || null,
           type: typeof providerError.type === "string" ? providerError.type : null,

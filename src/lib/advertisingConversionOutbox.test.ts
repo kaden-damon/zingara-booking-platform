@@ -142,7 +142,7 @@ test("Meta readiness verifies the configured dataset without sending an event", 
   assert.doesNotMatch(requestUrl, /token|access_token/i);
 });
 
-test("Meta readiness exposes only non-secret provider error metadata", async () => {
+test("Meta readiness exposes a redacted provider error message", async () => {
   const result = await verifyMetaCapiConfiguration({
     env: {
       META_CAPI_ACCESS_TOKEN: "token",
@@ -152,7 +152,7 @@ test("Meta readiness exposes only non-secret provider error metadata", async () 
       error: {
         code: 100,
         error_subcode: 33,
-        message: "Sensitive provider detail",
+        message: "Object 1434578967806435 rejected access_token=EAsecretvalue000000000000 at https://graph.facebook.com/path",
         type: "OAuthException",
       },
     }), { status: 400 })) as typeof fetch,
@@ -165,13 +165,17 @@ test("Meta readiness exposes only non-secret provider error metadata", async () 
     datasetMatches: false,
     providerError: {
       code: 100,
+      message: "Object [dataset] rejected access_token=[redacted] at [url]",
       reason: "request_rejected",
       subcode: 33,
       type: "OAuthException",
     },
     status: 400,
   });
-  assert.doesNotMatch(JSON.stringify(result), /Sensitive provider detail|token/);
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /1434578967806435|EAsecretvalue000000000000|graph\.facebook\.com/,
+  );
 });
 
 test("Meta readiness classifies an inaccessible dataset without exposing provider text", async () => {
@@ -190,9 +194,9 @@ test("Meta readiness classifies an inaccessible dataset without exposing provide
   });
 
   assert.equal(result.providerError?.reason, "dataset_not_accessible");
-  assert.doesNotMatch(
-    JSON.stringify(result),
-    /Unsupported get request|Object does not exist/,
+  assert.equal(
+    result.providerError?.message,
+    "Unsupported get request. Object does not exist or is not accessible.",
   );
 });
 
