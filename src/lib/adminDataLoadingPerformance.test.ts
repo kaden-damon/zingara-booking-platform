@@ -73,7 +73,10 @@ test("Admin payment rows are bounded to the visible booking population", async (
 test("calendar never presents partial occupancy or financial summaries as authoritative", async () => {
   const page = await pageSource();
 
-  assert.match(page, /disabled=\{isCalendarSummariesLoading\}/);
+  assert.match(
+    page,
+    /disabled=\{[\s\S]{0,160}isCalendarSummariesLoading \|\|[\s\S]{0,120}showCalendarOccupancyError/,
+  );
   assert.match(page, /Financial summary loading/);
   assert.match(page, /occupancy loading/);
   assert.match(page, /isShowCalendarOccupancyLoading[\s\S]{0,240}`… \/ \$\{chip\.capacity\}`/);
@@ -152,15 +155,20 @@ test("customer CRM hydration is deferred until the authenticated Customers works
   );
 });
 
-test("calendar occupancy is server aggregated while financial summaries remain memoized", async () => {
+test("calendar occupancy and finance share one bounded server aggregate", async () => {
   const page = await pageSource();
 
   assert.match(page, /getShowCalendarOccupancy\(/);
   assert.match(page, /setShowCalendarOccupancyByShowZone\(nextOccupancy\)/);
-  assert.match(page, /const showCalendarFinancialsByShow = useMemo\(/);
+  assert.match(page, /payload\.financialSummaries\.forEach/);
+  assert.match(page, /setShowCalendarFinancialsByShow\(nextFinancials\)/);
+  assert.doesNotMatch(page, /const showCalendarFinancialsByShow = useMemo\(/);
   assert.match(
     page,
     /showCalendarOccupancyByShowZone\.get\([\s\S]{0,100}show\.supabaseId \?\? show\.id[\s\S]{0,100}zone\.id/,
   );
-  assert.match(page, /showCalendarFinancialsByShow\.get\(show\.id\)/);
+  assert.match(
+    page,
+    /showCalendarFinancialsByShow\.get\(show\.supabaseId \?\? show\.id\)/,
+  );
 });

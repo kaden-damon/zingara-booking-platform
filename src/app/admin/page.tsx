@@ -34,6 +34,7 @@ import type {
   AcademySuggestion,
 } from "./academyContent";
 import type { BoxOfficeFinancialReport } from "@/lib/boxOfficeFinancialReport";
+import type { ShowCalendarFinancialSummary } from "@/lib/showCalendarFinancials";
 import { getJohannesburgDateKey } from "@/lib/managementAnalytics";
 import { createPdfBytesFromPageContent } from "@/lib/exports/zingaraTextPdf";
 import { replaceShowScopedRows } from "@/lib/showScopedState";
@@ -5644,6 +5645,8 @@ export default function AdminDashboardPage({
     useState("");
   const [showCalendarOccupancyByShowZone, setShowCalendarOccupancyByShowZone] =
     useState<Map<string, number>>(() => new Map());
+  const [showCalendarFinancialsByShow, setShowCalendarFinancialsByShow] =
+    useState<Map<string, ShowCalendarFinancialSummary>>(() => new Map());
   const [showCalendarOccupancyRevision, setShowCalendarOccupancyRevision] =
     useState(0);
   const [showLoadError, setShowLoadError] = useState("");
@@ -7620,6 +7623,7 @@ export default function AdminDashboardPage({
 
     const controller = new AbortController();
     setIsShowCalendarOccupancyLoading(true);
+    setIsCalendarSummariesLoading(true);
     setShowCalendarOccupancyError("");
 
     void getShowCalendarOccupancy(
@@ -7631,6 +7635,10 @@ export default function AdminDashboardPage({
     )
       .then((payload) => {
         const nextOccupancy = new Map<string, number>();
+        const nextFinancials = new Map<
+          string,
+          ShowCalendarFinancialSummary
+        >();
 
         payload.summaries.forEach((summary) => {
           nextOccupancy.set(
@@ -7651,7 +7659,12 @@ export default function AdminDashboardPage({
           );
         });
 
+        payload.financialSummaries.forEach((summary) => {
+          nextFinancials.set(summary.showId, summary);
+        });
+
         setShowCalendarOccupancyByShowZone(nextOccupancy);
+        setShowCalendarFinancialsByShow(nextFinancials);
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -7663,6 +7676,7 @@ export default function AdminDashboardPage({
           error,
         );
         setShowCalendarOccupancyByShowZone(new Map());
+        setShowCalendarFinancialsByShow(new Map());
         setShowCalendarOccupancyError(
           "Show occupancy couldn't be loaded. Try again.",
         );
@@ -7670,6 +7684,7 @@ export default function AdminDashboardPage({
       .finally(() => {
         if (!controller.signal.aborted) {
           setIsShowCalendarOccupancyLoading(false);
+          setIsCalendarSummariesLoading(false);
         }
       });
 
@@ -22181,85 +22196,6 @@ export default function AdminDashboardPage({
   }, [visibleShowCalendarShows]);
   const getCalendarShowsForDay = (day: number) =>
     showCalendarShowsByDay.get(day) ?? [];
-  const showCalendarFinancialsByShow = useMemo(() => {
-    const summaries = new Map<
-      string,
-      {
-        credit: number | null;
-        depositCount: number;
-        depositTotal: number;
-        paid: number;
-        refunded: number;
-        unpaid: number;
-      }
-    >();
-    const showIdByBookingId = new Map<string, string>();
-    const showIdByBookingReference = new Map<string, string>();
-
-    activeBookingsForOperations.forEach((booking) => {
-      if (
-        !booking.showId ||
-        ["cancelled", "refunded", "waitlisted"].includes(
-          booking.status ?? "confirmed",
-        )
-      ) {
-        return;
-      }
-
-      const summary = summaries.get(booking.showId) ?? {
-        credit: null,
-        depositCount: 0,
-        depositTotal: 0,
-        paid: 0,
-        refunded: 0,
-        unpaid: 0,
-      };
-      summary.unpaid += getBookingFinancials(booking).balanceDue;
-      summaries.set(booking.showId, summary);
-      showIdByBookingReference.set(booking.reference, booking.showId);
-      if (booking.supabaseBookingId) {
-        showIdByBookingId.set(booking.supabaseBookingId, booking.showId);
-      }
-    });
-
-    paymentRows.forEach((payment) => {
-      const showId =
-        showIdByBookingReference.get(payment.reference ?? "") ??
-        showIdByBookingId.get(payment.booking_id ?? "");
-
-      if (!showId) {
-        return;
-      }
-
-      const summary = summaries.get(showId);
-      if (!summary) {
-        return;
-      }
-
-      const amount = Math.max(payment.amount ?? 0, 0);
-      if (
-        ["deposit_paid", "fully_paid"].includes(payment.payment_status) &&
-        !["comp", "refund"].includes(payment.payment_type)
-      ) {
-        summary.paid += amount;
-      }
-      if (
-        payment.payment_status === "refunded" ||
-        payment.payment_type === "refund"
-      ) {
-        summary.refunded += amount;
-      }
-      if (
-        payment.payment_type === "deposit" &&
-        payment.payment_status === "deposit_paid"
-      ) {
-        summary.depositCount += 1;
-        summary.depositTotal += amount;
-      }
-    });
-
-    return summaries;
-  }, [activeBookingsForOperations, paymentRows]);
   const getShowOccupancyChips = (show: DemoShow) =>
     floorManagementZones.map((zone) => {
       const occupiedSeats =
@@ -22276,7 +22212,7 @@ export default function AdminDashboardPage({
       };
     });
   const getShowFinancialSummary = (show: DemoShow) =>
-    showCalendarFinancialsByShow.get(show.id) ?? {
+    showCalendarFinancialsByShow.get(show.supabaseId ?? show.id) ?? {
       credit: null as number | null,
       depositCount: 0,
       depositTotal: 0,
@@ -33613,20 +33549,46 @@ export default function AdminDashboardPage({
                                         currentId === show.id ? "" : currentId,
                                       )
                                     }
+                                    onBlur={(event) => {
+                                      if (
+                                        !event.currentTarget.contains(
+                                          event.relatedTarget,
+                                        )
+                                      ) {
+                                        setOpenShowFinancialPopupId(
+                                          (currentId) =>
+                                            currentId === show.id
+                                              ? ""
+                                              : currentId,
+                                        );
+                                      }
+                                    }}
+                                    onKeyDownCapture={(event) => {
+                                      if (event.key === "Escape") {
+                                        setOpenShowFinancialPopupId("");
+                                      }
+                                    }}
                                   >
                                     <button
                                       type="button"
                                       aria-label={
                                         isCalendarSummariesLoading
                                           ? `Financial summary loading for ${show.label}`
+                                          : showCalendarOccupancyError
+                                            ? `Financial summary unavailable for ${show.label}`
                                           : `Show financial summary for ${show.label}`
                                       }
                                       title={
                                         isCalendarSummariesLoading
                                           ? "Financial summary loading"
+                                          : showCalendarOccupancyError
+                                            ? "Financial summary unavailable"
                                           : "Show financial summary"
                                       }
-                                      disabled={isCalendarSummariesLoading}
+                                      disabled={
+                                        isCalendarSummariesLoading ||
+                                        Boolean(showCalendarOccupancyError)
+                                      }
                                       aria-expanded={openShowFinancialPopupId === show.id}
                                       onClick={(event) => {
                                         event.stopPropagation();
@@ -33635,30 +33597,58 @@ export default function AdminDashboardPage({
                                         );
                                       }}
                                       onMouseDown={(event) => event.stopPropagation()}
-                                      onFocus={() => setOpenShowFinancialPopupId(show.id)}
-                                      onBlur={() =>
-                                        setOpenShowFinancialPopupId((currentId) =>
-                                          currentId === show.id ? "" : currentId,
-                                        )
-                                      }
                                       className="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8C36A]/35 bg-black/85 text-sm font-bold text-[#F2D66C] shadow-lg shadow-black/40 transition hover:border-[#F2D66C] hover:bg-[#D8C36A] hover:text-black focus:outline-none focus:ring-2 focus:ring-[#F2D66C] disabled:cursor-wait disabled:opacity-45"
                                     >
                                       R
                                     </button>
+                                    {openShowFinancialPopupId === show.id && (
+                                      <button
+                                        type="button"
+                                        aria-label="Dismiss financial summary"
+                                        className="fixed inset-0 z-40 bg-black/20 md:hidden"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setOpenShowFinancialPopupId("");
+                                        }}
+                                      />
+                                    )}
                                     <div
-                                      className={`absolute top-10 z-50 w-56 max-w-[78vw] rounded-2xl border border-[#D8C36A]/35 bg-black/95 p-3 text-xs text-zinc-300 shadow-2xl shadow-black transition duration-150 ${
+                                      role="dialog"
+                                      aria-hidden={openShowFinancialPopupId !== show.id}
+                                      aria-label={`Financial summary for ${show.label}`}
+                                      className={`fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 rounded-2xl border border-[#D8C36A]/35 bg-black/95 p-4 text-sm text-zinc-300 shadow-2xl shadow-black transition duration-150 md:absolute md:inset-x-auto md:bottom-auto md:top-10 md:w-64 md:p-3 md:text-xs ${
                                         index % 7 >= 5
-                                          ? "right-0"
-                                          : "left-1/2 -translate-x-1/2 md:left-auto md:right-0 md:translate-x-0"
+                                          ? "md:right-0"
+                                          : "md:left-auto md:right-0"
                                       } ${
                                         openShowFinancialPopupId === show.id
                                           ? "pointer-events-auto opacity-100"
                                           : "pointer-events-none opacity-0"
                                       }`}
                                     >
+                                      <div className="mb-3 flex items-center justify-between md:hidden">
+                                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#F2D66C]">
+                                          Financial summary
+                                        </span>
+                                        <button
+                                          type="button"
+                                          aria-label="Close financial summary"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setOpenShowFinancialPopupId("");
+                                          }}
+                                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 text-lg leading-none text-zinc-300 transition hover:border-[#D8C36A]/60 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#F2D66C]"
+                                        >
+                                          &times;
+                                        </button>
+                                      </div>
                                       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
                                         <span className="text-zinc-400">Credit</span>
-                                        <span className="text-right text-zinc-100">Not recorded</span>
+                                        <span className="text-right text-zinc-100">
+                                          {financials.credit === null
+                                            ? "Unavailable"
+                                            : formatCurrency(financials.credit)}
+                                        </span>
                                         <span className="text-zinc-400">Paid</span>
                                         <span className="text-right text-zinc-100">{formatCurrency(financials.paid)}</span>
                                         <span className="text-zinc-400">Unpaid</span>

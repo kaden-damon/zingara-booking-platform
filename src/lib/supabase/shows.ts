@@ -9,6 +9,7 @@ import {
 } from "@/lib/zingaraDemo";
 import { fetchSupabaseApi } from "./apiClient";
 import type { ShowCalendarOccupancySummary } from "@/lib/showCalendarOccupancy";
+import type { ShowCalendarFinancialSummary } from "@/lib/showCalendarFinancials";
 
 type SupabaseShowRow = {
   created_at?: string;
@@ -184,6 +185,7 @@ export type ShowTableScope = {
 
 export type ShowCalendarOccupancyPayload = {
   bookingCount: number;
+  financialSummaries: ShowCalendarFinancialSummary[];
   month: string;
   showCount: number;
   summaries: ShowCalendarOccupancySummary[];
