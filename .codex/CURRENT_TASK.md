@@ -1,6 +1,6 @@
 # Intelligent Quick Bug Reporter
 
-STATUS: DEPLOYED - PRODUCTION UI VERIFIED; LIVE EMAIL SEND PENDING EXPLICIT QA ACTION
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 5 NOVEMBER 2026
 
@@ -16,6 +16,8 @@ DATE: 5 NOVEMBER 2026
 - Quick reports use the existing permissioned issue API, private storage,
   Communications logging and branded Microsoft 365 email path. Notification
   delivery is asynchronous and idempotent.
+- The compact panel uses the established rounded Admin surfaces, pill-shaped
+  controls and clean uppercase sans-serif Management Controls typography.
 - Sensitive credentials, payment details and unrelated customer data are
   excluded. Reports are never submitted automatically.
 
@@ -25,15 +27,23 @@ DATE: 5 NOVEMBER 2026
   and the Next.js Webpack Production build passed.
 - Clean baseline comparison measured a 3,011-byte increase in the Admin
   closed-state page chunk (approximately 0.4%); the panel remains lazy-loaded.
-- Authenticated Production desktop verification confirmed the button, compact
-  panel and Capture/Attach/Send controls while preserving the active Admin page.
-- Application commit: `daa5620e`.
-- Production deployment: `dpl_4q8EWDbXHDxmqH3CMMnfcAHwUDR5`, Ready and aliased
-  to `book.zingara.co.za` at 19:35:11 SAST.
-- No migration was required. Business-data delta: zero.
-- One clearly labelled live QA submission and receipt confirmation remains
-  pending because it will create an Issue Register/Communications record and
-  send an email to `kaden@kaden.co.za`.
+- Authenticated Production desktop and 420px compact-width verification
+  confirmed the floating control, rounded panel, sans-serif heading and
+  Capture/Attach/Send actions without losing the active Admin workspace.
+- The one authorised Production QA submission created `BUG-000030` with one
+  ready private PNG attachment. It appeared in the existing Issue Register,
+  produced one sent Communications record and one idempotency delivery attempt,
+  and the branded email was received and visually verified in Kaden's Outlook.
+  The QA issue was then marked Completed / Fixed; no duplicate was created.
+- Application commits: `daa5620e`, `fc0b873e`, `0fa1525d`, `c9d7e168`.
+- Final Production deployment: `dpl_J7v8gZnXDLNAkHjVJjMKiJnr3qAy`, Ready and
+  aliased to `book.zingara.co.za` at 19:54:35 SAST.
+- No migration was required. Business-data delta is limited to the approved
+  completed QA issue, its private attachment, one Communications record, one
+  idempotency record and the issue completion audit. No booking, seating,
+  payment, ticket or financial record changed.
+- Rollback: revert the four application commits and redeploy. No database
+  rollback is required; retain the completed QA record as release evidence.
 - Full record: `.codex/archive/INTELLIGENT_QUICK_BUG_REPORTER.md`.
 
 ---

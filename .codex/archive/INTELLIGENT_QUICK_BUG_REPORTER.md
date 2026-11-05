@@ -1,6 +1,6 @@
 # Intelligent Quick Bug Reporter
 
-STATUS: DEPLOYED - PRODUCTION UI VERIFIED; LIVE EMAIL SEND PENDING EXPLICIT QA ACTION
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 5 NOVEMBER 2026
 
@@ -25,6 +25,9 @@ DATE: 5 NOVEMBER 2026
   description, capture a browser-approved screenshot, attach existing supported
   image/video files and preview or remove attachments. Reports are never sent
   automatically.
+- The final UI uses the existing rounded Admin surfaces, pill-shaped controls,
+  gold accents and the clean uppercase sans-serif typography used by Management
+  Controls. The reporter introduces no separate design convention.
 - Quick-report notifications are queued after the issue response, protected by
   an idempotent delivery claim and recorded in Communications with sent/failed
   state. The branded email includes secure attachment links, a direct Admin
@@ -41,31 +44,38 @@ DATE: 5 NOVEMBER 2026
   client-reference manifest. A direct clean baseline comparison measured the
   Admin closed-state page chunk at 757,460 bytes before and 760,471 bytes after:
   +3,011 bytes (approximately 0.4%). The panel remains in a separate lazy chunk.
-- Authenticated Production desktop verification confirmed the floating button,
-  compact panel, Capture/Attach/Send controls and close behaviour without
-  navigating away from the active Admin workspace or losing its state.
-- Responsive constraints, touch-safe controls, viewport clamping and reduced
-  motion were covered by implementation inspection and targeted tests. A
-  separate authenticated mobile hardware session was not available.
-- A live QA submission has not been made: doing so would intentionally create a
-  Production Issue Register and Communications record and send an email to
-  Kaden. The provider path, idempotency and delivery-state handling are covered
-  by targeted verification, but actual receipt remains pending that explicit QA
-  action.
+- Authenticated Production desktop and 420px compact-width verification
+  confirmed the floating button, rounded panel, clean sans-serif title,
+  Capture/Attach/Send controls and close behaviour without navigating away from
+  the active Admin workspace or losing its state. Touch-safe controls,
+  viewport clamping and reduced motion remain intact. Real iPhone Safari and
+  Android Chrome hardware were not available for this verification.
+- Exactly one authorised `Production QA - Test Issue` was submitted:
+  `BUG-000030` (`c211fc84-16cf-492f-86a6-f907a12c17ad`) at 19:45:54 SAST.
+  It retained safe Admin, browser, viewport, deployment and SAST context and one
+  ready private PNG attachment without booking, payment or customer data.
+- The issue appeared first in the existing Issue Register. Its branded
+  notification was recorded as sent in Communications at 19:46:11 SAST and was
+  received and visually verified in `kaden@kaden.co.za`, including the Zingara
+  template, technical context, Codex-ready report, attachment and direct issue
+  link. The idempotency claim shows one attempt and no error.
+- `BUG-000030` was marked Completed / Fixed after verification with a release-QA
+  resolution note. No second issue or notification was created.
 
 ## Release
 
-- Application commit: `daa5620e` (`feat: add intelligent admin issue reporter`).
-- Production deployment: `dpl_4q8EWDbXHDxmqH3CMMnfcAHwUDR5`, Ready and aliased
-  to `book.zingara.co.za` at 19:35:11 SAST.
+- Application commits:
+  - `daa5620e` (`feat: add intelligent admin issue reporter`).
+  - `fc0b873e` (`style: align quick issue reporter with admin UI`).
+  - `0fa1525d` (`style: refine quick reporter typography`).
+  - `c9d7e168` (`fix: enforce quick reporter sans heading`).
+- Final Production deployment: `dpl_J7v8gZnXDLNAkHjVJjMKiJnr3qAy`, Ready and
+  aliased to `book.zingara.co.za` at 19:54:35 SAST.
 - No migration was required.
-- Business-data delta: zero. No issue, attachment, communication, booking,
-  seating, payment, ticket or financial record was created or changed during
-  verification.
-- Rollback: revert `daa5620e` and redeploy. No database rollback is required.
-
-## Remaining Verification
-
-- Submit one clearly labelled QA report from Kaden's authenticated Production
-  session, confirm the Issue Register and Communications records, and confirm
-  delivery to `kaden@kaden.co.za`. This is the only outstanding release check.
+- Business-data delta is limited to completed QA issue `BUG-000030`, its one
+  private attachment, one Communications record, one idempotency delivery record
+  and the issue completion audit. No booking, seating, payment, ticket or
+  financial record changed.
+- Rollback: revert `c9d7e168`, `0fa1525d`, `fc0b873e` and `daa5620e`, then
+  redeploy. No database rollback is required. Retain `BUG-000030` as immutable
+  release evidence.
