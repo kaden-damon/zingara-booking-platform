@@ -9,9 +9,10 @@ DATE: 6 NOVEMBER 2026
 - Show creation is contained in one `Create Show Schedule` section below the
   calendar. It is collapsed by default and contains the bulk schedule tools
   plus the date, time, label, location, address and `Create Show` controls.
-- Only month navigation, location filtering and search remain above the
-  calendar. Existing creation, editing, availability and buyout actions are
-  unchanged.
+- Only month navigation and the compact `ALL | CAPE TOWN | JOBURG` venue
+  filters remain above the calendar. `ALL` is the default and the former
+  location dropdown and show search have been removed from this workspace.
+  Existing creation, editing, availability and buyout actions are unchanged.
 - The calendar now scales from one mobile column to seven large-desktop
   columns. Capacity badges remain compact, single-line and contained; buyout
   summaries use the same bounded layout.
@@ -24,16 +25,27 @@ DATE: 6 NOVEMBER 2026
 - Standard native selects now reserve 48px for the chevron and render it 16px
   inside the right border. Existing custom `appearance-none` selects remain
   excluded so they do not receive duplicate arrows.
+- Calendar buyout cards retain their status badge and display the full
+  authoritative customer name with responsive wrapping. Section-planning copy
+  was removed from the calendar only; the underlying requirement and workflow
+  remain unchanged.
 
 ## Verification & Release
 
 - Final focused regression suite: 37/37 passed. TypeScript and whitespace
   checks passed.
 - Authenticated Production inspection verified the collapsed schedule below
-  the calendar, every Create Show control inside it, navigation/filter/search
-  above the calendar, contained normal and over-capacity badges, the concise
-  copy and venue-only Edit Show heading. The stored full show title remained
-  unchanged.
+  the calendar, every Create Show control inside it, month navigation and the
+  three venue pills above the calendar, contained normal and over-capacity
+  badges, the concise copy and venue-only Edit Show heading. The stored full
+  show title remained unchanged.
+- Production filtering was exercised against actual calendar results: `ALL`
+  showed both venues, `CAPE TOWN` showed only Cape Town and `JOBURG` showed
+  only Johannesburg. Search is absent, selection returns to `ALL` after a full
+  reload, and no additional request is made when switching filters.
+- Desktop and 390 x 844 mobile inspection confirmed the three pills remain on
+  one row and long buyout names such as `NTT DATA - Internet Solutions` and
+  `Vodacom` remain inside their cards without the section-planning sentence.
 - Desktop Production and a 390 x 844 mobile viewport verified that standard
   dropdown chevrons are 16px inside their borders with sufficient text space.
   Focused and open states retain native behaviour; custom dropdowns retain
@@ -43,15 +55,16 @@ DATE: 6 NOVEMBER 2026
   563ms; the reported 7-10 second delay was not reproducible on the final
   release.
 - Application commits: `ce9c97db`, `bfd517e5`, `c1fe3409`, `3a82280f`,
-  `32471f6f`, `c1e17561` and `77346684`.
+  `32471f6f`, `c1e17561`, `77346684`, `ad3222a0`, `bde28d79` and
+  `bc05df27`.
 - Final Production deployment: Vercel deployment
-  `B3ncSZMQRDiHnZQ9f339v5fPdsVN`, completed at 6 November 2026, 00:22:19 SAST
+  `EkeHMqHhyvwjdJ2mWXb1bQxw3y5S`, completed at 6 November 2026, 00:33:23 SAST
   and active on `book.zingara.co.za`.
 - Business-data delta: none. No show, booking, availability, capacity, buyout,
   seating, payment, ticket or customer record changed.
-- Rollback: revert `77346684`, `c1e17561`, `32471f6f`, `3a82280f`, `c1fe3409`,
-  `bfd517e5` and `ce9c97db` in reverse order and redeploy. No database rollback
-  is required.
+- Rollback: revert `bc05df27`, `bde28d79`, `ad3222a0`, `77346684`, `c1e17561`,
+  `32471f6f`, `3a82280f`, `c1fe3409`, `bfd517e5` and `ce9c97db` in reverse
+  order and redeploy. No database rollback is required.
 - Full record:
   `.codex/archive/SHOW_AVAILABILITY_MANAGEMENT_UI_UX_CLEANUP_2026-11-06.md`.
 

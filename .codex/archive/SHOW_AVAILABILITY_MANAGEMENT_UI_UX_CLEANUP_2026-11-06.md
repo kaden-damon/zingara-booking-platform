@@ -25,21 +25,30 @@ remain readable at every supported breakpoint.
   reserve enough space between long option text and the chevron.
 - The workspace description and Edit Show title repeated unnecessary show
   branding even though venue context was sufficient for management use.
+- The calendar toolbar still used a wide location dropdown and show-search
+  field even though venue filtering was the only required calendar filter.
+- Buyout cards repeated status text, truncated customer names and included a
+  section-planning sentence that was too detailed for the calendar overview.
 
 ## Changes
 
 - Moved both quick creation and bulk scheduling into one native collapsible
   `Create Show Schedule` section after the calendar. It has no default-open
   state.
-- Kept month navigation, location filtering and search as the only calendar
-  controls before the calendar.
+- Kept only month navigation and a compact horizontal
+  `ALL | CAPE TOWN | JOBURG` pill group before the calendar. `ALL` is selected
+  by default. The pills reuse the existing in-memory venue filter, and the
+  calendar-specific search field was removed.
 - Preserved the quick form's date, time, show label, location, address and
   `Create Show` action, plus all existing schedule controls.
 - Added responsive calendar tracks for one, two, three and seven columns.
 - Kept capacity badges on one line and changed the seven-column breakpoint to
   a single badge column so labels and values remain inside their borders.
 - Made buyout summaries bounded and concise without changing their data or
-  actions.
+  actions. Cards retain the `BUYOUT` badge, show the full authoritative
+  customer name with responsive wrapping, and omit the calendar-only
+  section-planning sentence. The operational planning requirement remains
+  available in its established workflow.
 - Standardised display labels and colours while retaining the existing
   operational status dropdown and server-side availability behaviour.
 - Presented both manual public booking blocks and confirmed full-show buyouts
@@ -60,8 +69,8 @@ remain readable at every supported breakpoint.
   Admin guide coverage.
 - `npx tsc --noEmit` passed after the final change.
 - `git diff --check` passed.
-- Authenticated Production desktop verification at 1440 x 900 confirmed only
-  month navigation, location and search above the calendar; compact capacity
+- Authenticated Production desktop verification confirmed only month
+  navigation and the three venue pills above the calendar; compact capacity
   badges were fully contained.
 - Authenticated Production mobile verification confirmed the one-column
   calendar, contained badges, collapsed `Create Show Schedule` below the final
@@ -74,6 +83,14 @@ remain readable at every supported breakpoint.
   dropdown chevrons sit 16px inside their borders with 48px reserved for text
   separation. Focused states remained readable and custom dropdowns did not
   gain duplicate arrows.
+- Authenticated Production filtering against actual calendar entries verified
+  that `ALL` shows Cape Town and Johannesburg, `CAPE TOWN` shows only Cape
+  Town, and `JOBURG` shows only Johannesburg. A full reload returns to the
+  default `ALL` state. The former Search Shows field is absent.
+- Desktop and 390 x 844 mobile inspection verified the pills remain horizontal
+  without clipping and full buyout names such as `NTT DATA - Internet
+  Solutions` and `Vodacom` remain inside their cards. The removed
+  section-planning sentence is absent from the calendar.
 - The default local Turbopack build could not run in the restricted local
   environment because its compiler binding attempted a local port; the webpack
   fallback encountered the repository's Node 24 WasmHash limitation. All three
@@ -86,8 +103,9 @@ remain readable at every supported breakpoint.
   added.
 - Measured source gzip delta before the final markup-only wrapper adjustment:
   Admin +137 bytes, public -41 bytes, net +96 bytes.
-- The final adjustment changed only element grouping and CSS ordering. No
-  measurable runtime work was introduced.
+- The final adjustments removed search state and result rendering, reused the
+  existing local venue-filter state and changed only calendar markup and CSS.
+  No request, polling, query or background work was introduced.
 - An authenticated Production reload populated the calendar in approximately
   563ms. The reported 7-10 second load was not reproduced on the final release,
   so no speculative data-loading change was made.
@@ -103,8 +121,11 @@ remain readable at every supported breakpoint.
 - `32471f6f` - align user-facing buyout terminology without changing rules.
 - `c1e17561` - simplify workspace copy and Edit Show headings.
 - `77346684` - move standard dropdown chevrons 16px inside their borders.
-- Final Vercel deployment `B3ncSZMQRDiHnZQ9f339v5fPdsVN` completed at
-  6 November 2026, 00:22:19 SAST and is active on
+- `ad3222a0` - simplify calendar buyout cards.
+- `bde28d79` - preserve full buyout customer names at all breakpoints.
+- `bc05df27` - replace calendar search/location controls with venue pills.
+- Final Vercel deployment `EkeHMqHhyvwjdJ2mWXb1bQxw3y5S` completed at
+  6 November 2026, 00:33:23 SAST and is active on
   `https://book.zingara.co.za`.
 
 ## Data Integrity & Rollback
@@ -113,6 +134,6 @@ remain readable at every supported breakpoint.
 - No show, booking, status, blackout, buyout, availability, capacity, seating,
   payment, ticket or customer record was changed.
 - No migration was required.
-- Rollback by reverting `77346684`, `c1e17561`, `32471f6f`, `3a82280f`,
-  `c1fe3409`, `bfd517e5` and `ce9c97db` in reverse order and redeploying. No
-  database action is required.
+- Rollback by reverting `bc05df27`, `bde28d79`, `ad3222a0`, `77346684`,
+  `c1e17561`, `32471f6f`, `3a82280f`, `c1fe3409`, `bfd517e5` and `ce9c97db`
+  in reverse order and redeploying. No database action is required.
