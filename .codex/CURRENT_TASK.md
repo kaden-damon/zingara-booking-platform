@@ -1,3 +1,62 @@
+# Pre-Show Attendance Confirmations
+
+STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 5 NOVEMBER 2026
+
+## Production Baseline
+
+- The existing `pre_show_reminder` workflow remains enabled and scheduled
+  exactly 24 hours before the authoritative venue Show Starts time. The
+  15-minute scheduler, confirmed-booking eligibility and paid/deposit/COMP
+  evidence rules are unchanged.
+- Production recorded 714 sent reminders in the preceding 30 days, including
+  57 on 5 November. Fourteen failed records and six historical records left in
+  `sending` were identified; the Communications schema does not retain the
+  provider failure reason. No historical reminder was resent or altered.
+
+## Delivered
+
+- Existing branded reminder emails now include `YES - I'LL BE THERE` and
+  `NO - I CAN'T MAKE IT` actions backed by encrypted, expiring,
+  booking-specific links.
+- A compact confirmation page prevents email-security scanners from recording
+  false answers. Guests can update their response; unchanged retries are
+  idempotent.
+- Floor & Arrivals shows Confirmed, Declined or Awaiting Response on check-in
+  entries and expanded floor-table bookings.
+- A new decline creates one versioned, idempotent Box Office in-app/push
+  notification for Super Admin, Venue Manager, Box Office Manager and Box
+  Office Staff roles. A response never changes arrival, booking status,
+  seating, tickets, payments, refunds or capacity.
+- Every changed response creates immutable booking audit evidence.
+
+## Verification And Release
+
+- Focused tests: 4/4 passed. TypeScript, changed-file ESLint, whitespace checks
+  and the Next.js 16 Webpack Production build passed. The default Turbopack
+  build remains blocked by the local compiler port restriction.
+- Linked migration dry-run and application passed. A rollback-only Production
+  transaction recorded Confirmed then Declined, verified versioned audit state,
+  proved all booking/payment/seating fields unchanged, rolled back, and left
+  zero QA links.
+- Live Production returned the new attendance page and rejected an invalid
+  token with HTTP 404. Browser verification confirmed the branded unavailable
+  state; no real customer response or notification was created.
+- Application commit: `510a003f0533c9bf0161ce0682e9b6a61cc2b9b6`.
+- Migration: `20261105193000_pre_show_attendance_confirmations.sql`.
+- Production deployment: `dpl_Gvd6aAxqbKwfwjdmbuSGkTTrjQd9`, Ready and
+  aliased to `book.zingara.co.za` at 20:56:46 SAST.
+- Business-data delta: zero historical or customer records changed. The schema,
+  response function and application were added; the rollback-only QA state was
+  not persisted.
+- Rollback: revert `510a003f`, redeploy, and stop generating new attendance
+  links. The additive columns/table may remain safely in place; existing
+  responses can be retained as audit evidence.
+- Full record: `.codex/archive/PRE_SHOW_ATTENDANCE_CONFIRMATIONS_2026-11-05.md`.
+
+---
+
 # Intelligent Quick Bug Reporter
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
