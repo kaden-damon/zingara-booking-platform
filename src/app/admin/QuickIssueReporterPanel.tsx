@@ -206,9 +206,13 @@ export default function QuickIssueReporterPanel({
       role="dialog"
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 className="font-sans text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
+        <p
+          aria-level={2}
+          className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]"
+          role="heading"
+        >
           Report Issue
-        </h2>
+        </p>
         <button
           aria-label="Close issue reporter"
           className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 hover:bg-white/10 hover:text-white"
