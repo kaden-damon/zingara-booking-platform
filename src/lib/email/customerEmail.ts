@@ -135,10 +135,13 @@ export async function createBrandedCustomerEmail(input: {
   includePrimaryCta?: boolean;
   includeSecurityNotice?: boolean;
   message: string;
+  preserveTableReferences?: boolean;
   subject?: string | null;
 }): Promise<BrandedCustomerEmail> {
   const message = normalizeCustomerEmailLinks(
-    replaceCustomerTableWithTbc(input.message),
+    input.preserveTableReferences
+      ? input.message
+      : replaceCustomerTableWithTbc(input.message),
   );
   const includeAgePolicy = input.includeAgePolicy !== false;
   const includeSecurityNotice = input.includeSecurityNotice !== false;
@@ -146,7 +149,11 @@ export async function createBrandedCustomerEmail(input: {
     ? `${message}\n\n${ageRestrictionPolicy.label.toUpperCase()}\n${ageRestrictionPolicy.policy}\n${ageRestrictionPolicy.explanation.split(". ")[0]}.`
     : message;
   const suppliedHtml = input.html
-    ? normalizeCustomerEmailLinks(replaceCustomerTableWithTbc(input.html))
+    ? normalizeCustomerEmailLinks(
+        input.preserveTableReferences
+          ? input.html
+          : replaceCustomerTableWithTbc(input.html),
+      )
     : null;
   const primaryUrl = input.includePrimaryCta === false
     ? null

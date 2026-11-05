@@ -53,7 +53,7 @@ test("server sanitisation rejects arbitrary and malformed context", () => {
   });
 });
 
-test("issue email includes safe technical context and a copy-ready report", () => {
+test("issue email is concise and preserves available context in a copy-ready report", () => {
   const notification = buildStaffIssueNotificationContent({
     categoryLabel: "System / Technical",
     createdAt: "2026-11-05T10:00:00.000Z",
@@ -68,7 +68,7 @@ test("issue email includes safe technical context and a copy-ready report", () =
       applicationVersion: "commit-123",
       bookingReference: "ZNG-ABC123",
       errorCode: "SAVE_FAILED",
-      errorMessage: "The booking could not be saved.",
+      errorMessage: "Table 313 could not be saved.",
       requestId: "req-123",
       status: 500,
     },
@@ -76,21 +76,28 @@ test("issue email includes safe technical context and a copy-ready report", () =
     title: "Admin save error",
   });
 
-  assert.match(notification.message, /Technical context:/);
-  assert.match(notification.message, /CODEX-READY REPORT/);
+  assert.match(notification.message, /\nREPORT\n/);
+  assert.doesNotMatch(notification.message, /CODEX-READY|Not captured/);
   assert.match(notification.message, /ZNG-ABC123/);
+  assert.match(notification.message, /Table 313 could not be saved/);
   assert.match(notification.message, /commit-123/);
+  assert.match(notification.message, /Nov 2026, 12:00 SAST/);
+  assert.match(notification.html, /data-zingara-issue-report="true"/);
+  assert.match(notification.html, /border-radius:14px/);
+  assert.doesNotMatch(notification.html, /Not captured/);
   assert.match(notification.issueUrl, /issue=issue-id/);
 });
 
 test("quick reporter is lazy, event-driven, and reuses authenticated issue media", async () => {
-  const [shell, panel, client, route, notification] = await Promise.all([
-    source("../app/admin/QuickIssueReporter.tsx"),
-    source("../app/admin/QuickIssueReporterPanel.tsx"),
-    source("./supabase/apiClient.ts"),
-    source("../app/api/admin/issues/route.ts"),
-    source("./staffIssueNotification.ts"),
-  ]);
+  const [shell, panel, client, route, notification, emailTemplate] =
+    await Promise.all([
+      source("../app/admin/QuickIssueReporter.tsx"),
+      source("../app/admin/QuickIssueReporterPanel.tsx"),
+      source("./supabase/apiClient.ts"),
+      source("../app/api/admin/issues/route.ts"),
+      source("./staffIssueNotification.ts"),
+      source("./email/customerEmail.ts"),
+    ]);
 
   assert.match(shell, /dynamic\(\s*\(\) => import\("\.\/QuickIssueReporterPanel"\)/);
   assert.doesNotMatch(shell, /setInterval|MutationObserver|PerformanceObserver/);
@@ -103,4 +110,9 @@ test("quick reporter is lazy, event-driven, and reuses authenticated issue media
   assert.match(notification, /claimStaffEmailDelivery/);
   assert.match(notification, /insertCommunicationPayload/);
   assert.match(notification, /createBrandedCustomerEmail/);
+  assert.match(notification, /html: notification\.html/);
+  assert.match(notification, /preserveTableReferences: true/);
+  assert.match(emailTemplate, /preserveTableReferences\?: boolean/);
+  assert.match(emailTemplate, /max-width:620px/);
+  assert.match(emailTemplate, /Privacy Policy/);
 });

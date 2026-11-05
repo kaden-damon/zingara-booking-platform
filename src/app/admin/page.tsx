@@ -25210,7 +25210,7 @@ export default function AdminDashboardPage({
                         }
                         className="mt-3 rounded-full border border-[#D8C36A]/45 px-5 py-2.5 text-xs font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:border-[#F2D66C] hover:bg-[#D8C36A]/10"
                       >
-                        Quote &amp; Invoice Walkthrough
+                        Quick Bug Reporter Walkthrough
                       </button>
                     </div>
 

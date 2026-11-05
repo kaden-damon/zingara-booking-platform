@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   acknowledgeStaffTour,
@@ -170,16 +169,14 @@ export function StaffOnboardingTour({
         </div>
 
         <div className="mt-4 min-h-56 sm:mt-5">
-          {page.id === "quote-invoice-overview" && (
-            <div className="mb-5 flex items-center gap-3">
-              <Image src="/brand/zingara-logo-landing.svg" alt="Zingara" width={142} height={34} className="h-8 w-auto" />
-              <span aria-hidden="true" className="text-xl text-[#D8C36A]">→</span>
-              <Image src="/brand/xero-logo.png" alt="Xero" width={163} height={32} className="h-8 w-auto" />
-            </div>
-          )}
-          <h2 className="text-2xl font-bold sm:text-3xl" id="staff-tour-title">
+          <p
+            aria-level={2}
+            className="text-2xl font-bold sm:text-3xl"
+            id="staff-tour-title"
+            role="heading"
+          >
             {page.title}
-          </h2>
+          </p>
           <p className="mt-4 text-base leading-7 text-zinc-300" id="staff-tour-description">
             {page.body}
           </p>

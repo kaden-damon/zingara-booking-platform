@@ -14,18 +14,27 @@ import {
 test("staff onboarding is versioned and concise", () => {
   assert.equal(
     latestStaffTourVersion,
-    "quote-invoice-management-2026-10-23-v2",
+    "quick-bug-reporter-2026-11-05-v1",
   );
   assert.equal(staffTourOpenEvent, "zingara-open-staff-feature-walkthrough");
-  assert.equal(staffTourPages.length, 6);
-  assert.equal(new Set(staffTourPages.map((page) => page.id)).size, 6);
+  assert.equal(staffTourPages.length, 5);
+  assert.equal(new Set(staffTourPages.map((page) => page.id)).size, 5);
   assert.ok(staffTourPages.every((page) => !("icon" in page)));
-  assert.match(staffTourPages[0]?.title ?? "", /Quote & Invoice Management/);
-  assert.match(staffTourPages[3]?.body ?? "", /Request Invoice/);
-  assert.match(staffTourPages[4]?.body ?? "", /Tristan and Rachelle/);
-  assert.match(staffTourPages[4]?.body ?? "", /Live Xero creation is active/);
-  assert.match(staffTourPages[4]?.body ?? "", /historical documents/);
-  assert.match(staffTourPages.at(-1)?.supporting ?? "", /Academy/);
+  assert.deepEqual(
+    staffTourPages.map((page) => page.title),
+    [
+      "Report an Issue",
+      "Automatic Details",
+      "Move the Icon",
+      "Add a Screenshot",
+      "Send",
+    ],
+  );
+  assert.match(staffTourPages[0]?.body ?? "", /floating icon/);
+  assert.match(staffTourPages[1]?.body ?? "", /automatically/);
+  assert.match(staffTourPages[2]?.body ?? "", /remembers its position/);
+  assert.match(staffTourPages[3]?.body ?? "", /browser may ask for permission/);
+  assert.match(staffTourPages[4]?.body ?? "", /straight to Kaden/);
 });
 
 test("new version preserves the prior acknowledgement as history", () => {
@@ -124,7 +133,7 @@ test("walkthrough records completion or skip and can reopen from Academy", () =>
   assert.match(tourSource, /\[navigationKey, openTourWhenSafe, staffId\]/);
   assert.match(tourSource, /hasHandledAutomaticTourRef/);
   assert.doesNotMatch(tourSource, /setInterval/);
-  assert.match(adminSource, /Quote &amp; Invoice Walkthrough/);
+  assert.match(adminSource, /Quick Bug Reporter Walkthrough/);
   assert.match(adminSource, /window\.dispatchEvent\(new Event\(staffTourOpenEvent\)\)/);
   assert.match(adminSource, /navigationKey=\{activeAdminTab\}/);
   assert.match(adminSource, /key=\{currentStaff\.id\}/);

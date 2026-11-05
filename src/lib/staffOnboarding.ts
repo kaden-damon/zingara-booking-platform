@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 
 export const latestStaffTourVersion =
-  "quote-invoice-management-2026-10-23-v2";
+  "quick-bug-reporter-2026-11-05-v1";
 export const staffTourMetadataKey = "zingara_staff_tour_version";
 export const staffTourAcknowledgementMetadataKey =
   "zingara_staff_tour_acknowledgement";
@@ -28,39 +28,29 @@ export type StaffTourPage = {
 
 export const staffTourPages: StaffTourPage[] = [
   {
-    body: "Zingara keeps quotations, customer acceptance, invoice requests and document status together. Your available actions continue to follow your existing role and venue permissions.",
-    id: "quote-invoice-overview",
-    supporting: "Live Xero invoice creation is controlled by Accounts and is limited to eligible future Invoice Requests manually submitted by Tristan or Rachelle.",
-    title: "Quote & Invoice Management",
+    body: "Spot a problem? Tap the floating icon to report it.",
+    id: "report-an-issue",
+    title: "Report an Issue",
   },
   {
-    body: "Sales staff can open an eligible Corporate enquiry or booking and choose Create Quote. Add the existing customer or company, approved line items, pricing and VAT, then save the draft.",
-    id: "create-quotation",
-    supporting: "Staff without quotation permission can still use the walkthrough, but cannot create or edit financial documents.",
-    title: "Create Quotations",
+    body: "Zingara captures available error details automatically.",
+    id: "automatic-details",
+    title: "Automatic Details",
   },
   {
-    body: "From the saved quotation, use Send Quote. The customer receives the branded email, quotation PDF and approved banking confirmation, then opens a secure Zingara link to review and accept the exact version sent.",
-    id: "send-and-accept",
-    supporting: "Opening the link does not accept a quotation, and revised quotations require a new secure link.",
-    title: "Send for Acceptance",
+    body: "Drag the icon anywhere. It remembers its position.",
+    id: "move-the-icon",
+    title: "Move the Icon",
   },
   {
-    body: "After authoritative customer acceptance, Sales receives a confirmation and Request Invoice becomes available. The request preserves the accepted quotation version and places it in the Accounts queue without creating an invoice.",
-    id: "request-invoice",
-    title: "Request an Invoice",
+    body: "Tap Capture to take a screenshot. Your browser may ask for permission.",
+    id: "add-a-screenshot",
+    title: "Add a Screenshot",
   },
   {
-    body: "Tristan and Rachelle review Invoice Requested items in Reports → Accounting and use the existing Finance-authorised conversion workflow. Live Xero creation is active only for eligible future invoice conversions they submit manually. Existing drafts, historical documents, payments, refunds and credit notes are excluded. Other staff can view permitted statuses but cannot bypass Accounts review.",
-    id: "accounts-processing",
-    supporting: "Wagheeda can receive approved reminders without receiving invoice-conversion permission.",
-    title: "Accounts Processing",
-  },
-  {
-    body: "Open Reports → Accounting to search quotations and invoices, filter Invoice Requested items and view acceptance, request, invoice, payment and sync statuses available to your role.",
-    id: "document-statuses",
-    supporting: "You can reopen this walkthrough at any time from the Academy dashboard.",
-    title: "View Document Status",
+    body: "Add a note if needed, then tap Send. Your report goes straight to Kaden.",
+    id: "send",
+    title: "Send",
   },
 ];
 

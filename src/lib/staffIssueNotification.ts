@@ -110,9 +110,11 @@ export async function notifyKadenOfStaffIssue(
       ctaLabel: "OPEN ISSUE",
       ctaUrl: notification.issueUrl,
       heading: `New Issue · ${issue.ticketReference}`,
+      html: notification.html,
       includeAgePolicy: false,
       includeSecurityNotice: false,
       message: notification.message,
+      preserveTableReferences: true,
       subject,
     });
     emailResult = await sendZingaraEmail({
