@@ -33592,9 +33592,7 @@ export default function AdminDashboardPage({
                                       aria-expanded={openShowFinancialPopupId === show.id}
                                       onClick={(event) => {
                                         event.stopPropagation();
-                                        setOpenShowFinancialPopupId((currentId) =>
-                                          currentId === show.id ? "" : show.id,
-                                        );
+                                        setOpenShowFinancialPopupId(show.id);
                                       }}
                                       onMouseDown={(event) => event.stopPropagation()}
                                       className="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8C36A]/35 bg-black/85 text-sm font-bold text-[#F2D66C] shadow-lg shadow-black/40 transition hover:border-[#F2D66C] hover:bg-[#D8C36A] hover:text-black focus:outline-none focus:ring-2 focus:ring-[#F2D66C] disabled:cursor-wait disabled:opacity-45"
