@@ -38,8 +38,8 @@ test("schedule and calendar controls retain a compact responsive layout", async 
   assert.match(adminPage, /inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap/);
   assert.match(adminPage, /tracking-normal tabular-nums/);
   assert.match(globalStyles, /select:not\(\[multiple\]\):not\(\[size\]\):not\(\.appearance-none\)/);
-  assert.match(globalStyles, /background-position: right 0\.875rem center/);
-  assert.match(globalStyles, /padding-right: 2\.75rem/);
+  assert.match(globalStyles, /background-position: right 1rem center/);
+  assert.match(globalStyles, /padding-right: 3rem/);
   assert.match(adminPage, />\s*Standard\s*<\/button>/);
   assert.match(adminPage, />\s*Back\s*<\/button>/);
   assert.doesNotMatch(adminPage, />\s*Back to Calendar\s*<\/button>/);
