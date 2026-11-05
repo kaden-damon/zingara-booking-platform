@@ -33791,7 +33791,7 @@ export default function AdminDashboardPage({
                                       )}
                                     </div>
                                   ) : (
-                                  <div className="mt-3 grid grid-cols-2 gap-1.5 pr-11 2xl:grid-cols-1">
+                                  <div className="mt-3 grid grid-cols-2 gap-1.5 pr-11 2xl:grid-cols-1 2xl:pb-11 2xl:pr-0">
                                     {getShowOccupancyChips(show).map((chip) => {
                                       const occupancyUnavailable = Boolean(
                                         showCalendarOccupancyError,
@@ -33821,7 +33821,7 @@ export default function AdminDashboardPage({
                                       return (
                                         <span
                                           key={`${show.id}-${chip.zoneId}`}
-                                          className={`whitespace-nowrap rounded-md border px-1.5 py-1 text-center text-[0.58rem] font-semibold uppercase ${chipTone}`}
+                                          className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-md border px-2 py-1 text-center text-[0.58rem] font-semibold uppercase tracking-normal tabular-nums ${chipTone}`}
                                           title={
                                             isShowCalendarOccupancyLoading
                                               ? `${chip.label} occupancy loading`
