@@ -2,8 +2,7 @@
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
-P0 FINANCIAL FOLLOW-UP STATUS: DEPLOYED - FINAL AUTHENTICATED VISUAL RECHECK
-PENDING
+P0 FINANCIAL FOLLOW-UP STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 6 NOVEMBER 2026
 
@@ -102,8 +101,26 @@ remain readable at every supported breakpoint.
   verifies the active card/control stacking layers above Create Booking.
 - The final layering deployment completed successfully. When the authenticated
   browser was refreshed afterward, the existing platform-access session gate
-  no longer restored the session. The final post-refresh visual layering check
-  remains pending, and P0 completion is not claimed.
+  initially did not restore the session. The follow-up verification below later
+  restored that authorised session.
+- Follow-up authenticated Production verification restored Kaden's existing
+  session. JHB 5 November rendered Credit Unavailable, Paid R386,732.50,
+  Unpaid R143,960, Refunded R0 and Deposits 3 / R4,950. At 1280 x 720 the
+  popup measured 256 x 138 pixels; its card/control/popup layers were 30/40/50
+  above the Create Booking layer 20, and hit-testing confirmed the popup was
+  topmost throughout their geometric overlap.
+- At 390 x 844 the popup remained contained at left 16, right 374, top 618 and
+  bottom 828. Calendar and Create Booking controls stayed underneath it.
+  However, the global draggable `Report an issue` button at layer 220 overlapped
+  the popup's bottom-right corner and obscured part of the Deposits value.
+  This is the exact remaining blocker; P0 completion is not claimed. No code,
+  configuration or business data changed during the follow-up verification.
+- Final commit `e1fabef1` moved the mobile sheet above the persistent reporter
+  control without changing z-index contracts. Live 390 x 844 measurements were
+  popup 554-764 and reporter 776-824, with zero overlap and fully readable
+  values. Desktop remained 556-812 by 384-522 in a 1280 x 720 viewport.
+  Vercel deployment `98T67SkyuDovjnqNeM3vY4McptXH` completed successfully at
+  6 November 2026, 01:12:25 SAST. The P0 follow-up is complete.
 
 - Final focused suite passed 37/37 across show availability UI, staff
   presentation, internal booking policy, corporate buyouts, UI polish and

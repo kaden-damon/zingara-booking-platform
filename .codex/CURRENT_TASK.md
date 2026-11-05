@@ -1,6 +1,6 @@
 # Show & Availability Management UI/UX Cleanup
 
-STATUS: P0 FIX DEPLOYED - FINAL AUTHENTICATED VISUAL RECHECK PENDING
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 6 NOVEMBER 2026
 
@@ -59,9 +59,29 @@ DATE: 6 NOVEMBER 2026
   were readable. Desktop inspection measured a contained 256 x 138 pixel popup
   and preserved hover. The layering regression test verifies that the active
   card/control paint above the Create Booking action. The final post-layering
-  deployment completed successfully; a subsequent authenticated refresh
-  stopped at the existing platform-access session gate, so the required final
-  post-refresh visual recheck remains pending and completion is not claimed.
+  deployment completed successfully. The first authenticated refresh stopped
+  at the platform-access session gate; the follow-up verification below later
+  restored that authorised session.
+- Follow-up authenticated Production verification on 6 November restored
+  Kaden's existing session and confirmed the deployed JHB 5 November values:
+  Credit Unavailable, Paid R386,732.50, Unpaid R143,960, Refunded R0 and
+  Deposits 3 / R4,950. Desktop layering is correct: the popup is the topmost
+  element where it geometrically overlaps Create Booking, with card/control/
+  popup layers 30/40/50 above the button layer 20.
+- The same live 390 x 844 check found one unresolved mobile blocker. The global
+  draggable `Report an issue` button retains its intentional layer 220 and
+  overlaps the bottom-right of the financial popup, obscuring part of the
+  Deposits value. Calendar cards and Create Booking buttons remain underneath
+  the popup, but the P0 is not complete until the global control no longer
+  obscures financial content. No code or Production data was changed during
+  this verification.
+- Final correction `e1fabef1` positions the mobile sheet above the persistent
+  reporter without changing either stacking contract. Authenticated Production
+  verification measured popup top/bottom 554/764 and reporter top/bottom
+  776/824 at 390 x 844: zero overlap, all values readable. Desktop remained
+  contained at left/right 556/812 and top/bottom 384/522 in 1280 x 720.
+  Deployment `98T67SkyuDovjnqNeM3vY4McptXH` completed successfully at
+  6 November 2026, 01:12:25 SAST. P0 is complete.
 - The browser still makes one monthly calendar-occupancy request. No polling,
   new browser request, per-performance query or render-time calculation was
   added. The bounded November Production query shape covered 50 shows, 299
