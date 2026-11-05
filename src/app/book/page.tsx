@@ -387,6 +387,7 @@ const bookingCalendarStatusOrder = [
   "sold-out",
   "blackout",
   "venue-closure",
+  "unavailable",
 ] as const;
 type BookingCalendarStatus =
   (typeof bookingCalendarStatusOrder)[number];
@@ -399,6 +400,7 @@ const bookingCalendarStatusLabels: Record<
   "sold-out": "Sold Out",
   "special-event": "Special Event",
   "full-show-buyout": "Full Show Buyout",
+  unavailable: "Unavailable",
   "venue-closure": "Venue Closed",
 };
 const bookingCalendarStatusClasses: Record<
@@ -414,11 +416,18 @@ const bookingCalendarStatusClasses: Record<
   "special-event":
     "border-purple-300/45 bg-purple-950/30 text-purple-100 hover:scale-[1.03] hover:border-purple-200",
   "full-show-buyout":
-    "border-[#D8C36A]/55 bg-[#2A1D08] text-[#F7E6A2]",
+    "border-sky-300/35 bg-sky-950/25 text-sky-200",
+  unavailable:
+    "cursor-not-allowed border-white/10 bg-zinc-900/60 text-zinc-500",
   "venue-closure":
     "border-zinc-500/35 bg-zinc-900/65 text-zinc-400",
 };
-const bookingCalendarLegend = bookingCalendarStatusOrder.map(
+const bookingCalendarLegend = ([
+  "active",
+  "sold-out",
+  "full-show-buyout",
+  "venue-closure",
+] as const).map(
   (status) => ({
     label:
       status === "venue-closure"
@@ -624,14 +633,19 @@ function getDateDisplay(dateValue: string) {
   return `${monthName} ${Number(day)}, ${year}`;
 }
 
-function getGuestShowStatus(show: DemoShow): BookingCalendarStatus {
+function getGuestShowStatus(
+  show: DemoShow,
+  exposeOperationalStatus = false,
+): BookingCalendarStatus {
   if (show.fullShowBuyout) return "full-show-buyout";
   const status = show.operationalStatus ?? "active";
 
+  if (status === "blackout" || status === "special-event") {
+    return exposeOperationalStatus ? status : "unavailable";
+  }
+
   if (
-    status === "blackout" ||
     status === "sold-out" ||
-    status === "special-event" ||
     status === "venue-closure"
   ) {
     return status;
@@ -683,11 +697,15 @@ function getShowTimeValue(show: DemoShow) {
 
 function getDateCalendarStatus(
   showsForDate: DemoShow[],
+  exposeOperationalStatuses = false,
 ): BookingCalendarStatus | undefined {
   const visibleShows = showsForDate.filter(isGuestVisibleShow);
 
   return bookingCalendarStatusOrder.find((status) =>
-    visibleShows.some((show) => getGuestShowStatus(show) === status),
+    visibleShows.some(
+      (show) =>
+        getGuestShowStatus(show, exposeOperationalStatuses) === status,
+    ),
   );
 }
 
@@ -4448,6 +4466,7 @@ export default function BookingPage({
                       locationVisibleShows.filter(
                         (show) => show.date === dateValue,
                       ),
+                      isStaffBookingJourney,
                     );
                     const dateShows = locationVisibleShows.filter(
                       (show) => show.date === dateValue,
@@ -4506,14 +4525,10 @@ export default function BookingPage({
                           status === "active"
                             ? "bg-[#D8C36A]"
                             : status === "full-show-buyout"
-                              ? "bg-[#F2D66C]"
-                            : status === "special-event"
-                              ? "bg-purple-300"
+                              ? "bg-sky-300"
                               : status === "sold-out"
                                 ? "bg-red-300"
-                                : status === "blackout"
-                                  ? "bg-sky-300"
-                                  : "bg-zinc-500"
+                                : "bg-zinc-500"
                         }`}
                       />
                       {label}
@@ -4536,7 +4551,10 @@ export default function BookingPage({
               <div className="flex max-w-md flex-wrap justify-start gap-3">
                 {selectedDateShows.map((show) => {
                   const isSelectedTime = selectedShowId === show.id;
-                  const showStatus = getGuestShowStatus(show);
+                  const showStatus = getGuestShowStatus(
+                    show,
+                    isStaffBookingJourney,
+                  );
                   const cutoffClosed = isShowPastPublicCutoff(show);
                   const isBookableTime =
                     isGuestBookableShow(show) && !cutoffClosed;
@@ -4577,14 +4595,16 @@ export default function BookingPage({
                           showStatus === "active"
                             ? "border-[#D8C36A]/35 text-[#F2D66C]"
                             : showStatus === "full-show-buyout"
-                              ? "border-[#D8C36A]/55 text-[#F7E6A2]"
+                              ? "border-sky-300/35 text-sky-200"
                             : showStatus === "special-event"
                               ? "border-purple-300/40 text-purple-100"
                               : showStatus === "sold-out"
                                 ? "border-red-300/35 text-red-200"
                                 : showStatus === "blackout"
                                   ? "border-sky-300/35 text-sky-200"
-                                  : "border-zinc-500/35 text-zinc-400"
+                                  : showStatus === "unavailable"
+                                    ? "border-white/10 text-zinc-500"
+                                    : "border-zinc-500/35 text-zinc-400"
                         }`}
                       >
                         {cutoffClosed

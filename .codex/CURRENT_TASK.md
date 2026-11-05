@@ -1,3 +1,51 @@
+# Public Calendar Status & Colour Cleanup
+
+STATUS: IMPLEMENTED - RELEASE VERIFICATION PENDING
+
+DATE: 5 NOVEMBER 2026
+
+## Verified Audit
+
+- `Special Event` and `Full Show Buyout` are not functionally equivalent.
+  Special Event is a show lifecycle state that remains unavailable publicly but
+  permits management-approved internal booking. Full Show Buyout is an active
+  `corporate_buyouts` record that closes every public zone and is protected by
+  the atomic public-booking database guard.
+- Production contains active and historical dependencies on Blackout, Special
+  Event, Sold Out and Venue Closure. No records or business rules are being
+  consolidated or migrated.
+- JHB 6 November has an active buyout and a Blackout show state; JHB 7 November
+  has an active buyout and a Special Event state. Both are publicly blocked by
+  the active buyout. JHB 17 November was reopened from Blackout by staff and is
+  independently governed by its current show state.
+
+## Implemented Presentation Change
+
+- The public calendar legend is reduced to Available, Sold Out, Full Show
+  Buyout and Venue Closure.
+- Authoritative Full Show Buyouts use the existing blue Blackout colour.
+- Blackout and Special Event remain fully enforced but appear publicly as a
+  neutral unavailable date rather than separate legend categories.
+- Internal staff booking journeys retain the original Blackout and Special
+  Event distinctions. No availability, booking, payment or ticketing logic was
+  changed.
+
+## Verification
+
+- Focused public lifecycle and calendar tests: 10/10 passed.
+- TypeScript passed and the Next.js Webpack Production build completed.
+- The default Turbopack build remains blocked by this local environment's
+  compiler port restriction; the clean Webpack build and Vercel build are the
+  release gates.
+- Production deployment and authenticated desktop/mobile verification remain
+  pending.
+
+## Archive
+
+- `.codex/archive/PUBLIC_CALENDAR_STATUS_COLOUR_CLEANUP.md`
+
+---
+
 # P0 Guest Count Reduction & Retained Value Transfer
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION

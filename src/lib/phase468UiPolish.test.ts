@@ -40,7 +40,7 @@ test("staff account popover is viewport-safe on mobile and right-aligned from ta
   assert.match(adminPage, />\s*Sign Out\s*</);
 });
 
-test("Special Event is visible in purple but remains unavailable to public booking", async () => {
+test("public calendar simplifies restricted statuses without weakening their guards", async () => {
   const bookingPage = await readFile(bookingPageUrl, "utf8");
 
   assert.equal(isShowPubliclyVisible("special_event"), true);
@@ -48,12 +48,14 @@ test("Special Event is visible in purple but remains unavailable to public booki
   assert.equal(isShowStaffBookable("special_event"), true);
   assert.match(
     bookingPage,
-    /"special-event":\s*\n\s*"border-purple-300\/45 bg-purple-950\/30 text-purple-100/,
+    /status === "blackout" \|\| status === "special-event"[\s\S]*return exposeOperationalStatus \? status : "unavailable"/,
   );
   assert.match(
     bookingPage,
-    /status === "special-event"[\s\S]*\? "bg-purple-300"/,
+    /"full-show-buyout":\s*\n\s*"border-sky-300\/35 bg-sky-950\/25 text-sky-200"/,
   );
+  assert.match(bookingPage, /"active",\s*\n\s*"sold-out",\s*\n\s*"full-show-buyout",\s*\n\s*"venue-closure"/);
+  assert.doesNotMatch(bookingPage, /status === "special-event"[\s\S]*\? "bg-purple-300"/);
   assert.match(bookingPage, /disabled=\{!isAvailableDate\}/);
   assert.match(bookingPage, /isShowPubliclyBookable\(status\)/);
 });
