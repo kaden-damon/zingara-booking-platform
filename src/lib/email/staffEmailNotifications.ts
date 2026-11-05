@@ -170,7 +170,12 @@ export async function claimStaffEmailDelivery(
   input: {
     ccStaffProfileIds: string[];
     eventKey: string;
-    notificationKey: StaffEmailRouteKey | "dietary-order" | "quote-accepted" | "training-acknowledgement";
+    notificationKey:
+      | StaffEmailRouteKey
+      | "dietary-order"
+      | "quote-accepted"
+      | "staff-issue-report"
+      | "training-acknowledgement";
     toStaffProfileIds: string[];
   },
 ) {

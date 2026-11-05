@@ -2,6 +2,7 @@ import {
   staffIssueEmailAttachmentLimit,
   type StaffIssueMediaType,
 } from "./staffIssueMedia.ts";
+import type { AdminIssueTechnicalContext } from "./adminIssueCapture.ts";
 
 export type StaffIssueNotificationContentDetails = {
   categoryLabel: string;
@@ -15,6 +16,7 @@ export type StaffIssueNotificationContentDetails = {
   reporterName: string | null;
   ticketReference: string;
   title: string;
+  technicalContext?: AdminIssueTechnicalContext | null;
 };
 
 export type StaffIssueNotificationContentMedia = {
@@ -66,6 +68,30 @@ export function buildStaffIssueNotificationContent(
     );
   });
 
+  const technicalContext = issue.technicalContext;
+  const technicalLines = technicalContext
+    ? [
+        `Action: ${technicalContext.action ?? "Not captured"}`,
+        `Actual error: ${technicalContext.errorMessage ?? "Not captured"}`,
+        `Error code: ${technicalContext.errorCode ?? "Not captured"}`,
+        `HTTP status: ${technicalContext.status ?? "Not captured"}`,
+        `Booking reference: ${technicalContext.bookingReference ?? "Not captured"}`,
+        `Guest change: ${
+          technicalContext.guestCountBefore !== undefined ||
+          technicalContext.guestCountAfter !== undefined
+            ? `${technicalContext.guestCountBefore ?? "?"} -> ${technicalContext.guestCountAfter ?? "?"}`
+            : "Not captured"
+        }`,
+        `Performance: ${technicalContext.performanceDate ?? "Not captured"}`,
+        `Venue: ${technicalContext.venue ?? "Not captured"}`,
+        `Page: ${technicalContext.adminPath ?? "Not captured"}`,
+        `Request ID: ${technicalContext.requestId ?? "Not captured"}`,
+        `Browser: ${technicalContext.browser ?? "Not captured"}`,
+        `Device / viewport: ${technicalContext.device ?? "Not captured"} / ${technicalContext.viewport ?? "Not captured"}`,
+        `Application version: ${technicalContext.applicationVersion ?? "Not captured"}`,
+        `Time (SAST): ${technicalContext.timestampSast ?? "Not captured"}`,
+      ]
+    : [];
   const message = [
     `A new Zingara staff issue has been reported: ${issue.ticketReference}`,
     "",
@@ -77,6 +103,17 @@ export function buildStaffIssueNotificationContent(
     `Location: ${issue.location ?? "Not location-specific"}`,
     `Module / Area: ${issue.moduleOrArea ?? "Not recorded"}`,
     `Created: ${issue.createdAt}`,
+    ...(technicalLines.length > 0
+      ? [
+          "",
+          "Technical context:",
+          ...technicalLines,
+          "",
+          "CODEX-READY REPORT",
+          `Investigate ${issue.ticketReference}: ${issue.description}`,
+          ...technicalLines,
+        ]
+      : []),
     ...(attachmentLines.length > 0
       ? ["", "Attachments:", ...attachmentLines]
       : []),
@@ -84,5 +121,5 @@ export function buildStaffIssueNotificationContent(
     `Admin: ${getIssueAdminUrl(issue.id)}`,
   ].join("\n");
 
-  return { attachments, message };
+  return { attachments, issueUrl: getIssueAdminUrl(issue.id), message };
 }

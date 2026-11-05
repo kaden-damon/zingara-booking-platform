@@ -1,3 +1,9 @@
+import { after } from "next/server";
+
+import {
+  sanitizeAdminIssueTechnicalContext,
+  type AdminIssueTechnicalContext,
+} from "@/lib/adminIssueCapture";
 import { type AdminRole } from "@/lib/zingaraAccess";
 import {
   canManageStaffIssues,
@@ -138,6 +144,16 @@ function toIssueReport(row: StaffIssueRow): StaffIssueReport {
 }
 
 function toNotificationDetails(issue: StaffIssueReport) {
+  const technicalContext =
+    issue.metadata.quickReporter &&
+    typeof issue.metadata.quickReporter === "object" &&
+    !Array.isArray(issue.metadata.quickReporter)
+      ? sanitizeAdminIssueTechnicalContext(
+          (issue.metadata.quickReporter as Record<string, unknown>)
+            .technicalContext,
+        )
+      : null;
+
   return {
     category: issue.category,
     createdAt: issue.createdAt,
@@ -150,6 +166,7 @@ function toNotificationDetails(issue: StaffIssueReport) {
     reporterName: issue.reporterName,
     ticketReference: issue.ticketReference,
     title: issue.title,
+    technicalContext,
   };
 }
 
@@ -245,7 +262,9 @@ export async function POST(request: Request) {
       location?: unknown;
       moduleOrArea?: unknown;
       priority?: unknown;
+      quickReporter?: unknown;
       submissionId?: unknown;
+      technicalContext?: unknown;
       title?: unknown;
     };
     const title = normalizeOptionalText(body.title);
@@ -309,6 +328,24 @@ export async function POST(request: Request) {
 
     if (typeof body.currentPath === "string" && body.currentPath.trim()) {
       metadata.adminPath = body.currentPath.trim().slice(0, 300);
+    }
+
+    const quickReporter = body.quickReporter === true;
+    if (quickReporter) {
+      const technicalContext = sanitizeAdminIssueTechnicalContext({
+        ...(body.technicalContext && typeof body.technicalContext === "object"
+          ? (body.technicalContext as AdminIssueTechnicalContext)
+          : {}),
+        adminPath: metadata.adminPath,
+        applicationVersion:
+          process.env.VERCEL_GIT_COMMIT_SHA ??
+          process.env.VERCEL_DEPLOYMENT_ID ??
+          "local",
+      });
+      metadata.quickReporter = {
+        source: "admin-quick-reporter",
+        technicalContext,
+      };
     }
 
     const { data, error } = await auth.serviceClient
@@ -430,20 +467,32 @@ export async function POST(request: Request) {
     let notificationError: string | null = null;
 
     if (attachmentUploads.length === 0) {
-      try {
-        const notification = await notifyKadenOfStaffIssue(
-          auth.serviceClient,
-          toNotificationDetails(issue),
-        );
+      const sendNotification = async () => {
+        try {
+          return await notifyKadenOfStaffIssue(
+            auth.serviceClient,
+            toNotificationDetails(issue),
+          );
+        } catch (error) {
+          console.error(
+            "[Zingara Issues] Issue saved but notification dispatch failed",
+            error,
+          );
+          return {
+            delivered: false,
+            error: "The issue was saved, but the notification could not be sent.",
+          };
+        }
+      };
+
+      if (quickReporter) {
+        after(async () => {
+          await sendNotification();
+        });
+      } else {
+        const notification = await sendNotification();
         notificationDelivered = notification.delivered;
         notificationError = notification.error;
-      } catch (error) {
-        notificationDelivered = false;
-        notificationError = "The issue was saved, but the notification could not be sent.";
-        console.error(
-          "[Zingara Issues] Issue saved but notification dispatch failed",
-          error,
-        );
       }
     }
 

@@ -1,5 +1,9 @@
 import { getSupabaseClient } from "./client";
 import { adminIpUndertakingRequiredEvent } from "../adminIpUndertaking";
+import {
+  createAdminOperationErrorContext,
+  dispatchAdminOperationError,
+} from "../adminIssueCapture";
 
 type ApiOptions = {
   body?: unknown;
@@ -106,6 +110,27 @@ export async function fetchSupabaseApi<T>(
       path.startsWith("/api/admin/")
     ) {
       await recoverExpiredStaffSession(supabase);
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      path.startsWith("/api/admin/") &&
+      !path.startsWith("/api/admin/issues")
+    ) {
+      dispatchAdminOperationError(
+        createAdminOperationErrorContext({
+          body: options.body,
+          code: errorPayload.code,
+          explanation: errorPayload.explanation,
+          message: errorPayload.error,
+          method: options.method ?? "GET",
+          path,
+          requestId:
+            response.headers.get("x-request-id") ??
+            response.headers.get("x-vercel-id"),
+          status: response.status,
+        }),
+      );
     }
 
     throw new SupabaseApiError({

@@ -1,3 +1,6 @@
+import { after } from "next/server";
+
+import { sanitizeAdminIssueTechnicalContext } from "@/lib/adminIssueCapture";
 import {
   detectStaffIssueMediaType,
   getStaffIssueMediaKind,
@@ -191,36 +194,63 @@ export async function POST(request: Request) {
     const reporter = Array.isArray(issue.reporter)
       ? issue.reporter[0]
       : issue.reporter;
-    let notificationDelivered = false;
+    const quickReporter =
+      issue.metadata &&
+      typeof issue.metadata === "object" &&
+      !Array.isArray(issue.metadata) &&
+      (issue.metadata as Record<string, unknown>).quickReporter;
+    const technicalContext =
+      quickReporter &&
+      typeof quickReporter === "object" &&
+      !Array.isArray(quickReporter)
+        ? sanitizeAdminIssueTechnicalContext(
+            (quickReporter as Record<string, unknown>).technicalContext,
+          )
+        : null;
+    let notificationDelivered: boolean | null = null;
     let notificationError: string | null = null;
 
-    try {
-      const notification = await notifyKadenOfStaffIssue(
-        auth.serviceClient,
-        {
-          category: issue.category,
-          createdAt: issue.created_at,
-          description: issue.description,
-          id: issue.id,
-          location: issue.location,
-          moduleOrArea: issue.module_or_area,
-          priority: issue.priority,
-          reporterEmail: reporter?.email ?? null,
-          reporterName: reporter?.full_name ?? null,
-          ticketReference: issue.ticket_reference,
-          title: issue.title,
-        },
-        verifiedMedia,
-      );
+    const sendNotification = async () => {
+      try {
+        return await notifyKadenOfStaffIssue(
+          auth.serviceClient,
+          {
+            category: issue.category,
+            createdAt: issue.created_at,
+            description: issue.description,
+            id: issue.id,
+            location: issue.location,
+            moduleOrArea: issue.module_or_area,
+            priority: issue.priority,
+            reporterEmail: reporter?.email ?? null,
+            reporterName: reporter?.full_name ?? null,
+            ticketReference: issue.ticket_reference,
+            title: issue.title,
+            technicalContext,
+          },
+          verifiedMedia,
+        );
+      } catch (notificationFailure) {
+        console.error(
+          "[Zingara Issues] Media saved but notification dispatch failed",
+          notificationFailure,
+        );
+        return {
+          delivered: false,
+          error:
+            "The issue and media were saved, but the notification could not be sent.",
+        };
+      }
+    };
+
+    if (quickReporter) {
+      after(async () => {
+        await sendNotification();
+      });
+    } else {
+      const notification = await sendNotification();
       notificationDelivered = notification.delivered;
       notificationError = notification.error;
-    } catch (notificationFailure) {
-      notificationError =
-        "The issue and media were saved, but the notification could not be sent.";
-      console.error(
-        "[Zingara Issues] Media saved but notification dispatch failed",
-        notificationFailure,
-      );
     }
 
     return Response.json({

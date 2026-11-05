@@ -20,6 +20,7 @@ import { AdminIpUndertakingGate } from "./AdminIpUndertakingGate";
 import { AdminSearchInput } from "./AdminSearchInput";
 import SecretPasswordOperationalBanner from "./SecretPasswordOperationalBanner";
 import { StaffActionGuidanceAlert } from "./StaffActionGuidanceAlert";
+import { QuickIssueReporter } from "./QuickIssueReporter";
 import type {
   BookingReconciliationDetails,
   GuestCountReconciliationResult,
@@ -23259,7 +23260,7 @@ export default function AdminDashboardPage({
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
             Report internal platform issues and track their current status
-            without sending notifications or changing guest records.
+            with secure attachments and an immediate management notification.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -23299,7 +23300,7 @@ export default function AdminDashboardPage({
             </h3>
           </div>
           <span className="rounded-full border border-white/10 bg-black/35 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-400">
-            Notifications Off
+            Kaden Notified
           </span>
         </div>
 
@@ -41622,6 +41623,7 @@ export default function AdminDashboardPage({
           </section>
         </div>
       )}
+      <QuickIssueReporter staffId={currentStaff.id} />
     </main>
   );
 }
