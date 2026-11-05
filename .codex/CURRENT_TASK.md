@@ -1,3 +1,43 @@
+# Intelligent Quick Bug Reporter
+
+STATUS: DEPLOYED - PRODUCTION UI VERIFIED; LIVE EMAIL SEND PENDING EXPLICIT QA ACTION
+
+DATE: 5 NOVEMBER 2026
+
+## Delivered
+
+- A lightweight draggable issue button is available throughout authenticated
+  Admin and opens a lazy-loaded compact report panel without closing the active
+  workspace or losing unsaved form state.
+- Existing Admin API failures supply sanitised, editable context without
+  polling, network interception or continuous capture. Private image/video
+  attachments, browser-approved screenshot capture and the existing Bug & Issue
+  Register are reused.
+- Quick reports use the existing permissioned issue API, private storage,
+  Communications logging and branded Microsoft 365 email path. Notification
+  delivery is asynchronous and idempotent.
+- Sensitive credentials, payment details and unrelated customer data are
+  excluded. Reports are never submitted automatically.
+
+## Verification And Release
+
+- Focused tests passed 12/12; TypeScript, changed-file ESLint, whitespace checks
+  and the Next.js Webpack Production build passed.
+- Clean baseline comparison measured a 3,011-byte increase in the Admin
+  closed-state page chunk (approximately 0.4%); the panel remains lazy-loaded.
+- Authenticated Production desktop verification confirmed the button, compact
+  panel and Capture/Attach/Send controls while preserving the active Admin page.
+- Application commit: `daa5620e`.
+- Production deployment: `dpl_4q8EWDbXHDxmqH3CMMnfcAHwUDR5`, Ready and aliased
+  to `book.zingara.co.za` at 19:35:11 SAST.
+- No migration was required. Business-data delta: zero.
+- One clearly labelled live QA submission and receipt confirmation remains
+  pending because it will create an Issue Register/Communications record and
+  send an email to `kaden@kaden.co.za`.
+- Full record: `.codex/archive/INTELLIGENT_QUICK_BUG_REPORTER.md`.
+
+---
+
 # P0 Internal Booking Amendment Failure
 
 STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
