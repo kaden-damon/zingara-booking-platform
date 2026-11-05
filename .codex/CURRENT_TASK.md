@@ -113,6 +113,25 @@ DATE: 5 NOVEMBER 2026
 - Refinement business-data delta: the saved pre-show welcome body only. No
   booking, attendance, communication, seating, payment, ticket or financial
   record changed.
+- Copy and legal-footer follow-up: the shared renderer now describes the Cape
+  Town dinner as `A decadent 3 course dinner` and the Johannesburg dinner as
+  `A decadent 4 course dinner`. Authenticated Production preview confirmed the
+  Cape Town wording, retained welcome drinks/canapes and duration copy, both
+  attendance actions and the legal footer. Scheduled delivery and Admin preview
+  still use the same renderer.
+- All four footer routes returned HTTP 200 in Production: Terms & Conditions,
+  Booking Terms, Booking & Cancellation Policy and Privacy Policy. No duplicate
+  or broken footer link was found. The policies do not contradict the current
+  booking, cancellation or privacy rules, but the four linked decrees do not
+  expressly document the active 12.5% gratuity or New Year's Eve full-payment
+  rules; detailed deposit wording remains in the separate Payment Terms decree.
+  No legal or financial rule was changed.
+- Copy follow-up verification passed six attendance tests, targeted ESLint,
+  TypeScript, whitespace checks and the Next.js 16 Webpack Production build.
+  Application commit: `14723c5a`. Production deployment:
+  `dpl_ACAL6SjhMf7SG9zsQbRfPohsTaE7`, Ready and aliased to
+  `book.zingara.co.za` at 21:58:52 SAST. No email was sent and no business data
+  changed.
 - Rollback: revert `510a003f`, redeploy, and stop generating new attendance
   links. The additive columns/table may remain safely in place; existing
   responses can be retained as audit evidence.

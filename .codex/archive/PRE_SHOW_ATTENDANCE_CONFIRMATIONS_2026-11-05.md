@@ -153,3 +153,33 @@ DATE: 5 NOVEMBER 2026
   changed.
 - Rollback: revert both commits and redeploy. Restore the prior body only if
   management explicitly wants the legacy copy; no schema rollback is needed.
+
+## Dinner Copy And Legal Footer Follow-Up
+
+- The authoritative pre-show renderer now uses the exact venue copy
+  `A decadent 3 course dinner` for Cape Town and
+  `A decadent 4 course dinner` for Johannesburg. Existing arrival inclusions,
+  the 2½-hour experience, payment guidance, attendance actions and schedule are
+  unchanged.
+- Authenticated Production preview confirmed the Cape Town wording and both
+  attendance actions in the same renderer used by scheduled customer email.
+  No customer or test email was sent.
+- The footer contains one link each to Terms & Conditions, Booking Terms,
+  Booking & Cancellation Policy and Privacy Policy. All four Production routes
+  returned HTTP 200 and resolved to their current decree pages; no duplicate or
+  broken footer link was found.
+- The linked policies remain compatible with current booking, deposit,
+  cancellation, refund and privacy behaviour. A documentation coverage gap
+  remains: the four footer-linked decrees do not expressly state the active
+  12.5% gratuity or New Year's Eve full-payment rules, while detailed deposit
+  wording is held in the separate Payment Terms decree. No policy, financial
+  calculation or business rule was changed in this follow-up.
+- Verification passed six focused attendance checks, targeted ESLint,
+  TypeScript, whitespace checks and the Next.js 16 Webpack Production build.
+- Application commit: `14723c5a`.
+- Production deployment: `dpl_ACAL6SjhMf7SG9zsQbRfPohsTaE7`, Ready and
+  aliased to `book.zingara.co.za` at 21:58:52 SAST.
+- Business-data delta: none. No email, booking, attendance, seating, payment,
+  ticket, communication or financial record changed.
+- Rollback: revert `14723c5a` and redeploy; no migration or data rollback is
+  required.
