@@ -202,7 +202,7 @@ export default function QuickIssueReporterPanel({
     <section
       ref={panelRef}
       aria-label="Report issue"
-      className="fixed inset-x-3 bottom-3 z-[230] max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-lg border border-[#D8C36A]/45 bg-[#0C0A08] p-4 text-white shadow-2xl shadow-black/70 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:w-[420px]"
+      className="fixed inset-x-3 bottom-3 z-[230] max-h-[min(78dvh,560px)] overflow-y-auto rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-4 text-white shadow-2xl shadow-black/70 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:w-[420px] sm:p-5"
       role="dialog"
     >
       <div className="flex items-center justify-between gap-3">
@@ -224,7 +224,7 @@ export default function QuickIssueReporterPanel({
         <span className="sr-only">Issue description</span>
         <textarea
           autoFocus
-          className="min-h-28 w-full resize-y rounded-md border border-white/15 bg-black px-3 py-3 text-sm leading-5 text-white outline-none focus:border-[#D8C36A]"
+          className="min-h-28 w-full resize-y rounded-xl border border-white/15 bg-black/60 px-3 py-3 text-sm leading-5 text-white outline-none transition focus:border-[#D8C36A] focus:ring-1 focus:ring-[#D8C36A]/35"
           disabled={isSubmitting}
           onChange={(event) => setDescription(event.target.value)}
           value={description}
@@ -235,7 +235,7 @@ export default function QuickIssueReporterPanel({
         <div className="mt-3 grid gap-2">
           {files.map((selected) => (
             <div
-              className="flex min-w-0 items-center gap-2 rounded-md border border-white/10 bg-black/50 px-3 py-2 text-xs"
+              className="flex min-w-0 items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs"
               key={selected.clientId}
             >
               <span className="min-w-0 flex-1 truncate">{selected.file.name}</span>
@@ -258,13 +258,13 @@ export default function QuickIssueReporterPanel({
       )}
 
       {error && (
-        <p className="mt-3 rounded-md border border-red-300/25 bg-red-950/30 px-3 py-2 text-xs text-red-100">
+        <p className="mt-3 rounded-xl border border-red-300/25 bg-red-950/30 px-3 py-2 text-xs text-red-100">
           {error}
         </p>
       )}
       {success && (
         <p
-          className="mt-3 rounded-md border border-emerald-300/25 bg-emerald-950/25 px-3 py-2 text-xs text-emerald-100"
+          className="mt-3 rounded-xl border border-emerald-300/25 bg-emerald-950/25 px-3 py-2 text-xs text-emerald-100"
           role="status"
         >
           {success}
@@ -273,7 +273,7 @@ export default function QuickIssueReporterPanel({
 
       <div className="mt-4 grid grid-cols-3 gap-2">
         <button
-          className="min-h-11 rounded-md border border-white/15 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+          className="min-h-11 rounded-full border border-[#D8C36A]/40 px-3 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:border-[#F2D66C] hover:bg-[#D8C36A]/10 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={isCapturing || isSubmitting}
           onClick={() => {
             setIsCapturing(true);
@@ -294,7 +294,7 @@ export default function QuickIssueReporterPanel({
           {isCapturing ? "Capturing..." : "Capture"}
         </button>
         <button
-          className="min-h-11 rounded-md border border-white/15 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+          className="min-h-11 rounded-full border border-[#D8C36A]/40 px-3 text-xs font-semibold uppercase tracking-[0.08em] text-[#F2D66C] transition hover:border-[#F2D66C] hover:bg-[#D8C36A]/10 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={isSubmitting}
           onClick={() => fileInputRef.current?.click()}
           type="button"
@@ -302,7 +302,7 @@ export default function QuickIssueReporterPanel({
           Attach
         </button>
         <button
-          className="min-h-11 rounded-md bg-[#D8C36A] px-3 text-xs font-bold text-black hover:bg-[#F2D66C] disabled:opacity-50"
+          className="min-h-11 rounded-full bg-[#D8C36A] px-3 text-xs font-bold uppercase tracking-[0.08em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={isSubmitting}
           onClick={() => void submit()}
           type="button"
