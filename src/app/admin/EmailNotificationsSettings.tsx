@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getAdminAuthSession } from "@/lib/supabase/auth";
+import AdminOnOffSwitch from "./AdminOnOffSwitch";
 
 type PersonalSetting = {
   description: string;
@@ -19,6 +20,10 @@ type Recipient = { email: string; id: string; name: string };
 type StaffOption = Recipient & { venueScope: string[] };
 type ManagementSetting = {
   cc: Recipient[];
+  emailEvents: {
+    confirmed: boolean;
+    declined: boolean;
+  } | null;
   enabled: boolean;
   key:
     | "attendance-confirmations"
@@ -43,7 +48,7 @@ const workflowCopy: Record<
   { description: string; label: string }
 > = {
   "attendance-confirmations": {
-    description: "Alerts selected Box Office staff when a guest cannot attend.",
+    description: "Emails selected Box Office staff when a guest responds.",
     label: "Attendance Confirmations",
   },
   "corporate-enquiry": {
@@ -86,38 +91,6 @@ const workflowGroups: Array<{
   },
   { keys: ["new-review-alert"], label: "Guest Feedback" },
 ];
-
-function Toggle({
-  checked,
-  disabled,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  label: string;
-  onChange: (enabled: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`flex h-7 w-[3.75rem] shrink-0 items-center rounded-full border px-1 transition ${
-        checked
-          ? "justify-end border-emerald-300/40 bg-emerald-300/15 text-emerald-100"
-          : "justify-start border-white/15 bg-black/40 text-zinc-500"
-      } disabled:cursor-not-allowed disabled:opacity-45`}
-    >
-      <span className="flex h-5 min-w-6 items-center justify-center rounded-full bg-current px-1 text-[0.58rem] font-bold text-black">
-        {checked ? "ON" : "OFF"}
-      </span>
-    </button>
-  );
-}
 
 async function authorisedRequest(init?: RequestInit, includeDetails = false) {
   const auth = await getAdminAuthSession();
@@ -234,6 +207,7 @@ export default function EmailNotificationsSettings({
       const response = await authorisedRequest({
         body: JSON.stringify({
           action: "management",
+          attendanceEmailEvents: managementDraft.emailEvents,
           ccStaffProfileIds: managementDraft.cc.map((member) => member.id),
           enabled: managementDraft.enabled,
           notificationKey: managementDraft.key,
@@ -296,7 +270,7 @@ export default function EmailNotificationsSettings({
                   <strong className="block text-sm text-white">{setting.label}</strong>
                   <span className="block text-xs leading-5 text-zinc-500">{setting.description}</span>
                 </span>
-                <Toggle
+                <AdminOnOffSwitch
                   checked={setting.enabled}
                   disabled={loading}
                   label={`${setting.label} for me`}
@@ -327,6 +301,8 @@ export default function EmailNotificationsSettings({
                     if (!draft) return null;
                     const copy = workflowCopy[key];
                     const expanded = managementExpanded === key;
+                    const attendanceEmailEvents =
+                      key === "attendance-confirmations" ? draft.emailEvents : null;
                     return (
                       <div key={key} className="px-3 py-2.5 sm:px-4">
                         <div className="flex min-h-10 items-center justify-between gap-3">
@@ -353,7 +329,7 @@ export default function EmailNotificationsSettings({
                                 {expanded ? "Close" : "Edit"}
                               </button>
                             )}
-                            <Toggle
+                            <AdminOnOffSwitch
                               checked={draft.enabled}
                               disabled={loading || !payload?.canManageOrganisation}
                               label={`${copy.label} organisation workflow`}
@@ -361,6 +337,39 @@ export default function EmailNotificationsSettings({
                             />
                           </div>
                         </div>
+
+                        {attendanceEmailEvents && (
+                          <div className="mt-3 grid gap-2 border-t border-white/10 pt-3 sm:grid-cols-2">
+                            {([
+                              ["confirmed", "ATTENDING (YES)"],
+                              ["declined", "NOT ATTENDING (NO)"],
+                            ] as const).map(([event, label]) => (
+                              <div
+                                key={event}
+                                className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2"
+                              >
+                                <span>
+                                  <strong className="block text-xs font-semibold text-white">{label}</strong>
+                                  <span className="block text-[0.68rem] leading-4 text-zinc-500">Email selected recipients</span>
+                                </span>
+                                <AdminOnOffSwitch
+                                  checked={attendanceEmailEvents[event]}
+                                  disabled={loading || !payload?.canManageOrganisation}
+                                  label={`${label} email`}
+                                  onChange={(enabled) =>
+                                    void saveManagement({
+                                      ...draft,
+                                      emailEvents: {
+                                        ...attendanceEmailEvents,
+                                        [event]: enabled,
+                                      },
+                                    })
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
                         {expanded && payload?.canManageOrganisation && (
                           <div className="mt-3 border-t border-white/10 pt-3">
@@ -412,7 +421,7 @@ export default function EmailNotificationsSettings({
                       Approval-gated invitations · {payload.bookingExperienceFeedback.status.replaceAll("_", " ")}
                     </span>
                   </span>
-                  <Toggle
+                  <AdminOnOffSwitch
                     checked={payload.bookingExperienceFeedback.enabled}
                     disabled={loading}
                     label="Booking Experience Feedback automation"

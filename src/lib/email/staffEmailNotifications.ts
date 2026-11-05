@@ -51,7 +51,7 @@ export const staffEmailNotificationRegistry = [
     routed: true,
   },
   {
-    description: "Email, in-app and device alerts when a guest cannot attend.",
+    description: "Email preferences for guest attendance responses. Declines keep their operational alerts.",
     key: "attendance-confirmations",
     label: "Attendance Confirmations",
     mode: "management",
@@ -82,6 +82,10 @@ type StaffRecipient = {
 
 export type ManagementEmailRoute = {
   cc: StaffRecipient[];
+  emailEvents: {
+    confirmed: boolean;
+    declined: boolean;
+  } | null;
   enabled: boolean;
   key: StaffEmailRouteKey;
   to: StaffRecipient[];
@@ -129,7 +133,7 @@ export async function loadManagementEmailRoute(
 ): Promise<ManagementEmailRoute> {
   const { data: route, error } = await client
     .from("management_email_notification_routes")
-    .select("notification_key,enabled,to_staff_profile_ids,cc_staff_profile_ids")
+    .select("notification_key,enabled,to_staff_profile_ids,cc_staff_profile_ids,email_event_settings")
     .eq("notification_key", notificationKey)
     .maybeSingle();
   if (error) throw error;
@@ -166,6 +170,13 @@ export async function loadManagementEmailRoute(
 
   return {
     cc: resolve(ccIds),
+    emailEvents:
+      notificationKey === "attendance-confirmations"
+        ? {
+            confirmed: route.email_event_settings?.confirmed !== false,
+            declined: route.email_event_settings?.declined !== false,
+          }
+        : null,
     enabled: route.enabled,
     key: notificationKey,
     to: resolve(toIds),

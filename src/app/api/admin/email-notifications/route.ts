@@ -128,6 +128,7 @@ export async function PATCH(request: Request) {
     const body = (await request.json().catch(() => null)) as
       | {
           action?: "booking-feedback-automation" | "management" | "personal";
+          attendanceEmailEvents?: unknown;
           ccStaffProfileIds?: unknown;
           enabled?: unknown;
           notificationKey?: unknown;
@@ -231,6 +232,28 @@ export async function PATCH(request: Request) {
         );
       }
       const recipientIds = [...toStaffProfileIds, ...ccStaffProfileIds];
+      const attendanceEmailEvents =
+        body.notificationKey === "attendance-confirmations" &&
+        body.attendanceEmailEvents &&
+        typeof body.attendanceEmailEvents === "object"
+          ? body.attendanceEmailEvents as { confirmed?: unknown; declined?: unknown }
+          : null;
+      if (
+        body.notificationKey === "attendance-confirmations" &&
+        (typeof attendanceEmailEvents?.confirmed !== "boolean" ||
+          typeof attendanceEmailEvents?.declined !== "boolean")
+      ) {
+        return Response.json(
+          { error: "Choose whether each attendance email is on or off." },
+          { status: 400 },
+        );
+      }
+      const normalizedAttendanceEmailEvents = attendanceEmailEvents
+        ? {
+            confirmed: attendanceEmailEvents.confirmed === true,
+            declined: attendanceEmailEvents.declined === true,
+          }
+        : null;
       const { data: recipients, error: recipientError } = recipientIds.length
         ? await auth.serviceClient
             .from("staff_profiles")
@@ -251,15 +274,26 @@ export async function PATCH(request: Request) {
         auth.serviceClient,
         body.notificationKey,
       );
+      const routeUpdate: {
+        cc_staff_profile_ids: string[];
+        email_event_settings?: { confirmed: boolean; declined: boolean };
+        enabled: boolean;
+        to_staff_profile_ids: string[];
+        updated_at: string;
+        updated_by: string;
+      } = {
+        cc_staff_profile_ids: ccStaffProfileIds,
+        enabled: body.enabled,
+        to_staff_profile_ids: toStaffProfileIds,
+        updated_at: new Date().toISOString(),
+        updated_by: auth.staffProfile.id,
+      };
+      if (normalizedAttendanceEmailEvents) {
+        routeUpdate.email_event_settings = normalizedAttendanceEmailEvents;
+      }
       const { error } = await auth.serviceClient
         .from("management_email_notification_routes")
-        .update({
-          cc_staff_profile_ids: ccStaffProfileIds,
-          enabled: body.enabled,
-          to_staff_profile_ids: toStaffProfileIds,
-          updated_at: new Date().toISOString(),
-          updated_by: auth.staffProfile.id,
-        })
+        .update(routeUpdate)
         .eq("notification_key", body.notificationKey);
       if (error) throw error;
       await tryRecordAuditEvent(
@@ -270,12 +304,14 @@ export async function PATCH(request: Request) {
           action: "Management email routing updated",
           afterValues: {
             ccStaffProfileIds,
+            attendanceEmailEvents: normalizedAttendanceEmailEvents,
             enabled: body.enabled,
             notificationKey: body.notificationKey,
             toStaffProfileIds,
           },
           beforeValues: {
             ccStaffProfileIds: before.cc.map((member) => member.id),
+            attendanceEmailEvents: before.emailEvents,
             enabled: before.enabled,
             notificationKey: before.key,
             toStaffProfileIds: before.to.map((member) => member.id),

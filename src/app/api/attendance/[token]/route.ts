@@ -4,7 +4,7 @@ import {
   hashAttendanceToken,
 } from "@/lib/attendance/attendanceTokens";
 import { resolveAttendanceContext } from "@/lib/attendance/attendanceServer";
-import { sendAttendanceDeclineNotification } from "@/lib/email/attendanceDeclineNotification";
+import { sendAttendanceResponseNotification } from "@/lib/email/attendanceDeclineNotification";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
@@ -87,12 +87,13 @@ export async function POST(
     return unavailable();
   }
 
-  if (body.response === "declined") {
+  if (result.changed) {
     after(async () => {
       try {
-        await sendAttendanceDeclineNotification(client, {
+        await sendAttendanceResponseNotification(client, {
           bookingId: result.booking_id,
           bookingReference: result.booking_reference,
+          response: body.response as "confirmed" | "declined",
           responseVersion: result.response_version,
         });
       } catch (notificationError) {

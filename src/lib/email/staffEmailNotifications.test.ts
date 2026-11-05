@@ -120,7 +120,20 @@ test("Email Notifications UI keeps personal and management controls distinct", a
   assert.match(card, /New Review Alerts/);
   assert.match(card, /Invoice Request Reminders/);
   assert.match(card, /Attendance Confirmations/);
-  assert.match(card, /role="switch"/);
+  assert.match(card, /ATTENDING \(YES\)/);
+  assert.match(card, /NOT ATTENDING \(NO\)/);
+  assert.match(card, /AdminOnOffSwitch/);
+});
+
+test("Admin switches use one visible green and grey control", async () => {
+  const [sharedSwitch, secretGuestList] = await Promise.all([
+    readFile(new URL("../../app/admin/AdminOnOffSwitch.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../app/admin/SecretGuestListSettings.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(sharedSwitch, /bg-emerald-600/);
+  assert.match(sharedSwitch, /bg-zinc-600/);
+  assert.match(sharedSwitch, /role="switch"/);
+  assert.match(secretGuestList, /AdminOnOffSwitch/);
 });
 
 test("Waitlist routing correction uses only the six approved staff identities", async () => {

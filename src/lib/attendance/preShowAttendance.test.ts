@@ -53,17 +53,20 @@ test("response persistence is isolated from booking, seating, payment and ticket
   assert.doesNotMatch(migration, /booking_status\s*=/);
 });
 
-test("decline notifications are asynchronous, routed and idempotent", async () => {
+test("attendance emails are asynchronous, independently controlled and idempotent", async () => {
   const [route, notification, migration, routingCorrection] = await Promise.all([
     readFile(`${root}/src/app/api/attendance/[token]/route.ts`, "utf8"),
     readFile(`${root}/src/lib/email/attendanceDeclineNotification.ts`, "utf8"),
     readFile(`${root}/supabase/migrations/20261106001500_attendance_management_integration.sql`, "utf8"),
     readFile(`${root}/supabase/migrations/20261106003000_attendance_box_office_routing_correction.sql`, "utf8"),
   ]);
-  assert.match(route, /body\.response === "declined"/);
   assert.match(route, /after\(async/);
+  assert.match(route, /if \(result\.changed\)/);
+  assert.match(route, /response: body\.response/);
   assert.match(notification, /loadManagementEmailRoute[\s\S]*"attendance-confirmations"/);
+  assert.match(notification, /route\.enabled && route\.emailEvents\?\.\[input\.response\] !== false/);
   assert.match(notification, /eventKey: `\$\{input\.bookingId\}:\$\{input\.responseVersion\}`/);
+  assert.match(notification, /attending \? "Guest Is Attending" : "Guest Cannot Attend"/);
   assert.match(notification, /recipientStaffProfileIds: recipientIds/);
   assert.match(notification, /attendance-declined-\$\{input\.bookingId\}-\$\{input\.responseVersion\}/);
   assert.match(migration, /attendance-confirmations/);
@@ -72,6 +75,21 @@ test("decline notifications are asynchronous, routed and idempotent", async () =
   assert.match(routingCorrection, /cc_staff_profile_ids = '\{\}'::uuid\[\]/);
   assert.match(routingCorrection, /coalesce\(cardinality\(v_to\), 0\) <> 4/);
   assert.doesNotMatch(routingCorrection, /kaden@|fatima@|venue-manager|super-admin/i);
+});
+
+test("attendance email preferences default on without changing response persistence", async () => {
+  const [migration, settings, route] = await Promise.all([
+    readFile(`${root}/supabase/migrations/20261106014500_attendance_email_preferences.sql`, "utf8"),
+    readFile(`${root}/src/app/admin/EmailNotificationsSettings.tsx`, "utf8"),
+    readFile(`${root}/src/app/api/attendance/[token]/route.ts`, "utf8"),
+  ]);
+  assert.match(migration, /'confirmed'.*true/s);
+  assert.match(migration, /'declined'.*true/s);
+  assert.match(settings, /ATTENDING \(YES\)/);
+  assert.match(settings, /NOT ATTENDING \(NO\)/);
+  assert.match(settings, /attendanceEmailEvents/);
+  assert.match(route, /record_booking_attendance_response/);
+  assert.ok(route.indexOf("record_booking_attendance_response") < route.indexOf("after(async"));
 });
 
 test("attendance management is presentation-only and keeps arrival separate", async () => {

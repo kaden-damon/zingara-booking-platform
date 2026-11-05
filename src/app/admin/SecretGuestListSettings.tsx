@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getAdminAuthSession } from "@/lib/supabase/auth";
+import AdminOnOffSwitch from "./AdminOnOffSwitch";
 
 type FeatureState = {
   enabled: boolean;
@@ -93,36 +94,14 @@ export default function SecretGuestListSettings() {
             Show or hide the sold-out enquiry option. Standard Waitlist remains available.
           </p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-busy={loading}
-          aria-checked={enabled}
-          aria-label={`The Secret Guest List is ${ready ? (enabled ? "ON" : "OFF") : "loading"}`}
+        <AdminOnOffSwitch
+          checked={enabled}
           disabled={loading || !ready}
-          onClick={() => void update(!enabled)}
-          className={`relative h-12 w-28 shrink-0 rounded-full border-2 p-1 text-white shadow-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2D66C] focus-visible:ring-offset-2 focus-visible:ring-offset-black ${
-            ready
-              ? enabled
-                ? "border-emerald-300 bg-emerald-600"
-                : "border-zinc-400 bg-zinc-600"
-              : "border-zinc-700 bg-zinc-800"
-          } disabled:cursor-not-allowed disabled:opacity-65`}
-        >
-          <span
-            aria-hidden="true"
-            className={`absolute left-1 top-1 h-9 w-9 rounded-full bg-white shadow-md transition-transform duration-200 ${
-              enabled ? "translate-x-16" : "translate-x-0"
-            }`}
-          />
-          <span
-            className={`absolute inset-0 flex items-center text-xs font-extrabold tracking-[0.12em] ${
-              enabled ? "justify-start pl-4" : "justify-end pr-4"
-            }`}
-          >
-            {ready ? (enabled ? "ON" : "OFF") : "..."}
-          </span>
-        </button>
+          label={ready ? "The Secret Guest List" : "The Secret Guest List loading"}
+          loading={!ready}
+          onChange={(next) => void update(next)}
+          size="large"
+        />
       </div>
       {status && <p role="status" className="mt-3 text-sm text-emerald-200">{status}</p>}
       {error && <p role="alert" className="mt-3 text-sm text-red-200">{error}</p>}

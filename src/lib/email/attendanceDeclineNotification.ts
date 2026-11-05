@@ -18,11 +18,12 @@ function formatPerformance(date: string, time: string) {
   }).format(new Date(`${date}T${String(time).slice(0, 5)}:00+02:00`));
 }
 
-export async function sendAttendanceDeclineNotification(
+export async function sendAttendanceResponseNotification(
   client: SupabaseClient,
   input: {
     bookingId: string;
     bookingReference: string;
+    response: "confirmed" | "declined";
     responseVersion: number;
   },
 ) {
@@ -30,16 +31,21 @@ export async function sendAttendanceDeclineNotification(
     client,
     "attendance-confirmations",
   );
-  if (!route.enabled) return { delivered: false, suppressed: true };
+  const emailEnabled =
+    route.enabled && route.emailEvents?.[input.response] !== false;
+  if (input.response === "confirmed" && !emailEnabled) {
+    return { delivered: false, suppressed: true };
+  }
 
   const recipientIds = [...route.to, ...route.cc].map((recipient) => recipient.id);
-  const deliveryId = await claimStaffEmailDelivery(client, {
-    ccStaffProfileIds: route.cc.map((recipient) => recipient.id),
-    eventKey: `${input.bookingId}:${input.responseVersion}`,
-    notificationKey: "attendance-confirmations",
-    toStaffProfileIds: route.to.map((recipient) => recipient.id),
-  });
-  if (!deliveryId) return { deduplicated: true, delivered: false };
+  const deliveryId = emailEnabled
+    ? await claimStaffEmailDelivery(client, {
+        ccStaffProfileIds: route.cc.map((recipient) => recipient.id),
+        eventKey: `${input.bookingId}:${input.responseVersion}`,
+        notificationKey: "attendance-confirmations",
+        toStaffProfileIds: route.to.map((recipient) => recipient.id),
+      })
+    : null;
 
   const { data: booking, error: bookingError } = await client
     .from("bookings")
@@ -59,9 +65,12 @@ export async function sendAttendanceDeclineNotification(
   const guestName = [customer?.first_name, customer?.surname]
     .filter(Boolean)
     .join(" ") || "Guest";
-  const subject = `Guest cannot attend · ${booking.booking_reference}`;
+  const attending = input.response === "confirmed";
+  const subject = `${attending ? "Guest attending" : "Guest cannot attend"} · ${booking.booking_reference}`;
   const message = [
-    "A guest has confirmed that they cannot attend.",
+    attending
+      ? "A guest has confirmed that they will attend."
+      : "A guest has confirmed that they cannot attend.",
     "",
     `Booking: ${booking.booking_reference}`,
     `Guest: ${guestName}`,
@@ -69,52 +78,70 @@ export async function sendAttendanceDeclineNotification(
     `Venue: ${show.venue}`,
     `Performance: ${formatPerformance(show.date, show.time)}`,
     "",
-    "The booking remains active and requires Box Office review.",
+    attending
+      ? "The booking remains active. This response does not mark the guest as arrived."
+      : "The booking remains active and requires Box Office review.",
   ].join("\n");
 
-  const branded = await createBrandedCustomerEmail({
-    ctaLabel: "OPEN BOOKING",
-    ctaUrl: `/admin?booking=${encodeURIComponent(booking.booking_reference)}`,
-    heading: "Guest Cannot Attend",
-    includeAgePolicy: false,
-    includeSecurityNotice: false,
-    message,
-    subject,
-  });
-  const emailResult = await sendZingaraEmail({
-    attachments: branded.attachments,
-    cc: route.cc.map((recipient) => recipient.email),
-    html: branded.html,
-    message,
-    subject,
-    to: route.to.map((recipient) => recipient.email),
-  });
+  const emailResult = deliveryId
+    ? await (async () => {
+        const branded = await createBrandedCustomerEmail({
+          ctaLabel: "OPEN BOOKING",
+          ctaUrl: `/admin?booking=${encodeURIComponent(booking.booking_reference)}`,
+          heading: attending ? "Guest Is Attending" : "Guest Cannot Attend",
+          includeAgePolicy: false,
+          includeSecurityNotice: false,
+          message,
+          subject,
+        });
+        return sendZingaraEmail({
+          attachments: branded.attachments,
+          cc: route.cc.map((recipient) => recipient.email),
+          html: branded.html,
+          message,
+          subject,
+          to: route.to.map((recipient) => recipient.email),
+        });
+      })()
+    : null;
 
-  await Promise.all([
-    completeStaffEmailDelivery(client, deliveryId, {
-      error: emailResult.ok ? undefined : emailResult.error,
-      status: emailResult.ok ? "sent" : "failed",
-    }),
-    insertCommunicationPayload(client, {
-      booking_id: input.bookingId,
-      channel: "email",
-      customer_id: booking.customer_id,
-      message,
-      sent_at: new Date().toISOString(),
-      show_id: booking.show_id,
-      status: emailResult.ok ? "sent" : "failed",
-      subject,
-      type: "custom_message",
-    }),
-    sendStaffPushNotification({
-      body: `${booking.booking_reference} can no longer attend. The booking remains active and requires Box Office review.`,
-      bookingReference: booking.booking_reference,
-      notificationId: `attendance-declined-${input.bookingId}-${input.responseVersion}`,
-      recipientStaffProfileIds: recipientIds,
-      title: "Guest Cannot Attend",
-      trigger: "attendance-declined",
-    }),
-  ]);
+  const operations: Promise<unknown>[] = [];
+  if (deliveryId && emailResult) {
+    operations.push(
+      completeStaffEmailDelivery(client, deliveryId, {
+        error: emailResult.ok ? undefined : emailResult.error,
+        status: emailResult.ok ? "sent" : "failed",
+      }),
+      insertCommunicationPayload(client, {
+        booking_id: input.bookingId,
+        channel: "email",
+        customer_id: booking.customer_id,
+        message,
+        sent_at: new Date().toISOString(),
+        show_id: booking.show_id,
+        status: emailResult.ok ? "sent" : "failed",
+        subject,
+        type: "custom_message",
+      }),
+    );
+  }
+  if (!attending) {
+    operations.push(
+      sendStaffPushNotification({
+        body: `${booking.booking_reference} can no longer attend. The booking remains active and requires Box Office review.`,
+        bookingReference: booking.booking_reference,
+        notificationId: `attendance-declined-${input.bookingId}-${input.responseVersion}`,
+        recipientStaffProfileIds: recipientIds,
+        title: "Guest Cannot Attend",
+        trigger: "attendance-declined",
+      }),
+    );
+  }
+  await Promise.all(operations);
 
-  return { delivered: emailResult.ok, suppressed: false };
+  return {
+    deduplicated: emailEnabled && !deliveryId,
+    delivered: emailResult?.ok === true,
+    suppressed: !emailEnabled,
+  };
 }
