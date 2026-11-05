@@ -119,7 +119,7 @@ test("staff booking type and complimentary category labels are unambiguous", asy
     readFile(new URL("../app/book/page.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(adminPage, />\s*Standard Booking\s*</);
+  assert.match(adminPage, /data-training-control="training-booking-standard"[\s\S]*>\s*Standard\s*</);
   assert.match(bookingPage, /\["standard", "Standard COMP"\]/);
   assert.match(bookingPage, /\["media", "Media COMP"\]/);
   assert.match(bookingPage, /\["tradex", "Tradex COMP"\]/);

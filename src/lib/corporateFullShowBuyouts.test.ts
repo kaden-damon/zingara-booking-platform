@@ -222,7 +222,7 @@ test("Buyout review remains derived, bounded, and separate from booking state", 
 test("Buyout modal bootstrap depends on stable show identity", async () => {
   const ui = await source("../app/admin/CorporateBuyoutCreator.tsx");
   assert.match(ui, /const selectedShowId = selectedShow\?\.id/);
-  assert.match(ui, /\[open, selectedShowId\]/);
+  assert.match(ui, /\[open, selectedShowId, trainingBootstrap\]/);
   assert.doesNotMatch(ui, /\[open, selectedShow\]/);
 });
 
@@ -232,7 +232,7 @@ test("show and public calendar surfaces display the dedicated Buyout state", asy
     source("../app/book/page.tsx"),
   ]);
   assert.match(admin, /show\.fullShowBuyout/);
-  assert.match(admin, /Full Show Buyout/);
-  assert.match(publicPage, /"full-show-buyout": "Full Show Buyout"/);
+  assert.match(admin, /label: "Buyout"/);
+  assert.match(publicPage, /"full-show-buyout": "Buyout"/);
   assert.match(publicPage, /show\.fullShowBuyout/);
 });

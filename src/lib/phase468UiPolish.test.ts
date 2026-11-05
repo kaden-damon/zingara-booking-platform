@@ -54,6 +54,8 @@ test("public calendar simplifies restricted statuses without weakening their gua
     bookingPage,
     /"full-show-buyout":\s*\n\s*"border-sky-300\/35 bg-sky-950\/25 text-sky-200"/,
   );
+  assert.match(bookingPage, /blackout: "Buyout"/);
+  assert.match(bookingPage, /"full-show-buyout": "Buyout"/);
   assert.match(bookingPage, /"active",\s*\n\s*"sold-out",\s*\n\s*"full-show-buyout",\s*\n\s*"venue-closure"/);
   assert.doesNotMatch(bookingPage, /status === "special-event"[\s\S]*\? "bg-purple-300"/);
   assert.match(bookingPage, /disabled=\{!isAvailableDate\}/);

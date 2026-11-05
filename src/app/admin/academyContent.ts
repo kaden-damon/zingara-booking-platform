@@ -470,7 +470,7 @@ const bookingLessons: AcademyArticle[] = [
     howTo: [
       "For a public booking, start at the location landing page and continue through Book Your Experience.",
       "For a staff booking, open Show & Availability, choose the performance, and use the + action.",
-      "Choose Standard Booking or Corporate Booking. The selected performance remains fixed during staff checkout.",
+      "Choose Standard or Corporate. The selected performance remains fixed during staff checkout.",
       "Choose the guest count. Standard bookings are available for 1-19 guests; larger or business-led requests belong in Corporate.",
       "Select seating from the venue map and confirm the best-fit table.",
       "Enter guest details, review any matched customer carefully, then review the Payment Summary.",
@@ -779,7 +779,7 @@ const bookingLessons: AcademyArticle[] = [
     difficulty: "intermediate",
     howTo: [
       "Open Show & Availability and select the correct location and month.",
-      "Use + on the required performance, then choose Standard Booking or Corporate Booking.",
+      "Use + on the required performance, then choose Standard or Corporate.",
       "When SHOW READY appears, follow Show, Guests, Seating, Guest or Company, Payment and Review.",
       "Review the booking once, then use the single primary create or payment action.",
       "If Show Currently In Use appears, read the staff and timing details and wait for the active booking-creation lock to be released or expire.",

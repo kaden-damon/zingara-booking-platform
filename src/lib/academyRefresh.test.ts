@@ -70,7 +70,7 @@ test("new live workflows use distinct lesson IDs without replacing existing less
 
 test("Academy covers current staff booking creation and locking behavior", () => {
   assert.match(admin, /use \+ on an Admin show card/i);
-  assert.match(admin, /Standard Booking or Corporate Booking/);
+  assert.match(admin, /Standard or Corporate/);
   assert.match(admin, /Show Currently In Use/);
   assert.match(admin, /public customers can continue booking normally/);
   assert.match(admin, /Use Cancel to leave the flow and release your lock immediately/);

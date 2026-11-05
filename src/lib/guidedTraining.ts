@@ -56,7 +56,7 @@ export const guidedTrainingModules: GuidedTrainingModule[] = [
     version: 4,
     steps: [
       { key: "create", controlId: "training-calendar-create", instruction: "Click + on the highlighted performance." },
-      { key: "type", controlId: "training-booking-standard", instruction: "Choose Standard Booking." },
+      { key: "type", controlId: "training-booking-standard", instruction: "Choose Standard." },
       { key: "guests", controlId: "training-booking-guests", instruction: "Set 4 guests, then continue.", validValues: ["4"] },
       { key: "zone", controlId: "training-booking-zone-golden-circle", instruction: "Choose Golden Circle." },
       { key: "zone-confirm", controlId: "training-booking-zone-confirm", instruction: "Confirm the seating section." },

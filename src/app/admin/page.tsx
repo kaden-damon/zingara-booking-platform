@@ -238,10 +238,7 @@ import {
   getAssignmentSafetyCopy,
   getTableFitLabel,
 } from "../../lib/floorPresentation";
-import {
-  getAdminHomeCopy,
-  getAdminNavigation,
-} from "../../lib/adminNavigation";
+import { getAdminNavigation } from "../../lib/adminNavigation";
 import { staffTourOpenEvent } from "../../lib/staffOnboarding";
 import {
   uploadAndFinalizeStaffIssueMedia,
@@ -2761,6 +2758,36 @@ function getInternalShowStatusClass(show: DemoShow) {
   }
 
   return "border-emerald-300/30 bg-emerald-950/30 text-emerald-200";
+}
+
+function getShowCalendarStatusPresentation(show: DemoShow) {
+  if (show.fullShowBuyout || show.operationalStatus === "blackout") {
+    return {
+      className: "border-sky-300/40 bg-sky-950/30 text-sky-200",
+      label: "Buyout",
+    };
+  }
+
+  const status = show.operationalStatus ?? "active";
+
+  if (status === "active") {
+    return {
+      className: "border-[#D8C36A]/45 bg-[#1A1208] text-[#F2D66C]",
+      label: "Open",
+    };
+  }
+
+  if (status === "sold-out") {
+    return {
+      className: "border-red-300/40 bg-red-950/30 text-red-200",
+      label: "Sold out",
+    };
+  }
+
+  return {
+    className: "border-zinc-500/35 bg-zinc-900/65 text-zinc-300",
+    label: showOperationalStatusLabels[status],
+  };
 }
 
 type PerformanceCalendarSelectorProps = {
@@ -8739,7 +8766,6 @@ export default function AdminDashboardPage({
   const adminMoreIsActive = adminNavigation.more.some(
     (item) => item.id === activeAdminTab,
   );
-  const homeIntroduction = getAdminHomeCopy(currentStaff?.role ?? "concierge");
 
   function selectAdminSection(tabId: AdminTab) {
     setActiveAdminTab(tabId);
@@ -32640,15 +32666,9 @@ export default function AdminDashboardPage({
           <section className="mb-10 flex flex-col">
             <div className="mb-5 flex flex-col gap-4 lg:mb-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
-                  Home
-                </p>
                 <h2 className="text-3xl font-bold sm:text-4xl">
                   Today at Zingara
                 </h2>
-                <p className="mt-2 text-sm text-zinc-400 sm:text-base">
-                  {homeIntroduction}
-                </p>
               </div>
 
               <PerformanceCalendarSelector
@@ -33085,7 +33105,7 @@ export default function AdminDashboardPage({
             </div>
             </AdminCollapsibleSection>
 
-            <section className="order-3 rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-5 shadow-2xl shadow-black/25">
+            <section className="order-3 flex flex-col rounded-[2rem] border border-[#8D7A2F]/25 bg-zinc-950/80 p-5 shadow-2xl shadow-black/25">
               <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
@@ -33102,8 +33122,8 @@ export default function AdminDashboardPage({
               </div>
 
               {canManageShows && (
-                <div className="space-y-4">
-                  <details className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                <div className="contents">
+                  <details className="order-last mt-5 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-black/35 p-4">
                     <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
                       Create Show Schedule
                     </summary>
@@ -33538,11 +33558,11 @@ export default function AdminDashboardPage({
                     No shows scheduled for this month.
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-7">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-7">
                     {bookingCalendarWeekdays.map((weekday, index) => (
                       <div
                         key={`show-calendar-weekday-${weekday}-${index}`}
-                        className="hidden rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-center text-[0.65rem] font-bold uppercase tracking-[0.16em] text-zinc-300 md:block"
+                        className="hidden rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-center text-[0.65rem] font-bold uppercase tracking-[0.16em] text-zinc-300 2xl:block"
                       >
                         {weekday}
                       </div>
@@ -33552,7 +33572,7 @@ export default function AdminDashboardPage({
                         return (
                           <div
                             key={`show-calendar-empty-${index}`}
-                            className="hidden min-h-32 md:block"
+                            className="hidden min-h-32 2xl:block"
                           />
                         );
                       }
@@ -33568,7 +33588,7 @@ export default function AdminDashboardPage({
                             <span className="text-lg font-bold text-white">
                               {day}
                             </span>
-                            <span className="text-[0.65rem] uppercase tracking-[0.12em] text-zinc-500 md:hidden">
+                            <span className="text-[0.65rem] uppercase tracking-[0.12em] text-zinc-500 2xl:hidden">
                               {
                                 bookingCalendarWeekdays[
                                   new Date(
@@ -33587,6 +33607,8 @@ export default function AdminDashboardPage({
                                 ? getShowCalendarLocationDisplay(location)
                                 : null;
                               const financials = getShowFinancialSummary(show);
+                              const statusPresentation =
+                                getShowCalendarStatusPresentation(show);
 
                               return (
                                 <div
@@ -33612,10 +33634,8 @@ export default function AdminDashboardPage({
                                     setSelectedShowId(show.id);
                                     openShowEditor(show);
                                   }}
-                                  className={`group relative cursor-pointer rounded-xl border p-3 outline-none transition focus:ring-2 focus:ring-[#D8C36A]/70 ${
-                                    isDisabled
-                                      ? "border-zinc-700 bg-zinc-950/65 opacity-75"
-                                      : "border-emerald-300/35 bg-emerald-950/10"
+                                  className={`group relative cursor-pointer rounded-xl border p-3 outline-none transition focus:ring-2 focus:ring-[#D8C36A]/70 ${statusPresentation.className} ${
+                                    isDisabled ? "opacity-75" : ""
                                   }`}
                                 >
                                   <div className="block w-full pr-10 text-left">
@@ -33627,13 +33647,9 @@ export default function AdminDashboardPage({
                                         {getSouthAfricaShowTime(show)}
                                       </span>
                                       <span
-                                        className={`rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-[0.1em] ${
-                                          isDisabled
-                                            ? "border-white/10 text-zinc-300"
-                                            : "border-emerald-300/40 bg-emerald-950/30 text-emerald-200"
-                                        }`}
+                                        className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-[0.08em] ${statusPresentation.className}`}
                                       >
-                                        {showOperationalStatusLabels[status]}
+                                        {statusPresentation.label}
                                       </span>
                                     </div>
                                   </div>
@@ -33734,14 +33750,16 @@ export default function AdminDashboardPage({
                                     </button>
                                   )}
                                   {show.fullShowBuyout ? (
-                                    <div className="mt-3 mr-11 rounded-xl border border-[#D8C36A]/35 bg-[#1A1208] p-3">
-                                      <p className="text-[0.62rem] font-bold uppercase tracking-[0.12em] text-[#F2D66C]">
-                                        Full Show Buyout
-                                      </p>
-                                      <p className="mt-1 truncate text-xs font-semibold text-white">
-                                        {show.fullShowBuyout.companyName}
-                                      </p>
-                                      <p className="mt-1 text-[0.68rem] leading-5 text-zinc-300">
+                                    <div className="mt-3 mr-11 rounded-lg border border-sky-300/30 bg-sky-950/20 p-2.5">
+                                      <div className="flex min-w-0 items-center gap-2">
+                                        <p className="shrink-0 text-[0.62rem] font-bold uppercase tracking-[0.1em] text-sky-200">
+                                          Buyout
+                                        </p>
+                                        <p className="truncate text-xs font-semibold text-white">
+                                          {show.fullShowBuyout.companyName}
+                                        </p>
+                                      </div>
+                                      <p className="mt-1 truncate text-[0.68rem] text-zinc-300" title={`${show.fullShowBuyout.packageName} · ${show.fullShowBuyout.currentGuestCount} guests · ${corporateBuyoutStateLabels[show.fullShowBuyout.state]}`}>
                                         {show.fullShowBuyout.packageName} · {show.fullShowBuyout.currentGuestCount} guests · {corporateBuyoutStateLabels[show.fullShowBuyout.state]}
                                       </p>
                                       {show.fullShowBuyout.unallocatedGuestCount > 0 && (
@@ -33771,7 +33789,7 @@ export default function AdminDashboardPage({
                                       )}
                                     </div>
                                   ) : (
-                                  <div className="mt-3 flex flex-wrap gap-1.5 pr-11">
+                                  <div className="mt-3 grid grid-cols-2 gap-1.5 pr-11">
                                     {getShowOccupancyChips(show).map((chip) => {
                                       const occupancyUnavailable = Boolean(
                                         showCalendarOccupancyError,
@@ -33801,7 +33819,7 @@ export default function AdminDashboardPage({
                                       return (
                                         <span
                                           key={`${show.id}-${chip.zoneId}`}
-                                          className={`rounded-full border px-2 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.08em] ${chipTone}`}
+                                          className={`whitespace-nowrap rounded-md border px-1.5 py-1 text-center text-[0.58rem] font-semibold uppercase ${chipTone}`}
                                           title={
                                             isShowCalendarOccupancyLoading
                                               ? `${chip.label} occupancy loading`
@@ -33891,7 +33909,7 @@ export default function AdminDashboardPage({
                     onClick={() => openCalendarBookingCheckout("standard")}
                     className="min-h-12 rounded-full bg-[#D8C36A] px-5 py-3 text-sm font-bold uppercase text-black transition hover:bg-[#F2D66C]"
                   >
-                    Standard Booking
+                    Standard
                   </button>
                   <button
                     type="button"
@@ -33987,7 +34005,7 @@ export default function AdminDashboardPage({
                   onClick={closeShowEditor}
                   className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
                 >
-                  Back to Calendar
+                  Back
                 </button>
               </div>
 
@@ -35376,7 +35394,7 @@ export default function AdminDashboardPage({
               {(activeCommunicationsTab === "guest-emails" ||
                 activeCommunicationsTab === "broadcasts" ||
                 activeCommunicationsTab === "history") && (
-              <div className="w-full max-w-sm">
+              <div className="w-full max-w-xs">
                 <label className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                   Selected Performance
                   <span className="mt-2 block">

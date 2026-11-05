@@ -397,10 +397,10 @@ const bookingCalendarStatusLabels: Record<
   string
 > = {
   active: "Available",
-  blackout: "Blackout",
+  blackout: "Buyout",
   "sold-out": "Sold Out",
-  "special-event": "Special Event",
-  "full-show-buyout": "Full Show Buyout",
+  "special-event": "Unavailable",
+  "full-show-buyout": "Buyout",
   unavailable: "Unavailable",
   "venue-closure": "Venue Closed",
 };
@@ -415,7 +415,7 @@ const bookingCalendarStatusClasses: Record<
   "sold-out":
     "border-red-300/35 bg-red-950/25 text-red-200",
   "special-event":
-    "border-purple-300/45 bg-purple-950/30 text-purple-100 hover:scale-[1.03] hover:border-purple-200",
+    "cursor-not-allowed border-white/10 bg-zinc-900/60 text-zinc-500",
   "full-show-buyout":
     "border-sky-300/35 bg-sky-950/25 text-sky-200",
   unavailable:
@@ -4600,7 +4600,7 @@ export default function BookingPage({
                             : showStatus === "full-show-buyout"
                               ? "border-sky-300/35 text-sky-200"
                             : showStatus === "special-event"
-                              ? "border-purple-300/40 text-purple-100"
+                              ? "border-white/10 text-zinc-500"
                               : showStatus === "sold-out"
                                 ? "border-red-300/35 text-red-200"
                                 : showStatus === "blackout"
