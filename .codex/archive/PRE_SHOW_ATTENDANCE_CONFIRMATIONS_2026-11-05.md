@@ -62,3 +62,51 @@ DATE: 5 NOVEMBER 2026
   monitored separately. Their retained records do not include a provider error
   or accepted-message identifier, so no cause is asserted here and no resend
   was attempted.
+
+## End-To-End Email Integration Follow-Up
+
+- Root cause: scheduled delivery already added secure attendance actions using
+  the shared workflow renderer, but the Admin preview did not supply attendance
+  links. The same Guest Emails page also exposed older generic show-reminder
+  and post-show-review templates that are not used by the scheduler.
+- The Admin preview now passes isolated preview links into the same renderer as
+  scheduled delivery. Saved `workflow_configurations` remain the only source
+  for the live pre-show subject/body, and Admin edits continue to flow into
+  outgoing reminders without removing the attendance actions.
+- The obsolete scheduled entries were removed only from the generic template
+  selector. No saved template, schedule, eligibility rule or historical email
+  was changed.
+- The one-time test path is restricted to Super Admin, fixed to
+  `kaden@kaden.co.za`, uses the live branded renderer and Microsoft 365 SMTP,
+  logs to Communications and is protected by a narrow unique index.
+- A synthetic attendance token returns representative booking context and
+  accepts the confirmation UI flow without calling the attendance database
+  function or sending decline notifications.
+
+## Follow-Up Verification And Release
+
+- Focused attendance checks: 6/6 passed. TypeScript, changed-server-file
+  ESLint, whitespace checks and the Next.js 16 Webpack Production build passed.
+- Authenticated Production preview matched the delivered email, including
+  saved copy, branding, legal footer, `YES - I'LL BE THERE` and
+  `NO - I CAN'T MAKE IT`.
+- Exactly one email was accepted and logged with subject
+  `TEST — Zingara Pre-Show Reminder` at 5 November 2026 21:25:20 SAST. Inbox
+  receipt and rendering were visually confirmed in Kaden's Outlook.
+- The isolated Confirmed link completed successfully. Production verification
+  found one sent test Communication and zero persisted attendance links for
+  the preview token; no real attendance or booking state changed.
+- Two earlier attempts failed before SMTP because test claims supplied values
+  to legacy `communication_batches` and `users` foreign keys. Both produced
+  zero rows and zero email. The final implementation removed those invalid
+  references while retaining endpoint authentication and database idempotency.
+- Application commits: `642dd2f4`, `36138e4a`, `4d22837a`, `744d9e3c`.
+- Migrations: `20261105214500_pre_show_email_template_integration.sql` and
+  `20261105221000_pre_show_email_test_claim_fix.sql`.
+- Final Production deployment: `dpl_DRTR4jiiSbNVERjrC9FAwcQbXYgv`, Ready and
+  aliased at 21:23:40 SAST.
+- Business-data delta: one sent QA Communications record. No booking, customer
+  attendance, seating, payment, ticket or financial record changed.
+- Rollback: revert the four follow-up commits and redeploy. The one-time test
+  indexes may remain safely or be removed in a controlled migration; retain the
+  sent QA Communication as release evidence.

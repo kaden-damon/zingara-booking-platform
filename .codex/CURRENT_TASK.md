@@ -30,6 +30,18 @@ DATE: 5 NOVEMBER 2026
   Office Staff roles. A response never changes arrival, booking status,
   seating, tickets, payments, refunds or capacity.
 - Every changed response creates immutable booking audit evidence.
+- The authoritative Guest Emails editor, saved workflow configuration,
+  Production preview and scheduled sender now share the same renderer. The
+  Preview Email view includes the `YES - I'LL BE THERE` and
+  `NO - I CAN'T MAKE IT` actions that customers receive.
+- Legacy Reminder Before Show and Post-Show Review entries are no longer
+  offered in the generic template selector. Their stored records remain
+  unchanged; scheduled workflow content continues to be edited only in
+  Automated Guest Journeys.
+- A Super Admin-only, one-time Production test action renders the saved
+  pre-show workflow through the live Microsoft 365 delivery path. Its
+  attendance links use a synthetic preview token that never writes booking or
+  attendance state.
 
 ## Verification And Release
 
@@ -43,13 +55,37 @@ DATE: 5 NOVEMBER 2026
 - Live Production returned the new attendance page and rejected an invalid
   token with HTTP 404. Browser verification confirmed the branded unavailable
   state; no real customer response or notification was created.
+- Follow-up verification passed six focused attendance checks, TypeScript,
+  changed-server-file ESLint, whitespace checks and a Next.js 16 Webpack
+  Production build. The Admin performance script could not read the Webpack
+  client-reference manifest format; no performance claim is based on that
+  script.
+- Authenticated Production preview verification confirmed the saved subject,
+  body, branding, legal footer and both attendance actions. The approved test
+  email `TEST — Zingara Pre-Show Reminder` was provider-accepted at
+  21:25:20 SAST and visually confirmed in `kaden@kaden.co.za` Outlook.
+- The isolated Confirmed response completed successfully and displayed that
+  the booking remains unchanged. Production contains exactly one sent test
+  Communication and zero persisted links for the preview token.
+- Two initial test-send attempts were rejected before SMTP by legacy foreign
+  keys on `communications.batch_id` and `communications.created_by`. They
+  created no Communications rows and sent no emails. The final claim uses no
+  campaign batch or legacy user attribution and remains protected by a narrow
+  unique index.
 - Application commit: `510a003f0533c9bf0161ce0682e9b6a61cc2b9b6`.
+- Follow-up commits: `642dd2f4`, `36138e4a`, `4d22837a`, `744d9e3c`.
 - Migration: `20261105193000_pre_show_attendance_confirmations.sql`.
+- Follow-up migrations: `20261105214500_pre_show_email_template_integration.sql`
+  and `20261105221000_pre_show_email_test_claim_fix.sql`.
 - Production deployment: `dpl_Gvd6aAxqbKwfwjdmbuSGkTTrjQd9`, Ready and
   aliased to `book.zingara.co.za` at 20:56:46 SAST.
+- Final follow-up deployment: `dpl_DRTR4jiiSbNVERjrC9FAwcQbXYgv`, Ready and
+  aliased to `book.zingara.co.za` at 21:23:40 SAST.
 - Business-data delta: zero historical or customer records changed. The schema,
   response function and application were added; the rollback-only QA state was
   not persisted.
+- Follow-up business-data delta: one sent QA Communications record only. No
+  booking, attendance, seating, payment, ticket or financial record changed.
 - Rollback: revert `510a003f`, redeploy, and stop generating new attendance
   links. The additive columns/table may remain safely in place; existing
   responses can be retained as audit evidence.
