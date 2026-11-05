@@ -230,6 +230,14 @@ DATE: 5 NOVEMBER 2026
   the route, indexed attendance response and extended the bounded booking-list
   RPC. Migration `20261106003000_attendance_box_office_routing_correction.sql`
   removed stale management recipients from the existing Production route.
+- The 6 November follow-up adds independent `ATTENDING (YES)` and
+  `NOT ATTENDING (NO)` email switches beneath the existing master. Both
+  default to ON and share the established TO/CC route. Attendance recording
+  remains authoritative before asynchronous notification work; unchanged
+  retries do not send again. A disabled email does not suppress the existing
+  decline in-app/device alert.
+- The two Admin switch surfaces now share one accessible control: ON uses a
+  clearly visible green track and OFF uses a neutral grey track on the dark UI.
 
 ## Verification & Release
 
@@ -243,13 +251,30 @@ DATE: 5 NOVEMBER 2026
 - Application commits: `78041bc7` and corrective `2c71b111`.
 - Production deployments: `dpl_HyGpP4dQZdqappism7vTxuRMKhkF` and corrective
   `dpl_96DhfWokipKao2fzeypK546GWMgL`, both READY.
+- Follow-up tests passed 20/20; TypeScript, targeted lint, the Next.js 16
+  Production build and whitespace checks passed. The Admin performance budget
+  remained inside limits at raw 1,289,928 bytes, gzip 312,434 bytes and
+  largest gzip chunk 168,474 bytes.
+- Authenticated desktop and 390 x 844 Production verification confirmed the
+  master, YES and NO switches are ON; green ON and grey OFF states are clear;
+  recipient editing remains available; and the mobile page has no horizontal
+  overflow. Production persisted Lisa Rodderick, Michael Davis, Rasmus
+  Bjerregaard and Sharon Ricketts as TO, with no CC.
+- Follow-up Production commit: `b384b6596248dec6c0e5113671d69bd27b47cfc0`
+  (local equivalent `20bc2265`). Deployment
+  `84fTGcxdNezPAUq3UcUKPp11jBdN` completed at 6 November 2026, 01:43:05 SAST.
+  Migration `20261106014500_attendance_email_preferences.sql` applied
+  successfully. No attendance delivery was created during release QA.
 - Business-data delta: one notification route was added/corrected, one booking
   attendance index and the existing paginated booking RPC were updated. No
   booking, attendance response, arrival, payment, seating, ticket or customer
-  communication record changed. No real notification was sent during QA.
-- Rollback: revert `2c71b111` and `78041bc7`, redeploy, and restore the prior
-  RPC only if the attendance filter is intentionally removed. Do not revert or
-  delete guest attendance history.
+  communication record changed. The follow-up added one JSON settings column
+  and stored two `true` flags on the existing attendance route only. No real
+  notification was sent during QA.
+- Rollback: revert `b384b659`, `2c71b111` and `78041bc7` as applicable and
+  redeploy. Keep the additive settings column unless a separately reviewed
+  schema rollback is required; restore the prior RPC only if attendance
+  filtering is intentionally removed. Do not delete guest attendance history.
 - Full record:
   `.codex/archive/ATTENDANCE_MANAGEMENT_NOTIFICATION_INTEGRITY_2026-11-05.md`.
 
