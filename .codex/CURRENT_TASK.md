@@ -1,3 +1,64 @@
+# Attendance Management & Notification Integrity
+
+STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 5 NOVEMBER 2026
+
+## Findings
+
+- Guest YES/NO persistence was already atomic and idempotent. YES recorded the
+  response without a notification; NO previously used broad role routing for
+  Super Admin, Venue Manager and Box Office roles through in-app/device push.
+- No Attendance Confirmations Staff Emails workflow or email delivery existed.
+  Bookings and Booking Details also lacked attendance controls, while Floor &
+  Arrivals displayed statuses without an attendance filter.
+- The first release preserved a stale pre-existing attendance route because its
+  migration used `on conflict do nothing`. Production verification found Fatima
+  and Kaden still stored on that route. The corrective migration replaced the
+  route authoritatively with the four approved Box Office recipients and no CC.
+
+## Delivered
+
+- Declines now use one asynchronous, versioned and idempotent workflow across
+  email, targeted in-app notification and targeted device push. Confirmations
+  remain record-only. Notification delivery never controls response recording.
+- Communications -> Staff Emails now exposes Attendance Confirmations with the
+  existing ON/OFF, Edit, TO/CC and Save Recipients controls. Production is ON
+  for Lisa Rodderick, Michael Davis, Rasmus Bjerregaard and Sharon Ricketts;
+  CC is empty. Management and venue roles have no automatic fallback.
+- Bookings now filters All, Confirmed, Declined and Awaiting Response through
+  the existing paginated query/export path. Booking Details shows a compact
+  attendance badge. Arrivals & Check-in has the same independent filter while
+  arrival/check-in remains a separate state.
+- Migration `20261106001500_attendance_management_integration.sql` registered
+  the route, indexed attendance response and extended the bounded booking-list
+  RPC. Migration `20261106003000_attendance_box_office_routing_correction.sql`
+  removed stale management recipients from the existing Production route.
+
+## Verification & Release
+
+- Focused tests: 15/15 passed. TypeScript, Production build and whitespace
+  checks passed.
+- Admin performance budget passed: raw 1,290,287 / 1,320,000 bytes; gzip
+  312,441 / 320,000 bytes; largest gzip chunk 168,485 / 170,000 bytes.
+- Authenticated Production verification confirmed the enabled Box Office-only
+  Staff Emails route, attendance taxonomy in Bookings, the Booking Details
+  `Attendance: Awaiting Response` badge and the Arrivals attendance filter.
+- Application commits: `78041bc7` and corrective `2c71b111`.
+- Production deployments: `dpl_HyGpP4dQZdqappism7vTxuRMKhkF` and corrective
+  `dpl_96DhfWokipKao2fzeypK546GWMgL`, both READY.
+- Business-data delta: one notification route was added/corrected, one booking
+  attendance index and the existing paginated booking RPC were updated. No
+  booking, attendance response, arrival, payment, seating, ticket or customer
+  communication record changed. No real notification was sent during QA.
+- Rollback: revert `2c71b111` and `78041bc7`, redeploy, and restore the prior
+  RPC only if the attendance filter is intentionally removed. Do not revert or
+  delete guest attendance history.
+- Full record:
+  `.codex/archive/ATTENDANCE_MANAGEMENT_NOTIFICATION_INTEGRITY_2026-11-05.md`.
+
+---
+
 # Gratuity Transition & Financial Integrity
 
 STATUS: COMPLETE - DEPLOYED AND ACTIVATED IN PRODUCTION
