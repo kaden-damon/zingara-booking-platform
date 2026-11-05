@@ -42,6 +42,7 @@ test("public show lifecycle permits only active sales", () => {
 test("staff booking lifecycle permits operational sales statuses only", () => {
   for (const status of [
     "active",
+    "blackout",
     "inactive",
     "sold_out",
     "sold-out",
@@ -50,7 +51,7 @@ test("staff booking lifecycle permits operational sales statuses only", () => {
   ]) {
     assert.equal(isShowStaffBookable(status), true);
   }
-  for (const status of ["archived", "blackout", "venue_closure"]) {
+  for (const status of ["archived", "venue_closure"]) {
     assert.equal(isShowStaffBookable(status), false);
   }
 });
@@ -98,11 +99,11 @@ test("authenticated staff and Corporate paths retain special-event booking acces
   );
   assert.match(
     corporateModal,
-    /\["active", "inactive", "sold-out", "special-event"\]/,
+    /\["active", "blackout", "inactive", "sold-out", "special-event"\]/,
   );
   assert.match(
     corporateRoute,
-    /\["active", "inactive", "special_event", "sold_out"\]/,
+    /\["active", "blackout", "inactive", "special_event", "sold_out"\]/,
   );
   assert.match(adminPage, /!isShowStaffBookable\(status\)/);
 });

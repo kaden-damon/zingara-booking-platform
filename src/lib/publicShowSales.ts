@@ -27,6 +27,7 @@ export function isShowStaffBookable(
 ) {
   return (
     status === "active" ||
+    status === "blackout" ||
     status === "inactive" ||
     status === "sold_out" ||
     status === "sold-out" ||

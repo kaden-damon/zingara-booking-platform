@@ -11872,7 +11872,7 @@ export default function AdminDashboardPage({
       (show) =>
         show.id === review.showId &&
         !show.archivedAt &&
-        ["active", "inactive", "sold-out", "special-event"].includes(
+        ["active", "blackout", "inactive", "sold-out", "special-event"].includes(
           show.operationalStatus ?? "active",
         ) &&
         normalizeShowLocation(show.location ?? show.venueName) === review.venue,

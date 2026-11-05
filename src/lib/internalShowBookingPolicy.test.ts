@@ -7,18 +7,19 @@ import {
   normalizeInternalShowApprovalReason,
 } from "./internalShowBookingPolicy.ts";
 
-test("open, sold out and ordinary closed shows allow internal booking", () => {
+test("open, sold out, blackout and ordinary closed shows allow internal booking", () => {
   assert.equal(getInternalShowBookingDecision({ status: "active" }).allowed, true);
   assert.equal(getInternalShowBookingDecision({ status: "sold_out" }).allowed, true);
   assert.equal(getInternalShowBookingDecision({ status: "inactive" }).allowed, true);
+  assert.equal(getInternalShowBookingDecision({ status: "blackout" }).allowed, true);
   assert.match(
     getInternalShowBookingDecision({ status: "sold-out" }).label,
     /INTERNAL BOOKINGS ALLOWED/,
   );
 });
 
-test("blackout, venue closure, archived and unknown statuses fail closed", () => {
-  for (const status of ["blackout", "venue_closure", "archived", "cancelled"]) {
+test("venue closure, archived and unknown statuses fail closed", () => {
+  for (const status of ["venue_closure", "archived", "cancelled"]) {
     assert.equal(getInternalShowBookingDecision({ status }).allowed, false);
   }
 });

@@ -352,7 +352,7 @@ export async function POST(request: Request) {
   const { data: showRows, error: showsError } = await auth.serviceClient
     .from("shows")
     .select("id,notes,status")
-    .in("status", ["active", "inactive", "special_event", "sold_out"]);
+    .in("status", ["active", "blackout", "inactive", "special_event", "sold_out"]);
   const show = (showRows ?? []).find(
     (row) =>
       row.id === booking.showId || getLegacyShowId(row.notes) === booking.showId,

@@ -18,6 +18,8 @@ const ERROR_RESPONSES: Array<{
   { code: "CORPORATE_ZONE_ENTITLEMENTS_INVALID", message: "The Corporate seating allocation does not match the guest count. Review the seating sections and try again.", status: 409 },
   { code: "CORPORATE_ZONE_ALLOCATION_REQUIRED", message: "This booking uses more than one seating section. Update its Corporate seating allocation before changing the guest count.", status: 409 },
   { code: "BOOKING_TABLE_STATE_INVALID", message: "Check this booking's table before changing the guest count.", status: 409 },
+  { code: "TABLE_OCCUPANCY_OUT_OF_RANGE", message: "The current table assignment does not fit the revised guest count. The booking must be moved to Needs a Table before retrying.", status: 409 },
+  { code: "TABLE_ASSIGNMENT_INTEGRITY_VIOLATION", message: "The current table assignment needs Box Office review before the guest count can be changed.", status: 409 },
   { code: "SHOW_NOT_FOUND", message: "The booking's performance could not be found.", status: 409 },
   { code: "SHOW_NOT_ACTIVE", message: "Guests cannot be added because this performance is not currently active.", status: 409 },
   { code: "TWO_SEATER_BOOKING_LIMIT_REACHED", message: "This performance has reached its limit for two-guest table requests. Keep the current guest count or choose another available performance.", status: 409 },

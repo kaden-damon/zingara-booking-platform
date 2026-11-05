@@ -1,3 +1,56 @@
+# P0 Internal Booking Amendment Failure
+
+STATUS: RELEASE READY - PRODUCTION DEPLOYMENT IN PROGRESS
+
+DATE: 5 NOVEMBER 2026
+
+## Verified Incident
+
+- `ZNG-9VHFFH` is a Cape Town Corporate fixed-price booking for 5 November
+  2026. It remains at 84 guests, fully paid at R154,638 with R0 outstanding.
+- The first failed amendment was rejected by the Corporate reconciliation RPC's
+  public-sales status guard (`SHOW_NOT_ACTIVE`).
+- After the show was reopened, the amendment reached the database but rolled
+  back with `TABLE_OCCUPANCY_OUT_OF_RANGE|30|84|golden-circle`.
+- The proposed 94 guests remain within the authoritative Golden Circle
+  operational capacity: 139 guests after amendment against 144 seats.
+
+## Correction
+
+- Authorised internal creation, conversion, transfer and guest amendments now
+  remain independent of Blackout, Inactive and Sold Out public-sales states.
+  Venue Closure and Archived performances remain protected.
+- Proposed single-zone guest count now drives table-fit validation. If the
+  existing assignment cannot fit, the transaction atomically releases the
+  claims and marks the booking as needing a table; it never auto-splits or
+  auto-merges the booking.
+- Corporate fixed-price totals and payments remain unchanged, and table
+  integrity failures now return actionable staff messages.
+
+## Verification
+
+- Focused tests: 22/22 passed. Changed-file ESLint, TypeScript and the Next.js
+  Webpack Production build passed.
+- A rollback-only Production transaction proved the exact 84-to-94 amendment
+  succeeds with R0 additional charge, preserves R154,638 paid / R0 outstanding,
+  and returns `floor_assignment_required=true`.
+- The transaction was rolled back. Production remains at 84 guests with all 15
+  existing table claims (84 seats) intact and no financial change.
+
+## Release
+
+- Migration: `20261105171000_p0_internal_booking_amendment_integrity.sql`.
+- Application commit, migration result, deployment and authenticated Production
+  verification will be recorded after release.
+- Rollback: revert the application commit and restore the three prior function
+  definitions from the migration baseline.
+
+## Archive
+
+- `.codex/archive/P0_INTERNAL_BOOKING_AMENDMENT_FAILURE_COMPLETE.md`
+
+---
+
 # Public Calendar Status & Colour Cleanup
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION

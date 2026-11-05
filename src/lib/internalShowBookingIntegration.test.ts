@@ -25,13 +25,13 @@ test("calendar creation, Corporate conversion and transfers share approval polic
 
   assert.match(adminRoute, /booking\.restricted-show-approved/);
   assert.match(adminRoute, /booking\.restricted-show-transfer-approved/);
-  assert.match(conversionRoute, /\["active", "inactive", "special_event", "sold_out"\]/);
+  assert.match(conversionRoute, /\["active", "blackout", "inactive", "special_event", "sold_out"\]/);
   assert.match(conversionRoute, /restrictedShowApprovalReason/);
   assert.match(bookingPage, /Management approval reason/);
   assert.match(adminPage, /CLOSED — INTERNAL BOOKINGS ALLOWED|internalShowDecision|selectedTransferDecision/);
 });
 
-test("guest reductions remain possible and increases fail closed on protected statuses", async () => {
+test("guest amendments use the authorised internal show policy", async () => {
   const route = await source("../app/api/admin/bookings/reconciliation/route.ts");
 
   assert.match(route, /Number\(body\.guestCount\) > Number\(bookingContext\.guest_count\)/);

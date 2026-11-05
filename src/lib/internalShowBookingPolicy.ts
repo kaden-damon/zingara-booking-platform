@@ -28,9 +28,9 @@ export function getInternalShowBookingDecision(input: {
 
   if (status === "blackout") {
     return {
-      allowed: false,
-      label: "BOOKING BLACKOUT — INTERNAL BOOKINGS BLOCKED",
-      reason: "This performance has an active booking blackout.",
+      allowed: true,
+      label: "BOOKING BLACKOUT — INTERNAL BOOKINGS ALLOWED",
+      reason: "Public sales remain unavailable. Internal capacity is checked separately.",
       requiresManagementApproval: false,
     };
   }
