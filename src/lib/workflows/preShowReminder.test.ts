@@ -124,6 +124,7 @@ test("pre-show reminder uses the refined mobile-safe attendance and Cape Town la
 
   assert.match(email.html, />YES - ATTENDING</);
   assert.match(email.html, />NO - NOT ATTENDING</);
+  assert.match(email.html, /Dear Kaden,/);
   assert.doesNotMatch(email.html, /I&#39;LL BE THERE|CAN&#39;T MAKE IT|YES —|NO —/);
   assert.match(email.html, /Welcome drinks and canapés on arrival\./);
   assert.match(email.html, /Three-course dinner\./);
@@ -136,13 +137,14 @@ test("pre-show reminder uses the refined mobile-safe attendance and Cape Town la
   assert.doesNotMatch(email.html, /outstanding ticket balance/);
   assert.match(email.html, /width="100%" valign="top"/);
 
+  const welcome = email.html.indexOf("Dear Kaden,");
   const intro = email.html.indexOf("Please confirm your attendance below");
   const actions = email.html.indexOf("YES - ATTENDING");
   const details = email.html.indexOf("YOUR BOOKING");
   const inclusions = email.html.indexOf("YOUR EXPERIENCE INCLUDES");
   const payment = email.html.indexOf("PAYMENT &amp; GRATUITY");
   const age = email.html.indexOf("AGE RESTRICTION");
-  assert.ok(intro > 0 && actions > intro && details > actions);
+  assert.ok(welcome > 0 && intro > welcome && actions > intro && details > actions);
   assert.ok(inclusions > details && payment > inclusions && age > payment);
 });
 

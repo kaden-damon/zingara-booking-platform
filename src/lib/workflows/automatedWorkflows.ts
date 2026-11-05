@@ -706,6 +706,7 @@ export async function renderConfiguredWorkflowEmail(input: {
     includeAgePolicy: !isReview,
     includePrimaryCta: isReview,
     introHtml: !isReview ? content.html : undefined,
+    introMessage: !isReview ? content.message : undefined,
     message: !isReview && preShowDetails
       ? [content.message, attendanceMessage, preShowDetails.message].filter(Boolean).join("\n\n")
       : content.message,

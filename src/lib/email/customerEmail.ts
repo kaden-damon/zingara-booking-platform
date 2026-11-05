@@ -137,6 +137,7 @@ export async function createBrandedCustomerEmail(input: {
   includePrimaryCta?: boolean;
   includeSecurityNotice?: boolean;
   introHtml?: string | null;
+  introMessage?: string | null;
   message: string;
   preserveTableReferences?: boolean;
   stackActions?: boolean;
@@ -180,7 +181,9 @@ export async function createBrandedCustomerEmail(input: {
     : plainTextToContent(visibleMessage);
   const introContent = input.introHtml
     ? extractBodyContent(normalizeCustomerEmailLinks(input.introHtml))
-    : "";
+    : input.introMessage
+      ? plainTextToContent(input.introMessage)
+      : "";
   const brandAttachment = await loadBrandAttachment();
   const heading =
     input.heading?.trim() || input.subject?.trim() || "Zingara Guest Update";
