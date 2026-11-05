@@ -21,6 +21,10 @@ remain readable at every supported breakpoint.
 - Public-facing calendar labels and Admin cards used several operational terms
   for states that could be presented more simply. The underlying status values
   remain operationally distinct and could not safely be consolidated.
+- The shared native-select arrow sat too close to the right border and did not
+  reserve enough space between long option text and the chevron.
+- The workspace description and Edit Show title repeated unnecessary show
+  branding even though venue context was sufficient for management use.
 
 ## Changes
 
@@ -38,13 +42,22 @@ remain readable at every supported breakpoint.
   actions.
 - Standardised display labels and colours while retaining the existing
   operational status dropdown and server-side availability behaviour.
+- Presented both manual public booking blocks and confirmed full-show buyouts
+  as `Buyout` in user-facing surfaces while preserving their distinct stored
+  values, validation and availability restrictions.
+- Replaced the workspace description with `Manage show schedules and
+  availability.` and shortened Edit Show headings to `Zingara Cape Town` or
+  `Zingara Johannesburg`. Stored show titles, emails, tickets and booking
+  content are unchanged.
+- Updated the shared standard native-select style to position its chevron 16px
+  inside the right border and reserve 48px of right padding. Custom
+  `appearance-none` selects remain excluded to prevent duplicate arrows.
 
 ## Verification
 
-- Final focused tests: `showAvailabilityUiCleanup.test.ts` and
-  `phase468UiPolish.test.ts` passed 5/5.
-- The broader affected suite passed 40/40 before the final markup-only
-  placement correction.
+- Final focused suite passed 37/37 across show availability UI, staff
+  presentation, internal booking policy, corporate buyouts, UI polish and
+  Admin guide coverage.
 - `npx tsc --noEmit` passed after the final change.
 - `git diff --check` passed.
 - Authenticated Production desktop verification at 1440 x 900 confirmed only
@@ -53,6 +66,14 @@ remain readable at every supported breakpoint.
 - Authenticated Production mobile verification confirmed the one-column
   calendar, contained badges, collapsed `Create Show Schedule` below the final
   calendar row and every required control inside the expanded section.
+- Authenticated Production verification after the final deployment confirmed
+  the concise workspace copy, `Buyout` presentation, contained examples such
+  as `GC 138/120 · +18` and `MR 126/125 · +1`, and the shortened Cape Town Edit
+  Show heading. The Show Title field retained its original full value.
+- Desktop Production and a 390 x 844 mobile viewport verified that standard
+  dropdown chevrons sit 16px inside their borders with 48px reserved for text
+  separation. Focused states remained readable and custom dropdowns did not
+  gain duplicate arrows.
 - The default local Turbopack build could not run in the restricted local
   environment because its compiler binding attempted a local port; the webpack
   fallback encountered the repository's Node 24 WasmHash limitation. All three
@@ -67,6 +88,9 @@ remain readable at every supported breakpoint.
   Admin +137 bytes, public -41 bytes, net +96 bytes.
 - The final adjustment changed only element grouping and CSS ordering. No
   measurable runtime work was introduced.
+- An authenticated Production reload populated the calendar in approximately
+  563ms. The reported 7-10 second load was not reproduced on the final release,
+  so no speculative data-loading change was made.
 
 ## Production Release
 
@@ -75,9 +99,12 @@ remain readable at every supported breakpoint.
   readable.
 - `c1fe340923dfe124604f825f5f56681764924249` - place all show creation below
   the calendar.
-- Final deployment:
-  `https://zingara-booking-platform-kqqucfycf-kaden-damons-projects.vercel.app`
-  became READY at 6 November 2026, 00:05:24 SAST and is active on
+- `3a82280f` - contain capacity badges and introduce the shared dropdown arrow.
+- `32471f6f` - align user-facing buyout terminology without changing rules.
+- `c1e17561` - simplify workspace copy and Edit Show headings.
+- `77346684` - move standard dropdown chevrons 16px inside their borders.
+- Final Vercel deployment `B3ncSZMQRDiHnZQ9f339v5fPdsVN` completed at
+  6 November 2026, 00:22:19 SAST and is active on
   `https://book.zingara.co.za`.
 
 ## Data Integrity & Rollback
@@ -86,5 +113,6 @@ remain readable at every supported breakpoint.
 - No show, booking, status, blackout, buyout, availability, capacity, seating,
   payment, ticket or customer record was changed.
 - No migration was required.
-- Rollback by reverting `c1fe3409`, `bfd517e5` and `ce9c97db` in reverse order
-  and redeploying. No database action is required.
+- Rollback by reverting `77346684`, `c1e17561`, `32471f6f`, `3a82280f`,
+  `c1fe3409`, `bfd517e5` and `ce9c97db` in reverse order and redeploying. No
+  database action is required.

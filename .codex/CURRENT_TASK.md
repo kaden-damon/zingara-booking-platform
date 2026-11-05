@@ -18,27 +18,40 @@ DATE: 6 NOVEMBER 2026
 - Public/Admin presentation now uses concise Open, Sold Out, Buyout and Closed
   labels while preserving the distinct operational status values and their
   existing booking restrictions.
+- The workspace description is now `Manage show schedules and availability.`
+  Edit Show headings use only the venue name while the stored show title and
+  all booking-facing content remain unchanged.
+- Standard native selects now reserve 48px for the chevron and render it 16px
+  inside the right border. Existing custom `appearance-none` selects remain
+  excluded so they do not receive duplicate arrows.
 
 ## Verification & Release
 
-- Focused UI tests: 5/5 passed after the final placement correction; the
-  broader affected regression set passed 40/40. TypeScript and whitespace
+- Final focused regression suite: 37/37 passed. TypeScript and whitespace
   checks passed.
 - Authenticated Production inspection verified the collapsed schedule below
   the calendar, every Create Show control inside it, navigation/filter/search
-  above the calendar, and contained capacity badges at 1440 x 900 and the
-  authenticated mobile viewport.
+  above the calendar, contained normal and over-capacity badges, the concise
+  copy and venue-only Edit Show heading. The stored full show title remained
+  unchanged.
+- Desktop Production and a 390 x 844 mobile viewport verified that standard
+  dropdown chevrons are 16px inside their borders with sufficient text space.
+  Focused and open states retain native behaviour; custom dropdowns retain
+  their existing arrows.
 - No request, polling, query, calculation or booking-path work was added.
-  Measured source gzip delta for the functional cleanup was +96 bytes overall
-  (Admin +137 bytes; public -41 bytes), with no measurable runtime overhead.
-- Application commits: `ce9c97db`, `bfd517e5` and `c1fe3409`.
-- Final Production deployment:
-  `zingara-booking-platform-kqqucfycf-kaden-damons-projects.vercel.app`, READY
-  at 6 November 2026, 00:05:24 SAST and aliased to `book.zingara.co.za`.
+  An authenticated Production reload populated the calendar in approximately
+  563ms; the reported 7-10 second delay was not reproducible on the final
+  release.
+- Application commits: `ce9c97db`, `bfd517e5`, `c1fe3409`, `3a82280f`,
+  `32471f6f`, `c1e17561` and `77346684`.
+- Final Production deployment: Vercel deployment
+  `B3ncSZMQRDiHnZQ9f339v5fPdsVN`, completed at 6 November 2026, 00:22:19 SAST
+  and active on `book.zingara.co.za`.
 - Business-data delta: none. No show, booking, availability, capacity, buyout,
   seating, payment, ticket or customer record changed.
-- Rollback: revert `c1fe3409`, `bfd517e5` and `ce9c97db` in reverse order and
-  redeploy. No database rollback is required.
+- Rollback: revert `77346684`, `c1e17561`, `32471f6f`, `3a82280f`, `c1fe3409`,
+  `bfd517e5` and `ce9c97db` in reverse order and redeploy. No database rollback
+  is required.
 - Full record:
   `.codex/archive/SHOW_AVAILABILITY_MANAGEMENT_UI_UX_CLEANUP_2026-11-06.md`.
 
