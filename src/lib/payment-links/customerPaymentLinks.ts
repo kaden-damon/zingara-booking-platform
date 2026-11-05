@@ -24,7 +24,9 @@ export type PaymentLinkBookingRow = {
   notes: string | null;
   payment_status: string;
   payment_policy_snapshot?: "full-payment-only" | null;
+  guest_count: number;
   section: string | null;
+  service_fee: number | null;
   show_id: string;
   total_amount: number | null;
 };
@@ -197,7 +199,7 @@ export async function loadBookingForPaymentLink(
   const { data, error } = await supabase
     .from("bookings")
     .select(
-      "id,customer_id,show_id,booking_reference,booking_source,booking_status,payment_status,payment_policy_snapshot,total_amount,amount_paid,balance_outstanding,section,notes,archived_at",
+      "id,customer_id,show_id,booking_reference,booking_source,booking_status,payment_status,payment_policy_snapshot,total_amount,amount_paid,balance_outstanding,guest_count,section,service_fee,notes,archived_at",
     )
     .eq("booking_reference", bookingReference)
     .maybeSingle();

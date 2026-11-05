@@ -307,6 +307,7 @@ async function ensureCommunication(
     trigger === "reservation-confirmed" && ticket
       ? await createZingaraTicketEmail({
           booking,
+          introMessage: renderCommunicationTemplate(template.body, booking, show),
           qrPayload: ticket.qrPayload,
           show,
         })

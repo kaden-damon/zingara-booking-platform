@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import YourEvening from "../../components/YourEvening";
 import AgeRestrictionNotice from "../../components/AgeRestrictionNotice";
+import GuestBookingDisclosures from "../../components/GuestBookingDisclosures";
 import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
 
 type PaymentLinkLookupResponse = {
@@ -17,8 +18,10 @@ type PaymentLinkLookupResponse = {
     locationLabel: string;
     outstandingAmount: number;
     providerGrossAmount: number;
+    partySize: number | null;
     paymentStatus: string;
     section: string;
+    serviceFeeAmount: number;
     showDate: string | null;
     showLabel: string;
     showTime: string | null;
@@ -284,6 +287,13 @@ export default function PaymentLinkClient({ token }: { token: string }) {
                 </span>
               </p>
             </div>
+
+            <GuestBookingDisclosures
+              balanceOutstanding={booking.outstandingAmount}
+              className="mt-4"
+              serviceFeeAmount={booking.serviceFeeAmount}
+              venue={booking.locationLabel}
+            />
 
             <button
               type="button"

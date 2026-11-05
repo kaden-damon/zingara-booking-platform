@@ -24,12 +24,17 @@ import {
   createBrandedCustomerEmail,
   type EmailAttachment,
 } from "@/lib/email/customerEmail";
+import {
+  getGuestPaymentDisclosures,
+  getGuestVenueInclusions,
+} from "@/lib/guestDisclosures";
 
 const productionOrigin = "https://book.zingara.co.za";
 const qrContentId = "zingara-ticket-qr@book.zingara.co.za";
 
 export type TicketEmailSource = {
   booking: DemoBooking;
+  introMessage?: string;
   qrPayload: string;
   show?: DemoShow | null;
   ticket?: GuestTicket | null;
@@ -74,6 +79,7 @@ export function getAbsoluteTicketUrl(ticketReference: string) {
 
 export async function createZingaraTicketEmail({
   booking,
+  introMessage,
   qrPayload,
   show,
   ticket,
@@ -144,6 +150,15 @@ export async function createZingaraTicketEmail({
   const ticketPosition = ticket
     ? `Ticket ${ticket.index} of ${ticket.total}`
     : `${booking.partySize} guest${booking.partySize === 1 ? "" : "s"}`;
+  const cleanIntroMessage = introMessage?.trim() ?? "";
+  const inclusions = getGuestVenueInclusions(location);
+  const paymentNotices = getGuestPaymentDisclosures({
+    balanceOutstanding: booking.balanceDue,
+    serviceFeeAmount: booking.serviceFeeAmount,
+  });
+  const listItems = (items: string[]) => items
+    .map((item) => `<li style="margin:0 0 8px;">${escapeHtml(item)}</li>`)
+    .join("");
   const rows = [
     ["Guest", guestName],
     ["Booking reference", booking.reference],
@@ -170,6 +185,7 @@ export async function createZingaraTicketEmail({
     "ZINGARA · THE ROYAL COUNTESS",
     "YOUR TICKET",
     "",
+    ...(cleanIntroMessage ? [cleanIntroMessage, ""] : []),
     `Guest: ${guestName}`,
     `Booking reference: ${booking.reference}`,
     `Venue: ${venue}`,
@@ -187,6 +203,10 @@ export async function createZingaraTicketEmail({
     `Seating section: ${zone}`,
     table ? `Table: ${table}` : "",
     `Guest information: ${ticketPosition}`,
+    "",
+    ...(inclusions.length ? ["YOUR EXPERIENCE INCLUDES", ...inclusions, ""] : []),
+    "PAYMENT & GRATUITY",
+    ...paymentNotices,
     `Ticket reference: ${ticketReference}`,
     "",
     `Open live ticket: ${liveTicketUrl}`,
@@ -202,8 +222,11 @@ export async function createZingaraTicketEmail({
     ctaUrl: liveTicketUrl,
     heading: "YOUR TICKET",
     html: `
+      ${cleanIntroMessage ? `<p style="margin:0 0 20px;color:#fffaf0;font-size:15px;line-height:1.7;">${escapeHtml(cleanIntroMessage)}</p>` : ""}
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;">${detailRows}</table>
       ${secretPassword ? `<div style="margin:20px 0;padding:18px;border:1px solid rgba(216,195,106,.45);border-radius:10px;background:#090909;text-align:center;"><div style="color:#d8c36a;font-size:12px;letter-spacing:2px;text-transform:uppercase;">${escapeHtml(secretPassword.heading)}</div><div style="margin-top:10px;color:#fff4c4;font-family:Georgia,serif;font-size:24px;">${escapeHtml(secretPassword.phrase)}</div><div style="margin-top:8px;color:#d4d4d8;font-size:13px;">${escapeHtml(secretPassword.instruction)}</div></div>` : ""}
+      ${inclusions.length ? `<div style="margin:20px 0 0;"><div style="margin:0 0 10px;color:#f2d66c;font-size:12px;font-weight:700;letter-spacing:1.5px;">YOUR EXPERIENCE INCLUDES</div><ul style="margin:0;padding-left:20px;color:#fffaf0;font-size:14px;line-height:1.6;">${listItems(inclusions)}</ul></div>` : ""}
+      <div style="margin:20px 0 0;"><div style="margin:0 0 10px;color:#f2d66c;font-size:12px;font-weight:700;letter-spacing:1.5px;">PAYMENT &amp; GRATUITY</div><ul style="margin:0;padding-left:20px;color:#fffaf0;font-size:14px;line-height:1.6;">${listItems(paymentNotices)}</ul></div>
       <div style="padding:22px 0 8px;text-align:center;">
         <div style="margin-bottom:12px;color:#d8c36a;font-size:12px;letter-spacing:2px;line-height:1.4;">QR CODE</div>
         <div style="display:inline-block;padding:12px;border-radius:12px;background:#ffffff;">

@@ -633,6 +633,10 @@ import {
   publicBookingTimezone,
   toJohannesburgDateTimeInput,
 } from "../../lib/publicBookingSales";
+import {
+  getGuestPaymentDisclosures,
+  getGuestVenueInclusions,
+} from "../../lib/guestDisclosures";
 import { getCorporatePaymentHoldStatus } from "../../lib/bookingDeadlines";
 import { isValidExperienceTimes } from "../../lib/experienceTimes";
 import {
@@ -22426,11 +22430,30 @@ export default function AdminDashboardPage({
   const templatePreview =
     selectedCommunicationTemplate && templatePreviewBooking
       ? {
-          body: renderCommunicationTemplate(
-            selectedCommunicationTemplate.body,
-            templatePreviewBooking,
-            getBookingShow(templatePreviewBooking) ?? workflowShow,
-          ),
+          body: (() => {
+            const renderedBody = renderCommunicationTemplate(
+              selectedCommunicationTemplate.body,
+              templatePreviewBooking,
+              getBookingShow(templatePreviewBooking) ?? workflowShow,
+            );
+            if (
+              selectedCommunicationTemplate.trigger !== "reservation-confirmed" &&
+              selectedCommunicationTemplate.trigger !== "payment-confirmation"
+            ) {
+              return renderedBody;
+            }
+            const previewShow =
+              getBookingShow(templatePreviewBooking) ?? workflowShow;
+            const disclosureLines = [
+              ...getGuestVenueInclusions(previewShow?.location ?? previewShow?.venueName),
+              ...getGuestPaymentDisclosures({
+                balanceOutstanding: templatePreviewBooking.balanceDue,
+                serviceFeeAmount: templatePreviewBooking.serviceFeeAmount,
+              }),
+            ];
+
+            return [renderedBody, ...disclosureLines].filter(Boolean).join("\n\n");
+          })(),
           subject: renderCommunicationTemplate(
             selectedCommunicationTemplate.subject,
             templatePreviewBooking,

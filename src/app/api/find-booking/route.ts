@@ -47,6 +47,7 @@ type SupabaseBookingRow = {
   notes: string | null;
   payment_status: string;
   section: string | null;
+  service_fee: number | null;
   show_id: string | null;
   table_id: string | null;
   total_amount: number;
@@ -305,7 +306,7 @@ export async function POST(request: Request) {
     const { data: bookingRow, error: bookingError } = await supabase
       .from("bookings")
       .select(
-        "id,customer_id,show_id,table_id,booking_reference,booking_source,booking_origin,corporate_request_id,guest_count,booking_status,payment_status,section,total_amount,balance_outstanding,notes,archived_at,created_at,updated_at",
+        "id,customer_id,show_id,table_id,booking_reference,booking_source,booking_origin,corporate_request_id,guest_count,booking_status,payment_status,section,service_fee,total_amount,balance_outstanding,notes,archived_at,created_at,updated_at",
       )
       .eq("booking_reference", bookingReference)
       .maybeSingle();
@@ -423,6 +424,8 @@ export async function POST(request: Request) {
           metadataBooking?.paymentStatus ?? booking.payment_status,
         ),
         seatingZone: metadataBooking?.zoneTitle ?? booking.section ?? "Seating",
+        serviceFeeAmount:
+          metadataBooking?.serviceFeeAmount ?? Number(booking.service_fee ?? 0),
         show: showRow?.name ?? "The Royal Countess Zingara",
         table: guestVisibleTable || "TBC",
         ticketStatus,

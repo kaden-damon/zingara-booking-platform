@@ -16,6 +16,7 @@ import ScannableQrCode from "../components/ScannableQrCode";
 import YourEvening from "../components/YourEvening";
 import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEditor";
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
+import GuestBookingDisclosures from "../components/GuestBookingDisclosures";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import PublicMaintenanceBoundary from "./PublicMaintenanceBoundary";
 import SecretGuestListPanel from "./SecretGuestListPanel";
@@ -6104,6 +6105,13 @@ export default function BookingPage({
               className="mt-4"
             />
 
+            <GuestBookingDisclosures
+              balanceOutstanding={balanceDue}
+              className="mt-4"
+              serviceFeeAmount={serviceFeeAmount}
+              venue={selectedEntryLocation ?? getShowVenueKey(selectedShow)}
+            />
+
             <form
               className="mt-5 space-y-4 sm:mt-8 sm:space-y-5"
               onSubmit={(e) => {
@@ -6232,20 +6240,6 @@ export default function BookingPage({
                   {paymentRedirectStatus}
                 </p>
               )}
-
-              <div className="rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3 text-sm leading-6 text-zinc-300 sm:rounded-2xl sm:p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                  PLEASE NOTE
-                </p>
-                <ul className="mt-2 list-disc space-y-1 pl-5">
-                  <li>Beverages are charged separately</li>
-                  <li>
-                    A 12.5% gratuity will be applied to beverages and
-                    the dinner portion of your tickets for bookings of 6
-                    or more
-                  </li>
-                </ul>
-              </div>
 
               {shouldShowInstallOpportunity && (
                 <div className="rounded-xl border border-white/10 bg-black/25 p-3 sm:rounded-2xl sm:p-4">

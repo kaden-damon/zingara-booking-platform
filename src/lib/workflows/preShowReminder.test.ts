@@ -36,6 +36,7 @@ const booking = {
   id: "booking-preview",
   payment_status: "fully_paid",
   section: "Golden Circle",
+  service_fee: 0,
   show_id: show.id,
   table_id: null,
   total_amount: 5500,
@@ -135,7 +136,7 @@ test("pre-show reminder uses the refined mobile-safe attendance and Cape Town la
   assert.doesNotMatch(email.html, /A decadent 4 course dinner/);
   assert.match(
     email.html,
-    /Additional drinks and gratuity on dinner and drinks are payable on the night\./,
+    /Additional drinks and gratuity on drinks are payable on the night\./,
   );
   assert.doesNotMatch(email.html, /outstanding ticket balance/);
   assert.match(email.html, /width="100%" valign="top"/);
@@ -160,6 +161,7 @@ test("Johannesburg deposit and six-plus wording follows booking financial eviden
     balance_outstanding: 3300,
     guest_count: 8,
     payment_status: "deposit_paid",
+    service_fee: 1100,
   };
   const johannesburgShow = {
     ...show,
@@ -180,11 +182,11 @@ test("Johannesburg deposit and six-plus wording follows booking financial eviden
   assert.doesNotMatch(email.html, /canapés|A decadent 3 course dinner/);
   assert.match(
     email.html,
-    /The outstanding ticket balance, additional drinks and gratuity on dinner and drinks are payable on the night\./,
+    /Your outstanding ticket balance remains payable through your secure payment link or agreed payment arrangement\./,
   );
   assert.match(
     email.html,
-    /A discretionary 12\.5% gratuity applies to the dinner portion and drinks and will be billed on the night\./,
+    /A 12\.5% gratuity for parties of six or more is included in the booking total and calculated on the discounted seating and add-on subtotal\./,
   );
 });
 
@@ -193,7 +195,7 @@ test("New Year's Eve reminder reflects fully paid evidence without adding specia
     (item) => item.workflowKey === "pre_show_reminder",
   )!;
   const email = await renderConfiguredWorkflowEmail({
-    booking: { ...booking, guest_count: 6 },
+    booking: { ...booking, guest_count: 6, service_fee: 825 },
     configuration,
     recipientName: "Kaden",
     show: { ...show, date: "2026-12-31", venue: "johannesburg" },
@@ -202,9 +204,10 @@ test("New Year's Eve reminder reflects fully paid evidence without adding specia
 
   assert.match(
     email.html,
-    /Additional drinks and gratuity on dinner and drinks are payable on the night\./,
+    /Additional drinks and gratuity on drinks are payable on the night\./,
   );
   assert.doesNotMatch(email.html, /outstanding ticket balance/);
+  assert.match(email.html, /included in the booking total/);
   assert.doesNotMatch(email.html, /New Year|upfront|up-front/i);
 });
 

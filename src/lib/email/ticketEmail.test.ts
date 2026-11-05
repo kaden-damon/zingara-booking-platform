@@ -17,6 +17,11 @@ test("ticket email contains the complete branded ticket presentation", async () 
   assert.match(email, /YOUR TICKET/);
   assert.match(email, /Booking reference/);
   assert.match(email, /Seating section/);
+  assert.match(email, /getGuestVenueInclusions/);
+  assert.match(email, /getGuestPaymentDisclosures/);
+  assert.match(email, /YOUR EXPERIENCE INCLUDES/);
+  assert.match(email, /PAYMENT &amp; GRATUITY/);
+  assert.match(email, /introMessage/);
   assert.match(email, /OPEN LIVE TICKET/);
 });
 

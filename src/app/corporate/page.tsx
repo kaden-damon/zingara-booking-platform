@@ -878,7 +878,9 @@ export default function CorporateBookingPage() {
               <li>Bookings remain subject to availability.</li>
               <li>Proof of payment is required to secure the reservation.</li>
               <li>
-                A gratuity of 12.5% applies to bookings of 6 guests or more.
+                Any applicable 12.5% gratuity will be itemised in your quote.
+                Additional drinks and gratuity on drinks are payable on the
+                night unless included in your agreed booking.
               </li>
             </ul>
           </section>

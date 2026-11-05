@@ -34,6 +34,10 @@ import {
 import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 import type { DemoVenueSettings } from "@/lib/zingaraDemo";
 import { getOrCreateAttendanceLinks } from "@/lib/attendance/attendanceServer";
+import {
+  getGuestPaymentDisclosures,
+  getGuestVenueInclusions,
+} from "@/lib/guestDisclosures";
 
 export type AutomatedWorkflowKey = "pre_show_reminder" | "post_show_review";
 
@@ -108,6 +112,7 @@ export type WorkflowBookingTemplateContext = {
   id: string;
   payment_status: string;
   section: string | null;
+  service_fee?: number;
   show_id: string;
   table_id: string | null;
   total_amount: number;
@@ -552,37 +557,14 @@ function escapeWorkflowEmailHtml(value: string | number) {
 }
 
 function getPreShowVenueInclusions(show: WorkflowShowTemplateContext) {
-  const location = getExperienceLocation(show.venue);
-
-  if (location === "johannesburg") {
-    return [
-      "Welcome drink on arrival.",
-      "A decadent 4 course dinner",
-      "2½-hour performance experience.",
-    ];
-  }
-
-  if (location === "cape-town") {
-    return [
-      "Welcome drinks and canapés on arrival.",
-      "A decadent 3 course dinner",
-      "2½-hour performance experience.",
-    ];
-  }
-
-  return [];
+  return getGuestVenueInclusions(getExperienceLocation(show.venue));
 }
 
 function getPreShowPaymentNotices(booking: WorkflowBookingTemplateContext) {
-  const paymentNotice =
-    booking.payment_status === "deposit_paid" || booking.balance_outstanding > 0
-      ? "The outstanding ticket balance, additional drinks and gratuity on dinner and drinks are payable on the night."
-      : "Additional drinks and gratuity on dinner and drinks are payable on the night.";
-  const gratuityNotice = booking.guest_count >= 6
-    ? "A discretionary 12.5% gratuity applies to the dinner portion and drinks and will be billed on the night."
-    : null;
-
-  return [paymentNotice, gratuityNotice].filter((notice): notice is string => Boolean(notice));
+  return getGuestPaymentDisclosures({
+    balanceOutstanding: booking.balance_outstanding,
+    serviceFeeAmount: booking.service_fee,
+  });
 }
 
 function renderPreShowDetails(input: {
@@ -944,7 +926,7 @@ async function loadWorkflowDataset(supabase: SupabaseClient) {
       supabase
         .from("bookings")
         .select(
-          "id,customer_id,show_id,booking_reference,booking_status,payment_status,guest_count,section,total_amount,amount_paid,balance_outstanding,archived_at,table_id",
+          "id,customer_id,show_id,booking_reference,booking_status,payment_status,guest_count,section,service_fee,total_amount,amount_paid,balance_outstanding,archived_at,table_id",
         )
         .range(from, to),
     ),

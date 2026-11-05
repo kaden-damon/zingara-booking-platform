@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { calculatePayFastTransactionAmounts } from "@/lib/payfast/transactionFee";
 import YourEvening from "../components/YourEvening";
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
+import GuestBookingDisclosures from "../components/GuestBookingDisclosures";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import { getPublicVenueSettings } from "@/lib/supabase/venueSettings";
 import { defaultVenueSettings } from "@/lib/zingaraDemo";
@@ -41,6 +42,7 @@ type FoundBooking = {
   paymentStatus: string;
   paymentStatusLabel: string;
   seatingZone: string;
+  serviceFeeAmount: number;
   show: string;
   table: string;
   ticketStatus: string;
@@ -507,6 +509,12 @@ export default function FindBookingPage() {
                   className="mt-4"
                 />
                 <AgeRestrictionNotice className="mt-4" compact />
+                <GuestBookingDisclosures
+                  balanceOutstanding={result.booking.balanceDue}
+                  className="mt-4"
+                  serviceFeeAmount={result.booking.serviceFeeAmount}
+                  venue={result.booking.venue}
+                />
 
                 {hasPendingPayment && (
                   <div className="mt-5 rounded-2xl border border-[#D8C36A]/35 bg-[#D8C36A]/10 p-5">

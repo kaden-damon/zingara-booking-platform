@@ -46,6 +46,10 @@ import {
   enqueueVerifiedAdvertisingPurchase,
   runAdvertisingConversionWorker,
 } from "@/lib/advertisingConversionOutbox";
+import {
+  getGuestPaymentDisclosures,
+  getGuestVenueInclusions,
+} from "@/lib/guestDisclosures";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -796,6 +800,7 @@ async function ensureCommunication(
       trigger === "reservation-confirmed" && ticket
         ? await createZingaraTicketEmail({
             booking,
+            introMessage: renderCommunicationTemplate(template.body, booking, show),
             qrPayload: ticket.qrPayload,
             show,
           })
@@ -843,6 +848,19 @@ async function ensureCommunication(
   const renderedMessage = ticketEmail?.message ?? [
     renderCommunicationTemplate(template.body, booking, show),
     experienceTimes ? formatCustomerExperienceSchedule(experienceTimes) : "",
+    show
+      ? [
+          "YOUR EXPERIENCE INCLUDES",
+          ...getGuestVenueInclusions(show.location ?? show.venueName ?? show.address),
+        ].join("\n")
+      : "",
+    [
+      "PAYMENT & GRATUITY",
+      ...getGuestPaymentDisclosures({
+        balanceOutstanding: booking.balanceDue,
+        serviceFeeAmount: booking.serviceFeeAmount,
+      }),
+    ].join("\n"),
   ].filter(Boolean).join("\n\n");
   const paymentTransactionSummary =
     trigger === "payment-confirmation" &&
