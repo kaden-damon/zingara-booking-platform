@@ -33789,7 +33789,7 @@ export default function AdminDashboardPage({
                                       )}
                                     </div>
                                   ) : (
-                                  <div className="mt-3 grid grid-cols-2 gap-1.5 pr-11">
+                                  <div className="mt-3 grid grid-cols-2 gap-1.5 pr-11 2xl:grid-cols-1">
                                     {getShowOccupancyChips(show).map((chip) => {
                                       const occupancyUnavailable = Boolean(
                                         showCalendarOccupancyError,
