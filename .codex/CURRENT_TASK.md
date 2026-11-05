@@ -86,6 +86,33 @@ DATE: 5 NOVEMBER 2026
   not persisted.
 - Follow-up business-data delta: one sent QA Communications record only. No
   booking, attendance, seating, payment, ticket or financial record changed.
+- Reminder refinement: the saved welcome now appears immediately below the
+  Zingara header, followed by full-width `YES - ATTENDING` and
+  `NO - NOT ATTENDING` actions, a compact booking card and digital-ticket
+  link, venue-specific inclusions, booking-derived payment/gratuity wording,
+  the existing age policy and legal footer. Cape Town and Johannesburg copy is
+  selected from the authoritative show venue; deposits use the persisted
+  payment status/balance and fully paid/COMP bookings do not claim an
+  outstanding ticket balance. Six-plus bookings receive one discretionary
+  12.5% notice. No New Year's Eve rule was added or changed.
+- The saved Production body was still the untouched legacy default. Migration
+  `20261105223000_pre_show_reminder_copy_refinement.sql` replaced only that
+  exact body with the shorter editable welcome; it cannot overwrite a
+  staff-customised template.
+- Refinement verification passed six focused attendance checks, targeted
+  ESLint, TypeScript, whitespace checks and two Next.js 16 Webpack Production
+  builds. Authenticated Production preview confirmed the editable welcome,
+  exact short-hyphen button labels, Cape Town inclusions, booking card,
+  payment copy, age policy and footer through the shared scheduled renderer.
+  Full-width stacked actions and the 100% responsive email tables preserve the
+  compact mobile layout. No customer email was sent; the existing QA test
+  count remained one with the prior 21:25:20 SAST send time.
+- Refinement commits: `368a13f6`, `1c8230e0`.
+- Final refinement deployment: `dpl_x2gRBzm6u3xbjRjWrzaQhxpHYTuw`, Ready and
+  aliased to `book.zingara.co.za`.
+- Refinement business-data delta: the saved pre-show welcome body only. No
+  booking, attendance, communication, seating, payment, ticket or financial
+  record changed.
 - Rollback: revert `510a003f`, redeploy, and stop generating new attendance
   links. The additive columns/table may remain safely in place; existing
   responses can be retained as audit evidence.

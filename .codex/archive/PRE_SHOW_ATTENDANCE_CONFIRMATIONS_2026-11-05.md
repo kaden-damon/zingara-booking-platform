@@ -110,3 +110,46 @@ DATE: 5 NOVEMBER 2026
 - Rollback: revert the four follow-up commits and redeploy. The one-time test
   indexes may remain safely or be removed in a controlled migration; retain the
   sent QA Communication as release evidence.
+
+## Reminder Email And UX Refinement
+
+- The shared pre-show renderer now orders content as branding and editable
+  welcome, attendance actions, booking details, venue inclusions, payment and
+  gratuity guidance, age policy and the existing legal footer.
+- Attendance labels are exactly `YES - ATTENDING` and `NO - NOT ATTENDING`.
+  They remain linked to the existing encrypted response flow and render as
+  full-width stacked pill actions for narrow email clients.
+- Johannesburg reminders include a welcome drink, four-course dinner and
+  2½-hour experience. Cape Town reminders include welcome drinks and canapés,
+  a three-course dinner and a 2½-hour experience. Unknown venues do not receive
+  invented inclusions.
+- Deposit wording is selected from persisted `payment_status` or a positive
+  authoritative balance. Other eligible reminders use the fully paid wording.
+  Parties of six or more receive one discretionary 12.5% notice. Pricing, VAT,
+  deposits, balances, gratuity calculations and the existing New Year's Eve
+  full-payment rule were not changed.
+- Production's saved body exactly matched the known legacy default. Guarded
+  migration `20261105223000_pre_show_reminder_copy_refinement.sql` shortened
+  only that unchanged body to the editable welcome, preserving future Admin
+  edits and refusing to overwrite customised content.
+
+## Refinement Verification And Release
+
+- Six focused attendance checks, targeted ESLint, TypeScript, whitespace
+  checks and two Next.js 16 Webpack Production builds passed. The direct Node
+  workflow test runner remains unable to resolve the repository's `@/` aliases;
+  the real Next build compiled and type-checked that renderer successfully.
+- Authenticated Production preview confirmed the saved welcome and exact
+  visual order, both attendance actions, Cape Town inclusions, responsive
+  booking card, digital ticket, payment copy, age policy and legal footer.
+  Preview and scheduled delivery continue to call the same renderer.
+- No email was sent during this release. Production still contains exactly the
+  one previously approved test Communication, last sent at 21:25:20 SAST.
+- Commits: `368a13f6`, `1c8230e0`.
+- Final deployment: `dpl_x2gRBzm6u3xbjRjWrzaQhxpHYTuw`, Ready and aliased to
+  `book.zingara.co.za`.
+- Business-data delta: the saved pre-show welcome body only. No booking,
+  attendance, communication, seating, payment, ticket or financial record
+  changed.
+- Rollback: revert both commits and redeploy. Restore the prior body only if
+  management explicitly wants the legacy copy; no schema rollback is needed.
