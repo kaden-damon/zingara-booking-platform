@@ -33757,7 +33757,7 @@ export default function AdminDashboardPage({
                                     </button>
                                   )}
                                   {show.fullShowBuyout ? (
-                                    <div className="mt-3 mr-11 rounded-lg border border-sky-300/30 bg-sky-950/20 p-2.5">
+                                    <div className="mt-3 mr-11 rounded-lg border border-sky-300/30 bg-sky-950/20 p-2.5 2xl:mr-0 2xl:pb-11">
                                       <p className="min-w-0 break-words text-xs font-semibold leading-snug text-white">
                                         {show.fullShowBuyout.companyName}
                                       </p>
