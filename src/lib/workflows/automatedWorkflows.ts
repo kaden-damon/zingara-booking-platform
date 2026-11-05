@@ -603,6 +603,7 @@ function renderPreShowDetails(input: {
       ? [
           ["Grounds Open", reminderTimes.groundsOpen],
           ["Guest Seating", reminderTimes.guestSeating],
+          ["Show Starts", reminderTimes.showStarts],
         ]
       : []),
   ];

@@ -238,6 +238,7 @@ export async function POST(request: Request) {
         .is("batch_id", null)
         .eq("channel", "email")
         .eq("subject", preShowTestSubject)
+        .eq("type", "show_reminder")
         .in("status", ["sending", "sent"])
         .maybeSingle();
 
@@ -259,7 +260,7 @@ export async function POST(request: Request) {
         message: preview.message,
         show_id: null,
         subject: preShowTestSubject,
-        type: "custom_message",
+        type: "show_reminder",
       });
 
       if (!claim) {

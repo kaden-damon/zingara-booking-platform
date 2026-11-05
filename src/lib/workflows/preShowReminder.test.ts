@@ -129,6 +129,9 @@ test("pre-show reminder uses the refined mobile-safe attendance and Cape Town la
   assert.match(email.html, /Welcome drinks and canapés on arrival\./);
   assert.match(email.html, /A decadent 3 course dinner/);
   assert.match(email.html, /2½-hour performance experience\./);
+  assert.match(email.html, />Grounds Open<\/td><td[^>]*>16:45<\/td>/);
+  assert.match(email.html, />Guest Seating<\/td><td[^>]*>18:15<\/td>/);
+  assert.match(email.html, />Show Starts<\/td><td[^>]*>19:45<\/td>/);
   assert.doesNotMatch(email.html, /A decadent 4 course dinner/);
   assert.match(
     email.html,
@@ -214,6 +217,7 @@ test("Admin preview and Production test delivery use the shared attendance rende
   assert.match(route, /TEST — Zingara Pre-Show Reminder/);
   assert.match(route, /batch_id: null/);
   assert.match(route, /created_by: null/);
+  assert.match(route, /type: "show_reminder"/);
   assert.match(route, /body\.action === "send-test" \? "Kaden" : "Sample Guest"/);
   assert.match(admin, /template\.trigger !== "show-reminder"/);
   assert.match(admin, /template\.trigger !== "post-show-review"/);
