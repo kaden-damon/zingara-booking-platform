@@ -2499,6 +2499,22 @@ function formatArrivalTime(arrivalTime?: string) {
     : "Awaiting arrival";
 }
 
+function getAttendanceResponseLabel(booking: DemoBooking) {
+  if (booking.attendanceResponse === "confirmed") return "Confirmed";
+  if (booking.attendanceResponse === "declined") return "Declined";
+  return "Awaiting Response";
+}
+
+function getAttendanceResponseClasses(booking: DemoBooking) {
+  if (booking.attendanceResponse === "confirmed") {
+    return "border-emerald-300/40 bg-emerald-950/30 text-emerald-200";
+  }
+  if (booking.attendanceResponse === "declined") {
+    return "border-red-300/40 bg-red-950/30 text-red-200";
+  }
+  return "border-amber-300/35 bg-amber-950/25 text-amber-100";
+}
+
 function formatCurrency(amount: number) {
   return `R${amount.toLocaleString()}`;
 }
@@ -36363,6 +36379,9 @@ export default function AdminDashboardPage({
                             {formatArrivalTime(booking.arrivalTime)}
                           </span>
                         </p>
+                        <span className={`mt-3 inline-flex rounded-full border px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.08em] ${getAttendanceResponseClasses(booking)}`}>
+                          {getAttendanceResponseLabel(booking)}
+                        </span>
                       </div>
 
                       <button
@@ -37858,6 +37877,9 @@ export default function AdminDashboardPage({
                                   : "Standard booking"}{" "}
                                 · {allocatedBooking.partySize} guests
                               </p>
+                              <span className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.08em] ${getAttendanceResponseClasses(allocatedBooking)}`}>
+                                {getAttendanceResponseLabel(allocatedBooking)}
+                              </span>
                               <p className="mt-1 text-xs text-zinc-400">
                                 This table: {table.seatCapacity} seats
                                 {allocatedBookingTableCount > 1

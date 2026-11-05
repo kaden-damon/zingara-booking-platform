@@ -680,6 +680,8 @@ export type BookingLifecycleEvent = {
   createdAt: string;
 };
 export type DemoBooking = {
+  attendanceResponse?: "confirmed" | "declined";
+  attendanceRespondedAt?: string;
   buyoutReviewReason?: string;
   capacityZoneExcluded?: boolean;
   supabaseBookingId?: string;

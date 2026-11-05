@@ -126,6 +126,7 @@ async function loadBrandAttachment() {
 }
 
 export async function createBrandedCustomerEmail(input: {
+  actions?: Array<{ label: string; url: string; variant?: "primary" | "secondary" }>;
   ctaLabel?: string;
   ctaUrl?: string;
   heading?: string;
@@ -183,6 +184,17 @@ export async function createBrandedCustomerEmail(input: {
         `<a href="${getAbsoluteUrl(route)}" style="color:#d8c36a;text-decoration:underline;">${escapeHtml(label)}</a>`,
     )
     .join("&nbsp;&nbsp;·&nbsp;&nbsp;");
+  const actions = (input.actions ?? [])
+    .map(
+      (action) =>
+        `<td width="50%" valign="top" style="padding:4px;">${createZingaraEmailCta(action.label, action.url).replace(
+          "background:#d8c36a;color:#090806",
+          action.variant === "secondary"
+            ? "background:#2f2d2a;color:#fffaf0;border:1px solid #6b655d"
+            : "background:#d8c36a;color:#090806",
+        )}</td>`,
+    )
+    .join("");
 
   return {
     attachments: brandAttachment ? [brandAttachment] : [],
@@ -211,6 +223,7 @@ export async function createBrandedCustomerEmail(input: {
             </div>` : ""}
           </td></tr>
           ${primaryUrl ? `<tr><td align="center" style="padding:12px 24px 26px;">${createZingaraEmailCta(input.ctaLabel ?? "OPEN SECURE ZINGARA LINK", primaryUrl)}</td></tr>` : ""}
+          ${actions ? `<tr><td align="center" style="padding:8px 20px 26px;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>${actions}</tr></table></td></tr>` : ""}
           <tr><td align="center" style="padding:22px 24px;border-top:1px solid #4f4525;color:#a8a29e;font-size:11px;line-height:1.6;">
             ${includeSecurityNotice ? "This email and any ticket, QR code or secure booking link contained in it are intended for the recipient and should not be shared or forwarded. Tickets and QR codes may provide access to the event and should be kept secure." : ""}
             <div style="margin-top:14px;">${legalNavigation}</div>

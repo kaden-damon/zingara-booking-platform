@@ -44,6 +44,8 @@ type SupabasePaymentStatus =
   | "refunded";
 
 type SupabaseBookingRow = {
+  attendance_response: "confirmed" | "declined" | null;
+  attendance_responded_at: string | null;
   addons_total: number;
   amount_paid: number;
   archive_reason: string | null;
@@ -725,6 +727,8 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       ...metadataBooking,
       addonsTotal: row.addons_total,
       amountPaid: row.amount_paid,
+      attendanceResponse: row.attendance_response ?? undefined,
+      attendanceRespondedAt: row.attendance_responded_at ?? undefined,
       customer: authoritativeCustomer ?? metadataBooking.customer,
       customerId: row.customer_id,
       companyId: row.company_id ?? undefined,
@@ -806,6 +810,8 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
         storedCompanyName: row.company_name,
       }) || undefined,
     amountPaid: row.amount_paid,
+    attendanceResponse: row.attendance_response ?? undefined,
+    attendanceRespondedAt: row.attendance_responded_at ?? undefined,
     archivedAt: row.archived_at ?? undefined,
     archivedBy: row.archived_by ?? undefined,
     archiveReason: row.archive_reason ?? undefined,

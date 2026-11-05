@@ -30,6 +30,7 @@ import {
 } from "@/lib/experienceTimes";
 import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
 import type { DemoVenueSettings } from "@/lib/zingaraDemo";
+import { getOrCreateAttendanceLinks } from "@/lib/attendance/attendanceServer";
 
 export type AutomatedWorkflowKey = "pre_show_reminder" | "post_show_review";
 
@@ -564,6 +565,7 @@ function renderWorkflowEmailContent(
 }
 
 export async function renderConfiguredWorkflowEmail(input: {
+  attendanceLinks?: { confirmedUrl: string; declinedUrl: string };
   booking: WorkflowBookingTemplateContext;
   configuration: AutomatedWorkflowConfiguration;
   recipientName: string;
@@ -606,6 +608,13 @@ export async function renderConfiguredWorkflowEmail(input: {
   );
   const isReview = input.configuration.workflowKey === "post_show_review";
   const branded = await createBrandedCustomerEmail({
+    actions:
+      !isReview && input.attendanceLinks
+        ? [
+            { label: "YES — I'LL BE THERE", url: input.attendanceLinks.confirmedUrl },
+            { label: "NO — I CAN'T MAKE IT", url: input.attendanceLinks.declinedUrl, variant: "secondary" as const },
+          ]
+        : undefined,
     ctaLabel: isReview ? "RATE YOUR EXPERIENCE" : undefined,
     ctaUrl: isReview ? input.reviewUrl : undefined,
     heading: subject,
@@ -1062,6 +1071,42 @@ export async function runAutomatedWorkflows(
           });
           await completeClaimedEmailCommunication(supabase, deliveryClaim.id, {
             message: "Review request was not sent because its verified link could not be created.",
+            status: "failed",
+            subject: item.subject,
+          });
+          results[item.workflowKey].failed += 1;
+          return;
+        }
+      }
+
+      if (item.workflowKey === "pre_show_reminder") {
+        try {
+          const attendanceLinks = await getOrCreateAttendanceLinks(
+            supabase,
+            item.booking.id,
+          );
+          const rendered = await renderConfiguredWorkflowEmail({
+            attendanceLinks,
+            booking: item.booking,
+            configuration: item.configuration,
+            recipientName: getCustomerName(item.customer),
+            show: item.show,
+            venueSettings: dataset.venueSettings,
+          });
+          deliveryItem = {
+            ...item,
+            attachments: rendered.attachments,
+            html: rendered.html,
+            message: rendered.message,
+            subject: rendered.subject,
+          };
+        } catch (error) {
+          console.error("[Zingara Workflows] Attendance links could not be created", {
+            bookingId: item.booking.id,
+            message: error instanceof Error ? error.message : "Unknown error",
+          });
+          await completeClaimedEmailCommunication(supabase, deliveryClaim.id, {
+            message: "Pre-show reminder was not sent because its secure attendance links could not be created.",
             status: "failed",
             subject: item.subject,
           });

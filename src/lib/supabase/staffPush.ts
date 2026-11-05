@@ -27,6 +27,7 @@ const webPush = require("web-push") as {
 const defaultVenueKey = defaultVenueSettings.venueId || "zingara-cape-town";
 
 export type StaffPushTrigger =
+  | "attendance-declined"
   | "booking-cancelled"
   | "floor-assignment-paused"
   | "guest-checked-in"
@@ -121,6 +122,12 @@ type StaffIdentityPushInput = {
 };
 
 const rolesByTrigger: Record<StaffPushTrigger, AdminRole[]> = {
+  "attendance-declined": [
+    "super-admin",
+    "venue-manager",
+    "box-office-manager",
+    "box-office-staff",
+  ],
   "booking-cancelled": [
     "super-admin",
     "venue-manager",
@@ -167,6 +174,10 @@ function getDefaultMessage(input: StaffPushInput) {
     return `New booking received: ${input.bookingReference ?? "New booking"}`;
   }
 
+  if (input.trigger === "attendance-declined") {
+    return `Guest cannot attend: ${input.bookingReference ?? "Booking"}`;
+  }
+
   if (input.trigger === "new-corporate-request") {
     return "New corporate enquiry received";
   }
@@ -209,6 +220,10 @@ function getDefaultTitle(input: StaffPushInput) {
     return "New Booking";
   }
 
+  if (input.trigger === "attendance-declined") {
+    return "Guest Cannot Attend";
+  }
+
   if (input.trigger === "new-corporate-request") {
     return "Corporate Request";
   }
@@ -245,6 +260,7 @@ function getStaffNotificationUrl(input: StaffPushInput) {
     return input.url;
   }
   if (
+    input.trigger === "attendance-declined" ||
     input.trigger === "new-booking" ||
     input.trigger === "booking-cancelled" ||
     input.trigger === "guest-checked-in" ||
