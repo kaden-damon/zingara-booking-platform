@@ -1,6 +1,6 @@
 # Gratuity Transition & Financial Integrity
 
-STATUS: IMPLEMENTED - PRODUCTION RELEASE PENDING
+STATUS: COMPLETE - DEPLOYED AND ACTIVATED IN PRODUCTION
 
 DATE: 5 NOVEMBER 2026
 
@@ -79,5 +79,23 @@ No ticket or Wallet content required a change.
 
 ## Release Evidence
 
-Pending Production migration, application commit/deployment, live verification,
-activation timestamp and the one authorised Fatima activation email.
+- Commit: `70447e55` (`feat: transition online gratuity to venue`).
+- Migration applied:
+  `20261105235900_gratuity_transition_activation_audit.sql`.
+- Production deployment: `dpl_8LZzfKP3DpqhTaSFvpSQa3cLjzZH`, READY and
+  aliased to `book.zingara.co.za`.
+- Recorded activation: 5 November 2026, 23:10:59 SAST. The evidence row is
+  scoped to new `customer_public` bookings and records that historical
+  financials were not changed.
+- The live public Booking journey loaded from the deployed Production build.
+  No real booking or payment was created for verification.
+- Exactly one branded `Zingara — Gratuity Payment Update` email was accepted by
+  Microsoft 365 for authoritative Fatima MB with Kaden Damon copied.
+  Communications records exactly one `sent` entry at 23:13:36 SAST. Provider
+  acceptance and Communications logging are verified; inbox receipt was not
+  directly claimed.
+- Business-data delta: one release-evidence row and one internal sent
+  Communications record only. No existing booking, payment, refund, VAT,
+  seating, ticket or customer communication record changed.
+- Rollback: revert `70447e55` and redeploy. The additive evidence table may
+  remain; do not recalculate historical bookings during rollback.

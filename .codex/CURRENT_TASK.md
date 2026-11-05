@@ -1,6 +1,6 @@
 # Gratuity Transition & Financial Integrity
 
-STATUS: IMPLEMENTED - PRODUCTION RELEASE PENDING
+STATUS: COMPLETE - DEPLOYED AND ACTIVATED IN PRODUCTION
 
 DATE: 5 NOVEMBER 2026
 
@@ -19,7 +19,7 @@ DATE: 5 NOVEMBER 2026
   bookings therefore remain `GRATUITY REVIEW`; the platform does not infer a
   collected component from the booking total alone.
 
-## Implemented, Not Yet Active
+## Delivered
 
 - Customer-originated online pricing excludes gratuity in both browser and
   authoritative server calculations. Internal, Corporate and COMP pricing
@@ -46,12 +46,29 @@ DATE: 5 NOVEMBER 2026
 - Full changed-page ESLint remains noisy only from pre-existing repository
   hooks and unused-code findings; no new build or type failure exists.
 
-## Release Gate
+## Production Release
 
-- Apply the additive migration, commit/push/deploy, verify live public pricing,
-  Booking Details and Table Plan output, then record the exact activation time.
-- Send exactly one branded activation email to authoritative Fatima MB with
-  Kaden Damon copied, and verify Communications evidence.
+- Application and records commit: `70447e55`.
+- Migration `20261105235900_gratuity_transition_activation_audit.sql` applied
+  successfully. It created release evidence only and changed no booking or
+  payment row.
+- Production deployment: `dpl_8LZzfKP3DpqhTaSFvpSQa3cLjzZH`, READY and
+  aliased to `book.zingara.co.za`.
+- Activation recorded at 5 November 2026, 23:10:59 SAST for new
+  customer-originated online bookings only.
+- Live public Booking loaded successfully from the deployed build. No QA
+  booking, payment or customer communication was created.
+- Microsoft 365 accepted exactly one branded
+  `Zingara — Gratuity Payment Update` email to authoritative Fatima MB with
+  Kaden Damon copied. Communications contains exactly one `sent` record at
+  23:13:36 SAST. Provider acceptance and Communications delivery are verified;
+  direct inbox receipt was not claimed.
+- Business-data delta: one financial policy release-evidence row and one sent
+  internal Communications record. Existing bookings, totals, payments,
+  refunds, VAT, seating, tickets and customer communications are unchanged.
+- Rollback: revert `70447e55` and redeploy. Preserve historical booking data;
+  mark the release evidence inactive only if the application rollback is
+  deliberately activated.
 - Full record:
   `.codex/archive/GRATUITY_TRANSITION_FINANCIAL_INTEGRITY_2026-11-05.md`.
 
