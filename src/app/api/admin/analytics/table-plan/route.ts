@@ -172,7 +172,7 @@ export async function GET(request: Request) {
         auth.serviceClient
           .from("bookings")
           .select(
-            "id,customer_id,company_id,company_name,corporate_request_id,table_id,booking_reference,guest_count,booking_status,payment_status,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,booking_origin",
+            "id,customer_id,company_id,company_name,corporate_request_id,table_id,booking_reference,guest_count,booking_status,payment_status,section,zone_entitlements,service_fee,total_amount,amount_paid,balance_outstanding,notes,dietary_requirements,archived_at,booking_origin",
           )
           .eq("show_id", typedShow.id),
         auth.serviceClient

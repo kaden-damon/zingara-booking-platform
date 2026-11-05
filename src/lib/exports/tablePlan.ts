@@ -35,6 +35,7 @@ import {
   type TablePlanFinancialPayment,
   type TablePlanValueAllocation,
 } from "@/lib/exports/tablePlanFinance";
+import { resolveGratuityStatus } from "@/lib/gratuityTransition";
 
 export const tablePlanTemplatePath = path.join(
   process.cwd(),
@@ -89,6 +90,7 @@ export type TablePlanBooking = {
   original_price_per_person?: number | null;
   original_zone_entitlements?: Array<{ pax: number; zoneId: SeatingZoneId }> | null;
   payment_status: string;
+  service_fee?: number;
   section: string;
   supplemental_operational_notes?: string[];
   table_id: string | null;
@@ -798,11 +800,12 @@ function getBookingPaymentMetadata(booking: TablePlanBooking): {
   dietaryQuantities: ReturnType<typeof getRestrictedDietaryQuantities>;
   complimentaryCategory: "standard" | "media" | "tradex" | null;
   depositPercentage: number | null;
+  gratuityPolicy: DemoBooking["gratuityPolicy"] | null;
   paymentOption: string | null;
   valueAllocation: TablePlanValueAllocation | null;
 } {
   if (!booking.notes?.startsWith(bookingMetadataPrefix)) {
-    return { complimentaryCategory: null, depositPercentage: null, dietaryQuantities: getRestrictedDietaryQuantities([]), paymentOption: null, valueAllocation: null };
+    return { complimentaryCategory: null, depositPercentage: null, dietaryQuantities: getRestrictedDietaryQuantities([]), gratuityPolicy: null, paymentOption: null, valueAllocation: null };
   }
 
   try {
@@ -813,6 +816,7 @@ function getBookingPaymentMetadata(booking: TablePlanBooking): {
       complimentaryCategory?: string;
       addons?: DemoBooking["addons"];
       paymentOption?: string;
+      gratuityPolicy?: DemoBooking["gratuityPolicy"];
       valueAllocation?: TablePlanValueAllocation;
     };
 
@@ -841,11 +845,16 @@ function getBookingPaymentMetadata(booking: TablePlanBooking): {
         ? Number(metadata.depositPercentage)
         : null,
       dietaryQuantities: getRestrictedDietaryQuantities(metadata.addons),
+      gratuityPolicy:
+        metadata.gratuityPolicy === "online-collected" ||
+        metadata.gratuityPolicy === "pay-at-venue"
+          ? metadata.gratuityPolicy
+          : null,
       paymentOption: metadata.paymentOption?.trim().toLowerCase() || null,
       valueAllocation,
     };
   } catch {
-    return { complimentaryCategory: null, depositPercentage: null, dietaryQuantities: getRestrictedDietaryQuantities([]), paymentOption: null, valueAllocation: null };
+    return { complimentaryCategory: null, depositPercentage: null, dietaryQuantities: getRestrictedDietaryQuantities([]), gratuityPolicy: null, paymentOption: null, valueAllocation: null };
   }
 }
 
@@ -1098,7 +1107,23 @@ function populateBookingDataRow(
       : null
     : null;
   row.getCell(paymentSummaryColumn).value = includeBookingDetails
-    ? resolveTablePlanPaymentType(booking, legacyPaymentEvidence)
+    ? [
+        resolveTablePlanPaymentType(booking, legacyPaymentEvidence),
+        paymentMetadata.complimentaryCategory === null
+          ? resolveGratuityStatus({
+              amountPaid: booking.amount_paid,
+              bookingStatus: booking.booking_status,
+              gratuityPolicy: paymentMetadata.gratuityPolicy,
+              legacyCollectedAmount:
+                legacyPaymentEvidence?.ticket_gratuity_amount,
+              paymentStatus: booking.payment_status,
+              serviceFeeAmount: booking.service_fee,
+              totalAmount: booking.total_amount,
+            }).label
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
     : null;
   if (!includeBookingDetails) return;
   row.getCell(paymentBreakdownColumn).value = neutralizeSpreadsheetFormula(

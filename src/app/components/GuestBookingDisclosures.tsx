@@ -6,6 +6,7 @@ import {
 type GuestBookingDisclosuresProps = {
   balanceOutstanding?: number | null;
   className?: string;
+  gratuityPolicy?: "online-collected" | "pay-at-venue" | null;
   serviceFeeAmount?: number | null;
   venue?: string | null;
 };
@@ -13,12 +14,14 @@ type GuestBookingDisclosuresProps = {
 export default function GuestBookingDisclosures({
   balanceOutstanding,
   className = "",
+  gratuityPolicy,
   serviceFeeAmount,
   venue,
 }: GuestBookingDisclosuresProps) {
   const inclusions = getGuestVenueInclusions(venue);
   const paymentNotices = getGuestPaymentDisclosures({
     balanceOutstanding,
+    gratuityPolicy,
     serviceFeeAmount,
   });
 

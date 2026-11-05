@@ -1,3 +1,62 @@
+# Gratuity Transition & Financial Integrity
+
+STATUS: IMPLEMENTED - PRODUCTION RELEASE PENDING
+
+DATE: 5 NOVEMBER 2026
+
+## Verified Findings
+
+- New public online bookings currently include 12.5% gratuity for parties of
+  six or more. The charge is calculated on the discounted seating and add-on
+  subtotal and persisted in `bookings.service_fee`.
+- The complete Production public-booking audit found 4,579 records: 1,315
+  carry R1,962,126 recorded gratuity and 3,264 carry no gratuity charge.
+- Payment-ledger evidence conclusively supports 741 fully settled gratuity
+  bookings (R1,083,232). A further 568 bookings carry R871,939 in charged
+  gratuity but are not fully settled. Six cancelled, fully-paid records carry
+  R6,955 and remain review cases rather than being labelled collected.
+- Deposit payments do not retain component-level allocation evidence. Partial
+  bookings therefore remain `GRATUITY REVIEW`; the platform does not infer a
+  collected component from the booking total alone.
+
+## Implemented, Not Yet Active
+
+- Customer-originated online pricing excludes gratuity in both browser and
+  authoritative server calculations. Internal, Corporate and COMP pricing
+  paths retain their existing rules.
+- Each new public booking snapshots `pay-at-venue` in the existing booking
+  metadata. Existing `service_fee` amounts and historical totals are not
+  changed. Add-on amendments preserve the booking's original gratuity basis.
+- Booking Details and Table Plan Payment Summary use one resolver for
+  `GRATUITY COLLECTED`, `GRATUITY PAYABLE AT VENUE` and `GRATUITY REVIEW`.
+  Explicit imported gratuity evidence takes precedence; cancellations and
+  partial settlements fail safely to review.
+- Checkout, confirmations, payment links, Find My Booking, Admin previews and
+  pre-show communications use booking-aware venue-payment wording.
+- Migration `20261105235900_gratuity_transition_activation_audit.sql` adds
+  activation evidence only. Its linked dry run is clean and changes no
+  booking, payment or financial row.
+
+## Verification
+
+- Focused status/disclosure tests: 8/8 passed.
+- TypeScript and the Next.js 16 Production build passed.
+- Admin performance budget passed: raw 1,287,914 / 1,320,000 bytes; gzip
+  311,950 / 320,000 bytes.
+- Full changed-page ESLint remains noisy only from pre-existing repository
+  hooks and unused-code findings; no new build or type failure exists.
+
+## Release Gate
+
+- Apply the additive migration, commit/push/deploy, verify live public pricing,
+  Booking Details and Table Plan output, then record the exact activation time.
+- Send exactly one branded activation email to authoritative Fatima MB with
+  Kaden Damon copied, and verify Communications evidence.
+- Full record:
+  `.codex/archive/GRATUITY_TRANSITION_FINANCIAL_INTEGRITY_2026-11-05.md`.
+
+---
+
 # Guest Communication & Disclosure Integrity
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION

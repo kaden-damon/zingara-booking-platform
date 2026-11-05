@@ -54,6 +54,7 @@ export type PublicPricingInput = {
   promo?: PromoValidationResult | null;
   remainingSeats?: number;
   settings?: DemoVenueSettings | null;
+  includeGratuity?: boolean;
   zoneId: SeatingZone["id"];
 };
 
@@ -143,7 +144,7 @@ export function calculatePublicBookingPricing(
   const discountAmount = Math.min(input.promo?.discountAmount ?? 0, subtotal);
   const discountedSubtotal = Math.max(subtotal - discountAmount, 0);
   const serviceFeeAmount =
-    input.partySize >= serviceFeeGuestThreshold
+    input.includeGratuity !== false && input.partySize >= serviceFeeGuestThreshold
       ? Math.round(discountedSubtotal * serviceFeeRate)
       : 0;
   const total = discountedSubtotal + serviceFeeAmount;

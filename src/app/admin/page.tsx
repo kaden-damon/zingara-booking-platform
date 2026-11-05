@@ -637,6 +637,7 @@ import {
   getGuestPaymentDisclosures,
   getGuestVenueInclusions,
 } from "../../lib/guestDisclosures";
+import { resolveGratuityStatus } from "../../lib/gratuityTransition";
 import { getCorporatePaymentHoldStatus } from "../../lib/bookingDeadlines";
 import { isValidExperienceTimes } from "../../lib/experienceTimes";
 import {
@@ -22448,6 +22449,7 @@ export default function AdminDashboardPage({
               ...getGuestVenueInclusions(previewShow?.location ?? previewShow?.venueName),
               ...getGuestPaymentDisclosures({
                 balanceOutstanding: templatePreviewBooking.balanceDue,
+                gratuityPolicy: templatePreviewBooking.gratuityPolicy,
                 serviceFeeAmount: templatePreviewBooking.serviceFeeAmount,
               }),
             ];
@@ -39784,6 +39786,20 @@ export default function AdminDashboardPage({
                         <p><span className="block text-xs text-zinc-500">Outstanding</span><strong className={financials.balanceDue > 0 ? "text-amber-200" : "text-white"}>{formatCurrency(financials.balanceDue)}</strong></p>
                         <p><span className="block text-xs text-zinc-500">Guests</span><strong className="text-white">{booking.partySize}</strong></p>
                       </div>
+                      {booking.paymentStatus !== "comp-vip" && (
+                        <p className="mt-3 text-xs font-semibold uppercase text-[#D8C36A]">
+                          {resolveGratuityStatus({
+                            amountPaid: financials.amountPaid,
+                            bookingStatus: booking.status,
+                            gratuityPolicy: booking.gratuityPolicy,
+                            legacyCollectedAmount:
+                              booking.gratuityCollectedAmount,
+                            paymentStatus: booking.paymentStatus,
+                            serviceFeeAmount: financials.serviceFeeAmount,
+                            totalAmount: financials.totalPrice,
+                          }).label}
+                        </p>
+                      )}
                       <details className="mt-4 text-sm text-zinc-400">
                         <summary className="cursor-pointer font-semibold text-zinc-300">Full price breakdown</summary>
                         <p className="mt-3 leading-6">

@@ -145,6 +145,7 @@ export async function GET(_request: Request, context: PaymentLinkContext) {
         partySize: metadata?.partySize ?? booking.guest_count,
         paymentStatus: booking.payment_status,
         section: booking.section ?? metadata?.zoneTitle ?? "Not recorded",
+        gratuityPolicy: metadata?.gratuityPolicy ?? null,
         serviceFeeAmount: Math.max(Number(booking.service_fee) || 0, 0),
         showDate: show?.date ?? null,
         showLabel,

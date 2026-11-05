@@ -424,6 +424,7 @@ export async function POST(request: Request) {
           metadataBooking?.paymentStatus ?? booking.payment_status,
         ),
         seatingZone: metadataBooking?.zoneTitle ?? booking.section ?? "Seating",
+        gratuityPolicy: metadataBooking?.gratuityPolicy ?? null,
         serviceFeeAmount:
           metadataBooking?.serviceFeeAmount ?? Number(booking.service_fee ?? 0),
         show: showRow?.name ?? "The Royal Countess Zingara",

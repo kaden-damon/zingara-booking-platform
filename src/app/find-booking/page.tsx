@@ -42,6 +42,7 @@ type FoundBooking = {
   paymentStatus: string;
   paymentStatusLabel: string;
   seatingZone: string;
+  gratuityPolicy?: "online-collected" | "pay-at-venue" | null;
   serviceFeeAmount: number;
   show: string;
   table: string;
@@ -512,6 +513,7 @@ export default function FindBookingPage() {
                 <GuestBookingDisclosures
                   balanceOutstanding={result.booking.balanceDue}
                   className="mt-4"
+                  gratuityPolicy={result.booking.gratuityPolicy}
                   serviceFeeAmount={result.booking.serviceFeeAmount}
                   venue={result.booking.venue}
                 />

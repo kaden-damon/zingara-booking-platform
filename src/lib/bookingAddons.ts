@@ -271,7 +271,7 @@ export function calculateBookingAddonFinancialUpdate(input: {
     Math.max(subtotalAmount + addonDelta, 0),
   );
   const serviceFeeDelta =
-    input.partySize >= serviceFeeGuestThreshold
+    input.currentServiceFee > 0 && input.partySize >= serviceFeeGuestThreshold
       ? currency(addonDelta * serviceFeeRate)
       : 0;
   const serviceFee = currency(

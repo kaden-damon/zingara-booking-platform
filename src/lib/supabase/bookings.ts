@@ -75,6 +75,10 @@ type SupabaseBookingRow = {
   discount_amount: number;
   guest_count: number;
   id: string;
+  legacy_payment_evidence?:
+    | { ticket_gratuity_amount: number | null }
+    | Array<{ ticket_gratuity_amount: number | null }>
+    | null;
   notes: string | null;
   payment_status: SupabasePaymentStatus;
   section: string | null;
@@ -754,6 +758,11 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       corporatePaymentReminderSentAt:
         row.corporate_payment_reminder_sent_at ?? undefined,
       discountAmount: row.discount_amount,
+      gratuityCollectedAmount: Number(
+        (Array.isArray(row.legacy_payment_evidence)
+          ? row.legacy_payment_evidence[0]?.ticket_gratuity_amount
+          : row.legacy_payment_evidence?.ticket_gratuity_amount) ?? 0,
+      ),
       partySize: row.guest_count,
       paymentStatus: toDemoPaymentStatus(row.payment_status),
       promoCode: promoRedemption?.code,

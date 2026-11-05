@@ -1205,7 +1205,7 @@ export default function BookingPage({
   const discountedSubtotal = Math.max(subtotal - discountAmount, 0);
   const serviceFeeAmount = isComplimentary
     ? 0
-    : partySize >= serviceFeeGuestThreshold
+    : manualCheckoutRole !== "none" && partySize >= serviceFeeGuestThreshold
       ? Math.round(discountedSubtotal * serviceFeeRate)
       : 0;
   const total = discountedSubtotal + serviceFeeAmount;
@@ -2807,6 +2807,8 @@ export default function BookingPage({
       subtotalPrice: subtotal,
       discountAmount,
       serviceFeeAmount,
+      gratuityPolicy:
+        manualCheckoutRole === "none" ? ("pay-at-venue" as const) : undefined,
       totalPrice: total,
       pricePerPerson,
       complimentaryCategory: resolvedComplimentaryCategory ?? undefined,
@@ -6108,6 +6110,9 @@ export default function BookingPage({
             <GuestBookingDisclosures
               balanceOutstanding={balanceDue}
               className="mt-4"
+              gratuityPolicy={
+                manualCheckoutRole === "none" ? "pay-at-venue" : undefined
+              }
               serviceFeeAmount={serviceFeeAmount}
               venue={selectedEntryLocation ?? getShowVenueKey(selectedShow)}
             />

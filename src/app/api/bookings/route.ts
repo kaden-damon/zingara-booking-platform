@@ -1402,6 +1402,7 @@ async function withAuthoritativePublicPricing(
   }
 
   const settings = await loadVenueSettings(supabase);
+  const isNewPublicBooking = booking.bookingOrigin === "customer_public";
   let resolvedPricePerPerson = authoritativePricePerPerson;
   let resolvedPriceSource = agreedPriceSource;
 
@@ -1430,6 +1431,7 @@ async function withAuthoritativePublicPricing(
     paymentOption: booking.paymentOption,
     remainingSeats,
     settings,
+    includeGratuity: !isNewPublicBooking,
     zoneId: booking.zoneId,
   });
   const location = normalizeShowLocation(show.venue);
@@ -1447,6 +1449,7 @@ async function withAuthoritativePublicPricing(
     promo: promo.status === "valid" ? promo : null,
     remainingSeats,
     settings,
+    includeGratuity: !isNewPublicBooking,
     zoneId: booking.zoneId,
   });
   const lifecycleHistory = (booking.lifecycleHistory ?? []).map((event) => ({
@@ -1481,6 +1484,9 @@ async function withAuthoritativePublicPricing(
     promoLabel: promo.status === "valid" ? promo.description : undefined,
     promoLocation: location ?? undefined,
     serviceFeeAmount: pricing.serviceFeeAmount,
+    gratuityPolicy: isNewPublicBooking
+      ? "pay-at-venue"
+      : booking.gratuityPolicy,
     subtotalPrice: pricing.subtotal,
     totalPrice: pricing.total,
   };

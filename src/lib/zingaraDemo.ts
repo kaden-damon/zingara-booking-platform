@@ -702,6 +702,8 @@ export type DemoBooking = {
   subtotalPrice?: number;
   discountAmount?: number;
   serviceFeeAmount?: number;
+  gratuityPolicy?: "online-collected" | "pay-at-venue";
+  gratuityCollectedAmount?: number;
   totalPrice: number;
   pricePerPerson: number;
   complimentaryCategory?: "standard" | "media" | "tradex";

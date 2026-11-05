@@ -2,6 +2,7 @@ type EntryLocationKey = "cape-town" | "johannesburg";
 
 export type GuestPaymentDisclosureInput = {
   balanceOutstanding?: number | null;
+  gratuityPolicy?: "online-collected" | "pay-at-venue" | null;
   serviceFeeAmount?: number | null;
 };
 
@@ -37,6 +38,7 @@ export function getGuestVenueInclusions(
 
 export function getGuestPaymentDisclosures({
   balanceOutstanding = 0,
+  gratuityPolicy,
   serviceFeeAmount = 0,
 }: GuestPaymentDisclosureInput) {
   const notices: string[] = [];
@@ -54,7 +56,9 @@ export function getGuestPaymentDisclosures({
   }
 
   notices.push(
-    "Additional drinks and gratuity on drinks are payable on the night.",
+    gratuityPolicy === "pay-at-venue" || Number(serviceFeeAmount) === 0
+      ? "Applicable gratuity and additional drinks are payable at the venue."
+      : "Additional drinks and gratuity on drinks are payable on the night.",
   );
 
   return notices;

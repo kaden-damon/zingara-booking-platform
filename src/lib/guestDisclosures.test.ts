@@ -34,5 +34,15 @@ test("payment notices distinguish outstanding balances from included gratuity", 
   assert.match(deposit.join(" "), /discounted seating and add-on subtotal/);
   assert.doesNotMatch(fullyPaid.join(" "), /outstanding ticket balance/);
   assert.doesNotMatch(fullyPaid.join(" "), /12\.5%/);
-  assert.match(fullyPaid.join(" "), /Additional drinks/);
+  assert.match(fullyPaid.join(" "), /payable at the venue/);
+});
+
+test("new online bookings disclose venue-paid gratuity", () => {
+  const notices = getGuestPaymentDisclosures({
+    gratuityPolicy: "pay-at-venue",
+    serviceFeeAmount: 0,
+  });
+
+  assert.match(notices.join(" "), /Applicable gratuity/);
+  assert.doesNotMatch(notices.join(" "), /included in the booking total/);
 });

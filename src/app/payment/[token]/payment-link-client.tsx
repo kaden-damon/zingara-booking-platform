@@ -21,6 +21,7 @@ type PaymentLinkLookupResponse = {
     partySize: number | null;
     paymentStatus: string;
     section: string;
+    gratuityPolicy?: "online-collected" | "pay-at-venue" | null;
     serviceFeeAmount: number;
     showDate: string | null;
     showLabel: string;
@@ -291,6 +292,7 @@ export default function PaymentLinkClient({ token }: { token: string }) {
             <GuestBookingDisclosures
               balanceOutstanding={booking.outstandingAmount}
               className="mt-4"
+              gratuityPolicy={booking.gratuityPolicy}
               serviceFeeAmount={booking.serviceFeeAmount}
               venue={booking.locationLabel}
             />

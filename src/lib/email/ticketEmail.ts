@@ -154,6 +154,7 @@ export async function createZingaraTicketEmail({
   const inclusions = getGuestVenueInclusions(location);
   const paymentNotices = getGuestPaymentDisclosures({
     balanceOutstanding: booking.balanceDue,
+    gratuityPolicy: booking.gratuityPolicy,
     serviceFeeAmount: booking.serviceFeeAmount,
   });
   const listItems = (items: string[]) => items
