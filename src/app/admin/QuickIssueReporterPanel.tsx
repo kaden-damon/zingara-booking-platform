@@ -202,11 +202,11 @@ export default function QuickIssueReporterPanel({
     <section
       ref={panelRef}
       aria-label="Report issue"
-      className="fixed inset-x-3 bottom-3 z-[230] max-h-[min(78dvh,560px)] overflow-y-auto rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-4 text-white shadow-2xl shadow-black/70 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:w-[420px] sm:p-5"
+      className="fixed inset-x-3 bottom-3 z-[230] max-h-[min(78dvh,560px)] overflow-y-auto rounded-2xl border border-[#D8C36A]/35 bg-zinc-950 p-4 font-sans text-white shadow-2xl shadow-black/70 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:w-[420px] sm:p-5"
       role="dialog"
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-bold uppercase text-[#F2D66C]">
+        <h2 className="font-sans text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">
           Report Issue
         </h2>
         <button
