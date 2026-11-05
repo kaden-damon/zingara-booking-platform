@@ -106,6 +106,103 @@ test("reminder renders every required field from authoritative venue settings", 
   assert.match(email.html, /data-zingara-customer-email="true"/);
 });
 
+test("pre-show reminder uses the refined mobile-safe attendance and Cape Town layout", async () => {
+  const configuration = defaultWorkflowConfigurations.find(
+    (item) => item.workflowKey === "pre_show_reminder",
+  )!;
+  const email = await renderConfiguredWorkflowEmail({
+    attendanceLinks: {
+      confirmedUrl: "https://book.zingara.co.za/attendance/preview?response=confirmed",
+      declinedUrl: "https://book.zingara.co.za/attendance/preview?response=declined",
+    },
+    booking,
+    configuration,
+    recipientName: "Kaden",
+    show,
+    venueSettings,
+  });
+
+  assert.match(email.html, />YES - ATTENDING</);
+  assert.match(email.html, />NO - NOT ATTENDING</);
+  assert.doesNotMatch(email.html, /I&#39;LL BE THERE|CAN&#39;T MAKE IT|YES —|NO —/);
+  assert.match(email.html, /Welcome drinks and canapés on arrival\./);
+  assert.match(email.html, /Three-course dinner\./);
+  assert.match(email.html, /2½-hour performance experience\./);
+  assert.doesNotMatch(email.html, /Four-course dinner/);
+  assert.match(
+    email.html,
+    /Additional drinks and gratuity on dinner and drinks are payable on the night\./,
+  );
+  assert.doesNotMatch(email.html, /outstanding ticket balance/);
+  assert.match(email.html, /width="100%" valign="top"/);
+
+  const intro = email.html.indexOf("Please confirm your attendance below");
+  const actions = email.html.indexOf("YES - ATTENDING");
+  const details = email.html.indexOf("YOUR BOOKING");
+  const inclusions = email.html.indexOf("YOUR EXPERIENCE INCLUDES");
+  const payment = email.html.indexOf("PAYMENT &amp; GRATUITY");
+  const age = email.html.indexOf("AGE RESTRICTION");
+  assert.ok(intro > 0 && actions > intro && details > actions);
+  assert.ok(inclusions > details && payment > inclusions && age > payment);
+});
+
+test("Johannesburg deposit and six-plus wording follows booking financial evidence", async () => {
+  const configuration = defaultWorkflowConfigurations.find(
+    (item) => item.workflowKey === "pre_show_reminder",
+  )!;
+  const depositBooking = {
+    ...booking,
+    balance_outstanding: 3300,
+    guest_count: 8,
+    payment_status: "deposit_paid",
+  };
+  const johannesburgShow = {
+    ...show,
+    date: "2026-12-31",
+    id: "show-jhb-nye",
+    venue: "johannesburg",
+  };
+  const email = await renderConfiguredWorkflowEmail({
+    booking: depositBooking,
+    configuration,
+    recipientName: "Kaden",
+    show: johannesburgShow,
+    venueSettings,
+  });
+
+  assert.match(email.html, /Welcome drink on arrival\./);
+  assert.match(email.html, /Four-course dinner\./);
+  assert.doesNotMatch(email.html, /canapés|Three-course dinner/);
+  assert.match(
+    email.html,
+    /The outstanding ticket balance, additional drinks and gratuity on dinner and drinks are payable on the night\./,
+  );
+  assert.match(
+    email.html,
+    /A discretionary 12\.5% gratuity applies to the dinner portion and drinks and will be billed on the night\./,
+  );
+});
+
+test("New Year's Eve reminder reflects fully paid evidence without adding special payment logic", async () => {
+  const configuration = defaultWorkflowConfigurations.find(
+    (item) => item.workflowKey === "pre_show_reminder",
+  )!;
+  const email = await renderConfiguredWorkflowEmail({
+    booking: { ...booking, guest_count: 6 },
+    configuration,
+    recipientName: "Kaden",
+    show: { ...show, date: "2026-12-31", venue: "johannesburg" },
+    venueSettings,
+  });
+
+  assert.match(
+    email.html,
+    /Additional drinks and gratuity on dinner and drinks are payable on the night\./,
+  );
+  assert.doesNotMatch(email.html, /outstanding ticket balance/);
+  assert.doesNotMatch(email.html, /New Year|upfront|up-front/i);
+});
+
 test("Admin preview and Production test delivery use the shared attendance renderer", async () => {
   const [route, admin] = await Promise.all([
     readFile(`${root}/src/app/api/admin/workflows/route.ts`, "utf8"),

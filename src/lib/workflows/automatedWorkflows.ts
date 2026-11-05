@@ -4,7 +4,10 @@ import {
   htmlToPlainText,
   sanitizeEmailHtml,
 } from "@/lib/email/html";
-import { createBrandedCustomerEmail } from "@/lib/email/customerEmail";
+import {
+  createBrandedCustomerEmail,
+  createZingaraEmailCta,
+} from "@/lib/email/customerEmail";
 import {
   getZingaraEmailSender,
   sendOperationalCustomerEmail,
@@ -207,32 +210,7 @@ export const defaultWorkflowConfigurations: AutomatedWorkflowConfiguration[] = [
 
 The curtain is almost ready to rise — your Zingara experience is just around the corner.
 
-We look forward to welcoming you to {{showName}}.
-
-Your booking details
-
-Booking reference: {{bookingRef}}
-Performance date: {{showDate}}
-City and venue: {{location}}
-Guests: {{guest_count}}
-Seating zone: {{seatingZone}}
-Grounds Open: {{groundsOpen}}
-Guest Seating: {{guestSeating}}
-Show Starts: {{showStarts}}
-
-Everything you need for the evening is available on your digital ticket:
-
-{{ticketUrl}}
-
-Please note:
-
-Beverages are charged separately.
-
-A 12.5% gratuity will be applied to beverages and the dinner portion of your tickets for bookings of 6 or more.
-
-We can't wait to welcome you into the world of Zingara.
-
-The Zingara Team`,
+We look forward to welcoming you to {{showName}}. Please confirm your attendance below.`,
     capeTownReviewUrl: "",
     enabled: false,
     id: null,
@@ -564,6 +542,100 @@ function renderWorkflowEmailContent(
   };
 }
 
+function escapeWorkflowEmailHtml(value: string | number) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function getPreShowVenueInclusions(show: WorkflowShowTemplateContext) {
+  const location = getExperienceLocation(show.venue);
+
+  if (location === "johannesburg") {
+    return [
+      "Welcome drink on arrival.",
+      "Four-course dinner.",
+      "2½-hour performance experience.",
+    ];
+  }
+
+  if (location === "cape-town") {
+    return [
+      "Welcome drinks and canapés on arrival.",
+      "Three-course dinner.",
+      "2½-hour performance experience.",
+    ];
+  }
+
+  return [];
+}
+
+function getPreShowPaymentNotices(booking: WorkflowBookingTemplateContext) {
+  const paymentNotice =
+    booking.payment_status === "deposit_paid" || booking.balance_outstanding > 0
+      ? "The outstanding ticket balance, additional drinks and gratuity on dinner and drinks are payable on the night."
+      : "Additional drinks and gratuity on dinner and drinks are payable on the night.";
+  const gratuityNotice = booking.guest_count >= 6
+    ? "A discretionary 12.5% gratuity applies to the dinner portion and drinks and will be billed on the night."
+    : null;
+
+  return [paymentNotice, gratuityNotice].filter((notice): notice is string => Boolean(notice));
+}
+
+function renderPreShowDetails(input: {
+  booking: WorkflowBookingTemplateContext;
+  show: WorkflowShowTemplateContext;
+  venueSettings?: DemoVenueSettings;
+}) {
+  const reminderTimes = input.venueSettings
+    ? getReminderTemplateVariables(input.show, input.venueSettings)
+    : null;
+  const details = [
+    ["Booking reference", input.booking.booking_reference],
+    ["Performance", `${formatDate(input.show)} at ${reminderTimes?.showStarts ?? formatTime(input.show)}`],
+    ["Venue", getLocationLabel(input.show)],
+    ["Guests", input.booking.guest_count],
+    ["Seating zone", input.booking.section ?? "Not recorded"],
+    ...(reminderTimes
+      ? [
+          ["Grounds Open", reminderTimes.groundsOpen],
+          ["Guest Seating", reminderTimes.guestSeating],
+        ]
+      : []),
+  ];
+  const inclusions = getPreShowVenueInclusions(input.show);
+  const paymentNotices = getPreShowPaymentNotices(input.booking);
+  const ticketUrl = `/ticket/${encodeURIComponent(input.booking.booking_reference)}`;
+  const detailRows = details
+    .map(
+      ([label, value]) => `<tr><td style="padding:5px 10px 5px 0;color:#a8a29e;font-size:13px;line-height:1.4;">${escapeWorkflowEmailHtml(label)}</td><td align="right" style="padding:5px 0;color:#fffaf0;font-size:13px;font-weight:700;line-height:1.4;">${escapeWorkflowEmailHtml(value)}</td></tr>`,
+    )
+    .join("");
+  const list = (items: string[]) => items
+    .map((item) => `<li style="margin:0 0 8px;">${escapeWorkflowEmailHtml(item)}</li>`)
+    .join("");
+  const html = `<div style="margin:0 0 20px;padding:16px;border:1px solid #4f4525;border-radius:12px;background:#0e0c0a;">
+    <div style="margin:0 0 8px;color:#f2d66c;font-size:12px;font-weight:700;letter-spacing:1.5px;line-height:1.4;">YOUR BOOKING</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${detailRows}</table>
+    <div style="margin-top:14px;">${createZingaraEmailCta("OPEN DIGITAL TICKET", ticketUrl)}</div>
+  </div>
+  ${inclusions.length ? `<div style="margin:0 0 20px;"><div style="margin:0 0 10px;color:#f2d66c;font-size:12px;font-weight:700;letter-spacing:1.5px;line-height:1.4;">YOUR EXPERIENCE INCLUDES</div><ul style="margin:0;padding-left:20px;color:#fffaf0;font-size:14px;line-height:1.6;">${list(inclusions)}</ul></div>` : ""}
+  <div style="margin:0 0 10px;"><div style="margin:0 0 10px;color:#f2d66c;font-size:12px;font-weight:700;letter-spacing:1.5px;line-height:1.4;">PAYMENT &amp; GRATUITY</div><ul style="margin:0;padding-left:20px;color:#fffaf0;font-size:14px;line-height:1.6;">${list(paymentNotices)}</ul></div>`;
+  const message = [
+    "YOUR BOOKING",
+    ...details.map(([label, value]) => `${label}: ${value}`),
+    `Digital ticket: ${ticketUrl}`,
+    ...(inclusions.length ? ["YOUR EXPERIENCE INCLUDES", ...inclusions] : []),
+    "PAYMENT & GRATUITY",
+    ...paymentNotices,
+  ].join("\n");
+
+  return { html, message };
+}
+
 export async function renderConfiguredWorkflowEmail(input: {
   attendanceLinks?: { confirmedUrl: string; declinedUrl: string };
   booking: WorkflowBookingTemplateContext;
@@ -607,21 +679,37 @@ export async function renderConfiguredWorkflowEmail(input: {
     extras,
   );
   const isReview = input.configuration.workflowKey === "post_show_review";
+  const preShowDetails = !isReview
+    ? renderPreShowDetails({
+        booking: input.booking,
+        show: input.show,
+        venueSettings: input.venueSettings,
+      })
+    : null;
+  const attendanceMessage = !isReview && input.attendanceLinks
+    ? `CONFIRM YOUR ATTENDANCE\nYES - ATTENDING: ${input.attendanceLinks.confirmedUrl}\nNO - NOT ATTENDING: ${input.attendanceLinks.declinedUrl}`
+    : "";
   const branded = await createBrandedCustomerEmail({
     actions:
       !isReview && input.attendanceLinks
         ? [
-            { label: "YES — I'LL BE THERE", url: input.attendanceLinks.confirmedUrl },
-            { label: "NO — I CAN'T MAKE IT", url: input.attendanceLinks.declinedUrl, variant: "secondary" as const },
+            { label: "YES - ATTENDING", url: input.attendanceLinks.confirmedUrl },
+            { label: "NO - NOT ATTENDING", url: input.attendanceLinks.declinedUrl, variant: "secondary" as const },
           ]
         : undefined,
+    actionsAfterIntro: !isReview,
     ctaLabel: isReview ? "RATE YOUR EXPERIENCE" : undefined,
     ctaUrl: isReview ? input.reviewUrl : undefined,
     heading: subject,
     hidePrimaryUrlInHtml: isReview,
-    html: content.html,
+    html: preShowDetails?.html ?? content.html,
     includeAgePolicy: !isReview,
-    message: content.message,
+    includePrimaryCta: isReview,
+    introHtml: !isReview ? content.html : undefined,
+    message: !isReview && preShowDetails
+      ? [content.message, attendanceMessage, preShowDetails.message].filter(Boolean).join("\n\n")
+      : content.message,
+    stackActions: !isReview,
     subject,
   });
 

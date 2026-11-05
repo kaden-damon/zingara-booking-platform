@@ -34,10 +34,13 @@ test("preview attendance links are isolated from booking-specific tokens", () =>
 test("pre-show email adds secure yes and no actions without changing the reminder schedule", async () => {
   const workflow = await readFile(`${root}/src/lib/workflows/automatedWorkflows.ts`, "utf8");
   const email = await readFile(`${root}/src/lib/email/customerEmail.ts`, "utf8");
-  assert.match(workflow, /YES — I'LL BE THERE/);
-  assert.match(workflow, /NO — I CAN'T MAKE IT/);
+  assert.match(workflow, /YES - ATTENDING/);
+  assert.match(workflow, /NO - NOT ATTENDING/);
+  assert.doesNotMatch(workflow, /YES — I'LL BE THERE|NO — I CAN'T MAKE IT/);
   assert.match(workflow, /getOrCreateAttendanceLinks/);
   assert.match(email, /input\.actions/);
+  assert.match(email, /actionsAfterIntro/);
+  assert.match(email, /stackActions/);
   assert.match(workflow, /preShowReminderLeadMs = 24 \* 60 \* 60 \* 1000/);
 });
 

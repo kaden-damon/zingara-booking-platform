@@ -127,6 +127,7 @@ async function loadBrandAttachment() {
 
 export async function createBrandedCustomerEmail(input: {
   actions?: Array<{ label: string; url: string; variant?: "primary" | "secondary" }>;
+  actionsAfterIntro?: boolean;
   ctaLabel?: string;
   ctaUrl?: string;
   heading?: string;
@@ -135,8 +136,10 @@ export async function createBrandedCustomerEmail(input: {
   includeAgePolicy?: boolean;
   includePrimaryCta?: boolean;
   includeSecurityNotice?: boolean;
+  introHtml?: string | null;
   message: string;
   preserveTableReferences?: boolean;
+  stackActions?: boolean;
   subject?: string | null;
 }): Promise<BrandedCustomerEmail> {
   const message = normalizeCustomerEmailLinks(
@@ -175,6 +178,9 @@ export async function createBrandedCustomerEmail(input: {
   const content = visibleHtml
     ? extractBodyContent(visibleHtml)
     : plainTextToContent(visibleMessage);
+  const introContent = input.introHtml
+    ? extractBodyContent(normalizeCustomerEmailLinks(input.introHtml))
+    : "";
   const brandAttachment = await loadBrandAttachment();
   const heading =
     input.heading?.trim() || input.subject?.trim() || "Zingara Guest Update";
@@ -184,17 +190,21 @@ export async function createBrandedCustomerEmail(input: {
         `<a href="${getAbsoluteUrl(route)}" style="color:#d8c36a;text-decoration:underline;">${escapeHtml(label)}</a>`,
     )
     .join("&nbsp;&nbsp;·&nbsp;&nbsp;");
-  const actions = (input.actions ?? [])
+  const actionCells = (input.actions ?? [])
     .map(
       (action) =>
-        `<td width="50%" valign="top" style="padding:4px;">${createZingaraEmailCta(action.label, action.url).replace(
+        `<td width="${input.stackActions ? "100%" : "50%"}" valign="top" style="padding:4px;">${createZingaraEmailCta(action.label, action.url).replace(
           "background:#d8c36a;color:#090806",
           action.variant === "secondary"
             ? "background:#2f2d2a;color:#fffaf0;border:1px solid #6b655d"
             : "background:#d8c36a;color:#090806",
         )}</td>`,
     )
+    .map((cell) => input.stackActions ? `<tr>${cell}</tr>` : cell)
     .join("");
+  const actions = actionCells
+    ? `<tr><td align="center" style="padding:8px 20px 26px;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0">${input.stackActions ? actionCells : `<tr>${actionCells}</tr>`}</table></td></tr>`
+    : "";
 
   return {
     attachments: brandAttachment ? [brandAttachment] : [],
@@ -215,6 +225,8 @@ export async function createBrandedCustomerEmail(input: {
             <div style="margin-top:7px;color:#d8c36a;font-size:12px;letter-spacing:2px;line-height:1.4;">THE ROYAL COUNTESS</div>
             <div style="margin-top:22px;color:#fffaf0;font-family:Georgia,'Times New Roman',serif;font-size:23px;line-height:1.25;">${escapeHtml(heading)}</div>
           </td></tr>
+          ${introContent ? `<tr><td style="padding:26px 24px 6px;">${introContent}</td></tr>` : ""}
+          ${input.actionsAfterIntro ? actions : ""}
           <tr><td style="padding:26px 24px 10px;">${content}
             ${includeAgePolicy ? `<div style="margin:22px 0 12px;padding:16px;border:1px solid #4f4525;border-radius:12px;background:#0e0c0a;">
               <div style="color:#f2d66c;font-size:12px;font-weight:700;letter-spacing:1.5px;line-height:1.4;">${escapeHtml(ageRestrictionPolicy.label.toUpperCase())}</div>
@@ -223,7 +235,7 @@ export async function createBrandedCustomerEmail(input: {
             </div>` : ""}
           </td></tr>
           ${primaryUrl ? `<tr><td align="center" style="padding:12px 24px 26px;">${createZingaraEmailCta(input.ctaLabel ?? "OPEN SECURE ZINGARA LINK", primaryUrl)}</td></tr>` : ""}
-          ${actions ? `<tr><td align="center" style="padding:8px 20px 26px;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>${actions}</tr></table></td></tr>` : ""}
+          ${input.actionsAfterIntro ? "" : actions}
           <tr><td align="center" style="padding:22px 24px;border-top:1px solid #4f4525;color:#a8a29e;font-size:11px;line-height:1.6;">
             ${includeSecurityNotice ? "This email and any ticket, QR code or secure booking link contained in it are intended for the recipient and should not be shared or forwarded. Tickets and QR codes may provide access to the event and should be kept secure." : ""}
             <div style="margin-top:14px;">${legalNavigation}</div>
