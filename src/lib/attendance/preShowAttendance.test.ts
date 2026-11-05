@@ -54,10 +54,11 @@ test("response persistence is isolated from booking, seating, payment and ticket
 });
 
 test("decline notifications are asynchronous, routed and idempotent", async () => {
-  const [route, notification, migration] = await Promise.all([
+  const [route, notification, migration, routingCorrection] = await Promise.all([
     readFile(`${root}/src/app/api/attendance/[token]/route.ts`, "utf8"),
     readFile(`${root}/src/lib/email/attendanceDeclineNotification.ts`, "utf8"),
     readFile(`${root}/supabase/migrations/20261106001500_attendance_management_integration.sql`, "utf8"),
+    readFile(`${root}/supabase/migrations/20261106003000_attendance_box_office_routing_correction.sql`, "utf8"),
   ]);
   assert.match(route, /body\.response === "declined"/);
   assert.match(route, /after\(async/);
@@ -68,6 +69,9 @@ test("decline notifications are asynchronous, routed and idempotent", async () =
   assert.match(migration, /attendance-confirmations/);
   assert.match(migration, /bookings_attendance_response_idx/);
   assert.doesNotMatch(migration, /kaden@|fatima@|venue-manager|super-admin/i);
+  assert.match(routingCorrection, /cc_staff_profile_ids = '\{\}'::uuid\[\]/);
+  assert.match(routingCorrection, /coalesce\(cardinality\(v_to\), 0\) <> 4/);
+  assert.doesNotMatch(routingCorrection, /kaden@|fatima@|venue-manager|super-admin/i);
 });
 
 test("attendance management is presentation-only and keeps arrival separate", async () => {
