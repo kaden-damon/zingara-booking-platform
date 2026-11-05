@@ -41,6 +41,12 @@ test("schedule and calendar controls retain a compact responsive layout", async 
   assert.match(adminPage, /break-words text-xs font-semibold leading-snug text-white/);
   assert.match(adminPage, /\{show\.fullShowBuyout\.companyName\}/);
   assert.doesNotMatch(adminPage, /guests need section planning/);
+  assert.match(adminPage, /aria-label="Filter calendar by venue"/);
+  assert.match(adminPage, /\["all", "All"\]/);
+  assert.match(adminPage, /\["cape-town", "Cape Town"\]/);
+  assert.match(adminPage, /\["johannesburg", "Joburg"\]/);
+  assert.match(adminPage, /aria-pressed=\{isSelected\}/);
+  assert.doesNotMatch(adminPage, /placeholder="Search shows"/);
   assert.match(globalStyles, /select:not\(\[multiple\]\):not\(\[size\]\):not\(\.appearance-none\)/);
   assert.match(globalStyles, /background-position: right 1rem center/);
   assert.match(globalStyles, /padding-right: 3rem/);

@@ -5652,7 +5652,6 @@ export default function AdminDashboardPage({
   );
   const [showCalendarLocationFilter, setShowCalendarLocationFilter] =
     useState<ShowCalendarLocationFilter>("all");
-  const [showSearch, setShowSearch] = useState("");
   const [openShowFinancialPopupId, setOpenShowFinancialPopupId] = useState("");
   const [selectedShowId, setSelectedShowId] = useState("");
   const [selectedShowFloorLoadState, setSelectedShowFloorLoadState] =
@@ -22285,31 +22284,6 @@ export default function AdminDashboardPage({
       refunded: 0,
       unpaid: 0,
     };
-  const showSearchTerm = showSearch.trim().toLowerCase();
-  const showSearchResults = showSearchTerm
-    ? shows
-        .filter((show) => {
-          const location = getShowLocation(show);
-          const status = showOperationalStatusLabels[
-            show.operationalStatus ?? "active"
-          ];
-
-          return [
-            show.date,
-            formatOperationalShowDate(show.date),
-            show.label,
-            show.address ?? "",
-            show.venueName ?? "",
-            location ? getShowLocationOption(location).label : "",
-            location ? getShowCalendarLocationDisplay(location).searchAlias : "",
-            status,
-          ]
-            .join(" ")
-            .toLowerCase()
-            .includes(showSearchTerm);
-        })
-        .slice(0, 12)
-    : [];
   const selectedShowDateLabel = selectedShow
     ? formatOperationalShowDate(selectedShow.date)
     : "No date selected";
@@ -33456,69 +33430,36 @@ export default function AdminDashboardPage({
                     ›
                   </button>
                 </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:min-w-[520px]">
-                  <select
-                    value={showCalendarLocationFilter}
-                    onChange={(event) =>
-                      setShowCalendarLocationFilter(
-                        event.target.value as ShowCalendarLocationFilter,
-                      )
-                    }
-                    className="rounded-xl border border-white/15 bg-black px-4 py-3 text-sm text-white"
-                  >
-                    <option value="all">All Locations</option>
-                    {showLocationOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <AdminSearchInput
-                    value={showSearch}
-                    onSearchChange={setShowSearch}
-                    placeholder="Search shows"
-                    className="rounded-xl border border-white/15 bg-black px-4 py-3 text-sm text-white"
-                  />
+                <div
+                  role="group"
+                  aria-label="Filter calendar by venue"
+                  className="grid w-full grid-cols-3 gap-2 sm:w-auto"
+                >
+                  {([
+                    ["all", "All"],
+                    ["cape-town", "Cape Town"],
+                    ["johannesburg", "Joburg"],
+                  ] as const).map(([value, label]) => {
+                    const isSelected = showCalendarLocationFilter === value;
+
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => setShowCalendarLocationFilter(value)}
+                        className={`whitespace-nowrap rounded-full border px-3 py-2 text-[0.68rem] font-bold uppercase tracking-[0.1em] transition sm:px-4 sm:text-xs ${
+                          isSelected
+                            ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                            : "border-white/15 bg-black text-zinc-300 hover:border-[#D8C36A]/55 hover:text-white"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-
-              {showSearchTerm && (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/35 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
-                    Search Results
-                  </p>
-                  {showSearchResults.length === 0 ? (
-                    <p className="mt-3 text-sm text-zinc-400">No shows found.</p>
-                  ) : (
-                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-                      {showSearchResults.map((show) => (
-                        <button
-                          key={`show-search-${show.id}`}
-                          type="button"
-                          onClick={() => {
-                            setSelectedShowId(show.id);
-                            setShowCalendarMonth(show.date.slice(0, 7));
-                            openShowEditor(show);
-                          }}
-                          className="rounded-2xl border border-white/10 bg-zinc-950/80 p-3 text-left transition hover:border-[#D8C36A]/45"
-                        >
-                          <p className="font-semibold text-white">{show.label}</p>
-                          <p className="mt-1 text-xs text-zinc-400">
-                            {formatOperationalShowDate(show.date)} ·{" "}
-                            {getSouthAfricaShowTime(show)} ·{" "}
-                            {getShowLocation(show)
-                              ? getShowLocationOption(getShowLocation(show) as EntryLocationKey).label
-                              : "Location required"}
-                          </p>
-                          <span className="mt-2 inline-flex rounded-full border border-white/10 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-zinc-300">
-                            {showOperationalStatusLabels[show.operationalStatus ?? "active"]}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
 
               <div className="mt-5">
                 {showCalendarOccupancyError && !isShowsLoading && (
