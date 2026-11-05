@@ -1,6 +1,6 @@
 # P0 Internal Booking Amendment Failure
 
-STATUS: RELEASE READY - PRODUCTION DEPLOYMENT IN PROGRESS
+STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 5 NOVEMBER 2026
 
@@ -54,9 +54,23 @@ fixed-price Corporate agreements and public booking restrictions.
 ## Release Evidence
 
 - Migration: `20261105171000_p0_internal_booking_amendment_integrity.sql`.
-- Commit, deployment identifier and post-release Production evidence pending.
+- Application and records commit: `37558c408c5f112a8484323101f5154e24c81afc`.
+- Production deployment: `dpl_C4gBE3WudKjoH9Qzk3HTAiFhNVG8`, Ready and
+  aliased to `book.zingara.co.za` at 19:07:57 SAST.
+- Production function inspection confirmed the Corporate status guard is gone,
+  proposed pax validation is active and trusted transfers accept Blackout.
+- Authenticated Production UI verification opened the exact booking's guest
+  amendment, entered 94 without submitting, and displayed 10 added guests,
+  fixed-total/no-repricing, R0 additional and R0 outstanding.
+- A post-release rollback-only call exercised the exact database path and
+  succeeded. The live booking remained unchanged.
+- Public sales remain active-only; public availability and reservation guards
+  were not modified.
+- Rollback: revert `37558c40`, redeploy, and restore the three prior function
+  definitions captured by the migration baseline.
 
 ## Business-Data Delta
 
-- Pre-release: zero. No booking, table, payment, ticket or financial record was
-  changed during investigation or QA.
+- Zero. No booking, table, payment, ticket or financial record was changed
+  during investigation, release or QA. `ZNG-9VHFFH` remains at 84 guests with
+  15 table claims, R154,638 paid and R0 outstanding.

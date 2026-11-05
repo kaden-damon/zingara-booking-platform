@@ -1,6 +1,6 @@
 # P0 Internal Booking Amendment Failure
 
-STATUS: RELEASE READY - PRODUCTION DEPLOYMENT IN PROGRESS
+STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 5 NOVEMBER 2026
 
@@ -39,10 +39,23 @@ DATE: 5 NOVEMBER 2026
 
 ## Release
 
-- Migration: `20261105171000_p0_internal_booking_amendment_integrity.sql`.
-- Application commit, migration result, deployment and authenticated Production
-  verification will be recorded after release.
-- Rollback: revert the application commit and restore the three prior function
+- Application and records commit: `37558c408c5f112a8484323101f5154e24c81afc`.
+- Migration `20261105171000_p0_internal_booking_amendment_integrity.sql`
+  applied successfully and was verified in `supabase_migrations`.
+- Production deployment: `dpl_C4gBE3WudKjoH9Qzk3HTAiFhNVG8`, Ready and
+  aliased to `book.zingara.co.za` at 19:07:57 SAST.
+- Authenticated Production UI verification opened the exact Corporate booking
+  amendment and entered 94 without submission. The screen showed 10 added
+  guests, fixed total with no automatic repricing, R0 additional amount, R0 new
+  outstanding and an enabled confirmation action.
+- A post-release rollback-only Production transaction exercised the exact save
+  path successfully. The live booking remains unchanged at 84 guests with 15
+  table claims, R154,638 paid and R0 outstanding.
+- Public booking remains active-only; no public availability predicate or
+  database reservation boundary changed.
+- Business-data delta: zero. Only function definitions and application policy
+  were changed.
+- Rollback: revert `37558c40`, redeploy, and restore the three prior function
   definitions from the migration baseline.
 
 ## Archive
