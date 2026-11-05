@@ -254,7 +254,7 @@ export async function POST(request: Request) {
         batch_id: null,
         booking_id: null,
         channel: "email",
-        created_by: auth.staffProfile.id,
+        created_by: null,
         customer_id: null,
         message: preview.message,
         show_id: null,
