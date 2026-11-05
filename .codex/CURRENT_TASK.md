@@ -1,3 +1,63 @@
+# P0 Booking Visibility & Data Integrity
+
+STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Findings
+
+- Johannesburg 10 November 2026 contains one authoritative 350-guest Full
+  Show Buyout (`ZNG-DA5D8B36`, NTT DATA - Internet Solutions). It has no zone
+  allocations or table assignment because its section plan is still a manual
+  Box Office decision. The zero zone totals were therefore accurate but lacked
+  an explanation.
+- The shared assignment-status function counted every active tableless booking
+  as waiting for automatic assignment. This incorrectly included Full Show
+  Buyouts even though all assignment engines already keep buyouts manual.
+- The bounded Production audit covered 264 performances, 6,469 active
+  bookings and 47,097 guests across both venues. It found no cross-show table
+  claims, no active buyout guest mismatch, no active buyout missing its
+  control record and no performance with multiple active buyouts. Eight active
+  buyouts were incorrectly included in the generic waiting calculation.
+
+## Correction
+
+- Migration `20261106013000_p0_booking_visibility_integrity.sql` excludes
+  active Full Show Buyouts from the generic automatic-assignment waiting count
+  through the indexed `corporate_buyouts` relationship.
+- Floor & Arrivals now identifies the selected Full Show Buyout and explains
+  that its guests await manual section planning, so empty zone totals are no
+  longer presented without context.
+- Automatic Table Assignment now says `eligible bookings`, preserving the
+  established rule that buyouts remain outside automatic assignment.
+
+## Verification & Release
+
+- Focused regression tests passed 16/16 and TypeScript passed. A Production
+  webpack build completed successfully. The migration dry run listed only the
+  intended function replacement.
+- Authenticated Production verification for JHB 10 November confirmed:
+  `Full Show Buyout - 350 guests`, the manual section-planning explanation,
+  350 of 415 guests booked, `All eligible bookings have tables`, and Needs a
+  Table at 0 bookings / 0 guests. The four zone totals remain zero until Box
+  Office records the buyout seating plan.
+- The same live page remained contained at 390 x 844 with no horizontal
+  overflow (`scrollWidth = clientWidth = 390`).
+- Local application commit: `5f4240bc`. GitHub rejected normal ref pushes, so
+  the identical verified tree was published through the authenticated GitHub
+  Git Data API as Production commit `51b04b225661ce3dc8779e2438235b0badc0f49f`.
+- Production deployment: `6xZnU6aEsdL39x351FFTVeJo2Ti2`, READY. The linked
+  Supabase migration completed successfully before live verification.
+- Business-data delta: none. No booking, buyout, assignment, table, capacity,
+  payment, ticket, customer or financial record changed.
+- Rollback: redeploy the parent application release and restore the prior
+  `get_box_office_assignment_approval_status` definition. No business-data
+  rollback is required.
+- Full record:
+  `.codex/archive/P0_BOOKING_VISIBILITY_DATA_INTEGRITY_2026-11-06.md`.
+
+---
+
 # Show & Availability Management UI/UX Cleanup
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
