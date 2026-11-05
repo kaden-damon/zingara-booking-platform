@@ -33519,6 +33519,10 @@ export default function AdminDashboardPage({
                                     openShowEditor(show);
                                   }}
                                   className={`group relative cursor-pointer rounded-xl border p-3 outline-none transition focus:ring-2 focus:ring-[#D8C36A]/70 ${statusPresentation.className} ${
+                                    openShowFinancialPopupId === show.id
+                                      ? "z-30"
+                                      : ""
+                                  } ${
                                     isDisabled ? "opacity-75" : ""
                                   }`}
                                 >
@@ -33538,7 +33542,11 @@ export default function AdminDashboardPage({
                                     </div>
                                   </div>
                                   <div
-                                    className="absolute right-2 top-2 z-20"
+                                    className={`absolute right-2 top-2 ${
+                                      openShowFinancialPopupId === show.id
+                                        ? "z-40"
+                                        : "z-20"
+                                    }`}
                                     onClick={(event) => event.stopPropagation()}
                                     onKeyDown={(event) => event.stopPropagation()}
                                     onMouseEnter={() =>
