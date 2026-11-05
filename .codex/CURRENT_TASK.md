@@ -132,6 +132,18 @@ DATE: 5 NOVEMBER 2026
   `dpl_ACAL6SjhMf7SG9zsQbRfPohsTaE7`, Ready and aliased to
   `book.zingara.co.za` at 21:58:52 SAST. No email was sent and no business data
   changed.
+- Show-time restoration follow-up: the shared Pre-Show Reminder booking card
+  once again displays Grounds Open, Guest Seating and Show Starts directly from
+  the authoritative venue settings. Production currently configures both
+  venues as `17:00`, `18:30` and `19:30` respectively. Authenticated preview
+  and the delivered Production test email matched exactly.
+- The one authorised test `TEST — Zingara Pre-Show Reminder` was provider
+  accepted, logged once in Communications at 22:12:32 SAST and confirmed in
+  `kaden@kaden.co.za` Outlook. It used isolated preview attendance links and
+  changed no booking or attendance record. Application commit: `3bece54d`;
+  migration: `20261105224500_pre_show_reminder_test_release.sql`; Production
+  deployment: `dpl_31uQnKZg8JppiP4tVqp4wGfE2i9Q`, Ready and aliased to
+  `book.zingara.co.za` at 22:09:24 SAST.
 - Rollback: revert `510a003f`, redeploy, and stop generating new attendance
   links. The additive columns/table may remain safely in place; existing
   responses can be retained as audit evidence.

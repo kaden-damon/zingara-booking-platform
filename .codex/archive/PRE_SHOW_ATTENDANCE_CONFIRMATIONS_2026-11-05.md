@@ -183,3 +183,39 @@ DATE: 5 NOVEMBER 2026
   ticket, communication or financial record changed.
 - Rollback: revert `14723c5a` and redeploy; no migration or data rollback is
   required.
+
+## Show Starts Restoration And Production Test
+
+- Root cause: the shared renderer loaded all three authoritative Customer
+  Experience Times, but the refined `YOUR BOOKING` HTML row list stopped after
+  Guest Seating. The plain-text test expected Show Starts, leaving the visual
+  card regression insufficiently protected.
+- `Show Starts` is restored directly below `Guest Seating`. The renderer now
+  displays Grounds Open, Guest Seating and Show Starts from the saved
+  venue-specific settings without hardcoded email times.
+- Production's authoritative settings currently configure both Cape Town and
+  Johannesburg as Grounds Open `17:00`, Guest Seating `18:30`, Show Starts
+  `19:30`.
+- Authenticated Production preview confirmed all three rows plus the current
+  attendance actions, Cape Town inclusions, payment/gratuity copy, age policy
+  and legal footer. Scheduled delivery and Admin preview continue to use the
+  same renderer.
+- Exactly one authorised Production email with subject
+  `TEST — Zingara Pre-Show Reminder` was sent to `kaden@kaden.co.za`. Microsoft
+  365 accepted it, Communications recorded one `sent` release-test record at
+  22:12:32 SAST, and inbox receipt plus complete rendering were confirmed in
+  Outlook. The attendance URLs use the isolated preview token and cannot write
+  real booking or attendance state.
+- Verification: six attendance security tests, targeted ESLint, TypeScript,
+  whitespace checks and the Next.js 16 Webpack Production build passed. The
+  direct workflow test remains blocked by the repository's Node `@/` alias
+  limitation; the real Next build compiled and type-checked the renderer and
+  authenticated Production verified its output.
+- Application commit: `3bece54d`.
+- Migration: `20261105224500_pre_show_reminder_test_release.sql`.
+- Production deployment: `dpl_31uQnKZg8JppiP4tVqp4wGfE2i9Q`, Ready and
+  aliased to `book.zingara.co.za` at 22:09:24 SAST.
+- Business-data delta: one sent QA Communications record only. No booking,
+  attendance, seating, payment, ticket or financial record changed.
+- Rollback: revert `3bece54d` and redeploy. The narrow test-delivery index may
+  remain safely; no business-data rollback is required.
