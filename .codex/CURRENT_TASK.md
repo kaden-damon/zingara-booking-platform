@@ -20,11 +20,23 @@ DATE: 5 NOVEMBER 2026
   controls and clean uppercase sans-serif Management Controls typography.
 - Sensitive credentials, payment details and unrelated customer data are
   excluded. Reports are never submitted automatically.
+- Staff issue emails now lead with a short operational summary and a single
+  selectable `REPORT` block. Only captured context is included, timestamps are
+  readable in SAST, and secure attachments plus the existing `OPEN ISSUE`
+  action and approved footer are preserved.
+- The existing staff walkthrough now introduces the Quick Bug Reporter in five
+  short steps. Version `quick-bug-reporter-2026-11-05-v1` makes it available to
+  every existing staff account without deleting prior acknowledgement history;
+  completed staff can reopen it from Academy.
 
 ## Verification And Release
 
 - Focused tests passed 12/12; TypeScript, changed-file ESLint, whitespace checks
   and the Next.js Webpack Production build passed.
+- Follow-up email and walkthrough tests passed 16/16. TypeScript, focused
+  changed-file ESLint, whitespace checks and a clean Next.js Webpack Production
+  build passed. The Admin page chunk measured 760,455 bytes, 16 bytes smaller
+  than the previous verified release.
 - Clean baseline comparison measured a 3,011-byte increase in the Admin
   closed-state page chunk (approximately 0.4%); the panel remains lazy-loaded.
 - Authenticated Production desktop and 420px compact-width verification
@@ -38,12 +50,24 @@ DATE: 5 NOVEMBER 2026
 - Application commits: `daa5620e`, `fc0b873e`, `0fa1525d`, `c9d7e168`.
 - Final Production deployment: `dpl_J7v8gZnXDLNAkHjVJjMKiJnr3qAy`, Ready and
   aliased to `book.zingara.co.za` at 19:54:35 SAST.
+- Follow-up application commit: `c4e1d3c2`.
+- Follow-up Production deployment: `dpl_HkNA2JVARosoZ7gSDxaGARsWWEuu`, Ready
+  and aliased to `book.zingara.co.za` at 20:29:41 SAST.
+- Authenticated Production verification confirmed automatic first display for
+  Kaden without reauthentication, all five steps, Back/Next navigation,
+  completion persistence and the Academy entry labelled `QUICK BUG REPORTER
+  WALKTHROUGH`. Concurrent user tab switching prevented a clean final visual
+  observation after clicking the Academy reopen action; the live control and
+  its tested event path were verified. No Capture, Send, issue creation or
+  email delivery was triggered during this follow-up.
 - No migration was required. Business-data delta is limited to the approved
   completed QA issue, its private attachment, one Communications record, one
   idempotency record and the issue completion audit. No booking, seating,
   payment, ticket or financial record changed.
 - Rollback: revert the four application commits and redeploy. No database
   rollback is required; retain the completed QA record as release evidence.
+- Follow-up rollback: revert `c4e1d3c2` and redeploy. No migration or database
+  rollback is required.
 - Full record: `.codex/archive/INTELLIGENT_QUICK_BUG_REPORTER.md`.
 
 ---

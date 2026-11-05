@@ -79,3 +79,57 @@ DATE: 5 NOVEMBER 2026
 - Rollback: revert `c9d7e168`, `0fa1525d`, `fc0b873e` and `daa5620e`, then
   redeploy. No database rollback is required. Retain `BUG-000030` as immutable
   release evidence.
+
+## Follow-up: Email And Feature Walkthrough
+
+### Email correction
+
+- The staff issue email now places the essential issue summary first and uses a
+  single `REPORT` heading instead of `CODEX-READY REPORT`.
+- The copy-ready technical report is presented in a rounded dark Zingara block,
+  remains selectable, preserves available action/error/booking/performance and
+  evidence fields, and omits unavailable fields rather than printing
+  placeholders.
+- ISO and captured SAST timestamps render in a readable SAST format. The
+  existing secure attachment references, direct `OPEN ISSUE` action, branded
+  footer, routing, idempotency and Communications logging are unchanged.
+- The technical email path preserves legitimate table references while the
+  customer-email redaction default remains unchanged for every other workflow.
+
+### Staff walkthrough
+
+- Reused the existing Quote & Invoice walkthrough architecture, including
+  Next, Back, Skip, Got It, per-user acknowledgement, current-session handling,
+  navigation checks and modal deferral.
+- Published exactly five reporter steps under version
+  `quick-bug-reporter-2026-11-05-v1`: Report an Issue, Automatic Details, Move
+  the Icon, Add a Screenshot and Send.
+- The unique version makes the walkthrough eligible for all existing staff on
+  their next authenticated Admin access, refresh or navigation without logout.
+  Prior acknowledgement history is retained. Academy exposes `QUICK BUG
+  REPORTER WALKTHROUGH` for later reopening.
+
+### Verification and release
+
+- Focused issue-email, attachment and walkthrough tests passed: 16/16.
+- TypeScript, focused changed-file ESLint, whitespace validation and the Next.js
+  Webpack Production build passed. The Admin page chunk is 760,455 bytes, 16
+  bytes smaller than the previous verified release.
+- A local render of the real email builder was visually verified at desktop and
+  narrow widths. No email or issue was submitted, as required.
+- Authenticated Production verification confirmed the walkthrough appears
+  without reauthentication, all five steps render, Back and Next work, Got It
+  persists completion, and Academy shows the reporter walkthrough entry.
+  Concurrent user tab switching prevented a clean final visual observation
+  after clicking the Academy reopen action; the live entry and its focused
+  event-path test were verified.
+- Application commit: `c4e1d3c2` (`feat: refine issue emails and add reporter
+  walkthrough`).
+- Production deployment: `dpl_HkNA2JVARosoZ7gSDxaGARsWWEuu`, Ready and aliased
+  to `book.zingara.co.za` at 20:29:41 SAST on 5 November 2026.
+- No migration was required. Business-data delta is limited to Kaden's
+  walkthrough acknowledgement metadata for the new version. No issue, email,
+  attachment, booking, seating, payment, ticket or financial record was
+  created or changed.
+- Rollback: revert `c4e1d3c2` and redeploy. No database rollback is required;
+  the harmless acknowledgement metadata may remain as historical evidence.
