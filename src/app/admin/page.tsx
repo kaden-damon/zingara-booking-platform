@@ -2130,6 +2130,12 @@ function getShowEditForm(show: DemoShow): ShowEditForm {
   };
 }
 
+function getShowManagementVenueHeading(show: DemoShow) {
+  return normalizeShowLocation(show.location ?? show.venueName) === "cape-town"
+    ? "Zingara Cape Town"
+    : "Zingara Johannesburg";
+}
+
 function getDefaultDashboardLayout(): DashboardLayoutState {
   return {
     hidden: defaultHiddenDashboardWidgets,
@@ -33115,8 +33121,7 @@ export default function AdminDashboardPage({
                     Show & Availability Management
                   </h3>
                   <p className="mt-1 text-sm text-zinc-400">
-                    Create shows and mark dates as active, inactive, sold
-                    out, blackout, venue closure, or special event.
+                    Manage show schedules and availability.
                   </p>
                 </div>
               </div>
@@ -33995,7 +34000,7 @@ export default function AdminDashboardPage({
                     Edit Show
                   </p>
                   <h3 className="mt-2 text-2xl font-bold text-white">
-                    {editingShow.label}
+                    {getShowManagementVenueHeading(editingShow)}
                   </h3>
                   <p className="mt-1 text-sm text-zinc-500">
                     {editingShowLinkedBookings} linked bookings preserved

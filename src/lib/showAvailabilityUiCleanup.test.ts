@@ -28,6 +28,10 @@ test("schedule and calendar controls retain a compact responsive layout", async 
   ]);
 
   assert.match(adminPage, /<details className="order-last mt-5[^"]*"/);
+  assert.match(adminPage, /Manage show schedules and availability\./);
+  assert.match(adminPage, /getShowManagementVenueHeading\(editingShow\)/);
+  assert.match(adminPage, /\? "Zingara Cape Town"\s*:\s*"Zingara Johannesburg"/);
+  assert.doesNotMatch(adminPage, /Create shows and mark dates as active/);
   assert.doesNotMatch(adminPage, /<div className="contents">\s*<details className="order-last/);
   assert.match(adminPage, /grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-7/);
   assert.match(adminPage, /grid-cols-2 gap-1\.5 pr-11 2xl:grid-cols-1 2xl:pb-11 2xl:pr-0/);
