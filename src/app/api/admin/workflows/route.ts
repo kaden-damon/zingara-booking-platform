@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const preShowTestRecipient = "kaden@kaden.co.za";
-const preShowTestBatchId = "pre-show-attendance-template-test-2026-11-05-v1";
+const preShowTestBatchId = "00000000-0000-4000-8000-000000005105";
 
 function getStaffRole(
   staffProfile: NonNullable<

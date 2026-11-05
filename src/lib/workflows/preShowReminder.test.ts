@@ -113,7 +113,7 @@ test("Admin preview and Production test delivery use the shared attendance rende
   ]);
   assert.match(route, /getAttendancePreviewLinks\(applicationOrigin\)/);
   assert.match(route, /TEST — \$\{preview\.subject\}/);
-  assert.match(route, /pre-show-attendance-template-test-2026-11-05-v1/);
+  assert.match(route, /00000000-0000-4000-8000-000000005105/);
   assert.match(route, /body\.action === "send-test" \? "Kaden" : "Sample Guest"/);
   assert.match(admin, /template\.trigger !== "show-reminder"/);
   assert.match(admin, /template\.trigger !== "post-show-review"/);
