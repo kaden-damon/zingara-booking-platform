@@ -1,3 +1,49 @@
+# Show & Availability Management UI/UX Cleanup
+
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Delivered
+
+- Show creation is contained in one `Create Show Schedule` section below the
+  calendar. It is collapsed by default and contains the bulk schedule tools
+  plus the date, time, label, location, address and `Create Show` controls.
+- Only month navigation, location filtering and search remain above the
+  calendar. Existing creation, editing, availability and buyout actions are
+  unchanged.
+- The calendar now scales from one mobile column to seven large-desktop
+  columns. Capacity badges remain compact, single-line and contained; buyout
+  summaries use the same bounded layout.
+- Public/Admin presentation now uses concise Open, Sold Out, Buyout and Closed
+  labels while preserving the distinct operational status values and their
+  existing booking restrictions.
+
+## Verification & Release
+
+- Focused UI tests: 5/5 passed after the final placement correction; the
+  broader affected regression set passed 40/40. TypeScript and whitespace
+  checks passed.
+- Authenticated Production inspection verified the collapsed schedule below
+  the calendar, every Create Show control inside it, navigation/filter/search
+  above the calendar, and contained capacity badges at 1440 x 900 and the
+  authenticated mobile viewport.
+- No request, polling, query, calculation or booking-path work was added.
+  Measured source gzip delta for the functional cleanup was +96 bytes overall
+  (Admin +137 bytes; public -41 bytes), with no measurable runtime overhead.
+- Application commits: `ce9c97db`, `bfd517e5` and `c1fe3409`.
+- Final Production deployment:
+  `zingara-booking-platform-kqqucfycf-kaden-damons-projects.vercel.app`, READY
+  at 6 November 2026, 00:05:24 SAST and aliased to `book.zingara.co.za`.
+- Business-data delta: none. No show, booking, availability, capacity, buyout,
+  seating, payment, ticket or customer record changed.
+- Rollback: revert `c1fe3409`, `bfd517e5` and `ce9c97db` in reverse order and
+  redeploy. No database rollback is required.
+- Full record:
+  `.codex/archive/SHOW_AVAILABILITY_MANAGEMENT_UI_UX_CLEANUP_2026-11-06.md`.
+
+---
+
 # Attendance Management & Notification Integrity
 
 STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
