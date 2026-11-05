@@ -1,3 +1,70 @@
+# Guest Communication & Disclosure Integrity
+
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 5 NOVEMBER 2026
+
+## Findings
+
+- The authoritative booking calculation applies a 12.5% service fee/gratuity
+  for parties of six or more to the discounted seating and add-on subtotal and
+  includes it in the booking total. Existing checkout totals were correct, but
+  guest copy in checkout and the Pre-Show Reminder incorrectly described that
+  charge as discretionary and payable on the night.
+- Venue inclusions were correct in the Pre-Show Reminder but were absent from
+  the public payment commitment, balance-payment, Find My Booking and booking
+  confirmation touchpoints. Initial branded confirmation emails also did not
+  consume the editable Reservation Confirmed body.
+- Corporate enquiries already enforce the authoritative 20-guest minimum.
+  Existing digital tickets, ticket PDFs and Apple Wallet passes contain the
+  required event, venue, seating, timing and status information without a
+  conflicting financial statement; they remain intentionally compact.
+
+## Delivered
+
+- One shared venue-aware disclosure source now supplies Cape Town and
+  Johannesburg inclusions plus booking-derived payment/gratuity notices.
+- Public checkout, secure balance-payment links and Find My Booking now show
+  compact inclusions and payment disclosures before a guest pays or manages an
+  outstanding balance.
+- Booking confirmations, PayFast payment confirmations and Pre-Show Reminders
+  now use the same authoritative content. Deposit bookings mention an
+  outstanding balance; fully paid bookings do not. The persisted `service_fee`
+  determines whether the included 12.5% notice appears.
+- Initial branded reservation confirmations now include the saved editable
+  template body. Admin template previews append the same authoritative
+  disclosure content. Manual ticket resends retain their existing focused
+  ticket presentation.
+- Corporate wording now states that any applicable 12.5% gratuity is itemised
+  in the quote and distinguishes additional drinks/gratuity payable at the
+  venue unless covered by the agreed booking.
+- No pricing, gratuity, VAT, deposit, NYE, PayFast, booking, seating, ticket or
+  Wallet calculation changed. No migration was required.
+
+## Verification & Release
+
+- Focused disclosure/email tests: 14/14 passed. TypeScript, targeted lint,
+  whitespace checks and the Next.js 16 Webpack Production build passed. The
+  existing Admin performance script still cannot parse the Webpack
+  client-reference manifest; no performance claim relies on that script.
+- Browser verification covered the public booking flow and the live Corporate
+  disclosure. Production returned HTTP 200 for Booking and Find My Booking,
+  and the deployed Corporate page contained the corrected wording.
+- The available browser session was not authenticated for Admin, so a direct
+  live Admin preview inspection was not claimed. Shared renderer tests and the
+  Production build verify the preview integration.
+- Application commit: `6a9515bf`.
+- Production deployment: `dpl_BVQ9EbmokQkGNqWx9BMFNKNgb9AH`, READY and
+  aliased to `book.zingara.co.za`.
+- Business-data delta: zero. No customer email was sent and no booking,
+  payment, seating, ticket, communication or financial record changed.
+- Rollback: revert `6a9515bf` and redeploy. No schema or data rollback is
+  required.
+- Full record:
+  `.codex/archive/GUEST_COMMUNICATION_DISCLOSURE_INTEGRITY_2026-11-05.md`.
+
+---
+
 # Pre-Show Attendance Confirmations
 
 STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
