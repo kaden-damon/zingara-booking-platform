@@ -37,6 +37,9 @@ test("schedule and calendar controls retain a compact responsive layout", async 
   assert.match(adminPage, /grid-cols-2 gap-1\.5 pr-11 2xl:grid-cols-1 2xl:pb-11 2xl:pr-0/);
   assert.match(adminPage, /inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap/);
   assert.match(adminPage, /tracking-normal tabular-nums/);
+  assert.match(adminPage, /break-words text-xs font-semibold leading-snug text-white/);
+  assert.match(adminPage, /\{show\.fullShowBuyout\.companyName\}/);
+  assert.doesNotMatch(adminPage, /guests need section planning/);
   assert.match(globalStyles, /select:not\(\[multiple\]\):not\(\[size\]\):not\(\.appearance-none\)/);
   assert.match(globalStyles, /background-position: right 1rem center/);
   assert.match(globalStyles, /padding-right: 3rem/);

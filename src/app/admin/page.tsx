@@ -33758,22 +33758,12 @@ export default function AdminDashboardPage({
                                   )}
                                   {show.fullShowBuyout ? (
                                     <div className="mt-3 mr-11 rounded-lg border border-sky-300/30 bg-sky-950/20 p-2.5">
-                                      <div className="flex min-w-0 items-center gap-2">
-                                        <p className="shrink-0 text-[0.62rem] font-bold uppercase tracking-[0.1em] text-sky-200">
-                                          Buyout
-                                        </p>
-                                        <p className="truncate text-xs font-semibold text-white">
-                                          {show.fullShowBuyout.companyName}
-                                        </p>
-                                      </div>
+                                      <p className="min-w-0 break-words text-xs font-semibold leading-snug text-white">
+                                        {show.fullShowBuyout.companyName}
+                                      </p>
                                       <p className="mt-1 truncate text-[0.68rem] text-zinc-300" title={`${show.fullShowBuyout.packageName} · ${show.fullShowBuyout.currentGuestCount} guests · ${corporateBuyoutStateLabels[show.fullShowBuyout.state]}`}>
                                         {show.fullShowBuyout.packageName} · {show.fullShowBuyout.currentGuestCount} guests · {corporateBuyoutStateLabels[show.fullShowBuyout.state]}
                                       </p>
-                                      {show.fullShowBuyout.unallocatedGuestCount > 0 && (
-                                        <p className="text-[0.68rem] text-amber-100">
-                                          {show.fullShowBuyout.unallocatedGuestCount} guests need section planning
-                                        </p>
-                                      )}
                                       {show.fullShowBuyout.reviewBookingCount > 0 && (
                                         <div className="mt-2 border-t border-amber-300/20 pt-2">
                                           <p className="text-[0.62rem] font-bold uppercase tracking-[0.1em] text-amber-100">
