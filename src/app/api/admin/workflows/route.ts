@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const preShowTestRecipient = "kaden@kaden.co.za";
-const preShowTestBatchId = "00000000-0000-4000-8000-000000005105";
+const preShowTestSubject = "TEST — Zingara Pre-Show Reminder";
 
 function getStaffRole(
   staffProfile: NonNullable<
@@ -232,12 +232,12 @@ export async function POST(request: Request) {
         );
       }
 
-      const testSubject = `TEST — ${preview.subject}`;
       const { data: existingTest, error: existingTestError } = await auth.serviceClient
         .from("communications")
         .select("id,status,sent_at")
-        .eq("batch_id", preShowTestBatchId)
+        .is("batch_id", null)
         .eq("channel", "email")
+        .eq("subject", preShowTestSubject)
         .in("status", ["sending", "sent"])
         .maybeSingle();
 
@@ -246,24 +246,24 @@ export async function POST(request: Request) {
         return Response.json({
           alreadySent: true,
           sentAt: existingTest.sent_at,
-          subject: testSubject,
+          subject: preShowTestSubject,
         });
       }
 
       const claim = await claimOneTimeEmailCommunication(auth.serviceClient, {
-        batch_id: preShowTestBatchId,
+        batch_id: null,
         booking_id: null,
         channel: "email",
         created_by: auth.staffProfile.id,
         customer_id: null,
         message: preview.message,
         show_id: null,
-        subject: testSubject,
+        subject: preShowTestSubject,
         type: "custom_message",
       });
 
       if (!claim) {
-        return Response.json({ alreadySent: true, subject: testSubject });
+        return Response.json({ alreadySent: true, subject: preShowTestSubject });
       }
 
       const delivery = await sendZingaraEmail({
@@ -271,7 +271,7 @@ export async function POST(request: Request) {
         html: preview.html,
         message: preview.message,
         sender: "review",
-        subject: testSubject,
+        subject: preShowTestSubject,
         to: preShowTestRecipient,
       });
 
@@ -287,13 +287,17 @@ export async function POST(request: Request) {
       const completed = await completeClaimedEmailCommunication(
         auth.serviceClient,
         claim.id,
-        { message: preview.message, status: "sent", subject: testSubject },
+        {
+          message: preview.message,
+          status: "sent",
+          subject: preShowTestSubject,
+        },
       );
 
       return Response.json({
         alreadySent: false,
         sentAt: completed.sent_at,
-        subject: testSubject,
+        subject: preShowTestSubject,
       });
     }
 

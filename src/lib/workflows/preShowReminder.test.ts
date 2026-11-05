@@ -112,8 +112,8 @@ test("Admin preview and Production test delivery use the shared attendance rende
     readFile(`${root}/src/app/admin/page.tsx`, "utf8"),
   ]);
   assert.match(route, /getAttendancePreviewLinks\(applicationOrigin\)/);
-  assert.match(route, /TEST — \$\{preview\.subject\}/);
-  assert.match(route, /00000000-0000-4000-8000-000000005105/);
+  assert.match(route, /TEST — Zingara Pre-Show Reminder/);
+  assert.match(route, /batch_id: null/);
   assert.match(route, /body\.action === "send-test" \? "Kaden" : "Sample Guest"/);
   assert.match(admin, /template\.trigger !== "show-reminder"/);
   assert.match(admin, /template\.trigger !== "post-show-review"/);
