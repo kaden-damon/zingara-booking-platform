@@ -557,7 +557,7 @@ function getPreShowVenueInclusions(show: WorkflowShowTemplateContext) {
   if (location === "johannesburg") {
     return [
       "Welcome drink on arrival.",
-      "Four-course dinner.",
+      "A decadent 4 course dinner",
       "2½-hour performance experience.",
     ];
   }
@@ -565,7 +565,7 @@ function getPreShowVenueInclusions(show: WorkflowShowTemplateContext) {
   if (location === "cape-town") {
     return [
       "Welcome drinks and canapés on arrival.",
-      "Three-course dinner.",
+      "A decadent 3 course dinner",
       "2½-hour performance experience.",
     ];
   }

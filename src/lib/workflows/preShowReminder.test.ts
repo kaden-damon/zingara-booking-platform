@@ -127,9 +127,9 @@ test("pre-show reminder uses the refined mobile-safe attendance and Cape Town la
   assert.match(email.html, /Dear Kaden,/);
   assert.doesNotMatch(email.html, /I&#39;LL BE THERE|CAN&#39;T MAKE IT|YES —|NO —/);
   assert.match(email.html, /Welcome drinks and canapés on arrival\./);
-  assert.match(email.html, /Three-course dinner\./);
+  assert.match(email.html, /A decadent 3 course dinner/);
   assert.match(email.html, /2½-hour performance experience\./);
-  assert.doesNotMatch(email.html, /Four-course dinner/);
+  assert.doesNotMatch(email.html, /A decadent 4 course dinner/);
   assert.match(
     email.html,
     /Additional drinks and gratuity on dinner and drinks are payable on the night\./,
@@ -173,8 +173,8 @@ test("Johannesburg deposit and six-plus wording follows booking financial eviden
   });
 
   assert.match(email.html, /Welcome drink on arrival\./);
-  assert.match(email.html, /Four-course dinner\./);
-  assert.doesNotMatch(email.html, /canapés|Three-course dinner/);
+  assert.match(email.html, /A decadent 4 course dinner/);
+  assert.doesNotMatch(email.html, /canapés|A decadent 3 course dinner/);
   assert.match(
     email.html,
     /The outstanding ticket balance, additional drinks and gratuity on dinner and drinks are payable on the night\./,
