@@ -7492,13 +7492,18 @@ export default function AdminDashboardPage({
   }, [guidedTrainingModuleId]);
 
   useEffect(() => {
+    const selectableTemplates = communicationTemplates.filter(
+      (template) =>
+        template.trigger !== "show-reminder" &&
+        template.trigger !== "post-show-review",
+    );
     if (
-      communicationTemplates.length > 0 &&
-      !communicationTemplates.some(
+      selectableTemplates.length > 0 &&
+      !selectableTemplates.some(
         (template) => template.id === selectedTemplateId,
       )
     ) {
-      setSelectedTemplateId(communicationTemplates[0].id);
+      setSelectedTemplateId(selectableTemplates[0].id);
     }
   }, [communicationTemplates, selectedTemplateId]);
 
@@ -10058,6 +10063,30 @@ export default function AdminDashboardPage({
     } catch (error) {
       console.error("[Zingara admin] Failed to preview workflow email", error);
       showWorkflowToast("⚠ Could not preview email");
+    }
+  }
+
+  async function sendPreShowReminderTest(
+    workflow: AutomatedWorkflowConfiguration,
+  ) {
+    try {
+      const result = await fetchSupabaseApi<{
+        alreadySent: boolean;
+        sentAt?: string | null;
+        subject: string;
+      }>("/api/admin/workflows", {
+        body: { action: "send-test", workflow },
+        method: "POST",
+      });
+
+      showWorkflowToast(
+        result.alreadySent
+          ? "Test email was already sent"
+          : "Test email sent to Kaden",
+      );
+    } catch (error) {
+      console.error("[Zingara admin] Failed to send workflow test email", error);
+      showWorkflowToast("⚠ Test email could not be sent");
     }
   }
 
@@ -22383,10 +22412,15 @@ export default function AdminDashboardPage({
     printWindow.focus();
     printWindow.print();
   }
+  const manualCommunicationTemplates = communicationTemplates.filter(
+    (template) =>
+      template.trigger !== "show-reminder" &&
+      template.trigger !== "post-show-review",
+  );
   const selectedCommunicationTemplate =
-    communicationTemplates.find(
+    manualCommunicationTemplates.find(
       (template) => template.id === selectedTemplateId,
-    ) ?? communicationTemplates[0];
+    ) ?? manualCommunicationTemplates[0];
   const templatePreviewBooking =
     activeWorkflowBookings[0] ?? workflowShowBookings[0] ?? bookings[0];
   const templatePreview =
@@ -35574,6 +35608,16 @@ export default function AdminDashboardPage({
                           >
                             Preview Email
                           </button>
+                          {!isReviewWorkflow && (
+                            <button
+                              type="button"
+                              onClick={() => void sendPreShowReminderTest(workflow)}
+                              disabled={!isSuperAdmin}
+                              className="inline-flex w-fit rounded-full border border-[#D8C36A]/40 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Send Test
+                            </button>
+                          )}
                         </div>
                         {dryRunSummary ? (
                           <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
@@ -35847,7 +35891,7 @@ export default function AdminDashboardPage({
                     }
                     className="rounded-full border border-zinc-700 bg-black px-4 py-3 text-sm"
                   >
-                    {communicationTemplates.map((template) => (
+                    {manualCommunicationTemplates.map((template) => (
                       <option key={template.id} value={template.id}>
                         {template.name}
                       </option>

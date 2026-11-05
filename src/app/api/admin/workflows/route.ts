@@ -13,9 +13,18 @@ import {
 } from "@/lib/supabase/serverAdmin";
 import { recordAuditEvent } from "@/lib/supabase/serverAudit";
 import { loadServerVenueSettings } from "@/lib/supabase/serverVenueSettings";
+import { getAttendancePreviewLinks } from "@/lib/attendance/attendanceTokens";
+import { sendZingaraEmail } from "@/lib/email/smtp";
+import {
+  claimOneTimeEmailCommunication,
+  completeClaimedEmailCommunication,
+} from "@/lib/email/communicationIdempotency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const preShowTestRecipient = "kaden@kaden.co.za";
+const preShowTestBatchId = "pre-show-attendance-template-test-2026-11-05-v1";
 
 function getStaffRole(
   staffProfile: NonNullable<
@@ -158,6 +167,7 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as {
+      action?: "preview" | "send-test";
       workflow?: Partial<AutomatedWorkflowConfiguration>;
     };
     const existing = await loadWorkflowConfigurations(auth.serviceClient);
@@ -169,13 +179,22 @@ export async function POST(request: Request) {
     }
 
     const configuration = normaliseConfiguration(
-      body.workflow ?? current,
+      body.action === "send-test" ? current : body.workflow ?? current,
       current,
       new Date().toISOString(),
     );
-    const reviewUrl = `${new URL(request.url).origin}/review/preview`;
+    const applicationOrigin = (
+      process.env.NEXT_PUBLIC_SITE_URL ??
+      process.env.NEXT_PUBLIC_APP_URL ??
+      new URL(request.url).origin
+    ).replace(/\/$/, "");
+    const reviewUrl = `${applicationOrigin}/review/preview`;
     const venueSettings = await loadServerVenueSettings(auth.serviceClient);
     const preview = await renderConfiguredWorkflowEmail({
+      attendanceLinks:
+        configuration.workflowKey === "pre_show_reminder"
+          ? getAttendancePreviewLinks(applicationOrigin)
+          : undefined,
       booking: {
         amount_paid: 3080,
         archived_at: null,
@@ -192,7 +211,7 @@ export async function POST(request: Request) {
         total_amount: 3080,
       },
       configuration,
-      recipientName: "Sample Guest",
+      recipientName: body.action === "send-test" ? "Kaden" : "Sample Guest",
       reviewUrl,
       show: {
         date: "2026-08-09",
@@ -204,6 +223,80 @@ export async function POST(request: Request) {
       },
       venueSettings,
     });
+
+    if (body.action === "send-test") {
+      if (configuration.workflowKey !== "pre_show_reminder") {
+        return Response.json(
+          { error: "Only the Pre-Show Reminder supports this test." },
+          { status: 400 },
+        );
+      }
+
+      const testSubject = `TEST — ${preview.subject}`;
+      const { data: existingTest, error: existingTestError } = await auth.serviceClient
+        .from("communications")
+        .select("id,status,sent_at")
+        .eq("batch_id", preShowTestBatchId)
+        .eq("channel", "email")
+        .in("status", ["sending", "sent"])
+        .maybeSingle();
+
+      if (existingTestError) throw existingTestError;
+      if (existingTest) {
+        return Response.json({
+          alreadySent: true,
+          sentAt: existingTest.sent_at,
+          subject: testSubject,
+        });
+      }
+
+      const claim = await claimOneTimeEmailCommunication(auth.serviceClient, {
+        batch_id: preShowTestBatchId,
+        booking_id: null,
+        channel: "email",
+        created_by: auth.staffProfile.id,
+        customer_id: null,
+        message: preview.message,
+        show_id: null,
+        subject: testSubject,
+        type: "custom_message",
+      });
+
+      if (!claim) {
+        return Response.json({ alreadySent: true, subject: testSubject });
+      }
+
+      const delivery = await sendZingaraEmail({
+        attachments: preview.attachments,
+        html: preview.html,
+        message: preview.message,
+        sender: "review",
+        subject: testSubject,
+        to: preShowTestRecipient,
+      });
+
+      if (!delivery.ok) {
+        await auth.serviceClient
+          .from("communications")
+          .update({ status: "failed" })
+          .eq("id", claim.id)
+          .eq("status", "sending");
+        throw new Error(delivery.error);
+      }
+
+      const completed = await completeClaimedEmailCommunication(
+        auth.serviceClient,
+        claim.id,
+        { message: preview.message, status: "sent", subject: testSubject },
+      );
+
+      return Response.json({
+        alreadySent: false,
+        sentAt: completed.sent_at,
+        subject: testSubject,
+      });
+    }
+
     const previewHtml = preview.attachments.reduce(
       (html, attachment) =>
         html.replaceAll(

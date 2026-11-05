@@ -1,4 +1,7 @@
-import { hashAttendanceToken } from "@/lib/attendance/attendanceTokens";
+import {
+  attendancePreviewToken,
+  hashAttendanceToken,
+} from "@/lib/attendance/attendanceTokens";
 import { resolveAttendanceContext } from "@/lib/attendance/attendanceServer";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
 import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
@@ -9,6 +12,17 @@ function unavailable() {
   return Response.json({ error: "This attendance link is unavailable." }, { status: 404 });
 }
 
+const attendancePreview = {
+  attendanceResponse: null,
+  bookingReference: "TEST-PRE-SHOW-EMAIL",
+  firstName: "Kaden",
+  guestCount: 4,
+  performanceDate: "2026-12-18",
+  performanceName: "The Royal Countess",
+  performanceTime: "19:30",
+  venue: "cape-town",
+} as const;
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ token: string }> },
@@ -16,6 +30,10 @@ export async function GET(
   const client = getServiceClient();
   if (!client) return unavailable();
   const { token } = await params;
+
+  if (token === attendancePreviewToken) {
+    return Response.json({ attendance: attendancePreview });
+  }
 
   try {
     const attendance = await resolveAttendanceContext(client, token);
@@ -45,6 +63,14 @@ export async function POST(
   }
   if (body.response !== "confirmed" && body.response !== "declined") {
     return Response.json({ error: "Choose an attendance response." }, { status: 400 });
+  }
+
+  if (token === attendancePreviewToken) {
+    return Response.json({
+      changed: false,
+      preview: true,
+      response: body.response,
+    });
   }
 
   const { data, error } = await client.rpc("record_booking_attendance_response", {

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildAttendanceUrl,
   createAttendanceToken,
+  getAttendancePreviewLinks,
   hashAttendanceToken,
   openAttendanceToken,
   sealAttendanceToken,
@@ -22,6 +23,12 @@ test("attendance tokens are opaque, encrypted and booking-link safe", () => {
     buildAttendanceUrl("https://book.zingara.co.za/", token, "declined"),
     `https://book.zingara.co.za/attendance/${token}?response=declined`,
   );
+});
+
+test("preview attendance links are isolated from booking-specific tokens", () => {
+  const links = getAttendancePreviewLinks("https://book.zingara.co.za/");
+  assert.match(links.confirmedUrl, /attendance\/zingara-pre-show-attendance-template-preview-2026\?response=confirmed$/);
+  assert.match(links.declinedUrl, /attendance\/zingara-pre-show-attendance-template-preview-2026\?response=declined$/);
 });
 
 test("pre-show email adds secure yes and no actions without changing the reminder schedule", async () => {
@@ -48,4 +55,12 @@ test("decline notifications use the atomic response version for idempotency", as
   assert.match(route, /body\.response === "declined"/);
   assert.match(route, /attendance-declined-\$\{result\.booking_id\}-\$\{result\.response_version\}/);
   assert.doesNotMatch(route, /after\(async/);
+});
+
+test("preview responses never call the attendance RPC or staff notifications", async () => {
+  const route = await readFile(`${root}/src/app/api/attendance/[token]/route.ts`, "utf8");
+  const previewGuard = route.indexOf("token === attendancePreviewToken");
+  const attendanceRpc = route.indexOf("record_booking_attendance_response");
+  assert.ok(previewGuard > 0 && attendanceRpc > previewGuard);
+  assert.match(route, /preview: true/);
 });

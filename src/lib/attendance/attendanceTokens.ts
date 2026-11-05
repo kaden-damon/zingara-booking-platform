@@ -2,6 +2,9 @@ import crypto from "node:crypto";
 
 const context = "zingara-pre-show-attendance-v1";
 
+export const attendancePreviewToken =
+  "zingara-pre-show-attendance-template-preview-2026";
+
 type TokenEnvelope = {
   ciphertext: string;
   iv: string;
@@ -70,4 +73,11 @@ export function buildAttendanceUrl(
 ) {
   const base = origin.replace(/\/$/, "");
   return `${base}/attendance/${encodeURIComponent(token)}?response=${response}`;
+}
+
+export function getAttendancePreviewLinks(origin: string) {
+  return {
+    confirmedUrl: buildAttendanceUrl(origin, attendancePreviewToken, "confirmed"),
+    declinedUrl: buildAttendanceUrl(origin, attendancePreviewToken, "declined"),
+  };
 }

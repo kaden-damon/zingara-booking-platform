@@ -106,6 +106,19 @@ test("reminder renders every required field from authoritative venue settings", 
   assert.match(email.html, /data-zingara-customer-email="true"/);
 });
 
+test("Admin preview and Production test delivery use the shared attendance renderer", async () => {
+  const [route, admin] = await Promise.all([
+    readFile(`${root}/src/app/api/admin/workflows/route.ts`, "utf8"),
+    readFile(`${root}/src/app/admin/page.tsx`, "utf8"),
+  ]);
+  assert.match(route, /getAttendancePreviewLinks\(applicationOrigin\)/);
+  assert.match(route, /TEST — \$\{preview\.subject\}/);
+  assert.match(route, /pre-show-attendance-template-test-2026-11-05-v1/);
+  assert.match(route, /body\.action === "send-test" \? "Kaden" : "Sample Guest"/);
+  assert.match(admin, /template\.trigger !== "show-reminder"/);
+  assert.match(admin, /template\.trigger !== "post-show-review"/);
+});
+
 test("Production reminder scheduling is live, atomic and fails closed", async () => {
   const [workflow, migration, vercel] = await Promise.all([
     readFile(`${root}/src/lib/workflows/automatedWorkflows.ts`, "utf8"),
