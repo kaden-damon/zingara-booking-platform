@@ -25,6 +25,7 @@ test("schedule and calendar controls retain a compact responsive layout", async 
   const adminPage = await source("../app/admin/page.tsx");
 
   assert.match(adminPage, /<details className="order-last mt-5[^"]*"/);
+  assert.doesNotMatch(adminPage, /<div className="contents">\s*<details className="order-last/);
   assert.match(adminPage, /grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-7/);
   assert.match(adminPage, /grid-cols-2 gap-1\.5 pr-11 2xl:grid-cols-1/);
   assert.match(adminPage, />\s*Standard\s*<\/button>/);

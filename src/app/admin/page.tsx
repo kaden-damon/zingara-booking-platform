@@ -33122,12 +33122,13 @@ export default function AdminDashboardPage({
               </div>
 
               {canManageShows && (
-                <div className="contents">
-                  <details className="order-last mt-5 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-black/35 p-4">
-                    <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
-                      Create Show Schedule
-                    </summary>
-                    <div className="mt-4 space-y-4">
+                <details className="order-last mt-5 rounded-[1.5rem] border border-[#8D7A2F]/25 bg-black/35 p-4">
+                  <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
+                    Create Show Schedule
+                  </summary>
+                  <div className="mt-4 space-y-5">
+                    <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                      <div className="space-y-4">
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -33350,10 +33351,10 @@ export default function AdminDashboardPage({
                           ))}
                         </div>
                       )}
+                      </div>
                     </div>
-                  </details>
 
-                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-[160px_140px_minmax(180px,1fr)_minmax(190px,1fr)_minmax(180px,1fr)_auto]">
+                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[160px_140px_minmax(180px,1fr)_minmax(190px,1fr)_minmax(180px,1fr)_auto]">
                     <input
                       type="date"
                       value={newShow.date}
@@ -33425,8 +33426,9 @@ export default function AdminDashboardPage({
                     >
                       Create Show
                     </button>
+                    </div>
                   </div>
-                </div>
+                </details>
               )}
 
               <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
