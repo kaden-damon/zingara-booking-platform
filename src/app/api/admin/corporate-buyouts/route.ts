@@ -284,7 +284,7 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error("[Zingara API] Failed to load Full Show Buyouts", error);
     return Response.json(
-      { error: "Full Show Buyouts could not be loaded." },
+      { error: "Buyouts could not be loaded." },
       { status: 500 },
     );
   }

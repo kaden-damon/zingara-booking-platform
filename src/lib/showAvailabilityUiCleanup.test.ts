@@ -42,3 +42,18 @@ test("schedule and calendar controls retain a compact responsive layout", async 
   assert.doesNotMatch(adminPage, />\s*Home\s*<\/p>[\s\S]{0,180}Today at Zingara/);
 });
 
+test("manual blackout and exclusive buyout share one staff label without collapsing their rules", async () => {
+  const [adminPage, salesCalendar, staffPresentation, internalPolicy] = await Promise.all([
+    source("../app/admin/page.tsx"),
+    source("../app/admin/SalesPerformanceCalendar.tsx"),
+    source("./staffPresentation.ts"),
+    source("./internalShowBookingPolicy.ts"),
+  ]);
+
+  assert.match(staffPresentation, /blackout:\s*"Buyout"/);
+  assert.match(salesCalendar, /booking_blackout:\s*"Buyout"/);
+  assert.match(adminPage, /Manual public booking block\. This does not create an/);
+  assert.match(internalPolicy, /BUYOUT — MANUAL PUBLIC BLOCK/);
+  assert.match(internalPolicy, /BUYOUT — APPROVAL REQUIRED/);
+});
+

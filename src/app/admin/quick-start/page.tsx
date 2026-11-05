@@ -228,19 +228,19 @@ function buildGuideCards(context: QuickStartContext): Record<QuickStartSectionId
         <div className="space-y-4">
           <Steps>
             <li>Go to Home, then Show &amp; Availability Management.</li>
-            <li>Select the performance and choose +, then Full Show Buyout.</li>
+            <li>Select the performance and choose +, then Buyout.</li>
             <li>Choose the Company and Contact, or use the yellow + to create them.</li>
             <li>Choose Private Salon, Speakeasy or Grand Society.</li>
             <li>Enter expected guests and the final count when known.</li>
             <li>Review the show, Company, package, guests and price, then create the Buyout.</li>
           </Steps>
           <Note critical>If the show already has bookings, resolve them first. Zingara will not remove them automatically.</Note>
-          <Note>Path: Home → Show &amp; Availability Management → Performance → + → Full Show Buyout.</Note>
+          <Note>Path: Home → Show &amp; Availability Management → Performance → + → Buyout.</Note>
         </div>
       ),
       id: "full-show-buyout",
-      purpose: "Create a Full Show Buyout from the selected performance.",
-      title: "Create a Full Show Buyout",
+      purpose: "Create a Buyout from the selected performance.",
+      title: "Create a Buyout",
     },
     help: {
       action: { href: "/admin?section=platform-operations", label: "Report an Issue" },

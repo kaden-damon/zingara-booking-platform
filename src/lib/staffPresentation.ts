@@ -21,7 +21,7 @@ export const staffPaymentStatusLabels = {
 
 export const staffShowStatusLabels = {
   active: "Open",
-  blackout: "Booking blackout",
+  blackout: "Buyout",
   inactive: "Closed",
   "sold-out": "Sold out",
   "special-event": "Special event",

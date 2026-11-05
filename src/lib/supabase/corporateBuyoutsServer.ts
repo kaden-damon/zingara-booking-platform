@@ -171,7 +171,7 @@ export async function loadActiveCorporateBuyoutSummaries(
           currentGuestCount: row.current_guest_count,
           id: row.id,
           packageName:
-            row.package_snapshot?.displayName ?? "Full Show Buyout",
+            row.package_snapshot?.displayName ?? "Buyout",
           revision: row.revision,
           reviewBookingCount: unresolved.length,
           reviewGuestCount: unresolved.reduce(

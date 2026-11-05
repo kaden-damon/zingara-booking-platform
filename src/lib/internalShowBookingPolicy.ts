@@ -29,7 +29,7 @@ export function getInternalShowBookingDecision(input: {
   if (status === "blackout") {
     return {
       allowed: true,
-      label: "BOOKING BLACKOUT — INTERNAL BOOKINGS ALLOWED",
+      label: "BUYOUT — MANUAL PUBLIC BLOCK; INTERNAL BOOKINGS ALLOWED",
       reason: "Public sales remain unavailable. Internal capacity is checked separately.",
       requiresManagementApproval: false,
     };
@@ -48,7 +48,7 @@ export function getInternalShowBookingDecision(input: {
     return {
       allowed: true,
       label: "BUYOUT — APPROVAL REQUIRED",
-      reason: "An active Full Show Buyout protects this performance.",
+      reason: "An active Buyout protects this performance.",
       requiresManagementApproval: true,
     };
   }

@@ -34204,6 +34204,12 @@ export default function AdminDashboardPage({
                         </option>
                       ))}
                     </select>
+                    {showEditForm.operationalStatus === "blackout" && (
+                      <span className="mt-2 block text-xs text-zinc-500">
+                        Manual public booking block. This does not create an
+                        exclusive Buyout booking.
+                      </span>
+                    )}
                   </label>
                   <label className="md:col-span-2 text-sm text-zinc-400">
                     Show Description / Tagline

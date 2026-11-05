@@ -165,9 +165,9 @@ export async function GET(request: Request) {
             ? {
                 ...buyout,
                 bookingReference: operationalScope ? buyout.bookingReference : "",
-                companyName: operationalScope ? buyout.companyName : "Full Show Buyout",
+                companyName: operationalScope ? buyout.companyName : "Buyout",
                 currentGuestCount: operationalScope ? buyout.currentGuestCount : 0,
-                packageName: operationalScope ? buyout.packageName : "Full Show Buyout",
+                packageName: operationalScope ? buyout.packageName : "Buyout",
                 revision: operationalScope ? buyout.revision : 0,
                 reviewBookingCount: operationalScope
                   ? buyout.reviewBookingCount

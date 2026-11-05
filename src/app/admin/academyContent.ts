@@ -5367,7 +5367,7 @@ export const academyArticles: AcademyArticle[] = [
     difficulty: "beginner",
     howTo: [
       "Open Home, then Show & Availability Management.",
-      "Select the performance and choose +, then Full Show Buyout.",
+      "Select the performance and choose +, then Buyout.",
       "Choose the Company and Contact, or use the yellow + to create them.",
       "Choose Private Salon, Speakeasy or Grand Society.",
       "Enter the expected guest count and final count when known.",
@@ -5377,14 +5377,14 @@ export const academyArticles: AcademyArticle[] = [
     id: "full-show-buyouts",
     keywords: ["full show buyout", "buyout", "company", "package", "private event"],
     moduleId: "recent-changes",
-    purpose: "Create a Full Show Buyout from the selected performance without changing existing bookings.",
+    purpose: "Create a Buyout from the selected performance without changing existing bookings.",
     relatedActions: ["bookings", "crm"],
     related: ["Corporate Booking Overview", "Managing Corporate Enquiries"],
     tips: [
       "Zingara never removes existing bookings automatically.",
       "A valid Buyout protects the show from ordinary public bookings and appears in Corporate Buyout management afterwards.",
     ],
-    title: "Full Show Buyouts",
+    title: "Buyouts",
     whenToUse: "Use this when one Company is buying the complete performance under an approved Buyout package.",
   },
   {

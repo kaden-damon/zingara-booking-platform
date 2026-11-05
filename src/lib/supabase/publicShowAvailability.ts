@@ -227,7 +227,7 @@ export async function loadPublicShowAvailabilityBatch(
             reason: showPubliclyBookable
               ? control?.reason ?? null
               : hasFullShowBuyout
-                ? "This performance is reserved for a Full Show Buyout."
+                ? "This performance is reserved for a Buyout."
                 : publicShowUnavailableMessage,
             updatedAt: control?.updated_at ?? null,
             zoneId: zone.id,

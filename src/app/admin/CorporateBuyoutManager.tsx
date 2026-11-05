@@ -34,7 +34,7 @@ export default function CorporateBuyoutManager({ onChanged }: Props) {
       setError(
         loadError instanceof Error
           ? loadError.message
-          : "Full Show Buyouts could not be loaded.",
+          : "Buyouts could not be loaded.",
       );
     } finally {
       setLoading(false);
@@ -60,7 +60,7 @@ export default function CorporateBuyoutManager({ onChanged }: Props) {
       setError(
         releaseError instanceof Error
           ? releaseError.message
-          : "The Full Show Buyout could not be released.",
+          : "The Buyout could not be released.",
       );
     } finally {
       setSaving(false);
@@ -97,7 +97,7 @@ export default function CorporateBuyoutManager({ onChanged }: Props) {
                   Corporate
                 </p>
                 <h2 id="buyout-manager-title" className="mt-1 text-2xl font-bold text-white">
-                  Active Full Show Buyouts
+                  Active Buyouts
                 </h2>
               </div>
               <button
@@ -119,7 +119,7 @@ export default function CorporateBuyoutManager({ onChanged }: Props) {
               <p className="mt-6 text-sm text-zinc-400">Loading Buyouts...</p>
             ) : activeShows.length === 0 ? (
               <p className="mt-6 rounded-xl border border-white/10 bg-black/35 p-4 text-sm text-zinc-300">
-                No active Full Show Buyouts.
+                No active Buyouts.
               </p>
             ) : (
               <div className="mt-6 space-y-3">
@@ -149,7 +149,7 @@ export default function CorporateBuyoutManager({ onChanged }: Props) {
       {releaseTarget?.activeBuyout && (
         <div className="fixed inset-0 z-[185] flex items-center justify-center bg-black/85 p-4">
           <section aria-labelledby="release-buyout-title" aria-modal="true" role="alertdialog" className="w-full max-w-lg rounded-2xl border border-red-300/30 bg-[#090909] p-6 shadow-2xl">
-            <h2 id="release-buyout-title" className="text-xl font-bold text-white">Release this Full Show Buyout?</h2>
+            <h2 id="release-buyout-title" className="text-xl font-bold text-white">Release this Buyout?</h2>
             <p className="mt-3 text-sm leading-6 text-zinc-300">{releaseTarget.activeBuyout.bookingReference} · {releaseTarget.activeBuyout.companyName}</p>
             <p className="mt-2 text-sm leading-6 text-amber-100">The booking will be cancelled and public booking will follow the performance&apos;s normal status, dates and capacity. Payments must be reviewed first.</p>
             <label className="mt-4 block text-sm font-semibold text-zinc-300">

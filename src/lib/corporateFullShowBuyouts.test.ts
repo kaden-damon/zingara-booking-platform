@@ -194,7 +194,7 @@ test("selected-show bootstrap remains bounded and release management remains ava
   assert.match(route, /activeBookingCount: conflicts\.length/);
   assert.match(route, /activeGuestCount: conflicts\.reduce/);
   assert.doesNotMatch(route, /conflicts\.length === 0/);
-  assert.match(manager, /Active Full Show Buyouts/);
+  assert.match(manager, /Active Buyouts/);
   assert.match(manager, /releaseCorporateBuyout/);
 });
 

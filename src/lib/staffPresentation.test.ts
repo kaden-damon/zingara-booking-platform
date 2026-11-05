@@ -15,7 +15,7 @@ test("staff labels simplify presentation without collapsing distinct stored stat
   assert.equal(staffPaymentStatusLabels["fully-paid"], "Paid");
   assert.equal(staffPaymentStatusLabels["comp-vip"], "Complimentary");
   assert.equal(staffShowStatusLabels.active, "Open");
-  assert.equal(staffShowStatusLabels.blackout, "Booking blackout");
+  assert.equal(staffShowStatusLabels.blackout, "Buyout");
   assert.equal(staffShowStatusLabels.inactive, "Closed");
 });
 

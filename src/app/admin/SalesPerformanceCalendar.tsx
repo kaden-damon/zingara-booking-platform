@@ -46,7 +46,7 @@ function statusLabel(status: string) {
   return (
     {
       active: "Open",
-      booking_blackout: "Booking blackout",
+      booking_blackout: "Buyout",
       cancelled: "Closed",
       closed: "Closed",
       inactive: "Closed",
