@@ -905,6 +905,7 @@ const notificationPreferenceStorageKey =
 const pushOnboardingDismissedStorageKey =
   "zingara-push-onboarding-dismissed";
 const notificationPreferenceLabels: Record<NotificationPreferenceKey, string> = {
+  "attendance-declined": "Attendance Declines",
   "booking-cancelled": "Booking Cancellations",
   "guest-checked-in": "Guest Check-ins",
   "new-booking": "New Bookings",
@@ -914,6 +915,7 @@ const notificationPreferenceLabels: Record<NotificationPreferenceKey, string> = 
   "waitlist-promotion": "Waitlist",
 };
 const notificationPreferenceOrder: NotificationPreferenceKey[] = [
+  "attendance-declined",
   "new-booking",
   "new-corporate-request",
   "waitlist-promotion",
@@ -1097,6 +1099,7 @@ type CommunicationsTab =
   | "broadcasts"
   | "history";
 type BookingArchiveFilter = "active" | "all" | "archived";
+type AttendanceResponseFilter = "all" | "awaiting" | "confirmed" | "declined";
 type CustomerArchiveFilter = "active" | "all" | "archived";
 type CustomerNameStatusFilter = "all" | "complete" | "incomplete";
 type BookingViewMode = "compact" | "grid" | "list";
@@ -5516,6 +5519,8 @@ export default function AdminDashboardPage({
     useState<BookingArchiveFilter>("active");
   const [bookingStatusFilter, setBookingStatusFilter] =
     useState<BookingStatus | "all">("all");
+  const [bookingAttendanceFilter, setBookingAttendanceFilter] =
+    useState<AttendanceResponseFilter>("all");
   const [bookingArchiveModal, setBookingArchiveModal] = useState<{
     mode: "all" | "filtered";
     references: string[];
@@ -5558,6 +5563,8 @@ export default function AdminDashboardPage({
     useState(true);
   const [conciergeStatusFilter, setConciergeStatusFilter] =
     useState<BookingStatus | "all">("all");
+  const [conciergeAttendanceFilter, setConciergeAttendanceFilter] =
+    useState<AttendanceResponseFilter>("all");
   const [loginForm, setLoginForm] = useState<LoginForm>({
     password: "",
     username: "",
@@ -20854,6 +20861,15 @@ export default function AdminDashboardPage({
     }
 
     if (
+      bookingAttendanceFilter !== "all" &&
+      (bookingAttendanceFilter === "awaiting"
+        ? Boolean(booking.attendanceResponse)
+        : booking.attendanceResponse !== bookingAttendanceFilter)
+    ) {
+      return false;
+    }
+
+    if (
       bookingPaymentStatusFilter !== "all" &&
       getBookingPaymentStatus(booking) !== bookingPaymentStatusFilter
     ) {
@@ -20939,6 +20955,12 @@ export default function AdminDashboardPage({
       bookingPaymentStatusFilter === "all"
         ? "All payment states"
         : paymentStatusLabels[bookingPaymentStatusFilter];
+    const selectedAttendance =
+      bookingAttendanceFilter === "all"
+        ? "All attendance responses"
+        : bookingAttendanceFilter === "awaiting"
+          ? "Attendance awaiting response"
+          : `Attendance ${bookingAttendanceFilter}`;
     const selectedZone =
       bookingZoneFilter === "all"
         ? "All seating sections"
@@ -20962,6 +20984,7 @@ export default function AdminDashboardPage({
         ? `Performance to ${bookingPerformanceTo}`
         : "No performance end date",
       selectedStatus,
+      selectedAttendance,
       selectedPaymentStatus,
       selectedZone,
       selectedSource,
@@ -21154,6 +21177,7 @@ export default function AdminDashboardPage({
   function getActiveBookingListFilters(): AdminBookingListFilters {
     return {
       archive: bookingArchiveFilter,
+      attendance: bookingAttendanceFilter,
       bookingCreatedDateFilter,
       bookingCreatedFrom,
       bookingCreatedSpecificDate,
@@ -21197,6 +21221,7 @@ export default function AdminDashboardPage({
   }, [
     activeAdminTab,
     bookingArchiveFilter,
+    bookingAttendanceFilter,
     bookingCreatedByFilter,
     bookingCreatedDateFilter,
     bookingCreatedFrom,
@@ -21230,6 +21255,7 @@ export default function AdminDashboardPage({
     bookingCreatedByFilter !== "all",
     bookingCreatedDateFilter !== "all",
     bookingStatusFilter !== "all",
+    bookingAttendanceFilter !== "all",
     bookingPaymentStatusFilter !== "all",
     bookingZoneFilter !== "all",
     bookingPromoFilter !== "all",
@@ -21557,6 +21583,15 @@ export default function AdminDashboardPage({
         return false;
       }
 
+      if (
+        conciergeAttendanceFilter !== "all" &&
+        (conciergeAttendanceFilter === "awaiting"
+          ? Boolean(booking.attendanceResponse)
+          : booking.attendanceResponse !== conciergeAttendanceFilter)
+      ) {
+        return false;
+      }
+
       if (!staffSearchTerm) {
         return true;
       }
@@ -21582,6 +21617,7 @@ export default function AdminDashboardPage({
     activeAdminTab,
     activeBookingsForOperations,
     bookings,
+    conciergeAttendanceFilter,
     conciergeStatusFilter,
     deferredStaffSearch,
     effectiveCheckInShow,
@@ -36311,6 +36347,21 @@ export default function AdminDashboardPage({
                     </option>
                   ))}
                 </select>
+                <select
+                  aria-label="Attendance Response"
+                  value={conciergeAttendanceFilter}
+                  onChange={(event) =>
+                    setConciergeAttendanceFilter(
+                      event.target.value as AttendanceResponseFilter,
+                    )
+                  }
+                  className="rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm font-semibold text-zinc-300"
+                >
+                  <option value="all">All Attendance</option>
+                  <option value="confirmed">Confirmed</option>
+                  <option value="declined">Declined</option>
+                  <option value="awaiting">Awaiting Response</option>
+                </select>
                 <div className="grid grid-cols-2 rounded-full border border-white/15 bg-black/35 p-1">
                   {(
                     [
@@ -38789,6 +38840,29 @@ export default function AdminDashboardPage({
                 </label>
 
                 <label className="relative block min-w-0">
+                  <span className="sr-only">Filter bookings by attendance response</span>
+                  <select
+                    aria-label="Attendance Response"
+                    value={bookingAttendanceFilter}
+                    onChange={(event) => {
+                      setBookingAttendanceFilter(
+                        event.target.value as AttendanceResponseFilter,
+                      );
+                      setBookingPage(1);
+                    }}
+                    className="h-11 w-full appearance-none truncate rounded-full border border-white/15 bg-black/35 py-2 pl-4 pr-8 text-sm font-semibold text-zinc-300 outline-none transition focus:border-[#D8C36A]/70"
+                  >
+                    <option value="all">Attendance · All</option>
+                    <option value="confirmed">Attendance · Confirmed</option>
+                    <option value="declined">Attendance · Declined</option>
+                    <option value="awaiting">Attendance · Awaiting Response</option>
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-zinc-500">
+                    ▾
+                  </span>
+                </label>
+
+                <label className="relative block min-w-0">
                   <span className="sr-only">Filter bookings by seating section</span>
                   <select
                     aria-label="Seating Section"
@@ -39161,6 +39235,7 @@ export default function AdminDashboardPage({
                   bookingCreatedByFilter === "all" &&
                   bookingCreatedDateFilter === "all" &&
                   bookingStatusFilter === "all" &&
+                  bookingAttendanceFilter === "all" &&
                   bookingPaymentStatusFilter === "all" &&
                   bookingZoneFilter === "all" &&
                   bookingPromoFilter === "all" &&
@@ -39181,6 +39256,7 @@ export default function AdminDashboardPage({
                   setBookingCreatedFrom("");
                   setBookingCreatedTo("");
                   setBookingStatusFilter("all");
+                  setBookingAttendanceFilter("all");
                   setBookingPaymentStatusFilter("all");
                   setBookingZoneFilter("all");
                   setBookingDateFilter("all");
@@ -39694,6 +39770,9 @@ export default function AdminDashboardPage({
 	                                </span>
 	                                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${currentTable ? "border-emerald-300/35 bg-emerald-950/25 text-emerald-100" : "border-amber-300/35 bg-amber-950/25 text-amber-100"}`}>
 	                                  Seating: {currentTable ? "Table assigned" : "Table needed"}
+	                                </span>
+	                                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getAttendanceResponseClasses(booking)}`}>
+	                                  Attendance: {getAttendanceResponseLabel(booking)}
 	                                </span>
 	                              </div>
 	                              <details className="mt-3 text-xs text-zinc-400">

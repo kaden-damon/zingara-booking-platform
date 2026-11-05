@@ -15,6 +15,7 @@ test("personal subscriptions and management routing are separate", () => {
       { key: "corporate-enquiry", mode: "management", routed: true },
       { key: "new-review-alert", mode: "management", routed: true },
       { key: "invoice-request-reminders", mode: "management", routed: true },
+      { key: "attendance-confirmations", mode: "management", routed: true },
     ],
   );
 });
@@ -118,6 +119,7 @@ test("Email Notifications UI keeps personal and management controls distinct", a
   assert.match(card, /New Corporate Enquiries/);
   assert.match(card, /New Review Alerts/);
   assert.match(card, /Invoice Request Reminders/);
+  assert.match(card, /Attendance Confirmations/);
   assert.match(card, /role="switch"/);
 });
 

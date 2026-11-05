@@ -63,6 +63,7 @@ type PushTestResult = {
 };
 
 export type StaffPushTrigger =
+  | "attendance-declined"
   | "booking-cancelled"
   | "guest-checked-in"
   | "new-booking"
@@ -85,6 +86,7 @@ export type StaffNotificationRecord = {
   id: string;
   message: string;
   readBy: string[];
+  recipientStaffProfileIds?: string[];
   title: string;
   trigger: StaffPushTrigger;
   url?: string;

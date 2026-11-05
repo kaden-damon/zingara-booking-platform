@@ -50,6 +50,13 @@ export const staffEmailNotificationRegistry = [
     mode: "management",
     routed: true,
   },
+  {
+    description: "Email, in-app and device alerts when a guest cannot attend.",
+    key: "attendance-confirmations",
+    label: "Attendance Confirmations",
+    mode: "management",
+    routed: true,
+  },
 ] as const;
 
 export type StaffEmailNotificationKey =

@@ -53,11 +53,31 @@ test("response persistence is isolated from booking, seating, payment and ticket
   assert.doesNotMatch(migration, /booking_status\s*=/);
 });
 
-test("decline notifications use the atomic response version for idempotency", async () => {
-  const route = await readFile(`${root}/src/app/api/attendance/[token]/route.ts`, "utf8");
+test("decline notifications are asynchronous, routed and idempotent", async () => {
+  const [route, notification, migration] = await Promise.all([
+    readFile(`${root}/src/app/api/attendance/[token]/route.ts`, "utf8"),
+    readFile(`${root}/src/lib/email/attendanceDeclineNotification.ts`, "utf8"),
+    readFile(`${root}/supabase/migrations/20261106001500_attendance_management_integration.sql`, "utf8"),
+  ]);
   assert.match(route, /body\.response === "declined"/);
-  assert.match(route, /attendance-declined-\$\{result\.booking_id\}-\$\{result\.response_version\}/);
-  assert.doesNotMatch(route, /after\(async/);
+  assert.match(route, /after\(async/);
+  assert.match(notification, /loadManagementEmailRoute[\s\S]*"attendance-confirmations"/);
+  assert.match(notification, /eventKey: `\$\{input\.bookingId\}:\$\{input\.responseVersion\}`/);
+  assert.match(notification, /recipientStaffProfileIds: recipientIds/);
+  assert.match(notification, /attendance-declined-\$\{input\.bookingId\}-\$\{input\.responseVersion\}/);
+  assert.match(migration, /attendance-confirmations/);
+  assert.match(migration, /bookings_attendance_response_idx/);
+  assert.doesNotMatch(migration, /kaden@|fatima@|venue-manager|super-admin/i);
+});
+
+test("attendance management is presentation-only and keeps arrival separate", async () => {
+  const page = await readFile(`${root}/src/app/admin/page.tsx`, "utf8");
+  const migration = await readFile(`${root}/supabase/migrations/20261106001500_attendance_management_integration.sql`, "utf8");
+  assert.match(page, /Attendance · Awaiting Response/);
+  assert.match(page, /Attendance: \{getAttendanceResponseLabel\(booking\)\}/);
+  assert.match(page, /setConciergeAttendanceFilter/);
+  assert.match(migration, /i\.attendance = 'awaiting' and b\.attendance_response is null/);
+  assert.doesNotMatch(migration, /arrival_time\s*=|update public\.bookings\s+set/);
 });
 
 test("preview responses never call the attendance RPC or staff notifications", async () => {

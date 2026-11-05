@@ -9,6 +9,7 @@ export type AdminBookingListKind = "all" | "corporate" | "standard";
 
 export type AdminBookingListFilters = {
   archive: "active" | "all" | "archived";
+  attendance: "all" | "awaiting" | "confirmed" | "declined";
   bookingCreatedDateFilter: BookingCreatedDateFilter;
   bookingCreatedFrom: string;
   bookingCreatedSpecificDate: string;
@@ -36,6 +37,7 @@ export type AdminBookingListFilters = {
 export function adminBookingListSearchParams(filters: AdminBookingListFilters) {
   const params = new URLSearchParams({
     archive: filters.archive,
+    attendance: filters.attendance,
     bookingCreatedDateFilter: filters.bookingCreatedDateFilter,
     bookingCreatedFrom: filters.bookingCreatedFrom,
     bookingCreatedSpecificDate: filters.bookingCreatedSpecificDate,

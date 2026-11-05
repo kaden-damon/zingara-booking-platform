@@ -1,10 +1,11 @@
+import { after } from "next/server";
 import {
   attendancePreviewToken,
   hashAttendanceToken,
 } from "@/lib/attendance/attendanceTokens";
 import { resolveAttendanceContext } from "@/lib/attendance/attendanceServer";
+import { sendAttendanceDeclineNotification } from "@/lib/email/attendanceDeclineNotification";
 import { getServiceClient } from "@/lib/supabase/serverAdmin";
-import { sendStaffPushNotification } from "@/lib/supabase/staffPush";
 
 export const dynamic = "force-dynamic";
 
@@ -87,20 +88,20 @@ export async function POST(
   }
 
   if (body.response === "declined") {
-    try {
-      await sendStaffPushNotification({
-        body: `${result.booking_reference} can no longer attend. The booking remains active and requires Box Office review.`,
-        bookingReference: result.booking_reference,
-        notificationId: `attendance-declined-${result.booking_id}-${result.response_version}`,
-        title: "Guest Cannot Attend",
-        trigger: "attendance-declined",
-      });
-    } catch (notificationError) {
-      console.error("[Zingara Attendance] Box Office notification failed", {
-        bookingReference: result.booking_reference,
-        message: notificationError instanceof Error ? notificationError.message : "Unknown error",
-      });
-    }
+    after(async () => {
+      try {
+        await sendAttendanceDeclineNotification(client, {
+          bookingId: result.booking_id,
+          bookingReference: result.booking_reference,
+          responseVersion: result.response_version,
+        });
+      } catch (notificationError) {
+        console.error("[Zingara Attendance] Box Office notification failed", {
+          bookingReference: result.booking_reference,
+          message: notificationError instanceof Error ? notificationError.message : "Unknown error",
+        });
+      }
+    });
   }
 
   return Response.json({

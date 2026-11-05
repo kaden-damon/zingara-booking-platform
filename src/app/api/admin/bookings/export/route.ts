@@ -71,6 +71,7 @@ export async function POST(request: Request) {
           ),
           p_filters: {
             archive: body.filters.archive,
+            attendance: body.filters.attendance,
             bookingDate: body.filters.bookingDate,
             bookingStatus: body.filters.bookingStatus,
             createdBy: body.filters.createdBy,

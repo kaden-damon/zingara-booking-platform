@@ -621,6 +621,7 @@ export async function GET(request: Request) {
 
     const rpcFilters = {
       archive: url.searchParams.get("archive") ?? "active",
+      attendance: url.searchParams.get("attendance") ?? "all",
       bookingDate: url.searchParams.get("bookingDate") ?? "all",
       bookingStatus: url.searchParams.get("bookingStatus") ?? "all",
       createdBy: url.searchParams.get("createdBy") ?? "all",

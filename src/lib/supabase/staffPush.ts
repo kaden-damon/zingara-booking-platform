@@ -77,6 +77,7 @@ type StaffPushInput = {
   body?: string;
   corporateRequestId?: string;
   notificationId?: string;
+  recipientStaffProfileIds?: string[];
   title?: string;
   trigger: StaffPushTrigger;
   url?: string;
@@ -88,6 +89,7 @@ export type StaffNotificationRecord = {
   id: string;
   message: string;
   readBy: string[];
+  recipientStaffProfileIds?: string[];
   title: string;
   trigger: StaffPushTrigger;
   url?: string;
@@ -122,12 +124,7 @@ type StaffIdentityPushInput = {
 };
 
 const rolesByTrigger: Record<StaffPushTrigger, AdminRole[]> = {
-  "attendance-declined": [
-    "super-admin",
-    "venue-manager",
-    "box-office-manager",
-    "box-office-staff",
-  ],
+  "attendance-declined": [],
   "booking-cancelled": [
     "super-admin",
     "venue-manager",
@@ -461,6 +458,7 @@ async function appendStaffNotification(input: StaffPushInput) {
     id: notificationId,
     message: getDefaultMessage(input),
     readBy: [],
+    recipientStaffProfileIds: input.recipientStaffProfileIds,
     title: getDefaultTitle(input),
     trigger: input.trigger,
     url: getStaffNotificationUrl(input),
@@ -547,8 +545,11 @@ export async function sendStaffPushNotification(input: StaffPushInput) {
     };
   }
 
-  const targetRoles = new Set(rolesByTrigger[input.trigger]);
   const allSubscriptions = getPushSubscriptions(venueRow);
+  const recipientStaffProfileIds = new Set(
+    input.recipientStaffProfileIds?.filter(Boolean) ?? [],
+  );
+  const targetRoles = new Set(rolesByTrigger[input.trigger]);
   console.info("[Zingara push diagnostics] Staff subscriptions loaded", {
     rolesFound: allSubscriptions.map((subscription) => subscription.role ?? null),
     subscriptionCount: allSubscriptions.length,
@@ -557,7 +558,12 @@ export async function sendStaffPushNotification(input: StaffPushInput) {
   });
   const subscriptions = allSubscriptions.filter(
     (subscription) =>
-      subscription.role && targetRoles.has(subscription.role),
+      recipientStaffProfileIds.size > 0
+        ? Boolean(
+            subscription.staffProfileId &&
+              recipientStaffProfileIds.has(subscription.staffProfileId),
+          )
+        : Boolean(subscription.role && targetRoles.has(subscription.role)),
   );
 
   console.info("[Zingara push diagnostics] Staff role filter complete", {

@@ -72,7 +72,7 @@ async function saveStaffNotifications(
 export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
 
-  if (auth.error || !auth.serviceClient) {
+  if (auth.error || !auth.serviceClient || !auth.staffProfile) {
     return auth.error;
   }
 
@@ -80,7 +80,11 @@ export async function GET(request: Request) {
     const row = await loadVenueSettingsRow(auth.serviceClient);
 
     return Response.json({
-      notifications: getStaffNotifications(row),
+      notifications: getStaffNotifications(row).filter(
+        (notification) =>
+          !notification.recipientStaffProfileIds?.length ||
+          notification.recipientStaffProfileIds.includes(auth.staffProfile!.id),
+      ),
       userId: auth.user?.id,
     });
   } catch (error) {

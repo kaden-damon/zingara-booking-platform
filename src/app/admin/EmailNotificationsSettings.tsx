@@ -21,6 +21,7 @@ type ManagementSetting = {
   cc: Recipient[];
   enabled: boolean;
   key:
+    | "attendance-confirmations"
     | "corporate-enquiry"
     | "daily-waitlist-reminder"
     | "invoice-request-reminders"
@@ -41,6 +42,10 @@ const workflowCopy: Record<
   ManagementSetting["key"],
   { description: string; label: string }
 > = {
+  "attendance-confirmations": {
+    description: "Alerts selected Box Office staff when a guest cannot attend.",
+    label: "Attendance Confirmations",
+  },
   "corporate-enquiry": {
     description: "Alerts the responsible team when a new Corporate enquiry arrives.",
     label: "New Corporate Enquiries",
@@ -76,7 +81,7 @@ const workflowGroups: Array<{
     label: "Waitlist",
   },
   {
-    keys: ["corporate-enquiry", "invoice-request-reminders"],
+    keys: ["attendance-confirmations", "corporate-enquiry", "invoice-request-reminders"],
     label: "Bookings & Accounts",
   },
   { keys: ["new-review-alert"], label: "Guest Feedback" },
