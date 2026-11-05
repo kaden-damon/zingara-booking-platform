@@ -1,10 +1,22 @@
 # Show & Availability Management UI/UX Cleanup
 
-STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+STATUS: P0 FIX DEPLOYED - FINAL AUTHENTICATED VISUAL RECHECK PENDING
 
 DATE: 6 NOVEMBER 2026
 
 ## Delivered
+
+- The calendar financial summary now comes from the existing monthly
+  authoritative occupancy request instead of the partial client booking list.
+  Paid and unpaid use booking financial snapshots; deposits require confirmed
+  deposit-payment evidence; refunds require accepted refund evidence. Genuine
+  zero-value shows display `R0`, while Credit displays `Unavailable` because no
+  authoritative show-level credit ledger exists.
+- The financial popup is a contained mobile bottom sheet with touch/click,
+  backdrop and close-button dismissal while retaining desktop hover. The open
+  card and financial-control stacking contexts are raised together so the
+  popup paints above the neighbouring Create Booking control without a global
+  arbitrary z-index escalation.
 
 - Show creation is contained in one `Create Show Schedule` section below the
   calendar. It is collapsed by default and contains the bulk schedule tools
@@ -31,6 +43,37 @@ DATE: 6 NOVEMBER 2026
   remain unchanged.
 
 ## Verification & Release
+
+- Production reconciliation verified representative Johannesburg and Cape
+  Town performances. Examples: JHB 4 November = Paid R40,120, Unpaid R0,
+  Deposits 0 / R0; CPT 4 November = genuine zero; JHB 5 November = Paid
+  R386,732.50, Unpaid R143,960, Deposits 3 / R4,950; CPT 5 November = Paid
+  R436,716.50, Unpaid R26,040, Deposits 7 / R17,540; JHB 11 November = Paid
+  R231,083, Unpaid R413,740, Deposits 1 / R9,900; CPT 11 November = Paid
+  R149,984, Unpaid R197,095, Deposits 5 / R12,650.
+- Focused calendar finance and occupancy tests passed 5/5. TypeScript,
+  targeted ESLint and whitespace checks passed. Two unrelated pre-existing
+  Admin performance assertions remain outside this change.
+- Live 390 x 844 inspection measured the popup at 358 x 210 pixels with
+  16-pixel side insets and a bottom edge of 828 pixels. All labels and values
+  were readable. Desktop inspection measured a contained 256 x 138 pixel popup
+  and preserved hover. The layering regression test verifies that the active
+  card/control paint above the Create Booking action. The final post-layering
+  deployment completed successfully; a subsequent authenticated refresh
+  stopped at the existing platform-access session gate, so the required final
+  post-refresh visual recheck remains pending and completion is not claimed.
+- The browser still makes one monthly calendar-occupancy request. No polling,
+  new browser request, per-performance query or render-time calculation was
+  added. The bounded November Production query shape covered 50 shows, 299
+  confirmed deposit rows and no accepted refunds in approximately 462ms.
+- Financial application commits: `988ca739`, `b6127138` and `3decfcad`.
+  Vercel deployments `2kpYWmj9Y2K3sCBHViWdAPRMwp7L`,
+  `4J1XRewHLVnEtx8DZYmiuX4dia1W` and final layering deployment
+  `HhwTEod5NRf7hy8AZ1hniNKX5hAE` completed successfully; the final deployment
+  completed at 6 November 2026, 00:59:02 SAST.
+- Financial-summary business-data delta: none. No booking, payment, refund,
+  deposit, VAT, gratuity, show, seating or customer record changed. No
+  migration was required.
 
 - Final focused regression suite: 37/37 passed. TypeScript and whitespace
   checks passed.
@@ -64,7 +107,8 @@ DATE: 6 NOVEMBER 2026
   seating, payment, ticket or customer record changed.
 - Rollback: revert `bc05df27`, `bde28d79`, `ad3222a0`, `77346684`, `c1e17561`,
   `32471f6f`, `3a82280f`, `c1fe3409`, `bfd517e5` and `ce9c97db` in reverse
-  order and redeploy. No database rollback is required.
+  order and redeploy. For the P0 financial follow-up, revert `3decfcad`,
+  `b6127138` and `988ca739` in reverse order. No database rollback is required.
 - Full record:
   `.codex/archive/SHOW_AVAILABILITY_MANAGEMENT_UI_UX_CLEANUP_2026-11-06.md`.
 

@@ -2,6 +2,9 @@
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
+P0 FINANCIAL FOLLOW-UP STATUS: DEPLOYED - FINAL AUTHENTICATED VISUAL RECHECK
+PENDING
+
 DATE: 6 NOVEMBER 2026
 
 ## Scope
@@ -31,6 +34,21 @@ remain readable at every supported breakpoint.
   section-planning sentence that was too detailed for the calendar overview.
 
 ## Changes
+
+### P0 financial-summary follow-up
+
+- Replaced the partial client-side financial aggregation with one bounded
+  monthly server aggregate on the existing calendar-occupancy request.
+- Paid and unpaid now use authoritative active booking financial snapshots.
+  Deposit totals count confirmed deposit payments, and refund totals count
+  accepted refund evidence without changing any financial record.
+- Genuine zero-value performances render `R0`. Credit renders `Unavailable`
+  because Production has no authoritative show-level credit ledger; the UI no
+  longer presents missing evidence as a false zero or `Not recorded` value.
+- Reworked the popup as a viewport-contained bottom sheet on mobile while
+  preserving the desktop hover panel. The active show card and its financial
+  control form the intentional stacking order, keeping the popup above the
+  neighbouring Create Booking button and adjacent calendar content.
 
 - Moved both quick creation and bulk scheduling into one native collapsible
   `Create Show Schedule` section after the calendar. It has no default-open
@@ -63,6 +81,29 @@ remain readable at every supported breakpoint.
   `appearance-none` selects remain excluded to prevent duplicate arrows.
 
 ## Verification
+
+### P0 financial-summary verification
+
+- Production reconciliation examples:
+  - JHB 4 November: Paid R40,120; Unpaid R0; Deposits 0 / R0; Refunded R0.
+  - CPT 4 November: Paid R0; Unpaid R0; Deposits 0 / R0; Refunded R0, verified
+    as a genuine zero-value performance.
+  - JHB 5 November: Paid R386,732.50; Unpaid R143,960; Deposits 3 / R4,950.
+  - CPT 5 November: Paid R436,716.50; Unpaid R26,040; Deposits 7 / R17,540.
+  - JHB 11 November: Paid R231,083; Unpaid R413,740; Deposits 1 / R9,900.
+  - CPT 11 November: Paid R149,984; Unpaid R197,095; Deposits 5 / R12,650.
+- Focused financial and calendar tests passed 5/5. TypeScript, targeted ESLint
+  and `git diff --check` passed. The broader Admin performance file retains two
+  unrelated pre-existing assertion failures.
+- Live mobile inspection at 390 x 844 measured the popup at 358 x 210 pixels,
+  left 16, right 374, top 618 and bottom 828. Labels and values were fully
+  visible. Desktop inspection measured 256 x 138 pixels within a 1280 x 720
+  viewport and retained hover behaviour. The focused source regression test
+  verifies the active card/control stacking layers above Create Booking.
+- The final layering deployment completed successfully. When the authenticated
+  browser was refreshed afterward, the existing platform-access session gate
+  no longer restored the session. The final post-refresh visual layering check
+  remains pending, and P0 completion is not claimed.
 
 - Final focused suite passed 37/37 across show availability UI, staff
   presentation, internal booking policy, corporate buyouts, UI polish and
@@ -99,6 +140,13 @@ remain readable at every supported breakpoint.
 
 ## Performance
 
+- The P0 financial fix reuses the existing monthly occupancy request. It adds
+  no browser request, polling, background task, per-performance query or
+  render-time calculation. Deposit and refund evidence is loaded in bounded,
+  indexed pages and the three month-scoped queries execute in parallel.
+- The representative November Production query shape covered 50 shows, 299
+  confirmed deposit rows and no accepted refunds in approximately 462ms.
+
 - No fetch, polling, query, state-management, API or booking-path operation was
   added.
 - Measured source gzip delta before the final markup-only wrapper adjustment:
@@ -111,6 +159,19 @@ remain readable at every supported breakpoint.
   so no speculative data-loading change was made.
 
 ## Production Release
+
+### P0 financial-summary release
+
+- `988ca73929c17a7d6b41a8d615cf9b11c7eab739` - reconcile calendar financial
+  summaries with authoritative month-scoped evidence.
+- `b6127138d2cbc11ec1dd0bde8192e605bc60bd4a` - preserve click/touch opening and
+  explicit dismissal.
+- `3decfcadf8a206ee8cd1d6b11ad7645b2d5d93d4` - keep the popup above calendar
+  controls through the active card/control stacking context.
+- Vercel deployments: `2kpYWmj9Y2K3sCBHViWdAPRMwp7L`,
+  `4J1XRewHLVnEtx8DZYmiuX4dia1W` and final
+  `HhwTEod5NRf7hy8AZ1hniNKX5hAE`. The final deployment completed successfully
+  at 6 November 2026, 00:59:02 SAST.
 
 - `ce9c97db22a1bb33379ef53a747c05e0ebdc94d4` - simplify the workspace.
 - `bfd517e5a68bab1a9c4cc7e63f22b2505fc0c9d8` - keep calendar capacities
@@ -136,4 +197,6 @@ remain readable at every supported breakpoint.
 - No migration was required.
 - Rollback by reverting `bc05df27`, `bde28d79`, `ad3222a0`, `77346684`,
   `c1e17561`, `32471f6f`, `3a82280f`, `c1fe3409`, `bfd517e5` and `ce9c97db`
-  in reverse order and redeploying. No database action is required.
+  in reverse order and redeploying. For the P0 financial follow-up, revert
+  `3decfcad`, `b6127138` and `988ca739` in reverse order. No database action is
+  required.
