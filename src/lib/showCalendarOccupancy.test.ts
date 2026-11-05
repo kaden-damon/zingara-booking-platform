@@ -154,7 +154,10 @@ test("calendar occupancy transport is bounded and independent from paginated Boo
   assert.match(page, /Show occupancy couldn't be loaded\. Try again\./);
   assert.match(page, /show\.fullShowBuyout \?/);
   assert.match(page, /show\.supabaseId \?\? show\.id/);
-  assert.match(page, /bottom-\[max\(1rem,env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(
+    page,
+    /bottom-\[max\(5rem,calc\(1rem\+env\(safe-area-inset-bottom\)\)\)\]/,
+  );
   assert.match(page, /Dismiss financial summary/);
   assert.match(page, /setOpenShowFinancialPopupId\(show\.id\)/);
   assert.match(page, /openShowFinancialPopupId === show\.id\s+\? "z-30"/);

@@ -33622,7 +33622,7 @@ export default function AdminDashboardPage({
                                       role="dialog"
                                       aria-hidden={openShowFinancialPopupId !== show.id}
                                       aria-label={`Financial summary for ${show.label}`}
-                                      className={`fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 rounded-2xl border border-[#D8C36A]/35 bg-black/95 p-4 text-sm text-zinc-300 shadow-2xl shadow-black transition duration-150 md:absolute md:inset-x-auto md:bottom-auto md:top-10 md:w-64 md:p-3 md:text-xs ${
+                                      className={`fixed inset-x-4 bottom-[max(5rem,calc(1rem+env(safe-area-inset-bottom)))] z-50 rounded-2xl border border-[#D8C36A]/35 bg-black/95 p-4 text-sm text-zinc-300 shadow-2xl shadow-black transition duration-150 md:absolute md:inset-x-auto md:bottom-auto md:top-10 md:w-64 md:p-3 md:text-xs ${
                                         index % 7 >= 5
                                           ? "md:right-0"
                                           : "md:left-auto md:right-0"
