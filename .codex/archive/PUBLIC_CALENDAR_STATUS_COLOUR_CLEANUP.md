@@ -1,6 +1,6 @@
 # Public Calendar Status & Colour Cleanup
 
-STATUS: IMPLEMENTED - RELEASE VERIFICATION PENDING
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 5 NOVEMBER 2026
 
@@ -60,8 +60,8 @@ historical audit evidence.
   states, so no status records can safely be removed or mass-converted.
 - JHB 6 November 2026 has an active Full Show Buyout and a Blackout show state.
 - JHB 7 November 2026 has an active Full Show Buyout and a Special Event state.
-- JHB 17 November 2026 was changed from Blackout to Active by staff; it does
-  not have an active Full Show Buyout.
+- JHB 17 November 2026 is currently `inactive`, has no active Full Show Buyout
+  and is not returned by the public show API.
 - Special Event records exist both with and without active buyouts, proving the
   two concepts are not interchangeable.
 
@@ -83,10 +83,24 @@ historical audit evidence.
 - Next.js Webpack Production build: passed.
 - Default Turbopack build: unavailable locally because its compiler worker is
   denied port binding by the execution environment.
-- Production deployment and desktop/mobile verification: pending.
+- Live Production desktop verification confirmed the four-item legend and
+  correct gold, red, blue and grey status differentiation.
+- Live Production 390x844 mobile verification confirmed the calendar, legend
+  and labels fit without overlap or clipping.
+- JHB 6/7 November render as blue Full Show Buyouts; JHB 14/15 November render
+  as neutral Unavailable dates; Blackout and Special Event are absent from the
+  public legend.
+- An Available date continued normally to show selection and the guest step.
+
+## Release
+
+- Application and records commit: `e1504d6c5da8c517917cac67311fefa1ee2bf61b`.
+- Production deployment: `dpl_CP9MmTWXMDzoJH23XAyDCp2KBEfk`.
+- Deployment state: Ready, aliased to `book.zingara.co.za` at 15:10:05 SAST.
+- Migration: none.
+- Business-data delta: zero.
 
 ## Rollback
 
-Revert the public calendar presentation commit and redeploy. No data rollback
-or migration is required.
+Revert `e1504d6c` and redeploy. No data rollback or migration is required.
 

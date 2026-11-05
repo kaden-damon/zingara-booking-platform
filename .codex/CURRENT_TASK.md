@@ -1,6 +1,6 @@
 # Public Calendar Status & Colour Cleanup
 
-STATUS: IMPLEMENTED - RELEASE VERIFICATION PENDING
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 5 NOVEMBER 2026
 
@@ -16,8 +16,8 @@ DATE: 5 NOVEMBER 2026
   consolidated or migrated.
 - JHB 6 November has an active buyout and a Blackout show state; JHB 7 November
   has an active buyout and a Special Event state. Both are publicly blocked by
-  the active buyout. JHB 17 November was reopened from Blackout by staff and is
-  independently governed by its current show state.
+  the active buyout. JHB 17 November is currently `inactive` and is not returned
+  by the public show API.
 
 ## Implemented Presentation Change
 
@@ -37,8 +37,14 @@ DATE: 5 NOVEMBER 2026
 - The default Turbopack build remains blocked by this local environment's
   compiler port restriction; the clean Webpack build and Vercel build are the
   release gates.
-- Production deployment and authenticated desktop/mobile verification remain
-  pending.
+- Application and records commit: `e1504d6c5da8c517917cac67311fefa1ee2bf61b`.
+- Production deployment: `dpl_CP9MmTWXMDzoJH23XAyDCp2KBEfk`, Ready and aliased
+  to `book.zingara.co.za` at 15:10:05 SAST.
+- Live desktop and 390x844 mobile verification confirmed the four-item legend,
+  blue Full Show Buyouts on 6/7 November, neutral Unavailable Special Events on
+  14/15 November, and an ordinary Available date continuing to guest selection.
+- No migration was required. Business-data delta: zero.
+- Rollback: revert `e1504d6c` and redeploy.
 
 ## Archive
 
