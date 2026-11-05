@@ -36596,6 +36596,18 @@ export default function AdminDashboardPage({
               </div>
             ) : (
               <>
+                {selectedShow?.fullShowBuyout && (
+                  <div className="mb-5 rounded-2xl border border-sky-300/30 bg-sky-950/20 p-4 text-sm text-sky-100">
+                    <p className="font-semibold">
+                      Full Show Buyout · {selectedShow.fullShowBuyout.currentGuestCount} guests
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-sky-100/80">
+                      {selectedShow.fullShowBuyout.unallocatedGuestCount > 0
+                        ? `${selectedShow.fullShowBuyout.unallocatedGuestCount} guests await manual section planning. Zone totals remain empty until Box Office records the seating plan.`
+                        : "The recorded section plan is reflected in the zone totals below."}
+                    </p>
+                  </div>
+                )}
                 <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div>
                     <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#D8C36A]">
