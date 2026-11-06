@@ -13,6 +13,7 @@ type PackageRow = {
   code: string;
   currency: "ZAR";
   date_hold_hours: number | null;
+  description: string | null;
   display_name: string;
   exclusions: unknown;
   gratuity_amount: number;
@@ -25,6 +26,7 @@ type PackageRow = {
   total_amount: number;
   vat_amount: number;
   version: number;
+  venue_key: "all" | "cape-town" | "johannesburg";
 };
 
 type SummaryRow = {
@@ -83,6 +85,7 @@ export function toCorporateBuyoutPackage(row: PackageRow): CorporateBuyoutPackag
     code: row.code,
     currency: row.currency,
     dateHoldHours: row.date_hold_hours,
+    description: row.description ?? "",
     displayName: row.display_name,
     exclusions: stringArray(row.exclusions),
     gratuityAmount: Number(row.gratuity_amount),
@@ -94,6 +97,7 @@ export function toCorporateBuyoutPackage(row: PackageRow): CorporateBuyoutPackag
     quoteValidityHours: row.quote_validity_hours,
     totalAmount: Number(row.total_amount),
     vatAmount: Number(row.vat_amount),
+    venueKey: row.venue_key,
     version: row.version,
   };
 }
@@ -105,7 +109,7 @@ export async function loadCorporateBuyoutPackages(
   let query = client
     .from("corporate_buyout_packages")
     .select(
-      "id,code,version,display_name,currency,base_amount,gratuity_amount,vat_amount,total_amount,included_guest_count,maximum_guest_count,additional_guest_rate,quote_validity_hours,date_hold_hours,payment_due_hours,inclusions,exclusions,active",
+      "id,code,version,display_name,description,venue_key,currency,base_amount,gratuity_amount,vat_amount,total_amount,included_guest_count,maximum_guest_count,additional_guest_rate,quote_validity_hours,date_hold_hours,payment_due_hours,inclusions,exclusions,active",
     )
     .order("display_name", { ascending: true })
     .order("version", { ascending: false });
@@ -115,6 +119,20 @@ export async function loadCorporateBuyoutPackages(
   const { data, error } = await query;
   if (error) throw error;
   return ((data ?? []) as PackageRow[]).map(toCorporateBuyoutPackage);
+}
+
+export function resolveCorporateBuyoutPackages(
+  packages: CorporateBuyoutPackage[],
+  venueKey: "cape-town" | "johannesburg",
+) {
+  const byCode = new Map<string, CorporateBuyoutPackage>();
+  for (const item of packages) {
+    if (item.venueKey === "all" && !byCode.has(item.code)) byCode.set(item.code, item);
+  }
+  for (const item of packages) {
+    if (item.venueKey === venueKey) byCode.set(item.code, item);
+  }
+  return [...byCode.values()].sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
 export async function loadActiveCorporateBuyoutSummaries(

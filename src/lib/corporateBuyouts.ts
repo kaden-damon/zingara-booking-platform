@@ -17,6 +17,7 @@ export type CorporateBuyoutPackage = {
   code: string;
   currency: "ZAR";
   dateHoldHours: number | null;
+  description: string;
   displayName: string;
   exclusions: string[];
   gratuityAmount: number;
@@ -27,6 +28,7 @@ export type CorporateBuyoutPackage = {
   paymentDueHours: number | null;
   quoteValidityHours: number | null;
   totalAmount: number;
+  venueKey: "all" | "cape-town" | "johannesburg";
   vatAmount: number;
   version: number;
 };
@@ -68,6 +70,7 @@ export function isActiveCorporateBuyoutState(
 
 export function calculateCorporateBuyoutCommercials(input: {
   additionalGuestRate?: number | null;
+  customAgreedTotalAmount?: number | null;
   guestCount: number;
   package: Pick<
     CorporateBuyoutPackage,
@@ -87,16 +90,30 @@ export function calculateCorporateBuyoutCommercials(input: {
   const additionalGuestRate = Number(input.additionalGuestRate ?? 0);
   const additionalGuestAmount =
     Math.round(additionalGuests * additionalGuestRate * 100) / 100;
+  const agreedPackageTotal =
+    input.customAgreedTotalAmount && input.customAgreedTotalAmount > 0
+      ? Math.round(input.customAgreedTotalAmount * 100) / 100
+      : input.package.totalAmount;
+  const scale = input.package.totalAmount > 0
+    ? agreedPackageTotal / input.package.totalAmount
+    : 1;
+  const agreedPackageCents = Math.round(agreedPackageTotal * 100);
+  const baseCents = Math.round(input.package.baseAmount * scale * 100);
+  const gratuityCents = Math.round(input.package.gratuityAmount * scale * 100);
+  const vatCents = agreedPackageCents - baseCents - gratuityCents;
+  const baseAmount = baseCents / 100;
+  const gratuityAmount = gratuityCents / 100;
+  const vatAmount = vatCents / 100;
 
   return {
     additionalGuestAmount,
     additionalGuests,
-    baseAmount: input.package.baseAmount,
-    gratuityAmount: input.package.gratuityAmount,
+    baseAmount,
+    gratuityAmount,
     totalAmount:
-      Math.round((input.package.totalAmount + additionalGuestAmount) * 100) /
+      Math.round((agreedPackageTotal + additionalGuestAmount) * 100) /
       100,
-    vatAmount: input.package.vatAmount,
+    vatAmount,
   };
 }
 

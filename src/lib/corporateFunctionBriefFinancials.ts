@@ -65,6 +65,7 @@ function parseMetadata(notes: string | null | undefined) {
       addons?: FinancialAddon[];
       commercialModel?: string;
       gratuityPolicy?: GratuityPolicy;
+    pricingProvenance?: { bookingFeeAmount?: number };
     };
   } catch {
     return null;
@@ -170,7 +171,10 @@ export function resolveCorporateFunctionBriefFinancials(
     input.bookingOrigin !== "data_import" &&
     metadata?.commercialModel !== "fixed-buyout-package";
   const bookingFeeAmount = usesEmbeddedBookingFee
-    ? money(ticketGross > 0 ? includedBookingFeeAmount : 0)
+    ? money(
+        metadata?.pricingProvenance?.bookingFeeAmount ??
+          (ticketGross > 0 ? includedBookingFeeAmount : 0),
+      )
     : 0;
   const ticketValue = explicitTicketValue > 0
     ? explicitTicketValue

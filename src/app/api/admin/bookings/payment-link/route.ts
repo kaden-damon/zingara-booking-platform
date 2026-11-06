@@ -1,4 +1,5 @@
 import { sendOperationalCustomerEmail } from "@/lib/email/smtp";
+import { includedBookingFeeAmount } from "@/lib/bookingFees";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -395,8 +396,9 @@ export async function POST(request: Request) {
 
     if (action !== "create") {
       const { data: result, error: createError } = await supabase.rpc(
-        "create_booking_balance_payment_link_atomic",
+        "create_booking_balance_payment_link_fee_aware_atomic",
         {
+          p_booking_fee_amount: includedBookingFeeAmount,
           p_booking_reference: bookingReference,
           p_created_by: user?.id ?? null,
           p_expires_at: expiresAt.toISOString(),

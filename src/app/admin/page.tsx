@@ -133,6 +133,9 @@ const CorporateBuyoutCreator = dynamic(
 const CorporateBuyoutManager = dynamic(
   () => import("./CorporateBuyoutManager"),
 );
+const CorporateBuyoutPackageSettings = dynamic(
+  () => import("./CorporateBuyoutPackageSettings"),
+);
 const CorporateFinancialReconciliationModal = dynamic(
   () => import("./CorporateFinancialReconciliationModal"),
 );
@@ -4808,6 +4811,8 @@ function getBookingFinancials(booking: DemoBooking) {
   const ticketBreakdown = getIncludedBookingFeeBreakdown(
     Math.max(subtotalPrice - addonsTotal, 0),
   );
+  const bookingFeeAmount = booking.pricingProvenance?.bookingFeeAmount ??
+    ticketBreakdown.bookingFee;
   const depositPercentage = booking.depositPercentage ?? 100;
   const depositAmount = Math.ceil(
     totalPrice * (depositPercentage / 100),
@@ -4829,7 +4834,7 @@ function getBookingFinancials(booking: DemoBooking) {
     addonsTotal,
     amountPaid,
     balanceDue,
-    bookingFeeAmount: ticketBreakdown.bookingFee,
+    bookingFeeAmount,
     depositAmount,
     discountAmount: booking.discountAmount ?? 0,
     paymentOption: booking.paymentOption ?? "full",
@@ -4839,7 +4844,7 @@ function getBookingFinancials(booking: DemoBooking) {
     lastTransactionFeeAmount: booking.lastTransactionFeeAmount,
     serviceFeeAmount: booking.serviceFeeAmount ?? 0,
     subtotalPrice,
-    ticketAmount: ticketBreakdown.ticketAmount,
+    ticketAmount: Math.max(subtotalPrice - addonsTotal - bookingFeeAmount, 0),
     totalPrice,
   };
 }
@@ -31622,6 +31627,7 @@ export default function AdminDashboardPage({
                   onSaveConfiguration={saveSecretPasswordExperienceConfiguration}
                   shows={shows}
                 />
+                <CorporateBuyoutPackageSettings />
                 <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
                   <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
                     Seating Zone Lifecycle

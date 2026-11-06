@@ -21,6 +21,7 @@ export type BoxOfficeBookingRow = {
   archivedAt: string | null;
   balanceOutstanding: number;
   bookingOrigin: string | null;
+  bookingFeeAmount?: number;
   bookingReference: string;
   bookingSource: string;
   bookingStatus: string;
@@ -59,6 +60,11 @@ export type BoxOfficeLegacyPaymentEvidenceRow = {
   sourceTicketAmount: number;
   ticketGratuityAmount: number;
 };
+
+function bookingFee(booking: BoxOfficeBookingRow) {
+  return booking.bookingFeeAmount ??
+    (booking.subtotalAmount - booking.addonsTotal > 0 ? includedBookingFeeAmount : 0);
+}
 
 export type BoxOfficeAuditRow = {
   afterValues: Record<string, unknown>;
@@ -484,10 +490,7 @@ export function buildBoxOfficeFinancialReport(input: {
         : booking.serviceFee,
     );
     const embeddedBookingFee =
-      booking.bookingOrigin !== "data_import" &&
-      booking.subtotalAmount - booking.addonsTotal > 0
-        ? includedBookingFeeAmount
-        : 0;
+      booking.bookingOrigin !== "data_import" ? bookingFee(booking) : 0;
     const ticketSaleAmount = money(
       evidence && evidence.sourceTicketAmount > 0
         ? evidence.sourceTicketAmount
@@ -553,9 +556,7 @@ export function buildBoxOfficeFinancialReport(input: {
   const detailGross = money(uniqueReceipts.reduce((sum, receipt) => sum + receipt.amount + receipt.transactionFee, 0));
   const bookingFees = money(periodBookings.reduce(
     (sum, booking) => sum + (
-      booking.subtotalAmount - booking.addonsTotal > 0
-        ? includedBookingFeeAmount
-        : 0
+      bookingFee(booking)
     ),
     0,
   ));
@@ -594,9 +595,7 @@ export function buildBoxOfficeFinancialReport(input: {
       ticketSubtotal: money(periodBookings.reduce(
         (sum, booking) => sum + Math.max(
           booking.subtotalAmount - booking.addonsTotal - (
-            booking.subtotalAmount - booking.addonsTotal > 0
-              ? includedBookingFeeAmount
-              : 0
+            bookingFee(booking)
           ),
           0,
         ),

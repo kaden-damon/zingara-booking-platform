@@ -716,7 +716,10 @@ export type DemoBooking = {
   pricingProvenance?: {
     agreedPricePerPerson: number;
     authorizedByStaffId?: string;
+    bookingFeeAmount?: number;
     depositPerPerson: number;
+    feePolicyVersion?: "payment-method-v1";
+    paymentMethod?: "eft" | "payfast";
     paymentModel: PaymentOption;
     source:
       | "complimentary"

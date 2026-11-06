@@ -1,4 +1,5 @@
 import type { ComplimentaryBookingCategory } from "./internalComplimentaryBooking.ts";
+import { includedBookingFeeAmount } from "./bookingFees.ts";
 import type { SeatingZoneId } from "./zingaraDemo.ts";
 
 export type BookingGuestAllocation = {
@@ -23,6 +24,7 @@ export type GuestAllocationTotals = {
 
 export type GuestAllocationFinancials = {
   addonsTotal: number;
+  bookingFeeAmount: number;
   depositAmount: number;
   depositPercentage: number;
   discountAmount: number;
@@ -202,6 +204,7 @@ export function calculateGuestAllocationFinancials(input: {
     paidPax: number,
   ) => number;
   discountAmount?: number;
+  includeBookingFee?: boolean;
   includeGratuity?: boolean;
   serviceFeeGuestThreshold: number;
   serviceFeeRate: number;
@@ -214,8 +217,13 @@ export function calculateGuestAllocationFinancials(input: {
     ...allocation,
     subtotal: Math.max(input.zonePrice(allocation.zoneId), 0) * allocation.paidPax,
   }));
-  const seatingSubtotal = seatingByZone.reduce(
+  const ticketGrossAmount = seatingByZone.reduce(
     (sum, allocation) => sum + allocation.subtotal,
+    0,
+  );
+  const includedBookingFee = ticketGrossAmount > 0 ? includedBookingFeeAmount : 0;
+  const seatingSubtotal = Math.max(
+    ticketGrossAmount - (input.includeBookingFee === false ? includedBookingFee : 0),
     0,
   );
   const addonsTotal = totals.paidPax > 0 ? Math.max(input.addonsTotal, 0) : 0;
@@ -255,6 +263,7 @@ export function calculateGuestAllocationFinancials(input: {
 
   return {
     addonsTotal,
+    bookingFeeAmount: input.includeBookingFee === false ? 0 : includedBookingFee,
     depositAmount,
     depositPercentage: total > 0 ? (depositAmount / total) * 100 : 100,
     discountAmount,

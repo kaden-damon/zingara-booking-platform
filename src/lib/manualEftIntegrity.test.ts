@@ -89,6 +89,18 @@ test("unstructured payment endpoints cannot create manual paid evidence", async 
   assert.match(migration, /revoke execute on function public\.record_expired_corporate_payment_atomic/);
 });
 
+test("new-policy EFT removes the configured fee atomically without repricing history", async () => {
+  const [route, migration] = await Promise.all([
+    source("src/app/api/admin/bookings/mark-paid/route.ts"),
+    source("supabase/migrations/20261106160000_corporate_buyout_pricing_corrections.sql"),
+  ]);
+  assert.match(route, /record_manual_eft_payment_fee_aware_atomic/);
+  assert.match(migration, /feePolicyVersion' = 'payment-method-v1'/);
+  assert.match(migration, /payment\.method::text = 'payfast'/);
+  assert.match(migration, /record_manual_eft_payment_atomic\(/);
+  assert.match(migration, /Configured Booking Fee removed because payment was recorded by EFT/);
+});
+
 test("PayFast remains independently guarded by successful provider completion", async () => {
   const itn = await source("src/app/api/payfast/itn/route.ts");
   assert.match(itn, /payment_status/);

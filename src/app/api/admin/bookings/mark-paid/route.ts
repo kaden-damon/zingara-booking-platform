@@ -183,7 +183,7 @@ export async function POST(request: Request) {
 
     const ticketCode = createTicketCode(bookingReference);
     const { data, error } = await auth.serviceClient.rpc(
-      "record_manual_eft_payment_atomic",
+      "record_manual_eft_payment_fee_aware_atomic",
       {
         p_actor_auth_user_id: auth.user.id,
         p_actor_staff_profile_id: auth.staffProfile.id,

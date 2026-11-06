@@ -165,7 +165,9 @@ export async function loadBookingManagementContext(
   const show = showResult.data as ShowRow;
   const depositAmount = getDepositAmount(metadata, booking);
   const policy = resolveBookingCancellationPolicy({
-    bookingFeeAmount: booking.total_amount > 0 ? includedBookingFeeAmount : 0,
+    bookingFeeAmount:
+      metadata?.pricingProvenance?.bookingFeeAmount ??
+      (booking.total_amount > 0 ? includedBookingFeeAmount : 0),
     bookingKind,
     depositAmount,
     manualReceiptAmount,

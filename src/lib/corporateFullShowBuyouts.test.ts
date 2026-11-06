@@ -236,3 +236,34 @@ test("show and public calendar surfaces display the dedicated Buyout state", asy
   assert.match(publicPage, /"full-show-buyout": "Buyout"/);
   assert.match(publicPage, /show\.fullShowBuyout/);
 });
+
+test("custom agreed Buyout totals and venue package versions remain snapshotted", async () => {
+  const result = calculateCorporateBuyoutCommercials({
+    customAgreedTotalAmount: 684_400,
+    guestCount: 400,
+    package: {
+      baseAmount: 590_000,
+      gratuityAmount: 73_750,
+      includedGuestCount: 400,
+      maximumGuestCount: null,
+      totalAmount: 752_250,
+      vatAmount: 88_500,
+    },
+  });
+  assert.equal(result.totalAmount, 684_400);
+  assert.equal(
+    Math.round(
+      (result.baseAmount + result.gratuityAmount + result.vatAmount) * 100,
+    ),
+    68_440_000,
+  );
+
+  const migration = await source(
+    "../../supabase/migrations/20261106160000_corporate_buyout_pricing_corrections.sql",
+  );
+  assert.match(migration, /unique \(venue_key, code, version\)/);
+  assert.match(migration, /save_corporate_buyout_package_version_atomic/);
+  assert.match(migration, /create_corporate_buyout_priced_atomic/);
+  assert.match(migration, /customAgreedPrice/);
+  assert.match(migration, /package_snapshot = package_snapshot \|\|/);
+});

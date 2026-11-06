@@ -198,3 +198,19 @@ test("staff allocation persistence remains authorised, atomic and multi-zone for
     /booking_source = 'admin'[\s\S]{0,120}jsonb_array_length\(guest_allocations\) = 1/,
   );
 });
+
+test("EFT allocation pricing excludes the configured embedded Booking Fee", () => {
+  const financials = calculateGuestAllocationFinancials({
+    addonsTotal: 0,
+    allocations: [{ paidPax: 4, complimentaryPax: 0, zoneId: "golden-circle" }],
+    depositForZone: () => 0,
+    includeBookingFee: false,
+    includeGratuity: false,
+    serviceFeeGuestThreshold: 6,
+    serviceFeeRate: 0.125,
+    totalPax: 4,
+    zonePrice: () => 1_500,
+  });
+  assert.equal(financials.bookingFeeAmount, 0);
+  assert.equal(financials.subtotal, 5_990);
+});

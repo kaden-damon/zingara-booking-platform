@@ -84,6 +84,7 @@ export default function CorporateBuyoutCreator({
   const [packageId, setPackageId] = useState("");
   const [expectedGuests, setExpectedGuests] = useState("400");
   const [finalGuests, setFinalGuests] = useState("");
+  const [customAgreedTotal, setCustomAgreedTotal] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState("");
   const [creatingCompany, setCreatingCompany] = useState(false);
@@ -156,6 +157,13 @@ export default function CorporateBuyoutCreator({
   const selectedContact = selectedCompany?.contacts.find((contact) => contact.id === contactId);
   const selectedPackage = data?.packages.find((item) => item.id === packageId);
   const currentGuestCount = Number(finalGuests || expectedGuests);
+  const customAgreedTotalAmount = customAgreedTotal.trim()
+    ? Number(customAgreedTotal)
+    : null;
+  const customPriceError = customAgreedTotalAmount !== null &&
+    (!Number.isFinite(customAgreedTotalAmount) || customAgreedTotalAmount <= 0)
+      ? "Enter a valid agreed Buyout total."
+      : null;
   const guestError = selectedPackage
     ? validateCorporateBuyoutGuestTerms({
         additionalGuestRate: selectedPackage.additionalGuestRate,
@@ -167,13 +175,15 @@ export default function CorporateBuyoutCreator({
   const commercials = selectedPackage
     ? calculateCorporateBuyoutCommercials({
         additionalGuestRate: selectedPackage.additionalGuestRate,
+        customAgreedTotalAmount,
         guestCount: currentGuestCount,
         package: selectedPackage,
       })
     : null;
   const ready = Boolean(
     data?.canCreate && authoritativeShow && selectedCompany && selectedContact &&
-      selectedPackage && data.eligibility?.available && !guestError,
+      selectedPackage && data.eligibility?.available && !guestError &&
+      !customPriceError,
   );
   const packageCards = useMemo(() => data?.packages ?? [], [data?.packages]);
 
@@ -231,6 +241,7 @@ export default function CorporateBuyoutCreator({
         : await createCorporateBuyout({
             companyId,
             contactCustomerId: contactId,
+            customAgreedTotalAmount,
             expectedGuestCount: Number(expectedGuests),
             finalGuestCount: finalGuests ? Number(finalGuests) : null,
             idempotencyKey: key,
@@ -295,7 +306,9 @@ export default function CorporateBuyoutCreator({
               {creatingCompany && <div className="grid gap-3 rounded-2xl border border-white/10 bg-black/35 p-4 sm:grid-cols-2"><label className="text-sm text-zinc-300">Company name<input className={fieldClass()} value={newCompanyName} onChange={(event) => setNewCompanyName(event.target.value)} /></label><label className="text-sm text-zinc-300">Contact name<input className={fieldClass()} value={newContactName} onChange={(event) => setNewContactName(event.target.value)} /></label><label className="text-sm text-zinc-300">Contact email<input type="email" className={fieldClass()} value={newContactEmail} onChange={(event) => setNewContactEmail(event.target.value)} /></label><label className="text-sm text-zinc-300">Contact mobile<input className={fieldClass()} value={newContactMobile} onChange={(event) => setNewContactMobile(event.target.value)} /></label><button type="button" disabled={saving} onClick={() => void createCompanyAndContact()} className="min-h-11 rounded-full border border-[#D8C36A]/45 px-5 py-3 text-sm font-bold text-[#F2D66C] disabled:opacity-50 sm:col-span-2 sm:w-fit">{saving ? "Saving..." : "Save Company and Contact"}</button></div>}
 
               <fieldset><legend className="text-sm font-semibold text-zinc-300">Package</legend><div className="mt-2 grid gap-3 lg:grid-cols-3">{packageCards.map((item) => <PackageCard training={Boolean(trainingModuleId)} key={item.id} item={item} selected={item.id === packageId} onSelect={() => setPackageId(item.id)} />)}</div></fieldset>
+              <label className="block max-w-sm text-sm font-semibold text-zinc-300">Agreed Buyout total <span className="font-normal text-zinc-500">(optional)</span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={customAgreedTotal} onChange={(event) => setCustomAgreedTotal(event.target.value)} placeholder={selectedPackage ? selectedPackage.totalAmount.toFixed(2) : "0.00"} className={fieldClass()} /><span className="mt-1 block text-xs font-normal text-zinc-500">Overrides this booking only. VAT and gratuity remain proportionate to the selected package.</span></label>
               <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-semibold text-zinc-300">Expected guests<input data-training-control="training-buyout-guests" type="number" min="1" step="1" value={expectedGuests} onChange={(event) => setExpectedGuests(event.target.value)} className={fieldClass()} /></label><label className="text-sm font-semibold text-zinc-300">Final guests <span className="font-normal text-zinc-500">(optional)</span><input type="number" min="1" step="1" value={finalGuests} onChange={(event) => setFinalGuests(event.target.value)} className={fieldClass()} /></label></div>
+              {customPriceError && <p className="text-sm text-amber-200">{customPriceError}</p>}
               {guestError && <p className="text-sm text-amber-200">{guestError}</p>}
               {eligibility && eligibility.activeBookingCount > 0 && <div className="rounded-2xl border border-amber-300/35 bg-amber-950/25 p-5"><p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-100">Existing bookings need review</p><p className="mt-2 text-base font-bold text-white">{eligibility.activeBookingCount} booking{eligibility.activeBookingCount === 1 ? "" : "s"} · {eligibility.activeGuestCount} guest{eligibility.activeGuestCount === 1 ? "" : "s"} need to be moved</p><p className="mt-2 text-sm text-amber-100">These bookings will stay unchanged until Box Office moves them.</p><button type="button" onClick={() => onReviewBookings(authoritativeShow?.id ?? selectedShow.id)} className="mt-3 min-h-11 rounded-full border border-[#D8C36A]/55 px-4 py-2 text-sm font-bold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black">Review Bookings</button></div>}
               {selectedPackage && commercials && <div className="grid gap-4 rounded-2xl border border-[#D8C36A]/25 bg-[#130e06] p-5 lg:grid-cols-[1fr_auto]"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">Review</p><h3 className="mt-2 text-xl font-bold text-white">Buyout</h3><p className="mt-2 text-sm text-zinc-300">{selectedCompany?.legalName ?? "Choose Company"} · {selectedContact ? [selectedContact.firstName, selectedContact.surname].filter(Boolean).join(" ") : "Choose Contact"}</p><p className="mt-1 text-sm text-zinc-400">{displayShow.venue} · {formatShowDate(displayShow.date)} · {displayShow.time.slice(0, 5)} · {selectedPackage.displayName}</p><p className="mt-1 text-sm text-zinc-400">{currentGuestCount || 0} guests · Awaiting Payment</p><p className="mt-3 text-sm text-amber-100">Public booking will close for this performance. Guests remain unallocated until Floor planning is completed.</p></div><dl className="min-w-52 space-y-2 text-sm"><div className="flex justify-between gap-5"><dt className="text-zinc-400">Base</dt><dd>{money(commercials.baseAmount)}</dd></div><div className="flex justify-between gap-5"><dt className="text-zinc-400">Gratuity</dt><dd>{money(commercials.gratuityAmount)}</dd></div><div className="flex justify-between gap-5"><dt className="text-zinc-400">VAT</dt><dd>{money(commercials.vatAmount)}</dd></div>{commercials.additionalGuests > 0 && <div className="flex justify-between gap-5"><dt className="text-zinc-400">Extra guests</dt><dd>{money(commercials.additionalGuestAmount)}</dd></div>}<div className="flex justify-between gap-5 border-t border-white/10 pt-2 text-base font-bold"><dt>Total</dt><dd className="text-[#F2D66C]">{money(commercials.totalAmount)}</dd></div></dl></div>}
@@ -310,5 +323,5 @@ export default function CorporateBuyoutCreator({
 }
 
 function PackageCard({ item, onSelect, selected, training }: { item: CorporateBuyoutPackage; onSelect: () => void; selected: boolean; training: boolean }) {
-  return <button data-training-control={training ? "training-buyout-package" : undefined} type="button" aria-pressed={selected} onClick={onSelect} className={`rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#D8C36A] ${selected ? "border-[#D8C36A] bg-[#181107]" : "border-white/10 bg-black/35 hover:border-white/25"}`}><span className="font-bold text-white">{item.displayName}</span><span className="mt-2 block text-lg font-bold text-[#F2D66C]">{money(item.totalAmount)}</span><span className="mt-1 block text-xs text-zinc-400">Fixed package · up to {item.includedGuestCount} guests</span><span className="mt-3 block text-xs leading-5 text-zinc-400">{item.inclusions.slice(0, 3).join(" · ")}</span></button>;
+  return <button data-training-control={training ? "training-buyout-package" : undefined} type="button" aria-pressed={selected} onClick={onSelect} className={`rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#D8C36A] ${selected ? "border-[#D8C36A] bg-[#181107]" : "border-white/10 bg-black/35 hover:border-white/25"}`}><span className="font-bold text-white">{item.displayName}</span><span className="mt-2 block text-lg font-bold text-[#F2D66C]">{money(item.totalAmount)}</span><span className="mt-1 block text-xs text-zinc-400">Fixed package · up to {item.includedGuestCount} guests</span><span className="mt-3 block text-xs leading-5 text-zinc-400">{item.description || item.inclusions.slice(0, 3).join(" · ")}</span></button>;
 }

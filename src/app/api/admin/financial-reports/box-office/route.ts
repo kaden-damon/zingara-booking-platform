@@ -43,6 +43,20 @@ function number(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function bookingFeeFromNotes(value: unknown) {
+  const notes = typeof value === "string" ? value : "";
+  if (!notes.startsWith("__zingara_booking_meta__:")) return undefined;
+  try {
+    const metadata = JSON.parse(notes.slice("__zingara_booking_meta__:".length)) as {
+      pricingProvenance?: { bookingFeeAmount?: unknown };
+    };
+    const amount = Number(metadata.pricingProvenance?.bookingFeeAmount);
+    return Number.isFinite(amount) && amount >= 0 ? amount : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function unique<T>(values: T[]) {
   return [...new Set(values)];
 }
@@ -103,7 +117,7 @@ export async function GET(request: Request) {
     const [periodBookingRows, paymentRows, auditRows, refundRows, showRows] = await Promise.all([
       loadAllRows<Record<string, unknown>>((fromRow, toRow) => client
         .from("bookings")
-        .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,section,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
+        .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,section,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,notes,created_at,archived_at")
         .gte("created_at", range.start).lt("created_at", range.endExclusive)
         .order("id").range(fromRow, toRow)),
       loadAllRows<Record<string, unknown>>((fromRow, toRow) => client
@@ -138,14 +152,14 @@ export async function GET(request: Request) {
       const references = linkedReferences.slice(index, index + 100);
       if (ids.length > 0) {
         const { data, error } = await client.from("bookings")
-          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,section,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
+          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,section,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,notes,created_at,archived_at")
           .in("id", ids);
         if (error) throw error;
         extraRows.push(...((data ?? []) as Record<string, unknown>[]));
       }
       if (references.length > 0) {
         const { data, error } = await client.from("bookings")
-          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,section,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,created_at,archived_at")
+          .select("id,booking_reference,customer_id,show_id,booking_source,booking_origin,corporate_request_id,company_name,guest_count,booking_status,payment_status,section,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,notes,created_at,archived_at")
           .in("booking_reference", references);
         if (error) throw error;
         extraRows.push(...((data ?? []) as Record<string, unknown>[]));
@@ -206,6 +220,7 @@ export async function GET(request: Request) {
       return [{
         addonsTotal: number(row.addons_total), amountPaid: number(row.amount_paid), archivedAt: row.archived_at ? String(row.archived_at) : null,
         balanceOutstanding: number(row.balance_outstanding), bookingOrigin: row.booking_origin ? String(row.booking_origin) : null,
+        bookingFeeAmount: bookingFeeFromNotes(row.notes),
         bookingReference: String(row.booking_reference), bookingSource: String(row.booking_source ?? ""), bookingStatus: String(row.booking_status ?? ""),
         paymentStatus: String(row.payment_status ?? ""),
         corporateRequestId: row.corporate_request_id ? String(row.corporate_request_id) : null, createdAt: String(row.created_at), customerId: String(row.customer_id),

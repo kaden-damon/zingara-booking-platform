@@ -2,6 +2,7 @@ import { getActorRoleLabel } from "@/lib/auditTrail";
 import {
   loadActiveCorporateBuyoutSummaries,
   loadCorporateBuyoutPackages,
+  resolveCorporateBuyoutPackages,
 } from "@/lib/supabase/corporateBuyoutsServer";
 import { loadCompanies } from "@/lib/supabase/companyMasterServer";
 import {
@@ -271,7 +272,10 @@ export async function GET(request: Request) {
             ),
           showStatus: show.status,
         },
-        packages,
+        packages: resolveCorporateBuyoutPackages(
+          packages,
+          normalizeShowLocation(show.venue) ?? "cape-town",
+        ),
         shows: [{ ...show, activeBuyout }],
       });
     }
@@ -298,7 +302,7 @@ export async function GET(request: Request) {
     return Response.json({
       canCreate: canCreate(auth),
       companies,
-      packages,
+      packages: packages.filter((item) => item.venueKey === "all"),
       shows: scopedShows.map((show) => ({
         ...show,
         activeBuyout: summaries.get(show.id) ?? null,
@@ -339,6 +343,7 @@ export async function POST(request: Request) {
       contactCustomerId?: string;
       expectedGuestCount?: number;
       finalGuestCount?: number | null;
+      customAgreedTotalAmount?: number | null;
       idempotencyKey?: string;
       packageId?: string;
       showId?: string;
@@ -365,7 +370,7 @@ export async function POST(request: Request) {
       await auth.serviceClient
         .from("corporate_buyout_packages")
         .select(
-          "id,maximum_guest_count,additional_guest_rate,quote_validity_hours,date_hold_hours,payment_due_hours",
+          "id,venue_key,maximum_guest_count,additional_guest_rate,quote_validity_hours,date_hold_hours,payment_due_hours",
         )
         .eq("id", body.packageId)
         .eq("active", true)
@@ -378,6 +383,33 @@ export async function POST(request: Request) {
       );
     }
 
+    const { data: selectedShow, error: selectedShowError } =
+      await auth.serviceClient
+        .from("shows")
+        .select("venue")
+        .eq("id", body.showId)
+        .maybeSingle();
+    if (selectedShowError) throw selectedShowError;
+    const selectedVenue = normalizeShowLocation(selectedShow?.venue);
+    if (
+      !selectedVenue ||
+      !["all", selectedVenue].includes(String(selectedPackage.venue_key))
+    ) {
+      return Response.json(
+        { error: "This Buyout package is not configured for the selected venue." },
+        { status: 409 },
+      );
+    }
+    const customAgreedTotalAmount = body.customAgreedTotalAmount == null
+      ? null
+      : Math.round(Number(body.customAgreedTotalAmount) * 100) / 100;
+    if (
+      customAgreedTotalAmount !== null &&
+      (!Number.isFinite(customAgreedTotalAmount) || customAgreedTotalAmount <= 0)
+    ) {
+      return Response.json({ error: "Enter a valid agreed Buyout total." }, { status: 400 });
+    }
+
     const now = Date.now();
     const toDeadline = (hours: number | null) =>
       hours ? new Date(now + hours * 60 * 60 * 1000).toISOString() : null;
@@ -385,13 +417,14 @@ export async function POST(request: Request) {
       auth.staffProfile.venue_scope ?? [],
     );
     const { data, error } = await auth.serviceClient.rpc(
-      "create_corporate_buyout_atomic",
+      "create_corporate_buyout_priced_atomic",
       {
         ...actorArgs(request, auth),
         p_additional_guest_rate: selectedPackage.additional_guest_rate,
         p_authorized_venues: venueScope,
         p_booking_reference: bookingReference(),
         p_company_id: body.companyId,
+        p_custom_agreed_total_amount: customAgreedTotalAmount,
         p_contact_customer_id: body.contactCustomerId,
         p_expected_guest_count: body.expectedGuestCount,
         p_final_guest_count: body.finalGuestCount ?? null,

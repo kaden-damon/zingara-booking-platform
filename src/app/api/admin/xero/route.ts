@@ -9,6 +9,7 @@ import {
   buildAuthoritativeBookingInvoiceDraft,
   directBookingInvoiceRevenueCategory,
 } from "@/lib/xero/bookingInvoice";
+import { getPersistedBookingFeeAmount } from "@/lib/bookingFees";
 import { canConvertRequestedQuote } from "@/lib/xero/invoiceRequests";
 import { canManageXeroCreditNotes } from "@/lib/xero/creditNotes";
 import {
@@ -240,7 +241,7 @@ export async function GET(request: Request) {
   if (prefillBookingReference) {
     const { data: booking, error: bookingError } = await auth.serviceClient
       .from("bookings")
-      .select("id,booking_reference,booking_origin,booking_source,corporate_request_id,company_id,customer_id,company_name,guest_count,section,show_id,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,payment_status")
+      .select("id,booking_reference,booking_origin,booking_source,corporate_request_id,company_id,customer_id,company_name,guest_count,section,show_id,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,payment_status,notes")
       .eq("booking_reference", prefillBookingReference)
       .maybeSingle();
     if (bookingError) throw bookingError;
@@ -259,6 +260,10 @@ export async function GET(request: Request) {
     const invoiceDraft = url.searchParams.get("document") === "invoice"
       ? buildAuthoritativeBookingInvoiceDraft({
           addonsTotal: Number(booking.addons_total) || 0,
+          bookingFeeAmount: getPersistedBookingFeeAmount(
+            booking.notes,
+            (Number(booking.subtotal_amount) || 0) - (Number(booking.addons_total) || 0),
+          ),
           bookingReference: booking.booking_reference,
           discountAmount: Number(booking.discount_amount) || 0,
           revenueCategory: directBookingInvoiceRevenueCategory({

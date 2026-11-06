@@ -151,6 +151,7 @@ export function normalizeInternalBookingAddons(
   value: unknown,
   options: {
     allowCorporateBarTab?: boolean;
+    allowCorporateBarTabPricing?: boolean;
     allowCustomPricing: boolean;
     existingAddons?: BookingAddon[];
     location?: EntryLocationKey | null;
@@ -216,6 +217,7 @@ export function normalizeInternalBookingAddons(
       if (
         requestedUnitPrice !== catalogueUnitPrice &&
         !options.allowCustomPricing &&
+        !(catalogueItem.id === corporateBarTabAddon.id && options.allowCorporateBarTabPricing) &&
         !preservesExistingOverride
       ) {
         throw new Error(

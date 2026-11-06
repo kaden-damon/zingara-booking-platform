@@ -132,7 +132,7 @@ test("expired payment does not send guest communications before reinstatement", 
 
 test("all future manual EFT payments use the structured evidence-backed RPC", async () => {
   const route = await source("src/app/api/admin/bookings/mark-paid/route.ts");
-  assert.match(route, /record_manual_eft_payment_atomic/);
+  assert.match(route, /record_manual_eft_payment_fee_aware_atomic/);
   assert.match(route, /p_amount_received: amountReceived/);
   assert.match(route, /p_received_on: receivedOn/);
   assert.match(route, /p_bank_reference: bankReference/);

@@ -3,6 +3,7 @@ import {
   buildAuthoritativeBookingInvoiceDraft,
   directBookingInvoiceRevenueCategory,
 } from "@/lib/xero/bookingInvoice";
+import { getPersistedBookingFeeAmount } from "@/lib/bookingFees";
 import {
   bulkInvoiceBatchLimit,
   bulkInvoiceBlockers,
@@ -188,7 +189,7 @@ async function processBatch(
     try {
       const { data: booking, error: bookingError } = await auth.serviceClient
         .from("bookings")
-        .select("id,booking_reference,booking_origin,booking_source,booking_status,corporate_request_id,company_id,company_name,customer_id,guest_count,section,show_id,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,payment_status,archived_at,created_at")
+        .select("id,booking_reference,booking_origin,booking_source,booking_status,corporate_request_id,company_id,company_name,customer_id,guest_count,section,show_id,subtotal_amount,discount_amount,addons_total,service_fee,total_amount,amount_paid,balance_outstanding,payment_status,notes,archived_at,created_at")
         .eq("id", item.booking_id)
         .in("booking_status", [...bulkInvoiceEligibleBookingStatuses])
         .is("archived_at", null)
@@ -201,6 +202,10 @@ async function processBatch(
       if (!resolved.show) throw new Error("PERFORMANCE_NOT_FOUND");
       const draft = buildAuthoritativeBookingInvoiceDraft({
         addonsTotal: Number(booking.addons_total) || 0,
+        bookingFeeAmount: getPersistedBookingFeeAmount(
+          booking.notes,
+          (Number(booking.subtotal_amount) || 0) - (Number(booking.addons_total) || 0),
+        ),
         bookingReference: booking.booking_reference,
         discountAmount: Number(booking.discount_amount) || 0,
         revenueCategory: directBookingInvoiceRevenueCategory({

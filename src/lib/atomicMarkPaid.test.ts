@@ -92,7 +92,7 @@ test("the endpoint keeps authentication and authoritative outcome guidance at th
   assert.match(route, /requireActiveStaff\(request\)/);
   assert.match(route, /getRolePermissions\(role\)\.includes\("bookings:reconcile"\)/);
   assert.match(route, /normalizeStaffVenueScope/);
-  assert.match(route, /record_manual_eft_payment_atomic/);
+  assert.match(route, /record_manual_eft_payment_fee_aware_atomic/);
   assert.match(route, /BOOKING_REVISION_CHANGED/);
   assert.match(route, /BOOKING_ALREADY_PAID/);
   assert.match(route, /MANUAL_EFT_NOT_ALLOWED/);

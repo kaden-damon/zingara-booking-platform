@@ -321,3 +321,16 @@ test("public Corporate enquiry remains a preference list without custom pricing"
   assert.match(page, /const corporateAddons = \[/);
   assert.doesNotMatch(page, /Add Custom Item|unitPrice|LINE TOTAL/i);
 });
+
+test("authorised Box Office can set Bar Tab value without arbitrary custom-pricing access", () => {
+  const [barTab] = normalizeInternalBookingAddons(
+    [{ id: "corporate-bar-tab", quantity: 1, unitPrice: 5_000 }],
+    {
+      allowCorporateBarTab: true,
+      allowCorporateBarTabPricing: true,
+      allowCustomPricing: false,
+    },
+  );
+  assert.equal(barTab.price, 5_000);
+  assert.equal(barTab.quantity, 1);
+});

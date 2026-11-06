@@ -87,3 +87,21 @@ test("direct booking invoice release remains permissioned, reconciled and duplic
   assert.match(panel, /Create Invoice Draft/);
   assert.match(workspace, /document\.source_quote_id \|\| document\.source_booking_id/);
 });
+
+test("EFT invoices omit the Booking Fee without changing the authoritative total", () => {
+  const draft = buildAuthoritativeBookingInvoiceDraft({
+    addonsTotal: 0,
+    bookingFeeAmount: 0,
+    bookingReference: "ZNG-EFTTEST",
+    discountAmount: 0,
+    revenueCategory: "corporate",
+    serviceFee: 125,
+    subtotalAmount: 1_000,
+    totalAmount: 1_125,
+  });
+  assert.equal(draft.lines.some((line) => line.mappingCategory === "booking_fee"), false);
+  assert.equal(
+    draft.lines.find((line) => line.mappingCategory === "corporate")?.unitPrice,
+    "1000.00",
+  );
+});

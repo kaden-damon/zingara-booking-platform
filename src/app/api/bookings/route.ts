@@ -1475,6 +1475,7 @@ async function withAuthoritativePublicPricing(
     paymentOption: booking.paymentOption,
     remainingSeats,
     settings,
+    includeBookingFee: !isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis),
     includeGratuity: booking.source === "corporate-direct",
     zoneId: booking.zoneId,
   });
@@ -1493,6 +1494,7 @@ async function withAuthoritativePublicPricing(
     promo: promo.status === "valid" ? promo : null,
     remainingSeats,
     settings,
+    includeBookingFee: !isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis),
     includeGratuity: booking.source === "corporate-direct",
     zoneId: booking.zoneId,
   });
@@ -1518,9 +1520,14 @@ async function withAuthoritativePublicPricing(
     pricingProvenance: {
       agreedPricePerPerson: pricing.pricePerPerson,
       authorizedByStaffId,
+      bookingFeeAmount: pricing.bookingFeeAmount,
       depositPerPerson:
         booking.partySize > 0 ? pricing.depositAmount / booking.partySize : 0,
+      feePolicyVersion: "payment-method-v1",
       paymentModel: booking.paymentOption === "deposit" ? "deposit" : "full",
+      paymentMethod: isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis)
+        ? "eft"
+        : "payfast",
       source: resolvedPriceSource,
     },
     promoCode: promo.status === "valid" ? promo.code : undefined,
@@ -1622,6 +1629,7 @@ async function withAuthoritativeGuestAllocationPricing(
           : 0;
       },
       discountAmount,
+      includeBookingFee: !isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis),
       includeGratuity: booking.source === "corporate-direct",
       serviceFeeGuestThreshold,
       serviceFeeRate,
@@ -1651,9 +1659,14 @@ async function withAuthoritativeGuestAllocationPricing(
     pricingProvenance: {
       agreedPricePerPerson: pricing.effectivePaidPricePerPerson,
       authorizedByStaffId,
+      bookingFeeAmount: pricing.bookingFeeAmount,
       depositPerPerson:
         booking.partySize > 0 ? pricing.depositAmount / booking.partySize : 0,
+      feePolicyVersion: "payment-method-v1",
       paymentModel: booking.paymentOption === "deposit" ? "deposit" : "full",
+      paymentMethod: isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis)
+        ? "eft"
+        : "payfast",
       source: "standard-zone",
     },
     promoCode: promo.status === "valid" ? promo.code : undefined,
@@ -1891,6 +1904,8 @@ export async function POST(request: Request) {
       }
       const normalizedAddons = normalizeInternalBookingAddons(booking.addons, {
         allowCorporateBarTab:
+          isTrustedStaff && booking.source === "corporate-direct",
+        allowCorporateBarTabPricing:
           isTrustedStaff && booking.source === "corporate-direct",
         allowCustomPricing: Boolean(
           isTrustedStaff &&

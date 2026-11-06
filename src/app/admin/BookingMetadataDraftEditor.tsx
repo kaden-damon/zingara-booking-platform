@@ -68,6 +68,7 @@ export function BookingMetadataDraftEditor({
   const [error, setError] = useState("");
   const [catalogue, setCatalogue] = useState<BookingAddon[]>([]);
   const [canCustomPrice, setCanCustomPrice] = useState(false);
+  const [canSetCorporateBarTab, setCanSetCorporateBarTab] = useState(false);
   const [dietaryOrdering, setDietaryOrdering] = useState<{
     isOrderable: boolean;
     message: string;
@@ -88,6 +89,7 @@ export function BookingMetadataDraftEditor({
   useEffect(() => {
     let active = true;
     fetchSupabaseApi<{
+      canSetCorporateBarTab: boolean;
       canCustomPrice: boolean;
       catalogue: BookingAddon[];
       dietaryOrdering: { isOrderable: boolean; message: string } | null;
@@ -98,6 +100,7 @@ export function BookingMetadataDraftEditor({
         if (!active) return;
         setCatalogue(payload.catalogue ?? []);
         setCanCustomPrice(Boolean(payload.canCustomPrice));
+        setCanSetCorporateBarTab(Boolean(payload.canSetCorporateBarTab));
         setDietaryOrdering(payload.dietaryOrdering ?? null);
       })
       .catch(() => undefined);
@@ -164,6 +167,7 @@ export function BookingMetadataDraftEditor({
       </label>
       <div className="mt-4 border-t border-white/10 pt-4">
         <InternalBookingAddonsEditor
+          canSetCorporateBarTab={canSetCorporateBarTab}
           canCustomPrice={canCustomPrice}
           catalogue={catalogue}
           disabled={disabled || saveState === "saving" || catalogue.length === 0}

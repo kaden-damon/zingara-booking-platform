@@ -63,6 +63,7 @@ export async function createCorporateBuyout(input: {
   contactCustomerId: string;
   expectedGuestCount: number;
   finalGuestCount: number | null;
+  customAgreedTotalAmount?: number | null;
   idempotencyKey: string;
   packageId: string;
   showId: string;

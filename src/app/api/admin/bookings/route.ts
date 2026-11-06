@@ -3315,6 +3315,9 @@ async function persistBookingMetadataUpdate(
       allowCorporateBarTab:
         (beforeBooking as { booking_origin?: string }).booking_origin === "corporate" ||
         (beforeBooking as { booking_source?: string }).booking_source === "corporate-direct",
+      allowCorporateBarTabPricing:
+        (beforeBooking as { booking_origin?: string }).booking_origin === "corporate" ||
+        (beforeBooking as { booking_source?: string }).booking_source === "corporate-direct",
       allowCustomPricing: rolePermissions[role].includes("bookings:reconcile"),
       existingAddons: previousMetadata?.addons ?? [],
       location,

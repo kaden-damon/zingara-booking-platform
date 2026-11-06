@@ -197,6 +197,7 @@ export const syntheticBuyoutPackage: CorporateBuyoutPackage = {
   code: "ACADEMY-FULL-VENUE",
   currency: "ZAR",
   dateHoldHours: 48,
+  description: "Exclusive venue with dinner show and dedicated event team.",
   displayName: "Full Venue Buyout",
   exclusions: [],
   gratuityAmount: 45000,
@@ -207,6 +208,7 @@ export const syntheticBuyoutPackage: CorporateBuyoutPackage = {
   paymentDueHours: 72,
   quoteValidityHours: 48,
   totalAmount: 405000,
+  venueKey: "all",
   vatAmount: 52826.09,
   version: 1,
 };

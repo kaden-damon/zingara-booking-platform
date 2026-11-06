@@ -38,6 +38,7 @@ import {
   serviceFeeGuestThreshold,
   serviceFeeRate,
 } from "../../lib/pricing";
+import { getIncludedBookingFeeBreakdown } from "../../lib/zingaraDemo";
 import { getAuthoritativePublicPricePerPerson } from "../../lib/authoritativePublicPrice";
 import {
   corporatePartySizeThreshold,
@@ -939,6 +940,7 @@ export default function BookingPage({
   const [addonCatalogue, setAddonCatalogue] = useState<BookingAddon[]>([]);
   const [selectedAddons, setSelectedAddons] = useState<BookingAddon[]>([]);
   const [canCustomPriceAddons, setCanCustomPriceAddons] = useState(false);
+  const [canSetCorporateBarTab, setCanSetCorporateBarTab] = useState(false);
   const [occupiedSeatsByZone, setOccupiedSeatsByZone] = useState<
     Partial<Record<SeatingZone["id"], number>>
   >({});
@@ -1222,6 +1224,7 @@ export default function BookingPage({
           promoValidationPreview?.status === "valid"
             ? promoValidationPreview.discountAmount
             : 0,
+        includeBookingFee: !isCorporateInvoice,
         includeGratuity: isCorporateCalendarCheckout,
         serviceFeeGuestThreshold,
         serviceFeeRate,
@@ -1273,8 +1276,12 @@ export default function BookingPage({
   const seatingSubtotal =
     mixedAllocationFinancials?.seatingSubtotal ??
     (selectedZone ? pricePerPerson * partySize : 0);
+  const eftBookingFeeAdjustment = isCorporateInvoice
+    ? getIncludedBookingFeeBreakdown(seatingSubtotal).bookingFee
+    : 0;
   const subtotal =
-    mixedAllocationFinancials?.subtotal ?? seatingSubtotal + addonsTotal;
+    mixedAllocationFinancials?.subtotal ??
+    Math.max(seatingSubtotal - eftBookingFeeAdjustment, 0) + addonsTotal;
   const appliedPromoCode =
     promoValidationPreview?.status === "valid"
       ? {
@@ -2271,6 +2278,7 @@ export default function BookingPage({
       const timer = window.setTimeout(() => {
         setAddonCatalogue(catalogue);
         setCanCustomPriceAddons(false);
+        setCanSetCorporateBarTab(false);
         setSelectedAddons((current) =>
           current.filter((addon) =>
             catalogue.some((catalogueAddon) => catalogueAddon.id === addon.id),
@@ -2282,6 +2290,7 @@ export default function BookingPage({
 
     let active = true;
     fetchSupabaseApi<{
+      canSetCorporateBarTab: boolean;
       canCustomPrice: boolean;
       catalogue: BookingAddon[];
     }>(
@@ -2303,11 +2312,13 @@ export default function BookingPage({
           ),
         );
         setCanCustomPriceAddons(Boolean(payload.canCustomPrice));
+        setCanSetCorporateBarTab(Boolean(payload.canSetCorporateBarTab));
       })
       .catch(() => {
         if (!active) return;
         setAddonCatalogue([]);
         setCanCustomPriceAddons(false);
+        setCanSetCorporateBarTab(false);
       });
 
     return () => {
@@ -5509,6 +5520,7 @@ export default function BookingPage({
               {addonCatalogue.length > 0 && (
                 <div className="mb-4 sm:mb-5">
                   <InternalBookingAddonsEditor
+                    canSetCorporateBarTab={canSetCorporateBarTab}
                     canCustomPrice={canCustomPriceAddons}
                     catalogue={addonCatalogue}
                     disabled={isPayFastRedirecting}

@@ -90,7 +90,7 @@ test("balance creation is atomic, current-balance authoritative and duplicate-sa
   assert.match(migration, /totalAmountSnapshot/);
   assert.match(migration, /revoke all[\s\S]*anon, authenticated/);
   assert.match(migration, /grant execute[\s\S]*service_role/);
-  assert.match(route, /create_booking_balance_payment_link_atomic/);
+  assert.match(route, /create_booking_balance_payment_link_fee_aware_atomic/);
   assert.match(route, /A current balance payment link already exists/);
 });
 
@@ -126,6 +126,17 @@ test("balance-link repair does not mutate booking financials or payment history"
     assert.doesNotMatch(code, /update public\.payments/);
     assert.doesNotMatch(code, /delete from public\.(bookings|payments|tickets|customers)/);
   }
+});
+
+test("new-policy payment links apply the configured fee atomically", async () => {
+  const [route, migration] = await Promise.all([
+    source("../app/api/admin/bookings/payment-link/route.ts"),
+    source("../../supabase/migrations/20261106160000_corporate_buyout_pricing_corrections.sql"),
+  ]);
+  assert.match(route, /p_booking_fee_amount: includedBookingFeeAmount/);
+  assert.match(migration, /feePolicyVersion' = 'payment-method-v1'/);
+  assert.match(migration, /create_booking_balance_payment_link_atomic\(/);
+  assert.match(migration, /booking\.booking-fee-method-updated/);
 });
 
 test("Admin distinguishes stale links and current-balance actions", async () => {

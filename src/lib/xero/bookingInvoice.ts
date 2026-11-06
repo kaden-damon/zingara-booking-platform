@@ -7,6 +7,7 @@ export type BookingInvoiceRevenueCategory =
 
 type BookingInvoiceAmounts = {
   addonsTotal: number;
+  bookingFeeAmount?: number;
   bookingReference: string;
   discountAmount: number;
   revenueCategory: BookingInvoiceRevenueCategory;
@@ -49,7 +50,9 @@ export function buildAuthoritativeBookingInvoiceDraft(
   const gratuityCents = cents(input.serviceFee);
   const totalCents = cents(input.totalAmount);
   const ticketGrossCents = subtotalCents - addonsCents;
-  const bookingFeeCents = ticketGrossCents > 0 ? Math.min(1_000, ticketGrossCents) : 0;
+  const bookingFeeCents = input.bookingFeeAmount === undefined
+    ? (ticketGrossCents > 0 ? Math.min(1_000, ticketGrossCents) : 0)
+    : Math.min(Math.max(cents(input.bookingFeeAmount), 0), ticketGrossCents);
   const ticketSalesCents = ticketGrossCents - bookingFeeCents;
 
   if (

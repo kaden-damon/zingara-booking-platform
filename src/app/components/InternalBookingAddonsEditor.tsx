@@ -35,6 +35,7 @@ function blankCustomItem(): BookingAddon {
 
 export default function InternalBookingAddonsEditor({
   canCustomPrice,
+  canSetCorporateBarTab = false,
   catalogue,
   disabled = false,
   heading,
@@ -44,6 +45,7 @@ export default function InternalBookingAddonsEditor({
   value,
 }: {
   canCustomPrice: boolean;
+  canSetCorporateBarTab?: boolean;
   catalogue: BookingAddon[];
   disabled?: boolean;
   heading: string;
@@ -238,7 +240,9 @@ export default function InternalBookingAddonsEditor({
                         />
                       </label>
                     )}
-                    {selected && (catalogueUnitPrice > 0 || isCorporateBarTab) && canCustomPrice && (
+                    {selected &&
+                      (catalogueUnitPrice > 0 || isCorporateBarTab) &&
+                      (canCustomPrice || (isCorporateBarTab && canSetCorporateBarTab)) && (
                       <label className="flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
                         {isCorporateBarTab ? "Amount" : "Unit Price"}
                         <input

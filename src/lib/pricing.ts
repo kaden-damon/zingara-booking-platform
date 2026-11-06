@@ -55,6 +55,7 @@ export type PublicPricingInput = {
   remainingSeats?: number;
   settings?: DemoVenueSettings | null;
   includeGratuity?: boolean;
+  includeBookingFee?: boolean;
   zoneId: SeatingZone["id"];
 };
 
@@ -137,9 +138,14 @@ export function calculatePublicBookingPricing(
       partySize: input.partySize,
       remainingSeats: input.remainingSeats,
     });
-  const seatingSubtotal = pricePerPerson * input.partySize;
+  const ticketGrossAmount = pricePerPerson * input.partySize;
   const includedBookingFeeBreakdown =
-    getIncludedBookingFeeBreakdown(seatingSubtotal);
+    getIncludedBookingFeeBreakdown(ticketGrossAmount);
+  const bookingFeeAmount = input.includeBookingFee === false
+    ? 0
+    : includedBookingFeeBreakdown.bookingFee;
+  const seatingSubtotal =
+    includedBookingFeeBreakdown.ticketAmount + bookingFeeAmount;
   const subtotal = seatingSubtotal + addonsTotal;
   const discountAmount = Math.min(input.promo?.discountAmount ?? 0, subtotal);
   const discountedSubtotal = Math.max(subtotal - discountAmount, 0);
@@ -162,7 +168,7 @@ export function calculatePublicBookingPricing(
     addons: selectedAddons,
     addonsTotal,
     amountDueNow,
-    bookingFeeAmount: includedBookingFeeBreakdown.bookingFee,
+    bookingFeeAmount,
     depositAmount,
     depositPercentage,
     discountAmount,

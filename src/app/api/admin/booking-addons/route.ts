@@ -67,6 +67,7 @@ export async function GET(request: Request) {
 
   return Response.json(
     {
+      canSetCorporateBarTab: permissions.includes("bookings:manage"),
       canCustomPrice: permissions.includes("bookings:reconcile"),
       catalogue: getBookingAddonCatalogue(location, { includeCorporateBarTab }),
       dietaryOrdering: performance
