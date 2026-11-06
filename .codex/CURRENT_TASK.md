@@ -1,3 +1,56 @@
+# Phase 3 - Multi-Zone Bookings & Split Payments
+
+STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Delivered
+
+- Authorised Box Office staff can enable one compact `Guest Allocation`
+  editor inside the existing Standard and Corporate Payment & Review step.
+  Each row records seating zone, Paid guests, COMP guests and the established
+  Standard COMP, Media or Tradex classification while preserving one booking
+  reference and customer record.
+- Allocations must reconcile exactly to the booking guest total. Server-side
+  pricing charges only Paid quantities, preserves established booking fees,
+  deposits and gratuity rules, and leaves fully complimentary allocations at
+  R0 payable. The server remains authoritative for capacity and permissions.
+- Allocation-mode bookings are deliberately left for manual table planning;
+  no table is automatically split, merged or assigned. Existing Phase 1
+  Full Show Buyout seating remains the buyout-specific multi-zone workflow.
+- Booking Details, Floor & Arrivals and Table Plan use the same persisted zone
+  entitlements. Table Plan notes show the allocation and category values while
+  actual payment totals remain counted once.
+
+## Integrity & Verification
+
+- Migration `20261106030000_phase_3_multi_zone_split_payments.sql` was applied
+  to Production. Its service-role-only functions use advisory locks, validate
+  staff permissions and show-specific operational capacity, and write an
+  immutable audit event atomically and idempotently.
+- Focused tests passed 35/35. TypeScript, targeted ESLint, whitespace checks
+  and the supported Production Webpack build passed. No dependency, polling,
+  API request or background process was added.
+- Rollback-only Production transactions verified same-zone Paid/COMP,
+  Corporate multi-zone Media/Tradex, and Standard multi-zone allocations.
+  Repeated execution returned `already_exists`; the final QA booking count is
+  zero.
+- Authenticated Production inspection confirmed the deployed Standard booking
+  workflow exposes `Guest Allocation On`, Add Zone, zone, Paid, COMP and COMP
+  Type controls with live totals. The same workflow remained contained and
+  readable at a 390 x 844 mobile viewport. No booking was submitted.
+
+## Release
+
+- Production application commit: `82a940a3a606dd39080d5c9b83148d8c773f79a0`.
+- Deployment: `GwwsAugWGdcrhPmW6yCW7VaWSSgM`, healthy.
+- Business-data delta: none. No booking, payment, seating, table, ticket,
+  customer, communication or financial record changed during QA.
+- Full record:
+  `.codex/archive/PHASE_3_MULTI_ZONE_BOOKINGS_SPLIT_PAYMENTS_2026-11-06.md`.
+
+---
+
 # Phase 2 - Corporate Dietary Requirements
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
