@@ -152,6 +152,27 @@ test("an all-COMP allocation has no payable value or deposit", () => {
   assert.equal(financials.addonsTotal, 0);
 });
 
+test("ordinary internal allocations do not collect venue gratuity upfront", () => {
+  const financials = calculateGuestAllocationFinancials({
+    addonsTotal: 500,
+    allocations: [{
+      complimentaryCategory: null,
+      complimentaryPax: 0,
+      paidPax: 6,
+      zoneId: "golden-circle",
+    }],
+    depositForZone: () => 0,
+    includeGratuity: false,
+    serviceFeeGuestThreshold: 6,
+    serviceFeeRate: 0.125,
+    totalPax: 6,
+    zonePrice: () => 1000,
+  });
+
+  assert.equal(financials.serviceFeeAmount, 0);
+  assert.equal(financials.total, 6500);
+});
+
 test("staff allocation persistence remains authorised, atomic and multi-zone for Standard and Corporate", () => {
   const route = readFileSync(
     new URL("../app/api/bookings/route.ts", import.meta.url),

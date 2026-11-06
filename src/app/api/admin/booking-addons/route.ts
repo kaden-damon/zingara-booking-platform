@@ -35,18 +35,22 @@ export async function GET(request: Request) {
   const searchParams = new URL(request.url).searchParams;
   const bookingReference = searchParams.get("bookingReference")?.trim();
   let location = normalizeShowLocation(searchParams.get("location"));
+  let includeCorporateBarTab = searchParams.get("bookingType") === "corporate";
   let performance: { date: string; time: string } | null = null;
 
   if (bookingReference) {
     const { data: booking, error: bookingError } = await auth.serviceClient
       .from("bookings")
-      .select("show_id")
+      .select("show_id,booking_origin,booking_source")
       .eq("booking_reference", bookingReference)
       .maybeSingle();
 
     if (bookingError) throw bookingError;
 
     if (booking?.show_id) {
+      includeCorporateBarTab =
+        booking.booking_origin === "corporate" ||
+        booking.booking_source === "corporate-direct";
       const { data: show, error: showError } = await auth.serviceClient
         .from("shows")
         .select("date,time,venue")
@@ -64,7 +68,7 @@ export async function GET(request: Request) {
   return Response.json(
     {
       canCustomPrice: permissions.includes("bookings:reconcile"),
-      catalogue: getBookingAddonCatalogue(location),
+      catalogue: getBookingAddonCatalogue(location, { includeCorporateBarTab }),
       dietaryOrdering: performance
         ? {
             ...getDietaryAddonOrderingState(performance),

@@ -196,6 +196,7 @@ export default function InternalBookingAddonsEditor({
               );
               const agreedUnitPrice = Number(selected?.unitPrice ?? catalogueUnitPrice);
               const hasOverride = Boolean(selected && agreedUnitPrice !== catalogueUnitPrice);
+              const isCorporateBarTab = catalogueItem.id === "corporate-bar-tab";
 
               return (
                 <div key={catalogueItem.id} className="rounded-xl border border-white/10 bg-black/30 p-3">
@@ -221,25 +222,27 @@ export default function InternalBookingAddonsEditor({
                         </span>
                       </span>
                     </label>
-                    <label className="flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
-                      Quantity
-                      <input
-                        aria-label={`${catalogueItem.name} quantity`}
-                        type="number"
-                        min={1}
-                        max={maximumQuantity}
-                        step={1}
-                        value={selected?.quantity ?? 1}
-                        disabled={disabled || !selected}
-                        onChange={(event) => updateCatalogueQuantity(catalogueItem.id, event.target.value)}
-                        className="w-20 rounded-lg border border-white/15 bg-zinc-950 px-2 py-2 text-center text-sm font-normal text-white disabled:opacity-35"
-                      />
-                    </label>
-                    {selected && catalogueUnitPrice > 0 && canCustomPrice && (
+                    {!isCorporateBarTab && (
                       <label className="flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
-                        Unit Price
+                        Quantity
                         <input
-                          aria-label={`${catalogueItem.name} unit price`}
+                          aria-label={`${catalogueItem.name} quantity`}
+                          type="number"
+                          min={1}
+                          max={maximumQuantity}
+                          step={1}
+                          value={selected?.quantity ?? 1}
+                          disabled={disabled || !selected}
+                          onChange={(event) => updateCatalogueQuantity(catalogueItem.id, event.target.value)}
+                          className="w-20 rounded-lg border border-white/15 bg-zinc-950 px-2 py-2 text-center text-sm font-normal text-white disabled:opacity-35"
+                        />
+                      </label>
+                    )}
+                    {selected && (catalogueUnitPrice > 0 || isCorporateBarTab) && canCustomPrice && (
+                      <label className="flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
+                        {isCorporateBarTab ? "Amount" : "Unit Price"}
+                        <input
+                          aria-label={isCorporateBarTab ? "Bar Tab amount" : `${catalogueItem.name} unit price`}
                           type="number"
                           min={0}
                           step="0.01"
@@ -252,7 +255,7 @@ export default function InternalBookingAddonsEditor({
                       </label>
                     )}
                   </div>
-                  {hasOverride && (
+                  {hasOverride && !isCorporateBarTab && (
                     <p className="mt-2 text-right text-xs text-amber-200">
                       Booking price {money(agreedUnitPrice)} each · Catalogue {money(catalogueUnitPrice)}
                     </p>

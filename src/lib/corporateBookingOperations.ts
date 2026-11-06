@@ -45,9 +45,17 @@ export type CorporateBookingOperations = {
 export type CorporateOperationsDocument = "bar-brief" | "checklist" | "function-brief";
 
 export type CorporateOperationsBookingSnapshot = {
+  addOns: Array<{
+    amount: number;
+    description: string;
+    gratuityPaid: number;
+    name: string;
+    quantity: number;
+  }>;
   amountPaid: number;
   barGratuityAmount: number;
   barTabAmount: number;
+  bookingFeeAmount: number;
   bookedThrough: string;
   bookingReference: string;
   companyName: string;

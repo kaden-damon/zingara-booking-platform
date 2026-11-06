@@ -135,12 +135,26 @@ function operationalHeader(canvas: ZingaraDocumentCanvas, title: string, snapsho
   footerReference(canvas, snapshot);
 }
 
-function financialSummary(snapshot: CorporateOperationsBookingSnapshot) {
-  const values = [`(${money(snapshot.totalAmount)})`, `Tickets (${money(snapshot.ticketValue)})`];
-  if (snapshot.ticketGratuityAmount > 0) values.push(`Gratuity (${money(snapshot.ticketGratuityAmount)})`);
-  if (snapshot.barTabAmount > 0) values.push(`Bar Tab (${money(snapshot.barTabAmount)})`);
-  if (snapshot.barGratuityAmount > 0) values.push(`Bar Gratuity (${money(snapshot.barGratuityAmount)})`);
-  return values.join(", ");
+function financialSummaryLines(snapshot: CorporateOperationsBookingSnapshot) {
+  const values = [
+    `Full Payment: ${money(snapshot.amountPaid)}`,
+    `Tickets: ${money(snapshot.ticketValue)}`,
+    `Gratuity Paid: ${money(snapshot.ticketGratuityAmount)}`,
+  ];
+  if (snapshot.bookingFeeAmount > 0) {
+    values.push(`Booking Fee: ${money(snapshot.bookingFeeAmount)}`);
+  }
+  for (const addon of snapshot.addOns) {
+    const detail = [
+      addon.quantity > 1 ? `${addon.quantity}` : "",
+      clean(addon.description),
+    ].filter(Boolean).join(" · ");
+    values.push(`${addon.name}${detail ? ` (${detail})` : ""}: ${money(addon.amount)}`);
+    if (addon.gratuityPaid > 0) {
+      values.push(`Gratuity Paid: ${money(addon.gratuityPaid)}`);
+    }
+  }
+  return values;
 }
 
 function settlementInstruction(value: string) {
@@ -237,7 +251,7 @@ function functionBlocks(context: CorporateOperationsPdfContext): FunctionBlock[]
 }
 
 function createGratuityPage(context: CorporateOperationsPdfContext) {
-  const { operations, snapshot } = context;
+  const { snapshot } = context;
   const canvas = new ZingaraDocumentCanvas(A4_WIDTH, A4_HEIGHT);
   const bottom = 414;
   const gridTop = 575;
@@ -245,7 +259,7 @@ function createGratuityPage(context: CorporateOperationsPdfContext) {
   underline(canvas, "Gratuity Breakdown", 80, 700, 10, "left");
   const gratuity = snapshot.ticketGratuityAmount + snapshot.barGratuityAmount;
   canvas.text("GRATUITY:", 80, 677, { bold: true, size: 9 });
-  canvas.text(gratuity > 0 ? money(gratuity) : clean(operations.gratuityAllocation), 164, 677, { size: 9 });
+  canvas.text(gratuity > 0 ? money(gratuity) : "", 164, 677, { size: 9 });
   canvas.text("WAITERS: ................................................................", 80, 656, { size: 8.5 });
   canvas.text("RUNNERS: ...............................................................", 80, 639, { size: 8.5 });
   canvas.text("BAR: ........................................................................", 80, 622, { size: 8.5 });
@@ -271,16 +285,18 @@ function createFunctionBrief(context: CorporateOperationsPdfContext) {
   const canvas = new ZingaraDocumentCanvas(A4_WIDTH, A4_HEIGHT);
   operationalHeader(canvas, "FUNCTION BRIEF:", snapshot);
   strokeRect(canvas, CONTENT_LEFT, 70, CONTENT_WIDTH, 375, 0.7);
-  canvas.line(CONTENT_LEFT, 374, CONTENT_RIGHT, 374, 0.7);
+  canvas.line(CONTENT_LEFT, 318, CONTENT_RIGHT, 318, 0.7);
   canvas.line(CONTENT_LEFT, 202, CONTENT_RIGHT, 202, 0.7);
   canvas.line(CONTENT_LEFT, 148, CONTENT_RIGHT, 148, 0.7);
-  const summaryLines = wrapOperationalText(financialSummary(snapshot), 425, 9, true);
-  highlightedLines(canvas, summaryLines.slice(0, 2), 423, { maxWidth: 425, size: 9 });
+  const summaryLines = financialSummaryLines(snapshot).flatMap((value) =>
+    wrapOperationalText(value, 425, 8.2, true)
+  );
+  highlightedLines(canvas, summaryLines.slice(0, 7), 423, { maxWidth: 425, size: 8.2 });
 
   const [running, special, dietary] = functionBlocks(context);
   const runningLines = running.values.flatMap((value) => wrapOperationalText(value, 425, 8.7, true));
-  underline(canvas, running.title, A4_WIDTH / 2, 355, 9.5);
-  highlightedLines(canvas, runningLines.slice(0, 10), 333, { maxWidth: 425, size: 8.7 });
+  underline(canvas, running.title, A4_WIDTH / 2, 299, 9.5);
+  highlightedLines(canvas, runningLines.slice(0, 6), 277, { maxWidth: 425, size: 8.7 });
   const specialLines = special.values.flatMap((value) => wrapOperationalText(value, 425, 8.5));
   underline(canvas, special.title, A4_WIDTH / 2, 185, 9.5);
   canvas.textLines(specialLines.slice(0, 2), A4_WIDTH / 2, 166, { align: "center", leading: 10, size: 8.5 });
@@ -289,7 +305,8 @@ function createFunctionBrief(context: CorporateOperationsPdfContext) {
   highlightedLines(canvas, dietaryLines.slice(0, 4), 109, { maxWidth: 425, size: 8.5 });
 
   const overflowGroups = [
-    { lines: runningLines.slice(10), title: running.title },
+    { lines: summaryLines.slice(7), title: "Financial Summary" },
+    { lines: runningLines.slice(6), title: running.title },
     { lines: specialLines.slice(2), title: special.title },
     { lines: dietaryLines.slice(4), title: dietary.title },
   ];

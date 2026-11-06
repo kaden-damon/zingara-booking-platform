@@ -1222,6 +1222,7 @@ export default function BookingPage({
           promoValidationPreview?.status === "valid"
             ? promoValidationPreview.discountAmount
             : 0,
+        includeGratuity: isCorporateCalendarCheckout,
         serviceFeeGuestThreshold,
         serviceFeeRate,
         totalPax: partySize,
@@ -1298,7 +1299,7 @@ export default function BookingPage({
     mixedAllocationFinancials?.serviceFeeAmount ??
     (isComplimentary
       ? 0
-      : manualCheckoutRole !== "none" && partySize >= serviceFeeGuestThreshold
+      : isCorporateCalendarCheckout && partySize >= serviceFeeGuestThreshold
         ? Math.round(discountedSubtotal * serviceFeeRate)
         : 0);
   const total =
@@ -2284,7 +2285,10 @@ export default function BookingPage({
       canCustomPrice: boolean;
       catalogue: BookingAddon[];
     }>(
-      `/api/admin/booking-addons${selectedEntryLocation ? `?location=${encodeURIComponent(selectedEntryLocation)}` : ""}`,
+      `/api/admin/booking-addons?${new URLSearchParams({
+        ...(selectedEntryLocation ? { location: selectedEntryLocation } : {}),
+        ...(isCorporateCalendarCheckout ? { bookingType: "corporate" } : {}),
+      }).toString()}`,
     )
       .then((payload) => {
         if (!active) return;
@@ -2309,7 +2313,7 @@ export default function BookingPage({
     return () => {
       active = false;
     };
-  }, [guidedTrainingModuleId, manualCheckoutRole, selectedEntryLocation]);
+  }, [guidedTrainingModuleId, isCorporateCalendarCheckout, manualCheckoutRole, selectedEntryLocation]);
 
   useEffect(() => {
     if (

@@ -1475,7 +1475,7 @@ async function withAuthoritativePublicPricing(
     paymentOption: booking.paymentOption,
     remainingSeats,
     settings,
-    includeGratuity: !isNewPublicBooking,
+    includeGratuity: booking.source === "corporate-direct",
     zoneId: booking.zoneId,
   });
   const location = normalizeShowLocation(show.venue);
@@ -1493,7 +1493,7 @@ async function withAuthoritativePublicPricing(
     promo: promo.status === "valid" ? promo : null,
     remainingSeats,
     settings,
-    includeGratuity: !isNewPublicBooking,
+    includeGratuity: booking.source === "corporate-direct",
     zoneId: booking.zoneId,
   });
   const lifecycleHistory = (booking.lifecycleHistory ?? []).map((event) => ({
@@ -1622,6 +1622,7 @@ async function withAuthoritativeGuestAllocationPricing(
           : 0;
       },
       discountAmount,
+      includeGratuity: booking.source === "corporate-direct",
       serviceFeeGuestThreshold,
       serviceFeeRate,
       totalPax: booking.partySize,
@@ -1889,6 +1890,8 @@ export async function POST(request: Request) {
         );
       }
       const normalizedAddons = normalizeInternalBookingAddons(booking.addons, {
+        allowCorporateBarTab:
+          isTrustedStaff && booking.source === "corporate-direct",
         allowCustomPricing: Boolean(
           isTrustedStaff &&
             staffRole &&

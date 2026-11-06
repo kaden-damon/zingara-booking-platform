@@ -14,6 +14,16 @@ export const bookingAddonCatalogue: BookingAddon[] = [
   { id: "vip-bar", kind: "catalogue", name: "VIP Bar", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
 ];
 
+export const corporateBarTabAddon: BookingAddon = {
+  id: "corporate-bar-tab",
+  kind: "catalogue",
+  name: "Bar Tab",
+  price: 0,
+  pricingType: "operational",
+  quantity: 1,
+  unitPrice: 0,
+};
+
 const allBookingAddonCatalogue = [
   ...unavailableBookingAddonCatalogue,
   ...bookingAddonCatalogue,
@@ -79,9 +89,14 @@ const venueRestrictedAddonIds = new Set(
 
 export function getBookingAddonCatalogue(
   location?: EntryLocationKey | null,
+  options: { includeCorporateBarTab?: boolean } = {},
 ) {
   void location;
-  return [...bookingAddonCatalogue, ...internalDietaryAddons];
+  return [
+    ...bookingAddonCatalogue,
+    ...internalDietaryAddons,
+    ...(options.includeCorporateBarTab ? [corporateBarTabAddon] : []),
+  ];
 }
 
 export function getPublicDietaryAddonCatalogue(
@@ -135,6 +150,7 @@ export function getBookingAddonTotal(addons: BookingAddon[] | null | undefined) 
 export function normalizeInternalBookingAddons(
   value: unknown,
   options: {
+    allowCorporateBarTab?: boolean;
     allowCustomPricing: boolean;
     existingAddons?: BookingAddon[];
     location?: EntryLocationKey | null;
@@ -153,6 +169,7 @@ export function normalizeInternalBookingAddons(
     const catalogueItem = [
       ...allBookingAddonCatalogue,
       ...internalDietaryAddons,
+      corporateBarTabAddon,
     ].find(
       (candidate) => candidate.id === requestedId,
     );
@@ -162,6 +179,16 @@ export function normalizeInternalBookingAddons(
       const existingItem = options.existingAddons?.find(
         (candidate) => candidate.id === catalogueItem.id,
       );
+      if (
+        catalogueItem.id === corporateBarTabAddon.id &&
+        !options.allowCorporateBarTab &&
+        !existingItem
+      ) {
+        throw new Error("Bar Tab is available only for Corporate bookings and Full Show Buyouts.");
+      }
+      if (catalogueItem.id === corporateBarTabAddon.id && quantity !== 1) {
+        throw new Error("Bar Tab accepts one total monetary amount.");
+      }
       if (
         unavailableBookingAddonCatalogue.some(
           (candidate) => candidate.id === catalogueItem.id,

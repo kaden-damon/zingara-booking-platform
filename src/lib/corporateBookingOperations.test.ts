@@ -43,9 +43,11 @@ function context(): CorporateOperationsContext {
     location: "Johannesburg",
     operations: readyOperations(),
     snapshot: {
+      addOns: [],
       amountPaid: 42_080,
       barGratuityAmount: 0,
       barTabAmount: 0,
+      bookingFeeAmount: 10,
       bookedThrough: "Michael Davis",
       bookingReference: "ZNG-CORP01",
       companyName: "MCT Telecommunications (Pty) Ltd",
@@ -160,6 +162,28 @@ test("function PDF uses booking-derived identity and financial values", () => {
   assert.match(pdf, /MCT Telecommunications/);
   assert.match(pdf, /ZNG-CORP01/);
   assert.match(pdf, /R42,080.00/);
+  assert.match(pdf, /Full Payment/);
+  assert.match(pdf, /Tickets/);
+  assert.match(pdf, /Gratuity Paid/);
+});
+
+test("function PDF separates Bar Tab and its collected gratuity", () => {
+  const booking = context();
+  booking.snapshot.addOns = [{
+    amount: 2900,
+    description: "Pre-authorised",
+    gratuityPaid: 362.5,
+    name: "Bar Tab",
+    quantity: 1,
+  }];
+  booking.snapshot.barGratuityAmount = 362.5;
+  booking.snapshot.barTabAmount = 2900;
+  const pdf = new TextDecoder("latin1").decode(
+    buildCorporateOperationsPdf("function-brief", booking),
+  );
+  assert.match(pdf, /Bar Tab/);
+  assert.match(pdf, /R2,900.00/);
+  assert.match(pdf, /R362.50/);
 });
 
 test("bar PDF distinguishes operational limit from accounting Bar Tab", () => {

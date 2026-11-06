@@ -7,6 +7,7 @@ import {
   type CorporateOperationsDocument,
 } from "@/lib/corporateBookingOperations";
 import { buildCorporateOperationalPdf } from "@/lib/corporateBookingOperationsPdf";
+import { resolveCorporateFunctionBriefFinancials } from "@/lib/corporateFunctionBriefFinancials";
 
 type ServiceClient = SupabaseClient;
 
@@ -56,7 +57,7 @@ export async function loadCorporateOperationsContext(
 ): Promise<CorporateOperationsContext | null> {
   const { data: booking, error: bookingError } = await serviceClient
     .from("bookings")
-    .select("id,booking_reference,booking_source,booking_origin,corporate_request_id,customer_id,company_id,show_id,company_name,guest_count,section,zone_entitlements,total_amount,amount_paid,balance_outstanding,payment_status,dietary_requirements,created_by_staff_id")
+    .select("id,booking_reference,booking_source,booking_origin,corporate_request_id,customer_id,company_id,show_id,company_name,guest_count,section,zone_entitlements,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,booking_status,payment_status,notes,dietary_requirements,created_by_staff_id")
     .eq("booking_reference", bookingReference.trim().toUpperCase())
     .maybeSingle();
   if (bookingError) throw bookingError;
@@ -145,15 +146,30 @@ export async function loadCorporateOperationsContext(
   const seating = zoneEntitlements.length > 0
     ? zoneEntitlements.map((entry) => `${titleCaseStatus(text(entry.zoneId))} ${Number(entry.pax) || 0}`).join(" / ")
     : titleCaseStatus(text(booking.section) || "Not assigned");
+  const financials = resolveCorporateFunctionBriefFinancials({
+    addonsTotal: money(booking.addons_total),
+    amountPaid: money(booking.amount_paid),
+    bookingOrigin: booking.booking_origin,
+    bookingStatus: booking.booking_status,
+    discountAmount: money(booking.discount_amount),
+    evidence,
+    notes: booking.notes,
+    paymentStatus: booking.payment_status,
+    serviceFee: money(booking.service_fee),
+    subtotalAmount: money(booking.subtotal_amount),
+    totalAmount: money(booking.total_amount),
+  });
 
   return {
     bookingId: booking.id,
     location: showResult.data.venue,
     operations,
     snapshot: {
+      addOns: financials.addOns,
       amountPaid: money(booking.amount_paid),
-      barGratuityAmount: money(evidence?.bar_gratuity_amount),
-      barTabAmount: money(evidence?.bar_tab_paid_amount),
+      barGratuityAmount: financials.barGratuityPaid,
+      barTabAmount: financials.barTabAmount,
+      bookingFeeAmount: financials.bookingFeeAmount,
       bookedThrough: resolveCorporateBookingCreator({
         auditEvents: creationAuditResult.data ?? [],
         creatorName: creatorResult.data?.full_name,
@@ -173,8 +189,8 @@ export async function loadCorporateOperationsContext(
       showDate: showResult.data.date,
       showTime: text(showResult.data.time).slice(0, 5),
       tableSummary: (tableResult.data ?? []).map((row) => row.table_code).filter(Boolean).join(" + ") || "Floor assignment required",
-      ticketGratuityAmount: money(evidence?.ticket_gratuity_amount),
-      ticketValue: evidence?.source_ticket_amount == null ? money(booking.total_amount) : money(evidence.source_ticket_amount),
+      ticketGratuityAmount: financials.ticketGratuityPaid,
+      ticketValue: financials.ticketValue,
       totalAmount: money(booking.total_amount),
       venue: showResult.data.venue,
     },

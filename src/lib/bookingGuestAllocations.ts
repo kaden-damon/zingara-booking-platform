@@ -202,6 +202,7 @@ export function calculateGuestAllocationFinancials(input: {
     paidPax: number,
   ) => number;
   discountAmount?: number;
+  includeGratuity?: boolean;
   serviceFeeGuestThreshold: number;
   serviceFeeRate: number;
   totalPax: number;
@@ -225,7 +226,9 @@ export function calculateGuestAllocationFinancials(input: {
   );
   const discountedSubtotal = Math.max(subtotal - discountAmount, 0);
   const serviceFeeAmount =
-    totals.paidPax > 0 && input.totalPax >= input.serviceFeeGuestThreshold
+    input.includeGratuity !== false &&
+    totals.paidPax > 0 &&
+    input.totalPax >= input.serviceFeeGuestThreshold
       ? Math.round(discountedSubtotal * input.serviceFeeRate)
       : 0;
   const total = discountedSubtotal + serviceFeeAmount;

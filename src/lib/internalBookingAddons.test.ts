@@ -254,9 +254,32 @@ test("catalogue controls auto-populate base price and expose overrides only when
   assert.match(editor, /catalogueItem\.unitPrice/);
   assert.match(editor, /price: catalogueUnitPrice/);
   assert.match(editor, /unitPrice: catalogueUnitPrice/);
-  assert.match(editor, /catalogueUnitPrice > 0 && canCustomPrice/);
+  assert.match(editor, /catalogueUnitPrice > 0 \|\| isCorporateBarTab/);
   assert.match(editor, /Booking price/);
   assert.match(editor, /Catalogue/);
+});
+
+test("Bar Tab is a single Corporate-only monetary add-on", () => {
+  const [barTab] = normalizeInternalBookingAddons(
+    [{ id: "corporate-bar-tab", quantity: 1, unitPrice: 2900 }],
+    { allowCorporateBarTab: true, allowCustomPricing: true },
+  );
+  assert.equal(barTab.name, "Bar Tab");
+  assert.equal(barTab.price, 2900);
+  assert.throws(
+    () => normalizeInternalBookingAddons(
+      [{ id: "corporate-bar-tab", quantity: 1, unitPrice: 2900 }],
+      { allowCustomPricing: true },
+    ),
+    /only for Corporate bookings and Full Show Buyouts/,
+  );
+  assert.throws(
+    () => normalizeInternalBookingAddons(
+      [{ id: "corporate-bar-tab", quantity: 2, unitPrice: 1450 }],
+      { allowCorporateBarTab: true, allowCustomPricing: true },
+    ),
+    /one total monetary amount/,
+  );
 });
 
 test("complimentary priced add-ons fail closed while invoice paths retain add-ons", async () => {
