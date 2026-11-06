@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  formatSeatingPreviewRecommendation,
   getGuestPaymentDisclosures,
   getGuestVenueInclusions,
   getSeatingPreviewTicketInclusion,
@@ -18,6 +19,13 @@ test("venue inclusions remain venue specific", () => {
     "A decadent 4 course dinner.",
     "2½-hour performance experience.",
   ]);
+});
+
+test("seating preview recommendation keeps spaces around dynamic text", () => {
+  assert.equal(
+    formatSeatingPreviewRecommendation("18/11/2026 · 18:00", "Golden Circle"),
+    "You can also check 18/11/2026 · 18:00 for Golden Circle.",
+  );
 });
 
 test("seating preview uses the approved venue-specific ticket inclusion", () => {

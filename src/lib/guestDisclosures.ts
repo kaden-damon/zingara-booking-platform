@@ -58,6 +58,13 @@ export function getSeatingPreviewTicketInclusion(
   return "";
 }
 
+export function formatSeatingPreviewRecommendation(
+  showDateTime: string,
+  zoneTitle: string,
+) {
+  return `You can also check ${showDateTime.trim()} for ${zoneTitle.trim()}.`;
+}
+
 export function getGuestPaymentDisclosures({
   balanceOutstanding = 0,
   gratuityPolicy,

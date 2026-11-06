@@ -18,7 +18,10 @@ import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEdit
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
 import GuestBookingDisclosures from "../components/GuestBookingDisclosures";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
-import { getSeatingPreviewTicketInclusion } from "../../lib/guestDisclosures";
+import {
+  formatSeatingPreviewRecommendation,
+  getSeatingPreviewTicketInclusion,
+} from "../../lib/guestDisclosures";
 import PublicMaintenanceBoundary from "./PublicMaintenanceBoundary";
 import SecretGuestListPanel from "./SecretGuestListPanel";
 import {
@@ -5807,8 +5810,10 @@ export default function BookingPage({
                         Next Show Option
                       </p>
                       <p className="mt-2 text-sm text-zinc-200">
-                        You can also check {getCompactShowDateTime(recommendedShow)}
-                        for {previewSeatingZone.title}.
+                        {formatSeatingPreviewRecommendation(
+                          getCompactShowDateTime(recommendedShow),
+                          previewSeatingZone.title,
+                        )}
                       </p>
                       <button
                         type="button"
