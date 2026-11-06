@@ -118,7 +118,10 @@ export function CorporateZoneEntitlementEditor({
         {draft.map((entitlement, index) => {
           const capacity = zoneCapacity.find((item) => item.zoneId === entitlement.zoneId);
           return (
-            <div key={`${bookingReference}-${index}`} className="grid grid-cols-[minmax(0,1fr)_5.5rem_auto] gap-2">
+            <div
+              key={`${bookingReference}-${index}`}
+              className="grid grid-cols-[minmax(0,1fr)_4.25rem_2rem] gap-1.5 sm:grid-cols-[minmax(0,1fr)_5.5rem_auto] sm:gap-2"
+            >
               <select
                 aria-label={`Seating zone ${index + 1}`}
                 disabled={disabled}
@@ -130,7 +133,7 @@ export function CorporateZoneEntitlementEditor({
                     ),
                   )
                 }
-                className="min-w-0 rounded-lg border border-white/15 bg-black px-3 py-2 text-sm text-white outline-none focus:border-[#D8C36A] disabled:opacity-50"
+                className="min-w-0 rounded-lg border border-white/15 bg-black px-2.5 py-2 text-sm text-white outline-none focus:border-[#D8C36A] disabled:opacity-50 sm:px-3"
               >
                 <option value="">Select zone</option>
                 {editableZones.map((zone) => (
@@ -160,7 +163,7 @@ export function CorporateZoneEntitlementEditor({
                 aria-label={`Remove seating zone ${index + 1}`}
                 disabled={disabled || draft.length === 1}
                 onClick={() => updateDraft(draft.filter((_, rowIndex) => rowIndex !== index))}
-                className="min-h-10 min-w-10 text-zinc-400 transition hover:text-white disabled:opacity-30"
+                className="min-h-10 min-w-8 text-zinc-400 transition hover:text-white disabled:opacity-30 sm:min-w-10"
               >
                 ×
               </button>
