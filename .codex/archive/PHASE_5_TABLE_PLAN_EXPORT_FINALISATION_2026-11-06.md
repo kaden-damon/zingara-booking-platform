@@ -76,3 +76,66 @@ widths and distinctive header borders/number format.
 ## Outstanding
 
 None within Phase 5 scope.
+
+## P0 Financial Export Correction
+
+### Root Cause
+
+The finance normaliser correctly retained Vodacom's authoritative R684,400
+payment as method-unknown because no payment row or other evidence identifies
+the tender as card or EFT. The exporter wrote only method-specific N:Q values,
+so the retained payment appeared in descriptive text but had no numeric cell
+feeding `TOTAL FULL-PAID AMOUNT` or `BOX 0FFICE TOTAL RECEIVED`.
+
+### Correction
+
+- Method-unknown receipts are now classified as full-paid or prepaid from the
+  authoritative booking payment status and written once to hidden calculation
+  columns AB/AC. Existing visible financial columns and definitions are
+  unchanged; no tender method is fabricated.
+- Full-paid, prepaid and four zone-receipt formulas include those hidden values.
+  Secondary buyout table rows clear the hidden cells with the other singular
+  financial values, preventing multiplication across 30 operational tables.
+- Column K remains `PAYMENT SUMMARY`; Column L remains `PAYMENT BREAKDOWN`.
+- A Corporate Full Show Buyout receives the detailed contractual breakdown
+  only when Ticket & Show, VAT and Gratuity note amounts reconcile exactly to
+  the stored subtotal, service fee and total. Vodacom now displays:
+  `Ticket & Show R531,000.00`, `VAT R79,650.00`, `Gratuity R73,750.00`,
+  `Total Paid R684,400.00`, and `Outstanding R0.00`.
+- The existing batched export query selects `subtotal_amount`; no additional
+  request, query, dependency, polling or per-render calculation was added.
+
+### Verification
+
+- Focused tests: Table Plan 15/15 and finance 23/23 passed.
+- TypeScript, targeted ESLint, `git diff --check` and Production build passed.
+- Admin budget remained unchanged within limits: raw 1,293,349 / 1,320,000;
+  gzip 313,906 / 320,000; largest gzip chunk 167,417 / 170,000 bytes.
+- Fresh authenticated live JHB workbook:
+  `Zingara_Table_Plan_JHB_2026-11-06 (4).xlsx`.
+  It retains 30 Vodacom table labels, one financial row, R684,400 full-paid,
+  R684,400 Box Office received, R73,750 T/GRT-PAID, R0 outstanding and the
+  existing 37 Strictly Halaal quantity. A real spreadsheet-engine recalculation
+  reproduced those totals.
+- Fresh authenticated live CPT control workbook:
+  `Zingara_Table_Plan_CPT_2026-11-06 (1).xlsx`. It recalculated to R429,250.50
+  full-paid plus R20,900.00 prepaid, totaling R450,150.50 received, matching
+  authoritative Production booking totals.
+- Compared with the previous live JHB export, columns A-I are identical. The
+  only A:J changes are the intended summary formulas/results in J; seating,
+  tables, disabled rows and guest allocations are unchanged.
+
+### Release
+
+- Application commit: `a3007698` (`fix(exports): include reconciled buyout payments in totals`).
+- Production deployment: `dpl_2JzqQ2pPA2qwVxSDf8RQ8wub976s`, Ready at
+  13:59 SAST on 6 November 2026.
+- Migration: none.
+- Business-data delta: zero. Verification used read-only exports and did not
+  modify bookings, payments, seating, tables, dietary records or financial
+  history.
+- Rollback: revert `a3007698` and redeploy. No database rollback is required.
+
+### Outstanding
+
+None within the reopened Phase 5 P0 scope.

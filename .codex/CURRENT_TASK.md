@@ -4,6 +4,39 @@ STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 6 NOVEMBER 2026
 
+## P0 Financial Export Correction
+
+- Full Show Buyout payments without a recorded tender method now contribute
+  once to the existing full-paid or prepaid workbook totals without being
+  mislabelled as card or EFT. Two hidden calculation columns carry those
+  authoritative amounts; all visible financial column definitions remain
+  unchanged.
+- `ZNG-48B964B9` now has one complete Payment Breakdown in Column L:
+  Ticket & Show R531,000.00; VAT R79,650.00; Gratuity R73,750.00; Total Paid
+  R684,400.00; Outstanding R0.00. The itemisation is emitted only when the
+  Corporate Full Show Buyout note components reconcile exactly to the stored
+  subtotal, service fee and total.
+- The 30 Vodacom operational-table labels remain intact while the payment and
+  financial values remain singular. No tender method, allocation or additional
+  receivable was inferred.
+- Fresh authenticated Production exports verified after deployment:
+  `Zingara_Table_Plan_JHB_2026-11-06 (4).xlsx` and
+  `Zingara_Table_Plan_CPT_2026-11-06 (1).xlsx`.
+- A spreadsheet-engine recalculation confirmed JHB Total Full-Paid and Box
+  Office Total Received at R684,400.00, T/GRT-PAID at R73,750.00 and R0
+  outstanding. The CPT control export reconciled to R450,150.50 received:
+  R429,250.50 full-paid plus R20,900.00 prepaid.
+- Compared with the previous live JHB workbook, columns A-I are identical and
+  only the intended summary formulas in J changed. Booking, seating, dietary,
+  payment and historical data were not modified.
+- Focused Table Plan tests passed 15/15 and finance tests passed 23/23.
+  TypeScript, targeted lint, whitespace checks and the Production build passed.
+- Application commit: `a3007698`.
+- Production deployment: `dpl_2JzqQ2pPA2qwVxSDf8RQ8wub976s`, Ready at
+  13:59 SAST on 6 November 2026.
+- Migration: none. Business-data delta: zero. Rollback: revert `a3007698` and
+  redeploy; no database rollback is required.
+
 ## Delivered
 
 - The Table Plan now completely exchanges the two established payment columns:
