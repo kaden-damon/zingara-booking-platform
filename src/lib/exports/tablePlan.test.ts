@@ -557,7 +557,7 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.equal(sheet.getRow(3).getCell(20).value, "TRADEX");
   assert.equal(sheet.getColumn(19).width, 12);
   assert.equal(sheet.getColumn(20).width, 12);
-  assert.equal(sheet.columnCount, 27);
+  assert.equal(sheet.columnCount, 29);
   assert.equal(sheet.getColumn(8).width, 15.28);
   assert.equal(sheet.getColumn(9).width, 24);
   assert.equal(sheet.getColumn(10).width, 48);
@@ -867,10 +867,11 @@ test("Table Plan labels an unallocated Full Show Buyout without inventing table 
     booking_origin: "corporate",
     company_id: "company-vodacom",
     company_name: "Vodacom",
-    notes: '__zingara_booking_meta__:{"operationalNotes":"R531000 Ticket & Show | R79650 VAT | R73750 Gratuity | 37 Strcitly halaal guests at R9250","serviceFeeAmount":73750}',
+    notes: '__zingara_booking_meta__:{"operationalNotes":"R531000 (Ticket & Show) | R79650 (VAT) | R73750 (Gratuity) | 37 Strcitly halaal guests at R9250","serviceFeeAmount":73750}',
     payment_status: "fully_paid",
     section: "Full Show Buyout",
     service_fee: 73_750,
+    subtotal_amount: 610_650,
     total_amount: 684_400,
   });
   const buffer = await buildTablePlanWorkbook({
@@ -934,9 +935,29 @@ test("Table Plan labels an unallocated Full Show Buyout without inventing table 
   );
   assert.equal(
     operationalRows.filter(
-      (row) => row?.getCell(12).value === "Paid R684,400 · Outstanding R0",
+      (row) =>
+        row?.getCell(12).value ===
+        [
+          "Ticket & Show R531,000.00 · VAT R79,650.00",
+          "Gratuity R73,750.00",
+          "Total Paid R684,400.00 · Outstanding R0.00",
+        ].join("\n"),
     ).length,
     1,
+  );
+  assert.equal(
+    operationalRows.reduce(
+      (total, row) => total + cellNumber(row!.getCell(28).value),
+      0,
+    ),
+    684_400,
+  );
+  assert.equal(
+    operationalRows.reduce(
+      (total, row) => total + cellNumber(row!.getCell(29).value),
+      0,
+    ),
+    0,
   );
   assert.equal(
     operationalRows.reduce(
@@ -957,6 +978,28 @@ test("Table Plan labels an unallocated Full Show Buyout without inventing table 
   );
   assert.equal(disabledRow?.getCell(5).value, null);
   assert.match(String(disabledRow?.getCell(10).value ?? ""), /DISABLED/);
+  assert.equal(sheet.getColumn(28).hidden, true);
+  assert.equal(sheet.getColumn(29).hidden, true);
+
+  const tableTotalsRow = rows.find((row) =>
+    String((row.getCell(28).value as ExcelJS.CellFormulaValue | null)?.formula ?? "").startsWith("SUM(AB4:AB"),
+  );
+  assert.ok(tableTotalsRow);
+  assert.equal(cellNumber(tableTotalsRow.getCell(28).value), 684_400);
+  assert.equal(cellNumber(tableTotalsRow.getCell(29).value), 0);
+
+  const totalFullPaidRow = rows.find(
+    (row) => row.getCell(6).value === "TOTAL FULL-PAID AMOUNT",
+  );
+  const boxOfficeTotalRow = rows.find(
+    (row) => row.getCell(6).value === "BOX 0FFICE TOTAL RECEIVED ",
+  );
+  const ticketGratuityRow = rows.find(
+    (row) => row.getCell(6).value === "T/GRT-PAID ",
+  );
+  assert.equal(cellNumber(totalFullPaidRow?.getCell(10).value), 684_400);
+  assert.equal(cellNumber(boxOfficeTotalRow?.getCell(10).value), 684_400);
+  assert.equal(cellNumber(ticketGratuityRow?.getCell(10).value), 73_750);
 });
 
 test("Table Plan keeps operational notes and writes the exact COMP wording into Payment Summary", async () => {

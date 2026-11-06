@@ -251,6 +251,8 @@ test("deducts method-unknown ticket value once without fabricating a tender", ()
     0,
   );
   assert.equal(result.methodUnknownPaid, 3_300);
+  assert.equal(result.methodUnknownFullPaid, 3_300);
+  assert.equal(result.methodUnknownPrePaid, 0);
   assert.equal(result.totalPaid, 3_300);
   assert.equal(result.toPay, 5_340);
 });
@@ -292,8 +294,27 @@ test("preserves imported fully-paid value without fabricating a method", () => {
 
   assert.equal(result.totalPaid, 2_200);
   assert.equal(result.methodUnknownPaid, 2_200);
+  assert.equal(result.methodUnknownFullPaid, 2_200);
+  assert.equal(result.methodUnknownPrePaid, 0);
   assert.equal(result.fullCard + result.fullEft, 0);
   assert.equal(result.toPay, 0);
+});
+
+test("keeps an unclassified deposit in the prepaid calculation", () => {
+  const result = calculateTablePlanFinancialBreakdown(
+    {
+      confirmedPaidAmount: 2_200,
+      guestCount: 4,
+      paymentStatus: "deposit_paid",
+      totalAmount: 5_760,
+    },
+    [],
+  );
+
+  assert.equal(result.methodUnknownPaid, 2_200);
+  assert.equal(result.methodUnknownFullPaid, 0);
+  assert.equal(result.methodUnknownPrePaid, 2_200);
+  assert.equal(result.toPay, 3_560);
 });
 
 test("classifies known card and EFT payments without double counting", () => {
@@ -566,5 +587,7 @@ test("leaves the unclassified remainder visible when legacy evidence is partial"
 
   assert.equal(result.prePaidCard, 1_100);
   assert.equal(result.methodUnknownPaid, 1_100);
+  assert.equal(result.methodUnknownFullPaid, 1_100);
+  assert.equal(result.methodUnknownPrePaid, 0);
   assert.equal(result.totalPaid, 2_200);
 });

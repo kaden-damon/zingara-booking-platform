@@ -41,6 +41,8 @@ export type TablePlanFinancialBreakdown = {
   fullCard: number;
   fullEft: number;
   methodUnknownPaid: number;
+  methodUnknownFullPaid: number;
+  methodUnknownPrePaid: number;
   prePaidCard: number;
   prePaidEft: number;
   halaalMealsAmount: number;
@@ -285,6 +287,8 @@ export function calculateTablePlanFinancialBreakdown(
     fullCard: 0,
     fullEft: 0,
     methodUnknownPaid: 0,
+    methodUnknownFullPaid: 0,
+    methodUnknownPrePaid: 0,
     prePaidCard: 0,
     prePaidEft: 0,
     halaalMealsAmount: toMoney(legacyEvidence?.halaal_meals_amount),
@@ -399,6 +403,10 @@ export function calculateTablePlanFinancialBreakdown(
   breakdown.toPay = isComplimentary
     ? 0
     : toMoney(breakdown.ticketObligation - breakdown.totalPaid);
+  breakdown.methodUnknownFullPaid =
+    input.paymentStatus === "fully_paid" ? breakdown.methodUnknownPaid : 0;
+  breakdown.methodUnknownPrePaid =
+    input.paymentStatus === "fully_paid" ? 0 : breakdown.methodUnknownPaid;
 
   return breakdown;
 }
