@@ -1,3 +1,50 @@
+# Phase 4 - Floor Assignment Improvements
+
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Delivered
+
+- Floor & Arrivals now lists every currently available suitable single table
+  for each unassigned booking, including the exact table number and seating
+  capacity. The existing best-fit choice remains first and is marked `BEST`.
+- A table button now performs the existing atomic assignment immediately; the
+  two redundant confirmation dialogs were removed. Success and error feedback,
+  queue refresh and Floor Layout refresh remain in the established workflow.
+- The same authoritative suitability rules still enforce show, zone, minimum
+  occupancy, capacity, merged-table validity and existing ownership. Automatic
+  splitting remains impossible; valid merged tables remain one operational
+  table and authorised multi-zone bookings are handled zone by zone.
+- The server reloads the authoritative plan before a direct claim and rejects
+  stale or unsuitable selections. The existing atomic database function keeps
+  table locking, duplicate prevention, idempotency and immutable audit history.
+
+## Verification & Release
+
+- Focused tests passed 26/26. TypeScript, whitespace checks and the supported
+  Production Webpack build passed. Targeted lint had no errors and one
+  pre-existing unused-parameter warning in untouched legacy logic.
+- The Admin bundle remained within the established budgets: 1,243,872 raw
+  bytes, 299,943 gzip bytes and 169,872 bytes for the largest gzip chunk. No
+  normal-load request, polling, dependency or background process was added.
+- A rollback-only Production transaction assigned JHB 13 November booking
+  `ZNG-3QXAJU` to exact Table 208, verified an idempotent repeat, rolled back,
+  and confirmed both booking and table remained unchanged.
+- Authenticated Production inspection confirmed the same booking displays nine
+  suitable Middle Ring tables with capacities and Table 208 marked `BEST`.
+  Desktop and a 390 x 844 mobile viewport were visually verified; options are
+  contained, readable and immediately actionable. No live button was pressed.
+- Production application commit: `3781a9c81492467db246c509b8419ae82e052885`.
+- Deployment: `ASBVZxBEFBF7q1V6rineCcpyEQyk`, healthy.
+- Migration: none required.
+- Business-data delta: none. No booking, table, seating, payment, ticket,
+  customer, communication or financial record changed.
+- Full record:
+  `.codex/archive/PHASE_4_FLOOR_ASSIGNMENT_IMPROVEMENTS_2026-11-06.md`.
+
+---
+
 # Phase 3 - Multi-Zone Bookings & Split Payments
 
 STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
