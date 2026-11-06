@@ -24,6 +24,11 @@ import {
 import {
   validateCorporateZoneEntitlements,
 } from "@/lib/corporateZoneEntitlements";
+import {
+  getCorporateDietarySummary,
+  getCorporateDietaryAddons,
+  normalizeCorporateDietaryQuantities,
+} from "@/lib/corporateDietaryRequirements";
 import { recordAuditEvent } from "@/lib/supabase/serverAudit";
 import {
   getInternalShowBookingDecision,
@@ -241,9 +246,61 @@ export async function POST(request: Request) {
           ? "deposit-paid"
           : "pending-payment"
     : null;
+  const hasRecordedDietaryQuantities = Boolean(
+    record.request.dietaryQuantities &&
+      Object.keys(record.request.dietaryQuantities).length > 0,
+  );
+  let authoritativeDietaryRequest = record.request;
+  try {
+    authoritativeDietaryRequest = {
+      ...record.request,
+      dietaryQuantities: normalizeCorporateDietaryQuantities({
+        dietaryRequirements: record.request.dietaryRequirements,
+        guestCount: record.request.guestCount,
+        quantities: record.request.dietaryQuantities,
+        requireSelectedQuantities: hasRecordedDietaryQuantities,
+      }),
+    };
+  } catch (error) {
+    return Response.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Corporate dietary quantities are invalid.",
+      },
+      { status: 409 },
+    );
+  }
+  const dietarySummary = getCorporateDietarySummary(authoritativeDietaryRequest);
+  const clientNonDietaryAddons = (clientBooking.addons ?? []).filter(
+    (addon) => !addon.id.startsWith("dietary-"),
+  );
+  const authoritativeDietaryAddons = getCorporateDietaryAddons(
+    authoritativeDietaryRequest,
+  );
+  const operationalNotesWithoutDietary = (clientBooking.operationalNotes ?? "")
+    .split("\n")
+    .filter((line) => !line.startsWith("Dietary:"))
+    .join("\n")
+    .trim();
+  const authoritativeClientBooking: DemoBooking = {
+    ...clientBooking,
+    addons: [...clientNonDietaryAddons, ...authoritativeDietaryAddons],
+    addonsTotal: authoritativeDietaryAddons.reduce(
+      (total, addon) => total + addon.price,
+      0,
+    ),
+    operationalNotes: [
+      dietarySummary ? `Dietary: ${dietarySummary}` : "",
+      operationalNotesWithoutDietary,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
   const booking: DemoBooking = financialReconciliation && reconciledPaymentStatus
     ? {
-        ...clientBooking,
+        ...authoritativeClientBooking,
         amountPaid: financialReconciliation.amountPaid,
         balanceDue: financialReconciliation.outstandingAmount,
         corporateInvoiceOutstandingAmount:
@@ -275,8 +332,8 @@ export async function POST(request: Request) {
           reconciledPaymentBasis === "deposit" ? "deposit" : "full",
         paymentStatus: reconciledPaymentStatus,
         pricePerPerson:
-          clientBooking.partySize > 0
-            ? financialReconciliation.totalObligation / clientBooking.partySize
+          authoritativeClientBooking.partySize > 0
+            ? financialReconciliation.totalObligation / authoritativeClientBooking.partySize
             : 0,
         status:
           reconciledPaymentStatus === "fully-paid" ||
@@ -286,7 +343,7 @@ export async function POST(request: Request) {
         subtotalPrice: financialReconciliation.totalObligation,
         totalPrice: financialReconciliation.totalObligation,
       }
-    : clientBooking;
+    : authoritativeClientBooking;
 
   if (
     booking.source !== "corporate-direct" ||

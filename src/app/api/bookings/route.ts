@@ -2396,7 +2396,9 @@ export async function POST(request: Request) {
 
     if (
       (booking.source === "online" ||
-        (isTrustedStaff && (booking.addons?.length ?? 0) > 0) ||
+        (isTrustedStaff &&
+          (booking.addons?.length ?? 0) > 0 &&
+          !booking.corporateRequestId) ||
         customPricedTemporaryTable ||
         staffPricingRate ||
         (isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis) &&

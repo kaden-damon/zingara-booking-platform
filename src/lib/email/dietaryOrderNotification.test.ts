@@ -13,6 +13,10 @@ test("dietary notification resolves Fatima by stable staff id and claims an idem
   assert.match(notification, /notificationKey: "dietary-order"/);
   assert.match(notification, /eventKey: `\$\{input\.bookingId\}:\$\{input\.confirmationKey\}`/);
   assert.match(notification, /halaalIncrease === 0 && kosherIncrease === 0/);
+  assert.match(notification, /All dietary meals:/);
+  assert.match(notification, /Confirmed change:/);
+  assert.match(notification, /company_name/);
+  assert.match(notification, /dietary_requirements/);
   assert.match(notification, /completeStaffEmailDelivery/);
 });
 

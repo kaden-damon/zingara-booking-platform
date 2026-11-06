@@ -1144,6 +1144,8 @@ test("Table Plan route remains batched and includes report-critical booking stat
 
 test("Table Plan exports authoritative dietary quantities without clearing yellow headings", async () => {
   const dietaryBooking = booking("dietary", "DIETARY", 4, "table-500", {
+    dietary_requirements:
+      "Vegetarian: 4, Vegan: 2, Strictly Halaal: 2, Kosher: 3",
     notes:
       '__zingara_booking_meta__:{"addons":[{"id":"dietary-strictly-halaal","kind":"catalogue","name":"Strictly Halaal","price":500,"quantity":2,"unitPrice":250},{"id":"dietary-kosher","kind":"catalogue","name":"Kosher","price":1500,"quantity":3,"unitPrice":500}]}',
     section: "golden-circle",
@@ -1190,6 +1192,48 @@ test("Table Plan exports authoritative dietary quantities without clearing yello
   assert.equal(dietaryRow.getCell(23).value, 3);
   assert.equal(dietaryRow.getCell(22).numFmt, "0");
   assert.equal(dietaryRow.getCell(23).numFmt, "0");
+  const exportedDietarySummary = Array.from(
+    { length: sheet.rowCount },
+    (_, index) => sheet.getRow(index + 1),
+  ).some((row) =>
+    row.values.some((value) =>
+      String(value ?? "").includes(
+        "Vegetarian: 4, Vegan: 2, Strictly Halaal: 2, Kosher: 3",
+      ),
+    ),
+  );
+  assert.equal(exportedDietarySummary, true);
+  const capeTownBuffer = await buildTablePlanWorkbook({
+    bookings: [dietaryBooking],
+    configuredZonePrices: {
+      "golden-circle": 1_000,
+      "middle-ring": 1_000,
+      "private-booths": 1_000,
+      "royal-balcony": 1_000,
+    },
+    customers: [customer("dietary", "Dietary Guest")],
+    legacyPaymentEvidence: [],
+    payments: [],
+    show: {
+      date: "2026-11-10",
+      id: "show-dietary-cpt",
+      name: "Dietary Test Cape Town",
+      time: "18:00:00",
+      venue: "cape-town",
+    },
+    tables: [table("table-500", "500", "dietary", { section: "golden-circle" })],
+  });
+  const capeTownWorkbook = new ExcelJS.Workbook();
+  await capeTownWorkbook.xlsx.load(capeTownBuffer);
+  const capeTownSheet = capeTownWorkbook.getWorksheet("Table Plan");
+  assert.ok(capeTownSheet);
+  const capeTownDietaryRow = Array.from(
+    { length: capeTownSheet.rowCount },
+    (_, index) => capeTownSheet.getRow(index + 1),
+  ).find((row) => row.getCell(8).value === "DIETARY");
+  assert.ok(capeTownDietaryRow);
+  assert.equal(capeTownDietaryRow.getCell(22).value, 2);
+  assert.equal(capeTownDietaryRow.getCell(23).value, 3);
   const headingRows = Array.from(
     { length: sheet.rowCount },
     (_, index) => sheet.getRow(index + 1),

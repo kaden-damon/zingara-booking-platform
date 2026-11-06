@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BookingAddon } from "@/lib/zingaraDemo";
+import { getDietaryAddonSummary } from "@/lib/bookingAddons";
 import { getRestrictedDietaryQuantities } from "@/lib/dietaryAddonOrdering";
 import { createBrandedCustomerEmail } from "@/lib/email/customerEmail";
 import {
@@ -13,9 +14,11 @@ export const fatimaStaffProfileId = "3ac09b59-fc3f-4c6d-9bb3-8dd47a077188";
 type DietaryOrderNotificationInput = {
   bookingId: string;
   bookingReference: string;
+  companyName?: string;
   confirmationKey: string;
   currentAddons: BookingAddon[];
   customerName: string;
+  dietaryRequirements?: string;
   existingAddons?: BookingAddon[];
   performanceDate: string;
   performanceTime: string;
@@ -58,10 +61,20 @@ export async function sendConfirmedDietaryOrderNotification(
   });
   if (!deliveryId) return { duplicate: true, ok: true } as const;
 
-  const quantities = [
-    halaalIncrease > 0 ? `Strictly Halaal: ${halaalIncrease}` : null,
-    kosherIncrease > 0 ? `Kosher: ${kosherIncrease}` : null,
+  const currentQuantities = [
+    current["dietary-strictly-halaal"] > 0
+      ? `Strictly Halaal: ${current["dietary-strictly-halaal"]}`
+      : null,
+    current["dietary-kosher"] > 0
+      ? `Kosher: ${current["dietary-kosher"]}`
+      : null,
   ].filter(Boolean);
+  const changes = [
+    halaalIncrease > 0 ? `Strictly Halaal +${halaalIncrease}` : null,
+    kosherIncrease > 0 ? `Kosher +${kosherIncrease}` : null,
+  ].filter(Boolean);
+  const allDietaryMeals =
+    input.dietaryRequirements?.trim() || getDietaryAddonSummary(input.currentAddons);
   const subject = `Zingara | Dietary Order — ${input.bookingReference}`;
   const message = [
     `Hi ${fatima.full_name.split(" ")[0] || "Fatima"},`,
@@ -69,10 +82,17 @@ export async function sendConfirmedDietaryOrderNotification(
     "A confirmed booking includes a dietary meal order.",
     `Booking: ${input.bookingReference}`,
     `Customer: ${input.customerName || "Customer not recorded"}`,
+    input.companyName ? `Company: ${input.companyName}` : null,
     `Venue: ${input.venue}`,
     `Performance: ${input.performanceDate} at ${input.performanceTime.slice(0, 5)}`,
-    ...quantities,
-  ].join("\n");
+    allDietaryMeals
+      ? `All dietary meals: ${allDietaryMeals}`
+      : null,
+    ...currentQuantities,
+    `Confirmed change: ${changes.join(", ")}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
   const branded = await createBrandedCustomerEmail({
     heading: "Dietary Meal Order",
     includeAgePolicy: false,
@@ -104,7 +124,7 @@ export async function notifyConfirmedDietaryOrderByBookingId(
 ) {
   const { data: booking, error: bookingError } = await client
     .from("bookings")
-    .select("id,booking_reference,booking_status,customer_id,notes,show_id")
+    .select("id,booking_reference,booking_status,company_name,customer_id,dietary_requirements,notes,show_id")
     .eq("id", input.bookingId)
     .maybeSingle();
   if (bookingError) throw bookingError;
@@ -145,10 +165,12 @@ export async function notifyConfirmedDietaryOrderByBookingId(
   return sendConfirmedDietaryOrderNotification(client, {
     bookingId: booking.id,
     bookingReference: booking.booking_reference,
+    companyName: booking.company_name ?? undefined,
     confirmationKey: input.confirmationKey,
     currentAddons,
     customerName: [customer?.first_name, customer?.surname].filter(Boolean).join(" "),
     existingAddons: input.existingAddons,
+    dietaryRequirements: booking.dietary_requirements ?? undefined,
     performanceDate: show.date,
     performanceTime: show.time,
     venue: show.venue ?? "Venue not recorded",

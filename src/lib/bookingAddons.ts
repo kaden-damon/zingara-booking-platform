@@ -58,6 +58,21 @@ const johannesburgDietaryAddons: BookingAddon[] = [
   { id: "dietary-kosher", kind: "catalogue", name: "Kosher", price: 500, pricingType: "priced", quantity: 1, unitPrice: 500 },
 ];
 
+export const operationalDietaryAddons: BookingAddon[] = [
+  { id: "dietary-vegetarian", kind: "catalogue", name: "Vegetarian", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
+  { id: "dietary-vegan", kind: "catalogue", name: "Vegan", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
+  { id: "dietary-halaal-friendly", kind: "catalogue", name: "Halaal Friendly", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
+  { id: "dietary-gluten-free", kind: "catalogue", name: "Gluten Free", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
+  { id: "dietary-nut-allergy", kind: "catalogue", name: "Nut Allergy", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
+  { id: "dietary-dairy-free", kind: "catalogue", name: "Dairy Free", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
+  { id: "dietary-other", kind: "catalogue", name: "Other Dietary Meal", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
+];
+
+export const internalDietaryAddons = [
+  ...operationalDietaryAddons,
+  ...johannesburgDietaryAddons,
+];
+
 const venueRestrictedAddonIds = new Set(
   johannesburgDietaryAddons.map((addon) => addon.id),
 );
@@ -65,9 +80,8 @@ const venueRestrictedAddonIds = new Set(
 export function getBookingAddonCatalogue(
   location?: EntryLocationKey | null,
 ) {
-  return location === "johannesburg"
-    ? [...bookingAddonCatalogue, ...johannesburgDietaryAddons]
-    : bookingAddonCatalogue;
+  void location;
+  return [...bookingAddonCatalogue, ...internalDietaryAddons];
 }
 
 export function getPublicDietaryAddonCatalogue(
@@ -138,7 +152,7 @@ export function normalizeInternalBookingAddons(
     const requestedId = String(item.id ?? "").trim();
     const catalogueItem = [
       ...allBookingAddonCatalogue,
-      ...(options.location === "johannesburg" ? johannesburgDietaryAddons : []),
+      ...internalDietaryAddons,
     ].find(
       (candidate) => candidate.id === requestedId,
     );
@@ -252,6 +266,18 @@ export function normalizeInternalBookingAddons(
 
 export function hasPricedBookingAddons(addons: BookingAddon[]) {
   return addons.some((addon) => Number(addon.price) > 0);
+}
+
+export function getDietaryAddonSummary(
+  addons: BookingAddon[] | null | undefined,
+) {
+  return (addons ?? [])
+    .filter((addon) => addon.id.startsWith("dietary-") && Number(addon.quantity) > 0)
+    .map((addon) => {
+      const description = addon.description?.trim();
+      return `${addon.name}: ${addon.quantity}${description ? ` (${description})` : ""}`;
+    })
+    .join(", ");
 }
 
 export function calculateBookingAddonFinancialUpdate(input: {

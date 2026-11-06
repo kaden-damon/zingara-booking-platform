@@ -7,6 +7,7 @@ import {
 } from "@/lib/customerNameStatus";
 import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
 import { getRestrictedDietaryQuantities } from "@/lib/dietaryAddonOrdering";
+import { getDietaryAddonSummary } from "@/lib/bookingAddons";
 import {
   resolveBookingCompanyName,
   type BookingCompanyIdentity,
@@ -862,8 +863,24 @@ function getOperationalNotes(
   booking: TablePlanBooking,
   customer: TablePlanCustomer | undefined,
 ) {
+  const metadataDietarySummary = booking.notes?.startsWith(bookingMetadataPrefix)
+    ? (() => {
+        try {
+          const metadata = JSON.parse(
+            booking.notes.slice(bookingMetadataPrefix.length),
+          ) as { addons?: DemoBooking["addons"] };
+          return getDietaryAddonSummary(metadata.addons);
+        } catch {
+          return "";
+        }
+      })()
+    : "";
   const combinedNotes = [
     booking.dietary_requirements,
+    metadataDietarySummary &&
+    !booking.dietary_requirements?.includes(metadataDietarySummary)
+      ? metadataDietarySummary
+      : "",
     customer?.dietary_requirements,
     getBookingNotes(booking),
     ...(booking.supplemental_operational_notes ?? []),

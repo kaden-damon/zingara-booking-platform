@@ -1,6 +1,11 @@
 "use client";
 
 import {
+  formatCorporateDietaryRequirement,
+  getCorporateDietarySummary,
+  getCorporateDietaryAddons,
+} from "@/lib/corporateDietaryRequirements";
+import {
   type ChangeEvent,
   type FormEvent,
   use,
@@ -1035,12 +1040,6 @@ const corporateRequestStatusLabels: Record<
   "corporate-tentative": "Corporate Tentative",
   "quote-sent": "Quote Sent",
 };
-
-function formatCorporateDietaryRequirement(requirement: string) {
-  return requirement === "Strict Halaal"
-    ? "Strict Halaal · R250"
-    : requirement;
-}
 
 const corporateRequestStatusClasses: Record<
   CorporateRequestStatus,
@@ -12046,6 +12045,8 @@ export default function AdminDashboardPage({
       name: addon,
       price: 0,
     }));
+    const dietaryAddons = getCorporateDietaryAddons(request);
+    const dietarySummary = getCorporateDietarySummary(request);
     const bookingStatus =
       review.paymentStatus === "fully-paid" ||
       review.paymentStatus === "comp-vip"
@@ -12053,13 +12054,8 @@ export default function AdminDashboardPage({
         : "pending-payment";
     const corporateNotes = [
       request.notes,
-      request.dietaryRequirements.length > 0
-        ? `Dietary: ${request.dietaryRequirements
-            .map(formatCorporateDietaryRequirement)
-            .join(", ")}`
-        : "",
-      request.dietaryRequirements.includes("Strict Halaal")
-        ? "Strict Halaal surcharge: R250"
+      dietarySummary
+        ? `Dietary: ${dietarySummary}`
         : "",
       request.otherDietaryRequirement
         ? `Other dietary notes: ${request.otherDietaryRequirement}`
@@ -12106,8 +12102,8 @@ export default function AdminDashboardPage({
       tableNumber: "",
       partySize: review.pax,
       bookingDate: getShowLabel(selectedConversionShow),
-      addons: corporateAddons,
-      addonsTotal: 0,
+      addons: [...corporateAddons, ...dietaryAddons],
+      addonsTotal: dietaryAddons.reduce((total, addon) => total + addon.price, 0),
       subtotalPrice: review.ticketTotal,
       discountAmount: 0,
       serviceFeeAmount: 0,
@@ -25619,9 +25615,10 @@ export default function AdminDashboardPage({
                                   key={requirement}
                                   className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-zinc-200"
                                 >
-                                  {formatCorporateDietaryRequirement(
-                                    requirement,
-                                  )}
+                                  {formatCorporateDietaryRequirement(requirement)}
+                                  {openCorporateRequest.dietaryQuantities?.[requirement]
+                                    ? ` · ${openCorporateRequest.dietaryQuantities[requirement]}`
+                                    : " · Quantity not recorded"}
                                 </span>
                               ),
                             )

@@ -4,6 +4,10 @@ import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
 
 import {
+  corporateDietaryOptions,
+  normalizeCorporateDietaryQuantities,
+} from "../../lib/corporateDietaryRequirements";
+import {
   corporatePartySizeThreshold,
   getConfiguredVenueGuestCapacity,
 } from "../../lib/bookingClassification";
@@ -37,16 +41,6 @@ const occasionOptions = [
   "Product Launch",
   "Corporate Hospitality",
   "Other",
-];
-const dietaryOptions = [
-  { label: "Vegetarian", value: "Vegetarian" },
-  { label: "Vegan", value: "Vegan" },
-  { label: "Halaal Friendly", value: "Halaal Friendly" },
-  { label: "Strict Halaal · R250", value: "Strict Halaal" },
-  { label: "Gluten Free", value: "Gluten Free" },
-  { label: "Nut Allergy", value: "Nut Allergy" },
-  { label: "Dairy Free", value: "Dairy Free" },
-  { label: "Other", value: "Other" },
 ];
 const barTabOptions = [
   "No Bar Tab",
@@ -86,6 +80,7 @@ type CorporateFormState = {
   contactName: string;
   contactNumber: string;
   dietaryRequirements: string[];
+  dietaryQuantities: Record<string, number>;
   email: string;
   guestCount: number;
   locationAcknowledgement: string;
@@ -105,6 +100,7 @@ const initialFormState: CorporateFormState = {
   contactName: "",
   contactNumber: "",
   dietaryRequirements: [],
+  dietaryQuantities: {},
   email: "",
   guestCount: corporatePartySizeThreshold,
   locationAcknowledgement: "",
@@ -211,8 +207,16 @@ export default function CorporateBookingPage() {
   ) {
     const now = new Date().toISOString();
 
+    const dietaryQuantities = normalizeCorporateDietaryQuantities({
+      dietaryRequirements: form.dietaryRequirements,
+      guestCount: form.guestCount,
+      quantities: form.dietaryQuantities,
+      requireSelectedQuantities: true,
+    });
+
     return {
       ...form,
+      dietaryQuantities,
       agePolicyAcknowledgement: hasAcknowledgedAgePolicy
         ? createAgePolicyAcknowledgement(now)
         : undefined,
@@ -381,6 +385,17 @@ export default function CorporateBookingPage() {
       form.guestCount > maximumGuestCount
     ) {
       return `Enter a whole-number guest count from ${corporatePartySizeThreshold} to ${maximumGuestCount}.`;
+    }
+
+    try {
+      normalizeCorporateDietaryQuantities({
+        dietaryRequirements: form.dietaryRequirements,
+        guestCount: form.guestCount,
+        quantities: form.dietaryQuantities,
+        requireSelectedQuantities: true,
+      });
+    } catch (error) {
+      return error instanceof Error ? error.message : "Enter valid dietary quantities.";
     }
 
     if (form.occasion === "Other" && !form.otherOccasion.trim()) {
@@ -716,34 +731,71 @@ export default function CorporateBookingPage() {
               Food & Beverage
             </h2>
             <div className="mt-4 flex flex-wrap gap-2">
-              {dietaryOptions.map((option) => (
-                <label
-                  key={option.value}
-                  className={`cursor-pointer rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
-                    form.dietaryRequirements.includes(option.value)
-                      ? "border-[#D8C36A] bg-[#D8C36A] text-black"
-                      : "border-white/15 bg-black/35 text-zinc-300"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.dietaryRequirements.includes(option.value)}
-                    onChange={() =>
-                      updateCorporateForm({
-                        dietaryRequirements: toggleSelection(
-                          form.dietaryRequirements,
-                          option.value,
-                        ),
-                      })
-                    }
-                    className="sr-only"
-                  />
-                  {option.label}
-                </label>
-              ))}
+              {corporateDietaryOptions.map((option) => {
+                const selected = form.dietaryRequirements.includes(option.value);
+                return (
+                  <div key={option.value} className="flex items-center gap-2">
+                    <label
+                      className={`cursor-pointer rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition ${
+                        selected
+                          ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                          : "border-white/15 bg-black/35 text-zinc-300"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => {
+                          const dietaryRequirements = toggleSelection(
+                            form.dietaryRequirements,
+                            option.value,
+                          );
+                          const dietaryQuantities = { ...form.dietaryQuantities };
+                          if (selected) {
+                            delete dietaryQuantities[option.value];
+                          } else {
+                            dietaryQuantities[option.value] = 1;
+                          }
+                          updateCorporateForm({ dietaryQuantities, dietaryRequirements });
+                        }}
+                        className="sr-only"
+                      />
+                      {option.label}
+                    </label>
+                    {selected && (
+                      <label className="flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
+                        Qty
+                        <input
+                          aria-label={`${option.label} quantity`}
+                          type="number"
+                          min={1}
+                          max={form.guestCount}
+                          step={1}
+                          value={form.dietaryQuantities[option.value] ?? 1}
+                          onChange={(event) =>
+                            updateCorporateForm({
+                              dietaryQuantities: {
+                                ...form.dietaryQuantities,
+                                [option.value]: Math.max(
+                                  1,
+                                  Math.min(
+                                    form.guestCount,
+                                    Math.trunc(Number(event.target.value) || 1),
+                                  ),
+                                ),
+                              },
+                            })
+                          }
+                          className="w-20 rounded-xl border border-white/15 bg-black px-3 py-2 text-center text-sm font-normal text-white outline-none focus:border-[#D8C36A]/70"
+                        />
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <p className="mt-3 text-sm text-[#F2D66C]">
-              Strict Halaal requests include a fixed R250 surcharge.
+              Strictly Halaal is R250 per meal. Kosher is R500 per meal.
             </p>
             {form.dietaryRequirements.includes("Other") && (
               <label className="mt-4 block">
@@ -893,7 +945,13 @@ export default function CorporateBookingPage() {
               <p>
                 <span className="text-zinc-500">Strict Halaal</span> ·{" "}
                 {form.dietaryRequirements.includes("Strict Halaal")
-                  ? "R250 fixed surcharge"
+                  ? `${form.dietaryQuantities["Strict Halaal"] ?? 1} × R250`
+                  : "Not selected"}
+              </p>
+              <p>
+                <span className="text-zinc-500">Kosher</span> ·{" "}
+                {form.dietaryRequirements.includes("Kosher")
+                  ? `${form.dietaryQuantities.Kosher ?? 1} × R500`
                   : "Not selected"}
               </p>
               <p>

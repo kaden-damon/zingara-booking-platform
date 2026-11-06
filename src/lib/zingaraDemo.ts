@@ -855,6 +855,7 @@ export type CorporateRequest = {
   occasion: string;
   otherOccasion: string;
   dietaryRequirements: string[];
+  dietaryQuantities?: import("./corporateDietaryRequirements").CorporateDietaryQuantities;
   otherDietaryRequirement: string;
   barTab: string;
   addons: string[];
@@ -2096,6 +2097,17 @@ function normalizeCorporateRequest(
     dietaryRequirements: Array.isArray(request.dietaryRequirements)
       ? request.dietaryRequirements.map((item) => getSafeString(item))
       : [],
+    dietaryQuantities:
+      request.dietaryQuantities && typeof request.dietaryQuantities === "object"
+        ? Object.fromEntries(
+            Object.entries(request.dietaryQuantities)
+              .map(([requirement, quantity]) => [
+                getSafeString(requirement),
+                Math.max(0, Math.trunc(getSafeNumber(quantity, 0))),
+              ])
+              .filter(([requirement, quantity]) => requirement && Number(quantity) > 0),
+          )
+        : undefined,
     otherDietaryRequirement: getSafeString(
       request.otherDietaryRequirement,
     ),

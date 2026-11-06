@@ -27,6 +27,10 @@ import {
   hasValidAgePolicyAcknowledgement,
 } from "@/lib/ageRestrictionPolicy";
 import { validateNewCorporateAddonSelections } from "@/lib/bookingAddons";
+import {
+  normalizeCorporateDietaryQuantities,
+  validateCorporateDietaryRequirements,
+} from "@/lib/corporateDietaryRequirements";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +137,28 @@ export async function POST(request: Request) {
     corporateRequest.contactName = normalizedContact.name;
     corporateRequest.contactNumber = normalizedContact.phone;
     corporateRequest.email = normalizedContact.email;
+
+    try {
+      corporateRequest.dietaryRequirements = validateCorporateDietaryRequirements(
+        corporateRequest.dietaryRequirements,
+      );
+      corporateRequest.dietaryQuantities = normalizeCorporateDietaryQuantities({
+        dietaryRequirements: corporateRequest.dietaryRequirements,
+        guestCount: corporateRequest.guestCount,
+        quantities: corporateRequest.dietaryQuantities,
+        requireSelectedQuantities: true,
+      });
+    } catch (error) {
+      return Response.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Corporate dietary quantities are invalid.",
+        },
+        { status: 400 },
+      );
+    }
 
     const ipLimit = await checkRateLimit(
       request,
