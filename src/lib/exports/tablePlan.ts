@@ -175,6 +175,7 @@ type LegacyTablePlanAssignment = {
 type TablePlanOperationalRow = {
   allocatedPax: number;
   booking?: TablePlanBooking;
+  buyoutCoverage?: boolean;
   capacity: number;
   capacityConfigured: boolean;
   state: OperationalTableReportRow["state"];
@@ -612,6 +613,17 @@ function buildExportOperationalRows(
     ]);
   }
 
+  const unallocatedFullShowBuyouts = activeBookings.filter(
+    (booking) =>
+      booking.section.trim().toLowerCase() === "full show buyout" &&
+      !booking.zone_entitlements?.length &&
+      !(claimsByBookingId.get(booking.id)?.length ?? 0),
+  );
+  const exclusiveBuyout =
+    unallocatedFullShowBuyouts.length === 1
+      ? unallocatedFullShowBuyouts[0]
+      : undefined;
+
   const reportingTables: DemoTable[] = operationalTables.map((table) => ({
     availabilityScope:
       table.availability_scope === "public" ? "public" : "operational",
@@ -671,11 +683,18 @@ function buildExportOperationalRows(
       const table = sourceTablesById.get(row.table.id);
       if (!table) return null;
 
+      const booking = row.booking?.supabaseBookingId
+        ? sourceBookingsById.get(row.booking.supabaseBookingId)
+        : row.state === "available"
+          ? exclusiveBuyout
+          : undefined;
+
       return {
         allocatedPax: row.allocatedPax,
-        booking: row.booking?.supabaseBookingId
-          ? sourceBookingsById.get(row.booking.supabaseBookingId)
-          : undefined,
+        booking,
+        buyoutCoverage: Boolean(
+          exclusiveBuyout && !row.booking && booking === exclusiveBuyout,
+        ),
         capacity: row.capacity,
         capacityConfigured: row.capacityConfigured,
         state: row.state,
@@ -1104,6 +1123,20 @@ function setMoneyValue(cell: Cell, value: number) {
   cell.numFmt = southAfricanCurrencyNumberFormat;
 }
 
+function getLegacyRestrictedDietaryQuantities(notes: string) {
+  const getQuantity = (pattern: RegExp) => {
+    const quantity = Number(notes.match(pattern)?.[1]);
+    return Number.isInteger(quantity) && quantity > 0 ? quantity : 0;
+  };
+
+  return {
+    kosher: getQuantity(/\b(\d+)\s+kosher\b/i),
+    strictlyHalaal: getQuantity(
+      /\b(\d+)\s+(?:strictly|strcitly)\s+halaal\b/i,
+    ),
+  };
+}
+
 function populateBookingDataRow(
   row: Row,
   booking: TablePlanBooking,
@@ -1115,6 +1148,7 @@ function populateBookingDataRow(
   configuredUnitPrice: number,
   allocatedPax: number,
   includeBookingDetails: boolean,
+  repeatCompanyName = false,
 ) {
   const totalAmount = Math.max(Number(booking.total_amount) || 0, 0);
   const confirmedPaidAmount = Math.max(Number(booking.amount_paid) || 0, 0);
@@ -1143,11 +1177,15 @@ function populateBookingDataRow(
     payments,
     legacyPaymentEvidence,
   );
+  const legacyDietaryQuantities = getLegacyRestrictedDietaryQuantities(
+    operationalNotes,
+  );
 
   row.getCell(4).value = Math.max(Number(allocatedPax) || 0, 0);
-  row.getCell(companyColumn).value = includeBookingDetails && companyName
-    ? neutralizeSpreadsheetFormula(companyName)
-    : null;
+  row.getCell(companyColumn).value =
+    (includeBookingDetails || repeatCompanyName) && companyName
+      ? neutralizeSpreadsheetFormula(companyName)
+      : null;
   row.getCell(bookerColumn).value = neutralizeSpreadsheetFormula(getCustomerName(customer));
   row.getCell(contactColumn).value = includeBookingDetails && customer?.mobile?.trim()
     ? neutralizeSpreadsheetFormula(customer.mobile.trim())
@@ -1199,11 +1237,25 @@ function populateBookingDataRow(
   setMoneyValue(row.getCell(19), financials.mediaAmount);
   setMoneyValue(row.getCell(20), financials.tradexAmount);
   setMoneyValue(row.getCell(21), financials.complimentaryAmount);
-  row.getCell(22).value = paymentMetadata.dietaryQuantities["dietary-strictly-halaal"];
+  row.getCell(22).value =
+    paymentMetadata.dietaryQuantities["dietary-strictly-halaal"] ||
+    legacyDietaryQuantities.strictlyHalaal;
   row.getCell(22).numFmt = "0";
-  row.getCell(23).value = paymentMetadata.dietaryQuantities["dietary-kosher"];
+  row.getCell(23).value =
+    paymentMetadata.dietaryQuantities["dietary-kosher"] ||
+    legacyDietaryQuantities.kosher;
   row.getCell(23).numFmt = "0";
-  setMoneyValue(row.getCell(24), financials.ticketGratuityAmount);
+  const collectedTicketGratuity =
+    financials.ticketGratuityAmount > 0
+      ? financials.ticketGratuityAmount
+      : booking.booking_origin === "corporate" &&
+          booking.payment_status === "fully_paid"
+        ? Math.min(
+            Math.max(Number(booking.service_fee) || 0, 0),
+            confirmedPaidAmount,
+          )
+        : 0;
+  setMoneyValue(row.getCell(24), collectedTicketGratuity);
   setMoneyValue(row.getCell(25), financials.barTabPaidAmount);
   setMoneyValue(row.getCell(26), financials.barGratuityAmount);
 }
@@ -1974,6 +2026,7 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
         input.configuredZonePrices[zone],
         operationalRow.allocatedPax,
         includeBookingDetails,
+        operationalRow.buyoutCoverage,
       );
       if (!includeBookingDetails) clearSecondaryBookingFinancials(row);
       populatedFinancialBookingIds.add(booking.id);

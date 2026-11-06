@@ -856,6 +856,105 @@ test("Table Plan emits one payment summary for a multi-zone Corporate booking", 
   );
 });
 
+test("Table Plan labels an unallocated Full Show Buyout without inventing table allocations", async () => {
+  const buyout = booking("buyout", "BUYOUT", 400, null, {
+    amount_paid: 684_400,
+    balance_outstanding: 0,
+    booking_origin: "corporate",
+    company_id: "company-vodacom",
+    company_name: "Vodacom",
+    notes: '__zingara_booking_meta__:{"operationalNotes":"R531000 Ticket & Show | R79650 VAT | R73750 Gratuity | 37 Strcitly halaal guests at R9250","serviceFeeAmount":73750}',
+    payment_status: "fully_paid",
+    section: "Full Show Buyout",
+    service_fee: 73_750,
+    total_amount: 684_400,
+  });
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [buyout],
+    companies: [
+      {
+        id: "company-vodacom",
+        legal_name: "Vodacom (Pty) Ltd",
+        trading_name: "Vodacom",
+      },
+    ],
+    configuredZonePrices: {
+      "golden-circle": 1_000,
+      "middle-ring": 1_000,
+      "private-booths": 1_000,
+      "royal-balcony": 1_000,
+    },
+    customers: [customer("buyout", "Vodacom Booker")],
+    payments: [],
+    show: {
+      date: "2026-11-06",
+      id: "show-vodacom",
+      name: "Vodacom Buyout",
+      time: "17:00:00",
+      venue: "johannesburg",
+    },
+    tables: [
+      table("table-1", "1", null, { section: "private-booths" }),
+      table("table-200", "200", null),
+      table("table-400", "400", null, { section: "golden-circle" }),
+      table("table-800", "800", null, { section: "royal-balcony" }),
+      table("disabled-401", "401", null, {
+        section: "golden-circle",
+        status: "disabled",
+      }),
+    ],
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan");
+  assert.ok(sheet);
+
+  const rows = Array.from({ length: sheet.rowCount }, (_, index) =>
+    sheet.getRow(index + 1),
+  );
+  const operationalRows = ["1", "200", "400", "800"].map((tableCode) =>
+    rows.find((row) => String(row.getCell(2).value ?? "") === tableCode),
+  );
+  assert.equal(operationalRows.every(Boolean), true);
+  assert.deepEqual(
+    operationalRows.map((row) => row?.getCell(5).value),
+    ["Vodacom", "Vodacom", "Vodacom", "Vodacom"],
+  );
+  assert.deepEqual(
+    operationalRows.map((row) => cellNumber(row!.getCell(4).value)),
+    [0, 0, 0, 0],
+  );
+  assert.equal(
+    operationalRows.filter((row) => row?.getCell(8).value === "BUYOUT").length,
+    1,
+  );
+  assert.equal(
+    operationalRows.filter(
+      (row) => row?.getCell(11).value === "Paid R684,400 · Outstanding R0",
+    ).length,
+    1,
+  );
+  assert.equal(
+    operationalRows.reduce(
+      (total, row) => total + cellNumber(row!.getCell(24).value),
+      0,
+    ),
+    73_750,
+  );
+  assert.equal(
+    operationalRows.reduce(
+      (total, row) => total + cellNumber(row!.getCell(22).value),
+      0,
+    ),
+    37,
+  );
+  const disabledRow = rows.find(
+    (row) => String(row.getCell(2).value ?? "") === "401",
+  );
+  assert.equal(disabledRow?.getCell(5).value, null);
+  assert.match(String(disabledRow?.getCell(10).value ?? ""), /DISABLED/);
+});
+
 test("Table Plan keeps operational notes and writes the exact COMP wording into Payment Summary", async () => {
   const buffer = await buildTablePlanWorkbook({
     bookings: [
