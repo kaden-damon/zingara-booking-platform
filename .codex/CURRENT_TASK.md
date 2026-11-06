@@ -1,3 +1,70 @@
+# Corporate & Buyout Pricing Corrections
+
+STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Delivered
+
+- The permanent Corporate/Buyout `Bar Tab` accepts an authorised custom Rand
+  amount while retaining the existing quantity model. Its chargeable value is
+  included once in the established 12.5% upfront-gratuity calculation and all
+  existing booking, balance, quote, invoice, Function Brief, Table Plan and
+  reporting paths continue to consume the persisted financial components.
+- Admin -> Settings -> Venue now contains `Buyout Packages` for Cape Town and
+  Johannesburg. Authorised settings managers can edit the existing three
+  package names, descriptions and totals. Each save creates a new audited
+  venue-specific version; existing booking snapshots are immutable.
+- Full Show Buyout creation now accepts an optional agreed total for that
+  booking only. The selected package and agreed financial composition are
+  persisted as the booking snapshot, so later package edits cannot reprice it.
+- New-version EFT bookings and manual EFT settlement remove the configured
+  booking fee atomically. PayFast/payment-link settlement adds the existing
+  configured fee atomically. Historical fees and settled records are excluded
+  through the `payment-method-v1` provenance boundary.
+
+## Financial Verification
+
+- `ZNG-48B964B9` (Vodacom, JHB 6 November, 400 guests) was verified read-only.
+  Its original Private Salon package snapshot remains R590,000 base,
+  R73,750 gratuity, R88,500 VAT and R752,250 package total. Lisa Rodderick's
+  later audited management agreement remains the authoritative R684,400
+  total/paid with R0 balance. No value or evidence was changed.
+- A rollback-only Production transaction proved configured-fee behaviour from
+  R0 -> R10 for a PayFast payment link and R10 -> R0 for EFT, exercised the
+  existing atomic EFT settlement, and created a venue package version. The
+  transaction was rolled back and follow-up counts confirmed zero fixture
+  bookings, audit rows and financial evidence.
+- Production contains the three global active package templates and no venue
+  override rows. The new functions and schema are present; Vodacom's booking,
+  payment position and package snapshot are unchanged.
+
+## Verification And Release
+
+- Focused tests passed 101/101. TypeScript, whitespace validation and the
+  supported Next.js Production Webpack build passed. Targeted lint reported no
+  errors and four pre-existing warnings.
+- The new package editor is dynamically loaded only when Venue settings is
+  opened. It adds no polling, normal booking-page request, dependency,
+  background process or per-render database query.
+- Authenticated Production inspection as Kaden confirmed both venue sections,
+  all three package names/descriptions/totals and the protected Save controls.
+  No value was edited or saved.
+- Application commit: `6ca491e3` (source commit `7b77122`).
+- Migration: `20261106160000_corporate_buyout_pricing_corrections.sql`, applied
+  successfully through the linked Production workflow.
+- Production deployment: `dpl_4sfWsHBUWndJRqRt2hVY1PWGK4Xh`, Ready and aliased
+  to `book.zingara.co.za` at approximately 12:39 SAST on 6 November 2026.
+- Rollback: revert `6ca491e3` and redeploy. The additive migration can remain;
+  disable use of the new versioned functions rather than deleting immutable
+  audit-compatible schema.
+- Business-data delta: zero bookings, payments, package overrides, invoices,
+  quotes, tickets, seating records or historical financial values changed.
+- Full record:
+  `.codex/archive/CORPORATE_BUYOUT_PRICING_CORRECTIONS_2026-11-06.md`.
+
+---
+
 # P0 - Corporate Financial & Function Brief Integrity
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
