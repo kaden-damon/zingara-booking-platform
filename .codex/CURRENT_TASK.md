@@ -1,3 +1,62 @@
+# P0 - Corporate Financial & Function Brief Integrity
+
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Delivered
+
+- Reconciled Corporate booking `ZNG-BCP2C3` from authoritative booking,
+  payment and audit records without changing its historical values. The
+  R329.50 difference from 29 x R1,360 comprises two later guests charged at
+  the fixed agreed R1,530 rate (+R340), the prior R0.50 reconciliation, and
+  the R10 embedded booking fee.
+- Corporate and Full Show Buyout creation continue to collect the established
+  12.5% gratuity upfront. The authoritative calculation includes chargeable
+  add-ons, including the new permanent Corporate-only `Bar Tab`. Ordinary
+  Standard bookings retain venue-paid gratuity treatment.
+- `Bar Tab` is now a permanent custom-amount Corporate/Buyout add-on. The
+  shared server normaliser restricts it to those booking origins, requires one
+  total amount, preserves financial permissions and prevents duplicate lines.
+- Function Briefs now derive financial components from authoritative booking
+  totals and explicit legacy evidence. They show Full Payment, Tickets,
+  collected ticket gratuity, Booking Fee, each add-on, and collected add-on
+  gratuity separately. Both historical subtotal conventions are supported;
+  manually typed notes can no longer be presented as collected gratuity.
+
+## Reconciliation & Verification
+
+- Live Function Brief values for `ZNG-BCP2C3`: Full Payment R47,632.50;
+  Tickets R39,769.50; ticket Gratuity Paid R4,590.50; Booking Fee R10.00;
+  Bar Tab R2,900.00; Bar Tab Gratuity Paid R362.50. These components reconcile
+  exactly to R47,632.50.
+- Production audit covered 582 active Corporate-origin bookings, including 33
+  with structured add-on value and two fixed Buyouts. One cancelled, unpaid
+  historical booking (`ZNG-JVFMG6`) retains a pre-existing R250 component
+  mismatch and requires manual financial review; it was not altered.
+- Focused tests passed 61/61. TypeScript, whitespace checks and the supported
+  Production Webpack build passed. Vercel's Production build and performance
+  checks completed successfully. No request, polling, dependency, background
+  process or per-render query was added.
+- Authenticated Production inspection confirmed the Corporate Bar Tab control
+  on the reference booking. A fresh live Function Brief was downloaded and
+  all three A4 pages were text- and visually verified with no clipping,
+  overlap or rounding loss.
+
+## Release
+
+- Local application commit: `d8a43bf`.
+- Production application commit: `9b4c9cae`.
+- Production deployment: `BTcGsmMWoKAPenK1ZHK4wK1iS23w`, successful at
+  11:33:15 SAST on 6 November 2026.
+- Migration: none required.
+- Business-data delta: none. No booking, payment, invoice, quote, seating,
+  ticket, customer, communication or historical financial record changed.
+- Full record:
+  `.codex/archive/P0_CORPORATE_FINANCIAL_FUNCTION_BRIEF_INTEGRITY_2026-11-06.md`.
+
+---
+
 # Phase 4 - Floor Assignment Improvements
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
