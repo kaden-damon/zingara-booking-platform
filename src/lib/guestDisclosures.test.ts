@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   getGuestPaymentDisclosures,
   getGuestVenueInclusions,
+  getSeatingPreviewTicketInclusion,
 } from "./guestDisclosures.ts";
 
 test("venue inclusions remain venue specific", () => {
@@ -17,6 +18,18 @@ test("venue inclusions remain venue specific", () => {
     "A decadent 4 course dinner.",
     "2½-hour performance experience.",
   ]);
+});
+
+test("seating preview uses the approved venue-specific ticket inclusion", () => {
+  assert.equal(
+    getSeatingPreviewTicketInclusion("cape-town"),
+    "Your ticket includes a welcome drink, a decadent 3-course dinner and a 2½-hour performance experience.",
+  );
+  assert.equal(
+    getSeatingPreviewTicketInclusion("Johannesburg"),
+    "Your ticket includes a welcome drink, a decadent 4-course dinner and a 2½-hour performance experience.",
+  );
+  assert.equal(getSeatingPreviewTicketInclusion(null), "");
 });
 
 test("payment notices distinguish outstanding balances from included gratuity", () => {

@@ -1,5 +1,19 @@
 type EntryLocationKey = "cape-town" | "johannesburg";
 
+function resolveGuestVenueLocation(
+  venue: EntryLocationKey | string | null | undefined,
+): EntryLocationKey | null {
+  const normalizedVenue = String(venue ?? "").trim().toLowerCase();
+
+  if (normalizedVenue.includes("johannesburg") || normalizedVenue.includes("joburg")) {
+    return "johannesburg";
+  }
+  if (normalizedVenue.includes("cape town") || normalizedVenue.includes("cape-town")) {
+    return "cape-town";
+  }
+  return null;
+}
+
 export type GuestPaymentDisclosureInput = {
   balanceOutstanding?: number | null;
   gratuityPolicy?: "online-collected" | "pay-at-venue" | null;
@@ -9,13 +23,7 @@ export type GuestPaymentDisclosureInput = {
 export function getGuestVenueInclusions(
   venue: EntryLocationKey | string | null | undefined,
 ) {
-  const normalizedVenue = String(venue ?? "").trim().toLowerCase();
-  const location =
-    normalizedVenue.includes("johannesburg") || normalizedVenue.includes("joburg")
-      ? "johannesburg"
-      : normalizedVenue.includes("cape town") || normalizedVenue.includes("cape-town")
-        ? "cape-town"
-        : null;
+  const location = resolveGuestVenueLocation(venue);
 
   if (location === "cape-town") {
     return [
@@ -34,6 +42,20 @@ export function getGuestVenueInclusions(
   }
 
   return [];
+}
+
+export function getSeatingPreviewTicketInclusion(
+  venue: EntryLocationKey | string | null | undefined,
+) {
+  const location = resolveGuestVenueLocation(venue);
+
+  if (location === "cape-town") {
+    return "Your ticket includes a welcome drink, a decadent 3-course dinner and a 2½-hour performance experience.";
+  }
+  if (location === "johannesburg") {
+    return "Your ticket includes a welcome drink, a decadent 4-course dinner and a 2½-hour performance experience.";
+  }
+  return "";
 }
 
 export function getGuestPaymentDisclosures({

@@ -18,6 +18,7 @@ import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEdit
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
 import GuestBookingDisclosures from "../components/GuestBookingDisclosures";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
+import { getSeatingPreviewTicketInclusion } from "../../lib/guestDisclosures";
 import PublicMaintenanceBoundary from "./PublicMaintenanceBoundary";
 import SecretGuestListPanel from "./SecretGuestListPanel";
 import {
@@ -5727,6 +5728,9 @@ export default function BookingPage({
               const recommendedShow = !availability.isAvailable
                 ? getRecommendedFutureShow()
                 : undefined;
+              const ticketInclusion = getSeatingPreviewTicketInclusion(
+                selectedEntryLocation ?? getShowVenueKey(selectedShow),
+              );
 
               return (
                 <>
@@ -5738,6 +5742,11 @@ export default function BookingPage({
                       <h2 className="mt-2 text-2xl font-bold uppercase tracking-[0.06em] text-white sm:text-3xl">
                         {previewSeatingZone.title}
                       </h2>
+                      {ticketInclusion && (
+                        <p className="mt-2 max-w-md text-sm leading-6 text-zinc-300">
+                          {ticketInclusion}
+                        </p>
+                      )}
                     </div>
                     <button
                       type="button"
