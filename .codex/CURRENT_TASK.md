@@ -1,3 +1,44 @@
+# Surgical Seating Preview Update
+
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Delivered
+
+- Every public Seating Preview now displays one compact venue-specific ticket
+  inclusion sentence directly beneath the seating-zone title.
+- Cape Town displays: `Your ticket includes a welcome drink, a decadent
+  3-course dinner and a 2½-hour performance experience.`
+- Johannesburg displays: `Your ticket includes a welcome drink, a decadent
+  4-course dinner and a 2½-hour performance experience.`
+- The shared preview renderer and existing guest-disclosure venue resolver are
+  reused, so the copy applies consistently to every seating zone without a new
+  request, state change, dependency or duplicated popup.
+
+## Verification & Release
+
+- Focused disclosure tests passed 4/4. TypeScript, focused disclosure lint,
+  whitespace checks and the Production Next.js build passed. The booking page
+  retains pre-existing full-file lint findings in untouched effect code.
+- Authenticated Production verification confirmed the 4-course Johannesburg
+  sentence and 3-course Cape Town sentence directly beneath Golden Circle.
+  The shared renderer covers all other zones. Desktop and 390 x 844 mobile
+  layouts remained contained and readable; pricing, availability, zone
+  descriptions and actions were unchanged.
+- Local application commit: `63e2abf`. Production commit:
+  `7e041ca0be429722ce9d4998e1d3aa467af7e7f9`.
+- Production deployment: `7uJzSR8vQQ6J5818DCpVDqMMcwKH`, READY.
+- Performance impact: no additional API request, polling, calculation, effect,
+  render loop or dependency. The update is one shared string lookup during the
+  already-open preview render.
+- Business-data delta: none. No booking, pricing, availability, payment,
+  seating, ticket, customer or financial record changed.
+- Existing record updated:
+  `.codex/archive/GUEST_COMMUNICATION_DISCLOSURE_INTEGRITY_2026-11-05.md`.
+
+---
+
 # Phase 1 - Full Show Buyout Seating
 
 STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION

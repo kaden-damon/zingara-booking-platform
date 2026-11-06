@@ -1,5 +1,30 @@
 # Guest Communication & Disclosure Integrity
 
+## 6 November 2026 - Seating Preview Follow-up
+
+- Every public Seating Preview now renders the approved venue-specific ticket
+  inclusion sentence immediately beneath the seating-zone title through the
+  shared popup path.
+- Cape Town uses the approved 3-course sentence and Johannesburg the approved
+  4-course sentence. The existing guest-disclosure module remains the single
+  venue resolver; no availability, price or booking rule was duplicated.
+- Focused disclosure tests passed 4/4. TypeScript, focused disclosure lint,
+  whitespace checks and the Production Next.js build passed. The public
+  booking page's existing full-file lint findings remain in untouched effect
+  code and were not broadened by this change.
+- Production was inspected for Johannesburg and Cape Town. Both sentences
+  appeared directly below Golden Circle, and the shared renderer applies the
+  same placement to every zone. Desktop and 390 x 844 mobile layouts remained
+  readable and contained, with existing pricing, availability, descriptions
+  and actions unchanged.
+- Local commit: `63e2abf`. Production commit:
+  `7e041ca0be429722ce9d4998e1d3aa467af7e7f9`. Deployment:
+  `7uJzSR8vQQ6J5818DCpVDqMMcwKH`, READY.
+- No API request, polling, dependency or background work was added. Business-
+  data delta: none.
+
+---
+
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 5 NOVEMBER 2026
