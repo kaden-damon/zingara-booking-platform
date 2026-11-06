@@ -1,3 +1,51 @@
+# Phase 2 - Corporate Dietary Requirements
+
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Delivered
+
+- Corporate enquiries now capture an explicit quantity for every selected
+  dietary category, including Kosher and Strictly Halaal. The public form,
+  Admin review and authorised Corporate conversion use the same validated
+  metadata and canonical booking add-ons.
+- The existing 72-hour rule remains limited to new or increased Kosher and
+  Strictly Halaal orders. Existing orders remain editable without blocking an
+  otherwise valid booking.
+- Table Plan columns V and W continue to show authoritative Strictly Halaal
+  and Kosher quantities. All other structured meal quantities are included in
+  the existing NOTES field without changing workbook columns or formulas.
+- The existing immediate dietary notification remains the sole delivery path.
+  It now includes company, all meal categories, current Kosher/Strictly
+  Halaal quantities and the confirmed change. Delivery remains idempotent and
+  is sent only after an authoritative confirmed order or confirmed increase.
+
+## Verification & Release
+
+- Production audit: 204 Corporate enquiries, including 46 legacy enquiries
+  with dietary labels, 11 Strictly Halaal labels and no historical quantity
+  metadata. Eight active buyouts contained no dietary text. No historical
+  quantities were guessed or migrated.
+- Focused tests passed 26/26; the existing 72-hour boundary suite passed.
+  TypeScript, targeted lint and the Production Webpack build passed. Generated
+  Johannesburg and Cape Town workbooks verified mixed meal notes and exact V/W
+  quantities.
+- Live Production inspection confirmed the Corporate form exposes all meal
+  categories and quantity controls for Kosher and Strictly Halaal. Kaden's
+  authenticated Admin session confirmed the preserved Corporate workspace and
+  204 enquiries. No form was submitted and no QA email was sent.
+- Production commit: `95c85a373d7c358b3bb267d792df6a6bbae26ac8`.
+  Deployment: `69kZW4SBXwuUgm15FUcGUx3gW4kq`, healthy.
+- Migration: none required. Performance impact: no polling, additional page
+  request, background job or per-render database query.
+- Business-data delta: none. No enquiry, booking, dietary order, email,
+  payment, seating, ticket, customer or financial record changed.
+- Full record:
+  `.codex/archive/PHASE_2_CORPORATE_DIETARY_REQUIREMENTS_2026-11-06.md`.
+
+---
+
 # Surgical Seating Preview Update
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
