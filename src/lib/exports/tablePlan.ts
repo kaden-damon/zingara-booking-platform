@@ -37,6 +37,11 @@ import {
   type TablePlanValueAllocation,
 } from "@/lib/exports/tablePlanFinance";
 import { resolveGratuityStatus } from "@/lib/gratuityTransition";
+import {
+  formatGuestAllocationSummary,
+  getComplimentaryGuestCounts,
+  type BookingGuestAllocation,
+} from "@/lib/bookingGuestAllocations";
 
 export const tablePlanTemplatePath = path.join(
   process.cwd(),
@@ -800,13 +805,14 @@ function getBookingNotes(booking: TablePlanBooking) {
 function getBookingPaymentMetadata(booking: TablePlanBooking): {
   dietaryQuantities: ReturnType<typeof getRestrictedDietaryQuantities>;
   complimentaryCategory: "standard" | "media" | "tradex" | null;
+  guestAllocations: BookingGuestAllocation[];
   depositPercentage: number | null;
   gratuityPolicy: DemoBooking["gratuityPolicy"] | null;
   paymentOption: string | null;
   valueAllocation: TablePlanValueAllocation | null;
 } {
   if (!booking.notes?.startsWith(bookingMetadataPrefix)) {
-    return { complimentaryCategory: null, depositPercentage: null, dietaryQuantities: getRestrictedDietaryQuantities([]), gratuityPolicy: null, paymentOption: null, valueAllocation: null };
+    return { complimentaryCategory: null, depositPercentage: null, dietaryQuantities: getRestrictedDietaryQuantities([]), gratuityPolicy: null, guestAllocations: [], paymentOption: null, valueAllocation: null };
   }
 
   try {
@@ -818,6 +824,7 @@ function getBookingPaymentMetadata(booking: TablePlanBooking): {
       addons?: DemoBooking["addons"];
       paymentOption?: string;
       gratuityPolicy?: DemoBooking["gratuityPolicy"];
+      guestAllocations?: BookingGuestAllocation[];
       valueAllocation?: TablePlanValueAllocation;
     };
 
@@ -851,11 +858,23 @@ function getBookingPaymentMetadata(booking: TablePlanBooking): {
         metadata.gratuityPolicy === "pay-at-venue"
           ? metadata.gratuityPolicy
           : null,
+      guestAllocations: Array.isArray(metadata.guestAllocations)
+        ? metadata.guestAllocations.filter((allocation) =>
+            Boolean(
+              allocation &&
+                typeof allocation === "object" &&
+                Number.isInteger(Number(allocation.paidPax)) &&
+                Number(allocation.paidPax) >= 0 &&
+                Number.isInteger(Number(allocation.complimentaryPax)) &&
+                Number(allocation.complimentaryPax) >= 0,
+            ),
+          )
+        : [],
       paymentOption: metadata.paymentOption?.trim().toLowerCase() || null,
       valueAllocation,
     };
   } catch {
-    return { complimentaryCategory: null, depositPercentage: null, dietaryQuantities: getRestrictedDietaryQuantities([]), gratuityPolicy: null, paymentOption: null, valueAllocation: null };
+    return { complimentaryCategory: null, depositPercentage: null, dietaryQuantities: getRestrictedDietaryQuantities([]), gratuityPolicy: null, guestAllocations: [], paymentOption: null, valueAllocation: null };
   }
 }
 
@@ -863,6 +882,9 @@ function getOperationalNotes(
   booking: TablePlanBooking,
   customer: TablePlanCustomer | undefined,
 ) {
+  const guestAllocationSummary = formatGuestAllocationSummary(
+    getBookingPaymentMetadata(booking).guestAllocations,
+  );
   const metadataDietarySummary = booking.notes?.startsWith(bookingMetadataPrefix)
     ? (() => {
         try {
@@ -876,6 +898,9 @@ function getOperationalNotes(
       })()
     : "";
   const combinedNotes = [
+    guestAllocationSummary
+      ? `Guest allocation: ${guestAllocationSummary}`
+      : "",
     booking.dietary_requirements,
     metadataDietarySummary &&
     !booking.dietary_requirements?.includes(metadataDietarySummary)
@@ -1027,6 +1052,15 @@ function resolveTablePlanPaymentType(
   );
 
   const category = getBookingPaymentMetadata(booking).complimentaryCategory;
+  const guestAllocations = getBookingPaymentMetadata(booking).guestAllocations;
+  const allocationTotals = guestAllocations.reduce(
+    (totals, allocation) => ({
+      complimentary:
+        totals.complimentary + Math.max(Number(allocation.complimentaryPax) || 0, 0),
+      paid: totals.paid + Math.max(Number(allocation.paidPax) || 0, 0),
+    }),
+    { complimentary: 0, paid: 0 },
+  );
   const isComplimentary =
     category !== null ||
     (legacyPaymentEvidence
@@ -1035,6 +1069,9 @@ function resolveTablePlanPaymentType(
 
   if (isComplimentary) {
     return complimentaryPaymentNote;
+  }
+  if (allocationTotals.complimentary > 0 && allocationTotals.paid > 0) {
+    return "Mixed Paid / COMP";
   }
   if (
     paymentStatus === "fully_paid" ||
@@ -1092,6 +1129,9 @@ function populateBookingDataRow(
     {
       bookingOrigin: booking.booking_origin,
       complimentaryCategory: paymentMetadata.complimentaryCategory,
+      complimentaryGuestCounts: getComplimentaryGuestCounts(
+        paymentMetadata.guestAllocations,
+      ),
       confirmedPaidAmount,
       configuredUnitPrice,
       guestCount: booking.guest_count,

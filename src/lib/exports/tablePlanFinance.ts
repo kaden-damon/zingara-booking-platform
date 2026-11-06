@@ -96,6 +96,11 @@ export function getTablePlanToPayTotalFormula(
 type TablePlanFinancialInput = {
   bookingOrigin?: string | null;
   complimentaryCategory?: "standard" | "media" | "tradex" | null;
+  complimentaryGuestCounts?: {
+    media: number;
+    standard: number;
+    tradex: number;
+  } | null;
   confirmedPaidAmount: number;
   configuredUnitPrice?: number;
   guestCount: number;
@@ -254,6 +259,14 @@ export function calculateTablePlanFinancialBreakdown(
   const authoritativePaid = toMoney(input.confirmedPaidAmount);
   const valueAllocation = input.valueAllocation;
   const category = input.complimentaryCategory ?? null;
+  const allocatedCompCounts = input.complimentaryGuestCounts;
+  const hasAllocatedCompCounts = Boolean(
+    allocatedCompCounts &&
+      allocatedCompCounts.media +
+        allocatedCompCounts.standard +
+        allocatedCompCounts.tradex >
+        0,
+  );
   const isComplimentary = category !== null || (legacyEvidence
     ? legacyEvidence.complimentary === true
     : input.paymentStatus === "comp_vip");
@@ -264,9 +277,11 @@ export function calculateTablePlanFinancialBreakdown(
     barTabPaidAmount: valueAllocation
       ? toMoney(valueAllocation.barTabAmount)
       : toMoney(legacyEvidence?.bar_tab_paid_amount),
-    complimentaryAmount: isStandardComplimentary
-      ? getComplimentaryInternalValue(input.guestCount)
-      : 0,
+    complimentaryAmount: hasAllocatedCompCounts
+      ? getComplimentaryInternalValue(allocatedCompCounts!.standard)
+      : isStandardComplimentary
+        ? getComplimentaryInternalValue(input.guestCount)
+        : 0,
     fullCard: 0,
     fullEft: 0,
     methodUnknownPaid: 0,
@@ -274,16 +289,22 @@ export function calculateTablePlanFinancialBreakdown(
     prePaidEft: 0,
     halaalMealsAmount: toMoney(legacyEvidence?.halaal_meals_amount),
     kosherMealsAmount: toMoney(legacyEvidence?.kosher_meals_amount),
-    mediaAmount:
-      category === "media" ? getComplimentaryInternalValue(input.guestCount) : 0,
+    mediaAmount: hasAllocatedCompCounts
+      ? getComplimentaryInternalValue(allocatedCompCounts!.media)
+      : category === "media"
+        ? getComplimentaryInternalValue(input.guestCount)
+        : 0,
     ticketObligation: 0,
     ticketGratuityAmount: valueAllocation
       ? toMoney(valueAllocation.ticketGratuityAmount)
       : toMoney(legacyEvidence?.ticket_gratuity_amount),
     totalPaid: isStandardComplimentary ? 0 : authoritativePaid,
     toPay: 0,
-    tradexAmount:
-      category === "tradex" ? getComplimentaryInternalValue(input.guestCount) : 0,
+    tradexAmount: hasAllocatedCompCounts
+      ? getComplimentaryInternalValue(allocatedCompCounts!.tradex)
+      : category === "tradex"
+        ? getComplimentaryInternalValue(input.guestCount)
+        : 0,
   };
   let classifiedPaid = 0;
 

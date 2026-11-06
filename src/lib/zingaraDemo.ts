@@ -736,6 +736,7 @@ export type DemoBooking = {
     pax: number;
     zoneId: SeatingZoneId;
   }>;
+  guestAllocations?: import("./bookingGuestAllocations").BookingGuestAllocation[];
   paymentOption?: PaymentOption;
   paymentPolicy?: import("@/lib/showSpecificPricing").ShowPaymentPolicy;
   paymentStatus?: PaymentStatus;

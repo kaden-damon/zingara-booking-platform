@@ -56,6 +56,10 @@ import {
 import { useReportGenerationLock } from "./useReportGenerationLock";
 import { getReportGenerationLockMessage } from "../../lib/reportGenerationLock";
 import type { WaitlistDisplayEntry } from "./WaitlistEntryList";
+import {
+  formatGuestAllocationSummary,
+  getGuestAllocationTotals,
+} from "@/lib/bookingGuestAllocations";
 
 const BookingReviewInvitations = dynamic(
   () => import("./BookingReviewInvitations"),
@@ -41055,7 +41059,25 @@ export default function AdminDashboardPage({
                             )}
                           </label>
 
-                          {isCorporateBooking ? (
+                          {booking.guestAllocations?.length ? (
+                            <div className="rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
+                              <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                                Guest Allocation
+                              </span>
+                              <p className="mt-2 text-sm leading-6 text-white">
+                                {formatGuestAllocationSummary(
+                                  booking.guestAllocations,
+                                )}
+                              </p>
+                              <p className="mt-2 text-xs text-zinc-400">
+                                {getGuestAllocationTotals(
+                                  booking.guestAllocations,
+                                ).paidPax} Paid · {getGuestAllocationTotals(
+                                  booking.guestAllocations,
+                                ).complimentaryPax} COMP · tables assigned separately
+                              </p>
+                            </div>
+                          ) : isCorporateBooking ? (
                             <CorporateZoneEntitlementEditor
                               key={`${booking.reference}-${booking.updatedAt}`}
                               assignedClaims={assignedTableClaims}

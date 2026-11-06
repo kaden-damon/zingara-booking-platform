@@ -12,6 +12,7 @@ import {
   getDisplayZoneTitle,
   getVenueZoneSeatCapacity,
   getConfiguredZoneMaxSeats,
+  calculateConfiguredDeposit,
   normalizeVenueSettings,
   getZoneSectionLookupTitles,
   normalizeShowLocation,
@@ -22,7 +23,11 @@ import {
   getTicketUrl,
 } from "@/lib/zingaraDemo";
 import { after } from "next/server";
-import { calculatePublicBookingPricing } from "@/lib/pricing";
+import {
+  calculatePublicBookingPricing,
+  serviceFeeGuestThreshold,
+  serviceFeeRate,
+} from "@/lib/pricing";
 import {
   getBookingAddonTotal,
   getPublicDietaryAddonCatalogue,
@@ -103,6 +108,14 @@ import {
   getBookingZoneEntitlements,
   validateCorporateZoneEntitlements,
 } from "@/lib/corporateZoneEntitlements";
+import {
+  calculateGuestAllocationFinancials,
+  deriveZoneEntitlements,
+  getGuestAllocationTotals,
+  validateBookingGuestAllocations,
+  type BookingGuestAllocation,
+  type BookingGuestAllocationDraft,
+} from "@/lib/bookingGuestAllocations";
 import { findPotentialInternalBookingDuplicates } from "@/lib/supabase/duplicateIntegrityServer";
 import {
   type AdvertisingAttributionInput,
@@ -730,6 +743,7 @@ function getBookingPayload(
       booking.operationalNotes?.match(/^Dietary: (.+)$/m)?.[1] ?? null,
     discount_amount: booking.discountAmount ?? 0,
     guest_count: booking.partySize,
+    guest_allocations: booking.guestAllocations ?? null,
     notes: serializeBookingNotes(classifiedBooking),
     payment_status: toSupabasePaymentStatus(booking.paymentStatus),
     section: getDisplayZoneTitle(booking.zoneId, booking.zoneTitle),
@@ -738,6 +752,7 @@ function getBookingPayload(
     subtotal_amount: booking.subtotalPrice ?? booking.totalPrice,
     table_id: tableId,
     total_amount: booking.totalPrice,
+    zone_entitlements: booking.zoneEntitlements ?? null,
     provenance_recorded_at: booking.bookingOrigin
       ? new Date().toISOString()
       : null,
@@ -961,6 +976,10 @@ function normalizeReservationClaims(
 }
 
 function usesAtomicTableReservation(booking: DemoBooking) {
+  if (booking.guestAllocations?.length) {
+    return true;
+  }
+
   if (isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis)) {
     return true;
   }
@@ -1018,14 +1037,31 @@ async function reservePublicBookingAtomically(
     booking.source === "corporate-direct" && booking.corporateRequestId,
   );
   const { data, error } = await supabase.rpc(
-    resolvesCorporateCustomer
+    resolvesCorporateCustomer && booking.guestAllocations?.length
+      ? "reserve_staff_guest_allocations_with_customer"
+      : resolvesCorporateCustomer
       ? "reserve_corporate_conversion_with_customer"
+      : booking.guestAllocations?.length
+      ? "reserve_staff_guest_allocations"
       : booking.zoneEntitlements && booking.zoneEntitlements.length > 1
       ? "reserve_corporate_multi_zone_entitlement"
       : claims.length > 0
       ? "reserve_public_booking_table"
       : "reserve_public_booking_entitlement",
-    resolvesCorporateCustomer
+    resolvesCorporateCustomer && booking.guestAllocations?.length
+      ? {
+          p_booking_payload: bookingPayload,
+          p_customer_payload: getCustomerPayload(booking.customer),
+          p_guest_allocations: booking.guestAllocations,
+          p_mobile_lookup_variants: getPhoneLookupVariants(
+            booking.customer.phone,
+          ),
+          p_payment_payload: paymentPayload,
+          p_show_id: showId,
+          p_table_claims: [],
+          p_zone_entitlements: booking.zoneEntitlements ?? [],
+        }
+      : resolvesCorporateCustomer
       ? {
           p_booking_payload: bookingPayload,
           p_customer_payload: getCustomerPayload(booking.customer),
@@ -1039,6 +1075,14 @@ async function reservePublicBookingAtomically(
             section: claim.section,
             table_code: claim.tableCode,
           })),
+          p_zone_entitlements: booking.zoneEntitlements ?? [],
+        }
+      : booking.guestAllocations?.length
+      ? {
+          p_booking_payload: bookingPayload,
+          p_guest_allocations: booking.guestAllocations,
+          p_payment_payload: paymentPayload,
+          p_show_id: showId,
           p_zone_entitlements: booking.zoneEntitlements ?? [],
         }
       : booking.zoneEntitlements && booking.zoneEntitlements.length > 1
@@ -1492,6 +1536,136 @@ async function withAuthoritativePublicPricing(
   };
 }
 
+async function withAuthoritativeGuestAllocationPricing(
+  supabase: SupabaseClient,
+  booking: DemoBooking,
+  show: SupabaseShowRow,
+  allocations: BookingGuestAllocation[],
+  authorizedByStaffId: string,
+): Promise<DemoBooking> {
+  const settings = await loadVenueSettings(supabase);
+  const customPricing = await loadShowCustomPricing(supabase, show.id);
+  const { data: occupancyRows, error: occupancyError } = await supabase
+    .from("bookings")
+    .select("guest_count,section,zone_entitlements")
+    .eq("show_id", show.id)
+    .is("archived_at", null)
+    .in("booking_status", ["new", "confirmed", "pending_payment", "checked_in"]);
+
+  if (occupancyError) throw occupancyError;
+
+  const occupiedByZone = new Map<string, number>();
+  for (const row of occupancyRows ?? []) {
+    const entitlements = Array.isArray(row.zone_entitlements)
+      ? row.zone_entitlements
+      : null;
+    if (entitlements?.length) {
+      for (const entitlement of entitlements) {
+        const zoneId = String(entitlement?.zoneId ?? "");
+        occupiedByZone.set(
+          zoneId,
+          (occupiedByZone.get(zoneId) ?? 0) +
+            Math.max(Number(entitlement?.pax) || 0, 0),
+        );
+      }
+      continue;
+    }
+
+    const matchedZone = seatingZones.find((zone) =>
+      getZoneSectionLookupTitles(zone.id, zone.title).includes(
+        String(row.section ?? ""),
+      ),
+    );
+    if (matchedZone) {
+      occupiedByZone.set(
+        matchedZone.id,
+        (occupiedByZone.get(matchedZone.id) ?? 0) +
+          Math.max(Number(row.guest_count) || 0, 0),
+      );
+    }
+  }
+
+  const priceByZone = new Map<string, number>();
+  for (const allocation of allocations) {
+    const zone = seatingZones.find((candidate) => candidate.id === allocation.zoneId);
+    if (!zone) throw new Error("Unknown seating zone.");
+    const showSpecificPrice = getShowSpecificZonePrice(
+      { customPricing },
+      allocation.zoneId,
+    );
+    const remainingSeats = Math.max(
+      getConfiguredZoneMaxSeats(settings, zone) -
+        (occupiedByZone.get(zone.id) ?? 0),
+      0,
+    );
+    const zonePricing = calculatePublicBookingPricing({
+      addons: [],
+      authoritativePricePerPerson: showSpecificPrice ?? undefined,
+      includeGratuity: false,
+      partySize: allocation.paidPax + allocation.complimentaryPax,
+      paymentOption: "full",
+      remainingSeats,
+      settings,
+      zoneId: allocation.zoneId,
+    });
+    priceByZone.set(allocation.zoneId, zonePricing.pricePerPerson);
+  }
+
+  const calculate = (discountAmount = 0) =>
+    calculateGuestAllocationFinancials({
+      addonsTotal: getBookingAddonTotal(booking.addons ?? []),
+      allocations,
+      depositForZone: (zoneId, allocatedTotal, paidPax) => {
+        const zone = seatingZones.find((candidate) => candidate.id === zoneId);
+        return zone
+          ? calculateConfiguredDeposit(settings, zone, allocatedTotal, paidPax)
+          : 0;
+      },
+      discountAmount,
+      serviceFeeGuestThreshold,
+      serviceFeeRate,
+      totalPax: booking.partySize,
+      zonePrice: (zoneId) => priceByZone.get(zoneId) ?? 0,
+    });
+
+  const preliminary = calculate();
+  const promo = await validatePromoCode(supabase, {
+    code: booking.promoCode,
+    location: normalizeShowLocation(show.venue),
+    showId: show.id,
+    subtotal: preliminary.subtotal,
+  });
+  const pricing = calculate(
+    promo.status === "valid" ? promo.discountAmount : 0,
+  );
+
+  return {
+    ...booking,
+    addonsTotal: pricing.addonsTotal,
+    balanceDue: pricing.total,
+    depositPercentage: pricing.depositPercentage,
+    discountAmount: pricing.discountAmount,
+    guestAllocations: allocations,
+    pricePerPerson: pricing.effectivePaidPricePerPerson,
+    pricingProvenance: {
+      agreedPricePerPerson: pricing.effectivePaidPricePerPerson,
+      authorizedByStaffId,
+      depositPerPerson:
+        booking.partySize > 0 ? pricing.depositAmount / booking.partySize : 0,
+      paymentModel: booking.paymentOption === "deposit" ? "deposit" : "full",
+      source: "standard-zone",
+    },
+    promoCode: promo.status === "valid" ? promo.code : undefined,
+    promoCodeId: promo.status === "valid" ? promo.promoCodeId : undefined,
+    promoLabel: promo.status === "valid" ? promo.description : undefined,
+    promoLocation: normalizeShowLocation(show.venue) ?? undefined,
+    serviceFeeAmount: pricing.serviceFeeAmount,
+    subtotalPrice: pricing.subtotal,
+    totalPrice: pricing.total,
+    zoneEntitlements: deriveZoneEntitlements(allocations),
+  };
+}
+
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const supabase = getServiceClient();
@@ -1577,6 +1751,7 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    booking = booking as DemoBooking;
 
     const handoffSignature = request.headers.get(
       "x-zingara-booking-handoff-signature",
@@ -1798,11 +1973,84 @@ export async function POST(request: Request) {
       booking = {
         ...booking,
         corporateRequestId: undefined,
+        guestAllocations: undefined,
         reservationTableClaims: [],
         zoneEntitlements: undefined,
         tableId: "",
         tableNumber: "",
       };
+    }
+
+    let authoritativeGuestAllocations: BookingGuestAllocation[] | null = null;
+    if (booking.guestAllocations?.length) {
+      if (
+        !isTrustedStaff ||
+        !staffRole ||
+        !rolePermissions[staffRole].includes("bookings:manage")
+      ) {
+        return Response.json(
+          { error: "Guest allocation requires authorised Box Office access." },
+          { status: 403 },
+        );
+      }
+      if (booking.reservationTableClaims?.length || booking.tableId?.trim()) {
+        return Response.json(
+          { error: "Allocate tables separately after creating this booking." },
+          { status: 409 },
+        );
+      }
+
+      const drafts: BookingGuestAllocationDraft[] = booking.guestAllocations.map((allocation) => ({
+        complimentaryCategory:
+          normalizeComplimentaryBookingCategory(
+            allocation.complimentaryCategory,
+          ) ?? "standard",
+        complimentaryPax: String(allocation.complimentaryPax),
+        paidPax: String(allocation.paidPax),
+        zoneId: String(allocation.zoneId),
+      }));
+      const allocationError = validateBookingGuestAllocations(
+        drafts,
+        booking.partySize,
+      );
+      if (allocationError) {
+        return Response.json({ error: allocationError }, { status: 400 });
+      }
+
+      const parsedAllocations: BookingGuestAllocation[] = drafts.map((allocation) => ({
+        ...(Number(allocation.complimentaryPax) > 0
+          ? { complimentaryCategory: allocation.complimentaryCategory }
+          : {}),
+        complimentaryPax: Number(allocation.complimentaryPax),
+        paidPax: Number(allocation.paidPax),
+        zoneId: allocation.zoneId as BookingGuestAllocation["zoneId"],
+      }));
+      authoritativeGuestAllocations = parsedAllocations;
+      const firstAllocation = parsedAllocations[0];
+      booking = {
+        ...booking,
+        guestAllocations: parsedAllocations,
+        tableId: "",
+        tableNumber: "",
+        zoneEntitlements: deriveZoneEntitlements(parsedAllocations),
+        zoneId: firstAllocation.zoneId,
+        zoneTitle: getDisplayZoneTitle(firstAllocation.zoneId),
+      };
+      const allocationTotals = getGuestAllocationTotals(
+        parsedAllocations,
+      );
+      if (isComplimentaryBooking(booking) && allocationTotals.paidPax > 0) {
+        return Response.json(
+          {
+            error:
+              "Mixed Paid / COMP allocation must use Standard pricing, not a whole-booking complimentary rate.",
+          },
+          { status: 409 },
+        );
+      }
+      if (allocationTotals.paidPax > 0) {
+        booking = { ...booking, complimentaryCategory: undefined };
+      }
     }
 
     if (!isTrustedStaff) {
@@ -1887,6 +2135,7 @@ export async function POST(request: Request) {
     if (
       isCreate &&
       booking.source !== "corporate-direct" &&
+      !authoritativeGuestAllocations &&
       !isStandardBookingZoneGuestCountAllowed(booking.zoneId, booking.partySize)
     ) {
       return rejectPublicBooking(
@@ -2395,6 +2644,31 @@ export async function POST(request: Request) {
     }
 
     if (
+      authoritativeGuestAllocations &&
+      !isComplimentaryBooking(booking)
+    ) {
+      const submittedTotal = Number(booking.totalPrice);
+      booking = await withAuthoritativeGuestAllocationPricing(
+        supabase,
+        booking,
+        show,
+        authoritativeGuestAllocations,
+        staffProfileId!,
+      );
+      if (
+        Number.isFinite(submittedTotal) &&
+        Math.abs(submittedTotal - booking.totalPrice) >= 0.01
+      ) {
+        return Response.json(
+          {
+            code: "BOOKING_PRICE_CHANGED",
+            error:
+              "The allocation price changed. Review the latest total and try again.",
+          },
+          { status: 409 },
+        );
+      }
+    } else if (
       (booking.source === "online" ||
         (isTrustedStaff &&
           (booking.addons?.length ?? 0) > 0 &&
@@ -2451,9 +2725,12 @@ export async function POST(request: Request) {
 
     const zoneEntitlements = getBookingZoneEntitlements(booking);
     if (booking.zoneEntitlements?.length) {
-      if (!isTrustedStaff || booking.source !== "corporate-direct") {
+      if (
+        !isTrustedStaff ||
+        (!authoritativeGuestAllocations && booking.source !== "corporate-direct")
+      ) {
         return Response.json(
-          { error: "Multi-zone seating requires authorised Corporate booking access." },
+          { error: "Multi-zone seating requires authorised Box Office access." },
           { status: 403 },
         );
       }

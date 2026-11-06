@@ -15,6 +15,7 @@ import PaymentBrandMarks from "../components/PaymentBrandMarks";
 import ScannableQrCode from "../components/ScannableQrCode";
 import YourEvening from "../components/YourEvening";
 import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEditor";
+import GuestAllocationEditor from "../components/GuestAllocationEditor";
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
 import GuestBookingDisclosures from "../components/GuestBookingDisclosures";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
@@ -138,6 +139,15 @@ import {
   complimentaryCategoryRate,
   type ComplimentaryBookingCategory,
 } from "../../lib/internalComplimentaryBooking";
+import {
+  calculateGuestAllocationFinancials,
+  deriveZoneEntitlements,
+  formatGuestAllocationSummary,
+  getGuestAllocationTotals,
+  parseBookingGuestAllocations,
+  validateBookingGuestAllocations,
+  type BookingGuestAllocationDraft,
+} from "../../lib/bookingGuestAllocations";
 import {
   type CorporateInvoicePaymentBasis,
   validateCorporateInvoiceFinancials,
@@ -846,6 +856,10 @@ export default function BookingPage({
   >("standard");
   const [complimentaryCategory, setComplimentaryCategory] =
     useState<ComplimentaryBookingCategory | null>(null);
+  const [guestAllocationMode, setGuestAllocationMode] = useState(false);
+  const [guestAllocationDraft, setGuestAllocationDraft] = useState<
+    BookingGuestAllocationDraft[]
+  >([]);
   const initialCalendarBookingContext = useMemo(() => {
     const candidate: CalendarBookingLockContext = {
       expectedDate:
@@ -1139,15 +1153,29 @@ export default function BookingPage({
     !requiresFullPayment &&
     manualCheckoutRole !== "none" &&
     staffPricingMode === "complimentary";
+  const parsedGuestAllocations = guestAllocationMode
+    ? parseBookingGuestAllocations(guestAllocationDraft, partySize)
+    : null;
+  const guestAllocationError = guestAllocationMode
+    ? validateBookingGuestAllocations(guestAllocationDraft, partySize)
+    : "";
+  const guestAllocationTotals = parsedGuestAllocations
+    ? getGuestAllocationTotals(parsedGuestAllocations)
+    : { allocatedPax: 0, complimentaryPax: 0, paidPax: 0 };
+  const isMixedAllComplimentary = Boolean(
+    guestAllocationMode &&
+      parsedGuestAllocations &&
+      guestAllocationTotals.paidPax === 0,
+  );
   const resolvedComplimentaryCategory = isComplimentary
     ? complimentaryCategory ??
       (isCorporateCalendarCheckout || guidedTrainingModuleId
         ? "standard"
         : null)
     : null;
-  const isSettledComplimentary = isComplimentary;
-  const pricePerPerson = selectedZone
-    ? isComplimentary
+  const isSettledComplimentary = isComplimentary || isMixedAllComplimentary;
+  const selectedZonePricePerPerson = selectedZone
+    ? isSettledComplimentary
       ? resolvedComplimentaryCategory
         ? getComplimentaryBookingRate()
         : 0
@@ -1171,11 +1199,64 @@ export default function BookingPage({
             : null,
       })
     : 0;
-  const addonsTotal = isComplimentary
-    ? 0
-    : selectedAddons.reduce((sum, addon) => sum + addon.price, 0);
+  const rawAddonsTotal = selectedAddons.reduce(
+    (sum, addon) => sum + addon.price,
+    0,
+  );
+  const mixedAllocationFinancials = parsedGuestAllocations
+    ? calculateGuestAllocationFinancials({
+        addonsTotal: rawAddonsTotal,
+        allocations: parsedGuestAllocations,
+        depositForZone: (zoneId, allocatedTotal, paidPax) => {
+          const zone = seatingZones.find((candidate) => candidate.id === zoneId);
+          return zone
+            ? calculateConfiguredDeposit(
+                venueConfig,
+                zone,
+                allocatedTotal,
+                paidPax,
+              )
+            : 0;
+        },
+        discountAmount:
+          promoValidationPreview?.status === "valid"
+            ? promoValidationPreview.discountAmount
+            : 0,
+        serviceFeeGuestThreshold,
+        serviceFeeRate,
+        totalPax: partySize,
+        zonePrice: (zoneId) => {
+          const zone = seatingZones.find((candidate) => candidate.id === zoneId);
+          const allocation = parsedGuestAllocations.find(
+            (candidate) => candidate.zoneId === zoneId,
+          );
+          return zone
+            ? getAuthoritativePublicPricePerPerson({
+                configuredPrice: getDisplayedZonePrice(zone),
+                partySize:
+                  (allocation?.paidPax ?? 0) +
+                  (allocation?.complimentaryPax ?? 0),
+                remainingSeats: selectedShowId
+                  ? getRemainingSeats(
+                      zone,
+                      occupiedSeatsByZone[zone.id] ?? 0,
+                      venueConfig,
+                    )
+                  : undefined,
+              })
+            : 0;
+        },
+      })
+    : null;
+  const pricePerPerson =
+    mixedAllocationFinancials?.effectivePaidPricePerPerson ??
+    selectedZonePricePerPerson;
+  const addonsTotal =
+    mixedAllocationFinancials?.addonsTotal ??
+    (isComplimentary ? 0 : rawAddonsTotal);
   const complimentaryAddonError =
-    isComplimentary && selectedAddons.some((addon) => addon.price > 0)
+    (isComplimentary || isMixedAllComplimentary) &&
+    selectedAddons.some((addon) => addon.price > 0)
       ? "Priced add-ons cannot be included in a complimentary booking. Remove them or choose another pricing mode."
       : "";
   const addonValidationError = selectedAddons.some(
@@ -1189,8 +1270,10 @@ export default function BookingPage({
     ? "Complete every add-on item name, quantity and unit price before continuing."
     : "";
   const seatingSubtotal =
-    selectedZone ? pricePerPerson * partySize : 0;
-  const subtotal = seatingSubtotal + addonsTotal;
+    mixedAllocationFinancials?.seatingSubtotal ??
+    (selectedZone ? pricePerPerson * partySize : 0);
+  const subtotal =
+    mixedAllocationFinancials?.subtotal ?? seatingSubtotal + addonsTotal;
   const appliedPromoCode =
     promoValidationPreview?.status === "valid"
       ? {
@@ -1201,34 +1284,44 @@ export default function BookingPage({
           value: promoValidationPreview.discountAmount,
         }
       : null;
-  const discountAmount = isComplimentary
-    ? 0
-    : promoValidationPreview?.status === "valid"
-      ? promoValidationPreview.discountAmount
-      : 0;
-  const discountedSubtotal = Math.max(subtotal - discountAmount, 0);
-  const serviceFeeAmount = isComplimentary
-    ? 0
-    : manualCheckoutRole !== "none" && partySize >= serviceFeeGuestThreshold
-      ? Math.round(discountedSubtotal * serviceFeeRate)
-      : 0;
-  const total = discountedSubtotal + serviceFeeAmount;
+  const discountAmount =
+    mixedAllocationFinancials?.discountAmount ??
+    (isComplimentary
+      ? 0
+      : promoValidationPreview?.status === "valid"
+        ? promoValidationPreview.discountAmount
+        : 0);
+  const discountedSubtotal =
+    mixedAllocationFinancials?.discountedSubtotal ??
+    Math.max(subtotal - discountAmount, 0);
+  const serviceFeeAmount =
+    mixedAllocationFinancials?.serviceFeeAmount ??
+    (isComplimentary
+      ? 0
+      : manualCheckoutRole !== "none" && partySize >= serviceFeeGuestThreshold
+        ? Math.round(discountedSubtotal * serviceFeeRate)
+        : 0);
+  const total =
+    mixedAllocationFinancials?.total ?? discountedSubtotal + serviceFeeAmount;
   const depositPerPerson = selectedZone
     ? getConfiguredZoneDepositAmount(venueConfig, selectedZone)
     : (venueConfig.operationalSettings.defaultDepositAmount ?? 0);
-  const depositAmount = isComplimentary
-    ? 0
-    : selectedZone
-    ? calculateConfiguredDeposit(
-        venueConfig,
-        selectedZone,
-        total,
-        partySize,
-      )
-    : Math.min(total, depositPerPerson * partySize);
+  const depositAmount =
+    mixedAllocationFinancials?.depositAmount ??
+    (isComplimentary
+      ? 0
+      : selectedZone
+        ? calculateConfiguredDeposit(
+            venueConfig,
+            selectedZone,
+            total,
+            partySize,
+          )
+        : Math.min(total, depositPerPerson * partySize));
   const depositPercentage =
-    total > 0 ? (depositAmount / total) * 100 : 100;
-  const amountDueNow = isComplimentary || isCorporateInvoice
+    mixedAllocationFinancials?.depositPercentage ??
+    (total > 0 ? (depositAmount / total) * 100 : 100);
+  const amountDueNow = isSettledComplimentary || isCorporateInvoice
     ? 0
     : paymentOption === "deposit" ? depositAmount : total;
   const payFastTransaction =
@@ -1433,16 +1526,35 @@ export default function BookingPage({
   const customerDetailsComplete =
     Object.keys(currentCustomerValidationErrors).length === 0;
   const selectedZoneHasCapacity = Boolean(
-    selectedZone &&
-      isAvailableForBooking(
-        selectedZone,
-        partySize,
-        occupiedSeatsByZone[selectedZone.id] ?? 0,
-        venueConfig,
-        isCorporateCalendarCheckout,
-        manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
-        remainingSeatsByZone[selectedZone.id],
-      ),
+    parsedGuestAllocations
+      ? parsedGuestAllocations.every((allocation) => {
+          const zone = seatingZones.find(
+            (candidate) => candidate.id === allocation.zoneId,
+          );
+          return Boolean(
+            zone &&
+              isAvailableForBooking(
+                zone,
+                allocation.paidPax + allocation.complimentaryPax,
+                occupiedSeatsByZone[zone.id] ?? 0,
+                venueConfig,
+                isCorporateCalendarCheckout,
+                true,
+                remainingSeatsByZone[zone.id],
+              ),
+          );
+        })
+      : selectedZone &&
+          isAvailableForBooking(
+            selectedZone,
+            partySize,
+            occupiedSeatsByZone[selectedZone.id] ?? 0,
+            venueConfig,
+            isCorporateCalendarCheckout,
+            manualCheckoutRole !== "none" ||
+              publicSalesOpenByZone[selectedZone.id] !== false,
+            remainingSeatsByZone[selectedZone.id],
+          ),
   );
   const complimentarySubmissionEligibility =
     getComplimentarySubmissionEligibility({
@@ -1478,7 +1590,8 @@ export default function BookingPage({
     isCorporateInvoice &&
     complimentarySubmissionEligibility.allowed &&
     !corporateInvoiceFinancialError &&
-    !addonValidationError;
+    !addonValidationError &&
+    !guestAllocationError;
 
   const publicBookingGuidance = getPublicBookingGuidance(
     currentCustomerValidationErrors,
@@ -1585,7 +1698,7 @@ export default function BookingPage({
   const seatingStepSummary = selectedZone ? selectedZone.title : "";
   const mobileSeatingStepSummary = selectedZone ? selectedZone.title : "";
   const paymentStepSummary = bookingReference
-    ? isComplimentary
+    ? isSettledComplimentary
       ? "Complimentary"
       : isCorporateInvoiceOutstanding
         ? `${formatCurrency(invoiceOutstandingAmount)} Awaiting EFT`
@@ -2200,7 +2313,7 @@ export default function BookingPage({
 
   useEffect(() => {
     if (
-      !isComplimentary &&
+      !isSettledComplimentary &&
       !dietaryAddonsUnavailable
     ) return;
     const timer = window.setTimeout(() => {
@@ -2214,7 +2327,7 @@ export default function BookingPage({
       );
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [dietaryAddonsUnavailable, isComplimentary]);
+  }, [dietaryAddonsUnavailable, isSettledComplimentary]);
 
   useEffect(() => {
     if (guidedTrainingModuleId) {
@@ -2782,6 +2895,13 @@ export default function BookingPage({
     }
 
     const createdAt = new Date().toISOString();
+    const primaryAllocation = parsedGuestAllocations?.[0];
+    const primaryZone = primaryAllocation
+      ? seatingZones.find((zone) => zone.id === primaryAllocation.zoneId)
+      : selectedZone;
+    if (!primaryZone) {
+      throw new Error("A valid primary seating section is required.");
+    }
     const source =
       manualCheckoutRole === "none"
         ? "online"
@@ -2800,10 +2920,12 @@ export default function BookingPage({
     return {
       reference,
       showId: selectedShow.id,
-      zoneId: selectedZone.id,
-      zoneTitle: selectedZone.title,
-      tableId: selectedTemporaryTable?.id ?? "",
-      tableNumber: selectedTemporaryTable?.tableCode ?? "",
+      zoneId: primaryZone.id,
+      zoneTitle: primaryZone.title,
+      tableId: guestAllocationMode ? "" : selectedTemporaryTable?.id ?? "",
+      tableNumber: guestAllocationMode
+        ? ""
+        : selectedTemporaryTable?.tableCode ?? "",
       partySize,
       bookingDate: `${selectedShow.date} ${getSouthAfricaShowTime(selectedShow)}`,
       addons: selectedAddons,
@@ -2815,8 +2937,14 @@ export default function BookingPage({
         manualCheckoutRole === "none" ? ("pay-at-venue" as const) : undefined,
       totalPrice: total,
       pricePerPerson,
-      complimentaryCategory: resolvedComplimentaryCategory ?? undefined,
-      agreedPriceSource: isComplimentary
+      complimentaryCategory:
+        resolvedComplimentaryCategory ??
+        (isMixedAllComplimentary ? "standard" : undefined),
+      guestAllocations: parsedGuestAllocations ?? undefined,
+      zoneEntitlements: parsedGuestAllocations
+        ? deriveZoneEntitlements(parsedGuestAllocations)
+        : undefined,
+      agreedPriceSource: isSettledComplimentary
         ? ("complimentary" as const)
         : selectedTemporaryTable
         ? ("temporary-table" as const)
@@ -2825,7 +2953,7 @@ export default function BookingPage({
           : getShowSpecificZonePrice(selectedShow, selectedZone.id) !== null
             ? ("show-specific" as const)
           : ("standard-zone" as const),
-      reservationTableClaims: selectedTemporaryTable
+      reservationTableClaims: !guestAllocationMode && selectedTemporaryTable
         ? [
             {
               capacity: selectedTemporaryTable.capacity,
@@ -2867,7 +2995,7 @@ export default function BookingPage({
       status: isSettledComplimentary || isCorporateInvoicePaid
         ? ("confirmed" as const)
         : ("pending-payment" as const),
-      lifecycleHistory: isComplimentary ? [] : [
+      lifecycleHistory: isSettledComplimentary ? [] : [
         {
           id: `${reference}-created`,
           toStatus: "new" as const,
@@ -3085,7 +3213,17 @@ export default function BookingPage({
       if (isComplimentary) {
         setBookingReference(persistedBooking.reference);
         setPaymentRedirectStatus("");
-        setShowTicketReadyPrompt(isSettledComplimentary);
+        setShowTicketReadyPrompt(true);
+        setActiveBookingStep(4);
+        setIsConfirmationOpen(true);
+        setIsPayFastRedirecting(false);
+        return;
+      }
+
+      if (isMixedAllComplimentary) {
+        setBookingReference(persistedBooking.reference);
+        setPaymentRedirectStatus("");
+        setShowTicketReadyPrompt(true);
         setActiveBookingStep(4);
         setIsConfirmationOpen(true);
         setIsPayFastRedirecting(false);
@@ -3865,7 +4003,7 @@ export default function BookingPage({
                 </p>
                 <p className="mt-1 text-base font-bold sm:text-lg">
                   {isStaffBookingJourney
-                    ? isComplimentary
+                    ? isSettledComplimentary
                       ? "Complimentary"
                       : isCorporateInvoiceOutstanding
                         ? "Unpaid"
@@ -5205,7 +5343,7 @@ export default function BookingPage({
                     {isStaffBookingJourney ? "Payment & review" : "Payment Summary"}
                   </h2>
                   <p className="mt-2 text-sm leading-5 text-zinc-300 sm:mt-3 sm:text-base sm:leading-6">
-                    {isComplimentary
+                    {isSettledComplimentary
                       ? "Review the complimentary booking details, then confirm the reservation."
                       : isCorporateInvoice
                         ? "Review the Corporate booking and invoice / EFT settlement state. No online checkout or payment link will be created."
@@ -5251,6 +5389,8 @@ export default function BookingPage({
                         aria-pressed={isFriendsAndFamily}
                         onClick={() => {
                           setStaffPricingMode("friends-family");
+                          setGuestAllocationMode(false);
+                          setGuestAllocationDraft([]);
                           setComplimentaryCategory(null);
                           setSelectedTemporaryTableId("");
                           setPromoCodeInput("");
@@ -5269,6 +5409,8 @@ export default function BookingPage({
                         aria-pressed={isComplimentary}
                         onClick={() => {
                           setStaffPricingMode("complimentary");
+                          setGuestAllocationMode(false);
+                          setGuestAllocationDraft([]);
                           setComplimentaryCategory(
                             isCorporateCalendarCheckout || guidedTrainingModuleId
                               ? "standard"
@@ -5286,7 +5428,7 @@ export default function BookingPage({
                       </button>
                     )}
                   </div>
-                  {isComplimentary && !isCorporateCalendarCheckout && (
+                  {isComplimentary && (
                     <div
                       className="mt-3 grid grid-cols-3 gap-2"
                       role="group"
@@ -5318,6 +5460,45 @@ export default function BookingPage({
                       ? `${formatCurrency(Number(friendsAndFamilyConfiguration?.ratePerPerson))} per person. This agreed rate is saved with the booking.`
                       : "The configured zone price applies."}
                   </p>
+                  {staffPricingMode === "standard" && (
+                    <div className="mt-3 border-t border-white/10 pt-3">
+                      <button
+                        type="button"
+                        aria-pressed={guestAllocationMode}
+                        onClick={() => {
+                          const nextEnabled = !guestAllocationMode;
+                          setGuestAllocationMode(nextEnabled);
+                          setGuestAllocationDraft(
+                            nextEnabled
+                              ? [
+                                  {
+                                    complimentaryCategory: "standard",
+                                    complimentaryPax: "0",
+                                    paidPax: String(partySize),
+                                    zoneId: selectedZone.id,
+                                  },
+                                ]
+                              : [],
+                          );
+                          setSelectedTemporaryTableId("");
+                        }}
+                        className={`min-h-10 rounded-full border px-4 py-2 text-xs font-semibold uppercase transition ${guestAllocationMode ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-[#D8C36A]/40 text-[#F2D66C] hover:bg-[#D8C36A] hover:text-black"}`}
+                      >
+                        {guestAllocationMode
+                          ? "Guest Allocation On"
+                          : "Split Zones / Paid + COMP"}
+                      </button>
+                      {guestAllocationMode && (
+                        <GuestAllocationEditor
+                          disabled={isPayFastRedirecting}
+                          onChange={setGuestAllocationDraft}
+                          totalPax={partySize}
+                          value={guestAllocationDraft}
+                          zones={enabledSeatingZones}
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -5348,6 +5529,7 @@ export default function BookingPage({
               {manualCheckoutRole !== "none" &&
                 !isFriendsAndFamily &&
                 !isComplimentary &&
+                !guestAllocationMode &&
                 (customPricedTemporaryTables.length > 0 ||
                   temporaryTablePricingStatus) && (
                   <div className="mb-4 rounded-xl border border-[#D8C36A]/30 bg-black/35 p-4 sm:mb-5 sm:rounded-2xl">
@@ -5447,7 +5629,7 @@ export default function BookingPage({
                 </div>
 
                 <div className="border-t border-zinc-700 pt-3 sm:pt-4">
-                  {isComplimentary ? (
+                  {isSettledComplimentary ? (
                     <div className="mb-3 rounded-xl border border-[#D8C36A]/35 bg-[#D8C36A]/10 p-4 sm:mb-5 sm:rounded-2xl">
                       <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#F2D66C]">
                         Complimentary Booking
@@ -5989,7 +6171,9 @@ export default function BookingPage({
                   Section
                 </p>
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
-                  {selectedZone.title}
+                  {parsedGuestAllocations
+                    ? formatGuestAllocationSummary(parsedGuestAllocations)
+                    : selectedZone.title}
                 </p>
               </div>
 
@@ -6060,7 +6244,7 @@ export default function BookingPage({
                   {isStaffBookingJourney ? "Payment" : "Payment Plan"}
                 </p>
                 <p className="mt-1.5 text-base font-bold sm:mt-2 sm:text-xl">
-                  {isComplimentary
+                  {isSettledComplimentary
                     ? "Complimentary"
                     : isCorporateInvoiceOutstanding
                       ? "Invoiced – Awaiting EFT"
@@ -6071,18 +6255,18 @@ export default function BookingPage({
                     : "Full Payment"}
                 </p>
                 <p className="mt-1.5 text-sm text-zinc-300 sm:mt-2">
-                  {isComplimentary
+                  {isSettledComplimentary
                     ? "R0 due · No Booking Fee or payment required"
                     : isCorporateInvoiceOutstanding
                       ? `${formatCurrency(invoiceOutstandingAmount)} outstanding · No payment link created`
                       : isCorporateInvoicePaid
                         ? `${formatCurrency(total)} paid manually by EFT · R0 outstanding`
                     : `Booking amount due today: ${formatCurrency(amountDueNow)}`}
-                  {!isComplimentary && !isCorporateInvoice && payFastTransaction.transactionFeeAmount > 0 &&
+                  {!isSettledComplimentary && !isCorporateInvoice && payFastTransaction.transactionFeeAmount > 0 &&
                     ` · Transaction fee: ${formatCurrency(payFastTransaction.transactionFeeAmount)}`}
-                  {!isComplimentary && !isCorporateInvoice && payFastTransaction.providerGrossAmount > 0 &&
+                  {!isSettledComplimentary && !isCorporateInvoice && payFastTransaction.providerGrossAmount > 0 &&
                     ` · Total payable: ${formatCurrency(payFastTransaction.providerGrossAmount)}`}
-                  {!isComplimentary && !isCorporateInvoice && balanceDue > 0 &&
+                  {!isSettledComplimentary && !isCorporateInvoice && balanceDue > 0 &&
                     ` · Balance due: ${formatCurrency(balanceDue)}`}
                 </p>
               </div>
@@ -6297,7 +6481,7 @@ export default function BookingPage({
                 </div>
               )}
 
-              {!isComplimentary && (
+              {!isSettledComplimentary && (
               <div className="rounded-xl border border-[#D8C36A]/20 bg-black/25 p-3 text-center sm:rounded-2xl sm:p-4">
                 <p className="text-center text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
                   Accepted Secure Payment Methods
@@ -6400,12 +6584,12 @@ export default function BookingPage({
                           Booking Amount
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
-                          {formatCurrency(isComplimentary ? total : amountDueNow)}
+                          {formatCurrency(isSettledComplimentary ? total : amountDueNow)}
                         </p>
                       </div>
                       <div>
                         <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
-                          {isComplimentary ? "Booking Fee" : "Transaction Fee"}
+                          {isSettledComplimentary ? "Booking Fee" : "Transaction Fee"}
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
                           {formatCurrency(
@@ -6415,11 +6599,11 @@ export default function BookingPage({
                       </div>
                       <div>
                         <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-emerald-200/70 sm:text-xs">
-                          {isComplimentary ? "Amount Due" : "Total Paid"}
+                          {isSettledComplimentary ? "Amount Due" : "Total Paid"}
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
                           {formatCurrency(
-                            isComplimentary
+                            isSettledComplimentary
                               ? balanceDue
                               : payFastTransaction.providerGrossAmount,
                           )}
@@ -6430,7 +6614,7 @@ export default function BookingPage({
                           Status
                         </p>
                         <p className="mt-1 text-base font-bold sm:text-lg">
-                          {isComplimentary
+                          {isSettledComplimentary
                             ? `${resolvedComplimentaryCategory === "media" ? "Media" : resolvedComplimentaryCategory === "tradex" ? "Tradex" : "Standard"} COMP`
                             : "Confirmed"}
                         </p>
@@ -6443,7 +6627,7 @@ export default function BookingPage({
                     )}
                   </div>
 
-                  {(!isComplimentary || isSettledComplimentary) && (
+                    <>
                   <div className="rounded-[1.25rem] border border-[#D8C36A]/45 bg-black p-3 shadow-[0_0_45px_rgba(216,195,106,0.16)] sm:rounded-[1.5rem] sm:p-6">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-5">
                       <div className="min-w-0">
@@ -6566,7 +6750,7 @@ export default function BookingPage({
                       )}
                     </div>
                   </div>
-                  )}
+                  </>
 
                   {showTicketReadyPrompt && shouldShowInstallOpportunity && (
                     <div className="rounded-[1.25rem] border border-[#D8C36A]/40 bg-[radial-gradient(circle_at_top,#241B0A_0%,#111111_48%,#050505_100%)] p-4 shadow-[0_0_36px_rgba(216,195,106,0.14)] sm:rounded-[1.5rem] sm:p-5">
@@ -6706,7 +6890,7 @@ export default function BookingPage({
                     )}
                 <div
                   className={
-                    !isComplimentary &&
+                    !isSettledComplimentary &&
                     !isCorporateInvoice &&
                     manualCheckoutRole === "super-admin" &&
                     getCurrencyCents(amountDueNow) > 0
@@ -6718,10 +6902,10 @@ export default function BookingPage({
                     data-training-control="training-booking-confirm"
                     type="submit"
                     aria-busy={isPayFastRedirecting}
-                    disabled={isComplimentary || isCorporateInvoice
+                    disabled={isSettledComplimentary || isCorporateInvoice
                       ? isCorporateInvoice
                         ? !corporateInvoiceSubmissionAllowed || !restrictedShowApprovalReady
-                        : !complimentarySubmissionEligibility.allowed || Boolean(complimentaryAddonError) || Boolean(addonValidationError) || !restrictedShowApprovalReady
+                        : !complimentarySubmissionEligibility.allowed || Boolean(complimentaryAddonError) || Boolean(addonValidationError) || Boolean(guestAllocationError) || !restrictedShowApprovalReady
                       : !selectedShow ||
                         !restrictedShowApprovalReady ||
                         (isLockedCalendarCheckout &&
@@ -6729,6 +6913,7 @@ export default function BookingPage({
                         isPayFastRedirecting ||
                         isManualPaymentLinkCreating ||
                         Boolean(addonValidationError) ||
+                        Boolean(guestAllocationError) ||
                         !hasAcceptedBookingTerms ||
                         (requiresPublicAgeAcknowledgement &&
                           !hasAcknowledgedAgePolicy)}
@@ -6741,7 +6926,7 @@ export default function BookingPage({
                       />
                     )}
                     {isPayFastRedirecting
-                      ? isComplimentary
+                      ? isSettledComplimentary
                         ? "Creating booking..."
                         : isCorporateInvoice
                           ? "Creating booking..."
@@ -6749,11 +6934,11 @@ export default function BookingPage({
                         ? "Creating booking..."
                         : "PREPARING PAYMENT..."
                       : isStaffBookingJourney &&
-                          (isComplimentary ||
+                          (isSettledComplimentary ||
                             isCorporateInvoice ||
                             getCurrencyCents(amountDueNow) === 0)
                         ? "CREATE BOOKING"
-                      : isComplimentary
+                      : isSettledComplimentary
                         ? "Create Complimentary Booking"
                         : isCorporateInvoiceOutstanding
                           ? "Create Invoiced Booking"
@@ -6765,7 +6950,7 @@ export default function BookingPage({
                           ? "PAY NOW"
                           : "Confirm Booking"}
                   </button>
-                  {(isComplimentary || isCorporateInvoice) &&
+                  {(isSettledComplimentary || isCorporateInvoice) &&
                     !(isCorporateInvoice
                       ? corporateInvoiceSubmissionAllowed
                       : complimentarySubmissionEligibility.allowed) &&
@@ -6778,10 +6963,10 @@ export default function BookingPage({
                           ? corporateInvoiceFinancialError ||
                             addonValidationError ||
                             complimentarySubmissionEligibility.reason
-                          : complimentaryAddonError || addonValidationError || complimentarySubmissionEligibility.reason}
+                          : complimentaryAddonError || addonValidationError || guestAllocationError || complimentarySubmissionEligibility.reason}
                       </p>
                     )}
-                  {!isComplimentary &&
+                  {!isSettledComplimentary &&
                     !isCorporateInvoice &&
                     manualCheckoutRole === "super-admin" &&
                     getCurrencyCents(amountDueNow) > 0 && (
@@ -6795,6 +6980,7 @@ export default function BookingPage({
                             calendarLockStatus !== "SHOW READY ✓") ||
                           isPayFastRedirecting ||
                           isManualPaymentLinkCreating ||
+                          Boolean(guestAllocationError) ||
                           !hasAcceptedBookingTerms ||
                           (requiresPublicAgeAcknowledgement &&
                             !hasAcknowledgedAgePolicy)
@@ -6829,7 +7015,7 @@ export default function BookingPage({
                   ? "Payment is recorded only after PayFast confirms it."
                   : manualPaymentLinkResult
                   ? "No payment is recorded until the authoritative PayFast ITN succeeds."
-                  : isComplimentary
+                  : isSettledComplimentary
                   ? "This reservation is settled as complimentary. No payment or payment link is created."
                   : isCorporateInvoiceOutstanding
                     ? isStaffBookingJourney

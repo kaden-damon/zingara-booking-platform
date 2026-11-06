@@ -117,6 +117,33 @@ test("keeps all COMP cash-up values out of payable and payment totals", () => {
   }
 });
 
+test("reports mixed COMP categories without hiding paid revenue", () => {
+  const result = calculateTablePlanFinancialBreakdown(
+    {
+      complimentaryGuestCounts: { media: 2, standard: 3, tradex: 1 },
+      confirmedPaidAmount: 9_900,
+      guestCount: 12,
+      paymentStatus: "fully_paid",
+      totalAmount: 9_900,
+    },
+    [
+      {
+        amount: 9_900,
+        method: "payfast",
+        payment_status: "fully_paid",
+        payment_type: "full_payment",
+      },
+    ],
+  );
+
+  assert.equal(result.complimentaryAmount, 1_650);
+  assert.equal(result.mediaAmount, 1_100);
+  assert.equal(result.tradexAmount, 550);
+  assert.equal(result.fullCard, 9_900);
+  assert.equal(result.totalPaid, 9_900);
+  assert.equal(result.toPay, 0);
+});
+
 test("uses configured pricing only for a proven legacy deposit placeholder", () => {
   const result = calculateTablePlanFinancialBreakdown(
     {

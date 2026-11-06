@@ -74,6 +74,7 @@ type SupabaseBookingRow = {
   dietary_requirements: string | null;
   discount_amount: number;
   guest_count: number;
+  guest_allocations?: DemoBooking["guestAllocations"] | null;
   id: string;
   legacy_payment_evidence?:
     | { ticket_gratuity_amount: number | null }
@@ -764,6 +765,8 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
           : row.legacy_payment_evidence?.ticket_gratuity_amount) ?? 0,
       ),
       partySize: row.guest_count,
+      guestAllocations:
+        row.guest_allocations ?? metadataBooking.guestAllocations,
       paymentStatus: toDemoPaymentStatus(row.payment_status),
       promoCode: promoRedemption?.code,
       promoRedemption,
@@ -848,6 +851,7 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
     lifecycleHistory: [],
     operationalNotes: row.notes ?? "",
     partySize: row.guest_count,
+    guestAllocations: row.guest_allocations ?? undefined,
     paymentStatus: toDemoPaymentStatus(row.payment_status),
     promoCode: promoRedemption?.code,
     promoRedemption,
