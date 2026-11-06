@@ -507,14 +507,14 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   );
   assert.equal(
     bookingRows.find((row) => row.getCell(6).value === "Single Guest")
-      ?.getCell(11).value,
+      ?.getCell(12).value,
     "Paid R200 · Outstanding R200",
   );
   assert.equal(twoTableRows[0].getCell(8).value, "TWO");
   assert.equal(twoTableRows[0].getCell(9).value, "Middle Ring");
   assert.equal(twoTableRows[0].getCell(10).value, null);
-  assert.equal(twoTableRows[0].getCell(11).value, "Paid R500 · Outstanding R500");
-  assert.equal(twoTableRows[0].getCell(12).value, "Deposit");
+  assert.equal(twoTableRows[0].getCell(12).value, "Paid R500 · Outstanding R500");
+  assert.match(String(twoTableRows[0].getCell(11).value), /^Deposit/);
   assert.equal(twoTableRows[1].getCell(8).value, null);
   assert.equal(twoTableRows[1].getCell(11).value, null);
   assert.equal(twoTableRows[1].getCell(12).value, null);
@@ -530,7 +530,7 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.equal(sheet.getRow(3).getCell(10).value, "NOTES");
   assert.deepEqual(
     Array.from({ length: 9 }, (_, index) => sheet.getRow(3).getCell(5 + index).value),
-    ["COMPANY", "BOOKER", "CONTACT", "BOOKING REF", "ORIGINAL ZONE", "NOTES", "PAYMENT BREAKDOWN", "PAYMENT SUMMARY", "ORIGINAL PRICE"],
+    ["COMPANY", "BOOKER", "CONTACT", "BOOKING REF", "ORIGINAL ZONE", "NOTES", "PAYMENT SUMMARY", "PAYMENT BREAKDOWN", "ORIGINAL PRICE"],
   );
   assert.deepEqual(
     Array.from({ length: 14 }, (_, index) =>
@@ -561,7 +561,11 @@ test("Table Plan exports physical claims with singular booking totals", async ()
   assert.equal(sheet.getColumn(8).width, 15.28);
   assert.equal(sheet.getColumn(9).width, 24);
   assert.equal(sheet.getColumn(10).width, 48);
-  assert.equal(sheet.getColumn(12).width, 38.86);
+  assert.equal(sheet.getColumn(11).width, 38.86);
+  assert.equal(sheet.getColumn(12).width, 53.55);
+  assert.equal(sheet.getRow(3).getCell(11).numFmt, '"R "#,##0.00');
+  assert.equal(sheet.getRow(3).getCell(11).border.right?.style, "medium");
+  assert.equal(sheet.getRow(3).getCell(12).border.left?.style, "thin");
   assert.equal(sheet.getColumn(13).width, 18);
   assert.equal(
     rows.find((row) => row.getCell(2).value === "11")?.getCell(13).value,
@@ -764,10 +768,10 @@ test("Table Plan applies Jacques's approved operational columns to every seating
       row.getCell(10).value,
       `Operational note for ${fixture.id}`,
     );
-    assert.equal(row.getCell(12).value, fixture.expected);
-    assert.doesNotMatch(String(row.getCell(12).value), /R\d|REF-|@|note/i);
-    assert.match(String(row.getCell(11).value), /^Paid R/);
-    assert.doesNotMatch(String(row.getCell(11).value), /Dinner show comps/);
+    assert.ok(String(row.getCell(11).value).startsWith(fixture.expected));
+    assert.doesNotMatch(String(row.getCell(11).value), /REF-|@|note/i);
+    assert.match(String(row.getCell(12).value), /^Paid R/);
+    assert.doesNotMatch(String(row.getCell(12).value), /Dinner show comps/);
     assert.match(String(row.getCell(7).value), /\+27110000000$/);
   }
   const workbookText = workbook.worksheets
@@ -838,13 +842,13 @@ test("Table Plan emits one payment summary for a multi-zone Corporate booking", 
   assert.equal(
     rows.filter(
       (row) =>
-        row.getCell(11).value ===
+        row.getCell(12).value ===
         "Paid R2,000 · Outstanding R6,000",
     ).length,
     1,
   );
   assert.equal(
-    rows.filter((row) => row.getCell(12).value === "Deposit").length,
+    rows.filter((row) => String(row.getCell(11).value).startsWith("Deposit")).length,
     1,
   );
   assert.equal(rows.filter((row) => row.getCell(8).value == null).length, 1);
@@ -930,7 +934,7 @@ test("Table Plan labels an unallocated Full Show Buyout without inventing table 
   );
   assert.equal(
     operationalRows.filter(
-      (row) => row?.getCell(11).value === "Paid R684,400 · Outstanding R0",
+      (row) => row?.getCell(12).value === "Paid R684,400 · Outstanding R0",
     ).length,
     1,
   );
@@ -1005,9 +1009,9 @@ test("Table Plan keeps operational notes and writes the exact COMP wording into 
   ).find((candidate) => candidate.getCell(8).value === "COMP-NOTES");
   assert.ok(row);
   assert.equal(row.getCell(10).value, "Comp guest note | Corporate special request");
-  assert.equal(row.getCell(11).value, "Paid R0 · Outstanding R0");
+  assert.equal(row.getCell(12).value, "Paid R0 · Outstanding R0");
   assert.equal(
-    row.getCell(12).value,
+    row.getCell(11).value,
     "Complimentary, Dinner show comps, drinks and gratuity to be paid by client",
   );
   const noteText = notes.getSheetValues().flat(Infinity).join(" | ");
@@ -1102,17 +1106,17 @@ test("Table Plan lets retained Dineplan evidence override damaged COMP classific
   const paidCorporate = rows.find((row) => row.getCell(8).value === "PAID-CORPORATE");
   const genuineComp = rows.find((row) => row.getCell(8).value === "GENUINE-COMP");
 
-  assert.equal(paidStandard?.getCell(12).value, "Full Payment for Show & Meal");
+  assert.match(String(paidStandard?.getCell(11).value), /^Full Payment for Show & Meal/);
   assert.equal(paidStandard?.getCell(14).value, 4_000);
   assert.equal(paidStandard?.getCell(21).value, 0);
   assert.equal(
-    paidCorporate?.getCell(12).value,
+    String(paidCorporate?.getCell(11).value).split("\n")[0],
     "Full Payment for Show & Meal + Gratuity",
   );
   assert.equal(paidCorporate?.getCell(17).value, 8_000);
   assert.equal(paidCorporate?.getCell(21).value, 0);
   assert.equal(
-    genuineComp?.getCell(12).value,
+    genuineComp?.getCell(11).value,
     "Complimentary, Dinner show comps, drinks and gratuity to be paid by client",
   );
   assert.equal(genuineComp?.getCell(21).value, 1_650);
@@ -1190,7 +1194,7 @@ test("Table Plan places all R0 COMP cash-up values in distinct columns for both 
   assert.ok(mediaRow);
   assert.ok(tradexRow);
   assert.equal(
-    standardRow.getCell(12).value,
+    standardRow.getCell(11).value,
     "Complimentary, Dinner show comps, drinks and gratuity to be paid by client",
   );
   assert.equal(standardRow.getCell(19).value, 0);
@@ -1198,7 +1202,7 @@ test("Table Plan places all R0 COMP cash-up values in distinct columns for both 
   assert.equal(standardRow.getCell(21).value, 1_100);
   assert.equal(standardRow.getCell(18).value, 0);
   assert.equal(
-    mediaRow.getCell(12).value,
+    mediaRow.getCell(11).value,
     "Complimentary, Dinner show comps, drinks and gratuity to be paid by client",
   );
   assert.equal(mediaRow.getCell(19).value, 2_200);
@@ -1207,7 +1211,7 @@ test("Table Plan places all R0 COMP cash-up values in distinct columns for both 
   assert.equal(mediaRow.getCell(15).value, 0);
   assert.equal(mediaRow.getCell(18).value, 0);
   assert.equal(
-    tradexRow.getCell(12).value,
+    tradexRow.getCell(11).value,
     "Complimentary, Dinner show comps, drinks and gratuity to be paid by client",
   );
   assert.equal(tradexRow.getCell(19).value, 0);

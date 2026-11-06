@@ -319,6 +319,86 @@ function cloneStyle(cell: Cell) {
   return structuredClone(cell.style);
 }
 
+function swapWorksheetColumns(
+  worksheet: Worksheet,
+  leftColumnNumber: number,
+  rightColumnNumber: number,
+) {
+  const leftColumn = worksheet.getColumn(leftColumnNumber);
+  const rightColumn = worksheet.getColumn(rightColumnNumber);
+  const leftColumnState = {
+    hidden: leftColumn.hidden,
+    outlineLevel: leftColumn.outlineLevel,
+    style: structuredClone(leftColumn.style),
+    width: leftColumn.width,
+  };
+  const rightColumnState = {
+    hidden: rightColumn.hidden,
+    outlineLevel: rightColumn.outlineLevel,
+    style: structuredClone(rightColumn.style),
+    width: rightColumn.width,
+  };
+  const rowStates: Array<{
+    leftDataValidation: Cell["dataValidation"];
+    leftNote: Cell["note"];
+    leftStyle: Cell["style"];
+    leftValue: Cell["value"];
+    rightDataValidation: Cell["dataValidation"];
+    rightNote: Cell["note"];
+    rightStyle: Cell["style"];
+    rightValue: Cell["value"];
+    rowNumber: number;
+  }> = [];
+
+  worksheet.eachRow({ includeEmpty: true }, (row) => {
+    const leftCell = row.getCell(leftColumnNumber);
+    const rightCell = row.getCell(rightColumnNumber);
+
+    rowStates.push({
+      leftDataValidation: structuredClone(leftCell.dataValidation),
+      leftNote: structuredClone(leftCell.note),
+      leftStyle: cloneStyle(leftCell),
+      leftValue: structuredClone(leftCell.value),
+      rightDataValidation: structuredClone(rightCell.dataValidation),
+      rightNote: structuredClone(rightCell.note),
+      rightStyle: cloneStyle(rightCell),
+      rightValue: structuredClone(rightCell.value),
+      rowNumber: row.number,
+    });
+  });
+
+  leftColumn.style = rightColumnState.style;
+  leftColumn.width = rightColumnState.width;
+  leftColumn.hidden = rightColumnState.hidden;
+  leftColumn.outlineLevel = rightColumnState.outlineLevel;
+  rightColumn.style = leftColumnState.style;
+  rightColumn.width = leftColumnState.width;
+  rightColumn.hidden = leftColumnState.hidden;
+  rightColumn.outlineLevel = leftColumnState.outlineLevel;
+
+  for (const state of rowStates) {
+    const row = worksheet.getRow(state.rowNumber);
+    const leftCell = row.getCell(leftColumnNumber);
+    const rightCell = row.getCell(rightColumnNumber);
+
+    leftCell.value = state.rightValue;
+    leftCell.style = state.rightStyle;
+    rightCell.value = state.leftValue;
+    rightCell.style = state.leftStyle;
+    if (state.leftNote !== undefined || state.rightNote !== undefined) {
+      leftCell.note = state.rightNote;
+      rightCell.note = state.leftNote;
+    }
+    if (
+      state.leftDataValidation !== undefined ||
+      state.rightDataValidation !== undefined
+    ) {
+      leftCell.dataValidation = state.rightDataValidation;
+      rightCell.dataValidation = state.leftDataValidation;
+    }
+  }
+}
+
 function normalizeZone(section: string): TablePlanZoneId | null {
   const normalized = section
     .trim()
@@ -1180,6 +1260,10 @@ function populateBookingDataRow(
   const legacyDietaryQuantities = getLegacyRestrictedDietaryQuantities(
     operationalNotes,
   );
+  const paymentType = resolveTablePlanPaymentType(
+    booking,
+    legacyPaymentEvidence,
+  );
 
   row.getCell(4).value = Math.max(Number(allocatedPax) || 0, 0);
   row.getCell(companyColumn).value =
@@ -1203,7 +1287,8 @@ function populateBookingDataRow(
     : null;
   row.getCell(paymentSummaryColumn).value = includeBookingDetails
     ? [
-        resolveTablePlanPaymentType(booking, legacyPaymentEvidence),
+        paymentType,
+        paymentType !== complimentaryPaymentNote &&
         paymentMetadata.complimentaryCategory === null
           ? resolveGratuityStatus({
               amountPaid: booking.amount_paid,
@@ -2068,6 +2153,11 @@ export async function buildTablePlanWorkbook(input: TablePlanExportInput) {
   tablePlan.getColumn(11).width = 53.55;
   tablePlan.getColumn(12).width = 38.86;
   tablePlan.getColumn(13).width = 18;
+  swapWorksheetColumns(
+    tablePlan,
+    paymentBreakdownColumn,
+    paymentSummaryColumn,
+  );
   notes.getColumn(1).width = 6.78;
   notes.getColumn(2).width = 6;
   notes.getColumn(3).width = 30.22;
