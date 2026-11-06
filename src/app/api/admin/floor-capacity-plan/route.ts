@@ -636,7 +636,7 @@ export async function POST(request: Request) {
 
   if (
     !showReference ||
-    !body.snapshotToken?.trim()
+    (body.action !== "assign" && !body.snapshotToken?.trim())
   ) {
     return Response.json(
       { error: "Review one current show-wide Floor plan before continuing." },
@@ -680,25 +680,29 @@ export async function POST(request: Request) {
         (booking) => booking.booking_reference === bookingReference,
       );
       const currentClaimIds = result.tables
-        .filter((table) => table.booking_id === currentBooking?.id)
+        .filter(
+          (table) =>
+            table.booking_id === currentBooking?.id &&
+            normalizeZone(table.section) === zoneId,
+        )
         .map((table) => table.id)
         .sort();
       const isExactIdempotentReplay = Boolean(
-        currentBooking?.table_id &&
-          requestedTableIds.includes(currentBooking.table_id) &&
+        currentBooking &&
+          currentClaimIds.length > 0 &&
           JSON.stringify([...requestedTableIds].sort()) ===
             JSON.stringify(currentClaimIds),
       );
+      const selectedAvailableTable = bookingPlan?.availableTables.find(
+        (table) => table.id === requestedTableIds[0],
+      );
       if (
-        (result.snapshotToken !== body.snapshotToken.trim() &&
+        (body.snapshotToken?.trim() &&
+          result.snapshotToken !== body.snapshotToken.trim() &&
           !isExactIdempotentReplay) ||
         (!bookingPlan && !isExactIdempotentReplay) ||
-        bookingPlan?.unresolvedReason ||
-        (bookingPlan?.newCapacities.length ?? 0) > 0 ||
         requestedTableIds.length !== 1 ||
-        (bookingPlan &&
-          JSON.stringify(requestedTableIds) !==
-            JSON.stringify(bookingPlan.existingTableIds)) ||
+        (!selectedAvailableTable && !isExactIdempotentReplay) ||
         !body.expectedUpdatedAt?.trim()
       ) {
         return Response.json({ error: "FLOOR PLAN CHANGED - REVIEW AGAIN" }, { status: 409 });
@@ -714,7 +718,9 @@ export async function POST(request: Request) {
           p_booking_reference: bookingReference,
           p_zone: zoneId,
           p_expected_table_state: selectedTableState,
-          p_expected_updated_at: body.expectedUpdatedAt,
+          p_expected_updated_at: isExactIdempotentReplay
+            ? currentBooking?.updated_at
+            : body.expectedUpdatedAt,
           p_table_ids: requestedTableIds,
         },
       );
@@ -766,7 +772,7 @@ export async function POST(request: Request) {
           );
         }
         console.error(
-          "[Zingara Floor Capacity] Multi-table assignment failed",
+          "[Zingara Floor Capacity] Table assignment failed",
           assignmentError,
         );
         return Response.json(
@@ -777,7 +783,7 @@ export async function POST(request: Request) {
       return Response.json({ ok: true, result: data });
     }
 
-    if (result.snapshotToken !== body.snapshotToken.trim()) {
+    if (result.snapshotToken !== body.snapshotToken?.trim()) {
       return Response.json(
         { error: "FLOOR PLAN CHANGED - REVIEW AGAIN" },
         { status: 409 },

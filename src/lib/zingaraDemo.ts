@@ -3836,17 +3836,26 @@ export function findBestTableAllocation(
   zoneId: SeatingZoneId,
   partySize: number,
 ): TableAllocation | undefined {
-  const availableTables = tables.filter(
-    (table) =>
-      table.showId === showId &&
-      table.zoneId === zoneId &&
-      isAllocatableTable(table) &&
-      partySize >= getOperationalTableMinimumOccupancy(table, tables) &&
-      (!table.mergedFrom?.length ||
-        isValidMergedOperationalTable(table, tables)),
-  );
-  const singleTable = availableTables
-    .filter((table) => table.seatCapacity >= partySize)
+  return findSuitableTableAllocations(tables, showId, zoneId, partySize)[0];
+}
+
+export function findSuitableTableAllocations(
+  tables: DemoTable[],
+  showId: string,
+  zoneId: SeatingZoneId,
+  partySize: number,
+): TableAllocation[] {
+  return tables
+    .filter(
+      (table) =>
+        table.showId === showId &&
+        table.zoneId === zoneId &&
+        isAllocatableTable(table) &&
+        partySize >= getOperationalTableMinimumOccupancy(table, tables) &&
+        (!table.mergedFrom?.length ||
+          isValidMergedOperationalTable(table, tables)) &&
+        table.seatCapacity >= partySize,
+    )
     .sort(
       (firstTable, secondTable) =>
         getAllocationScore(firstTable.seatCapacity, partySize) -
@@ -3855,18 +3864,13 @@ export function findBestTableAllocation(
         getTableSortValue(firstTable.tableNumber).localeCompare(
           getTableSortValue(secondTable.tableNumber),
         )
-    )[0];
-
-  if (singleTable) {
-    return {
+    )
+    .map((table) => ({
       isCombination: false,
-      sourceTables: [singleTable],
-      table: singleTable,
-      wastedSeats: singleTable.seatCapacity - partySize,
-    };
-  }
-
-  return undefined;
+      sourceTables: [table],
+      table,
+      wastedSeats: table.seatCapacity - partySize,
+    }));
 }
 
 export function getTableAllocationDisplay(

@@ -76,7 +76,7 @@ export function assignCorporateFloorPlan(input: {
   bookingReference: string;
   expectedUpdatedAt: string;
   showReference: string;
-  snapshotToken: string;
+  snapshotToken?: string;
   tableIds: string[];
   zoneId: string;
 }) {

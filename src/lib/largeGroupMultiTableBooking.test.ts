@@ -73,14 +73,16 @@ test("multi-table assignment extension remains atomic and service-role only", as
   );
 });
 
-test("Floor UI offers reviewed atomic multi-table assignment to Standard bookings", async () => {
+test("Floor UI offers every suitable single table through the atomic assignment path", async () => {
   const page = await source("../app/admin/page.tsx");
   const route = await source("../app/api/admin/floor-capacity-plan/route.ts");
 
-  assert.match(page, /usesReviewedPlanAssignment/);
-  assert.match(page, /ASSIGN SUGGESTED TABLES/);
-  assert.match(page, /reviewCorporateTableAssignment/);
+  assert.match(page, /findSuitableTableAllocations/);
+  assert.match(page, /suitable table/);
+  assert.match(page, /assignFloorQueuedBooking/);
+  assert.doesNotMatch(page, /ASSIGN SUGGESTED TABLES/);
   assert.match(route, /assign_corporate_booking_zone_tables_atomic/);
   assert.match(route, /requestedTableIds/);
+  assert.match(route, /requestedTableIds\.length !== 1/);
   assert.match(route, /FLOOR PLAN CHANGED - REVIEW AGAIN/);
 });

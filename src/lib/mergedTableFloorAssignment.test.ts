@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   findBestTableAllocation,
+  findSuitableTableAllocations,
   isValidMergedOperationalTable,
   type DemoTable,
   type SeatingZoneId,
@@ -137,6 +138,26 @@ test("ordinary physical and temporary operational tables remain eligible", () =>
   assert.equal(
     findBestTableAllocation([temporary], showId, zoneId, 10)?.table.id,
     temporary.id,
+  );
+});
+
+test("queue exposes every suitable single table with the best fit first", () => {
+  const tables = [
+    table("MR-12", { seatCapacity: 12, tableNumber: "12" }),
+    table("MR-8B", { seatCapacity: 8, tableNumber: "8B" }),
+    table("MR-8A", { seatCapacity: 8, tableNumber: "8A" }),
+    table("MR-6", { seatCapacity: 6, tableNumber: "6" }),
+  ];
+
+  assert.deepEqual(
+    findSuitableTableAllocations(tables, showId, zoneId, 8).map(
+      (allocation) => [allocation.table.tableNumber, allocation.table.seatCapacity],
+    ),
+    [
+      ["8A", 8],
+      ["8B", 8],
+      ["12", 12],
+    ],
   );
 });
 

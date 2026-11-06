@@ -9,12 +9,12 @@ const page = await readFile(
 
 test("Floor uses the plain-language presentation without changing handlers", () => {
   assert.match(page, /Staff-only extra/);
-  assert.match(page, /No table fits this group/);
-  assert.match(page, /getAssignmentSafetyCopy/);
+  assert.match(page, /No suitable available table/);
+  assert.match(page, /findSuitableTableAllocations/);
   assert.match(page, /REMOVE TABLE ASSIGNMENT/);
   assert.match(page, /getTableFitLabel/);
   assert.match(page, /planSelectedFloorCapacity/);
-  assert.match(page, /confirmCorporateTableAssignment/);
+  assert.match(page, /assignFloorQueuedBooking/);
   assert.match(page, /releaseOperationalTable/);
 });
 

@@ -207,7 +207,38 @@ test("one suitable table is preferred over an exact multi-table combination", ()
   });
 
   assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["103"]);
+  assert.deepEqual(
+    plan.bookingPlans[0]?.availableTables.map((table) => table.tableCode),
+    ["103"],
+  );
   assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
+});
+
+test("planning returns every currently suitable table without hiding the best fit", () => {
+  const plan = buildZoneFloorCapacityPlan({
+    activeEntitlementPax: 8,
+    allowedTemporaryCapacities: [],
+    availableTables: [
+      { capacity: 12, id: "twelve", kind: "temporary", tableCode: "T12" },
+      { capacity: 8, id: "eight-b", kind: "physical", tableCode: "8B" },
+      { capacity: 8, id: "eight-a", kind: "merged", tableCode: "8A" },
+      { capacity: 6, id: "six", kind: "physical", tableCode: "6" },
+    ],
+    capacityRequiredPhysicalTables: 0,
+    claimedReservedCapacity: 0,
+    queuedBookings: [
+      { id: "booking", isCorporate: false, pax: 8, reference: "STD-8" },
+    ],
+    zoneCapacity: 125,
+    zoneId: "middle-ring",
+  });
+
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["8A"]);
+  assert.deepEqual(plan.bookingPlans[0]?.availableTables, [
+    { capacity: 8, id: "eight-a", kind: "merged", tableCode: "8A" },
+    { capacity: 8, id: "eight-b", kind: "physical", tableCode: "8B" },
+    { capacity: 12, id: "twelve", kind: "temporary", tableCode: "T12" },
+  ]);
 });
 
 test("a necessary split is rejected from automatic recommendation", () => {

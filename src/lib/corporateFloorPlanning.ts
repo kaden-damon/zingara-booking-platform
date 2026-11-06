@@ -40,6 +40,12 @@ export type TemporaryCapacityMix = {
 };
 
 export type FloorBookingPlan = {
+  availableTables: Array<{
+    capacity: number;
+    id: string;
+    kind: FloorPlanningTable["kind"];
+    tableCode: string;
+  }>;
   bookingReference: string;
   existingTableCodes: string[];
   existingTableIds: string[];
@@ -166,6 +172,13 @@ function findExistingSingleTable(
   requiredSeats: number,
   tables: FloorPlanningTable[],
 ) {
+  return findSuitableSingleTables(requiredSeats, tables)[0];
+}
+
+export function findSuitableSingleTables(
+  requiredSeats: number,
+  tables: FloorPlanningTable[],
+) {
   return tables
     .filter(
       (table) =>
@@ -176,7 +189,7 @@ function findExistingSingleTable(
       (left, right) =>
         left.capacity - right.capacity ||
         left.tableCode.localeCompare(right.tableCode, "en", { numeric: true }),
-    )[0];
+    );
 }
 
 function countCapacities(capacities: number[]) {
@@ -225,6 +238,15 @@ export function buildZoneFloorCapacityPlan(input: {
   );
 
   for (const booking of orderedBookings) {
+    const suitableTables = findSuitableSingleTables(
+      booking.pax,
+      input.availableTables,
+    ).map(({ capacity, id, kind, tableCode }) => ({
+      capacity,
+      id,
+      kind,
+      tableCode,
+    }));
     const existingTable = findExistingSingleTable(
       booking.pax,
       availableTables,
@@ -234,6 +256,7 @@ export function buildZoneFloorCapacityPlan(input: {
         (table) => table.id !== existingTable.id,
       );
       bookingPlans.push({
+        availableTables: suitableTables,
         bookingReference: booking.reference,
         existingTableCodes: [existingTable.tableCode],
         existingTableIds: [existingTable.id],
@@ -252,6 +275,7 @@ export function buildZoneFloorCapacityPlan(input: {
 
     if (!temporaryCapacity) {
       bookingPlans.push({
+        availableTables: suitableTables,
         bookingReference: booking.reference,
         existingTableCodes: [],
         existingTableIds: [],
@@ -266,6 +290,7 @@ export function buildZoneFloorCapacityPlan(input: {
 
     plannedCapacities.push(temporaryCapacity);
     bookingPlans.push({
+      availableTables: suitableTables,
       bookingReference: booking.reference,
       existingTableCodes: [],
       existingTableIds: [],

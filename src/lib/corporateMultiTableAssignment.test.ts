@@ -31,7 +31,7 @@ const importedCorporateMigration = readFileSync(
   "utf8",
 );
 
-test("Melrose Arch's imported Corporate exact-fit plan uses four physical tables", () => {
+test("Melrose Arch's imported Corporate booking stays unassigned without one suitable table", () => {
   const plan = buildZoneFloorCapacityPlan({
     activeEntitlementPax: 24,
     allowedTemporaryCapacities: [6],
@@ -55,13 +55,13 @@ test("Melrose Arch's imported Corporate exact-fit plan uses four physical tables
     zoneId: "royal-booths",
   });
 
-  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, ["1", "2", "3", "4"]);
-  assert.equal(plan.bookingPlans[0]?.newCapacities.length, 0);
-  assert.equal(
-    plan.bookingPlans[0]?.existingTableIds.length,
-    4,
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, []);
+  assert.deepEqual(plan.bookingPlans[0]?.availableTables, []);
+  assert.equal(plan.bookingPlans[0]?.existingTableIds.length, 0);
+  assert.match(
+    plan.bookingPlans[0]?.unresolvedReason ?? "",
+    /single available operational table/i,
   );
-  assert.equal(plan.bookingPlans[0]?.unresolvedReason, null);
 });
 
 test("imported corporate-direct bookings share the protected assignment and release architecture", () => {
@@ -80,7 +80,7 @@ test("imported corporate-direct bookings share the protected assignment and rele
   );
 });
 
-test("Megan's current ten-table suggestion is an exact 65-seat assignment", () => {
+test("Megan's booking is not automatically split across ten tables", () => {
   const capacities = [6, 6, 6, 6, 6, 7, 7, 7, 7, 7];
   const tableCodes = ["1", "2", "3", "4", "5", "31", "32", "33", "34", "35"];
   const plan = buildZoneFloorCapacityPlan({
@@ -101,15 +101,13 @@ test("Megan's current ten-table suggestion is an exact 65-seat assignment", () =
     zoneId: "royal-booths",
   });
 
-  assert.deepEqual(
-    [...(plan.bookingPlans[0]?.existingTableCodes ?? [])].sort(
-      (left, right) => Number(left) - Number(right),
-    ),
-    tableCodes,
+  assert.deepEqual(plan.bookingPlans[0]?.existingTableCodes, []);
+  assert.deepEqual(plan.bookingPlans[0]?.availableTables, []);
+  assert.equal(plan.bookingPlans[0]?.existingTableIds.length, 0);
+  assert.match(
+    plan.bookingPlans[0]?.unresolvedReason ?? "",
+    /single available operational table/i,
   );
-  assert.equal(plan.bookingPlans[0]?.existingTableIds.length, 10);
-  assert.deepEqual(plan.bookingPlans[0]?.newCapacities, []);
-  assert.equal(plan.bookingPlans[0]?.unresolvedReason, null);
   assert.equal(capacities.reduce((total, capacity) => total + capacity, 0), 65);
 });
 
@@ -151,16 +149,17 @@ test("Admin hydration and reports treat all claims as one booking", () => {
   assert.match(adminPage, /Part of \{allocatedBookingTableCount\}-table assignment/);
 });
 
-test("reviewed suggestion, stale state, and duplicate submission are guarded", () => {
-  assert.match(route, /JSON\.stringify\(requestedTableIds\)/);
+test("one-click table selection, stale state, and duplicate submission are guarded", () => {
+  assert.match(route, /JSON\.stringify\(\[\.\.\.requestedTableIds\]\.sort\(\)\)/);
   assert.match(route, /isExactIdempotentReplay/);
+  assert.match(route, /selectedAvailableTable/);
+  assert.match(route, /requestedTableIds\.length !== 1/);
   assert.match(route, /FLOOR PLAN CHANGED - REVIEW AGAIN/);
   assert.match(adminPage, /floorAssignmentInFlightRef\.current\.has/);
-  assert.match(adminPage, /ASSIGN TABLES/);
-  assert.match(adminPage, /getAssignmentSafetyCopy/);
-  assert.match(adminPage, /ASSIGNING TABLES\.\.\./);
+  assert.match(adminPage, /findSuitableTableAllocations/);
+  assert.match(adminPage, /ASSIGNING\.\.\./);
   assert.match(adminPage, /ASSIGNED ✓/);
-  assert.match(adminPage, /corporateTableAssignmentError/);
+  assert.doesNotMatch(adminPage, /corporateTableAssignmentError/);
   assert.match(route, /TABLE NO LONGER AVAILABLE/);
   assert.match(route, /BOOKING STATE CHANGED/);
   assert.match(route, /ASSIGNMENT COULD NOT BE COMPLETED/);
