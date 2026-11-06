@@ -1,3 +1,61 @@
+# P0 - Vodacom Buyout Table Plan Integrity
+
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Delivered
+
+- The Table Plan now represents a confirmed Full Show Buyout with no manual
+  table claims as show-wide coverage. Every currently available operational
+  table carries the authoritative company name while allocated pax remains
+  zero until Box Office records an actual section/table allocation.
+- Disabled tables remain disabled and unclaimed. Existing table numbers,
+  zones, capacities, temporary/merged state and all seating records are
+  unchanged.
+- Booking reference, notes, payment summary and financial values remain
+  singular. Historical staff notes can supply legacy Kosher/Strictly Halaal
+  quantities only when structured add-on quantities are absent.
+- Fully paid Corporate/Buyout exports now use the stored service fee as the
+  existing gratuity-paid value when no more specific allocation evidence is
+  available. No tender type is fabricated.
+
+## Vodacom Reconciliation
+
+- `ZNG-48B964B9`: R531,000 Ticket & Show + R79,650 VAT + R73,750 gratuity =
+  R684,400 total and paid; balance R0. The VAT is 15% of R531,000.
+- R73,750 is the original fixed Private Salon gratuity, 12.5% of R590,000.
+  Lisa Rodderick's audited 5 November management reconciliation reduced the
+  subtotal to R610,650 but deliberately retained that contractual gratuity.
+- The 37 Strictly Halaal guests and the additional-guest rates remain in the
+  authoritative operational note. No payment, add-on, legacy evidence or
+  current balance records them as separate receivables on top of R684,400.
+- An older R510,000 local-only Xero quote remains historical evidence and was
+  not synced or used to alter the current booking ledger.
+
+## Release Evidence
+
+- Focused buyout export regression: 1/1 passed. Table Plan finance suite:
+  22/22 passed. TypeScript, targeted lint, whitespace checks and Production
+  build passed. The existing five stale wording assertions in the wider
+  workbook suite remain unrelated to this correction.
+- Fresh authenticated Production export:
+  `Zingara_Table_Plan_JHB_2026-11-06 (2).xlsx`.
+- Live workbook: 30 active operational tables labelled Vodacom; zero invented
+  allocated guests; one booking reference; one R684,400 payment summary; one
+  R73,750 gratuity value; 37 Strictly Halaal; disabled rows not labelled.
+- Application commit: `b6eaf36c`.
+- Production deployment: `dpl_2fhThxc5fArvLFeKeJscjfrhBevY`, Ready and
+  aliased to `book.zingara.co.za` at 12:57 SAST on 6 November 2026.
+- Performance: no request, query, polling, dependency or client-side work was
+  added. The established Admin performance budget passed.
+- Business-data delta: zero. No booking, payment, quote, invoice, table,
+  seating, ticket, customer or historical financial record changed.
+- Full record:
+  `.codex/archive/P0_VODACOM_BUYOUT_TABLE_PLAN_INTEGRITY_2026-11-06.md`.
+
+---
+
 # Corporate & Buyout Pricing Corrections
 
 STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
