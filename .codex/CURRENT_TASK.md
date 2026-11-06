@@ -24,6 +24,25 @@ DATE: 6 NOVEMBER 2026
 - Business-data delta: none. No booking, availability, pricing, seating,
   payment, ticket, customer or financial record changed.
 
+## Close Button Layout Correction
+
+- Replaced the shared preview header's shrinkable flex layout with a stable
+  title/button grid. The title column can wrap without consuming the CLOSE
+  control's space.
+- CLOSE now has a fixed minimum height, balanced horizontal/vertical padding,
+  explicit inline-flex centring and additional clearance from the modal edge.
+- Focused regression tests passed 5/5. TypeScript, whitespace checks and the
+  Production Next.js build passed.
+- Production inspection confirmed precise button centring, border clearance
+  and no title collision for Golden Circle and the longer Royal Balcony title
+  on desktop and in Chrome's 390 x 844 responsive viewport.
+- Local application commit: `b2f1005`. Production commit:
+  `0030c0af10a9000532081f655027eca5fbc4eca6`.
+- Production deployment: `6Tx2FPwovA9Wvk7PxnM3HxE93q3L`, READY.
+- Performance impact: zero measurable runtime overhead. The change is CSS
+  utility classes only and adds no request, state, effect or dependency.
+- Business-data delta: none.
+
 ## Delivered
 
 - Every public Seating Preview now displays one compact venue-specific ticket

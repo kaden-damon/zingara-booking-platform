@@ -41,6 +41,23 @@
 - No API request, state, effect, dependency or background work was added.
   Business-data delta: none.
 
+### 6 November 2026 - Seating Preview Close Button Layout
+
+- Corrected the shared preview header's responsive layout so the title wraps
+  independently and cannot shrink or displace CLOSE.
+- CLOSE now uses explicit inline-flex centring, balanced padding, a stable
+  minimum height and additional modal-edge clearance.
+- Focused tests passed 5/5. TypeScript, whitespace checks and the Production
+  Next.js build passed.
+- Live Production inspection confirmed Golden Circle and the longer Royal
+  Balcony title remain clear of the centred button on desktop and at 390 x
+  844, with no clipping, overflow or collision.
+- Local application commit: `b2f1005`. Production commit:
+  `0030c0af10a9000532081f655027eca5fbc4eca6`. Deployment:
+  `6Tx2FPwovA9Wvk7PxnM3HxE93q3L`, READY.
+- CSS-only change; no new request, state, effect, dependency or runtime work.
+  Business-data delta: none.
+
 ---
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
