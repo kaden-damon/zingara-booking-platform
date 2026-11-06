@@ -120,7 +120,7 @@ export function CorporateZoneEntitlementEditor({
           return (
             <div
               key={`${bookingReference}-${index}`}
-              className="grid grid-cols-[minmax(0,1fr)_3.75rem_1.5rem] gap-1.5 sm:grid-cols-[minmax(0,1fr)_5.5rem_auto] sm:gap-2"
+              className="grid grid-cols-[minmax(0,1fr)_3.25rem_1.25rem] gap-1 sm:grid-cols-[minmax(0,1fr)_5.5rem_auto] sm:gap-2"
             >
               <select
                 aria-label={`Seating zone ${index + 1}`}
@@ -163,7 +163,7 @@ export function CorporateZoneEntitlementEditor({
                 aria-label={`Remove seating zone ${index + 1}`}
                 disabled={disabled || draft.length === 1}
                 onClick={() => updateDraft(draft.filter((_, rowIndex) => rowIndex !== index))}
-                className="min-h-10 min-w-6 text-zinc-400 transition hover:text-white disabled:opacity-30 sm:min-w-10"
+                className="min-h-10 min-w-5 text-zinc-400 transition hover:text-white disabled:opacity-30 sm:min-w-10"
               >
                 ×
               </button>
