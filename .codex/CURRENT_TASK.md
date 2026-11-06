@@ -1,3 +1,67 @@
+# Phase 1 - Full Show Buyout Seating
+
+STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Delivered
+
+- Floor & Arrivals now gives authorised Box Office staff one collapsed
+  `Plan Buyout Seating` control on the existing Full Show Buyout banner.
+- The workflow has three stages: open the seating plan, allocate the booking's
+  full guest total across the four existing zones, then select and save the
+  physical tables inside each allocated zone. The number of table selections
+  depends on the approved plan; there is no automatic split or assignment.
+- Allocated and remaining guests are visible throughout. Tables are limited to
+  the selected show and zone, and current valid claims remain visible.
+- The implementation reuses the existing corporate zone editor, show-table
+  inventory, Floor Layout claims and authoritative Table Plan export path.
+  Standard and Corporate automatic assignment behaviour is unchanged.
+
+## Integrity & Verification
+
+- Migration `20261106020000_phase_1_full_show_buyout_seating.sql` was applied
+  to Production. The service-role-only database functions lock the buyout,
+  booking and selected show tables before validating permissions, guest
+  totals, zone capacity, table capacity and duplicate/concurrent claims.
+- A rollback-only Production transaction cloned the relevant show controls and
+  proved a 10-guest, two-zone, two-table plan through the deployed database
+  functions: 10 guests allocated, 10 table seats claimed and five immutable
+  audit events recorded before the complete transaction was rolled back.
+- Focused tests passed 31/31. TypeScript, targeted ESLint and whitespace checks
+  passed. The core Turbopack release build passed the existing Admin budget at
+  1,292,213 raw bytes and 312,991 gzip bytes. A final CSS-only verification
+  build also passed with Next's supported Webpack builder after the local
+  Turbopack worker was prevented from opening its temporary process port.
+- Authenticated Production inspection used Johannesburg 10 November 2026,
+  booking `ZNG-DA5D8B36` (NTT DATA - Internet Solutions), as a read-only
+  reference. It showed 350 guests, all four approved zones, 0 allocated and
+  350 remaining, with Save disabled until the guest total reconciles.
+- Desktop and 390 x 844 mobile inspection confirmed all zone names, capacities,
+  totals and controls are contained and readable. No save action was performed.
+- Table Plan regression coverage confirms multi-zone claims export with the
+  correct per-table guest quantities while booking financials remain counted
+  once.
+
+## Release
+
+- Core Production commit: `4ee80df22ba10c5c0b53d5c24c65ecd5c5dffb86`.
+- Mobile follow-up commits: `464d3266421cc2b2ff050a9aa9efe70099d789f8`,
+  `2994ea2a1f27255d21fcc406a56d527d2e512ec7` and final
+  `485b9c44ccbe1ca5f8b97b36121ab373ec366735`.
+- Core deployment: `5bf2NdpoiNrpXWdPgL4pYkuQ8Leq`. Final Production
+  deployment: `7uU2uhHaMbtXaY549sJhtBSJSN6d`, READY.
+- Business-data delta: none. The reference buyout remains awaiting payment with
+  350 unallocated guests and no table claims. No booking, seating, table,
+  capacity, payment, ticket, customer or financial record changed during QA.
+- Rollback: redeploy the parent application commit. The additive migration may
+  remain dormant; removing its new functions/tables is optional and no
+  business-data rollback is required because no live seating plan was saved.
+- Full record:
+  `.codex/archive/PHASE_1_FULL_SHOW_BUYOUT_SEATING_2026-11-06.md`.
+
+---
+
 # P0 Booking Visibility & Data Integrity
 
 STATUS: COMPLETE - MIGRATED, DEPLOYED AND VERIFIED IN PRODUCTION
