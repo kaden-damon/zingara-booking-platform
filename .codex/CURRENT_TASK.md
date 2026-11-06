@@ -1,3 +1,46 @@
+# Phase 5 - Table Plan Export Finalisation
+
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 6 NOVEMBER 2026
+
+## Delivered
+
+- The Table Plan now completely exchanges the two established payment columns:
+  Column K is `PAYMENT SUMMARY` and Column L is `PAYMENT BREAKDOWN`.
+- Values, formulas, cell styles, column styles, widths, notes and validation move
+  with their columns. K is now 38.86 wide and L is 53.55 wide. No other column
+  mapping, formula, width or format changed.
+- Genuine legacy COMP rows retain the exact approved complimentary Payment
+  Summary rather than receiving an additional gratuity-status line.
+
+## Verification And Release
+
+- Focused Table Plan tests passed 15/15 and finance tests passed 22/22.
+  TypeScript, targeted lint, whitespace checks and the Production build passed.
+- Admin performance remained within the established budget: raw 1,293,349 /
+  1,320,000 bytes; gzip 313,906 / 320,000; largest gzip chunk 167,417 / 170,000.
+- A Production-data Vodacom workbook was compared cell-for-cell with the
+  uploaded pre-release workbook: 142 rows x 27 columns, zero differences after
+  applying only the K/L exchange, including styles and widths.
+- Authenticated Production exports verified:
+  `Zingara_Table_Plan_JHB_2026-11-06 (3).xlsx` and
+  `Zingara_Table_Plan_CPT_2026-11-06.xlsx`.
+- The live CPT workbook verified paid, deposit and complimentary rows. The live
+  Vodacom workbook retained all 30 operational-table labels, zero fabricated
+  guest allocations, one financial row, R684,400 paid, R0 outstanding,
+  R73,750 historical gratuity and 37 Strictly Halaal meals.
+- Application commit: `fe694690`.
+- Production deployment: `dpl_GHbn3e2MbUVKZM5zUFsAnjmdrtki`, Ready and aliased
+  to `book.zingara.co.za` at 13:08 SAST on 6 November 2026.
+- Migration: none. Business-data delta: zero. No booking, seating, payment,
+  financial, dietary, ticket, customer or historical record changed.
+- Rollback: revert `fe694690` and redeploy; no database rollback is required.
+- Full record:
+  `.codex/archive/PHASE_5_TABLE_PLAN_EXPORT_FINALISATION_2026-11-06.md`.
+
+---
+
 # P0 - Vodacom Buyout Table Plan Integrity
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
