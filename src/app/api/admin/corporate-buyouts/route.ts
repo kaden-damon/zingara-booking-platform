@@ -46,6 +46,16 @@ function canCreate(
   );
 }
 
+function canPlanSeating(
+  auth: Awaited<ReturnType<typeof requireActiveStaff>>,
+) {
+  const permissions = getRolePermissions(roleRow(auth));
+  return (
+    permissions.includes("bookings:manage") &&
+    permissions.includes("tables:manage")
+  );
+}
+
 function actorArgs(
   request: Request,
   auth: Awaited<ReturnType<typeof requireActiveStaff>>,
@@ -124,6 +134,19 @@ function safeError(error: unknown) {
     return {
       message: "One of the selected sections does not have enough approved seating.",
       status: 409,
+    };
+  }
+  if (message.includes("CORPORATE_ZONE_TABLE_CONFLICT")) {
+    return {
+      message:
+        "Release tables from a removed section before changing the Buyout section plan.",
+      status: 409,
+    };
+  }
+  if (message.includes("FLOOR_MANAGEMENT_PERMISSION_REQUIRED")) {
+    return {
+      message: "Booking and table management access is required.",
+      status: 403,
     };
   }
   if (message.includes("BUYOUT_RELEASE_PAYMENT_REVIEW_REQUIRED")) {
@@ -409,13 +432,6 @@ export async function PATCH(request: Request) {
   ) {
     return auth.error;
   }
-  if (!canCreate(auth)) {
-    return Response.json(
-      { error: "Booking and show management access is required." },
-      { status: 403 },
-    );
-  }
-
   try {
     const body = (await request.json().catch(() => ({}))) as {
       action?: "allocate-zones" | "issue-tickets" | "release";
@@ -425,6 +441,19 @@ export async function PATCH(request: Request) {
       ticketEntitlementCount?: number;
       zoneAllocations?: Array<{ pax: number; zoneId: string }>;
     };
+    const permitted =
+      body.action === "allocate-zones" ? canPlanSeating(auth) : canCreate(auth);
+    if (!permitted) {
+      return Response.json(
+        {
+          error:
+            body.action === "allocate-zones"
+              ? "Booking and table management access is required."
+              : "Booking and show management access is required.",
+        },
+        { status: 403 },
+      );
+    }
     if (!body.buyoutId || !Number.isInteger(body.expectedRevision)) {
       return Response.json(
         { error: "Open the current Buyout and try again." },
@@ -465,7 +494,7 @@ export async function PATCH(request: Request) {
     const operation =
       body.action === "allocate-zones"
         ? auth.serviceClient.rpc(
-            "update_corporate_buyout_allocation_atomic",
+            "update_full_show_buyout_seating_allocation_atomic",
             {
               ...common,
               p_zone_allocations: body.zoneAllocations ?? [],

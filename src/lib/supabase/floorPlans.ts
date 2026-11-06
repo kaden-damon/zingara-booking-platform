@@ -86,6 +86,21 @@ export function assignCorporateFloorPlan(input: {
   );
 }
 
+export function assignFullShowBuyoutZoneTables(input: {
+  bookingReference: string;
+  expectedUpdatedAt: string;
+  tableIds: string[];
+  zoneId: string;
+}) {
+  return fetchSupabaseApi<{ ok: true; result: unknown }>(
+    "/api/admin/floor-capacity-plan",
+    {
+      body: { action: "assign-buyout-zone", ...input },
+      method: "POST",
+    },
+  );
+}
+
 export function releaseCorporateFloorAssignment(input: {
   bookingReference: string;
   expectedTableIds: string[];

@@ -27,6 +27,7 @@ import type {
 } from "./BookingReconciliationModal";
 import type { LegacyGuestIncreasePaymentBasis } from "@/lib/addedGuestFinancials";
 import { corporateBuyoutStateLabels } from "@/lib/corporateBuyouts";
+import { getCorporateBuyoutBootstrap } from "@/lib/supabase/corporateBuyouts";
 import type { CustomerIdentityDraft } from "./CustomerIdentityEditor";
 import type {
   AcademyActionId,
@@ -74,6 +75,11 @@ const CorporateBookingOperationsPanel = dynamic(
 const CorporateZoneEntitlementEditor = dynamic(() =>
   import("./CorporateZoneEntitlementEditor").then(
     (module) => module.CorporateZoneEntitlementEditor,
+  ),
+);
+const FullShowBuyoutSeatingPlanner = dynamic(() =>
+  import("./FullShowBuyoutSeatingPlanner").then(
+    (module) => module.FullShowBuyoutSeatingPlanner,
   ),
 );
 const FinancialReconciliationModal = dynamic(() =>
@@ -8982,6 +8988,42 @@ export default function AdminDashboardPage({
     return normalizeShowLocation(show?.location ?? show?.venueName);
   };
   const selectedShow = getShowByIdentity(selectedShowId);
+  const selectedBuyoutBooking = selectedShow?.fullShowBuyout
+    ? bookings.find(
+        (booking) =>
+          booking.reference === selectedShow.fullShowBuyout?.bookingReference,
+      )
+    : undefined;
+  const selectedBuyoutZoneCapacity = selectedBuyoutBooking
+    ? floorManagementZones.map((zone) => {
+        const currentPax = getBookingZoneEntitlements(
+          selectedBuyoutBooking,
+        ).find((entitlement) => entitlement.zoneId === zone.id)?.pax ?? 0;
+        const authoritative = getAuthoritativeShowZoneCapacity(
+          authoritativeSelectedShowId,
+          zone.id,
+        );
+        const fallbackOtherPax = Math.max(
+          (operationalZonePaxByShow.get(
+            `${authoritativeSelectedShowId}|${zone.id}`,
+          ) ?? 0) - currentPax,
+          0,
+        );
+
+        return {
+          remainingPax: authoritative
+            ? authoritative.operationalRemaining + currentPax
+            : Math.max(
+                getOperationalZoneCapacity(
+                  authoritativeSelectedShowId,
+                  zone.id,
+                ) - fallbackOtherPax,
+                0,
+              ),
+          zoneId: zone.id,
+        };
+      })
+    : [];
   const selectedShowFloorDataReady =
     selectedShowFloorLoadState.showId === selectedShowId &&
     selectedShowFloorLoadState.status === "loaded";
@@ -18621,6 +18663,21 @@ export default function AdminDashboardPage({
       mergeTablesForShows(currentTables, selectedShowTables, [showId]),
     );
     setIsShowsLoading(false);
+  }
+
+  async function refreshFullShowBuyoutSeatingState(showId: string) {
+    const [, buyoutData] = await Promise.all([
+      refreshAssignedShowState(showId),
+      getCorporateBuyoutBootstrap(showId),
+    ]);
+    const activeBuyout = buyoutData.shows[0]?.activeBuyout ?? null;
+    setShows((currentShows) =>
+      currentShows.map((show) =>
+        getOperationalShowIdentityValues(show).includes(showId)
+          ? { ...show, fullShowBuyout: activeBuyout ?? undefined }
+          : show,
+      ),
+    );
   }
 
   async function planSelectedFloorCapacity() {
@@ -36606,6 +36663,21 @@ export default function AdminDashboardPage({
                         ? `${selectedShow.fullShowBuyout.unallocatedGuestCount} guests await manual section planning. Zone totals remain empty until Box Office records the seating plan.`
                         : "The recorded section plan is reflected in the zone totals below."}
                     </p>
+                    {selectedBuyoutBooking && (
+                      <FullShowBuyoutSeatingPlanner
+                        key={`${selectedBuyoutBooking.reference}-${selectedBuyoutBooking.updatedAt}-${selectedShow.fullShowBuyout.revision}`}
+                        booking={selectedBuyoutBooking}
+                        buyout={selectedShow.fullShowBuyout}
+                        canManage={canManageBookings && canManageTables}
+                        onChanged={() =>
+                          refreshFullShowBuyoutSeatingState(
+                            authoritativeSelectedShowId,
+                          )
+                        }
+                        tables={tables}
+                        zoneCapacity={selectedBuyoutZoneCapacity}
+                      />
+                    )}
                   </div>
                 )}
                 <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

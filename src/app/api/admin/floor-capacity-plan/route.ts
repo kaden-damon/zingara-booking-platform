@@ -484,7 +484,7 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json().catch(() => ({}))) as {
-    action?: "assign" | "create" | "release" | "release-table";
+    action?: "assign" | "assign-buyout-zone" | "create" | "release" | "release-table";
     bookingReference?: string;
     capacities?: number[];
     confirmCreate?: boolean;
@@ -498,6 +498,68 @@ export async function POST(request: Request) {
   };
   const showReference = body.showReference?.trim() ?? "";
   const zoneId = body.zoneId?.trim() as CorporateFloorZone;
+
+  if (body.action === "assign-buyout-zone") {
+    const bookingReference = body.bookingReference?.trim() ?? "";
+    const tableIds = Array.from(new Set(body.tableIds ?? []));
+    if (
+      !bookingReference ||
+      !body.expectedUpdatedAt?.trim() ||
+      !corporateFloorZones.includes(zoneId) ||
+      tableIds.length === 0
+    ) {
+      return Response.json(
+        { error: "Choose enough current tables for one Buyout section." },
+        { status: 400 },
+      );
+    }
+    try {
+      const { data, error: assignmentError } = await auth.serviceClient.rpc(
+        "assign_full_show_buyout_zone_tables_atomic",
+        {
+          p_actor_auth_user_id: auth.user.id,
+          p_actor_staff_profile_id: auth.staffProfile.id,
+          p_booking_reference: bookingReference,
+          p_expected_updated_at: body.expectedUpdatedAt,
+          p_table_ids: tableIds,
+          p_zone_id: zoneId,
+        },
+      );
+      if (assignmentError) throw assignmentError;
+      return Response.json({ ok: true, result: data });
+    } catch (assignmentError) {
+      const message =
+        assignmentError instanceof Error
+          ? assignmentError.message
+          : String(assignmentError);
+      if (/FLOOR_PLAN_STALE|TABLE_ALREADY_CLAIMED|TABLE_NOT_AVAILABLE/i.test(message)) {
+        return Response.json(
+          { error: "The Floor changed. Review the available tables and try again." },
+          { status: 409 },
+        );
+      }
+      if (/BUYOUT_ZONE_TABLE_CAPACITY_INSUFFICIENT/i.test(message)) {
+        return Response.json(
+          { error: "Choose enough table seats for every guest in this section." },
+          { status: 409 },
+        );
+      }
+      if (/FLOOR_MANAGEMENT_PERMISSION_REQUIRED/i.test(message)) {
+        return Response.json(
+          { error: "Booking and table management access is required." },
+          { status: 403 },
+        );
+      }
+      console.error(
+        "[Zingara Floor Capacity] Buyout table assignment failed",
+        assignmentError,
+      );
+      return Response.json(
+        { error: "The Buyout table assignment could not be saved." },
+        { status: 500 },
+      );
+    }
+  }
 
   if (body.action === "release-table") {
     const bookingReference = body.bookingReference?.trim() ?? "";

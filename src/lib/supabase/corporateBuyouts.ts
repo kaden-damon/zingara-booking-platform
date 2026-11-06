@@ -2,6 +2,7 @@ import type { CompanyRecord } from "@/lib/companyMaster";
 import type {
   CorporateBuyoutPackage,
   CorporateBuyoutSummary,
+  CorporateBuyoutZoneAllocation,
 } from "@/lib/corporateBuyouts";
 import { fetchSupabaseApi } from "./apiClient";
 
@@ -88,6 +89,17 @@ export async function releaseCorporateBuyout(input: {
 }) {
   return fetchSupabaseApi<{ result: unknown }>("/api/admin/corporate-buyouts", {
     body: { ...input, action: "release" },
+    method: "PATCH",
+  });
+}
+
+export async function updateCorporateBuyoutAllocation(input: {
+  buyoutId: string;
+  expectedRevision: number;
+  zoneAllocations: CorporateBuyoutZoneAllocation[];
+}) {
+  return fetchSupabaseApi<{ result: unknown }>("/api/admin/corporate-buyouts", {
+    body: { ...input, action: "allocate-zones" },
     method: "PATCH",
   });
 }

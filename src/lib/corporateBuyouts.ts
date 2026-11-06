@@ -44,6 +44,11 @@ export type CorporateBuyoutSummary = {
   unallocatedGuestCount: number;
 };
 
+export type CorporateBuyoutZoneAllocation = {
+  pax: number;
+  zoneId: string;
+};
+
 export const corporateBuyoutStateLabels: Record<CorporateBuyoutState, string> = {
   awaiting_payment: "Awaiting Payment",
   cancelled: "Cancelled",
