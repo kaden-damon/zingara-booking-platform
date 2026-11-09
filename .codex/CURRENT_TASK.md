@@ -1,3 +1,32 @@
+# P0 - Supabase Disk I/O And Database Performance
+
+STATUS: INVESTIGATION COMPLETE - I/O BUDGET RECOVERED; MICRO CAPACITY RISK REMAINS
+
+DATE: 9 NOVEMBER 2026
+
+## Verified Position
+
+- Production is healthy and the live Supabase Disk I/O Balance has recovered
+  to 99%. Current database load is approximately 7 IOPS and 335.7 KB/s, with
+  99% table/index cache hit rates, no blocked queries and no material
+  application query outlier after the provider restart.
+- The earlier Supabase outage is not attributed to Disk I/O. Available evidence
+  does not prove that relationship.
+- Telemetry, rate-limit and staff-presence writes are confirmed sources of
+  ongoing database churn, but there is no active runaway loop and no safe
+  evidence-backed query/index correction to deploy.
+- Micro memory remains the capacity concern: live RAM ranged from 76-86%, with
+  1.78 GB committed memory classed severe. Small compute is recommended because
+  it doubles RAM and the sustained IOPS/throughput baselines.
+- Micro is about `$10/month`; Small is about `$15/month`. The estimated increase
+  is `$5.23/month`. No compute or billing change was made.
+- No code, migration, database maintenance or Production deployment was needed.
+  Business-data delta: zero.
+- Full record:
+  `.codex/archive/P0_SUPABASE_DISK_IO_DATABASE_PERFORMANCE_2026-11-09.md`.
+
+---
+
 # P0 - Vercel Duration And Production Authentication Incident
 
 STATUS: COMPLETE - PROVIDER RECOVERED, SAFEGUARD DEPLOYED AND PRODUCTION VERIFIED
