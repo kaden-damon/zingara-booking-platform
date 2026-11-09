@@ -1,3 +1,60 @@
+# P0 - Vercel Duration And Production Authentication Incident
+
+STATUS: COMPLETE - PROVIDER RECOVERED, SAFEGUARD DEPLOYED AND PRODUCTION VERIFIED
+
+DATE: 9 NOVEMBER 2026
+
+## Root Cause And Recovery
+
+- Vercel alert `ag_01a1c032-e0d2-76e3-ba4e-83ae5b9e1ce1` began at
+  14:05 SAST. Function Duration rose 29x from 0.23 to 6.48 GB-hours in the
+  15-minute detection window.
+- The active Production deployment had served normal traffic before the spike.
+  Vercel logs showed Cloudflare 522/520 responses from the Zingara Supabase
+  project across Auth and database-backed routes. CPU and memory remained
+  ordinary while functions waited on the upstream service.
+- Supabase's project health API independently reported Auth, Database, REST,
+  Realtime, Storage and PgBouncer unhealthy. A management-plane read-only
+  `select now()` failed with HTTP 544 and a database connection timeout.
+- Supabase accepted a supported project restart at 14:34:28 SAST. All eight
+  checked services returned `ACTIVE_HEALTHY` at 14:39:53 SAST. No data,
+  migration, credential, RLS or permission change was made.
+
+## Application Safeguard
+
+- Admin session lookup and credential login now stop waiting after 12 seconds.
+  Staff-profile validation is aborted on the same bounded restore path.
+- Upstream failures show a clear temporary authentication message instead of
+  an indefinite `RESTORING SESSION` screen or raw `Failed to fetch` text.
+- Empty/expired sessions still return to login normally. Successful sessions
+  still require the authoritative server-side staff profile, role permissions
+  and RLS checks. There is no polling or repeated authentication request.
+
+## Production Evidence
+
+- Kaden's existing authorised Production session restored and loaded the full
+  Admin calendar and staff controls after provider recovery.
+- First post-recovery five-minute Vercel window: 93 function invocations, zero
+  5xx responses and 618ms average function duration. During the incident,
+  affected routes waited approximately 19-300 seconds.
+- Final live checks after deployment: `/api/shows` HTTP 200 in 1.42s,
+  `/api/venue-settings` HTTP 200 in 0.47s and `/admin` HTTP 200 in 0.71s.
+- Focused authentication tests passed 6/6. TypeScript, Production build and the
+  established Admin bundle budget passed; gzip was 314,221 / 320,000 bytes in
+  Vercel's clean build. Existing unrelated Admin lint findings remain unchanged.
+- Application commit: `f1a2175061e3653ef95547025059abbc77a51490`.
+- Production deployment: `dpl_BRdxFKBVf7BT16bhajqcfrXtXuBx`, Ready and
+  aliased to `book.zingara.co.za` from 14:42:10 SAST.
+- Migration: none. Business-data delta: zero. Rollback: revert `f1a21750` and
+  redeploy; the provider restart has no data rollback.
+- Residual risk: Vercel may retain the alert's `active` label until its rolling
+  anomaly window closes. Live error and duration metrics have already returned
+  to normal; recurrence remains an external provider risk.
+- Full record:
+  `.codex/archive/P0_VERCEL_DURATION_AUTHENTICATION_INCIDENT_2026-11-09.md`.
+
+---
+
 # Phase 5 - Table Plan Export Finalisation
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
