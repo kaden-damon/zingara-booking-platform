@@ -15,18 +15,66 @@ export type AdminAuthSession = {
 };
 
 export const adminAuthChangedEvent = "zingara-admin-session-changed";
+const adminAuthTimeoutMs = 12_000;
 
-export async function getAdminAuthSession(): Promise<AdminAuthSession | null> {
+export class AdminAuthUnavailableError extends Error {
+  constructor() {
+    super("Staff authentication is temporarily unavailable. Please try again.");
+    this.name = "AdminAuthUnavailableError";
+  }
+}
+
+async function withAdminAuthTimeout<T>(operation: Promise<T>) {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new AdminAuthUnavailableError()),
+          adminAuthTimeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+export async function getAdminAuthSession(options: { throwOnError?: boolean } = {}): Promise<AdminAuthSession | null> {
   const supabase = getSupabaseClient();
 
   if (!supabase) {
     return null;
   }
 
-  const { data, error } = await supabase.auth.getSession();
+  let data: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"];
+  let error: Awaited<ReturnType<typeof supabase.auth.getSession>>["error"];
+
+  try {
+    ({ data, error } = await withAdminAuthTimeout(supabase.auth.getSession()));
+  } catch (sessionError) {
+    console.error("[Zingara Supabase Auth] Session request failed", sessionError);
+
+    if (options.throwOnError) {
+      throw sessionError instanceof AdminAuthUnavailableError
+        ? sessionError
+        : new AdminAuthUnavailableError();
+    }
+
+    return null;
+  }
 
   if (error) {
     console.error("[Zingara Supabase Auth] Failed to load session", error);
+
+    if (options.throwOnError) {
+      throw new AdminAuthUnavailableError();
+    }
+
     return null;
   }
 
@@ -50,10 +98,23 @@ export async function signInAdmin(email: string, password: string) {
     };
   }
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  let data: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>["data"];
+  let error: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>["error"];
+
+  try {
+    ({ data, error } = await withAdminAuthTimeout(
+      supabase.auth.signInWithPassword({
+        email,
+        password,
+      }),
+    ));
+  } catch (signInError) {
+    console.error("[Zingara Supabase Auth] Sign in request failed", signInError);
+    return {
+      error: "Staff authentication is temporarily unavailable. Please try again.",
+      user: null,
+    };
+  }
 
   if (error) {
     console.error("[Zingara Supabase Auth] Sign in failed", error);

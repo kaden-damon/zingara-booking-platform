@@ -4949,13 +4949,23 @@ function getBookingPaymentStatus(
 }
 
 async function getSupabaseAdminSession() {
-  const authSession = await getAdminAuthSession();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
 
-  if (!authSession?.user.email) {
-    return null;
+  try {
+    const authSession = await getAdminAuthSession({ throwOnError: true });
+
+    if (!authSession?.user.email) {
+      return null;
+    }
+
+    return await getOrCreateStaffProfileSession(authSession.user, undefined, {
+      signal: controller.signal,
+      throwOnError: true,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-
-  return getOrCreateStaffProfileSession(authSession.user);
 }
 
 function TicketScanIcon() {
@@ -7036,6 +7046,9 @@ export default function AdminDashboardPage({
         ) {
           activeAdminSession = null;
           setCurrentStaff(null);
+          setLoginError(
+            "Staff authentication is temporarily unavailable. Please try again.",
+          );
         }
       } finally {
         if (

@@ -214,6 +214,7 @@ async function getStaffProfileByUserId(userId: string) {
 export async function getOrCreateStaffProfileSession(
   user: User,
   fallback?: StaffProfileFallback,
+  options: { signal?: AbortSignal; throwOnError?: boolean } = {},
 ) {
   if (!user.email) {
     return null;
@@ -230,7 +231,9 @@ export async function getOrCreateStaffProfileSession(
 
     const payload = await fetchSupabaseApi<{
       session: StaffSession | null;
-    }>(`/api/admin/staff?${params.toString()}`);
+    }>(`/api/admin/staff?${params.toString()}`, {
+      signal: options.signal,
+    });
 
     return payload.session;
   } catch (error) {
@@ -238,6 +241,11 @@ export async function getOrCreateStaffProfileSession(
       "[Zingara Supabase Auth] Failed to create staff profile",
       error,
     );
+
+    if (options.throwOnError) {
+      throw error;
+    }
+
     return fallback
       ? {
           email: fallback.email,
