@@ -1,3 +1,70 @@
+# Invoice & Refund Workflow Integrity
+
+STATUS: DEPLOYED - APPLICATION CORRECTIONS VERIFIED; PROVIDER EXECUTION AND AUTHENTICATED UI CHECK PENDING
+
+DATE: 10 NOVEMBER 2026
+
+## Xero Invoice Finding
+
+- Booking `ZNG-4UGGV9` reconciles exactly to R19,688.00: R17,500.00
+  ticket/fee value, R2,188.00 gratuity, R2,282.60 VAT, R19,688.00 paid
+  and R0.00 outstanding.
+- Local invoice `ZD-001001` was saved correctly, but its first Xero attempt was
+  blocked by HTTP 400. Its generated Xero Contact Number was 53 characters;
+  Xero's documented maximum is 50 characters. The transport discarded the
+  provider validation detail, leaving the misleading generic error.
+- Draft / Awaiting Xero / Awaiting Accounts are expected before a successful
+  provider issue. They were not expected to remain while the outbox was blocked.
+- Contact identifiers are now stable hashed values within Xero's limit,
+  validation details are retained safely, terminal failures mark the document
+  Action Required, and Tristan/Rachelle receive an audited Retry Xero action.
+  Retry remains explicit and idempotent; no invoice was issued during QA.
+
+## PayFast Refund Finding
+
+- PayFast's authoritative query distinguishes `PAYMENT_SOURCE`, `BANK_PAYOUT`
+  and `NOT_AVAILABLE`. Banking details are legitimately required only for a
+  bank-payout refund; the application continues to block that path for manual
+  authorised handling and never collects bank details for a payment-source
+  refund.
+- Six failed live attempts were retained across two bookings. Four stopped
+  after eligibility and two reached provider submission. Historical records
+  omitted the returned method and nested rejection detail, so the exact legacy
+  provider reasons cannot be reconstructed safely.
+- Refund submission now matches PayFast's official SDK JSON transport, nested
+  provider errors are retained and shown to authorised Finance staff, and safe
+  audit evidence includes funding type and full-refund method. Existing
+  idempotency, password confirmation and reconciliation locks remain unchanged.
+- Full payment-source refunds remain automatic. Bank-payout methods remain
+  manual; multi-transaction and partial refunds remain unsupported and require
+  Finance review. No refund was submitted during QA.
+
+## Verification And Release
+
+- Focused Xero, activation and PayFast tests passed 30/30. ESLint, TypeScript
+  and the Next.js webpack Production build passed. Migration dry run contained
+  only `20261110170000_invoice_sync_retry_integrity.sql`.
+- Migration applied successfully. The only blocked Xero document is now
+  `action_required`; its original blocked outbox evidence remains unchanged.
+- Application commit `b9ea8255906c8823f31a3da1c1025db96eab0c13` deployed as
+  `dpl_3oAt2E1sx9vMifDLyged2CabzxGz`, Ready at 14:07:10 SAST.
+- Production public and Admin shells returned HTTP 200; unauthenticated Xero
+  API access returned HTTP 401 as required. The deployed source matches the
+  application commit.
+- Business-data delta: one local Xero document sync status changed from
+  `pending` to `action_required`. No booking, payment, refund, Xero provider
+  record, contact mapping or customer communication changed.
+- Authenticated visual verification remains outstanding because the existing
+  Chrome session could not be restored while the Mac was locked after physical
+  input. No completion claim is made for the final live button/UI check.
+- Provider execution is intentionally pending: Tristan or Rachelle must review
+  `ZD-001001` and select Retry Xero to create the real invoice. A real eligible
+  refund is required to prove provider acceptance; this was prohibited in QA.
+- Full record:
+  `.codex/archive/INVOICE_REFUND_WORKFLOW_INTEGRITY_2026-11-10.md`.
+
+---
+
 # Legacy Dineplan Workflow Deactivation
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
