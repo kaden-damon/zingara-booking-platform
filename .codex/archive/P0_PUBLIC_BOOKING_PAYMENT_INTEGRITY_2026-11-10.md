@@ -1,6 +1,6 @@
 # P0 - Public Booking And Payment Integrity
 
-STATUS: RELEASE CANDIDATE VERIFIED - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 10 NOVEMBER 2026
 
@@ -89,6 +89,22 @@ and later generated 12 rate-limited direct checkout retries between 07:42 and
 
 ## Release Evidence
 
-- Application commit: pending.
-- Production deployment: pending.
-- Authenticated Production verification: pending.
+- Application commit: `2d3b3ed18916896895b561d02b091b9dffc86274`.
+- Vercel reported a successful deployment for that exact commit at 07:34:45
+  UTC / 09:34:45 SAST. Deployment: `dpl_6mdYxauKwqiUf7pxFH6NchCJW9au`.
+- Kaden's existing authorised session restored and loaded the Production Admin
+  calendar and Booking Management interface.
+- The live Admin JavaScript contains the exact-reference override that sends
+  `archive=all` and `hideCancelled=0`. The Production database still contains
+  archived/cancelled `ZNG-VYBT2X`, confirming it remains recoverable by that
+  deployed search path without a data change.
+- The live Find My Booking asset contains archive-state enforcement and query
+  reference prefill. The live booking asset contains `Check Reservation`, the
+  same-reference recovery link and the saved-reservation payment error message.
+- Production routes were healthy: `/book` HTTP 200 in 0.48s, `/find-booking`
+  HTTP 200 in 0.26s, `/admin` HTTP 200 in 0.70s, `/api/shows` HTTP 200 in 1.05s
+  and `/api/venue-settings` HTTP 200 in 0.57s. Safe GET verification of the
+  POST-only PayFast ITN route returned the expected HTTP 405 in 0.46s.
+- No real payment, callback, booking, ticket or communication was created.
+  Migration: none. Business-data delta: zero. Rollback: revert `2d3b3ed1` and
+  redeploy; no database rollback is required.

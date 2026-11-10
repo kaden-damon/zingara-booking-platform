@@ -1,6 +1,6 @@
 # P0 - Public Booking And Payment Integrity
 
-STATUS: RELEASE CANDIDATE VERIFIED - PRODUCTION RELEASE IN PROGRESS
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
 
 DATE: 10 NOVEMBER 2026
 
@@ -46,6 +46,17 @@ DATE: 10 NOVEMBER 2026
   an active R0-paid/R5,760-outstanding hold past expiry because an existing
   communication prevents automatic cleanup; it requires manual Box Office
   review and was not modified.
+- Application commit `2d3b3ed18916896895b561d02b091b9dffc86274` deployed
+  successfully as `dpl_6mdYxauKwqiUf7pxFH6NchCJW9au` at 09:34:45 SAST.
+- Kaden's authorised Production session restored and loaded Admin. The live
+  Admin asset confirms exact reference searches send `archive=all` and
+  `hideCancelled=0`; the public assets confirm archive-state enforcement,
+  reference prefill, `Check Reservation`, and the saved-reservation message.
+- Final route checks: `/book` 200 in 0.48s, `/find-booking` 200 in 0.26s,
+  `/admin` 200 in 0.70s, `/api/shows` 200 in 1.05s and venue settings 200 in
+  0.57s. The PayFast ITN route returned the expected safe GET response of 405.
+- Business-data delta: zero. No real booking, payment, callback, ticket or
+  communication was created during QA.
 - Full record:
   `.codex/archive/P0_PUBLIC_BOOKING_PAYMENT_INTEGRITY_2026-11-10.md`.
 
