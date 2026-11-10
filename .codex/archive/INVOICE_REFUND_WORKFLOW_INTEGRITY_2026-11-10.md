@@ -126,3 +126,44 @@ explicit verification gap rather than treated as success.
    invoice should now be created. That action was not executed during QA.
 3. Confirm a future eligible `PAYMENT_SOURCE` refund through the normal
    authorised Finance workflow. No real refund was permitted as a test.
+
+## Xero P0 Follow-up - 10 November 2026
+
+The original HTTP 400 remains the only provider attempt. Audit evidence records
+the initial queue action by Tristan at 09:41:19 SAST on 30 October 2026 and no
+`xero_invoice_sync_retried` event. The old transport did not retain Xero's
+response body, so the historical validation message is not recoverable; the
+53-character Contact Number and Xero's 50-character limit remain the verified
+cause supported by the retained request evidence.
+
+Production connection evidence at 14:31 SAST confirmed the approved Zingara
+tenant was connected, live sync was active, health had no error, ZAR was the
+base currency and all required Johannesburg invoice mappings were approved.
+The Vodacom `ZQ-001004` remains a sent, local-only historical quote for
+R510,000.00, distinct from the later R684,400.00 booking record. It was not
+repriced, regenerated or submitted.
+
+A second application defect was corrected: Settings -> Integrations -> Sync
+Attention used the legacy generic outbox retry, which only requeued the stored
+payload and would have resent the invalid 53-character Contact Number. It now
+identifies `ZD-001001 · ZNG-4UGGV9` and opens the invoice for the existing
+authorised rebuilt-payload retry. The legacy shortcut fails closed server-side.
+The document list reports `Action Required` rather than `Not connected`, while
+the integration independently reports LIVE SYNC ACTIVE. Approved mappings now
+show a disabled `Approved` state unless their values are changed.
+
+- Follow-up commit: `94d91fe265931ac5a91b7aa6ee3cdbca8585ad67`
+- Production deployment: `dpl_FqLvhT613c5QF9TcYqDh48ScCJuW`
+- Deployment state/source: Ready; `main` at `94d91fe`
+- Focused Xero tests: 51/51 passed
+- Changed-file ESLint: passed
+- Next.js compile and TypeScript: passed
+- Authenticated Production UI: verified LIVE SYNC ACTIVE, approved mappings,
+  linked attention item, Action Required status and Retry Xero control
+- Public shell: HTTP 200; unauthenticated Xero API: HTTP 401
+- Business-data delta: none
+
+The real invoice remains deliberately unsubmitted. Tristan or Rachelle must
+review `ZD-001001` and explicitly select Retry Xero under the existing Accounts
+authority. Successful provider invoice creation, Xero invoice number and Xero
+status can only be independently confirmed after that authorised action.

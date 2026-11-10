@@ -1,6 +1,6 @@
 # Invoice & Refund Workflow Integrity
 
-STATUS: DEPLOYED - APPLICATION CORRECTIONS VERIFIED; PROVIDER EXECUTION AND AUTHENTICATED UI CHECK PENDING
+STATUS: DEPLOYED - AUTHENTICATED APPLICATION VERIFIED; AUTHORISED XERO PROVIDER EXECUTION PENDING
 
 DATE: 10 NOVEMBER 2026
 
@@ -54,9 +54,22 @@ DATE: 10 NOVEMBER 2026
 - Business-data delta: one local Xero document sync status changed from
   `pending` to `action_required`. No booking, payment, refund, Xero provider
   record, contact mapping or customer communication changed.
-- Authenticated visual verification remains outstanding because the existing
-  Chrome session could not be restored while the Mac was locked after physical
-  input. No completion claim is made for the final live button/UI check.
+- Follow-up commit `94d91fe265931ac5a91b7aa6ee3cdbca8585ad67` deployed as
+  `dpl_FqLvhT613c5QF9TcYqDh48ScCJuW` and reached Ready on 10 November 2026.
+  Authenticated Production verification confirmed LIVE SYNC ACTIVE, the
+  approved mappings, the exact `ZD-001001 · ZNG-4UGGV9` attention item,
+  `Action Required` document status and the authorised `Retry Xero` action.
+- The Integration attention control now opens the affected invoice instead of
+  requeuing its stale pre-fix payload. Direct calls to the retired shortcut
+  fail closed. Existing approved mappings display `Approved`, and document
+  rows no longer mislabel an unsynced document as a disconnected integration.
+- Focused follow-up verification passed 51/51 Xero tests, changed-file ESLint,
+  TypeScript and the Next.js Production build. The Production deployment build
+  is the bundle/performance gate; no polling, browser request or background
+  processing was added.
+- Post-release evidence still shows zero retry audit events, no Xero invoice ID
+  or number, and the original outbox blocked after one attempt. No booking,
+  payment, invoice, Xero or customer data changed during this verification.
 - Provider execution is intentionally pending: Tristan or Rachelle must review
   `ZD-001001` and select Retry Xero to create the real invoice. A real eligible
   refund is required to prove provider acceptance; this was prohibited in QA.
