@@ -1,3 +1,55 @@
+# Legacy Dineplan Workflow Deactivation
+
+STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
+
+DATE: 10 NOVEMBER 2026
+
+## Production Deactivation
+
+- The legacy Dineplan schedule was disabled in Production at
+  11:01:59 SAST (09:01:59 UTC). The final recorded automated email was
+  `Dineplan File Needed | Johannesburg 2026-11-10`, sent at 09:01 SAST.
+- The shared 15-minute workflow runner remains active for pre-show reminders,
+  payment holds, reviews, Xero and other current operations, but no longer
+  imports or invokes the Dineplan scheduler.
+- The dedicated Dineplan Admin tab and client bundle entry point were removed.
+  Authenticated requests to the retired reconciliation and action endpoints
+  now fail closed with HTTP 410; unauthenticated requests continue to return
+  HTTP 401.
+- The existing generic Data Portability API was already disabled and remains
+  unchanged.
+
+## Historical Preservation
+
+- No Dineplan booking, customer, payment, snapshot, action, delivery, schedule
+  run or audit record was deleted or rewritten.
+- Preserved Production evidence: 16 reconciliation snapshots, 137 actions,
+  158 delivery records and 151 schedule runs.
+- Business-data delta: the single
+  `dineplan_reconciliation_settings.scheduled_emails_enabled` configuration
+  flag changed from `true` to `false`. No other Production record changed.
+
+## Verification And Release
+
+- Focused deactivation, scheduling, security and Admin performance tests passed
+  20/20. TypeScript and the full Next.js webpack Production build passed.
+- The change adds no request, query, polling or background work and removes the
+  retired Admin chunk and scheduler execution.
+- Application commit `8ad498c240ef28a3877da7a0ec335f0ce11f3948` deployed
+  successfully as `dpl_9YS4VXvekgHHctcrcsxzYi7kVvXD` at 11:17:42 SAST.
+- Production returned HTTP 200 for the public site and Admin shell. Deployed
+  Admin assets contained zero Dineplan workspace/file-request matches.
+- Both retired endpoints returned HTTP 401 without a staff session, confirming
+  authentication remains enforced. The verified route build returns HTTP 410
+  after authorisation and contains no database mutation path.
+- Production configuration remained disabled after deployment and no Dineplan
+  delivery was recorded after 11:01:59 SAST.
+- Full record:
+  `.codex/archive/LEGACY_DINEPLAN_WORKFLOW_DEACTIVATION_2026-11-10.md`.
+
+---
+
+
 # P0 - Public Booking And Payment Integrity
 
 STATUS: COMPLETE - DEPLOYED AND VERIFIED IN PRODUCTION
