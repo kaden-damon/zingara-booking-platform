@@ -7,7 +7,6 @@ import {
 import { runCorporatePaymentHolds } from "@/lib/workflows/corporatePaymentHolds";
 import { runDailyBookingReview } from "@/lib/workflows/dailyBookingReview";
 import { runDailyWaitlistReminder } from "@/lib/workflows/dailyWaitlistReminder";
-import { runDineplanScheduledEmails } from "@/lib/workflows/dineplanScheduledEmails";
 import { runPublicPaymentHoldCleanup } from "@/lib/workflows/publicPaymentHolds";
 import { runReviewManagementWorkflows } from "@/lib/workflows/reviewManagement";
 import { isAuthorisedWorkflowCronRequest } from "@/lib/workflows/cronAuthorization";
@@ -83,13 +82,6 @@ export async function GET(request: Request) {
       console.error("[Zingara Workflows] Review management notifications failed", reviewError);
       reviewManagement = { reason: "failed" };
     }
-    let dineplanScheduledEmails: Awaited<ReturnType<typeof runDineplanScheduledEmails>> | { delivered: 0; reason: "failed" };
-    try {
-      dineplanScheduledEmails = await runDineplanScheduledEmails(serviceClient);
-    } catch (digestError) {
-      console.error("[Zingara Workflows] Dineplan scheduled emails failed", digestError);
-      dineplanScheduledEmails = { delivered: 0, reason: "failed" };
-    }
     let platformFeedback: Awaited<ReturnType<typeof runApprovedPlatformFeedbackCampaign>> | { reason: "failed" };
     try {
       platformFeedback = await runApprovedPlatformFeedbackCampaign(
@@ -158,7 +150,6 @@ export async function GET(request: Request) {
       corporatePaymentHolds,
       dailyBookingReview,
       dailyWaitlistReminder,
-      dineplanScheduledEmails,
       invoiceRequestReminder,
       platformFeedback,
       publicPaymentHolds,

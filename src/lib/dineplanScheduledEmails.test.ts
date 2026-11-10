@@ -23,17 +23,18 @@ const route = readFileSync(
   "utf8",
 );
 
-test("schedule defaults are persisted configuration and the prior enabled state is preserved", () => {
+test("historical schedule defaults remain documented but cannot be changed through the retired route", () => {
   assert.match(migration, /default time '09:00'/);
   assert.match(migration, /default time '12:00'/);
   assert.match(migration, /default time '15:30'/);
   assert.match(migration, /scheduled_emails_enabled = hourly_reminders_enabled/);
-  assert.match(route, /scheduled_emails_enabled: settings\.scheduledEmailsEnabled/);
+  assert.match(route, /legacy Dineplan workflow has been retired/);
+  assert.doesNotMatch(route, /scheduled_emails_enabled|\.update\(/);
   assert.doesNotMatch(workflow, /09:00|12:00|15:30/);
 });
 
-test("server validation rejects malformed, duplicate and unordered checkpoints", () => {
-  assert.match(route, /validateDineplanEmailSchedule/);
+test("historical schedule constraints remain preserved with no active settings endpoint", () => {
+  assert.match(route, /status: 410/);
   assert.match(migration, /morning_email_time < midday_email_time/);
   assert.match(migration, /midday_email_time < final_email_time/);
   assert.match(admin, /type="time"/);

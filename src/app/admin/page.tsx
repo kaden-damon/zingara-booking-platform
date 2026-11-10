@@ -144,9 +144,6 @@ const DailyBookingReviewWorkflowCard = dynamic(() =>
     (module) => module.DailyBookingReviewWorkflowCard,
   ),
 );
-const DineplanReconciliation = dynamic(
-  () => import("./DineplanReconciliation"),
-);
 const ManagementAnalytics = dynamic(() => import("./ManagementAnalytics"));
 const XeroWorkspace = dynamic(() => import("./XeroWorkspace"));
 const BookingDocumentsSection = dynamic(
@@ -1131,7 +1128,7 @@ type SettingsTab =
   | "staff"
   | "venue"
   | "workflows";
-type SystemTab = "dineplan" | "issues" | "operations" | "preferences";
+type SystemTab = "issues" | "operations" | "preferences";
 type PromoAdminRecord = {
   active: boolean;
   code: string;
@@ -1933,7 +1930,6 @@ const communicationsTabs: Array<{
 ];
 const systemTabs: Array<{ id: SystemTab; label: string }> = [
   { id: "operations", label: "Platform" },
-  { id: "dineplan", label: "Dineplan" },
   { id: "issues", label: "Issues" },
   { id: "preferences", label: "Preferences" },
 ];
@@ -7183,13 +7179,12 @@ export default function AdminDashboardPage({
       const waitlistId = url.searchParams.get("waitlist")?.trim();
       const corporateRequestId = url.searchParams.get("corporate")?.trim();
       const issueId = url.searchParams.get("issue")?.trim();
-      const dineplanActionId = url.searchParams.get("action")?.trim();
       const section = url.searchParams.get("section")?.trim();
       const settingsSection = url.searchParams.get("settings")?.trim();
       const reportSection = url.searchParams.get("report")?.trim();
       const systemSection = url.searchParams.get("system")?.trim();
       const bookingShow = url.searchParams.get("show")?.trim();
-      const deepLinkKey = `${bookingReference ?? ""}|${waitlistId ?? ""}|${corporateRequestId ?? ""}|${issueId ?? ""}|${dineplanActionId ?? ""}|${section ?? ""}|${systemSection ?? ""}|${bookingShow ?? ""}`;
+      const deepLinkKey = `${bookingReference ?? ""}|${waitlistId ?? ""}|${corporateRequestId ?? ""}|${issueId ?? ""}|${section ?? ""}|${systemSection ?? ""}|${bookingShow ?? ""}`;
 
       if (!deepLinkKey.replaceAll("|", "")) {
         return;
@@ -7229,9 +7224,6 @@ export default function AdminDashboardPage({
         setActiveAdminTab("platform-operations");
         setActiveSystemTab("issues");
         setSelectedStaffIssueId(issueId);
-      } else if (dineplanActionId || systemSection === "dineplan") {
-        setActiveAdminTab("platform-operations");
-        setActiveSystemTab("dineplan");
       } else if (section === "bookings") {
         setActiveAdminTab("bookings");
         if (bookingShow) {
@@ -7288,10 +7280,7 @@ export default function AdminDashboardPage({
             ? "operations"
             : canManageStaffIssues(staff.role)
               ? "issues"
-              : hasPermission(staff, "bookings:reconcile") ||
-                  hasPermission(staff, "settings:manage")
-                ? "dineplan"
-                : "preferences",
+              : "preferences",
         );
       }
 
@@ -8808,9 +8797,7 @@ export default function AdminDashboardPage({
           ? "operations"
           : canManageIssueRegister
             ? "issues"
-            : canReconcileBookings || canManageSettings
-              ? "dineplan"
-              : "preferences",
+            : "preferences",
       );
       return;
     }
@@ -31855,9 +31842,7 @@ export default function AdminDashboardPage({
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {systemTabs
                 .filter(
-                  (tab) =>
-                    (tab.id !== "operations" || isSuperAdmin) &&
-                    (tab.id !== "dineplan" || canReconcileBookings || canManageSettings),
+                  (tab) => tab.id !== "operations" || isSuperAdmin,
                 )
                 .map((tab) => (
                   <button
@@ -31881,12 +31866,6 @@ export default function AdminDashboardPage({
         {activeAdminTab === "platform-operations" &&
           activeSystemTab === "issues" &&
           staffIssueRegisterPanel}
-
-        {activeAdminTab === "platform-operations" &&
-          activeSystemTab === "dineplan" &&
-          (canReconcileBookings || canManageSettings) && (
-            <DineplanReconciliation />
-          )}
 
         {activeAdminTab === "platform-operations" &&
           activeSystemTab === "preferences" && (

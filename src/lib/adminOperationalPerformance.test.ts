@@ -14,7 +14,6 @@ test("rare Admin workspaces are split away from the everyday Admin bundle", asyn
     "FinancialReconciliationModal",
     "GuestCountReconciliationModal",
     "ManagementAnalytics",
-    "DineplanReconciliation",
     "ReviewsAdminWorkspace",
     "CompanyCrmWorkspace",
     "SystemMaintenancePanel",

@@ -2,296 +2,57 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const route = readFileSync(
+const reconciliationRoute = readFileSync(
   new URL("../app/api/admin/dineplan-reconciliation/route.ts", import.meta.url),
   "utf8",
 );
-const component = readFileSync(
-  new URL("../app/admin/DineplanReconciliation.tsx", import.meta.url),
-  "utf8",
-);
-const migration = readFileSync(
-  new URL("../../supabase/migrations/20260924090000_phase_41_2w_dineplan_reconciliation.sql", import.meta.url),
-  "utf8",
-);
-const parserTrustMigration = readFileSync(
-  new URL("../../supabase/migrations/20260925171000_phase_41_2w_p0_d_parser_trust.sql", import.meta.url),
-  "utf8",
-);
-const scheduleMigration = readFileSync(
-  new URL("../../supabase/migrations/20260928220000_phase_41_2w_p0_h_dineplan_daily_schedule.sql", import.meta.url),
-  "utf8",
-);
-const actionCentre = readFileSync(
-  new URL("../app/admin/DineplanActionCentre.tsx", import.meta.url),
+const actionRoute = readFileSync(
+  new URL(
+    "../app/api/admin/dineplan-reconciliation/actions/route.ts",
+    import.meta.url,
+  ),
   "utf8",
 );
 const adminPage = readFileSync(
   new URL("../app/admin/page.tsx", import.meta.url),
   "utf8",
 );
-const actionRoute = readFileSync(
-  new URL("../app/api/admin/dineplan-reconciliation/actions/route.ts", import.meta.url),
-  "utf8",
-);
-const actionStore = readFileSync(
-  new URL("./dineplanActionStore.ts", import.meta.url),
-  "utf8",
-);
-const actionEngine = readFileSync(
-  new URL("./dineplanActions.ts", import.meta.url),
-  "utf8",
-);
-const digestWorkflow = readFileSync(
-  new URL("./workflows/dineplanActionDigest.ts", import.meta.url),
-  "utf8",
-);
-const scheduledWorkflow = readFileSync(
-  new URL("./workflows/dineplanScheduledEmails.ts", import.meta.url),
-  "utf8",
-);
-const digestTrigger = readFileSync(
-  new URL("./workflows/dineplanActionDigestTrigger.ts", import.meta.url),
-  "utf8",
-);
 const workflowRoute = readFileSync(
   new URL("../app/api/workflows/run/route.ts", import.meta.url),
   "utf8",
 );
-const smtp = readFileSync(new URL("./email/smtp.ts", import.meta.url), "utf8");
-const emailTemplate = readFileSync(new URL("./email/customerEmail.ts", import.meta.url), "utf8");
-const vercelConfig = readFileSync(new URL("../../vercel.json", import.meta.url), "utf8");
+const migration = readFileSync(
+  new URL(
+    "../../supabase/migrations/20260924090000_phase_41_2w_dineplan_reconciliation.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
-test("reconciliation route is permission protected and has no booking mutation path", () => {
-  assert.match(route, /requireActiveStaff/);
-  assert.match(route, /bookings:reconcile/);
-  assert.match(route, /settings:manage/);
-  assert.doesNotMatch(route, /from\("bookings"\)[\s\S]{0,120}\.(?:insert|update|delete|upsert)\(/);
-  assert.doesNotMatch(route, /from\("payments"\)[\s\S]{0,120}\.(?:insert|update|delete|upsert)\(/);
-  assert.doesNotMatch(route, /from\("show_tables"\)[\s\S]{0,120}\.(?:insert|update|delete|upsert)\(/);
-  assert.doesNotMatch(route, /from\("tickets"\)[\s\S]{0,120}\.(?:insert|update|delete|upsert)\(/);
+test("legacy Dineplan entry points are retired and remain permission protected", () => {
+  for (const route of [reconciliationRoute, actionRoute]) {
+    assert.match(route, /requireActiveStaff/);
+    assert.match(route, /bookings:reconcile/);
+    assert.match(route, /settings:manage/);
+    assert.match(route, /status: 410/);
+    assert.match(route, /legacy Dineplan workflow has been retired/);
+  }
 });
 
-test("selected-show evidence is bulk loaded without per-reservation HTTP calls", () => {
-  assert.equal((route.match(/\.from\("bookings"\)/g) ?? []).length, 1);
-  assert.match(route, /Promise\.all\(\[/);
-  assert.doesNotMatch(route, /for \([^)]*reservation[^)]*\)[\s\S]{0,200}(?:fetch|\.from\()/i);
-  assert.doesNotMatch(component, /setInterval|polling/i);
+test("Dineplan has no Admin or scheduled workflow entry point", () => {
+  assert.doesNotMatch(
+    adminPage,
+    /DineplanReconciliation|id: "dineplan"|setActiveSystemTab\("dineplan"\)/,
+  );
+  assert.doesNotMatch(
+    workflowRoute,
+    /runDineplanScheduledEmails|dineplanScheduledEmails/,
+  );
 });
 
-test("snapshots are private, bounded and deduplicated by checksum", () => {
-  assert.match(migration, /checksum text not null unique/);
-  assert.match(migration, /file_size bigint[^;]+10485760/s);
-  assert.match(migration, /enable row level security/g);
-  assert.match(migration, /revoke all[^;]+from anon, authenticated/gs);
-  assert.doesNotMatch(migration, /storage\.buckets|storage_path|binary|bytea/i);
-});
-
-test("performance candidates stay bounded and duplicate previews refresh metadata only", () => {
-  assert.match(route, /\.eq\("date", snapshot\.performanceDate\)/);
-  assert.match(route, /query = query\.eq\("time", snapshot\.performanceTime\)/);
-  assert.match(route, /query = query\.ilike\("venue"/);
-  assert.match(route, /existing\.status === "preview"/);
-  assert.match(route, /source_generated_at: snapshot\.generatedAt/);
-  assert.match(route, /performance_date: snapshot\.performanceDate/);
-  assert.match(route, /return Response\.json\(\{ duplicate: true, shows, snapshot: resolvedSnapshot \}\)/);
-  assert.match(route, /searchParams\.get\("snapshotId"\)/);
-  assert.match(route, /matchesDineplanPerformance/);
-  assert.match(component, /setShowId\(""\)/);
-  assert.doesNotMatch(component, /payload\.shows\.length === 1 \? payload\.shows\[0\]\.id/);
-  assert.match(component, /File read successfully\. Select the matching performance to continue/);
-  assert.match(component, /Johannesburg/);
-  assert.match(component, /show\.time\.slice\(0, 5\)/);
-  assert.match(route, /action !== "reconcile" \|\| !body\.snapshotId \|\| !body\.showId/);
-});
-
-test("review metadata is isolated from booking lifecycle and the System tab is lazy", () => {
+test("historical Dineplan evidence remains preserved by its original schema", () => {
+  assert.match(migration, /dineplan_reconciliation_snapshots/);
   assert.match(migration, /dineplan_reconciliation_reviews/);
-  assert.match(component, /No booking details were changed/);
-  assert.match(adminPage, /activeSystemTab === "dineplan"/);
-  assert.doesNotMatch(adminPage, /refreshDineplan|loadDineplan/);
-  assert.match(component, /\/admin\?section=bookings&booking=/);
-  assert.match(route, /action !== "reconcile" \|\| !body\.snapshotId \|\| !body\.showId/);
-});
-
-test("next 30 days aggregates only uploaded reconciliation snapshots", () => {
-  assert.match(route, /searchParams\.get\("scope"\) === "next30"/);
-  assert.match(route, /dineplan_reconciliation_snapshots/);
-  assert.match(component, /Uploaded and compared files only/);
-  assert.doesNotMatch(component, /setInterval|EventSource|WebSocket/);
-});
-
-test("Stage 1 source contains no credential or scraping implementation", () => {
-  const combined = `${route}\n${component}\n${actionRoute}\n${digestWorkflow}`;
-  assert.doesNotMatch(combined, /dineplan_(?:password|username)|puppeteer|playwright|selenium|scrape/i);
-  assert.doesNotMatch(combined, /automatic login/i);
-});
-
-test("Action Centre is authenticated, venue scoped and cannot mutate bookings", () => {
-  assert.match(actionRoute, /requireActiveStaff/);
-  assert.match(actionRoute, /canReceiveDineplanVenue/);
-  assert.match(digestWorkflow, /routeDineplanDigestAudiences/);
-  assert.match(actionRoute, /dineplan_reconciliation_snapshots/);
-  assert.match(actionRoute, /order\("source_generated_at"/);
-  assert.match(actionRoute, /bookings:reconcile/);
-  assert.doesNotMatch(`${actionRoute}\n${actionStore}`, /from\("(bookings|payments|show_tables|tickets|shows)"\)[\s\S]{0,140}\.(?:insert|update|delete|upsert)\(/);
-  assert.doesNotMatch(actionRoute, /export async function GET[\s\S]*sendZingaraEmail/);
-});
-
-test("acknowledgement and no-action dispositions only update reconciliation metadata", () => {
-  assert.match(actionRoute, /action === "acknowledge"/);
-  assert.match(actionRoute, /action === "no_action"/);
-  assert.match(actionRoute, /A later reconciliation snapshot has already resolved this action/);
-  assert.match(actionStore, /resolved_by_reconciliation/);
-  assert.match(actionEngine, /materially_changed/);
-});
-
-test("recipient settings accept active staff identities only and default disabled", () => {
-  assert.match(actionRoute, /from\("staff_profiles"\)/);
-  assert.match(actionRoute, /\.eq\("active", true\)/);
-  assert.match(actionRoute, /settings:manage/);
-  assert.doesNotMatch(actionRoute, /from\("customers"\)/);
-  assert.match(migration, /hourly_reminders_enabled boolean not null default false/);
-  assert.match(scheduleMigration, /scheduled_emails_enabled boolean not null default false/);
-  assert.match(scheduleMigration, /morning_email_time time not null default time '09:00'/);
-  assert.match(scheduleMigration, /midday_email_time time not null default time '12:00'/);
-  assert.match(scheduleMigration, /final_email_time time not null default time '15:30'/);
-  assert.match(migration, /action_recipient_staff_ids uuid\[\]/);
-  assert.match(migration, /corporate_recipient_staff_ids uuid\[\]/);
-  for (const email of [
-    "fatima@zingara.co.za", "jacques@zingara.co.za", "retha@zingara.co.za", "sharonricketts@zingara.co.za",
-    "michael@zingara.co.za", "lisa@zingara.co.za", "aswin@zingara.co.za", "tracy@zingara.co.za",
-    "nicky-annedebeer@zingara.co.za", "marvin@zingara.co.za", "kaden@kaden.co.za",
-  ]) assert.match(migration, new RegExp(email.replace(".", "\\.")));
-  assert.doesNotMatch(migration, /mervin@/i);
-});
-
-test("recipient roles stay configurable and Corporate routing is server enforced", () => {
-  assert.match(actionRoute, /corporateRecipientStaffIds/);
-  assert.match(actionRoute, /corporate_recipient_staff_ids/);
-  assert.match(actionRoute, /Choose either General or Corporate only/);
-  assert.match(digestWorkflow, /routeDineplanDigestAudiences/);
-  assert.match(actionEngine, /bookingKind === "corporate"/);
-  assert.doesNotMatch(digestWorkflow, /michael@zingara|lisa@zingara/i);
-});
-
-test("Action Digest reuses the authoritative Zingara HTML shell and CTA styling", () => {
-  assert.match(digestWorkflow, /createBrandedCustomerEmail/);
-  assert.match(digestWorkflow, /includeAgePolicy: false/);
-  assert.match(digestWorkflow, /attachments: branded\.attachments/);
-  assert.match(actionEngine, /createZingaraEmailCta/);
-  assert.match(emailTemplate, /data-zingara-customer-email/);
-  assert.match(emailTemplate, /ZINGARA/);
-  assert.match(emailTemplate, /House of Zingara\. All rights reserved/);
-  assert.match(emailTemplate, /background:#d8c36a/);
-  assert.doesNotMatch(digestWorkflow, /<!doctype html>|<html lang=/);
-});
-
-test("digest preview cannot send and scheduler uses configured checkpoints", () => {
-  assert.match(actionRoute, /preview=1|searchParams\.get\("preview"\)/);
-  assert.doesNotMatch(actionRoute, /sendZingaraEmail/);
-  assert.match(workflowRoute, /runDineplanScheduledEmails/);
-  assert.match(vercelConfig, /\*\/15 \* \* \* \*/);
-  assert.match(digestWorkflow, /sendZingaraEmail/);
-  assert.match(smtp, /cc: cc \?\? undefined/);
-});
-
-test("trusted reconciliation triggers the first digest through the same claimed delivery path", () => {
-  assert.match(route, /triggerDineplanActionDigestAfterReconciliation/);
-  assert.match(route, /actionCount: actions\.length/);
-  assert.match(route, /runDigest: \(client\) => runDineplanActionDigest/);
-  assert.match(route, /mode: "immediate"/);
-  assert.match(digestTrigger, /await input\.runDigest\(input\.client\)/);
-  assert.match(digestWorkflow, /claim_due_dineplan_reconciliation_actions/);
-  assert.match(migration, /last_notified_at <= now\(\) - make_interval/);
-  assert.match(migration, /for update skip locked/);
-});
-
-test("immediate digest fails closed for untrusted or empty reconciliations", () => {
-  assert.match(digestTrigger, /if \(!input\.trusted\)/);
-  assert.match(digestTrigger, /if \(input\.actionCount <= 0\)/);
-  assert.match(digestTrigger, /reason: "untrusted"/);
-  assert.match(digestTrigger, /reason: "no_actions"/);
-});
-
-test("Vercel cron authentication accepts the standard secret without weakening legacy support", () => {
-  assert.match(workflowRoute, /process\.env\.CRON_SECRET/);
-  assert.match(workflowRoute, /process\.env\.WORKFLOW_CRON_SECRET/);
-  assert.match(workflowRoute, /configuredSecrets\.includes\(bearerToken\)/);
-  assert.match(workflowRoute, /status: 401/);
-});
-
-test("scheduled action job claims stored actions and never reruns reconciliation", () => {
-  assert.match(digestWorkflow, /claim_due_dineplan_reconciliation_actions/);
-  assert.doesNotMatch(digestWorkflow, /reconcileDineplanSnapshot|normalized_reservations|dineplan_reconciliation_snapshots/);
-  assert.match(scheduleMigration, /for update skip locked/);
-  assert.match(scheduleMigration, /notification_claimed_at/);
-  assert.match(scheduleMigration, /unique \(show_id, checkpoint_date, checkpoint_name\)/);
-  assert.match(scheduledWorkflow, /runDineplanActionDigest/);
-  assert.match(scheduledWorkflow, /buildDineplanSourceReminder/);
-});
-
-test("provider outcome integrity records sent only after acceptance", () => {
-  const sendIndex = digestWorkflow.indexOf("await sendZingaraEmail");
-  const sentIndex = digestWorkflow.indexOf('status: "sent"');
-  assert.ok(sendIndex >= 0 && sentIndex > sendIndex);
-  assert.match(digestWorkflow, /if \(!result\.ok\)/);
-  assert.match(digestWorkflow, /status: "failed"/);
-  assert.match(digestWorkflow, /notification_claimed_at: null/);
-});
-
-test("action state is stable and immutable history is retained", () => {
-  assert.match(migration, /action_key text not null unique/);
-  assert.match(migration, /dineplan_reconciliation_action_events/);
-  assert.match(migration, /resolved_by_snapshot_id/);
-  assert.match(migration, /grant select, insert on public\.dineplan_reconciliation_action_events/);
-  assert.doesNotMatch(migration, /grant[^;]+update[^;]+dineplan_reconciliation_action_events/i);
-});
-
-test("parser-version evidence is immutable and low-confidence reconciliation fails closed", () => {
-  assert.match(parserTrustMigration, /parser_version/);
-  assert.match(parserTrustMigration, /unique index[^;]+checksum, parser_version/s);
-  assert.match(parserTrustMigration, /review_required/);
-  assert.match(route, /reconciliation\.quality\.trusted/);
-  assert.match(route, /actionSyncStatus[^;]+withheld/);
-  assert.match(route, /if \(trusted\)[\s\S]+syncDineplanReconciliationActions/);
-  assert.match(component, /We couldn't safely compare this file/);
-  assert.match(component, /No booking actions or reminders were created/);
-});
-
-test("failed snapshots are visibly separated from the trusted source driving actions", () => {
-  assert.match(component, /selectedSnapshot=\{snapshot\}/);
-  assert.match(actionCentre, /Dineplan updated/);
-  assert.match(actionCentre, /selectedSnapshot\?\.status === "review_required"/);
-  assert.match(actionCentre, /No booking actions were created from it/);
-  assert.match(actionCentre, /Earlier bookings that still need attention/);
-  assert.match(actionCentre, /last file that could be safely compared/);
-  assert.doesNotMatch(actionCentre, /setInterval|polling/i);
-});
-
-test("historical snapshots without trust metadata remain readable", () => {
-  assert.match(component, /quality\?: \{/);
-  assert.match(component, /reconciliation\.quality && !reconciliation\.quality\.trusted/);
-});
-
-test("operational actions are compact and full evidence is bounded", () => {
-  assert.match(actionCentre, /Bookings that need attention/);
-  assert.match(actionCentre, /booking\$\{currentActions\.length === 1 \? " needs" : "s need"\} attention/);
-  assert.match(actionCentre, /<details/);
-  assert.match(component, /View full comparison/);
-  assert.match(component, /pageSize = 25/);
-  assert.match(component, />Search</);
-  assert.match(component, /Dineplan guests/);
-  assert.match(component, /Zingara guests/);
-  assert.match(component, /Table readiness is checked separately in Floor/);
-  assert.doesNotMatch(component, /explainedByRows\.map/);
-});
-
-test("normal Dineplan workflow removes acknowledgement and technical copy", () => {
-  assert.doesNotMatch(actionCentre, />Acknowledge</i);
-  assert.doesNotMatch(actionCentre, />Unacknowledged</i);
-  assert.doesNotMatch(actionCentre, / pax(?:<|\s)/i);
-  assert.doesNotMatch(component, />No authoritative match</i);
-  assert.match(actionCentre, /Email & reminder settings/);
-  assert.match(actionCentre, /Advanced settings/);
+  assert.doesNotMatch(reconciliationRoute, /\.delete\(|\.update\(|\.insert\(/);
+  assert.doesNotMatch(actionRoute, /\.delete\(|\.update\(|\.insert\(/);
 });
