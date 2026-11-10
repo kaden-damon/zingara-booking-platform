@@ -38,7 +38,11 @@ export async function runLiveXeroSyncWorker(client: SupabaseClient, limit = 10) 
       return { configured: config.configured && Boolean(config.webhookKey) && Boolean(data?.live_sync_activated_at), connected: data?.status === "connected", mappingsApproved: allRequiredXeroMappingsApproved(mappings ?? []), syncPaused: data?.sync_paused !== false };
     },
     async fail(item, failure) {
-      await client.from("xero_sync_outbox").update({ last_error: failure.message, lease_expires_at: null, lease_owner: null, next_attempt_at: failure.delayMs ? new Date(Date.now() + failure.delayMs).toISOString() : null, status: failure.terminal ? "blocked" : "pending", updated_at: new Date().toISOString() }).eq("id", item.id).eq("lease_owner", workerId);
+      const updatedAt = new Date().toISOString();
+      await client.from("xero_sync_outbox").update({ last_error: failure.message, lease_expires_at: null, lease_owner: null, next_attempt_at: failure.delayMs ? new Date(Date.now() + failure.delayMs).toISOString() : null, status: failure.terminal ? "blocked" : "pending", updated_at: updatedAt }).eq("id", item.id).eq("lease_owner", workerId);
+      if (failure.terminal && item.documentId) {
+        await client.from("xero_documents").update({ sync_status: "action_required", updated_at: updatedAt }).eq("id", item.documentId).is("xero_document_id", null);
+      }
     },
   };
   const runtimes = new Map<string, { adapter: XeroAccountingAdapter }>();

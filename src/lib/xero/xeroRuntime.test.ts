@@ -6,7 +6,7 @@ import { getXeroConfiguration } from "./config.ts";
 import { buildXeroAuthorizationUrl, createXeroOAuthState, exchangeXeroCode, listXeroTenants, refreshXeroTokens } from "./oauth.ts";
 import { reconcileAccounting } from "./reconciliation.ts";
 import { buildInvoiceReconciliation, shouldApplyWebhookEvent } from "./inbound.ts";
-import { buildXeroDocumentSyncPayload, documentMappingCategory } from "./queue.ts";
+import { buildXeroDocumentSyncPayload, documentMappingCategory, xeroContactNumber } from "./queue.ts";
 import { allRequiredXeroMappingsApproved, expectedXeroAccountCode, isXeroMappingApprovalSupported, xeroMappingKey } from "./mappings.ts";
 import { normaliseXeroDiscovery, verifiedXeroMapping } from "./discovery.ts";
 import { executeXeroOperation } from "./operations.ts";
@@ -98,7 +98,9 @@ test("document preparation uses approved source mapping and stable contact ident
   const document = { company_id: "company-1", contact_customer_id: null, customer_email: "accounts@example.com", customer_name: "Example Company", document_date: "2026-10-11", id: "doc", kind: "invoice" as const, line_amount_type: "exclusive" as const, lines: [{ description: "Corporate package", mappingCategory: "corporate", quantity: "1", taxRatePercent: "15", unitPrice: "43473.9130" }], local_reference: "ZD-1", source_booking_id: null, source_corporate_request_id: "request-1", status: "draft", valid_until: "2026-10-18", venue: "johannesburg" as const, version: 2 };
   assert.equal(documentMappingCategory(document), "corporate");
   const payload = buildXeroDocumentSyncPayload(document, [{ account_code: "200", category: "corporate", tax_code: "OUTPUT2", tax_rate: 15 }]);
-  assert.equal(payload.contact.contactNumber, "ZINGARA-COMPANY-company-1");
+  assert.equal(payload.contact.contactNumber, xeroContactNumber(document));
+  assert.match(payload.contact.contactNumber, /^ZINGARA-COMPANY-[a-f0-9]{24}$/);
+  assert.ok(payload.contact.contactNumber.length <= 50);
   assert.equal(payload.command.lines[0].unitAmount, 43473.913);
   assert.throws(() => documentMappingCategory({ ...document, source_corporate_request_id: null }), /Link this document/);
 });
@@ -226,4 +228,6 @@ test("transport classifies provider and timeout failures for bounded retry", asy
   await assert.rejects(rateLimited.request({ method: "GET", path: "/Invoices", tenantId: "tenant" }), (error: unknown) => error instanceof XeroApiError && error.retryable && error.retryAfterSeconds === 3);
   const forbidden = new FetchXeroTransport("access", "https://example.test", async () => new Response(JSON.stringify({}), { status: 403 }));
   await assert.rejects(forbidden.request({ method: "GET", path: "/Invoices", tenantId: "tenant" }), (error: unknown) => error instanceof XeroApiError && !error.retryable);
+  const invalid = new FetchXeroTransport("access", "https://example.test", async () => new Response(JSON.stringify({ Message: "A validation exception occurred", Elements: [{ ValidationErrors: [{ Message: "Contact Number must be 50 characters or fewer" }] }] }), { status: 400 }));
+  await assert.rejects(invalid.request({ method: "PUT", path: "/Contacts", tenantId: "tenant" }), /Contact Number must be 50 characters or fewer/);
 });

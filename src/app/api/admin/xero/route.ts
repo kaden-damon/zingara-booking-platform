@@ -568,14 +568,14 @@ export async function PATCH(request: Request) {
   if (!permissions.includes("bookings:manage") && !canCreateInvoice(auth, permissions)) {
     return Response.json({ error: "Quote or Accounts access is required." }, { status: 403 });
   }
-  const body = (await request.json()) as { action?: "accept" | "convert" | "queue" | "request-invoice" | "send"; acceptedBy?: string; evidence?: string; documentId?: string; version?: number };
+  const body = (await request.json()) as { action?: "accept" | "convert" | "queue" | "request-invoice" | "retry" | "send"; acceptedBy?: string; evidence?: string; documentId?: string; version?: number };
   if (!body.documentId || !body.action) return Response.json({ error: "Choose a document action." }, { status: 400 });
   const { data: current, error } = await auth.serviceClient.from("xero_documents").select("*").eq("id", body.documentId).single();
   if (error || !current) return Response.json({ error: "The document could not be found." }, { status: 404 });
   if (!allowedVenues(auth.staffProfile.venue_scope).includes(current.venue)) return Response.json({ error: "This venue is outside your access." }, { status: 403 });
   if (body.version !== current.version) return Response.json({ error: "This document has changed. Refresh and try again." }, { status: 409 });
 
-  if (body.action === "queue") {
+  if (body.action === "queue" || body.action === "retry") {
     const authorisedConverter = canConvertQuote(auth, permissions);
     if (!authorisedConverter) return Response.json({ error: "Only Tristan or Rachelle can create an approved Xero invoice." }, { status: 403 });
     const { data: connection } = await auth.serviceClient.from("xero_connections").select("tenant_id,status,sync_paused,live_sync_activated_at").not("tenant_id", "is", null).order("updated_at", { ascending: false }).limit(1).maybeSingle();
@@ -646,7 +646,10 @@ export async function PATCH(request: Request) {
       }
       const idempotencyKey = `xero:${current.kind}:${current.id}:v${current.version}`;
       const status = "pending";
-      const { error: queueError } = await auth.serviceClient.rpc("queue_xero_invoice_sync_atomic", {
+      const queueFunction = body.action === "retry"
+        ? "retry_xero_invoice_sync_atomic"
+        : "queue_xero_invoice_sync_atomic";
+      const { error: queueError } = await auth.serviceClient.rpc(queueFunction, {
         p_actor_auth_user_id: auth.user.id,
         p_actor_location_scope: auth.staffProfile.venue_scope ?? [],
         p_actor_name: auth.staffProfile.full_name,

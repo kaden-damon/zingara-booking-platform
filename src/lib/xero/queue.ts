@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { XeroDocumentCommand } from "./accountingAdapter.ts";
 import type { XeroMappingCategory } from "./mappings.ts";
 
@@ -34,13 +35,21 @@ export function documentMappingCategory(document: QueueableXeroDocument): XeroMa
   throw new Error("Link this document to a booking or Corporate enquiry before preparing it for Xero.");
 }
 
+export function xeroContactNumber(document: Pick<QueueableXeroDocument, "company_id" | "contact_customer_id">) {
+  const sourceId = document.company_id ?? document.contact_customer_id;
+  if (!sourceId) throw new Error("Link a Company or customer before preparing this document for Xero.");
+  const source = document.company_id ? "COMPANY" : "CUSTOMER";
+  const identity = createHash("sha256").update(`${source}:${sourceId}`).digest("hex").slice(0, 24);
+  return `ZINGARA-${source}-${identity}`;
+}
+
 export function buildXeroDocumentSyncPayload(
   document: QueueableXeroDocument,
   mappings: Array<{ account_code: string | null; category: string; tax_code: string | null; tax_rate?: number | null }>,
 ) {
   if (!document.company_id && !document.contact_customer_id) throw new Error("Link a Company or customer before preparing this document for Xero.");
   const approvedByCategory = new Map(mappings.map((mapping) => [mapping.category, mapping]));
-  const contactNumber = document.company_id ? `ZINGARA-COMPANY-${document.company_id}` : `ZINGARA-CUSTOMER-${document.contact_customer_id}`;
+  const contactNumber = xeroContactNumber(document);
   const command: Omit<XeroDocumentCommand, "contactId"> = {
     currencyCode: "ZAR",
     date: document.document_date,

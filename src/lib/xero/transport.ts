@@ -9,6 +9,25 @@ export class XeroApiError extends Error {
   constructor(message: string, status: number, retryAfterSeconds: number | null, retryable: boolean) { super(message); this.status = status; this.retryAfterSeconds = retryAfterSeconds; this.retryable = retryable; }
 }
 
+function xeroValidationMessage(payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const data = payload as Record<string, unknown>;
+  const messages = [data.Message, data.message]
+    .filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+  const elements = Array.isArray(data.Elements) ? data.Elements : [];
+  for (const element of elements) {
+    if (!element || typeof element !== "object" || Array.isArray(element)) continue;
+    const errors = (element as Record<string, unknown>).ValidationErrors;
+    if (!Array.isArray(errors)) continue;
+    for (const error of errors) {
+      if (!error || typeof error !== "object" || Array.isArray(error)) continue;
+      const message = (error as Record<string, unknown>).Message;
+      if (typeof message === "string" && message.trim()) messages.push(message);
+    }
+  }
+  return [...new Set(messages)].join(" ").slice(0, 500) || null;
+}
+
 export class FetchXeroTransport implements XeroTransport {
   private readonly accessToken: string; private readonly baseUrl: string; private readonly http: typeof fetch; private readonly timeoutMs: number;
   constructor(accessToken: string, baseUrl = "https://api.xero.com/api.xro/2.0", http: typeof fetch = fetch, timeoutMs = 15_000) { this.accessToken = accessToken; this.baseUrl = baseUrl; this.http = http; this.timeoutMs = timeoutMs; }
@@ -25,7 +44,15 @@ export class FetchXeroTransport implements XeroTransport {
       const retryAfterSeconds = Number(response.headers.get("retry-after")) || null;
       const correlationId = response.headers.get("xero-correlation-id");
       const data = response.status === 204 ? null : await response.json().catch(() => null);
-      if (!response.ok) throw new XeroApiError(`Xero request failed (${response.status}).`, response.status, retryAfterSeconds, response.status === 401 || response.status === 409 || response.status === 429 || response.status >= 500);
+      if (!response.ok) {
+        const detail = xeroValidationMessage(data);
+        throw new XeroApiError(
+          detail ? `Xero request failed (${response.status}): ${detail}` : `Xero request failed (${response.status}).`,
+          response.status,
+          retryAfterSeconds,
+          response.status === 401 || response.status === 409 || response.status === 429 || response.status >= 500,
+        );
+      }
       return { correlationId, data: data as T, retryAfterSeconds, status: response.status };
     } catch (error) {
       if (error instanceof XeroApiError) throw error;

@@ -152,11 +152,19 @@ async function loadRefundReadinessPayments(serviceClient: SupabaseClient) {
 }
 
 function getSafeProviderResponse(payload: Record<string, unknown>) {
+  const data = payload.data;
+  const response = data && typeof data === "object" && !Array.isArray(data)
+    ? (data as Record<string, unknown>).response
+    : null;
+  const source = response && typeof response === "object" && !Array.isArray(response)
+    ? response as Record<string, unknown>
+    : payload;
   const safeKeys = [
     "amount",
     "amount_available",
     "amount_available_for_refund",
     "available_refund_amount",
+    "funding_type",
     "message",
     "reason",
     "refund_id",
@@ -166,9 +174,15 @@ function getSafeProviderResponse(payload: Record<string, unknown>) {
   const safePayload: Record<string, unknown> = {};
 
   for (const key of safeKeys) {
-    if (payload[key] !== undefined) {
-      safePayload[key] = payload[key];
+    if (source[key] !== undefined) {
+      safePayload[key] = source[key];
     }
+  }
+
+  const fullMethod = source.refund_full;
+  if (fullMethod && typeof fullMethod === "object" && !Array.isArray(fullMethod)) {
+    const method = (fullMethod as Record<string, unknown>).method;
+    if (typeof method === "string") safePayload.full_refund_method = method;
   }
 
   return safePayload;
@@ -274,7 +288,7 @@ function getUnsupportedRefundMethodReason(
   method: "bank_payout" | "not_available" | "payment_source" | "unknown",
 ) {
   if (method === "bank_payout") {
-    return "PayFast requires a manual bank-payout refund for this transaction.";
+    return "PayFast requires banking details for this transaction because it cannot return the funds to the original payment source.";
   }
 
   if (method === "not_available") {
@@ -830,7 +844,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         error: definiteRejection
-          ? "Refund was rejected by PayFast. No changes were made to the booking."
+          ? `Refund was rejected by PayFast: ${error instanceof Error ? error.message : "The provider did not accept the request."} No changes were made to the booking.`
           : "PayFast returned an unknown refund outcome. The booking is unchanged and another attempt is locked pending reconciliation.",
       },
       { status: 502 },

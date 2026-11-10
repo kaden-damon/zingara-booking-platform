@@ -13,6 +13,7 @@ type PayFastRefundFetch = typeof fetch;
 
 export type PayFastRefundAvailability = {
   amountAvailable: number;
+  fundingType: string | null;
   fullRefundMethod:
     | "bank_payout"
     | "not_available"
@@ -148,11 +149,16 @@ async function parsePayFastJson(response: Response) {
   >;
 
   if (!response.ok) {
+    const responseData = getPayFastApiResponse(payload);
     const message =
       typeof payload.message === "string"
         ? payload.message
         : typeof payload.error === "string"
           ? payload.error
+          : typeof responseData.message === "string"
+            ? responseData.message
+            : Array.isArray(responseData.errors) && typeof responseData.errors[0] === "string"
+              ? responseData.errors[0]
           : "PayFast refund request failed.";
 
     const definiteRejection =
@@ -222,6 +228,10 @@ export async function queryPayFastRefundAvailability(
 
   return {
     amountAvailable: amountAvailableInCents / 100,
+    fundingType:
+      typeof refundData.funding_type === "string"
+        ? refundData.funding_type.trim() || null
+        : null,
     fullRefundMethod: getFullRefundMethod(refundData),
     providerState,
     raw,
@@ -247,20 +257,20 @@ export async function submitPayFastRefund(
   fetcher: PayFastRefundFetch = fetch,
 ): Promise<PayFastRefundResult> {
   const amountInCents = Math.round(input.amount * 100);
-  const body = new URLSearchParams({
+  const bodyFields = {
     amount: String(amountInCents),
     notify_buyer: input.notifyBuyer ? "1" : "0",
     notify_merchant: input.notifyMerchant ? "1" : "0",
     reason: input.reason,
-  });
+  };
   const url = `${config.apiUrl}/refunds/${encodeURIComponent(
     input.pfPaymentId,
   )}`;
   const response = await fetcher(url, {
-    body,
+    body: JSON.stringify(bodyFields),
     headers: {
-      ...createRefundHeaders(config, Object.fromEntries(body)),
-      "Content-Type": "application/x-www-form-urlencoded",
+      ...createRefundHeaders(config, bodyFields),
+      "Content-Type": "application/json",
     },
     method: "POST",
   });

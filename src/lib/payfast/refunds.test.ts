@@ -98,9 +98,10 @@ test("PayFast refund API signing orders passphrase and formats timestamps", asyn
     };
 
     if (request.init?.method === "POST") {
-      const body = request.init.body as URLSearchParams;
+      assert.equal(headers.get("content-type"), "application/json");
+      const body = JSON.parse(String(request.init.body)) as Record<string, string>;
 
-      for (const [key, value] of body.entries()) {
+      for (const [key, value] of Object.entries(body)) {
         signatureFields[key] = value;
       }
     }
@@ -110,4 +111,23 @@ test("PayFast refund API signing orders passphrase and formats timestamps", asyn
       createPayFastApiSignature(signatureFields, config.passphrase),
     );
   }
+});
+
+test("PayFast refund errors preserve nested provider detail without submitting another request", async () => {
+  const fetcher = async () => Response.json({
+    code: 400,
+    data: { response: { message: "Refund amount exceeds the available balance." } },
+    status: "error",
+  }, { status: 400 });
+
+  await assert.rejects(
+    submitPayFastRefund({
+      amount: 10,
+      notifyBuyer: true,
+      notifyMerchant: false,
+      pfPaymentId: "test-payment-id",
+      reason: "Test refund reason",
+    }, config, fetcher),
+    /exceeds the available balance/,
+  );
 });

@@ -27,11 +27,19 @@ function getRequestMetadata(request: Request) {
 }
 
 function getSafeProviderResponse(payload: Record<string, unknown>) {
+  const data = payload.data;
+  const response = data && typeof data === "object" && !Array.isArray(data)
+    ? (data as Record<string, unknown>).response
+    : null;
+  const source = response && typeof response === "object" && !Array.isArray(response)
+    ? response as Record<string, unknown>
+    : payload;
   const safeKeys = [
     "amount",
     "amount_available",
     "amount_available_for_refund",
     "available_refund_amount",
+    "funding_type",
     "message",
     "reason",
     "refund_id",
@@ -39,11 +47,19 @@ function getSafeProviderResponse(payload: Record<string, unknown>) {
     "status",
   ];
 
-  return Object.fromEntries(
+  const safePayload: Record<string, unknown> = Object.fromEntries(
     safeKeys.flatMap((key) =>
-      payload[key] === undefined ? [] : [[key, payload[key]]],
+      source[key] === undefined ? [] : [[key, source[key]]],
     ),
   );
+
+  const fullMethod = source.refund_full;
+  if (fullMethod && typeof fullMethod === "object" && !Array.isArray(fullMethod)) {
+    const method = (fullMethod as Record<string, unknown>).method;
+    if (typeof method === "string") safePayload.full_refund_method = method;
+  }
+
+  return safePayload;
 }
 
 function getStaffRole(profile: StaffProfileRow) {
