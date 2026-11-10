@@ -3350,7 +3350,7 @@ export default function BookingPage({
             ? message
             : checkoutOperation === "create_booking"
               ? `Booking could not be created. ${message}`
-              : `Payment could not be started. ${message}`,
+              : `Payment could not be started. Reservation ${reference} is saved. Use Find My Booking to retry payment. ${message}`,
         );
       }
       trackPlatformEvent({
@@ -3860,9 +3860,20 @@ export default function BookingPage({
   const royalBalconyZone = enabledSeatingZones.find(
     (zone) => zone.id === "royal-balcony",
   );
-  const retryBookingHref = selectedEntryLocation
-    ? `/book?location=${selectedEntryLocation}`
-    : "/book";
+  const paymentRecoveryHref = (() => {
+    const params = new URLSearchParams();
+
+    if (postPaymentBookingReference) {
+      params.set("reference", postPaymentBookingReference);
+    }
+
+    if (selectedEntryLocation) {
+      params.set("location", selectedEntryLocation);
+    }
+
+    const query = params.toString();
+    return query ? `/find-booking?${query}` : "/find-booking";
+  })();
 
   function renderPostPaymentExperience() {
     if (postPaymentStatus === "idle") {
@@ -3941,14 +3952,14 @@ export default function BookingPage({
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
               {isProblem && (
                 <Link
-                  href={retryBookingHref}
+                  href={paymentRecoveryHref}
                   className="rounded-full bg-[#D8C36A] px-6 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#F2D66C]"
                 >
-                  Try Again
+                  Check Reservation
                 </Link>
               )}
               <Link
-                href="/find-booking"
+                href={paymentRecoveryHref}
                 className="rounded-full border border-white/15 px-6 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white hover:text-black"
               >
                 Find My Booking

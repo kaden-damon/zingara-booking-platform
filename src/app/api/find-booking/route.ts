@@ -420,9 +420,13 @@ export async function POST(request: Request) {
         paymentStatus:
           metadataBooking?.paymentStatus ??
           booking.payment_status.replaceAll("_", "-"),
-        paymentStatusLabel: toDisplayStatus(
-          metadataBooking?.paymentStatus ?? booking.payment_status,
-        ),
+        paymentStatusLabel:
+          booking.archived_at || booking.booking_status === "cancelled"
+            ? "Cancelled"
+            : toDisplayStatus(
+                metadataBooking?.paymentStatus ?? booking.payment_status,
+              ),
+        isArchived: Boolean(booking.archived_at),
         seatingZone: metadataBooking?.zoneTitle ?? booking.section ?? "Seating",
         gratuityPolicy: metadataBooking?.gratuityPolicy ?? null,
         serviceFeeAmount:

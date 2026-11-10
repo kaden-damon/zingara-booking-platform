@@ -41,6 +41,7 @@ type FoundBooking = {
   partySize: number;
   paymentStatus: string;
   paymentStatusLabel: string;
+  isArchived: boolean;
   seatingZone: string;
   gratuityPolicy?: "online-collected" | "pay-at-venue" | null;
   serviceFeeAmount: number;
@@ -167,9 +168,15 @@ export default function FindBookingPage() {
     useState<EntryLocationKey | null>(null);
   const [venueSettings, setVenueSettings] = useState(defaultVenueSettings);
 
-  const hasPendingPayment =
-    result?.booking.bookingStatus === "pending-payment" ||
-    result?.booking.paymentStatus === "pending-payment";
+  const hasPendingPayment = Boolean(
+    result &&
+      !result.booking.isArchived &&
+      result.booking.bookingStatus !== "cancelled" &&
+      result.booking.bookingStatus !== "refunded" &&
+      result.booking.balanceDue > 0 &&
+      (result.booking.bookingStatus === "pending-payment" ||
+        result.booking.paymentStatus === "pending-payment"),
+  );
 
   function isTicketActionBusy(ticketCode: string) {
     const status = actionStatus[ticketCode] ?? "";
@@ -184,6 +191,7 @@ export default function FindBookingPage() {
   useEffect(() => {
     void getPublicVenueSettings().then(setVenueSettings).catch(() => undefined);
     const searchParams = new URLSearchParams(window.location.search);
+    const referenceFromQuery = searchParams.get("reference")?.trim();
     const locationFromQuery = normalizeEntryLocation(
       searchParams.get("location"),
     );
@@ -191,6 +199,12 @@ export default function FindBookingPage() {
       window.localStorage.getItem("zingara-selected-location"),
     );
     const nextLocation = locationFromQuery ?? locationFromStorage;
+
+    if (referenceFromQuery) {
+      queueMicrotask(() => {
+        setBookingReference(referenceFromQuery.toUpperCase());
+      });
+    }
 
     if (nextLocation) {
       setSelectedEntryLocation(nextLocation);

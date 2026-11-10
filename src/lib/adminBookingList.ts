@@ -34,9 +34,14 @@ export type AdminBookingListFilters = {
   source: BookingSalesSourceFilter;
 };
 
+export function isExactBookingReferenceSearch(search: string) {
+  return /^(?:ZNG|DP)-[A-Z0-9-]{4,}$/i.test(search.trim());
+}
+
 export function adminBookingListSearchParams(filters: AdminBookingListFilters) {
+  const searchesExactReference = isExactBookingReferenceSearch(filters.search);
   const params = new URLSearchParams({
-    archive: filters.archive,
+    archive: searchesExactReference ? "all" : filters.archive,
     attendance: filters.attendance,
     bookingCreatedDateFilter: filters.bookingCreatedDateFilter,
     bookingCreatedFrom: filters.bookingCreatedFrom,
@@ -45,7 +50,11 @@ export function adminBookingListSearchParams(filters: AdminBookingListFilters) {
     bookingDate: filters.bookingDate,
     bookingStatus: filters.bookingStatus,
     createdBy: filters.createdBy,
-    hideCancelled: filters.hideCancelled ? "1" : "0",
+    hideCancelled: searchesExactReference
+      ? "0"
+      : filters.hideCancelled
+        ? "1"
+        : "0",
     kind: filters.kind,
     listPage: String(filters.page),
     location: filters.location,

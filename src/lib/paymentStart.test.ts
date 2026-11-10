@@ -9,7 +9,7 @@ async function source(path: string) {
 test("public checkout generates its reference through a public server route", async () => {
   const page = await source("../app/book/page.tsx");
   const start = page.indexOf("async function createBookingReference");
-  const end = page.indexOf("function createWaitlistReference", start);
+  const end = page.indexOf("function getCurrencyCents", start);
   const referenceGenerator = page.slice(start, end);
 
   assert.match(referenceGenerator, /fetch\("\/api\/bookings\/reference"/);
@@ -41,7 +41,7 @@ test("Admin booking reads remain staff protected", async () => {
 test("booking creation precedes PayFast checkout and preserves transaction fee flow", async () => {
   const page = await source("../app/book/page.tsx");
   const createIndex = page.indexOf(
-    "await persistPendingCheckoutBooking(reference)",
+    "await persistPendingCheckoutBooking(\n        reference,",
   );
   const checkoutIndex = page.indexOf('fetch("/api/payfast/checkout"');
   const checkout = await source("./payfast/checkout.ts");
@@ -59,6 +59,10 @@ test("checkout telemetry distinguishes booking creation from PayFast preparation
   assert.match(
     page,
     /let checkoutOperation: "create_booking" \| "prepare_payfast_checkout"/,
+  );
+  assert.match(
+    page,
+    /Payment could not be started\. Reservation \$\{reference\} is saved\. Use Find My Booking to retry payment\./,
   );
   assert.match(page, /checkoutOperation = "prepare_payfast_checkout"/);
   assert.match(page, /operation: checkoutOperation/);

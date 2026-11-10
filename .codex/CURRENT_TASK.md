@@ -1,12 +1,97 @@
+# P0 - Public Booking And Payment Integrity
+
+STATUS: RELEASE CANDIDATE VERIFIED - PRODUCTION RELEASE IN PROGRESS
+
+DATE: 10 NOVEMBER 2026
+
+## Reconciliation
+
+- Production evidence from 9-10 November identified 103 online reservations:
+  72 confirmed and paid, 28 expired payment holds, two superseded holds and one
+  active pending hold requiring Box Office review.
+- All 86 received PayFast ITNs were complete, processed and linked to an
+  existing booking, payment link and payment row. Gross receipts totalled
+  R519,108.00. No captured payment, provider transaction or successful ITN was
+  missing its booking, and none was attached to an archived reservation.
+- Twelve explicit PayFast cancelled returns were recorded. Twenty expired holds
+  had no provider return or ITN and are classified as abandoned rather than
+  paid. Thirty-seven generated candidate references never became reservations;
+  their creation was rejected before durable persistence, mainly by the
+  two-seat rule, and they exist only in safe journey telemetry.
+
+## Root Cause And Correction
+
+- Find My Booking treated `payment_status = pending_payment` as payable even
+  after the reservation had expired and been archived. One archived reference,
+  `ZNG-VYBT2X`, produced 12 rate-limited checkout retries on 10 November despite
+  having no payment or ITN.
+- Admin's normal active-only and hide-cancelled filters also excluded expired
+  reservations during exact reference searches, making durable records appear
+  missing to Box Office.
+- Exact `ZNG-` and `DP-` reference searches now include archived/cancelled
+  records without changing ordinary list filters. Archived/cancelled/refunded
+  reservations cannot restart PayFast, and cancelled/failed returns route the
+  guest back to the same durable reference instead of starting a duplicate
+  booking journey. Checkout preparation failures now state that the saved
+  reservation can be recovered through Find My Booking.
+
+## Verification
+
+- Focused booking, PayFast, Admin-search, idempotency and security tests passed
+  44/44. TypeScript and the Production build passed.
+- Admin initial-route performance remained within budget: raw 1,294,390 /
+  1,320,000 bytes; gzip 314,260 / 320,000; largest gzip chunk 167,512 /
+  170,000. The correction adds no request, query, polling or background work.
+- No migration or Production data correction is required. `ZNG-BQQQWT` remains
+  an active R0-paid/R5,760-outstanding hold past expiry because an existing
+  communication prevents automatic cleanup; it requires manual Box Office
+  review and was not modified.
+- Full record:
+  `.codex/archive/P0_PUBLIC_BOOKING_PAYMENT_INTEGRITY_2026-11-10.md`.
+
+---
+
 # P0 - Supabase Disk I/O And Database Performance
 
-STATUS: INVESTIGATION COMPLETE - I/O BUDGET RECOVERED; MICRO CAPACITY RISK REMAINS
+STATUS: FOLLOW-UP COMPLETE - SMALL ACTIVE, PRODUCTION HEALTHY; MONITOR COMMITMENT
 
 DATE: 9 NOVEMBER 2026
 
-## Verified Position
+## Small Compute Follow-up
 
-- Production is healthy and the live Supabase Disk I/O Balance has recovered
+- The previously approved upgrade is active: Production is healthy on Supabase
+  Small compute in `eu-west-3`. No infrastructure change was repeated.
+- Live project utilisation was 42-51% CPU, 55-59% RAM and 27-29 of 90 database
+  connections. Disk I/O Balance was 99%; Small's sustained throughput baseline
+  is 22 MB/s, double the former Micro baseline.
+- Compared with the Micro assessment, live RAM pressure fell from 76-86% to
+  55-59%, connection headroom increased from 60 to 90, and the I/O balance
+  remained recovered at 99%. Database Observability still reports 1.57 GB used
+  and 2.14 GB committed, classed severe, so memory commitment remains a watch
+  item rather than an active outage.
+- Last-hour database evidence showed 4.46% CPU, 99.64% query cache hits, no
+  blocked queries and no disk-bound application outlier. The slowest material
+  application RPC observed was `get_admin_booking_page`, maximum 723 ms across
+  65 calls.
+- Last-hour Vercel evidence showed 8,400 function invocations, 0.2% errors,
+  zero timeouts, 36 ms active CPU P75, 549 ms TTFB P75 and 0.5% cold starts.
+  `/api/admin/waitlist` remains a low-volume latency watch item at 3.86 s P75
+  across 15 invocations.
+- Kaden's existing authorised session restored successfully and loaded the full
+  Production Admin calendar. Public `/book`, shows and venue-settings checks
+  returned HTTP 200. The PayFast ITN route returned the expected HTTP 405 to a
+  safe GET, confirming the POST-only callback endpoint is reachable without a
+  transaction.
+- Review and pre-show reminder schedules are active in Vercel. No job, email,
+  booking, checkout, payment or callback was triggered during verification.
+- Current Production deployment `J3xBEALhAgKsXAYErn6zgTHgxBRz` is Ready on
+  source `39f42c4`. No code, migration, database, billing or deployment change
+  was made. Business-data delta: zero.
+
+## Previous Micro Assessment (Historical Baseline)
+
+- At the time of the pre-upgrade assessment, Production was healthy and the
+  live Supabase Disk I/O Balance had recovered
   to 99%. Current database load is approximately 7 IOPS and 335.7 KB/s, with
   99% table/index cache hit rates, no blocked queries and no material
   application query outlier after the provider restart.
@@ -15,11 +100,12 @@ DATE: 9 NOVEMBER 2026
 - Telemetry, rate-limit and staff-presence writes are confirmed sources of
   ongoing database churn, but there is no active runaway loop and no safe
   evidence-backed query/index correction to deploy.
-- Micro memory remains the capacity concern: live RAM ranged from 76-86%, with
+- Micro memory was the capacity concern: live RAM ranged from 76-86%, with
   1.78 GB committed memory classed severe. Small compute is recommended because
   it doubles RAM and the sustained IOPS/throughput baselines.
-- Micro is about `$10/month`; Small is about `$15/month`. The estimated increase
-  is `$5.23/month`. No compute or billing change was made.
+- Micro was about `$10/month`; Small was about `$15/month`. The estimated
+  increase was `$5.23/month`. No compute or billing change was made during that
+  assessment; the upgrade was completed subsequently and is verified above.
 - No code, migration, database maintenance or Production deployment was needed.
   Business-data delta: zero.
 - Full record:
