@@ -20,7 +20,7 @@ type DiscoveryPayload = {
   taxRates: TaxRate[];
   trackingCategories: Array<{ id: string; name: string; status: string }>;
 };
-type SyncItem = { attempt_count: number; document_id: string | null; id: string; last_error: string | null; operation: string; status: string; updated_at: string };
+type SyncItem = { attempt_count: number; document: { id: string; local_reference: string; source_booking_reference: string | null; sync_status: string } | null; document_id: string | null; id: string; last_error: string | null; operation: string; status: string; updated_at: string };
 type SyncPayload = { items: SyncItem[]; total: number };
 type ReconciliationPayload = { items: Array<{ category: string; id: string; last_seen_at: string; provider_resource_type: string }>; total: number };
 type Draft = { accountId: string; accountSearch: string; taxCode: string };
@@ -48,7 +48,7 @@ function accountDetail(account: Account) {
   return identity;
 }
 
-export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Promise<void> }) {
+export default function XeroConnectionPanel({ onChanged, onReviewDocument }: { onChanged: () => Promise<void>; onReviewDocument: (documentId: string) => Promise<void> }) {
   const [payload, setPayload] = useState<ConnectionPayload | null>(null);
   const [mappings, setMappings] = useState<MappingsPayload>({ mappings: [] });
   const [discovery, setDiscovery] = useState<DiscoveryPayload | null>(null);
@@ -108,13 +108,6 @@ export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Pr
     } catch (caught) { setError(caught instanceof Error ? caught.message : "The mapping could not be saved."); }
     finally { setBusy(false); }
   }
-  async function retry(outboxId: string) {
-    setBusy(true); setError("");
-    try { await fetchSupabaseApi("/api/admin/xero/sync", { body: { action: "retry", outboxId }, method: "POST" }); await load(); await onChanged(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "The sync item could not be retried."); }
-    finally { setBusy(false); }
-  }
-
   const candidates = current?.organisation?.candidates ?? [];
   const categories = xeroCategoriesForVenue(selectedVenue);
   const revenueTaxRates = useMemo(() => discovery?.taxRates.filter((taxRate) => taxRate.canApplyToRevenue) ?? [], [discovery]);
@@ -152,11 +145,12 @@ export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Pr
         const suggestions = selectedAccount || !accountSearch ? [] : accountOptions.filter((account) => `${account.code} ${account.name} ${account.bankAccountSuffix}`.toLocaleLowerCase().includes(accountSearch)).slice(0, 5);
         const taxRequired = !isXeroPaymentMappingCategory(category);
         const approvalSupported = isXeroMappingApprovalSupported(selectedVenue, category);
+        const mappingUnchanged = Boolean(saved?.approved_at && selectedAccount && (saved.account_id === selectedAccount.accountId || (!saved.account_id && saved.account_code === selectedAccount.code)) && (!taxRequired || saved.tax_code === draft.taxCode));
         return <div key={key} className="grid gap-3 py-4 lg:grid-cols-[minmax(10rem,0.8fr)_minmax(14rem,1.5fr)_minmax(12rem,1fr)_auto] lg:items-center">
           <div><p className="text-sm text-white">{label(category)}</p><p className={`text-xs ${saved?.approved_at ? "text-emerald-300" : "text-amber-200"}`}>{saved?.approved_at ? "Approved and verified" : approvalSupported ? "Unapproved" : category === "deposits" ? "Part-payment policy · no sales mapping" : category === "refunds" ? "Original-invoice credit note · no standalone mapping" : "Awaiting Accounts treatment"}</p></div>
           <div><input aria-label={`${label(category)} Xero account`} autoComplete="off" className={input} list={`xero-accounts-${key}`} placeholder="Search account code, name or last four" value={draft.accountSearch} onChange={(event) => setDrafts((currentDrafts) => ({ ...currentDrafts, [key]: { ...draft, accountId: "", accountSearch: event.target.value } }))} /><datalist id={`xero-accounts-${key}`}>{accountOptions.map((account) => <option key={account.accountId} value={account.code || account.name}>{accountDetail(account)}</option>)}</datalist><p className="mt-1 truncate text-xs text-zinc-500">{selectedAccount ? accountDetail(selectedAccount) : saved?.account_name ?? "Choose from verified Xero accounts"}</p>{suggestions.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5" aria-label={`${label(category)} matching Xero accounts`}>{suggestions.map((account) => <button key={account.accountId} type="button" className="rounded-full border border-white/10 px-3 py-1.5 text-left text-xs text-zinc-300 transition hover:border-[#D8C36A]/60 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2D66C]" onClick={() => setDrafts((currentDrafts) => ({ ...currentDrafts, [key]: { ...draft, accountId: account.accountId, accountSearch: account.code || account.name } }))}>{accountDetail(account)}</button>)}</div>}</div>
           {taxRequired ? <select aria-label={`${label(category)} tax treatment`} className={input} value={draft.taxCode} onChange={(event) => setDrafts((currentDrafts) => ({ ...currentDrafts, [key]: { ...draft, taxCode: event.target.value } }))}><option value="">Choose tax treatment</option>{revenueTaxRates.map((taxRate) => <option key={taxRate.taxType} value={taxRate.taxType}>{taxRate.name} · {taxRate.displayRate}%</option>)}</select> : <p className="text-xs text-zinc-500">No invoice tax treatment</p>}
-          <button type="button" className={`${button} w-full lg:w-auto`} disabled={busy || !approvalSupported || !selectedAccount || (taxRequired && !draft.taxCode)} title={approvalSupported ? "Approve verified mapping" : "Accounts confirmation is required"} onClick={() => void saveMapping(category)}>Approve</button>
+          <button type="button" className={`${button} w-full lg:w-auto`} disabled={busy || !approvalSupported || !selectedAccount || (taxRequired && !draft.taxCode) || mappingUnchanged} title={mappingUnchanged ? "This mapping is approved" : approvalSupported ? "Approve verified mapping" : "Accounts confirmation is required"} onClick={() => void saveMapping(category)}>{mappingUnchanged ? "Approved" : saved?.approved_at ? "Update Approval" : "Approve"}</button>
         </div>;
       })}</div>
       <p className="mt-3 text-xs text-zinc-500">Invoices use the full booking value. Verified deposits are allocated later as part-payments and never mapped as duplicate sales.</p>
@@ -164,7 +158,7 @@ export default function XeroConnectionPanel({ onChanged }: { onChanged: () => Pr
     </div>}
 
     {(syncItems.total > 0 || reconciliation.total > 0) && <div className="grid gap-3 border-t border-white/10 p-4 sm:grid-cols-2 sm:p-5">
-      <div className="rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-sm font-semibold text-white">Sync attention</p><p className="mt-1 text-xs text-zinc-500">{syncItems.total} item{syncItems.total === 1 ? "" : "s"} waiting or paused.</p><div className="mt-2 space-y-2">{syncItems.items.filter((item) => item.status === "blocked").map((item) => <div key={item.id} className="flex items-center justify-between gap-2 text-xs"><span className="min-w-0 truncate text-zinc-300">{item.last_error || "Sync needs review."}</span><button type="button" className={button} disabled={busy} onClick={() => void retry(item.id)}>Retry</button></div>)}</div></div>
+      <div className="rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-sm font-semibold text-white">Sync attention</p><p className="mt-1 text-xs text-zinc-500">{syncItems.total} item{syncItems.total === 1 ? "" : "s"} waiting or paused.</p><div className="mt-2 space-y-2">{syncItems.items.filter((item) => item.status === "blocked").map((item) => <div key={item.id} className="flex items-center justify-between gap-2 text-xs"><span className="min-w-0 text-zinc-300"><span className="block font-semibold text-white">{item.document?.local_reference ?? "Unknown document"}{item.document?.source_booking_reference ? ` · ${item.document.source_booking_reference}` : ""}</span><span className="block break-words text-zinc-400">{item.last_error || "Sync needs review."}</span></span>{item.document_id && <button type="button" className={button} disabled={busy} onClick={() => item.document_id ? void onReviewDocument(item.document_id) : undefined}>Review</button>}</div>)}</div></div>
       <div className="rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-sm font-semibold text-white">Reconciliation</p><p className="mt-1 text-xs text-zinc-500">{reconciliation.total} open difference{reconciliation.total === 1 ? "" : "s"}.</p>{reconciliation.items.slice(0, 5).map((item) => <p key={item.id} className="mt-2 text-xs text-zinc-300">{label(item.category)} · {label(item.provider_resource_type)}</p>)}</div>
     </div>}
   </section>;

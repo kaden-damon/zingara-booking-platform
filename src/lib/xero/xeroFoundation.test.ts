@@ -159,18 +159,26 @@ test("admin integration stays bounded and presents disconnected truth", async ()
   assert.doesNotMatch(workspace, /Xero is connected/);
 });
 
-test("blocked sync recovery is bounded, permissioned and atomically audited", async () => {
-  const [route, panel, migration] = await Promise.all([
+test("blocked sync recovery identifies the document and routes through the rebuilt-payload retry", async () => {
+  const [route, panel, workspace, migration] = await Promise.all([
     source("../../app/api/admin/xero/sync/route.ts"),
     source("../../app/admin/XeroConnectionPanel.tsx"),
-    source("../../../supabase/migrations/20261011235500_phase_49_1_xero_manual_retry.sql"),
+    source("../../app/admin/XeroWorkspace.tsx"),
+    source("../../../supabase/migrations/20261110170000_invoice_sync_retry_integrity.sql"),
   ]);
   assert.match(route, /\.limit\(20\)/);
   assert.match(route, /settings:manage/);
-  assert.match(route, /retry_xero_sync_outbox_atomic/);
+  assert.match(route, /local_reference,source_booking_reference,sync_status/);
+  assert.doesNotMatch(route, /retry_xero_sync_outbox_atomic/);
+  assert.match(route, /use Retry Xero so its provider payload is rebuilt/);
   assert.match(panel, /Sync attention/);
+  assert.match(panel, /item\.document_id \? void onReviewDocument\(item\.document_id\)/);
   assert.match(panel, /Reconciliation/);
+  assert.match(workspace, /onReviewDocument=\{openDocument\}/);
+  assert.match(workspace, /xeroDocumentStatusLabel/);
+  assert.doesNotMatch(workspace, /row\.xero_document_number \?\? "Not connected"/);
   assert.match(migration, /for update/);
-  assert.match(migration, /xero\.sync-retry-requested/);
+  assert.match(migration, /xero_invoice_sync_retried/);
+  assert.match(migration, /payload = p_payload/);
   assert.match(migration, /insert into public\.audit_events/);
 });
