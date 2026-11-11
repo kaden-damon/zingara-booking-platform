@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   formatSeatingPreviewRecommendation,
+  formatSeatingPreviewSeatAvailability,
   getGuestPaymentDisclosures,
   getGuestVenueInclusions,
   getSeatingPreviewTicketInclusion,
@@ -31,13 +32,19 @@ test("seating preview recommendation keeps spaces around dynamic text", () => {
 test("seating preview uses the approved venue-specific ticket inclusion", () => {
   assert.equal(
     getSeatingPreviewTicketInclusion("cape-town"),
-    "Your ticket includes a welcome drink, a decadent 3-course dinner and a 2½-hour performance experience.",
+    "Your ticket includes a welcome drink and canapés on arrival, a decadent 3-course dinner and a 2½-hour performance experience.",
   );
   assert.equal(
     getSeatingPreviewTicketInclusion("Johannesburg"),
-    "Your ticket includes a welcome drink, a decadent 4-course dinner and a 2½-hour performance experience.",
+    "Your ticket includes a welcome drink on arrival, a decadent 4-course dinner and a 2½-hour performance experience.",
   );
   assert.equal(getSeatingPreviewTicketInclusion(null), "");
+});
+
+test("seating preview availability uses the correct singular and plural labels", () => {
+  assert.equal(formatSeatingPreviewSeatAvailability(1), "1 Seat Available");
+  assert.equal(formatSeatingPreviewSeatAvailability(2), "2 Seats Available");
+  assert.equal(formatSeatingPreviewSeatAvailability(0), "0 Seats Available");
 });
 
 test("payment notices distinguish outstanding balances from included gratuity", () => {

@@ -21,6 +21,7 @@ import GuestBookingDisclosures from "../components/GuestBookingDisclosures";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
   formatSeatingPreviewRecommendation,
+  formatSeatingPreviewSeatAvailability,
   getSeatingPreviewTicketInclusion,
 } from "../../lib/guestDisclosures";
 import PublicMaintenanceBoundary from "./PublicMaintenanceBoundary";
@@ -5053,7 +5054,7 @@ export default function BookingPage({
                       <p className="mt-2 text-sm font-semibold text-[#F2D66C]">
                         {formatCurrency(
                           getDisplayedZonePrice(selectedZone),
-                        )}{isStaffBookingJourney ? " per guest" : ` pp · ${availability.remainingSeats} Seats Available`}
+                        )}{isStaffBookingJourney ? " per guest" : ` pp · ${formatSeatingPreviewSeatAvailability(availability.remainingSeats)}`}
                       </p>
                       {staffAvailability && (
                         <p className="mt-1 text-sm font-semibold text-white">
@@ -5978,7 +5979,7 @@ export default function BookingPage({
                     <p className="mt-3 text-sm font-semibold text-[#F2D66C]">
                       {formatCurrency(
                         getDisplayedZonePrice(previewSeatingZone),
-                      )}{isStaffBookingJourney ? " per guest" : ` pp · ${availability.remainingSeats} Seats Available`}
+                      )}{isStaffBookingJourney ? " per guest" : ` pp · ${formatSeatingPreviewSeatAvailability(availability.remainingSeats)}`}
                     </p>
                     {staffAvailability && (
                       <>

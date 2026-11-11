@@ -50,12 +50,16 @@ export function getSeatingPreviewTicketInclusion(
   const location = resolveGuestVenueLocation(venue);
 
   if (location === "cape-town") {
-    return "Your ticket includes a welcome drink, a decadent 3-course dinner and a 2½-hour performance experience.";
+    return "Your ticket includes a welcome drink and canapés on arrival, a decadent 3-course dinner and a 2½-hour performance experience.";
   }
   if (location === "johannesburg") {
-    return "Your ticket includes a welcome drink, a decadent 4-course dinner and a 2½-hour performance experience.";
+    return "Your ticket includes a welcome drink on arrival, a decadent 4-course dinner and a 2½-hour performance experience.";
   }
   return "";
+}
+
+export function formatSeatingPreviewSeatAvailability(remainingSeats: number) {
+  return `${remainingSeats} ${remainingSeats === 1 ? "Seat" : "Seats"} Available`;
 }
 
 export function formatSeatingPreviewRecommendation(

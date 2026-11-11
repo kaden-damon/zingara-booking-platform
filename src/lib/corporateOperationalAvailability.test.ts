@@ -92,7 +92,7 @@ test("public availability remains base-capped and cannot request operational cap
   assert.match(route, /return auth\.error/);
   assert.match(page, /manualCheckoutRole !== "none"/);
   assert.match(page, /: "base"/);
-  assert.match(page, /availability\.remainingSeats\} Seats Available/);
+  assert.match(page, /formatSeatingPreviewSeatAvailability\(availability\.remainingSeats\)/);
   assert.match(presentation, /baseRemaining/);
   assert.match(
     presentation,
