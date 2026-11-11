@@ -114,3 +114,13 @@ test("new bookings use v2 while legacy fee compatibility remains v1-only", () =>
   assert.match(migration, /feePolicyVersion' = 'payment-method-v1'/);
   assert.doesNotMatch(migration, /feePolicyVersion' = 'payment-method-v2'/);
 });
+
+test("the booking review preserves visible cents without padding whole-rand prices", () => {
+  const page = readFileSync(
+    new URL("../app/book/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(page, /minimumFractionDigits: Number\.isInteger\(normalized\) \? 0 : 2/);
+  assert.match(page, /maximumFractionDigits: 2/);
+});
