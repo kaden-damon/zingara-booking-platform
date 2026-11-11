@@ -1,3 +1,42 @@
+# Surgical Share Review Functionality
+
+STATUS: COMPLETE - DEPLOYED AND AUTHENTICATED PRODUCTION VERIFIED
+
+DATE: 11 NOVEMBER 2026
+
+- Every Admin Reviews row now has compact icon-only Copy and Share actions
+  with accessible names and tooltips. Copy provides brief `Copied` feedback;
+  Share uses the native device share sheet and falls back to Copy where native
+  sharing is unavailable.
+- Shared links contain only the existing opaque review UUID and the Reviews
+  section target. They do not include guest names, contact details, booking
+  references, review content or moderation state.
+- Opening a shared link loads the exact review through the existing Reviews
+  interface, displays a `Back to review queue` action and remains valid if the
+  review's moderation status changes. Existing Admin authentication,
+  `communications:manage` permission and venue scoping remain authoritative.
+- Production verification confirmed Copy feedback, the UUID-only link, direct
+  review navigation, native macOS sharing without sending, and contained icon
+  controls at a 390 x 844 mobile viewport. An unauthenticated exact-review API
+  request returned HTTP 401.
+- The normal Reviews queue performs no additional request. The exact review and
+  its details are fetched only when a direct link opens; the result is reused
+  rather than fetched twice. No polling, dependency or database change was
+  introduced.
+- Focused review tests passed 24/24. TypeScript, changed-file ESLint,
+  `git diff --check` and the Next.js Production build passed. The Admin bundle
+  remained inside the existing performance budget (313,828-byte gzip total;
+  167,299-byte largest gzip chunk).
+- Application commit `b44829cd542357610b2a692bc4bf1185e887746a` deployed to
+  Production as `5LcS7oCUL7ngGGtVz66B5G5jjPp6`, Ready at 12:16:55 SAST.
+- Business-data delta: none. No reviews, moderation states, customer data,
+  bookings, payments or audit records changed during implementation or QA.
+- Full record:
+  `.codex/archive/SURGICAL_SHARE_REVIEW_FUNCTIONALITY_2026-11-11.md`.
+
+---
+
+
 # P0 - Booking Transfer & Platform-Wide Seating Integrity
 
 STATUS: COMPLETE - PLATFORM FIX DEPLOYED; AUTHORISED PRODUCTION TRANSFER, RECONCILIATION AND UNSENT PAYMENT LINK VERIFIED
