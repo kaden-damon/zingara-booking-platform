@@ -91,6 +91,11 @@ const FullShowBuyoutSeatingPlanner = dynamic(() =>
     (module) => module.FullShowBuyoutSeatingPlanner,
   ),
 );
+const BookingTableSetTransfer = dynamic(() =>
+  import("./BookingTableSetTransfer").then(
+    (module) => module.BookingTableSetTransfer,
+  ),
+);
 const FinancialReconciliationModal = dynamic(() =>
   import("./BookingReconciliationModal").then(
     (module) => module.FinancialReconciliationModal,
@@ -40858,6 +40863,15 @@ export default function AdminDashboardPage({
                               totalPax={booking.partySize}
                               zoneCapacity={corporateZoneAvailability}
                             />
+                          ) : hasMultiTableAssignment ? (
+                            <div className="rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
+                              <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
+                                Multi-table assignment
+                              </span>
+                              <p className="mt-2 text-sm leading-6 text-zinc-300">
+                                Use Manual table set below to move every table together.
+                              </p>
+                            </div>
                           ) : (
                             <label>
                               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -40938,6 +40952,21 @@ export default function AdminDashboardPage({
                             </label>
                             )}
                           </div>
+                        )}
+                        {!isCorporateBooking && (
+                          <BookingTableSetTransfer
+                            key={`${booking.reference}-${booking.updatedAt}`}
+                            booking={booking}
+                            canManage={
+                              canManageBookings &&
+                              canManageTables &&
+                              !bookingIsReadOnly
+                            }
+                            onChanged={() =>
+                              refreshAssignedShowState(booking.showId ?? "")
+                            }
+                            tables={tables}
+                          />
                         )}
                         <details className="mt-4 rounded-xl border border-white/10 bg-black/25 p-4">
                           <summary className="cursor-pointer text-sm font-semibold text-zinc-200">More booking actions</summary>

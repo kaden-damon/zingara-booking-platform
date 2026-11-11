@@ -1132,6 +1132,35 @@ export async function mapBookingPhysicalTable(input: {
   );
 }
 
+export type BookingZoneTableSetResult = {
+  booking_id: string;
+  booking_reference: string;
+  combined_capacity: number;
+  previous_section: string;
+  previous_table_ids: string[];
+  section: string;
+  table_codes: string[];
+  table_ids: string[];
+};
+
+export async function reallocateBookingZoneTables(input: {
+  bookingReference: string;
+  expectedTableIds: string[];
+  expectedUpdatedAt: string;
+  targetTableIds: string[];
+  targetZone: string;
+}) {
+  const response = await fetchSupabaseApi<{
+    ok: true;
+    result: BookingZoneTableSetResult;
+  }>("/api/admin/bookings", {
+    body: { action: "reallocate-zone-tables", ...input },
+    method: "PATCH",
+  });
+
+  return response.result;
+}
+
 export type CorporateZoneTransferResult = {
   booking_id: string;
   booking_reference: string;

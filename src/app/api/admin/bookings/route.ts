@@ -1427,6 +1427,24 @@ async function persistPhysicalTableMapping(
     );
   }
 
+  const { data: currentClaims, error: currentClaimsError } =
+    await auth.serviceClient
+      .from("show_tables")
+      .select("id")
+      .eq("booking_id", booking.id)
+      .is("merged_parent_id", null);
+
+  if (currentClaimsError) throw currentClaimsError;
+  if ((currentClaims ?? []).length > 1) {
+    return Response.json(
+      {
+        error:
+          "This booking uses multiple tables. Use Manual table set to move the complete assignment together.",
+      },
+      { status: 409 },
+    );
+  }
+
   const sourceTableQuery = booking.table_id
     ? auth.serviceClient
         .from("show_tables")
@@ -1765,6 +1783,79 @@ async function persistCorporateZoneTransfer(
       walletError,
     );
   }
+
+  return Response.json({ ok: true, result: data });
+}
+
+async function persistBookingZoneTableSet(
+  request: Request,
+  input: {
+    bookingReference?: string;
+    expectedTableIds?: string[];
+    expectedUpdatedAt?: string;
+    targetTableIds?: string[];
+    targetZone?: string;
+  },
+) {
+  const auth = await requireActiveStaff(request);
+
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) {
+    return auth.error;
+  }
+
+  const roleRow = Array.isArray(auth.staffProfile.roles)
+    ? auth.staffProfile.roles[0]
+    : auth.staffProfile.roles;
+  const role = getAdminRoleFromName(roleRow?.name);
+  const bookingReference = input.bookingReference?.trim() ?? "";
+  const expectedUpdatedAt = input.expectedUpdatedAt?.trim() ?? "";
+  const expectedTableIds = Array.from(
+    new Set((input.expectedTableIds ?? []).filter(Boolean)),
+  );
+  const targetTableIds = Array.from(
+    new Set((input.targetTableIds ?? []).filter(Boolean)),
+  );
+  const targetZone = input.targetZone?.trim() ?? "";
+
+  if (
+    !role ||
+    !rolePermissions[role].includes("bookings:manage") ||
+    !rolePermissions[role].includes("tables:manage")
+  ) {
+    return Response.json(
+      { error: "Booking and table management access is required." },
+      { status: 403 },
+    );
+  }
+
+  if (
+    !bookingReference ||
+    !expectedUpdatedAt ||
+    !targetZone ||
+    targetTableIds.length === 0 ||
+    targetTableIds.length !== (input.targetTableIds ?? []).length ||
+    expectedTableIds.length !== (input.expectedTableIds ?? []).length
+  ) {
+    return Response.json(
+      { error: "Select a valid, distinct operational table set." },
+      { status: 400 },
+    );
+  }
+
+  const { data, error } = await auth.serviceClient.rpc(
+    "reallocate_booking_zone_tables_atomic",
+    {
+      p_actor_auth_user_id: auth.user.id,
+      p_actor_staff_profile_id: auth.staffProfile.id,
+      p_booking_reference: bookingReference,
+      p_expected_table_ids: expectedTableIds,
+      p_expected_updated_at: expectedUpdatedAt,
+      p_target_table_ids: targetTableIds,
+      p_target_zone: targetZone,
+    },
+  );
+
+  if (error) throw error;
 
   return Response.json({ ok: true, result: data });
 }
@@ -3798,10 +3889,12 @@ export async function PATCH(request: Request) {
     destinationShowId?: string;
     expectedShowId?: string;
     expectedTableId?: string | null;
+    expectedTableIds?: string[];
     expectedUpdatedAt?: string;
     expectedZone?: string;
     operationalNotes?: string;
     targetTableId?: string;
+    targetTableIds?: string[];
     targetZone?: string;
     twoSeaterOverrideReason?: string;
     validateOnly?: boolean;
@@ -3871,7 +3964,8 @@ export async function PATCH(request: Request) {
         message.includes("SOURCE_TABLE_NOT_REALLOCATABLE") ||
         message.includes("TABLE_ZONE_NOT_SUPPORTED") ||
         message.includes("PHYSICAL_TABLE_NOT_AVAILABLE") ||
-        message.includes("TABLE_NOT_AVAILABLE")
+        message.includes("TABLE_NOT_AVAILABLE") ||
+        message.includes("TABLE_ASSIGNMENT_INTEGRITY_VIOLATION")
       ) {
         return Response.json(
           {
@@ -3886,6 +3980,73 @@ export async function PATCH(request: Request) {
 
       return Response.json(
         { error: "The operational table mapping could not be saved." },
+        { status: 500 },
+      );
+    }
+  }
+
+  if (body.action === "reallocate-zone-tables") {
+    try {
+      return await persistBookingZoneTableSet(request, body);
+    } catch (error) {
+      const message =
+        typeof error === "object" && error && "message" in error
+          ? String((error as { message?: unknown }).message ?? "")
+          : "";
+
+      if (/FLOOR_PLAN_STALE/i.test(message)) {
+        return Response.json(
+          {
+            error:
+              "The booking or table plan changed. Refresh and review the full assignment before retrying.",
+          },
+          { status: 409 },
+        );
+      }
+      if (/TABLE_ALREADY_CLAIMED|TABLE_NOT_AVAILABLE/i.test(message)) {
+        return Response.json(
+          { error: "One or more selected tables are no longer available." },
+          { status: 409 },
+        );
+      }
+      if (/COMBINED_TABLE_CAPACITY_INSUFFICIENT|TABLE_OCCUPANCY_OUT_OF_RANGE/i.test(message)) {
+        return Response.json(
+          { error: "The selected tables do not safely accommodate this booking." },
+          { status: 409 },
+        );
+      }
+      if (/ZONE_CAPACITY_EXCEEDED/i.test(message)) {
+        return Response.json(
+          { error: "The target seating zone no longer has sufficient operational capacity." },
+          { status: 409 },
+        );
+      }
+      if (
+        /CROSS_SHOW|CROSS_ZONE|MERGED_|TABLE_CAPACITY_REQUIRED|TABLE_NOT_ASSIGNABLE|TABLE_ASSIGNMENT_SET_INVALID|SUPPORTED_TARGET_ZONE_REQUIRED|MULTI_ZONE_BOOKING_WORKFLOW_REQUIRED|SEATING_ZONE_DISABLED/i.test(
+          message,
+        )
+      ) {
+        return Response.json(
+          { error: "The selected operational table set is not valid for this booking." },
+          { status: 409 },
+        );
+      }
+      if (/BOOKING_NOT_FOUND|ACTIVE_BOOKING_REQUIRED/i.test(message)) {
+        return Response.json(
+          { error: "The booking state changed. Refresh before retrying." },
+          { status: 409 },
+        );
+      }
+      if (/FLOOR_MANAGEMENT_PERMISSION_REQUIRED|SHOW_OUTSIDE_STAFF_SCOPE/i.test(message)) {
+        return Response.json(
+          { error: "Booking and table management access is required." },
+          { status: 403 },
+        );
+      }
+
+      console.error("[Zingara API] Operational table-set transfer failed", error);
+      return Response.json(
+        { error: "The seating transfer could not be completed." },
         { status: 500 },
       );
     }
