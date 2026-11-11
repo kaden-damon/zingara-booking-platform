@@ -1,6 +1,6 @@
 # P0 - Booking Transfer & Platform-Wide Seating Integrity
 
-STATUS: PLATFORM FIX COMPLETE - DEPLOYED AND AUTHENTICATED PRODUCTION VERIFIED; LIVE BOOKING CHANGE REQUIRES EXPLICIT APPROVAL
+STATUS: COMPLETE - PLATFORM FIX DEPLOYED; AUTHORISED PRODUCTION TRANSFER, RECONCILIATION AND UNSENT PAYMENT LINK VERIFIED
 
 DATE: 11 NOVEMBER 2026
 
@@ -20,12 +20,23 @@ DATE: 11 NOVEMBER 2026
 - Kaden's authenticated Production session verified the deployed control and
   target availability at 10:02 SAST. Tables 407 (11 seats), 408 (10 seats) and
   Lisa (21 seats) are available for the exact CPT performance.
-- `ZNG-9Z6XMR` remains unchanged. The safe target split is 11 on 407 and 10 on
-  408. Reconciled revised total is R36,382.50, paid credit R10,450.00 and
-  outstanding R25,932.50. Transfer, repricing and payment-link generation still
-  require explicit booking approval.
-- Business-data delta: zero booking, seating, payment, VAT, gratuity, ticket or
-  customer changes.
+- Kaden subsequently authorised the live booking adjustment. Production
+  committed the guarded transfer at 10:24:51 SAST: `ZNG-9Z6XMR` retained 21
+  guests, moved to Golden Circle, released Private Booths tables 1+2+3+4, and
+  assigned 11 guests to table 407 plus 10 guests to table 408.
+- Financials reconcile to tickets R32,340.00, historical gratuity R4,042.50,
+  total R36,382.50, original payment R10,450.00 and outstanding R25,932.50. The
+  original PayFast transaction remains unchanged.
+- One active balance link for R25,932.50 was created at 10:26:07 SAST. It is
+  unused and unsent; no communication or payment was initiated. Lisa can review
+  and send this existing link from Booking Details.
+- Authenticated Booking Details, Floor & Arrivals and the generated Production
+  Table Plan agree on Golden Circle tables 407+408. The workbook records 11 and
+  10 guests and carries the booking financials once, without duplicate revenue.
+- Business-data delta is limited to the explicitly authorised booking zone,
+  table claims and financial component reconciliation, one unsent payment-link
+  record and immutable audit evidence. Guest count, original payment, VAT
+  evidence, tickets, customer data and customer communications are unchanged.
 - Full record:
   `.codex/archive/P0_BOOKING_TRANSFER_PLATFORM_SEATING_INTEGRITY_2026-11-11.md`.
 

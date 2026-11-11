@@ -1,6 +1,6 @@
 # P0 Booking Transfer & Platform-Wide Seating Integrity
 
-STATUS: PLATFORM FIX COMPLETE - DEPLOYED AND AUTHENTICATED PRODUCTION VERIFIED; LIVE BOOKING CHANGE REQUIRES EXPLICIT APPROVAL
+STATUS: COMPLETE - PLATFORM FIX DEPLOYED; AUTHORISED PRODUCTION TRANSFER, RECONCILIATION AND UNSENT PAYMENT LINK VERIFIED
 
 DATE: 11 NOVEMBER 2026
 
@@ -86,4 +86,51 @@ DATE: 11 NOVEMBER 2026
 - Business-data delta: no booking, seating assignment, table, payment, VAT,
   gratuity, ticket or customer record changed. Only the new database function
   and its migration-history record were added.
+
+## Authorised Production Transfer
+
+- Kaden explicitly authorised the live change on 11 November 2026. Immediately
+  before execution, Production was revalidated: 21 guests remained on Private
+  Booths tables 1+2+3+4; Golden Circle tables 407 (11 seats) and 408 (10 seats)
+  were show-specific, operational and available; and the original R10,450.00
+  PayFast deposit remained authoritative.
+- A rollback-only transaction first verified the complete mutation and its
+  assertions without changing Production. The same guarded transaction then
+  committed once at 10:24:51 SAST using the deployed permission-controlled
+  table-set and financial-reconciliation functions.
+- The booking retained reference `ZNG-9Z6XMR` and 21 guests. Its entitlement is
+  now Golden Circle, with 11 guests on table 407 and 10 guests on table 408.
+  Private Booths tables 1, 2, 3 and 4 were released atomically and are available.
+- Financials now reconcile to tickets R32,340.00, retained historical gratuity
+  R4,042.50, total R36,382.50, original payment R10,450.00 and outstanding
+  R25,932.50. The original payment row and PayFast provider transaction
+  `335450255` are unchanged.
+- Production audit records attribute the successful table-set transfer,
+  financial reconciliation and authorised combined adjustment to Kaden Damon
+  at the same transaction timestamp. The shared request identifier is
+  `authorized-transfer-ZNG-9Z6XMR-20261111`.
+
+## Payment Link And Live Verification
+
+- Kaden's authenticated Production Booking Details showed Golden Circle,
+  tables 407+408, 21 guests, total R36,382.50, paid R10,450.00, outstanding
+  R25,932.50 and seating status `Table assigned`.
+- One balance-payment link was created at 10:26:07 SAST for exactly R25,932.50.
+  It is active, unused and expires on 18 November 2026 at 10:26 SAST. Its paid
+  and total snapshots are R10,450.00 and R36,382.50 respectively.
+- The link has not been sent: `sent_at` is null, no post-transfer communication
+  record exists, and no payment was initiated. Lisa can review and send the
+  existing active link from Booking Details.
+- Floor & Arrivals displayed tables 407 and 408 as reserved for Elloise Coetzee
+  with capacities 11 and 10, and displayed former tables 1+2+3+4 as available.
+- An authenticated Production Table Plan workbook generated at 10:31 SAST
+  placed Elloise on Golden Circle rows 407 and 408 with 11 and 10 guests. It
+  recorded paid R10,450.00 and outstanding R25,932.50 once on the lead row and
+  left the second table row financial cells blank, preventing duplication.
+- Final business-data delta: one booking's zone, complete table set and
+  reconciled financial component fields changed as authorised; four old table
+  claims were released; two target claims were created; one unsent payment-link
+  record and three immutable audit events were added. No guest count, original
+  payment, payment provider reference, VAT evidence, ticket, customer record or
+  customer communication changed.
 
