@@ -44,7 +44,6 @@ async function loadReviewPage(
       "id,booking_id,show_id,venue,public_display_name,rating,food_rating,value_rating,service_rating,ambience_rating,review_text,contact_requested,contacted_at,contacted_by,contact_method,replied_at,replied_by_name,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision",
       { count: "exact" },
     )
-    .eq("moderation_status", input.status)
     .in("venue", venues.length ? venues : ["__none__"])
     .order("submitted_at", { ascending: false })
     .order("id", { ascending: false })
@@ -52,6 +51,8 @@ async function loadReviewPage(
 
   if (input.reviewId) {
     query = query.eq("id", input.reviewId);
+  } else {
+    query = query.eq("moderation_status", input.status);
   }
 
   if (input.search) {

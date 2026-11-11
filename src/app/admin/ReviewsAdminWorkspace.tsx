@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
+import {
+  clearAdminReviewShareTarget,
+  getAdminReviewSharePath,
+} from "@/lib/reviews/reviewShare";
 import PlatformFeedbackAdminWorkspace from "./PlatformFeedbackAdminWorkspace";
 
 type ReviewStatus = "needs_review" | "not_published" | "published";
@@ -87,7 +91,7 @@ function statusLabel(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function ActionIcon({ name }: { name: "check" | "copy" | "email" | "filter" | "history" | "phone" | "publish" | "reply" | "reset" | "search" }) {
+function ActionIcon({ name }: { name: "check" | "copy" | "email" | "filter" | "history" | "phone" | "publish" | "reply" | "reset" | "search" | "share" }) {
   const paths = {
     check: <path d="m5 12 4 4L19 6" />,
     copy: <><rect height="13" rx="2" width="13" x="8" y="8" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>,
@@ -99,6 +103,7 @@ function ActionIcon({ name }: { name: "check" | "copy" | "email" | "filter" | "h
     reply: <path d="m9 17-5-5 5-5v3h4a7 7 0 0 1 7 7v2a8 8 0 0 0-7-5H9v3Z" />,
     reset: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></>,
     search: <><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></>,
+    share: <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4" /></>,
   };
   return <svg aria-hidden="true" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">{paths[name]}</svg>;
 }
@@ -135,6 +140,7 @@ export default function ReviewsAdminWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [targetReviewId, setTargetReviewId] = useState("");
+  const [deepLinkReady, setDeepLinkReady] = useState(false);
   const [replyMessage, setReplyMessage] = useState("");
   const [replyKey, setReplyKey] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
@@ -147,8 +153,10 @@ export default function ReviewsAdminWorkspace() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState("");
+  const [shareFeedback, setShareFeedback] = useState<{ id: string; message: string } | null>(null);
   const bulkCancelRef = useRef<HTMLButtonElement>(null);
   const bulkConfirmRef = useRef<HTMLButtonElement>(null);
+  const shareFeedbackTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -156,8 +164,10 @@ export default function ReviewsAdminWorkspace() {
         const query = new URLSearchParams(window.location.search);
         const queryReviewId = query.get("reviewId");
         const queryStatus = query.get("reviewStatus") as ReviewStatus | null;
-        if (queryReviewId && queryStatus && statusOptions.some((option) => option.value === queryStatus)) {
-          setStatus(queryStatus);
+        if (queryReviewId && getAdminReviewSharePath(queryReviewId)) {
+          if (queryStatus && statusOptions.some((option) => option.value === queryStatus)) {
+            setStatus(queryStatus);
+          }
           setPage(1);
           setSearch("");
           setTargetReviewId(queryReviewId);
@@ -174,9 +184,17 @@ export default function ReviewsAdminWorkspace() {
         sessionStorage.removeItem(reviewAnalyticsTargetKey);
       } catch {
         sessionStorage.removeItem(reviewAnalyticsTargetKey);
+      } finally {
+        setDeepLinkReady(true);
       }
     }, 0);
     return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => () => {
+    if (shareFeedbackTimerRef.current !== null) {
+      window.clearTimeout(shareFeedbackTimerRef.current);
+    }
   }, []);
 
   useEffect(() => {
@@ -212,7 +230,10 @@ export default function ReviewsAdminWorkspace() {
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: "10", status });
       if (debouncedSearch) params.set("search", debouncedSearch);
-      if (targetReviewId) params.set("reviewId", targetReviewId);
+      if (targetReviewId) {
+        params.set("details", "true");
+        params.set("reviewId", targetReviewId);
+      }
       params.set("rating", ratingFilter);
       params.set("venue", venueFilter);
       params.set("contact", contactFilter);
@@ -223,6 +244,7 @@ export default function ReviewsAdminWorkspace() {
         signal,
       });
       setResult(data);
+      if (targetReviewId) setSelectedDetail(data.rows[0] ?? null);
       setSelectedId((current) => current ?? data.rows[0]?.id ?? null);
     } catch (loadError) {
       if (loadError instanceof DOMException && loadError.name === "AbortError") return;
@@ -233,16 +255,18 @@ export default function ReviewsAdminWorkspace() {
   }, [contactFilter, debouncedSearch, page, privacyFilter, ratingFilter, replyFilter, status, targetReviewId, venueFilter]);
 
   useEffect(() => {
+    if (!deepLinkReady) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => void load(controller.signal), 0);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [load]);
+  }, [deepLinkReady, load]);
 
   useEffect(() => {
     if (!selectedId) return;
+    if (selectedDetail?.id === selectedId) return;
 
     const controller = new AbortController();
     const params = new URLSearchParams({
@@ -275,11 +299,12 @@ export default function ReviewsAdminWorkspace() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [detailVersion, selectedId, status]);
+  }, [detailVersion, selectedDetail, selectedId, status]);
 
   const listSelected = result.rows.find((row) => row.id === selectedId) ?? null;
   const selected = selectedDetail?.id === selectedId ? selectedDetail : listSelected;
   const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
+  const visibleStatus = targetReviewId && result.rows[0] ? result.rows[0].status : status;
   const activeFilterCount = [ratingFilter, venueFilter, contactFilter, replyFilter, privacyFilter]
     .filter((value) => value !== "all").length;
 
@@ -300,6 +325,61 @@ export default function ReviewsAdminWorkspace() {
     setTargetReviewId("");
     setSelectedId(null);
     setPage(1);
+  }
+
+  function showShareFeedback(id: string, message: string) {
+    if (shareFeedbackTimerRef.current !== null) {
+      window.clearTimeout(shareFeedbackTimerRef.current);
+    }
+    setShareFeedback({ id, message });
+    shareFeedbackTimerRef.current = window.setTimeout(() => {
+      setShareFeedback(null);
+      shareFeedbackTimerRef.current = null;
+    }, 1800);
+  }
+
+  function getReviewShareUrl(reviewId: string) {
+    const path = getAdminReviewSharePath(reviewId);
+    if (!path) throw new Error("This review link is unavailable.");
+    return new URL(path, window.location.origin).toString();
+  }
+
+  async function copyReviewLink(reviewId: string) {
+    try {
+      await navigator.clipboard.writeText(getReviewShareUrl(reviewId));
+      showShareFeedback(reviewId, "Copied");
+    } catch {
+      showShareFeedback(reviewId, "Copy failed");
+    }
+  }
+
+  async function shareReview(reviewId: string) {
+    const url = getReviewShareUrl(reviewId);
+    if (typeof navigator.share !== "function") {
+      await copyReviewLink(reviewId);
+      return;
+    }
+
+    try {
+      await navigator.share({ title: "Zingara Review", url });
+      showShareFeedback(reviewId, "Shared");
+    } catch (shareError) {
+      if (shareError instanceof DOMException && shareError.name === "AbortError") return;
+      showShareFeedback(reviewId, "Share failed");
+    }
+  }
+
+  function clearTargetReview() {
+    const targetStatus = result.rows[0]?.status;
+    if (targetStatus) setStatus(targetStatus);
+    setTargetReviewId("");
+    setSelectedDetail(null);
+    setSelectedId(null);
+    window.history.replaceState(
+      null,
+      "",
+      clearAdminReviewShareTarget(new URL(window.location.href)),
+    );
   }
 
   async function moderate(
@@ -446,7 +526,7 @@ export default function ReviewsAdminWorkspace() {
         <div className="flex overflow-x-auto rounded-xl border border-white/10 p-1">
           {statusOptions.map((option) => (
             <button
-              className={`whitespace-nowrap rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] ${status === option.value ? "bg-amber-300 text-black" : "text-zinc-400 hover:text-white"}`}
+              className={`whitespace-nowrap rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] ${visibleStatus === option.value ? "bg-amber-300 text-black" : "text-zinc-400 hover:text-white"}`}
               key={option.value}
               onClick={() => {
                 setTargetReviewId("");
@@ -504,7 +584,7 @@ export default function ReviewsAdminWorkspace() {
       {targetReviewId ? (
         <button
           className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-300 hover:text-amber-200"
-          onClick={() => setTargetReviewId("")}
+          onClick={clearTargetReview}
           type="button"
         >
           Back to review queue
@@ -521,36 +601,45 @@ export default function ReviewsAdminWorkspace() {
             <p className="py-10 text-sm text-zinc-500">No reviews are waiting.</p>
           ) : (
             result.rows.map((review) => (
-              <button
-                className={`w-full rounded-xl border p-4 text-left transition ${selectedId === review.id ? "border-amber-300/70 bg-amber-300/[0.06]" : "border-white/10 bg-white/[0.02] hover:border-white/25"}`}
+              <article
+                className={`rounded-xl border transition ${selectedId === review.id ? "border-amber-300/70 bg-amber-300/[0.06]" : "border-white/10 bg-white/[0.02] hover:border-white/25"}`}
                 key={review.id}
-                onClick={() => {
-                  setSelectedId(review.id);
-                  setNote(review.moderationNote ?? "");
-                  setCopied(false);
-                  setContactStatus("");
-                  setReplyStatus("");
-                }}
-                type="button"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-white">{review.displayName}</p>
-                    <p className="mt-1 text-xs text-zinc-500">{venueLabel(review.venue)} · {dateLabel(review.performanceDate)}</p>
+                <button
+                  className="w-full p-4 pb-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-300"
+                  onClick={() => {
+                    setSelectedId(review.id);
+                    setNote(review.moderationNote ?? "");
+                    setCopied(false);
+                    setContactStatus("");
+                    setReplyStatus("");
+                  }}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-white">{review.displayName}</p>
+                      <p className="mt-1 text-xs text-zinc-500">{venueLabel(review.venue)} · {dateLabel(review.performanceDate)}</p>
+                    </div>
+                    <span className="whitespace-nowrap text-sm text-amber-300" aria-label={`${review.rating} stars`}>
+                      {"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}
+                    </span>
                   </div>
-                  <span className="whitespace-nowrap text-sm text-amber-300" aria-label={`${review.rating} stars`}>
-                    {"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}
-                  </span>
+                  <p className="mt-3 line-clamp-2 text-sm leading-5 text-zinc-400">{review.reviewText}</p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.08em]">
+                    {review.contactState === "contacted" ? <span className="rounded-full border border-emerald-400/30 px-2 py-1 text-emerald-300">Contacted</span> : null}
+                    {review.contactState === "contact_requested" ? <span className="rounded-full border border-sky-400/30 px-2 py-1 text-sky-300">Contact requested</span> : null}
+                    {review.latestReply && <span className="rounded-full border border-emerald-400/30 px-2 py-1 text-emerald-300">Replied · {review.latestReply.actor_name}</span>}
+                    {review.privacyRequested === true && <span className="rounded-full border border-white/15 px-2 py-1 text-zinc-300">Private requested</span>}
+                    {review.status === "published" && <span className="rounded-full border border-amber-300/30 px-2 py-1 text-amber-200">Published</span>}
+                  </div>
+                </button>
+                <div className="flex min-h-11 items-center justify-end gap-1 border-t border-white/[0.06] px-3 py-2">
+                  {shareFeedback?.id === review.id ? <span className={`mr-auto text-xs ${shareFeedback.message.endsWith("failed") ? "text-red-300" : "text-emerald-300"}`} role="status">{shareFeedback.message}</span> : null}
+                  <button aria-label={`Copy direct link to review by ${review.displayName}`} className="inline-flex size-9 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:border-amber-300/50 hover:text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300" onClick={() => void copyReviewLink(review.id)} title="Copy review link" type="button"><ActionIcon name="copy" /></button>
+                  <button aria-label={`Share review by ${review.displayName}`} className="inline-flex size-9 items-center justify-center rounded-full border border-amber-300/30 text-amber-200 transition hover:bg-amber-300 hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300" onClick={() => void shareReview(review.id)} title="Share review" type="button"><ActionIcon name="share" /></button>
                 </div>
-                <p className="mt-3 line-clamp-2 text-sm leading-5 text-zinc-400">{review.reviewText}</p>
-                <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.08em]">
-                  {review.contactState === "contacted" ? <span className="rounded-full border border-emerald-400/30 px-2 py-1 text-emerald-300">Contacted</span> : null}
-                  {review.contactState === "contact_requested" ? <span className="rounded-full border border-sky-400/30 px-2 py-1 text-sky-300">Contact requested</span> : null}
-                  {review.latestReply && <span className="rounded-full border border-emerald-400/30 px-2 py-1 text-emerald-300">Replied · {review.latestReply.actor_name}</span>}
-                  {review.privacyRequested === true && <span className="rounded-full border border-white/15 px-2 py-1 text-zinc-300">Private requested</span>}
-                  {review.status === "published" && <span className="rounded-full border border-amber-300/30 px-2 py-1 text-amber-200">Published</span>}
-                </div>
-              </button>
+              </article>
             ))
           )}
 
