@@ -1,5 +1,8 @@
 import type { ComplimentaryBookingCategory } from "./internalComplimentaryBooking.ts";
-import { includedBookingFeeAmount } from "./bookingFees.ts";
+import {
+  calculateCurrencyPercentage,
+  toCurrencyAmount,
+} from "./currencyMath.ts";
 import type { SeatingZoneId } from "./zingaraDemo.ts";
 
 export type BookingGuestAllocation = {
@@ -217,29 +220,28 @@ export function calculateGuestAllocationFinancials(input: {
     ...allocation,
     subtotal: Math.max(input.zonePrice(allocation.zoneId), 0) * allocation.paidPax,
   }));
-  const ticketGrossAmount = seatingByZone.reduce(
+  const seatingSubtotal = toCurrencyAmount(seatingByZone.reduce(
     (sum, allocation) => sum + allocation.subtotal,
     0,
-  );
-  const includedBookingFee = ticketGrossAmount > 0 ? includedBookingFeeAmount : 0;
-  const seatingSubtotal = Math.max(
-    ticketGrossAmount - (input.includeBookingFee === false ? includedBookingFee : 0),
-    0,
-  );
-  const addonsTotal = totals.paidPax > 0 ? Math.max(input.addonsTotal, 0) : 0;
-  const subtotal = seatingSubtotal + addonsTotal;
-  const discountAmount = Math.min(
+  ));
+  const addonsTotal = totals.paidPax > 0
+    ? toCurrencyAmount(Math.max(input.addonsTotal, 0))
+    : 0;
+  const subtotal = toCurrencyAmount(seatingSubtotal + addonsTotal);
+  const discountAmount = toCurrencyAmount(Math.min(
     Math.max(input.discountAmount ?? 0, 0),
     subtotal,
+  ));
+  const discountedSubtotal = toCurrencyAmount(
+    Math.max(subtotal - discountAmount, 0),
   );
-  const discountedSubtotal = Math.max(subtotal - discountAmount, 0);
   const serviceFeeAmount =
     input.includeGratuity !== false &&
     totals.paidPax > 0 &&
     input.totalPax >= input.serviceFeeGuestThreshold
-      ? Math.round(discountedSubtotal * input.serviceFeeRate)
+      ? calculateCurrencyPercentage(discountedSubtotal, input.serviceFeeRate)
       : 0;
-  const total = discountedSubtotal + serviceFeeAmount;
+  const total = toCurrencyAmount(discountedSubtotal + serviceFeeAmount);
   const depositAmount = Math.min(
     total,
     seatingByZone.reduce((sum, allocation) => {
@@ -263,7 +265,7 @@ export function calculateGuestAllocationFinancials(input: {
 
   return {
     addonsTotal,
-    bookingFeeAmount: input.includeBookingFee === false ? 0 : includedBookingFee,
+    bookingFeeAmount: 0,
     depositAmount,
     depositPercentage: total > 0 ? (depositAmount / total) * 100 : 100,
     discountAmount,

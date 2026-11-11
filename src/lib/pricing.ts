@@ -8,7 +8,6 @@ import {
   calculateConfiguredDeposit,
   getConfiguredZonePrice,
   getConfiguredZoneMaxSeats,
-  getIncludedBookingFeeBreakdown,
   getVenueZoneSeatCapacity,
   seatingZones,
 } from "@/lib/zingaraDemo";
@@ -18,6 +17,10 @@ import {
   serviceFeeGuestThreshold,
   serviceFeeRate,
 } from "@/lib/bookingAddons";
+import {
+  calculateCurrencyPercentage,
+  toCurrencyAmount,
+} from "@/lib/currencyMath";
 
 export { serviceFeeGuestThreshold, serviceFeeRate } from "@/lib/bookingAddons";
 
@@ -101,10 +104,10 @@ export function getDiscountAmount(
     "discountValue" in promoCode ? promoCode.discountValue : promoCode.value;
 
   if (discountType === "percentage") {
-    return Math.max(0, Math.round(subtotal * (value / 100)));
+    return Math.max(0, calculateCurrencyPercentage(subtotal, value / 100));
   }
 
-  return Math.max(0, Math.min(Math.round(value), subtotal));
+  return Math.max(0, Math.min(toCurrencyAmount(value), subtotal));
 }
 
 export function getRemainingVenueSeatsForZone(
@@ -138,22 +141,21 @@ export function calculatePublicBookingPricing(
       partySize: input.partySize,
       remainingSeats: input.remainingSeats,
     });
-  const ticketGrossAmount = pricePerPerson * input.partySize;
-  const includedBookingFeeBreakdown =
-    getIncludedBookingFeeBreakdown(ticketGrossAmount);
-  const bookingFeeAmount = input.includeBookingFee === false
-    ? 0
-    : includedBookingFeeBreakdown.bookingFee;
-  const seatingSubtotal =
-    includedBookingFeeBreakdown.ticketAmount + bookingFeeAmount;
-  const subtotal = seatingSubtotal + addonsTotal;
-  const discountAmount = Math.min(input.promo?.discountAmount ?? 0, subtotal);
-  const discountedSubtotal = Math.max(subtotal - discountAmount, 0);
+  const ticketAmount = toCurrencyAmount(pricePerPerson * input.partySize);
+  const bookingFeeAmount = 0;
+  const seatingSubtotal = ticketAmount;
+  const subtotal = toCurrencyAmount(seatingSubtotal + addonsTotal);
+  const discountAmount = toCurrencyAmount(
+    Math.min(input.promo?.discountAmount ?? 0, subtotal),
+  );
+  const discountedSubtotal = toCurrencyAmount(
+    Math.max(subtotal - discountAmount, 0),
+  );
   const serviceFeeAmount =
     input.includeGratuity !== false && input.partySize >= serviceFeeGuestThreshold
-      ? Math.round(discountedSubtotal * serviceFeeRate)
+      ? calculateCurrencyPercentage(discountedSubtotal, serviceFeeRate)
       : 0;
-  const total = discountedSubtotal + serviceFeeAmount;
+  const total = toCurrencyAmount(discountedSubtotal + serviceFeeAmount);
   const depositAmount = calculateConfiguredDeposit(
     settings,
     zone,
@@ -176,7 +178,7 @@ export function calculatePublicBookingPricing(
     pricePerPerson,
     serviceFeeAmount,
     subtotal,
-    ticketAmount: includedBookingFeeBreakdown.ticketAmount,
+    ticketAmount,
     total,
   };
 }

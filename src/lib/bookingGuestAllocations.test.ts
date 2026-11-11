@@ -199,7 +199,7 @@ test("staff allocation persistence remains authorised, atomic and multi-zone for
   );
 });
 
-test("EFT allocation pricing excludes the configured embedded Booking Fee", () => {
+test("allocation pricing preserves ticket revenue and leaves fees to payment", () => {
   const financials = calculateGuestAllocationFinancials({
     addonsTotal: 0,
     allocations: [{ paidPax: 4, complimentaryPax: 0, zoneId: "golden-circle" }],
@@ -212,5 +212,5 @@ test("EFT allocation pricing excludes the configured embedded Booking Fee", () =
     zonePrice: () => 1_500,
   });
   assert.equal(financials.bookingFeeAmount, 0);
-  assert.equal(financials.subtotal, 5_990);
+  assert.equal(financials.subtotal, 6_000);
 });

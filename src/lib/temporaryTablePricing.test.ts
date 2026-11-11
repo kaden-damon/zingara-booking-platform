@@ -97,15 +97,13 @@ test("existing booking moves and table-price edits do not rewrite booking financ
   );
 });
 
-test("dynamic pricing remains absent and promo remains a separate pricing step", async () => {
+test("dynamic pricing remains absent and payment fees remain outside ticket pricing", async () => {
   const pricing = await source("./pricing.ts");
 
   assert.doesNotMatch(pricing, /getDynamicPriceMultiplier|1\.12|0\.95/);
-  assert.match(
-    pricing,
-    /const discountAmount = Math\.min\(input\.promo\?\.discountAmount \?\? 0, subtotal\)/,
-  );
-  assert.match(pricing, /getIncludedBookingFeeBreakdown\(seatingSubtotal\)/);
+  assert.match(pricing, /input\.promo\?\.discountAmount \?\? 0/);
+  assert.match(pricing, /const bookingFeeAmount = 0/);
+  assert.doesNotMatch(pricing, /getIncludedBookingFeeBreakdown/);
 });
 
 test("manual checkout clearly distinguishes custom and standard table pricing", async () => {

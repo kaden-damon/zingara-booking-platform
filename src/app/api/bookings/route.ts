@@ -1523,7 +1523,7 @@ async function withAuthoritativePublicPricing(
       bookingFeeAmount: pricing.bookingFeeAmount,
       depositPerPerson:
         booking.partySize > 0 ? pricing.depositAmount / booking.partySize : 0,
-      feePolicyVersion: "payment-method-v1",
+      feePolicyVersion: "payment-method-v2",
       paymentModel: booking.paymentOption === "deposit" ? "deposit" : "full",
       paymentMethod: isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis)
         ? "eft"
@@ -1662,7 +1662,7 @@ async function withAuthoritativeGuestAllocationPricing(
       bookingFeeAmount: pricing.bookingFeeAmount,
       depositPerPerson:
         booking.partySize > 0 ? pricing.depositAmount / booking.partySize : 0,
-      feePolicyVersion: "payment-method-v1",
+      feePolicyVersion: "payment-method-v2",
       paymentModel: booking.paymentOption === "deposit" ? "deposit" : "full",
       paymentMethod: isCorporateInvoicePaymentBasis(booking.corporatePaymentBasis)
         ? "eft"

@@ -39,7 +39,6 @@ import {
   serviceFeeGuestThreshold,
   serviceFeeRate,
 } from "../../lib/pricing";
-import { getIncludedBookingFeeBreakdown } from "../../lib/zingaraDemo";
 import { getAuthoritativePublicPricePerPerson } from "../../lib/authoritativePublicPrice";
 import {
   corporatePartySizeThreshold,
@@ -150,6 +149,10 @@ import {
   validateBookingGuestAllocations,
   type BookingGuestAllocationDraft,
 } from "../../lib/bookingGuestAllocations";
+import {
+  calculateCurrencyPercentage,
+  toCurrencyAmount,
+} from "../../lib/currencyMath";
 import {
   type CorporateInvoicePaymentBasis,
   validateCorporateInvoiceFinancials,
@@ -1277,12 +1280,9 @@ export default function BookingPage({
   const seatingSubtotal =
     mixedAllocationFinancials?.seatingSubtotal ??
     (selectedZone ? pricePerPerson * partySize : 0);
-  const eftBookingFeeAdjustment = isCorporateInvoice
-    ? getIncludedBookingFeeBreakdown(seatingSubtotal).bookingFee
-    : 0;
   const subtotal =
     mixedAllocationFinancials?.subtotal ??
-    Math.max(seatingSubtotal - eftBookingFeeAdjustment, 0) + addonsTotal;
+    toCurrencyAmount(seatingSubtotal + addonsTotal);
   const appliedPromoCode =
     promoValidationPreview?.status === "valid"
       ? {
@@ -1302,16 +1302,17 @@ export default function BookingPage({
         : 0);
   const discountedSubtotal =
     mixedAllocationFinancials?.discountedSubtotal ??
-    Math.max(subtotal - discountAmount, 0);
+    toCurrencyAmount(Math.max(subtotal - discountAmount, 0));
   const serviceFeeAmount =
     mixedAllocationFinancials?.serviceFeeAmount ??
     (isComplimentary
       ? 0
       : isCorporateCalendarCheckout && partySize >= serviceFeeGuestThreshold
-        ? Math.round(discountedSubtotal * serviceFeeRate)
+        ? calculateCurrencyPercentage(discountedSubtotal, serviceFeeRate)
         : 0);
   const total =
-    mixedAllocationFinancials?.total ?? discountedSubtotal + serviceFeeAmount;
+    mixedAllocationFinancials?.total ??
+    toCurrencyAmount(discountedSubtotal + serviceFeeAmount);
   const depositPerPerson = selectedZone
     ? getConfiguredZoneDepositAmount(venueConfig, selectedZone)
     : (venueConfig.operationalSettings.defaultDepositAmount ?? 0);

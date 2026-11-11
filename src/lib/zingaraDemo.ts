@@ -718,7 +718,7 @@ export type DemoBooking = {
     authorizedByStaffId?: string;
     bookingFeeAmount?: number;
     depositPerPerson: number;
-    feePolicyVersion?: "payment-method-v1";
+    feePolicyVersion?: "payment-method-v1" | "payment-method-v2";
     paymentMethod?: "eft" | "payfast";
     paymentModel: PaymentOption;
     source:
