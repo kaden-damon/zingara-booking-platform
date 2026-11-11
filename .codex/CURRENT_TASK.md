@@ -1,3 +1,37 @@
+# P0 - Booking Transfer & Platform-Wide Seating Integrity
+
+STATUS: PLATFORM FIX COMPLETE - DEPLOYED AND AUTHENTICATED PRODUCTION VERIFIED; LIVE BOOKING CHANGE REQUIRES EXPLICIT APPROVAL
+
+DATE: 11 NOVEMBER 2026
+
+- Root cause: the legacy one-table transfer changed the booking zone after
+  releasing only the primary claim, leaving the other three claims in the old
+  zone and triggering the deferred integrity constraint as a generic HTTP 500.
+- All 8,115 bookings were audited. No current booking is corrupted by this
+  failure; 464 multi-table bookings (383 future active) were vulnerable to the
+  shared path. Temporary, merged, cross-show, zone and primary-claim integrity
+  checks are recorded in the archive.
+- Production now uses one permission-controlled atomic table-set operation.
+  Multi-table transfers are routed through the lazy `Manual table set` control,
+  while stale, claimed and invalid selections return actionable errors.
+- Migration `20261111113000_p0_booking_zone_table_set_transfer.sql` is applied
+  and recorded. Application commit
+  `b0789f3d7716687852068773ca6703a7be231e2f` is on `main`.
+- Kaden's authenticated Production session verified the deployed control and
+  target availability at 10:02 SAST. Tables 407 (11 seats), 408 (10 seats) and
+  Lisa (21 seats) are available for the exact CPT performance.
+- `ZNG-9Z6XMR` remains unchanged. The safe target split is 11 on 407 and 10 on
+  408. Reconciled revised total is R36,382.50, paid credit R10,450.00 and
+  outstanding R25,932.50. Transfer, repricing and payment-link generation still
+  require explicit booking approval.
+- Business-data delta: zero booking, seating, payment, VAT, gratuity, ticket or
+  customer changes.
+- Full record:
+  `.codex/archive/P0_BOOKING_TRANSFER_PLATFORM_SEATING_INTEGRITY_2026-11-11.md`.
+
+---
+
+
 # Invoice & Refund Workflow Integrity
 
 STATUS: DEPLOYED - AUTHENTICATED APPLICATION VERIFIED; AUTHORISED XERO PROVIDER EXECUTION PENDING
