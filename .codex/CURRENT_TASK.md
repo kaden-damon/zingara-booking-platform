@@ -1,3 +1,40 @@
+# P0 Booking Fee & Financial Integrity
+
+STATUS: COMPLETE - DEPLOYED AND AUTHENTICATED PRODUCTION VERIFIED
+
+DATE: 11 NOVEMBER 2026
+
+- Corrected the shared legacy fee model that deducted R10 from Corporate
+  ticket revenue on fee-free invoice/EFT paths and rounded gratuity to a whole
+  rand.
+- The reference now reconciles exactly: R32,340.00 tickets, R4,042.50
+  Corporate gratuity and R36,382.50 booking total.
+- Invoice outstanding, invoice paid in full and manual EFT have no booking
+  fee. PayFast links and online checkout add the configured R10 transaction
+  fee once at the payment boundary, producing R36,392.50 for the reference.
+- Exact-cent calculations are shared by booking pricing and guest allocations.
+  New bookings use forward-only policy `payment-method-v2`; historical records
+  were not repriced or backfilled.
+- Production audit covered 332 future active legacy bookings across both
+  venues. Nine Corporate-direct legacy records require manual review; no
+  historical financial record was modified.
+- Focused financial tests passed 43/43, formatter checks passed 6/6, the
+  Production build passed and bundle sizes remained inside the existing Admin
+  performance budget. No request, polling or database overhead was added.
+- Authenticated Production verification confirmed exact totals for PayFast,
+  invoice paid and invoice outstanding without submitting a booking or payment.
+- Application commits `dd580fc9b1ca2758b5a8948bef36ad040d93067c`,
+  `d1619eedb54f4bad71794d6134f46d943187a325` and
+  `a213a0875b1c357f68ba2368f878dea74e2dff9f` deployed as
+  `Fa6teYkVZiiD4r2bjqTWi4XTTjic`, Ready at 14:21:31 SAST.
+- Business-data delta: none. No booking, payment, invoice, VAT, gratuity,
+  deposit, PayFast transaction, export or customer communication changed.
+- Full record:
+  `.codex/archive/P0_BOOKING_FEE_FINANCIAL_INTEGRITY_2026-11-11.md`.
+
+---
+
+
 # Surgical Share Review Functionality
 
 STATUS: COMPLETE - DEPLOYED AND AUTHENTICATED PRODUCTION VERIFIED
