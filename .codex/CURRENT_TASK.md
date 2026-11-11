@@ -815,13 +815,16 @@ DATE: 6 NOVEMBER 2026
 
 - Every public Seating Preview now displays one compact venue-specific ticket
   inclusion sentence directly beneath the seating-zone title.
-- Cape Town displays: `Your ticket includes a welcome drink, a decadent
-  3-course dinner and a 2½-hour performance experience.`
-- Johannesburg displays: `Your ticket includes a welcome drink, a decadent
-  4-course dinner and a 2½-hour performance experience.`
+- Cape Town displays: `Your ticket includes a welcome drink and canapés on
+  arrival, a decadent 3-course dinner and a 2½-hour performance experience.`
+- Johannesburg displays: `Your ticket includes a welcome drink on arrival,
+  a decadent 4-course dinner and a 2½-hour performance experience.`
 - The shared preview renderer and existing guest-disclosure venue resolver are
   reused, so the copy applies consistently to every seating zone without a new
   request, state change, dependency or duplicated popup.
+- The same shared availability formatter now renders `1 Seat Available` for a
+  single remaining seat and retains `Seats Available` for zero or multiple
+  seats in both the preview and selected-seating summary.
 
 ## Verification & Release
 
@@ -843,6 +846,27 @@ DATE: 6 NOVEMBER 2026
   seating, ticket, customer or financial record changed.
 - Existing record updated:
   `.codex/archive/GUEST_COMMUNICATION_DISCLOSURE_INTEGRITY_2026-11-05.md`.
+
+## Venue-Specific Copy Correction - 11 November 2026
+
+- Focused disclosure and source-regression tests passed 9/9. TypeScript,
+  focused ESLint, whitespace checks and the Production Next.js build passed.
+  The unchanged Admin bundle remained inside its established performance
+  budget (1,295,676 raw bytes; 313,829 gzip bytes; largest chunk 167,299
+  bytes).
+- Live Production verification covered Private Booths, Middle Ring, Golden
+  Circle and Royal Balcony for both Cape Town and Johannesburg. Canapés appear
+  only in the Cape Town sentence; Johannesburg uses the approved arrival copy.
+- The actual Production popup was inspected at desktop size and in Chrome's
+  390 x 844 responsive viewport for both venues. Copy, headings, CLOSE,
+  availability, pricing and actions remained contained and readable.
+- Singular and plural availability output is protected by direct formatter
+  tests, including `1 Seat Available`, `0 Seats Available` and plural counts.
+- Application and Production commit:
+  `fa37e792b9d94b237df355ea4c9a1a12eaffc732`. Production deployment:
+  `6jXsxwxmYNSSJkAepATPLgyDRnBo`, READY.
+- Performance impact: no additional API request, polling, state, effect,
+  dependency or background work. Business-data delta: none.
 
 ---
 

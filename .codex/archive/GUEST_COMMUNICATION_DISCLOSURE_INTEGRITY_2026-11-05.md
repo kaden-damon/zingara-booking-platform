@@ -1,5 +1,27 @@
 # Guest Communication & Disclosure Integrity
 
+## 11 November 2026 - Seating Preview Venue Copy Correction
+
+- Updated the shared venue disclosure source to Nicky-Anne's approved copy.
+  Cape Town now includes welcome drink and canapés on arrival, while
+  Johannesburg includes a welcome drink on arrival; both retain the approved
+  3-course/4-course dinner and 2½-hour performance wording.
+- Corrected seat-count grammar through one shared formatter used by both the
+  Seating Preview and selected-seating summary: `1 Seat Available`, with
+  `Seats Available` retained for zero and plural counts.
+- Focused tests passed 9/9. TypeScript, focused ESLint, whitespace checks and
+  the Production Next.js build passed. The unchanged Admin bundle remained
+  within its established budget (1,295,676 raw bytes; 313,829 gzip bytes;
+  largest chunk 167,299 bytes).
+- Live Production verification covered all four seating zones in both venues
+  on desktop. Cape Town and Johannesburg popups were also visually verified
+  at an actual 390 x 844 responsive viewport with no clipping or overflow.
+- Application and Production commit:
+  `fa37e792b9d94b237df355ea4c9a1a12eaffc732`. Deployment:
+  `6jXsxwxmYNSSJkAepATPLgyDRnBo`, READY.
+- No API request, polling, state, effect, dependency or background work was
+  added. Business-data delta: none.
+
 ## 6 November 2026 - Seating Preview Follow-up
 
 - Every public Seating Preview now renders the approved venue-specific ticket
