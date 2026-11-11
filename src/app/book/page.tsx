@@ -590,7 +590,7 @@ function getCurrencyCents(value: number) {
 
 function formatCurrency(amount: number) {
   const normalized = toCurrencyAmount(amount);
-  return `R${normalized.toLocaleString("en-ZA", {
+  return `R${normalized.toLocaleString("en-US", {
     maximumFractionDigits: 2,
     minimumFractionDigits: Number.isInteger(normalized) ? 0 : 2,
   })}`;

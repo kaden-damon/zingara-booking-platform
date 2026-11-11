@@ -123,4 +123,5 @@ test("the booking review preserves visible cents without padding whole-rand pric
 
   assert.match(page, /minimumFractionDigits: Number\.isInteger\(normalized\) \? 0 : 2/);
   assert.match(page, /maximumFractionDigits: 2/);
+  assert.match(page, /toLocaleString\("en-US"/);
 });
