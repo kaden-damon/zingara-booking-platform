@@ -129,6 +129,17 @@ export function getSelectedBookingPaymentAmount(row: PaymentLinkBookingRow) {
     return outstandingAmount;
   }
 
+  const depositPerPerson = Number(
+    booking.pricingProvenance?.depositPerPerson,
+  );
+
+  if (Number.isFinite(depositPerPerson) && depositPerPerson >= 0) {
+    return Math.min(
+      outstandingAmount,
+      Math.round(depositPerPerson * row.guest_count * 100) / 100,
+    );
+  }
+
   const depositPercentage = Number(booking.depositPercentage);
 
   if (!Number.isFinite(depositPercentage) || depositPercentage <= 0) {
@@ -140,8 +151,8 @@ export function getSelectedBookingPaymentAmount(row: PaymentLinkBookingRow) {
     Math.max(
       Math.round(
         Math.max(Number(row.total_amount) || 0, 0) *
-          (depositPercentage / 100),
-      ),
+          (depositPercentage / 100) * 100,
+      ) / 100,
       0,
     ),
   );

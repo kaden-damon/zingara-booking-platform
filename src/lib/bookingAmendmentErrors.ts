@@ -32,6 +32,8 @@ const ERROR_RESPONSES: Array<{
   { code: "LEGACY_MANUAL_BASIS_NOT_ALLOWED", message: "This booking already has confirmed pricing. Use its saved payment details.", status: 409 },
   { code: "LEGACY_INCREASE_REQUIRED", message: "Manual legacy pricing can only be used when adding guests.", status: 400 },
   { code: "GUEST_COUNT_REDUCTION_REQUIRED", message: "Enter a lower guest count for this retained-value workflow.", status: 400 },
+  { code: "UNPAID_NATIVE_REDUCTION_NOT_ALLOWED", message: "This booking requires financial review before its guest count can be reduced.", status: 409 },
+  { code: "UNPAID_REDUCTION_PRICING_BASIS_REQUIRED", message: "The saved per-person price or deposit could not be verified. Review the booking financials before reducing guests.", status: 409 },
   { code: "RETAINED_VALUE_ALLOCATION_REQUIRED", message: "Confirm the retained value transfer to Bar Tab.", status: 400 },
   { code: "LEGACY_FINANCIAL_EVIDENCE_REQUIRED", message: "Add the original invoice details before reducing this paid booking.", status: 409 },
   { code: "LEGACY_TICKET_RATE_INVALID", message: "The imported ticket, gratuity and Bar Tab values do not reconcile exactly. Review the evidence before continuing.", status: 409 },

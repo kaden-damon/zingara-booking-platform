@@ -278,7 +278,7 @@ export async function POST(request: Request) {
       body.action === "guest-count"
         ? await auth.serviceClient
             .from("bookings")
-            .select("booking_origin,booking_source,id,booking_reference,show_id,guest_count")
+            .select("amount_paid,booking_origin,booking_source,id,booking_reference,show_id,guest_count,payment_status")
             .eq("booking_reference", bookingReference)
             .maybeSingle()
         : { data: null, error: null };
@@ -319,11 +319,20 @@ export async function POST(request: Request) {
       body.manualPaymentBasis !== undefined || body.manualUnitAmount !== undefined;
     const hasLegacyInvoiceEvidence = Boolean(body.legacyInvoiceEvidence);
     const hasRetainedValueTransfer = Boolean(body.retainedValueTransfer);
+    const isUnpaidNativeReduction =
+      body.action === "guest-count" &&
+      Number(body.guestCount) < Number(bookingContext?.guest_count) &&
+      Number(bookingContext?.amount_paid) === 0 &&
+      bookingContext?.payment_status === "pending_payment" &&
+      ["admin_staff", "customer_public"].includes(
+        bookingContext?.booking_origin ?? "",
+      ) &&
+      ["admin", "online"].includes(bookingContext?.booking_source ?? "");
     const rpcName =
       body.action === "financial"
         ? hasLegacyInvoiceEvidence
           ? "reconcile_imported_booking_financials_atomic"
-          : "reconcile_booking_financials_atomic"
+          : "reconcile_booking_financials_and_links_atomic"
         : body.action === "guest-count"
           ? isCorporateFixedTotal
             ? "reconcile_corporate_booking_guest_count_atomic"
@@ -331,6 +340,8 @@ export async function POST(request: Request) {
             ? "reconcile_paid_booking_guest_reduction_atomic"
             : hasManualFinancialBasis
             ? "reconcile_legacy_booking_guest_count_financials_atomic"
+            : isUnpaidNativeReduction
+            ? "reconcile_unpaid_native_guest_reduction_atomic"
             : "reconcile_booking_guest_count_financials_atomic"
           : null;
 
