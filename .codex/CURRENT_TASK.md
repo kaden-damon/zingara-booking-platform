@@ -1,3 +1,43 @@
+# P0 Booking & Payment Link Integrity
+
+STATUS: COMPLETE - SHARED FIX DEPLOYED; CUSTOMER REMEDIATION PENDING APPROVAL
+
+DATE: 12 NOVEMBER 2026
+
+- `ZNG-C7CD9T` was created for 14 guests, so its original R21,560 link and
+  R7,700 deposit basis were correct at creation. A later unpaid reduction to
+  10 guests did not reprice the booking or invalidate the link. A subsequent
+  manual correction set R17,325 by adding an inapplicable R1,925 upfront
+  gratuity; Standard gratuity is payable at the venue.
+- The authoritative Standard amounts are R15,400 total and R5,500 deposit.
+  No payment, PayFast ITN or provider settlement exists.
+- `ZNG-5P686H` is correct: 2 Friends & Family guests at R1,150, R2,300 total
+  and a R1,100 deposit link. No payment was collected.
+- The shared fix atomically reprices unpaid native guest reductions from saved
+  per-person pricing, resolves the configured fixed deposit, synchronises
+  metadata and revokes active links. Manual financial reconciliation now also
+  invalidates links. Paid retained-value, Corporate, import and COMP paths are
+  unchanged.
+- Audited 2,667 future active bookings and 29 active unexpired links. Diana's
+  Standard booking is the only active booking with this exact defect and its
+  R21,560 link is the only stale link. Existing checkout guards reject it
+  before PayFast.
+- Focused tests passed 10/10; broader relevant tests passed 50/50. TypeScript,
+  ESLint, diff checks and the full webpack Production compilation passed.
+- Commit `59a339aaf05d32bd8bf71fb9421ea327c3e91748`; migration
+  `20261112100000_p0_booking_payment_link_integrity.sql`; Production deployment
+  `dpl_DVBLmnbrrnhC5GJKWTRKrbW6yrdX` Ready at 09:08:17 SAST.
+- Authenticated Production verified both references and the explicit stale-link
+  warning. Business-data delta: none.
+- Pending explicit approval: correct `ZNG-C7CD9T` to R15,400, revoke its stale
+  link, and choose a R5,500 deposit or R15,400 full-payment replacement. Do not
+  change or merge either booking without approval.
+- Full record:
+  `.codex/archive/P0_BOOKING_PAYMENT_LINK_INTEGRITY_2026-11-12.md`.
+
+---
+
+
 # P0 Booking Fee & Financial Integrity
 
 STATUS: COMPLETE - DEPLOYED AND AUTHENTICATED PRODUCTION VERIFIED
