@@ -135,6 +135,7 @@ export default function ReviewsAdminWorkspace() {
   const [privacyFilter, setPrivacyFilter] = useState<PrivacyFilter>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [result, setResult] = useState<ReviewPage>({ page: 1, pageSize: 10, rows: [], total: 0 });
+  const [resultKey, setResultKey] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<ReviewRow | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -201,9 +202,15 @@ export default function ReviewsAdminWorkspace() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), search.trim() ? 300 : 0);
+    const nextSearch = search.trim();
+    if (nextSearch === debouncedSearch) return;
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(nextSearch);
+      setTargetReviewId("");
+      setPage(1);
+    }, nextSearch ? 300 : 0);
     return () => window.clearTimeout(timer);
-  }, [search]);
+  }, [debouncedSearch, search]);
 
   useEffect(() => {
     if (!bulkOpen) return;
@@ -227,7 +234,12 @@ export default function ReviewsAdminWorkspace() {
     return () => window.removeEventListener("keydown", handleDialogKeys);
   }, [bulkBusy, bulkOpen]);
 
+  const queryKey = JSON.stringify([status, page, debouncedSearch, targetReviewId, ratingFilter, venueFilter, contactFilter, replyFilter, privacyFilter]);
+  const latestQuery = useRef(queryKey);
+  useEffect(() => { latestQuery.current = queryKey; }, [queryKey]);
+
   const load = useCallback(async (signal?: AbortSignal) => {
+    if (latestQuery.current !== queryKey || signal?.aborted) return;
     setLoading(true);
     setError("");
     setPageDraft(null);
@@ -248,16 +260,24 @@ export default function ReviewsAdminWorkspace() {
         cache: "no-store",
         signal,
       });
+      if (latestQuery.current !== queryKey || signal?.aborted) return;
       setResult(data);
-      if (targetReviewId) setSelectedDetail(data.rows[0] ?? null);
-      setSelectedId((current) => current ?? data.rows[0]?.id ?? null);
+      setResultKey(queryKey);
+      if (targetReviewId) {
+        const detail = data.rows.find((row) => row.id === targetReviewId) ?? null;
+        setSelectedDetail(detail);
+        setNote(detail?.moderationNote ?? "");
+        setSelectedId(detail?.id ?? null);
+      } else {
+        setSelectedId((current) => current && data.rows.some((row) => row.id === current) ? current : null);
+      }
     } catch (loadError) {
-      if (loadError instanceof DOMException && loadError.name === "AbortError") return;
+      if (latestQuery.current !== queryKey || signal?.aborted || (loadError instanceof DOMException && loadError.name === "AbortError")) return;
       setError(loadError instanceof Error ? loadError.message : "The review queue could not be loaded.");
     } finally {
-      if (!signal?.aborted) setLoading(false);
+      if (latestQuery.current === queryKey && !signal?.aborted) setLoading(false);
     }
-  }, [contactFilter, debouncedSearch, page, privacyFilter, ratingFilter, replyFilter, status, targetReviewId, venueFilter]);
+  }, [contactFilter, debouncedSearch, page, privacyFilter, queryKey, ratingFilter, replyFilter, status, targetReviewId, venueFilter]);
 
   useEffect(() => {
     if (!deepLinkReady) return;
@@ -269,16 +289,20 @@ export default function ReviewsAdminWorkspace() {
     };
   }, [deepLinkReady, load]);
 
+  const listSelected = resultKey === queryKey && search.trim() === debouncedSearch
+    ? result.rows.find((row) => row.id === selectedId) ?? null
+    : null;
+  const activeReviewId = listSelected?.id;
+
   useEffect(() => {
-    if (!selectedId) return;
-    if (selectedDetail?.id === selectedId) return;
+    if (!activeReviewId || selectedDetail?.id === activeReviewId || targetReviewId) return;
 
     const controller = new AbortController();
     const params = new URLSearchParams({
       details: "true",
       page: "1",
       pageSize: "10",
-      reviewId: selectedId,
+      reviewId: activeReviewId,
       status,
     });
     const timer = window.setTimeout(() => {
@@ -288,7 +312,8 @@ export default function ReviewsAdminWorkspace() {
         signal: controller.signal,
       })
         .then((data) => {
-          const detail = data.rows[0] ?? null;
+          if (controller.signal.aborted) return;
+          const detail = data.rows.find((row) => row.id === activeReviewId) ?? null;
           setSelectedDetail(detail);
           setNote(detail?.moderationNote ?? "");
         })
@@ -304,10 +329,9 @@ export default function ReviewsAdminWorkspace() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [detailVersion, selectedDetail, selectedId, status]);
+  }, [activeReviewId, detailVersion, selectedDetail, status, targetReviewId]);
 
-  const listSelected = result.rows.find((row) => row.id === selectedId) ?? null;
-  const selected = selectedDetail?.id === selectedId ? selectedDetail : listSelected;
+  const selected = listSelected && selectedDetail?.id === listSelected.id ? selectedDetail : listSelected;
   const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
   const paginationBusy = loading || result.page !== page || search.trim() !== debouncedSearch;
   const visibleStatus = targetReviewId && result.rows[0] ? result.rows[0].status : status;
@@ -328,15 +352,14 @@ export default function ReviewsAdminWorkspace() {
     setReplyFilter("all");
     setPrivacyFilter("all");
     setSearch("");
+    setDebouncedSearch("");
     setTargetReviewId("");
-    setSelectedId(null);
     setPage(1);
   }
 
   function changeFilter(update: () => void) {
     update();
     setTargetReviewId("");
-    setSelectedId(null);
     setPage(1);
   }
 
@@ -544,7 +567,6 @@ export default function ReviewsAdminWorkspace() {
               onClick={() => {
                 setTargetReviewId("");
                 setStatus(option.value);
-                setSelectedId(null);
                 setPage(1);
               }}
               type="button"
@@ -560,10 +582,7 @@ export default function ReviewsAdminWorkspace() {
             <input
               className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-zinc-600"
               onChange={(event) => {
-                setTargetReviewId("");
-                setSelectedId(null);
                 setSearch(event.target.value);
-                setPage(1);
               }}
               placeholder="Search reviews"
               type="search"
@@ -615,17 +634,23 @@ export default function ReviewsAdminWorkspace() {
           ) : (
             result.rows.map((review) => (
               <article
-                className={`rounded-xl border transition ${selectedId === review.id ? "border-amber-300/70 bg-amber-300/[0.06]" : "border-white/10 bg-white/[0.02] hover:border-white/25"}`}
+                className={`rounded-xl border transition ${activeReviewId === review.id ? "border-amber-300/70 bg-amber-300/[0.06]" : "border-white/10 bg-white/[0.02] hover:border-white/25"}`}
                 key={review.id}
               >
                 <button
                   className="w-full p-4 pb-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-300"
+                  aria-pressed={activeReviewId === review.id}
                   onClick={() => {
+                    if (resultKey !== queryKey || search.trim() !== debouncedSearch || activeReviewId === review.id) return;
                     setSelectedId(review.id);
+                    setSelectedDetail(null);
+                    setDetailLoading(false);
                     setNote(review.moderationNote ?? "");
                     setCopied(false);
                     setContactStatus("");
                     setReplyStatus("");
+                    setReplyMessage("");
+                    setReplyKey("");
                   }}
                   type="button"
                 >
@@ -713,9 +738,21 @@ export default function ReviewsAdminWorkspace() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/10 bg-black/20 p-5 sm:p-6">
+        <div aria-label="Review details" className="relative min-h-56 rounded-xl border border-white/10 bg-black/20 p-5 sm:p-6" role="region">
           {!selected ? (
-            <p className="text-sm text-zinc-500">Select a review to inspect it.</p>
+            <>
+              <div aria-hidden="true" inert className="pointer-events-none space-y-5 opacity-50 blur-[2px]">
+                <div className="h-7 w-2/5 rounded bg-white/15" />
+                <div className="grid grid-cols-2 gap-3 border-y border-white/10 py-4">
+                  <div className="h-4 w-3/4 rounded bg-white/10" />
+                  <div className="h-4 w-2/3 rounded bg-white/10" />
+                </div>
+                <div className="h-20 rounded-lg border border-white/10 bg-white/5" />
+              </div>
+              <div className="absolute inset-0 grid place-items-center rounded-xl bg-black/35 p-4">
+                <p className="text-sm font-medium text-zinc-200" role="status">Select a review to continue</p>
+              </div>
+            </>
           ) : (
             <div className="space-y-6">
               <div className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
