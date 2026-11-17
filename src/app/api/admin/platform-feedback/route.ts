@@ -1,5 +1,6 @@
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
+import { currentLatestReplyName, displayReply } from "@/lib/reviews/replyAttribution";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +44,12 @@ export async function GET(request: Request) {
   try {
     let query = auth.serviceClient
       .from("platform_feedback_submissions")
-      .select("id,booking_id,customer_id,show_id,venue,rating,show_date_ease,seating_ease,checkout_ease,comment,payment_confidence,booking_device,contact_requested,device_category,contacted_at,contacted_by,contact_method,replied_at,replied_by_name,status,revision,submitted_at", { count: "exact" })
+      .select("id,booking_id,customer_id,show_id,venue,rating,show_date_ease,seating_ease,checkout_ease,comment,payment_confidence,booking_device,contact_requested,device_category,contacted_at,contacted_by,contact_method,replied_at,replied_by_name,status,revision,submitted_at,latest:platform_feedback_replies(sent_at,staff:staff_profiles(full_name))", { count: "exact" })
       .in("venue", venue === "all" ? venues : [venue])
+      .eq("latest.status", "sent")
+      .order("sent_at", { ascending: false, referencedTable: "latest" })
+      .order("id", { ascending: false, referencedTable: "latest" })
+      .limit(1, { referencedTable: "latest" })
       .order("submitted_at", { ascending: false })
       .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
@@ -92,14 +97,14 @@ export async function GET(request: Request) {
     if (feedbackId && rows.length) {
       const [eventResult, replyResult, contactResult] = await Promise.all([
         auth.serviceClient.from("platform_feedback_events").select("id,feedback_id,event_type,actor_staff_profile_id,occurred_at,note").eq("feedback_id", feedbackId).order("occurred_at", { ascending: false }),
-        auth.serviceClient.from("platform_feedback_replies").select("id,feedback_id,actor_name,actor_email,message,sent_at").eq("feedback_id", feedbackId).eq("status", "sent").order("sent_at", { ascending: false }),
+        auth.serviceClient.from("platform_feedback_replies").select("id,feedback_id,actor_name,actor_email,message,sent_at,staff:staff_profiles(full_name)").eq("feedback_id", feedbackId).eq("status", "sent").order("sent_at", { ascending: false }),
         includeDetails
           ? auth.serviceClient.from("customers").select("email,mobile").eq("id", rows[0].customer_id).maybeSingle()
           : Promise.resolve({ data: null, error: null }),
       ]);
       if (eventResult.error || replyResult.error || contactResult.error) throw eventResult.error || replyResult.error || contactResult.error;
       events = eventResult.data ?? [];
-      replies = replyResult.data ?? [];
+      replies = (replyResult.data ?? []).map(displayReply);
       selectedContact = contactResult.data ?? null;
     }
     return Response.json({
@@ -129,7 +134,7 @@ export async function GET(request: Request) {
           paymentConfidence: row.payment_confidence,
           rating: row.rating,
           repliedAt: row.replied_at,
-          repliedBy: row.replied_by_name,
+          repliedBy: currentLatestReplyName(row.replied_by_name, row.replied_at, row.latest[0]),
           replies: replies.filter((reply) => reply.feedback_id === row.id),
           revision: row.revision,
           seatingEase: row.seating_ease,

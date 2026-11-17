@@ -27,6 +27,21 @@ function actorName(
   return (id && identities.get(id)) || fallback;
 }
 
+function auditActorName(
+  identities: Map<string, string>,
+  row: {
+    actor_staff_profile_id: string | null;
+    actor_auth_user_id: string | null;
+    actor_name: string | null;
+  },
+) {
+  return actorName(
+    identities,
+    row.actor_staff_profile_id,
+    actorName(identities, row.actor_auth_user_id, row.actor_name || "System"),
+  );
+}
+
 function entry(
   value: Omit<BookingActivityEntry, "outcome"> & {
     outcome?: BookingActivityEntry["outcome"];
@@ -237,7 +252,7 @@ export async function GET(request: Request, context: RouteContext) {
     entries.push(
       entry({
         action: humanizeActivityLabel(row.action),
-        actor: row.actor_name || actorName(identities, row.actor_staff_profile_id || row.actor_auth_user_id),
+        actor: auditActorName(identities, row),
         changes: buildTimelineChanges(row.before_values, row.after_values, row.changed_fields ?? []),
         id: `audit:${row.id}`,
         occurredAt: row.created_at,
@@ -252,12 +267,7 @@ export async function GET(request: Request, context: RouteContext) {
     entries.push(
       entry({
         action: humanizeActivityLabel(row.action),
-        actor:
-          row.actor_name ||
-          actorName(
-            identities,
-            row.actor_staff_profile_id || row.actor_auth_user_id,
-          ),
+        actor: auditActorName(identities, row),
         changes: buildTimelineChanges(
           row.before_values,
           row.after_values,

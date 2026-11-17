@@ -3,6 +3,7 @@ import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdm
 import { recordAuditEvent } from "@/lib/supabase/serverAudit";
 import { canPublishReview, getAnonymousReviewIdentityWarnings } from "@/lib/reviews/reviews";
 import { getReviewContactState, parseReviewAdminFilters, type ReviewAdminFilters } from "@/lib/reviews/reviewAdmin";
+import { currentLatestReplyName, displayReply } from "@/lib/reviews/replyAttribution";
 
 export const dynamic = "force-dynamic";
 
@@ -41,10 +42,14 @@ async function loadReviewPage(
   let query = serviceClient
     .from("guest_reviews")
     .select(
-      "id,booking_id,show_id,venue,public_display_name,rating,food_rating,value_rating,service_rating,ambience_rating,review_text,contact_requested,contacted_at,contacted_by,contact_method,replied_at,replied_by_name,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision",
+      "id,booking_id,show_id,venue,public_display_name,rating,food_rating,value_rating,service_rating,ambience_rating,review_text,contact_requested,contacted_at,contacted_by,contact_method,replied_at,replied_by_name,publication_consent,publication_consent_mode,publication_mode,review_privacy_requested,review_publication_policy_version,moderation_status,moderation_note,moderated_by,moderated_at,published_at,submitted_at,featured,verified_guest,revision,latest:guest_review_replies(sent_at,staff:staff_profiles(full_name))",
       { count: "exact" },
     )
     .in("venue", venues.length ? venues : ["__none__"])
+    .eq("latest.status", "sent")
+    .order("sent_at", { ascending: false, referencedTable: "latest" })
+    .order("id", { ascending: false, referencedTable: "latest" })
+    .limit(1, { referencedTable: "latest" })
     .order("submitted_at", { ascending: false })
     .order("id", { ascending: false })
     .range(from, from + input.pageSize - 1);
@@ -109,7 +114,7 @@ async function loadReviewPage(
   if (eventsResult.error) throw eventsResult.error;
 
   const detailRepliesResult = input.includeDetails && reviewIds.length
-    ? await serviceClient.from("guest_review_replies").select("id,review_id,actor_name,actor_email,message,sent_at").in("review_id", reviewIds).eq("status", "sent").order("sent_at", { ascending: false })
+    ? await serviceClient.from("guest_review_replies").select("id,review_id,actor_name,actor_email,message,sent_at,staff:staff_profiles(full_name)").in("review_id", reviewIds).eq("status", "sent").order("sent_at", { ascending: false })
     : { data: [], error: null };
   if (detailRepliesResult.error) throw detailRepliesResult.error;
 
@@ -143,6 +148,7 @@ async function loadReviewPage(
     rows: rows.map((row) => {
       const booking = bookingMap.get(row.booking_id);
       const show = showMap.get(row.show_id);
+      const latestReplyName = currentLatestReplyName(row.replied_by_name, row.replied_at, row.latest[0]);
       return {
         anonymousPublicationAllowed: canPublishReview({
           action: "publish_anonymous",
@@ -181,8 +187,8 @@ async function loadReviewPage(
             type: event.event_type,
           })),
         id: row.id,
-        latestReply: row.replied_at && row.replied_by_name
-          ? { actor_name: row.replied_by_name, sent_at: row.replied_at }
+        latestReply: row.replied_at && latestReplyName
+          ? { actor_name: latestReplyName, sent_at: row.replied_at }
           : null,
         moderationNote: row.moderation_note,
         moderatedAt: row.moderated_at,
@@ -202,7 +208,7 @@ async function loadReviewPage(
         publishedAt: row.published_at,
         rating: row.rating,
         reviewText: row.review_text,
-        replies: (detailRepliesResult.data ?? []).filter((reply) => reply.review_id === row.id),
+        replies: (detailRepliesResult.data ?? []).filter((reply) => reply.review_id === row.id).map(displayReply),
         revision: row.revision,
         status: row.moderation_status,
         submittedAt: row.submitted_at,
