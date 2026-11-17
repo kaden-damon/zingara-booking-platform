@@ -72,6 +72,7 @@ const statusOptions: Array<{ label: string; value: ReviewStatus }> = [
 ];
 const reviewAnalyticsTargetKey = "zingara-admin-review-analytics-target";
 const reviewFollowUpSubject = "Your Zingara Experience – Review Follow-Up";
+const pageButtonClass = "min-h-10 shrink-0 rounded-lg border border-white/10 px-2 font-semibold text-white transition hover:border-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:opacity-30";
 
 function venueLabel(value: string) {
   return value === "johannesburg" ? "Johannesburg" : "Cape Town";
@@ -123,6 +124,8 @@ export default function ReviewsAdminWorkspace() {
   const [feedbackType, setFeedbackType] = useState<"platform" | "show">("show");
   const [status, setStatus] = useState<ReviewStatus>("needs_review");
   const [page, setPage] = useState(1);
+  const [pageDraft, setPageDraft] = useState<string | null>(null);
+  const [invalidPage, setInvalidPage] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [ratingFilter, updateRatingFilter] = useState("all");
@@ -227,6 +230,8 @@ export default function ReviewsAdminWorkspace() {
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError("");
+    setPageDraft(null);
+    setInvalidPage(false);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: "10", status });
       if (debouncedSearch) params.set("search", debouncedSearch);
@@ -304,9 +309,17 @@ export default function ReviewsAdminWorkspace() {
   const listSelected = result.rows.find((row) => row.id === selectedId) ?? null;
   const selected = selectedDetail?.id === selectedId ? selectedDetail : listSelected;
   const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
+  const paginationBusy = loading || result.page !== page || search.trim() !== debouncedSearch;
   const visibleStatus = targetReviewId && result.rows[0] ? result.rows[0].status : status;
   const activeFilterCount = [ratingFilter, venueFilter, contactFilter, replyFilter, privacyFilter]
     .filter((value) => value !== "all").length;
+
+  function navigateToPage(nextPage: number) {
+    if (paginationBusy || !Number.isSafeInteger(nextPage) || nextPage < 1 || nextPage > pageCount) return;
+    setPageDraft(null);
+    setInvalidPage(false);
+    setPage(nextPage);
+  }
 
   function resetFilters() {
     updateRatingFilter("all");
@@ -643,31 +656,60 @@ export default function ReviewsAdminWorkspace() {
             ))
           )}
 
-          <div className="flex flex-col gap-2 pt-3 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 text-xs text-zinc-500">
             <span aria-live="polite">{result.total} matching review{result.total === 1 ? "" : "s"}</span>
-            <nav aria-label="Reviews pagination" className="flex items-center gap-2">
+            <nav aria-label="Reviews pagination" className="flex flex-wrap items-center gap-1">
+              <button aria-label="First page" className={pageButtonClass} disabled={paginationBusy || page <= 1} onClick={() => navigateToPage(1)} title="First page" type="button">First</button>
               <button
                 aria-label="Previous page"
-                className="min-h-10 rounded-lg border border-white/10 px-3 font-semibold text-white transition hover:border-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:opacity-30"
-                disabled={page <= 1}
-                onClick={() => setPage((value) => Math.max(1, value - 1))}
+                className={pageButtonClass}
+                disabled={paginationBusy || page <= 1}
+                onClick={() => navigateToPage(page - 1)}
                 title="Previous page"
                 type="button"
               >
                 Previous
               </button>
-              <span className="whitespace-nowrap" aria-current="page">Page {page} of {pageCount}</span>
+              <form className="inline-flex items-center gap-1 whitespace-nowrap" onSubmit={(event) => {
+                event.preventDefault();
+                if (paginationBusy) return;
+                const value = (pageDraft ?? String(page)).trim();
+                const nextPage = /^\d+$/.test(value) ? Number(value) : NaN;
+                if (!Number.isSafeInteger(nextPage) || nextPage < 1 || nextPage > pageCount) {
+                  setInvalidPage(true);
+                  return;
+                }
+                navigateToPage(nextPage);
+              }}>
+                <label className="sr-only" htmlFor="reviews-page-number">Page number</label>
+                <input
+                  aria-describedby={invalidPage ? "reviews-page-error" : "reviews-page-count"}
+                  aria-invalid={invalidPage || undefined}
+                  className="min-h-10 w-10 rounded-lg border border-white/10 bg-black/20 px-1 text-center text-base tabular-nums text-white outline-none focus:border-amber-300 disabled:opacity-30"
+                  id="reviews-page-number"
+                  inputMode="numeric"
+                  disabled={paginationBusy || pageCount <= 1}
+                  onChange={(event) => {
+                    setPageDraft(event.target.value);
+                    setInvalidPage(false);
+                  }}
+                  value={pageDraft ?? String(page)}
+                />
+                <span id="reviews-page-count">of {pageCount}</span>
+              </form>
               <button
                 aria-label="Next page"
-                className="min-h-10 rounded-lg border border-white/10 px-3 font-semibold text-white transition hover:border-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:opacity-30"
-                disabled={page >= pageCount}
-                onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                className={pageButtonClass}
+                disabled={paginationBusy || page >= pageCount}
+                onClick={() => navigateToPage(page + 1)}
                 title="Next page"
                 type="button"
               >
                 Next
               </button>
+              <button aria-label="Last page" className={pageButtonClass} disabled={paginationBusy || page >= pageCount} onClick={() => navigateToPage(pageCount)} title="Last page" type="button">Last</button>
             </nav>
+            {invalidPage && <p className="basis-full text-red-300" id="reviews-page-error" role="status">Enter a whole page number from 1 to {pageCount}.</p>}
           </div>
         </div>
 
