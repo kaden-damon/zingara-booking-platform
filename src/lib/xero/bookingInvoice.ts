@@ -123,10 +123,20 @@ export function buildAuthoritativeBookingInvoiceDraft(
 }
 
 export function directBookingInvoiceRevenueCategory(input: {
+  bookingNotes?: string | null;
   bookingOrigin: string | null;
   bookingSource: string | null;
   corporateRequestId: string | null;
 }) {
+  const prefix = "__zingara_booking_meta__:";
+  if (input.bookingNotes?.startsWith(prefix)) {
+    try {
+      const metadata = JSON.parse(input.bookingNotes.slice(prefix.length));
+      if (metadata?.commercialModel === "fixed-buyout-package") return "buyouts" as const;
+    } catch {
+      // Legacy notes retain the existing provenance-based classification.
+    }
+  }
   const source = `${input.bookingOrigin ?? ""} ${input.bookingSource ?? ""}`.toLowerCase();
   if (source.includes("buyout")) return "buyouts" as const;
   if (input.corporateRequestId || source.includes("corporate")) return "corporate" as const;

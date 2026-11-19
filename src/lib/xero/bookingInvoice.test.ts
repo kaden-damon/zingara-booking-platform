@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { getPersistedBookingFeeAmount } from "../bookingFees.ts";
 
 import { calculateXeroDocumentTotals } from "./documentMath.ts";
 import {
@@ -104,4 +105,54 @@ test("EFT invoices omit the Booking Fee without changing the authoritative total
     draft.lines.find((line) => line.mappingCategory === "corporate")?.unitPrice,
     "1000.00",
   );
+});
+
+const buyoutNotes = (pricingProvenance?: { bookingFeeAmount: number }) =>
+  "__zingara_booking_meta__:" + JSON.stringify({
+    commercialModel: "fixed-buyout-package", buyoutPackageCode: "grand-society",
+    ...(pricingProvenance ? { pricingProvenance } : {}),
+  });
+
+test("Vodacom-shaped fixed buyouts retain exact VAT, gratuity and total without an invented fee", () => {
+  const notes = buyoutNotes();
+  const category = directBookingInvoiceRevenueCategory({
+    bookingNotes: notes, bookingOrigin: "corporate", bookingSource: "corporate-direct",
+    corporateRequestId: null,
+  });
+  assert.equal(category, "buyouts");
+  const draft = buildAuthoritativeBookingInvoiceDraft({
+    addonsTotal: 0, bookingFeeAmount: getPersistedBookingFeeAmount(notes, 853_875),
+    bookingReference: "ZNG-BUYOUT-TEST", discountAmount: 0, revenueCategory: category,
+    serviceFee: 92_812.50, subtotalAmount: 853_875, totalAmount: 946_687.50,
+  });
+  const totals = calculateXeroDocumentTotals(draft.lines, draft.lineAmountType);
+  assert.equal(totals.totalCents, 94_668_750);
+  assert.equal(totals.taxCents, 11_137_500);
+  assert.deepEqual(draft.lines.map(l => [l.mappingCategory, l.unitPrice]), [
+    ["buyouts", "853875.00"], ["gratuity", "92812.50"],
+  ]);
+});
+
+test("fixed buyouts preserve explicitly recorded PayFast and EFT fees", () => {
+  for (const fee of [0, 10, 25.50]) {
+    assert.equal(getPersistedBookingFeeAmount(buyoutNotes({ bookingFeeAmount: fee }), 853_875), fee);
+  }
+});
+
+test("ordinary and historical invoice interpretations are unchanged", () => {
+  for (const notes of [null, "Full Show Buyout mentioned in free text", "__zingara_booking_meta__:{bad", "__zingara_booking_meta__:{}"]) {
+    assert.equal(getPersistedBookingFeeAmount(notes, 1_000), 10);
+    assert.equal(directBookingInvoiceRevenueCategory({
+      bookingNotes: notes, bookingOrigin: "corporate", bookingSource: "corporate-direct", corporateRequestId: null,
+    }), "corporate");
+  }
+  assert.equal(getPersistedBookingFeeAmount("__zingara_booking_meta__:{\"pricingProvenance\":{\"bookingFeeAmount\":0}}", 1_000), 0);
+});
+
+test("single and bulk invoice preparation both pass authoritative booking metadata", async () => {
+  for (const path of ["../../app/api/admin/xero/route.ts", "../../app/api/admin/xero/bulk-invoices/route.ts"]) {
+    const source = await readFile(new URL(path, import.meta.url), "utf8");
+    assert.match(source, /directBookingInvoiceRevenueCategory\(\{\s*bookingNotes: booking\.notes/);
+    assert.match(source, /bookingFeeAmount: getPersistedBookingFeeAmount\(\s*booking\.notes/);
+  }
 });

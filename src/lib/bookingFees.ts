@@ -7,10 +7,12 @@ export function getPersistedBookingFeeAmount(
   if (typeof notes === "string" && notes.startsWith("__zingara_booking_meta__:")) {
     try {
       const metadata = JSON.parse(notes.slice("__zingara_booking_meta__:".length)) as {
+        commercialModel?: string;
         pricingProvenance?: { bookingFeeAmount?: unknown };
       };
       const recorded = Number(metadata.pricingProvenance?.bookingFeeAmount);
       if (Number.isFinite(recorded) && recorded >= 0) return recorded;
+      if (metadata.commercialModel === "fixed-buyout-package") return 0;
     } catch {
       // Historical free-text notes retain the established fee interpretation.
     }

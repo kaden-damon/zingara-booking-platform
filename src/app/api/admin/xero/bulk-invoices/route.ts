@@ -209,6 +209,7 @@ async function processBatch(
         bookingReference: booking.booking_reference,
         discountAmount: Number(booking.discount_amount) || 0,
         revenueCategory: directBookingInvoiceRevenueCategory({
+          bookingNotes: booking.notes,
           bookingOrigin: booking.booking_origin,
           bookingSource: booking.booking_source,
           corporateRequestId: booking.corporate_request_id,
