@@ -23,6 +23,7 @@ import {
   type AdminBookingListFilters,
 } from "@/lib/adminBookingList";
 import { getAdvertisingAttributionSnapshot } from "@/lib/advertisingAttribution";
+import { lifecycleEventKey } from "@/lib/bookingLifecycleComparison";
 
 type SupabaseBookingStatus =
   | "cancelled"
@@ -682,19 +683,12 @@ function mergeLifecycleHistory(
   rows: SupabaseLifecycleEventRow[] = [],
 ) {
   const supabaseEvents = rows.map(toLifecycleEvent);
+  const persistedKeys = new Set(supabaseEvents.map(lifecycleEventKey));
 
   return [
     ...supabaseEvents,
     ...(booking.lifecycleHistory ?? []).filter(
-      (event) =>
-        !rows.some(
-          (row) =>
-            row.created_at === event.createdAt &&
-            row.from_status ===
-              (event.fromStatus ? toSupabaseBookingStatus(event.fromStatus) : null) &&
-            row.note === (event.note ?? null) &&
-            row.to_status === toSupabaseBookingStatus(event.toStatus),
-        ),
+      (event) => !persistedKeys.has(lifecycleEventKey(event)),
     ),
   ].sort(
     (left, right) =>

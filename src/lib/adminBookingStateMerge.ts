@@ -1,4 +1,5 @@
 import type { DemoBooking } from "./zingaraDemo";
+import { reconcileLifecycleProjection, sameLifecycleHistory } from "./bookingLifecycleComparison.ts";
 
 const paymentOwnedFields = new Set([
   "amountPaid",
@@ -18,7 +19,8 @@ const immutableFields = new Set([
   "updatedAt",
 ]);
 
-function sameValue(left: unknown, right: unknown) {
+function sameValue(left: unknown, right: unknown, field: string) {
+  if (field === "lifecycleHistory") return sameLifecycleHistory(left, right);
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
@@ -43,7 +45,7 @@ export function mergeAdminBookingState(input: {
   const requested = input.requested as DemoBooking & Record<string, unknown>;
 
   for (const key of Object.keys(requested)) {
-    if (immutableFields.has(key) || sameValue(previous[key], requested[key])) {
+    if (immutableFields.has(key) || sameValue(previous[key], requested[key], key)) {
       continue;
     }
 
@@ -53,12 +55,16 @@ export function mergeAdminBookingState(input: {
       financialFields.push(key);
     }
 
-    if (!sameValue(authoritative[key], previous[key])) {
+    if (!sameValue(authoritative[key], previous[key], key)) {
       conflictingFields.push(key);
       continue;
     }
 
-    Object.assign(mergedBooking, { [key]: structuredClone(requested[key]) });
+    Object.assign(mergedBooking, {
+      [key]: key === "lifecycleHistory" && Array.isArray(authoritative.lifecycleHistory) && Array.isArray(requested.lifecycleHistory)
+        ? reconcileLifecycleProjection(authoritative.lifecycleHistory, requested.lifecycleHistory)
+        : structuredClone(requested[key]),
+    });
   }
 
   return {

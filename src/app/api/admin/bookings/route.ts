@@ -48,6 +48,7 @@ import {
   type CorporateZoneEntitlement,
 } from "@/lib/corporateZoneEntitlements";
 import { mergeAdminBookingState } from "@/lib/adminBookingStateMerge";
+import { bookingSaveConflictDiagnostic, type BookingSaveConflictStage, type BookingSaveLockState } from "@/lib/bookingSaveConflictDiagnostic";
 import { resolveBookingCreatedWindow } from "@/lib/bookingSalesFilters";
 import { loadCorporateBuyoutBookingReviewReasons } from "@/lib/supabase/corporateBuyoutsServer";
 import {
@@ -1100,13 +1101,25 @@ async function expireStaleBookingLocks() {
     );
 }
 
+function warnBookingSaveConflict(
+  request: Request,
+  evidence: Omit<Parameters<typeof bookingSaveConflictDiagnostic>[0], "requestId">,
+) {
+  console.warn("[Booking Save Conflict]", bookingSaveConflictDiagnostic({
+    ...evidence,
+    requestId: request.headers.get("x-vercel-id"),
+  }));
+}
+
 async function ensureNoConflictingBookingLock(
   request: Request,
   bookingReference?: string,
+  observe?: (state: BookingSaveLockState) => void,
 ) {
   const supabase = getRouteClient();
 
   if (!supabase || !bookingReference) {
+    observe?.("unavailable");
     return null;
   }
 
@@ -1131,6 +1144,7 @@ async function ensureNoConflictingBookingLock(
   }
 
   if (!activeLock) {
+    observe?.("absent");
     return null;
   }
 
@@ -1145,9 +1159,13 @@ async function ensureNoConflictingBookingLock(
     activeLock.staff_profile_id === requestingStaffProfileId &&
     activeLock.session_id === requestingSessionId
   ) {
+    observe?.("owned");
     return null;
   }
 
+  observe?.(activeLock.staff_profile_id !== requestingStaffProfileId
+    ? "different-owner"
+    : requestingSessionId ? "different-session" : "missing-session");
   const actor = await getAuditActor(request);
 
   await tryRecordAuditEvent(supabase, actor.staffProfile, actor.user, {
@@ -2837,12 +2855,27 @@ async function persistBookingStateUpdate(request: Request, body: {
 
   try {
     const requestedBooking = body.booking;
+    let lockState: BookingSaveLockState = "unchecked";
+    const diagnoseConflict = (
+      stage: BookingSaveConflictStage,
+      currentVersion?: string,
+      conflictingFields?: string[],
+    ) => {
+      warnBookingSaveConflict(request, {
+        stage,
+        lock: lockState,
+        expectedVersion: body.expectedUpdatedAt,
+        currentVersion,
+        conflictingFields,
+      });
+    };
 
     if (
       !requestedBooking?.reference ||
       !body.previousBooking ||
       !body.expectedUpdatedAt
     ) {
+      diagnoseConflict("missing-snapshot");
       return Response.json(
         {
           error:
@@ -2861,6 +2894,7 @@ async function persistBookingStateUpdate(request: Request, body: {
     }
 
     if (body.previousBooking.updatedAt !== body.expectedUpdatedAt) {
+      diagnoseConflict("snapshot-revision-mismatch", body.previousBooking.updatedAt);
       return Response.json(
         {
           code: "BOOKING_CHANGED",
@@ -2873,9 +2907,11 @@ async function persistBookingStateUpdate(request: Request, body: {
     const lockError = await ensureNoConflictingBookingLock(
       request,
       requestedBooking.reference,
+      (state) => { lockState = state; },
     );
 
     if (lockError) {
+      if (lockError.status === 409) diagnoseConflict("edit-lock");
       return lockError;
     }
 
@@ -2971,6 +3007,7 @@ async function persistBookingStateUpdate(request: Request, body: {
     }
 
     if (merge.conflictingFields.length > 0) {
+      diagnoseConflict("field-conflict", currentUpdatedAt, merge.conflictingFields);
       return Response.json(
         {
           code: "BOOKING_CHANGED",
@@ -3128,6 +3165,7 @@ async function persistBookingStateUpdate(request: Request, body: {
     }
 
     if (!updatedBooking) {
+      diagnoseConflict("write-version-miss", currentUpdatedAt);
       return Response.json(
         {
           code: "BOOKING_CHANGED",
@@ -3900,12 +3938,17 @@ export async function PATCH(request: Request) {
     validateOnly?: boolean;
     zoneEntitlements?: CorporateZoneEntitlement[];
   };
+  let patchLockState: BookingSaveLockState = "unchecked";
   const lockError = await ensureNoConflictingBookingLock(
     request,
     body.booking?.reference ?? body.bookingReference,
+    (state) => { patchLockState = state; },
   );
 
   if (lockError) {
+    if (lockError.status === 409) {
+      warnBookingSaveConflict(request, { stage: "edit-lock", lock: patchLockState });
+    }
     return lockError;
   }
 
