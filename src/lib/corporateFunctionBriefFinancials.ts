@@ -54,6 +54,36 @@ type BookingFinancialInput = {
 
 const metadataPrefix = "__zingara_booking_meta__:";
 
+export type FunctionBriefBuyoutRow = {
+  package_snapshot?: { displayName?: string } | null;
+  commercial_base_amount: number;
+  commercial_vat_amount: number;
+  commercial_gratuity_amount: number;
+  commercial_additional_guest_amount: number;
+  commercial_total_amount: number;
+};
+
+export function resolveFunctionBriefBuyoutComposition(
+  row: FunctionBriefBuyoutRow | null,
+  booking: { addonsTotal: number; serviceFee: number; totalAmount: number },
+) {
+  const packageName = row?.package_snapshot?.displayName?.trim() || null;
+  const values = row ? [row.commercial_base_amount, row.commercial_vat_amount,
+    row.commercial_gratuity_amount, row.commercial_total_amount,
+    row.commercial_additional_guest_amount] : [];
+  const valid = row && values.every(value => typeof value === "number" &&
+    Number.isFinite(value) && value >= 0);
+  const current = valid && booking.addonsTotal === 0 &&
+    row.commercial_additional_guest_amount === 0 &&
+    Math.round(row.commercial_total_amount * 100) === Math.round(booking.totalAmount * 100) &&
+    Math.round(row.commercial_gratuity_amount * 100) === Math.round(booking.serviceFee * 100) &&
+    Math.round(row.commercial_base_amount * 100) + Math.round(row.commercial_vat_amount * 100) +
+      Math.round(row.commercial_gratuity_amount * 100) === Math.round(booking.totalAmount * 100);
+  // Package identity is historical; its amounts must not replace a later agreement.
+  return { packageName, packageBaseAmount: current ? row.commercial_base_amount : null,
+    vatAmount: current ? row.commercial_vat_amount : null };
+}
+
 function money(value: unknown) {
   return Math.max(0, Math.round((Number(value) || 0) * 100) / 100);
 }

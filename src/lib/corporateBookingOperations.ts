@@ -59,6 +59,11 @@ export type CorporateOperationsBookingSnapshot = {
   bookedThrough: string;
   bookingReference: string;
   companyName: string;
+  packageName?: string | null;
+  packageBaseAmount?: number | null;
+  vatAmount?: number | null;
+  chargedGratuityAmount?: number;
+  discountAmount?: number;
   dietaryRequirements: string[];
   eventName: string;
   guestCount: number;

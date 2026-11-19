@@ -162,7 +162,9 @@ test("function PDF uses booking-derived identity and financial values", () => {
   assert.match(pdf, /MCT Telecommunications/);
   assert.match(pdf, /ZNG-CORP01/);
   assert.match(pdf, /R42,080.00/);
-  assert.match(pdf, /Full Payment/);
+  assert.match(pdf, /Payments received/);
+  assert.match(pdf, /Total booking obligation/);
+  assert.match(pdf, /Outstanding balance/);
   assert.match(pdf, /Tickets/);
   assert.match(pdf, /Gratuity Paid/);
 });
@@ -184,6 +186,38 @@ test("function PDF separates Bar Tab and its collected gratuity", () => {
   assert.match(pdf, /Bar Tab/);
   assert.match(pdf, /R2,900.00/);
   assert.match(pdf, /R362.50/);
+});
+
+test("unpaid Buyout Function Brief exposes package, VAT, charged gratuity and exact balance", () => {
+  const booking = context();
+  booking.operations = createEmptyCorporateBookingOperations();
+  Object.assign(booking.snapshot, {
+    packageName: "The Grand Society", packageBaseAmount: 742500, vatAmount: 111375,
+    chargedGratuityAmount: 92812.50, ticketGratuityAmount: 0, barGratuityAmount: 0,
+    amountPaid: 0, outstandingAmount: 946687.50, totalAmount: 946687.50,
+    ticketValue: 853875, bookingFeeAmount: 0,
+  });
+  const pdf = new TextDecoder("latin1").decode(buildCorporateOperationsPdf("function-brief", booking));
+  assert.match(pdf, /The Grand Society/);
+  assert.match(pdf, /R742,500.00/);
+  assert.match(pdf, /VAT: R111,375.00/);
+  assert.match(pdf, /Gratuity charged: R92,812.50/);
+  assert.match(pdf, /Paid: R0.00/);
+  assert.match(pdf, /Total booking obligation: R946,687.50/);
+  assert.match(pdf, /Outstanding balance: R946,687.50/);
+  assert.match(pdf, /\/Count 2/);
+});
+
+test("unknown VAT is explicit and financial/add-on overflow is preserved on existing continuation pages", () => {
+  const booking = context();
+  booking.snapshot.addOns = Array.from({ length: 12 }, (_, i) => ({
+    name: `Additional service ${i + 1}`, amount: 100 + i, quantity: 2,
+    description: "Approved delivery arrangement", gratuityPaid: 0,
+  }));
+  const pdf = new TextDecoder("latin1").decode(buildCorporateOperationsPdf("function-brief", booking));
+  assert.match(pdf, /VAT: not separately recorded/);
+  assert.match(pdf, /Additional service 12/);
+  assert.match(pdf, /FINANCIAL SUMMARY/);
 });
 
 test("bar PDF distinguishes operational limit from accounting Bar Tab", () => {

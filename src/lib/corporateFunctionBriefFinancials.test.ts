@@ -1,7 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveCorporateFunctionBriefFinancials } from "./corporateFunctionBriefFinancials.ts";
+import { resolveCorporateFunctionBriefFinancials, resolveFunctionBriefBuyoutComposition } from "./corporateFunctionBriefFinancials.ts";
+
+const grandSociety = {
+  package_snapshot: { displayName: "The Grand Society" },
+  commercial_base_amount: 742_500, commercial_vat_amount: 111_375,
+  commercial_gratuity_amount: 92_812.50, commercial_total_amount: 946_687.50,
+  commercial_additional_guest_amount: 0,
+};
+
+test("Function Brief uses reconciled persisted package components, not a new pricing calculation", () => {
+  assert.deepEqual(resolveFunctionBriefBuyoutComposition(grandSociety, {
+    addonsTotal: 0, serviceFee: 92_812.50, totalAmount: 946_687.50,
+  }), { packageName: "The Grand Society", packageBaseAmount: 742_500, vatAmount: 111_375 });
+});
+
+test("historical package VAT cannot override a later agreed obligation or add-on adjustment", () => {
+  for (const booking of [
+    { addonsTotal: 0, serviceFee: 73_750, totalAmount: 684_400 },
+    { addonsTotal: 100, serviceFee: 92_825, totalAmount: 946_800 },
+  ]) {
+    assert.deepEqual(resolveFunctionBriefBuyoutComposition(grandSociety, booking), {
+      packageName: "The Grand Society", packageBaseAmount: null, vatAmount: null,
+    });
+  }
+});
+
+test("missing, inconsistent and invalid package evidence never fabricates VAT", () => {
+  const booking = { addonsTotal: 0, serviceFee: 92_812.50, totalAmount: 946_687.50 };
+  assert.equal(resolveFunctionBriefBuyoutComposition(null, booking).vatAmount, null);
+  for (const row of [
+    { ...grandSociety, commercial_vat_amount: Number.NaN },
+    { ...grandSociety, commercial_vat_amount: -1 },
+    { ...grandSociety, commercial_base_amount: 742_499.99 },
+    { ...grandSociety, commercial_additional_guest_amount: 1 },
+  ]) assert.equal(resolveFunctionBriefBuyoutComposition(row, booking).vatAmount, null);
+});
 
 const referenceNotes = `__zingara_booking_meta__:${JSON.stringify({
   addons: [{

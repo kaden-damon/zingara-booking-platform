@@ -11,6 +11,24 @@ import {
 const source = (path: string) =>
   readFile(new URL(path, import.meta.url), "utf8");
 
+test("Grand Society and Private Salon gratuity retain their respective original agreed bases", () => {
+  const packageTerms = { includedGuestCount: 400, maximumGuestCount: null };
+  const grand = calculateCorporateBuyoutCommercials({ guestCount: 400, package: {
+    ...packageTerms, baseAmount: 742500, gratuityAmount: 92812.50, vatAmount: 111375, totalAmount: 946687.50,
+  } });
+  const salon = calculateCorporateBuyoutCommercials({ guestCount: 400, package: {
+    ...packageTerms, baseAmount: 590000, gratuityAmount: 73750, vatAmount: 88500, totalAmount: 752250,
+  } });
+  assert.equal(grand.gratuityAmount, 742500 * 0.125);
+  assert.equal(salon.gratuityAmount, 590000 * 0.125);
+  const custom = calculateCorporateBuyoutCommercials({ guestCount: 400, customAgreedTotalAmount: 684400,
+    package: { ...packageTerms, baseAmount: 590000, gratuityAmount: 73750, vatAmount: 88500, totalAmount: 752250 },
+  });
+  assert.equal(custom.totalAmount, 684400);
+  assert.equal(custom.gratuityAmount, 67098.04);
+  assert.notEqual(custom.gratuityAmount, 73750);
+});
+
 const packages = [
   [590000, 73750, 88500, 752250],
   [655600, 81950, 98340, 835890],

@@ -7,7 +7,10 @@ import {
   type CorporateOperationsDocument,
 } from "@/lib/corporateBookingOperations";
 import { buildCorporateOperationalPdf } from "@/lib/corporateBookingOperationsPdf";
-import { resolveCorporateFunctionBriefFinancials } from "@/lib/corporateFunctionBriefFinancials";
+import { resolveCorporateFunctionBriefFinancials, resolveFunctionBriefBuyoutComposition,
+  type FunctionBriefBuyoutRow } from "@/lib/corporateFunctionBriefFinancials";
+import { getDietaryAddonSummary } from "@/lib/bookingAddons";
+import type { BookingAddon } from "@/lib/zingaraDemo";
 
 type ServiceClient = SupabaseClient;
 
@@ -57,7 +60,7 @@ export async function loadCorporateOperationsContext(
 ): Promise<CorporateOperationsContext | null> {
   const { data: booking, error: bookingError } = await serviceClient
     .from("bookings")
-    .select("id,booking_reference,booking_source,booking_origin,corporate_request_id,customer_id,company_id,show_id,company_name,guest_count,section,zone_entitlements,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,booking_status,payment_status,notes,dietary_requirements,created_by_staff_id")
+    .select("id,booking_reference,booking_source,booking_origin,corporate_request_id,customer_id,company_id,show_id,company_name,guest_count,section,zone_entitlements,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,booking_status,payment_status,notes,dietary_requirements,created_by_staff_id,corporate_buyouts(package_snapshot,commercial_base_amount,commercial_vat_amount,commercial_gratuity_amount,commercial_additional_guest_amount,commercial_total_amount)")
     .eq("booking_reference", bookingReference.trim().toUpperCase())
     .maybeSingle();
   if (bookingError) throw bookingError;
@@ -134,11 +137,26 @@ export async function loadCorporateOperationsContext(
   }
 
   const bookingDietary = text(booking.dietary_requirements);
+  let structuredDietary = "";
+  const prefix = "__zingara_booking_meta__:";
+  if (booking.notes?.startsWith(prefix)) {
+    try {
+      const metadata = JSON.parse(booking.notes.slice(prefix.length));
+      if (Array.isArray(metadata?.addons)) {
+        structuredDietary = getDietaryAddonSummary(metadata.addons.filter(
+          (addon: BookingAddon) => addon && typeof addon.id === "string" && typeof addon.name === "string",
+        ));
+      }
+    } catch {
+      // Unstructured historical notes remain available through existing fields.
+    }
+  }
   const dietaryRequirements = [
     ...(Array.isArray(request?.dietary_requirements) ? request.dietary_requirements : []),
     text(request?.other_dietary_requirement),
     text(customerResult.data?.dietary_requirements),
     bookingDietary,
+    structuredDietary,
   ].filter((item): item is string => Boolean(item));
   const zoneEntitlements = Array.isArray(booking.zone_entitlements)
     ? booking.zone_entitlements as Array<{ pax?: number; zoneId?: string }>
@@ -159,12 +177,19 @@ export async function loadCorporateOperationsContext(
     subtotalAmount: money(booking.subtotal_amount),
     totalAmount: money(booking.total_amount),
   });
+  const buyout = (Array.isArray(booking.corporate_buyouts)
+    ? booking.corporate_buyouts[0] : booking.corporate_buyouts) as FunctionBriefBuyoutRow | null;
+  const composition = resolveFunctionBriefBuyoutComposition(buyout ?? null, {
+    addonsTotal: money(booking.addons_total), serviceFee: money(booking.service_fee),
+    totalAmount: money(booking.total_amount),
+  });
 
   return {
     bookingId: booking.id,
     location: showResult.data.venue,
     operations,
     snapshot: {
+      ...composition,
       addOns: financials.addOns,
       amountPaid: money(booking.amount_paid),
       barGratuityAmount: financials.barGratuityPaid,
@@ -177,6 +202,8 @@ export async function loadCorporateOperationsContext(
       }),
       bookingReference: booking.booking_reference,
       companyName: text(companyResult.data?.trading_name) || text(companyResult.data?.legal_name) || text(booking.company_name) || text(request?.company_name) || "Company not linked",
+      chargedGratuityAmount: money(booking.service_fee),
+      discountAmount: money(booking.discount_amount),
       dietaryRequirements: Array.from(new Set(dietaryRequirements)),
       eventName: text(request?.occasion) || text(request?.other_description) || "Corporate function",
       guestCount: Number(booking.guest_count) || 0,

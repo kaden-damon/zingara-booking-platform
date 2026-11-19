@@ -136,11 +136,21 @@ function operationalHeader(canvas: ZingaraDocumentCanvas, title: string, snapsho
 }
 
 function financialSummaryLines(snapshot: CorporateOperationsBookingSnapshot) {
-  const values = [
-    `Full Payment: ${money(snapshot.amountPaid)}`,
-    `Tickets: ${money(snapshot.ticketValue)}`,
-    `Gratuity Paid: ${money(snapshot.ticketGratuityAmount)}`,
-  ];
+  const values: string[] = [];
+  if (snapshot.packageName) values.push(`Buyout package: ${snapshot.packageName}`);
+  if (snapshot.packageBaseAmount != null && snapshot.vatAmount != null) {
+    values.push(`Package base: ${money(snapshot.packageBaseAmount)} | VAT: ${money(snapshot.vatAmount)}`);
+  } else {
+    values.push("VAT: not separately recorded for the current agreement");
+  }
+  values.push(`Tickets${snapshot.vatAmount != null ? " (including VAT)" : ""}: ${money(snapshot.ticketValue)}`);
+  values.push(snapshot.chargedGratuityAmount !== undefined
+    ? `Gratuity charged: ${money(snapshot.chargedGratuityAmount)} | Paid: ${money(snapshot.ticketGratuityAmount + snapshot.barGratuityAmount)}`
+    : `Gratuity Paid: ${money(snapshot.ticketGratuityAmount + snapshot.barGratuityAmount)}`);
+  values.push(`Total booking obligation: ${money(snapshot.totalAmount)}`,
+    `Payments received: ${money(snapshot.amountPaid)}`,
+    `Outstanding balance: ${money(snapshot.outstandingAmount)}`);
+  if ((snapshot.discountAmount ?? 0) > 0) values.push(`Recorded discount: ${money(snapshot.discountAmount!)}`);
   if (snapshot.bookingFeeAmount > 0) {
     values.push(`Booking Fee: ${money(snapshot.bookingFeeAmount)}`);
   }
