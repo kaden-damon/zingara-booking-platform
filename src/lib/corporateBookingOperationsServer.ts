@@ -158,7 +158,9 @@ export async function loadCorporateOperationsContext(
     text(request?.other_dietary_requirement),
     text(customerResult.data?.dietary_requirements),
     bookingDietary,
-    agreement ? `Workbook requirements: ${agreement.requirements.strictlyHalaal} Strictly Halaal; ${agreement.requirements.kosher} Kosher. Financial reconciliation only; supplier orders not created or confirmed.` : "",
+    agreement ? (agreement.requirements.allocationUnconfirmed
+      ? `Workbook meal quantity: ${agreement.requirements.sourceQuantity}. Strictly Halaal/Kosher allocation unconfirmed. Financial reconciliation only; supplier orders not created or confirmed.`
+      : `Workbook requirements: ${agreement.requirements.strictlyHalaal} Strictly Halaal; ${agreement.requirements.kosher} Kosher. Financial reconciliation only; supplier orders not created or confirmed.`) : "",
     structuredDietary,
   ].filter((item): item is string => Boolean(item));
   const zoneEntitlements = Array.isArray(booking.zone_entitlements)

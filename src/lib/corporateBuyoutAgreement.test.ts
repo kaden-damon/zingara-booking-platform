@@ -52,6 +52,14 @@ test("invalid totals, basis, precision, quantities and canonical supplier-order 
   }
 });
 
+test("unclassified workbook quantities are retained without inventing a meal allocation", () => {
+  const agreement = fixture();
+  agreement.requirements = { strictlyHalaal: 0, kosher: 0, sourceQuantity: "45+4", allocationUnconfirmed: true };
+  assert.equal(validateCorporateBuyoutAgreement(agreement, 746029.25), null);
+  assert.ok(validateCorporateBuyoutAgreement({ ...agreement,
+    requirements: { ...agreement.requirements, strictlyHalaal: 45 } }, 746029.25));
+});
+
 test("atomic extension retains reconciliation safeguards and does not write orders or historical snapshots", () => {
   const sql = readFileSync(new URL("../../supabase/migrations/20261119140000_corporate_buyout_component_reconciliation.sql", import.meta.url), "utf8");
   for (const pattern of [/for update/, /BOOKING_REVISION_CHANGED/, /BOOKING_LOCKED/, /source_booking_reference/,

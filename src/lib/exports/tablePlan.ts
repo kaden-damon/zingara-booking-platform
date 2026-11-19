@@ -899,6 +899,12 @@ function getBookingNotes(booking: TablePlanBooking) {
       readCorporateBuyoutAgreement(booking.notes, Number(booking.total_amount))
         ? "Meal quantities are workbook requirements only; supplier orders are not created or confirmed by financial reconciliation."
         : "",
+      (() => {
+        const agreement = readCorporateBuyoutAgreement(booking.notes, Number(booking.total_amount));
+        return agreement?.requirements.allocationUnconfirmed
+          ? `Workbook meal quantity ${agreement.requirements.sourceQuantity}; Strictly Halaal/Kosher allocation unconfirmed. V/W intentionally blank, not zero requirements.`
+          : "";
+      })(),
     ]
       .map(sanitizeOperationalReportNotes)
       .filter(Boolean)
@@ -1386,11 +1392,12 @@ function populateBookingDataRow(
   setMoneyValue(row.getCell(19), financials.mediaAmount);
   setMoneyValue(row.getCell(20), financials.tradexAmount);
   setMoneyValue(row.getCell(21), financials.complimentaryAmount);
-  row.getCell(22).value =
+  const unconfirmedMealAllocation = readCorporateBuyoutAgreement(booking.notes, Number(booking.total_amount))?.requirements.allocationUnconfirmed;
+  row.getCell(22).value = unconfirmedMealAllocation ? null :
     paymentMetadata.dietaryQuantities["dietary-strictly-halaal"] ||
     legacyDietaryQuantities.strictlyHalaal;
   row.getCell(22).numFmt = "0";
-  row.getCell(23).value =
+  row.getCell(23).value = unconfirmedMealAllocation ? null :
     paymentMetadata.dietaryQuantities["dietary-kosher"] ||
     legacyDietaryQuantities.kosher;
   row.getCell(23).numFmt = "0";

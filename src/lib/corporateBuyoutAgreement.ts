@@ -7,7 +7,7 @@ export type CorporateBuyoutAgreement = {
   vat: number;
   gratuity: number;
   addons: { id: string; name: string; amount: number; description: string }[];
-  requirements: { strictlyHalaal: number; kosher: number; sourceQuantity: string };
+  requirements: { strictlyHalaal: number; kosher: number; sourceQuantity: string; allocationUnconfirmed?: boolean };
 };
 
 const cents = (n: number) => Math.round(n * 100);
@@ -29,7 +29,10 @@ export function validateCorporateBuyoutAgreement(value: CorporateBuyoutAgreement
   if (value.addons.some(a => !/^custom-[a-z0-9-]+$/.test(a.id) || !a.name?.trim() ||
     typeof a.description !== "string") || new Set(value.addons.map(a => a.id)).size !== value.addons.length ||
     !value.requirements || [value.requirements.strictlyHalaal, value.requirements.kosher]
-      .some(n => !Number.isInteger(n) || n < 0) || typeof value.requirements.sourceQuantity !== "string") {
+      .some(n => !Number.isInteger(n) || n < 0) || typeof value.requirements.sourceQuantity !== "string" ||
+    (value.requirements.allocationUnconfirmed !== undefined && typeof value.requirements.allocationUnconfirmed !== "boolean") ||
+    (value.requirements.allocationUnconfirmed && (!value.requirements.sourceQuantity.trim() ||
+      value.requirements.strictlyHalaal !== 0 || value.requirements.kosher !== 0))) {
     return "Documented charges and meal requirements are invalid.";
   }
   return null;
