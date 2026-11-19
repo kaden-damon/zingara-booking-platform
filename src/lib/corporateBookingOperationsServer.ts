@@ -11,6 +11,7 @@ import { resolveCorporateFunctionBriefFinancials, resolveFunctionBriefBuyoutComp
   type FunctionBriefBuyoutRow } from "@/lib/corporateFunctionBriefFinancials";
 import { getDietaryAddonSummary } from "@/lib/bookingAddons";
 import type { BookingAddon } from "@/lib/zingaraDemo";
+import { readCorporateBuyoutAgreement } from "@/lib/corporateBuyoutAgreement";
 
 type ServiceClient = SupabaseClient;
 
@@ -137,6 +138,7 @@ export async function loadCorporateOperationsContext(
   }
 
   const bookingDietary = text(booking.dietary_requirements);
+  const agreement = readCorporateBuyoutAgreement(booking.notes, money(booking.total_amount));
   let structuredDietary = "";
   const prefix = "__zingara_booking_meta__:";
   if (booking.notes?.startsWith(prefix)) {
@@ -156,6 +158,7 @@ export async function loadCorporateOperationsContext(
     text(request?.other_dietary_requirement),
     text(customerResult.data?.dietary_requirements),
     bookingDietary,
+    agreement ? `Workbook requirements: ${agreement.requirements.strictlyHalaal} Strictly Halaal; ${agreement.requirements.kosher} Kosher. Financial reconciliation only; supplier orders not created or confirmed.` : "",
     structuredDietary,
   ].filter((item): item is string => Boolean(item));
   const zoneEntitlements = Array.isArray(booking.zone_entitlements)
@@ -180,6 +183,7 @@ export async function loadCorporateOperationsContext(
   const buyout = (Array.isArray(booking.corporate_buyouts)
     ? booking.corporate_buyouts[0] : booking.corporate_buyouts) as FunctionBriefBuyoutRow | null;
   const composition = resolveFunctionBriefBuyoutComposition(buyout ?? null, {
+    notes: booking.notes,
     addonsTotal: money(booking.addons_total), serviceFee: money(booking.service_fee),
     totalAmount: money(booking.total_amount),
   });

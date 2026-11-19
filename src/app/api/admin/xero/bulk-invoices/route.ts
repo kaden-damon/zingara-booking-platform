@@ -201,6 +201,7 @@ async function processBatch(
       if (resolved.blockers.length) throw new Error(resolved.blockers.join("; "));
       if (!resolved.show) throw new Error("PERFORMANCE_NOT_FOUND");
       const draft = buildAuthoritativeBookingInvoiceDraft({
+        bookingNotes: booking.notes,
         addonsTotal: Number(booking.addons_total) || 0,
         bookingFeeAmount: getPersistedBookingFeeAmount(
           booking.notes,

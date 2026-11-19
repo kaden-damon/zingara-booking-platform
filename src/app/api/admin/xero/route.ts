@@ -259,6 +259,7 @@ export async function GET(request: Request) {
     const company = companyResult.data;
     const invoiceDraft = url.searchParams.get("document") === "invoice"
       ? buildAuthoritativeBookingInvoiceDraft({
+          bookingNotes: booking.notes,
           addonsTotal: Number(booking.addons_total) || 0,
           bookingFeeAmount: getPersistedBookingFeeAmount(
             booking.notes,

@@ -1,4 +1,5 @@
 import { notifyAppleWalletBooking } from "@/lib/appleWalletSync";
+import { validateCorporateBuyoutAgreement, type CorporateBuyoutAgreement } from "@/lib/corporateBuyoutAgreement";
 import {
   toMoney,
   validateFinancialReconciliation,
@@ -238,6 +239,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       action?: "financial" | "guest-count";
       amountPaid?: number;
+      buyoutComponents?: CorporateBuyoutAgreement;
       bookingReference?: string;
       expectedUpdatedAt?: string;
       guestCount?: number;
@@ -318,6 +320,15 @@ export async function POST(request: Request) {
     const hasManualFinancialBasis =
       body.manualPaymentBasis !== undefined || body.manualUnitAmount !== undefined;
     const hasLegacyInvoiceEvidence = Boolean(body.legacyInvoiceEvidence);
+    if (body.buyoutComponents) {
+      let error: string | null;
+      try {
+        error = validateCorporateBuyoutAgreement(body.buyoutComponents, Number(body.totalAmount));
+      } catch { error = "Documented buyout components are invalid."; }
+      if (error || body.action !== "financial" || hasLegacyInvoiceEvidence) {
+        return Response.json({ error: error || "Buyout components require a native financial reconciliation." }, { status: 400 });
+      }
+    }
     const hasRetainedValueTransfer = Boolean(body.retainedValueTransfer);
     const isUnpaidNativeReduction =
       body.action === "guest-count" &&
@@ -330,7 +341,9 @@ export async function POST(request: Request) {
       ["admin", "online"].includes(bookingContext?.booking_source ?? "");
     const rpcName =
       body.action === "financial"
-        ? hasLegacyInvoiceEvidence
+        ? body.buyoutComponents
+          ? "reconcile_corporate_buyout_components_atomic"
+          : hasLegacyInvoiceEvidence
           ? "reconcile_imported_booking_financials_atomic"
           : "reconcile_booking_financials_and_links_atomic"
         : body.action === "guest-count"
@@ -475,6 +488,7 @@ export async function POST(request: Request) {
             ...requestMetadata,
             p_amount_paid: toMoney(Number(body.amountPaid)),
             p_total_amount: toMoney(Number(body.totalAmount)),
+            ...(body.buyoutComponents ? { p_components: body.buyoutComponents } : {}),
           }
         : hasRetainedValueTransfer
           ? {
@@ -498,6 +512,12 @@ export async function POST(request: Request) {
     const { data, error } = await auth.serviceClient.rpc(rpcName, parameters);
 
     if (error) {
+      if (error.message.includes("BUYOUT_COMPONENT")) {
+        return Response.json({
+          error: "The buyout agreement could not be reconciled. Check its components and any existing payment or accounting evidence before trying again.",
+          code: error.message,
+        }, { status: error.message.includes("INVALID") ? 400 : 409 });
+      }
       const mappedError = mapBookingAmendmentError(error);
       if (mappedError) {
         console.warn("[Zingara Reconciliation] Expected save rejection", {

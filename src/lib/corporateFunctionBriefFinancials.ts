@@ -1,5 +1,6 @@
 import { serviceFeeRate } from "./bookingAddons.ts";
 import { includedBookingFeeAmount } from "./bookingFees.ts";
+import { readCorporateBuyoutAgreement } from "./corporateBuyoutAgreement.ts";
 import {
   resolveGratuityStatus,
   type GratuityPolicy,
@@ -65,8 +66,18 @@ export type FunctionBriefBuyoutRow = {
 
 export function resolveFunctionBriefBuyoutComposition(
   row: FunctionBriefBuyoutRow | null,
-  booking: { addonsTotal: number; serviceFee: number; totalAmount: number },
+  booking: { addonsTotal: number; serviceFee: number; totalAmount: number; notes?: string | null },
 ) {
+  const agreement = readCorporateBuyoutAgreement(booking.notes, booking.totalAmount);
+  if (agreement && row &&
+    Math.round(row.commercial_base_amount * 100) === Math.round((agreement.originalBase - agreement.discount) * 100) &&
+    row.commercial_vat_amount === agreement.vat && row.commercial_gratuity_amount === agreement.gratuity &&
+    row.commercial_additional_guest_amount === 0 && booking.serviceFee === agreement.gratuity &&
+    Math.round(booking.addonsTotal * 100) === agreement.addons.reduce((s, a) => s + Math.round(a.amount * 100), 0) &&
+    Math.round((row.commercial_total_amount + booking.addonsTotal) * 100) === Math.round(booking.totalAmount * 100)) {
+    return { packageName: agreement.packageName, packageBaseAmount: agreement.originalBase - agreement.discount,
+      vatAmount: agreement.vat };
+  }
   const packageName = row?.package_snapshot?.displayName?.trim() || null;
   const values = row ? [row.commercial_base_amount, row.commercial_vat_amount,
     row.commercial_gratuity_amount, row.commercial_total_amount,

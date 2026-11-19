@@ -7,6 +7,7 @@ import {
 } from "@/lib/customerNameStatus";
 import { isLegacyPlaceholderTableCode } from "@/lib/physicalTables";
 import { getRestrictedDietaryQuantities } from "@/lib/dietaryAddonOrdering";
+import { readCorporateBuyoutAgreement } from "@/lib/corporateBuyoutAgreement";
 import { getDietaryAddonSummary } from "@/lib/bookingAddons";
 import {
   resolveBookingCompanyName,
@@ -895,6 +896,9 @@ function getBookingNotes(booking: TablePlanBooking) {
       metadata.guestNotes,
       metadata.internalNotes,
       metadata.operationalNotes,
+      readCorporateBuyoutAgreement(booking.notes, Number(booking.total_amount))
+        ? "Meal quantities are workbook requirements only; supplier orders are not created or confirmed by financial reconciliation."
+        : "",
     ]
       .map(sanitizeOperationalReportNotes)
       .filter(Boolean)
@@ -954,7 +958,14 @@ function getBookingPaymentMetadata(booking: TablePlanBooking): {
       depositPercentage: Number.isFinite(Number(metadata.depositPercentage))
         ? Number(metadata.depositPercentage)
         : null,
-      dietaryQuantities: getRestrictedDietaryQuantities(metadata.addons),
+      dietaryQuantities: (() => {
+        const ordered = getRestrictedDietaryQuantities(metadata.addons);
+        const agreement = readCorporateBuyoutAgreement(booking.notes, Number(booking.total_amount));
+        return agreement ? {
+          "dietary-strictly-halaal": Math.max(ordered["dietary-strictly-halaal"], agreement.requirements.strictlyHalaal),
+          "dietary-kosher": Math.max(ordered["dietary-kosher"], agreement.requirements.kosher),
+        } : ordered;
+      })(),
       gratuityPolicy:
         metadata.gratuityPolicy === "online-collected" ||
         metadata.gratuityPolicy === "pay-at-venue"

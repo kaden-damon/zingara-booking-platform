@@ -1,4 +1,5 @@
 import type { XeroDocumentLineInput } from "./documentMath";
+import { readCorporateBuyoutAgreement } from "../corporateBuyoutAgreement.ts";
 
 export type BookingInvoiceRevenueCategory =
   | "buyouts"
@@ -9,6 +10,7 @@ type BookingInvoiceAmounts = {
   addonsTotal: number;
   bookingFeeAmount?: number;
   bookingReference: string;
+  bookingNotes?: string | null;
   discountAmount: number;
   revenueCategory: BookingInvoiceRevenueCategory;
   serviceFee: number;
@@ -49,6 +51,30 @@ export function buildAuthoritativeBookingInvoiceDraft(
   const discountCents = cents(input.discountAmount);
   const gratuityCents = cents(input.serviceFee);
   const totalCents = cents(input.totalAmount);
+  const agreement = readCorporateBuyoutAgreement(input.bookingNotes);
+  if (agreement) {
+    const addons = agreement.addons.reduce((sum, a) => sum + cents(a.amount), 0);
+    const netBase = cents(agreement.originalBase) - cents(agreement.discount);
+    if (input.revenueCategory !== "buyouts" || addonsCents !== addons ||
+      discountCents !== cents(agreement.discount) || gratuityCents !== cents(agreement.gratuity) ||
+      subtotalCents !== cents(agreement.originalBase) + cents(agreement.vat) + addons ||
+      totalCents !== netBase + cents(agreement.vat) + gratuityCents + addons) {
+      throw new Error("The current booking no longer matches its documented buyout components.");
+    }
+    // The agreement discount is pre-VAT; ordinary booking discounts are inclusive.
+    const originalGross = cents(agreement.originalBase) + Math.round(cents(agreement.originalBase) * 0.15);
+    const discountGross = cents(agreement.discount) + Math.round(cents(agreement.discount) * 0.15);
+    if (originalGross - discountGross !== netBase + cents(agreement.vat)) {
+      throw new Error("The documented package VAT does not reconcile to invoice cents.");
+    }
+    const lines = [
+      line(`${agreement.packageName} - original package (excluding VAT ${amount(cents(agreement.originalBase))})`, "buyouts", originalGross, "15"),
+      line(`Agreed package discount (excluding VAT ${amount(discountCents)})`, "discounts", -discountGross, "15"),
+      ...agreement.addons.filter(a => a.amount > 0).map(a => line(`${a.name} - ${a.description}`, "addons", cents(a.amount), "15")),
+      line("Dinner-show gratuity - 12.5% of original package", "gratuity", gratuityCents, null),
+    ];
+    return { lineAmountType: "inclusive" as const, lines, totalCents };
+  }
   const ticketGrossCents = subtotalCents - addonsCents;
   const bookingFeeCents = input.bookingFeeAmount === undefined
     ? (ticketGrossCents > 0 ? Math.min(1_000, ticketGrossCents) : 0)
