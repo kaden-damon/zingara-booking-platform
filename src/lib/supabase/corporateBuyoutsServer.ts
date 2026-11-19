@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readCorporateBuyoutAgreement } from "@/lib/corporateBuyoutAgreement";
 
 import {
   type CorporateBuyoutPackage,
@@ -162,7 +163,7 @@ export async function loadActiveCorporateBuyoutSummaries(
   const { data: bookings, error: bookingError } = bookingIds.length
     ? await client
         .from("bookings")
-        .select("id,booking_reference,company_name,show_id,guest_count,booking_status,archived_at")
+        .select("id,booking_reference,company_name,show_id,guest_count,booking_status,archived_at,notes,total_amount")
         .in("id", bookingIds)
     : { data: [], error: null };
   if (bookingError) throw bookingError;
@@ -189,6 +190,7 @@ export async function loadActiveCorporateBuyoutSummaries(
           currentGuestCount: row.current_guest_count,
           id: row.id,
           packageName:
+            readCorporateBuyoutAgreement(booking?.notes, Number(booking?.total_amount))?.packageName ??
             row.package_snapshot?.displayName ?? "Buyout",
           revision: row.revision,
           reviewBookingCount: unresolved.length,
