@@ -235,6 +235,7 @@ export function GuestCountReconciliationModal(
     guestCount: number;
     onSave: (draft: {
       guestCount: number;
+      expectedAdditionalAmount?: number;
       manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;
       manualUnitAmount?: number;
       reason: string;
@@ -358,6 +359,7 @@ export function GuestCountReconciliationModal(
     setSubmissionError("");
     props.onSave({
       guestCount: draft.guestCount,
+      expectedAdditionalAmount: financials.additionalAmount ?? undefined,
       manualPaymentBasis: requiresManualFinancialBasis
         ? draft.manualPaymentBasis || undefined
         : undefined,
@@ -398,6 +400,9 @@ export function GuestCountReconciliationModal(
           <p>Added guests: {financials.addedGuests}</p>
           <p>Pricing: {props.details.corporateFixedTotal ? "Agreed Corporate total" : isComplimentaryIncrease ? "Complimentary" : props.details.addedGuestPricingBasis.paymentBasis === "deposit" ? "Original deposit" : props.details.addedGuestPricingBasis.paymentBasis === "full" ? "Original ticket price" : "Payment details need review"}</p>
           <p>Rate: {props.details.corporateFixedTotal ? "Fixed total · no automatic repricing" : isComplimentaryIncrease ? "Complimentary · R0.00 pp" : props.details.addedGuestPricingBasis.unitAmount === null ? "Check payment details" : `R${props.details.addedGuestPricingBasis.unitAmount.toFixed(2)} pp`}</p>
+          {"gratuityRate" in props.details.addedGuestPricingBasis && props.details.addedGuestPricingBasis.gratuityRate ? (
+            <p>Existing booked gratuity: 12.5% on the added tickets.</p>
+          ) : null}
           <p>Additional amount: {financials.additionalAmount === null ? "Unavailable" : `R${financials.additionalAmount.toFixed(2)}`}</p>
           <p>New outstanding: {financials.newOutstanding === null ? "Unavailable" : `R${financials.newOutstanding.toFixed(2)}`}</p>
         </div>

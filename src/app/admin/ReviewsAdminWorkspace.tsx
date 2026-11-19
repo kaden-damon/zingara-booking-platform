@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
+import { clampReviewPage, getReviewPageCount } from "@/lib/reviews/reviewPagination";
 import {
   clearAdminReviewShareTarget,
   getAdminReviewSharePath,
@@ -261,6 +262,13 @@ export default function ReviewsAdminWorkspace() {
         signal,
       });
       if (latestQuery.current !== queryKey || signal?.aborted) return;
+      const availablePage = clampReviewPage(page, data.total, data.pageSize);
+      if (!targetReviewId && availablePage !== page) {
+        setSelectedId(null);
+        setSelectedDetail(null);
+        setPage(availablePage);
+        return;
+      }
       setResult(data);
       setResultKey(queryKey);
       if (targetReviewId) {
@@ -332,7 +340,7 @@ export default function ReviewsAdminWorkspace() {
   }, [activeReviewId, detailVersion, selectedDetail, status, targetReviewId]);
 
   const selected = listSelected && selectedDetail?.id === listSelected.id ? selectedDetail : listSelected;
-  const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
+  const pageCount = getReviewPageCount(result.total, result.pageSize);
   const paginationBusy = loading || result.page !== page || search.trim() !== debouncedSearch;
   const visibleStatus = targetReviewId && result.rows[0] ? result.rows[0].status : status;
   const activeFilterCount = [ratingFilter, venueFilter, contactFilter, replyFilter, privacyFilter]

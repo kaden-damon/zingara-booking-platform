@@ -34,7 +34,7 @@ test("full-payment additions use the saved agreed ticket rate", () => {
   );
 });
 
-test("deposit additions preserve the original deposit per person", () => {
+test("native deposit plans add the full agreed ticket obligation, not a deposit instalment", () => {
   const basis = resolveAddedGuestPricingBasis({
     bookingOrigin: "customer_public",
     metadata: {
@@ -48,17 +48,17 @@ test("deposit additions preserve the original deposit per person", () => {
   });
   assert.deepEqual(
     calculateAddedGuestFinancials({ basis, currentGuestCount: 8, currentOutstanding: 4000, newGuestCount: 10 }),
-    { addedGuests: 2, additionalAmount: 1000, newOutstanding: 5000 },
+    { addedGuests: 2, additionalAmount: 2720, newOutstanding: 6720 },
   );
 });
 
-test("modern metadata can recover the original deposit without current status", () => {
+test("native metadata recovers the full ticket obligation independently of payment status", () => {
   assert.deepEqual(
     resolveAddedGuestPricingBasis({
       bookingOrigin: "customer_public",
       metadata: { depositPercentage: 25, partySize: 4, paymentOption: "deposit", pricePerPerson: 1000, totalPrice: 4000 },
     }),
-    { paymentBasis: "deposit", source: "standard-zone", unitAmount: 250 },
+    { paymentBasis: "full", source: "standard-zone", unitAmount: 1000 },
   );
 });
 

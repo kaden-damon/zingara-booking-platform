@@ -19278,6 +19278,7 @@ export default function AdminDashboardPage({
   async function saveGuestCountReconciliation(draft: {
     guestCount: number;
     manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;
+    expectedAdditionalAmount?: number;
     manualUnitAmount?: number;
     reason: string;
     twoSeaterOverrideReason?: string;
@@ -19305,6 +19306,7 @@ export default function AdminDashboardPage({
             guestCountReconciliation.details.booking.updatedAt,
           guestCount: draft.guestCount,
           manualPaymentBasis: draft.manualPaymentBasis,
+          expectedAdditionalAmount: draft.expectedAdditionalAmount,
           manualUnitAmount: draft.manualUnitAmount,
           reason: draft.reason,
           retainedValueTransfer: draft.retainedValueTransfer,

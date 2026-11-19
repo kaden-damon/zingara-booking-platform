@@ -6,7 +6,7 @@ import {
   validateGuestCountReconciliation,
 } from "@/lib/bookingReconciliation";
 import { getIncludedBookingFeeBreakdown } from "@/lib/zingaraDemo";
-import { resolveAddedGuestPricingBasis } from "@/lib/addedGuestFinancials";
+import { resolveAddedGuestPricingBasis, calculateAddedGuestFinancials, matchesAddedGuestPreview } from "@/lib/addedGuestFinancials";
 import { mapBookingAmendmentError } from "@/lib/bookingAmendmentErrors";
 import {
   getAdminRoleFromName,
@@ -164,6 +164,7 @@ export async function GET(request: Request) {
       metadata: bookingMetadata,
       paymentStatus: booking.payment_status,
       subtotalAmount: Number(booking.subtotal_amount),
+      serviceFeeAmount: Number(booking.service_fee),
       totalAmount: Number(booking.total_amount),
     });
     const allocationEvidence = legacyRows.find(
@@ -242,6 +243,7 @@ export async function POST(request: Request) {
       buyoutComponents?: CorporateBuyoutAgreement;
       bookingReference?: string;
       expectedUpdatedAt?: string;
+      expectedAdditionalAmount?: number;
       guestCount?: number;
       legacyInvoiceEvidence?: {
         sourceDocument?: string;
@@ -280,7 +282,7 @@ export async function POST(request: Request) {
       body.action === "guest-count"
         ? await auth.serviceClient
             .from("bookings")
-            .select("amount_paid,booking_origin,booking_source,id,booking_reference,show_id,guest_count,payment_status")
+            .select("amount_paid,booking_origin,booking_source,id,booking_reference,show_id,guest_count,payment_status,notes,service_fee,subtotal_amount,total_amount,balance_outstanding")
             .eq("booking_reference", bookingReference)
             .maybeSingle()
         : { data: null, error: null };
@@ -319,6 +321,33 @@ export async function POST(request: Request) {
       bookingContext?.booking_source === "corporate-direct";
     const hasManualFinancialBasis =
       body.manualPaymentBasis !== undefined || body.manualUnitAmount !== undefined;
+    let reviewedNativeIncrease: number | undefined;
+    if (body.action === "guest-count" && bookingContext && !isCorporateFixedTotal && !hasManualFinancialBasis &&
+      Number(body.guestCount) > Number(bookingContext.guest_count) &&
+      ["admin_staff", "customer_public"].includes(bookingContext.booking_origin ?? "") &&
+      ["admin", "online"].includes(bookingContext.booking_source ?? "")) {
+      const basis = resolveAddedGuestPricingBasis({
+        bookingOrigin: bookingContext.booking_origin,
+        metadata: parseBookingMetadata(bookingContext.notes),
+        paymentStatus: bookingContext.payment_status,
+        serviceFeeAmount: Number(bookingContext.service_fee),
+        subtotalAmount: Number(bookingContext.subtotal_amount),
+        totalAmount: Number(bookingContext.total_amount),
+        amountPaid: Number(bookingContext.amount_paid),
+        balanceOutstanding: Number(bookingContext.balance_outstanding),
+      });
+      if (basis.paymentBasis === "full" && ["standard-zone", "friends-family", "show-specific"].includes(basis.source)) {
+        const preview = calculateAddedGuestFinancials({ basis,
+          currentGuestCount: Number(bookingContext.guest_count), newGuestCount: Number(body.guestCount),
+          currentOutstanding: Number(bookingContext.balance_outstanding),
+        });
+        if (!matchesAddedGuestPreview(body.expectedAdditionalAmount, preview.additionalAmount)) {
+          return Response.json({ code: "ADDED_GUEST_PRICE_REVIEW_REQUIRED",
+            error: "Refresh this page and review the full added-guest price before saving." }, { status: 409 });
+        }
+        reviewedNativeIncrease = preview.additionalAmount ?? undefined;
+      }
+    }
     const hasLegacyInvoiceEvidence = Boolean(body.legacyInvoiceEvidence);
     if (body.buyoutComponents) {
       let error: string | null;
@@ -502,6 +531,9 @@ export async function POST(request: Request) {
           : {
             ...requestMetadata,
             p_guest_count: Number(body.guestCount),
+            ...(reviewedNativeIncrease !== undefined
+              ? { p_expected_additional_amount: reviewedNativeIncrease }
+              : {}),
             ...(hasManualFinancialBasis
               ? {
                   p_payment_basis: body.manualPaymentBasis,
@@ -512,6 +544,10 @@ export async function POST(request: Request) {
     const { data, error } = await auth.serviceClient.rpc(rpcName, parameters);
 
     if (error) {
+      if (error.message.includes("ADDED_GUEST_PRICE_REVIEW_REQUIRED")) {
+        return Response.json({ code: "ADDED_GUEST_PRICE_REVIEW_REQUIRED",
+          error: "Refresh this page and review the full added-guest price before saving." }, { status: 409 });
+      }
       if (error.message.includes("BUYOUT_COMPONENT")) {
         return Response.json({
           error: "The buyout agreement could not be reconciled. Check its components and any existing payment or accounting evidence before trying again.",

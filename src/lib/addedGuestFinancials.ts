@@ -5,6 +5,7 @@ export type AddedGuestPricingBasis =
       paymentBasis: PaymentOption;
       source: NonNullable<DemoBooking["agreedPriceSource"]>;
       unitAmount: number;
+      gratuityRate?: number;
     }
   | {
       paymentBasis: "unknown";
@@ -13,6 +14,11 @@ export type AddedGuestPricingBasis =
     };
 
 export type LegacyGuestIncreasePaymentBasis = "deposit" | "full";
+
+export function matchesAddedGuestPreview(expected: unknown, actual: number | null) {
+  return typeof expected === "number" && Number.isFinite(expected) && actual !== null &&
+    Math.round(expected * 100) === Math.round(actual * 100);
+}
 
 export function calculateAuthorizedLegacyIncrease(input: {
   amountPaid: number;
@@ -60,6 +66,7 @@ export function resolveAddedGuestPricingBasis(input: {
   paymentStatus?: string | null;
   subtotalAmount?: number | null;
   totalAmount?: number | null;
+  serviceFeeAmount?: number | null;
 }) : AddedGuestPricingBasis {
   const provenance = input.metadata?.pricingProvenance;
   const provenanceRate = positiveMoney(provenance?.agreedPricePerPerson);
@@ -78,6 +85,23 @@ export function resolveAddedGuestPricingBasis(input: {
       paymentBasis: "full",
       source: "complimentary",
       unitAmount: 0,
+    };
+  }
+
+  const nativeBooking = input.bookingOrigin === "admin_staff" || input.bookingOrigin === "customer_public";
+  const nativeSource = provenance?.source ?? input.metadata?.agreedPriceSource ?? "standard-zone";
+  const ticketRate = provenanceRate ?? positiveMoney(input.metadata?.pricePerPerson);
+  const paymentModel = provenance?.paymentModel ?? input.metadata?.paymentOption;
+  if (nativeBooking && input.metadata?.source !== "corporate-direct" &&
+    ["standard-zone", "friends-family", "show-specific"].includes(nativeSource) &&
+    ticketRate && (paymentModel === "deposit" || paymentModel === "full")) {
+    const existingGratuity = Number(input.serviceFeeAmount ?? input.metadata?.serviceFeeAmount) > 0 &&
+      input.metadata?.gratuityPolicy !== "pay-at-venue";
+    return {
+      paymentBasis: "full",
+      source: nativeSource,
+      unitAmount: ticketRate,
+      ...(existingGratuity ? { gratuityRate: 0.125 } : {}),
     };
   }
 
@@ -151,7 +175,12 @@ export function calculateAddedGuestFinancials(input: {
   const additionalAmount =
     input.basis.unitAmount === null
       ? null
-      : Math.round(addedGuests * input.basis.unitAmount * 100) / 100;
+      : (() => {
+          const tickets = Math.round(addedGuests * input.basis.unitAmount * 100) / 100;
+          const gratuity = "gratuityRate" in input.basis
+            ? Math.round(tickets * (input.basis.gratuityRate ?? 0) * 100) / 100 : 0;
+          return Math.round((tickets + gratuity) * 100) / 100;
+        })();
 
   return {
     addedGuests,
