@@ -7205,6 +7205,16 @@ export default function AdminDashboardPage({
         return;
       }
 
+      if (bookingShow && ["floor", "floor-arrivals", "operations", "bookings"].includes(section ?? "")) {
+        const linkedShow = getShowByIdentity(bookingShow);
+        // Wait for the existing show load; never substitute a different performance.
+        if (!linkedShow) return;
+        const location = normalizeShowLocation(linkedShow.location ?? linkedShow.venueName);
+        if (!location || !permittedManifestLocations.includes(location)) return;
+        selectFloorEditingShow(linkedShow.id);
+        setManifestLocationFilter(location);
+      }
+
       if (section === "xero") {
         setActiveAdminTab("xero");
       } else if (bookingReference) {
@@ -7238,9 +7248,7 @@ export default function AdminDashboardPage({
       } else if (section === "bookings") {
         setActiveAdminTab("bookings");
         if (bookingShow) {
-          setBookingShowFilter(bookingShow);
-          setBookingFiltersExpanded(true);
-          setBookingPage(1);
+          selectBookingShow(bookingShow);
         }
       } else if (section === "overview" || section === "home") {
         setActiveAdminTab("overview");
@@ -7309,6 +7317,7 @@ export default function AdminDashboardPage({
         typeof event.data.url === "string" ? event.data.url : "/admin";
       const url = new URL(targetUrl, window.location.origin);
 
+      handledAdminDeepLinkRef.current = "";
       handleAdminDeepLink(targetUrl);
 
       if (
@@ -7331,7 +7340,7 @@ export default function AdminDashboardPage({
         handleServiceWorkerMessage,
       );
     };
-  }, [currentStaff, waitlist]);
+  }, [currentStaff, waitlist, shows]);
 
   useEffect(() => {
     setFavouriteAcademyArticleIds(
@@ -8247,13 +8256,22 @@ export default function AdminDashboardPage({
     );
   }
 
+  function selectBookingShow(showId: string) {
+    setBookingSearch("");
+    setBookingLocationFilter("all");
+    setBookingDateFilter("all");
+    setBookingPerformanceFrom("");
+    setBookingPerformanceTo("");
+    setBookingShowFilter(showId);
+    setBookingPage(1);
+    setBookingFiltersExpanded(true);
+  }
+
   function reviewCalendarBuyoutBookings(showId: string) {
     setIsCalendarBuyoutOpen(false);
     setActiveAdminTab("bookings");
-    setBookingShowFilter(showId);
+    selectBookingShow(showId);
     setIsBuyoutReviewMode(true);
-    setBookingPage(1);
-    setBookingFiltersExpanded(true);
     window.history.pushState(
       null,
       "",
@@ -39805,8 +39823,8 @@ export default function AdminDashboardPage({
                           }} className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#D8C36A] px-4 text-xs font-bold uppercase text-black transition hover:bg-[#F2D66C]">
                             Review Payment
                           </button>
-                        ) : financials.balanceDue <= 0 && !currentTable && (booking.status ?? "confirmed") !== "cancelled" ? (
-                          <a href="/admin?section=floor" className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#D8C36A] px-4 text-xs font-bold uppercase text-black transition hover:bg-[#F2D66C]">
+                        ) : financials.balanceDue <= 0 && !currentTable && booking.showId && (booking.status ?? "confirmed") !== "cancelled" ? (
+                          <a href={`/admin?section=floor&show=${encodeURIComponent(booking.showId)}`} className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#D8C36A] px-4 text-xs font-bold uppercase text-black transition hover:bg-[#F2D66C]">
                             Open Floor
                           </a>
                         ) : null}
