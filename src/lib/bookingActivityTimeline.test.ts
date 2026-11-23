@@ -85,6 +85,9 @@ test("before/after values are readable, unchanged fields omitted, sensitive data
   assert.match(String(row.changes.find((change) => change.field === "Paid")?.after), /6.?160/);
   assert.equal(row.changes.find((change) => change.field === "Payment status")?.after, "Fully paid");
   assert.doesNotMatch(JSON.stringify(row), /private@example|provider_transaction|fully_paid/);
+  const hidden = timeline.buildTimelineChanges({}, { invalidated_ticket_codes: ["ZNG-PRIVATE-01"], ticketUrl: "https://example.test/ticket/private", acceptanceLinkId: "private" });
+  assert.equal(hidden.length, 0);
+  assert.equal(timeline.sanitizeTimelineText("Sent https://example.test/ticket/private"), "Sent [private link]");
   const restricted = timeline.presentBookingActivityEntry(fixtureEntry({ changes, reason: "Paid R6160" }), { financial: false, privateDetails: true });
   assert.equal(restricted.changes.length, 0);
   assert.equal(restricted.reason, null);

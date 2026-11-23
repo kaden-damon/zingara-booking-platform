@@ -20,7 +20,7 @@ export type BookingActivityEntry = {
 };
 
 const sensitiveKeyPattern =
-  /(authorization|cookie|password|secret|token|qr|provider_transaction|payment_identifier|access_key|refresh_key|email|phone|mobile|signature|bank|account_number|billing|address|card_number|session_id|transaction_id|request_id)/i;
+  /(authorization|cookie|password|secret|token|qr|provider_transaction|payment_identifier|access_key|refresh_key|email|phone|mobile|signature|bank|account_number|billing|address|card_number|session_id|transaction_id|request_id|ticket.?codes?|url|link|hash|checksum)/i;
 
 export function sanitizeTimelineText(value: string) {
   return value
@@ -30,7 +30,8 @@ export function sanitizeTimelineText(value: string) {
     )
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[private contact]")
     .replace(/(?:\+27|0)\s?\d{2}(?:[\s()-]?\d){7}\b/g, "[private contact]")
-    .replace(/\b\d{12,}\b/g, "[private reference]");
+    .replace(/\b\d{12,}\b/g, "[private reference]")
+    .replace(/https?:\/\/\S+/gi, "[private link]");
 }
 
 export function canAccessBookingActivityTimeline(
