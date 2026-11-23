@@ -13,6 +13,7 @@ import {
 } from "@/lib/showTableBaseLayout";
 import {
   getServiceClient,
+  getRolePermissions,
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 import {
@@ -26,6 +27,8 @@ import type { ShowCustomPricing } from "@/lib/showSpecificPricing";
 import { loadShowCustomPricingMap } from "@/lib/supabase/showSpecificPricingServer";
 import { loadActiveCorporateBuyoutSummaries } from "@/lib/supabase/corporateBuyoutsServer";
 import type { CorporateBuyoutSummary } from "@/lib/corporateBuyouts";
+import { normalizeStaffVenueScope } from "@/lib/staffLocations";
+import { parseShowAvailabilityRequest, runShowAvailabilityBatch } from "@/lib/showBulkAvailability";
 
 export const dynamic = "force-dynamic";
 
@@ -973,6 +976,115 @@ export async function PUT(request: Request) {
   }
 }
 
+async function auditAndNotifyShowChange(
+  request: Request,
+  auth: Awaited<ReturnType<typeof requireActiveStaff>>,
+  beforeRow: SupabaseShowRow,
+  afterRow: SupabaseShowRow,
+) {
+  const diff = diffAuditFields(
+    beforeRow as Record<string, unknown>,
+    afterRow as Record<string, unknown>,
+    showAuditFields,
+  );
+  if (diff.changedFields.length > 0) {
+    await recordAuditEvent(auth.serviceClient!, auth.staffProfile, auth.user, {
+      action: "show.edit",
+      afterValues: diff.afterValues,
+      beforeValues: diff.beforeValues,
+      changedFields: diff.changedFields,
+      entityId: afterRow.id,
+      entityLocation: normalizeShowLocation(afterRow.venue) ?? null,
+      entityReference: getShowReference(afterRow),
+      entityType: "show",
+      outcome: "success",
+      request,
+      sourceArea: "Shows",
+    });
+  }
+  if (beforeRow.name !== afterRow.name || beforeRow.date !== afterRow.date ||
+    beforeRow.time !== afterRow.time || beforeRow.venue !== afterRow.venue || beforeRow.status !== afterRow.status) {
+    after(async () => {
+      try {
+        await notifyAppleWalletShow(auth.serviceClient!, afterRow.id);
+      } catch (walletError) {
+        console.error("[Zingara API] Deferred Apple Wallet show refresh failed", walletError);
+      }
+    });
+  }
+}
+
+async function changeSelectedShowAvailability(
+  request: Request,
+  auth: Awaited<ReturnType<typeof requireActiveStaff>>,
+  input: unknown,
+) {
+  const role = Array.isArray(auth.staffProfile?.roles) ? auth.staffProfile.roles[0] : auth.staffProfile?.roles;
+  if (!getRolePermissions(role).includes("settings:manage")) {
+    return Response.json({ error: "Show management access is required." }, { status: 403 });
+  }
+  let body;
+  try {
+    body = parseShowAvailabilityRequest(input);
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Invalid selection." }, { status: 400 });
+  }
+  const client = auth.serviceClient!;
+  const [year, month] = body.month.split("-").map(Number);
+  const nextMonth = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+  let query = client.from("shows")
+    .select("id,name,description,date,time,venue,status,notes,created_at,updated_at")
+    .gte("date", `${body.month}-01`).lt("date", nextMonth).limit(1001);
+  if (body.venue !== "all") query = query.eq("venue", body.venue);
+  const { data, error } = await query;
+  if (error) throw error;
+  if ((data?.length ?? 0) > 1000) {
+    return Response.json({ error: "Too many shows in this view. Narrow the venue filter." }, { status: 400 });
+  }
+  const rows = (data ?? []) as SupabaseShowRow[];
+  const requested = new Set(body.shows.map((show) => show.id));
+  const candidates = rows.filter((row) => requested.has(getShowReference(row)));
+  const buyouts = await loadActiveCorporateBuyoutSummaries(client, candidates.map((row) => row.id));
+  await expireStaleShowLocks(client);
+  const { data: locks, error: lockError } = await client.from("show_edit_locks")
+    .select("show_reference").in("show_reference", [...requested]).is("released_at", null);
+  if (lockError) throw lockError;
+  const locked = new Set((locks ?? []).map((lock) => lock.show_reference));
+  const scope = normalizeStaffVenueScope(auth.staffProfile?.venue_scope ?? []);
+  const target = body.action === "open" ? "active" : "inactive";
+  const results = await runShowAvailabilityBatch(body.shows, async (selected) => {
+    const row = candidates.find((candidate) => getShowReference(candidate) === selected.id);
+    if (!row) return { id: selected.id, success: false, error: "Show is no longer in the selected month and venue." };
+    const location = normalizeShowLocation(row.venue);
+    if (!location || (!scope.includes("all") && !scope.includes(location))) {
+      return { id: selected.id, success: false, error: "This show is outside your venue scope." };
+    }
+    if (!["active", "inactive"].includes(row.status) || buyouts.has(row.id)) {
+      return { id: selected.id, success: false, error: "Special, sold-out, archived and Buyout shows require individual review." };
+    }
+    if (row.status !== selected.status) return { id: selected.id, success: false, error: "Show status changed. Review it before retrying." };
+    if (locked.has(selected.id)) return { id: selected.id, success: false, error: "This show is currently being edited." };
+    if (findDuplicateActiveShow({ ...toDemoShow(row), operationalStatus: target }, rows)) {
+      return { id: selected.id, success: false, error: "Another show exists for this venue, date and time. Review it individually." };
+    }
+    if (row.status === target) return { id: selected.id, success: true, status: target };
+    let update = client.from("shows").update({ status: toSupabaseStatus(target) })
+      .eq("id", row.id).eq("status", row.status);
+    update = row.updated_at ? update.eq("updated_at", row.updated_at) : update.is("updated_at", null);
+    const { data: saved, error: saveError } = await update
+      .select("id,name,description,date,time,venue,status,notes,created_at,updated_at").maybeSingle();
+    if (saveError || !saved) return { id: selected.id, success: false, error: saveError ? "Show could not be saved. Review it before retrying." : "Show changed while saving. Review it before retrying." };
+    try {
+      await auditAndNotifyShowChange(request, auth, row, saved as SupabaseShowRow);
+      return { id: selected.id, success: true, status: target };
+    } catch {
+      // The status write succeeded; do not misreport an audit failure as unsaved.
+      return { id: selected.id, success: true, status: target, warning: "Status saved, but its audit record could not be confirmed. Contact an administrator." };
+    }
+  });
+  return Response.json({ results });
+}
+
 export async function PATCH(request: Request) {
   const auth = await requireActiveStaff(request);
 
@@ -985,7 +1097,11 @@ export async function PATCH(request: Request) {
       lockId?: string;
       lockSessionId?: string;
       show?: DemoShow;
+      availability?: unknown;
     };
+    if (body.availability !== undefined) {
+      return await changeSelectedShowAvailability(request, auth, body.availability);
+    }
     const show = body.show;
 
     if (!show || !normalizeShowLocation(show.location ?? show.venueName)) {
@@ -1037,46 +1153,7 @@ export async function PATCH(request: Request) {
     }
 
     const afterRow = data as SupabaseShowRow;
-    const diff = diffAuditFields(
-      beforeRow as Record<string, unknown>,
-      afterRow as Record<string, unknown>,
-      showAuditFields,
-    );
-
-    if (diff.changedFields.length > 0) {
-      await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
-        action: "show.edit",
-        afterValues: diff.afterValues,
-        beforeValues: diff.beforeValues,
-        changedFields: diff.changedFields,
-        entityId: afterRow.id,
-        entityLocation: normalizeShowLocation(afterRow.venue) ?? null,
-        entityReference: getShowReference(afterRow),
-        entityType: "show",
-        outcome: "success",
-        request,
-        sourceArea: "Shows",
-      });
-    }
-
-    if (
-      beforeRow.name !== afterRow.name ||
-      beforeRow.date !== afterRow.date ||
-      beforeRow.time !== afterRow.time ||
-      beforeRow.venue !== afterRow.venue ||
-      beforeRow.status !== afterRow.status
-    ) {
-      after(async () => {
-        try {
-          await notifyAppleWalletShow(auth.serviceClient!, afterRow.id);
-        } catch (walletError) {
-          console.error(
-            "[Zingara API] Deferred Apple Wallet show refresh failed",
-            walletError,
-          );
-        }
-      });
-    }
+    await auditAndNotifyShowChange(request, auth, beforeRow, afterRow);
 
     const customPricingByShowId = await loadShowCustomPricingMap(
       auth.serviceClient,

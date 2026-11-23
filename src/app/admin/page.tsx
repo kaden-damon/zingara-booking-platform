@@ -41,6 +41,7 @@ import type {
 } from "./academyContent";
 import type { BoxOfficeFinancialReport } from "@/lib/boxOfficeFinancialReport";
 import type { ShowCalendarFinancialSummary } from "@/lib/showCalendarFinancials";
+import { canBulkChangeShow, maxBulkAvailabilityShows, visibleShowSelection, type ShowAvailabilityAction, type ShowAvailabilityResult } from "@/lib/showBulkAvailability";
 import { getJohannesburgDateKey } from "@/lib/managementAnalytics";
 import { createPdfBytesFromPageContent } from "@/lib/exports/zingaraTextPdf";
 import { replaceShowScopedRows } from "@/lib/showScopedState";
@@ -5680,6 +5681,10 @@ export default function AdminDashboardPage({
   const [showCalendarLocationFilter, setShowCalendarLocationFilter] =
     useState<ShowCalendarLocationFilter>("all");
   const [openShowFinancialPopupId, setOpenShowFinancialPopupId] = useState("");
+  const [bulkAvailabilitySelection, setBulkAvailabilitySelection] = useState<string[]>([]);
+  const [bulkAvailabilityResults, setBulkAvailabilityResults] = useState<ShowAvailabilityResult[]>([]);
+  const [isBulkAvailabilitySaving, setIsBulkAvailabilitySaving] = useState(false);
+  const bulkAvailabilityInFlight = useRef(false);
   const [selectedShowId, setSelectedShowId] = useState("");
   const [selectedShowFloorLoadState, setSelectedShowFloorLoadState] =
     useState<SelectedShowFloorLoadState>({
@@ -22052,6 +22057,9 @@ export default function AdminDashboardPage({
     ),
   ];
   const setShowCalendarMonthOffset = (offset: number) => {
+    if (bulkAvailabilityInFlight.current) return;
+    setBulkAvailabilitySelection([]);
+    setBulkAvailabilityResults([]);
     const [year, month] = showCalendarMonth.split("-").map(Number);
     const nextDate = new Date(year, month - 1 + offset, 1);
 
@@ -22106,6 +22114,40 @@ export default function AdminDashboardPage({
 
     return showsByDay;
   }, [visibleShowCalendarShows]);
+  const bulkSelectableShows = visibleShowCalendarShows.filter(canBulkChangeShow);
+  const selectedAvailabilityIds = visibleShowSelection(
+    bulkAvailabilitySelection, bulkSelectableShows.map((show) => show.id),
+  );
+  async function applySelectedShowAvailability(action: ShowAvailabilityAction) {
+    if (!canManageShows || guidedTrainingModuleId || bulkAvailabilityInFlight.current ||
+      selectedAvailabilityIds.length < 1 || selectedAvailabilityIds.length > maxBulkAvailabilityShows) return;
+    const selected = bulkSelectableShows.filter((show) => selectedAvailabilityIds.includes(show.id));
+    if (!window.confirm(`${action === "open" ? "Open" : "Close"} ${selected.length} selected show${selected.length === 1 ? "" : "s"}? Only the selected shows in this month and venue view will change. Existing bookings and capacity remain unchanged.`)) return;
+    bulkAvailabilityInFlight.current = true;
+    setIsBulkAvailabilitySaving(true);
+    setBulkAvailabilityResults([]);
+    try {
+      const response = await fetchSupabaseApi<{ results: ShowAvailabilityResult[] }>("/api/admin/shows", {
+        method: "PATCH",
+        body: { availability: {
+          action, month: showCalendarMonth, venue: showCalendarLocationFilter,
+          shows: selected.map((show) => ({ id: show.id, status: show.operationalStatus ?? "active" })),
+        } },
+      });
+      setBulkAvailabilityResults(response.results);
+      const updated = new Map(response.results.filter((result) => result.success && result.status)
+        .map((result) => [result.id, result.status!]));
+      setShows((current) => current.map((show) => updated.has(show.id)
+        ? { ...show, operationalStatus: updated.get(show.id)! } : show));
+      setBulkAvailabilitySelection(selectedAvailabilityIds.filter((id) => !updated.has(id)));
+    } catch {
+      setBulkAvailabilityResults(selected.map((show) => ({ id: show.id, success: false,
+        error: "Could not confirm the result. Review this show before retrying." })));
+    } finally {
+      bulkAvailabilityInFlight.current = false;
+      setIsBulkAvailabilitySaving(false);
+    }
+  }
   const getCalendarShowsForDay = (day: number) =>
     showCalendarShowsByDay.get(day) ?? [];
   const getShowOccupancyChips = (show: DemoShow) =>
@@ -33256,6 +33298,7 @@ export default function AdminDashboardPage({
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
+                    disabled={isBulkAvailabilitySaving}
                     onClick={() => setShowCalendarMonthOffset(-1)}
                     className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
                   >
@@ -33266,6 +33309,7 @@ export default function AdminDashboardPage({
                   </p>
                   <button
                     type="button"
+                    disabled={isBulkAvailabilitySaving}
                     onClick={() => setShowCalendarMonthOffset(1)}
                     className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white hover:text-black"
                   >
@@ -33289,7 +33333,12 @@ export default function AdminDashboardPage({
                         key={value}
                         type="button"
                         aria-pressed={isSelected}
-                        onClick={() => setShowCalendarLocationFilter(value)}
+                        disabled={isBulkAvailabilitySaving}
+                        onClick={() => {
+                          setBulkAvailabilitySelection([]);
+                          setBulkAvailabilityResults([]);
+                          setShowCalendarLocationFilter(value);
+                        }}
                         className={`whitespace-nowrap rounded-full border px-3 py-2 text-[0.68rem] font-bold uppercase tracking-[0.1em] transition sm:px-4 sm:text-xs ${
                           isSelected
                             ? "border-[#D8C36A] bg-[#D8C36A] text-black"
@@ -33303,6 +33352,46 @@ export default function AdminDashboardPage({
                 </div>
               </div>
 
+              {canManageShows && !guidedTrainingModuleId && (
+                <div className="mt-4 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Selected show availability">
+                    <span className="mr-1 text-sm text-zinc-300" aria-live="polite">{selectedAvailabilityIds.length} selected</span>
+                    <button type="button" disabled={isBulkAvailabilitySaving || bulkSelectableShows.length === 0 || bulkSelectableShows.length > maxBulkAvailabilityShows}
+                      onClick={() => { setBulkAvailabilitySelection(bulkSelectableShows.map((show) => show.id)); setBulkAvailabilityResults([]); }}
+                      className="min-h-11 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 disabled:opacity-40">Select All Visible</button>
+                    <button type="button" disabled={isBulkAvailabilitySaving || selectedAvailabilityIds.length === 0}
+                      onClick={() => { setBulkAvailabilitySelection([]); setBulkAvailabilityResults([]); }}
+                      className="min-h-11 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 disabled:opacity-40">Clear Selection</button>
+                    <div className="flex flex-wrap gap-2">
+                    {(["open", "close"] as const).map((action) => (
+                      <button key={action} type="button" disabled={isBulkAvailabilitySaving || selectedAvailabilityIds.length === 0 || selectedAvailabilityIds.length > maxBulkAvailabilityShows}
+                        onClick={() => void applySelectedShowAvailability(action)}
+                        className="min-h-11 rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-bold uppercase text-black disabled:opacity-40">
+                        {action === "open" ? "Open Selected" : "Close Selected"}
+                      </button>
+                    ))}
+                    </div>
+                    {isBulkAvailabilitySaving && <span role="status" className="text-xs text-zinc-400">Updating selected shows…</span>}
+                  </div>
+                  {bulkSelectableShows.length > maxBulkAvailabilityShows && <p className="text-xs text-zinc-400">Select up to {maxBulkAvailabilityShows} shows, or narrow the venue filter.</p>}
+                  {bulkAvailabilityResults.length > 0 && (
+                    <details className="rounded-xl border border-white/15 p-3 text-sm text-zinc-300" open={bulkAvailabilityResults.some((result) => !result.success || result.warning)}>
+                      <summary className="cursor-pointer" role="status">
+                        {bulkAvailabilityResults.filter((result) => result.success).length} succeeded · {bulkAvailabilityResults.filter((result) => !result.success).length} failed
+                      </summary>
+                      <ul className="mt-2 max-h-60 space-y-1 overflow-y-auto">
+                        {bulkAvailabilityResults.map((result) => {
+                          const show = shows.find((item) => item.id === result.id);
+                          return <li key={result.id} className="break-words text-xs">
+                            {show ? `${show.date} · ${getSouthAfricaShowTime(show)} · ${getShowLocation(show) ?? show.venueName}` : result.id}: {result.success ? result.status === "active" ? "Open" : "Closed" : result.error}
+                            {result.warning && <span className="ml-1 text-amber-200">{result.warning}</span>}
+                          </li>;
+                        })}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
               <div className="mt-5">
                 {showCalendarOccupancyError && !isShowsLoading && (
                   <div
@@ -33407,11 +33496,13 @@ export default function AdminDashboardPage({
                                   tabIndex={0}
                                   aria-label={`Edit ${show.label} on ${formatOperationalShowDate(show.date)} at ${getSouthAfricaShowTime(show)}`}
                                   onClick={() => {
+                                    if (bulkAvailabilityInFlight.current) return;
                                     setOpenShowFinancialPopupId("");
                                     setSelectedShowId(show.id);
                                     openShowEditor(show);
                                   }}
                                   onKeyDown={(event) => {
+                                    if (bulkAvailabilityInFlight.current) return;
                                     if (
                                       event.key !== "Enter" &&
                                       event.key !== " "
@@ -33432,6 +33523,20 @@ export default function AdminDashboardPage({
                                     isDisabled ? "opacity-75" : ""
                                   }`}
                                 >
+                                  {canManageShows && !guidedTrainingModuleId && (
+                                    <label className="mb-2 flex min-h-11 w-fit items-center gap-2 pr-10 text-xs text-zinc-300"
+                                      onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                                      <input type="checkbox" aria-label={`Select ${show.label} on ${show.date} at ${getSouthAfricaShowTime(show)}`}
+                                        checked={selectedAvailabilityIds.includes(show.id)}
+                                        disabled={isBulkAvailabilitySaving || !canBulkChangeShow(show) || (!selectedAvailabilityIds.includes(show.id) && selectedAvailabilityIds.length >= maxBulkAvailabilityShows)}
+                                        onChange={(event) => {
+                                          setBulkAvailabilitySelection(event.target.checked ? [...selectedAvailabilityIds, show.id] : selectedAvailabilityIds.filter((id) => id !== show.id));
+                                          setBulkAvailabilityResults([]);
+                                        }}
+                                        className="h-4 w-4 accent-[#D8C36A] disabled:opacity-40" />
+                                      Select
+                                    </label>
+                                  )}
                                   <div className="block w-full pr-10 text-left">
                                     <div className="flex max-w-full flex-col items-start gap-1">
                                       <span className="truncate text-xs font-semibold text-white">
