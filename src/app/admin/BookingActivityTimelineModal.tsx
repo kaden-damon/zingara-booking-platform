@@ -25,7 +25,7 @@ function displayValue(value: unknown) {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") return String(value);
   if (typeof value === "string") return value.replaceAll("_", " ");
-  return JSON.stringify(value);
+  return "Details updated";
 }
 
 export default function BookingActivityTimelineModal({
@@ -108,7 +108,7 @@ export default function BookingActivityTimelineModal({
         <header className="flex items-start justify-between gap-4 border-b border-white/10 p-4 sm:p-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">Booking Details</p>
-            <h2 id="booking-activity-title" className="mt-1 text-xl font-bold sm:text-2xl">Activity Timeline</h2>
+            <h2 id="booking-activity-title" className="mt-1 text-xl font-bold sm:text-2xl">Booking Timeline</h2>
             <p className="mt-1 text-sm text-zinc-400">{bookingReference}</p>
           </div>
           <button type="button" onClick={onClose} className="min-h-10 rounded-full border border-white/15 px-4 text-xs font-semibold text-zinc-200 transition hover:bg-white hover:text-black">Close</button>
@@ -138,8 +138,8 @@ export default function BookingActivityTimelineModal({
                     {event.reason && <p className="mt-3 text-sm leading-6 text-zinc-300">{event.reason}</p>}
                     {event.changes.length > 0 && (
                       <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
-                        {event.changes.map((change) => (
-                          <div key={`${event.id}:${change.field}`} className="min-w-0 rounded-lg bg-white/[0.035] px-3 py-2">
+                        {event.changes.map((change, changeIndex) => (
+                          <div key={`${event.id}:${changeIndex}`} className="min-w-0 rounded-lg bg-white/[0.035] px-3 py-2">
                             <dt className="font-semibold text-zinc-300">{change.field}</dt>
                             <dd className="mt-1 break-words text-zinc-400">
                               {change.before !== undefined && <><span className="line-through opacity-70">{displayValue(change.before)}</span><span aria-hidden="true"> → </span></>}

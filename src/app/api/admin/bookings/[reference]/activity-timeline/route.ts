@@ -1,12 +1,15 @@
 import {
   buildTimelineChanges,
   canAccessBookingActivityTimeline,
-  humanizeActivityLabel,
+  legacyTimelineStatusEvents,
+  presentBookingActivityEntry,
+  timelineActor,
   sanitizeTimelineText,
   sortBookingActivityEntries,
   type BookingActivityEntry,
 } from "@/lib/bookingActivityTimeline";
-import { requireActiveStaff } from "@/lib/supabase/serverAdmin";
+import { getRolePermissions, requireActiveStaff } from "@/lib/supabase/serverAdmin";
+import { normalizeStaffLocation, normalizeStaffVenueScope } from "@/lib/staffLocations";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +25,9 @@ type StaffIdentity = { full_name: string; id: string; user_id: string };
 function actorName(
   identities: Map<string, string>,
   id: string | null | undefined,
-  fallback = "System",
+  fallback = "Not recorded",
 ) {
-  return (id && identities.get(id)) || fallback;
+  return (id && identities.get(id)) || (id ? "Staff member (name not recorded)" : fallback);
 }
 
 function auditActorName(
@@ -35,11 +38,9 @@ function auditActorName(
     actor_name: string | null;
   },
 ) {
-  return actorName(
-    identities,
-    row.actor_staff_profile_id,
-    actorName(identities, row.actor_auth_user_id, row.actor_name || "System"),
-  );
+  return (row.actor_staff_profile_id && identities.get(row.actor_staff_profile_id))
+    || (row.actor_auth_user_id && identities.get(row.actor_auth_user_id))
+    || timelineActor(row.actor_name, Boolean(row.actor_staff_profile_id || row.actor_auth_user_id));
 }
 
 function entry(
@@ -71,7 +72,7 @@ export async function GET(request: Request, context: RouteContext) {
   const { reference } = await context.params;
   const bookingReference = decodeURIComponent(reference).trim().toUpperCase();
 
-  if (!/^ZNG-[A-Z0-9-]+$/.test(bookingReference)) {
+  if (!/^(?:ZNG|DP)-[A-Z0-9-]+$/.test(bookingReference)) {
     return Response.json({ error: "Invalid booking reference." }, { status: 400 });
   }
 
@@ -86,7 +87,7 @@ export async function GET(request: Request, context: RouteContext) {
   const { data: booking, error: bookingError } = await serviceClient
     .from("bookings")
     .select(
-      "id,booking_reference,booking_source,booking_origin,guest_count,booking_status,payment_status,section,total_amount,amount_paid,balance_outstanding,created_at,created_by_staff_id",
+      "id,booking_reference,booking_source,booking_origin,created_at,created_by_staff_id,notes,show:shows!bookings_show_id_fkey(venue)",
     )
     .eq("booking_reference", bookingReference)
     .maybeSingle();
@@ -99,6 +100,19 @@ export async function GET(request: Request, context: RouteContext) {
   if (!booking) {
     return Response.json({ error: "Booking could not be found." }, { status: 404 });
   }
+
+  const show = Array.isArray(booking.show) ? booking.show[0] : booking.show;
+  const venue = normalizeStaffLocation(show?.venue);
+  const scope = normalizeStaffVenueScope(auth.staffProfile.venue_scope ?? []);
+  if (!venue || (!scope.includes("all") && !scope.includes(venue))) {
+    return Response.json({ error: "This booking is outside your assigned venue." }, { status: 403 });
+  }
+  const role = Array.isArray(auth.staffProfile.roles) ? auth.staffProfile.roles[0] : auth.staffProfile.roles;
+  const permissions = getRolePermissions(role);
+  const access = {
+    financial: permissions.includes("bookings:manage") || permissions.includes("analytics:read"),
+    privateDetails: permissions.includes("bookings:manage") || permissions.includes("crm:read"),
+  };
 
   const [auditResult, lifecycleResult, paymentResult, communicationResult, validationResult, documentResult, ticketResult] =
     await Promise.all([
@@ -117,12 +131,12 @@ export async function GET(request: Request, context: RouteContext) {
         .eq("booking_id", booking.id)
         .order("created_at", { ascending: false })
         .limit(candidateLimit),
-      serviceClient
+      access.financial ? serviceClient
         .from("payments")
         .select("id,payment_type,payment_status,amount,method,notes,processed_by,processed_at,created_at")
         .eq("booking_id", booking.id)
         .order("created_at", { ascending: false })
-        .limit(candidateLimit),
+        .limit(candidateLimit) : Promise.resolve({ data: [], error: null }),
       serviceClient
         .from("communications")
         .select("id,type,channel,subject,status,sent_at,created_by,created_at")
@@ -135,14 +149,14 @@ export async function GET(request: Request, context: RouteContext) {
         .eq("booking_id", booking.id)
         .order("validated_at", { ascending: false })
         .limit(candidateLimit),
-      serviceClient
+      access.financial ? serviceClient
         .from("xero_documents")
         .select(
           "id,kind,local_reference,status,version,total_cents,sync_status,xero_status,created_by_staff_profile_id,updated_by_staff_profile_id,created_at,updated_at,accepted_at,invoice_requested_at,invoice_requested_by_staff_profile_id",
         )
         .eq("source_booking_id", booking.id)
         .order("created_at", { ascending: false })
-        .limit(candidateLimit),
+        .limit(candidateLimit) : Promise.resolve({ data: [], error: null }),
       serviceClient
         .from("tickets")
         .select("id,ticket_status,issued_at,replacement_recorded_at")
@@ -228,19 +242,14 @@ export async function GET(request: Request, context: RouteContext) {
     entry({
       action: /dineplan|import/i.test(`${booking.booking_source} ${booking.booking_origin}`)
         ? "Dineplan Booking Imported"
-        : "Booking Created",
+        : "Booking first recorded",
       actor: actorName(
         identities,
         booking.created_by_staff_id,
-        /online|public/i.test(booking.booking_source) ? "Guest" : "System",
+        /online|public/i.test(booking.booking_source) ? "Guest"
+          : /dineplan|import/i.test(`${booking.booking_source} ${booking.booking_origin}`) ? "System" : "Not recorded",
       ),
-      changes: buildTimelineChanges({}, {
-        booking_status: booking.booking_status,
-        guest_count: booking.guest_count,
-        payment_status: booking.payment_status,
-        seating_area: booking.section,
-        source: booking.booking_source,
-      }),
+      changes: buildTimelineChanges({}, { source: booking.booking_source }),
       id: `booking:${booking.id}:created`,
       occurredAt: booking.created_at,
       reason: null,
@@ -251,14 +260,14 @@ export async function GET(request: Request, context: RouteContext) {
   for (const row of auditResult.data ?? []) {
     entries.push(
       entry({
-        action: humanizeActivityLabel(row.action),
+        action: row.action,
         actor: auditActorName(identities, row),
         changes: buildTimelineChanges(row.before_values, row.after_values, row.changed_fields ?? []),
         id: `audit:${row.id}`,
         occurredAt: row.created_at,
         outcome: row.outcome,
         reason: row.reason,
-        source: humanizeActivityLabel(row.source_area),
+        source: row.source_area,
       }),
     );
   }
@@ -266,7 +275,7 @@ export async function GET(request: Request, context: RouteContext) {
   for (const row of documentAuditResult.data ?? []) {
     entries.push(
       entry({
-        action: humanizeActivityLabel(row.action),
+        action: row.action,
         actor: auditActorName(identities, row),
         changes: buildTimelineChanges(
           row.before_values,
@@ -277,15 +286,19 @@ export async function GET(request: Request, context: RouteContext) {
         occurredAt: row.created_at,
         outcome: row.outcome,
         reason: row.reason,
-        source: humanizeActivityLabel(row.source_area),
+        source: row.source_area,
       }),
     );
   }
 
-  for (const row of lifecycleResult.data ?? []) {
+  const statusEvents = [...(lifecycleResult.data ?? []), ...legacyTimelineStatusEvents(booking.notes, lifecycleResult.data ?? [])];
+  for (const row of statusEvents) {
     entries.push(entry({
-      action: "Booking Status Changed",
-      actor: actorName(identities, row.changed_by),
+      action: row.from_status === row.to_status ? "Booking status stayed the same"
+        : row.from_status === null ? "Booking created" : "Booking status changed",
+      actor: actorName(identities, row.changed_by, "earlier" in row ? "Not recorded"
+        : row.note === "Online booking created with server-authoritative pricing" && booking.booking_origin === "customer_public" ? "Guest"
+          : row.note === "Public checkout hold expired" || row.note === "Awaiting PayFast payment" || /^PayFast payment received:/.test(row.note || "") ? "System" : "Not recorded"),
       changes: buildTimelineChanges({ status: row.from_status }, { status: row.to_status }),
       id: `lifecycle:${row.id}`,
       occurredAt: row.created_at,
@@ -295,9 +308,12 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   for (const row of paymentResult.data ?? []) {
+    // A zero-value unpaid reservation row is not a payment attempt or receipt.
+    if (Number(row.amount) === 0 && row.payment_status === "pending_payment") continue;
     entries.push(entry({
-      action: "Payment Recorded",
-      actor: actorName(identities, row.processed_by, row.method ? "Payment Provider" : "System"),
+      action: row.payment_status === "pending_payment" ? "Payment started; not yet confirmed"
+        : row.payment_status === "fully_paid" || row.payment_status === "deposit_paid" ? "Payment received" : "Payment status recorded",
+      actor: actorName(identities, row.processed_by, /platform|payfast/i.test(row.method || "") ? "System" : "Not recorded"),
       changes: buildTimelineChanges({}, {
         amount: Number(row.amount),
         method: row.method,
@@ -330,7 +346,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   for (const row of validationResult.data ?? []) {
     entries.push(entry({
-      action: row.result === "checked_in" ? "Ticket Checked In" : "Ticket Validation",
+      action: row.result === "checked_in" || row.result === "accepted" ? "Guest checked in" : "Ticket scan result",
       actor: actorName(identities, row.validated_by),
       changes: buildTimelineChanges({}, { device: row.device_label, result: row.result }),
       id: `ticket-validation:${row.id}`,
@@ -347,8 +363,6 @@ export async function GET(request: Request, context: RouteContext) {
       changes: buildTimelineChanges({}, {
         amount: Number(row.total_cents) / 100,
         reference: row.local_reference,
-        status: row.status,
-        sync_status: row.sync_status,
         version: row.version,
       }),
       id: `accounting:${row.id}:created`,
@@ -384,8 +398,8 @@ export async function GET(request: Request, context: RouteContext) {
     ticketGroups.set(key, group);
     if (row.replacement_recorded_at) entries.push(entry({
       action: "Ticket Replacement Recorded",
-      actor: "System",
-      changes: buildTimelineChanges({}, { status: row.ticket_status }),
+      actor: "Not recorded",
+      changes: [],
       id: `ticket:${row.id}:replacement`,
       occurredAt: row.replacement_recorded_at,
       reason: null,
@@ -393,16 +407,16 @@ export async function GET(request: Request, context: RouteContext) {
     }));
   }
   for (const [key, group] of ticketGroups) entries.push(entry({
-    action: "Tickets Issued",
-    actor: "System",
-    changes: buildTimelineChanges({}, { count: group.count, status: group.status }),
+    action: "Ticket issue date recorded",
+    actor: "Not recorded",
+    changes: buildTimelineChanges({}, { count: group.count }),
     id: `tickets:${key}`,
     occurredAt: group.occurredAt,
-    reason: null,
+    reason: "This is the issue date recorded on the tickets. Later changes appear separately when recorded.",
     source: "Ticketing",
   }));
 
-  const ordered = sortBookingActivityEntries(entries);
+  const ordered = sortBookingActivityEntries(entries.map((value) => presentBookingActivityEntry(value, access)));
   const offset = (page - 1) * pageSize;
   const pageEntries = ordered.slice(offset, offset + pageSize);
 
@@ -411,7 +425,7 @@ export async function GET(request: Request, context: RouteContext) {
     events: pageEntries,
     hasMore: ordered.length > offset + pageSize,
     historyNotice:
-      "The timeline shows authoritative evidence retained by Zingara. Activity before a source began recording may be unavailable.",
+      "Newest activity first. Some older activity may not have been recorded. Details follow your existing staff access.",
     page,
     pageSize,
   });

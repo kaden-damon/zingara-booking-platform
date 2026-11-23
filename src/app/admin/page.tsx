@@ -7606,12 +7606,7 @@ export default function AdminDashboardPage({
     canManageBookings || canCheckInGuests;
   const canViewStaffOperations = canCheckInGuests;
   const isSuperAdmin = currentStaff?.role === "super-admin";
-  const canViewBookingActivityTimeline =
-    isSuperAdmin &&
-    [
-      "1f8b62f8-cac9-4cf7-927d-945d96a302ce",
-      "ff96887e-bed8-43ec-884d-0ef8634e9f12",
-    ].includes(currentStaff?.id ?? "");
+  const canViewBookingActivityTimeline = Boolean(currentStaff);
   const canExecuteDataPortability = false;
   const isVenueManager = currentStaff?.role === "venue-manager";
   const canReassignBookingCustomer =
@@ -39740,7 +39735,7 @@ export default function AdminDashboardPage({
                                   }
                                   className="rounded-full border border-[#D8C36A]/35 px-3 py-2 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-4 sm:text-sm"
                                 >
-                                  Activity Timeline
+                                  Booking Timeline
                                 </button>
                               )}
                               <button
@@ -41421,50 +41416,13 @@ export default function AdminDashboardPage({
                               {booking.refundNotes || "Not recorded"}
                             </p>
                           </div>
-                          <AdminCollapsibleSection
-                            contentClassName="p-4"
-                            summary={`${(booking.lifecycleHistory ?? []).length} status event${(booking.lifecycleHistory ?? []).length === 1 ? "" : "s"}`}
-                            title="Booking Timeline"
+                          <button
+                            type="button"
+                            onClick={() => setBookingActivityReference(booking.reference)}
+                            className="min-h-11 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-left text-sm font-semibold text-[#F2D66C] hover:border-[#D8C36A]/40"
                           >
-                            <div className="max-h-40 space-y-2 overflow-y-auto pr-1 text-sm">
-                              {(booking.lifecycleHistory ?? []).length ===
-                              0 ? (
-                                <p className="text-zinc-500">
-                                  No status history recorded yet.
-                                </p>
-                              ) : (
-                                (booking.lifecycleHistory ?? []).map(
-                                  (event) => (
-                                    <div
-                                      key={event.id}
-                                      className="rounded-xl border border-white/10 bg-zinc-950 p-3"
-                                    >
-                                      <p className="font-semibold text-white">
-                                        {event.fromStatus
-                                          ? `${bookingStatusLabels[event.fromStatus]} → `
-                                          : ""}
-                                        {
-                                          bookingStatusLabels[
-                                            event.toStatus
-                                          ]
-                                        }
-                                      </p>
-                                      {event.note && (
-                                        <p className="mt-1 text-zinc-400">
-                                          {event.note}
-                                        </p>
-                                      )}
-                                      <p className="mt-1 text-xs text-zinc-500">
-                                        {formatSouthAfricanTimestamp(
-                                          event.createdAt,
-                                        )}
-                                      </p>
-                                    </div>
-                                  ),
-                                )
-                              )}
-                            </div>
-                          </AdminCollapsibleSection>
+                            View Booking Timeline
+                          </button>
                         </div>
                       </>
                     ) : (
