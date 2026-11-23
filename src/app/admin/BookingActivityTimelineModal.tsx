@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import type { BookingActivityEntry } from "@/lib/bookingActivityTimeline";
+import { formatTimelineTimestamp, visibleTimelineEntries, type BookingActivityEntry } from "@/lib/bookingActivityTimeline";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 
 type TimelineResponse = {
@@ -11,14 +11,6 @@ type TimelineResponse = {
   historyNotice: string;
   page: number;
 };
-
-function formatTimestamp(value: string) {
-  return new Intl.DateTimeFormat("en-ZA", {
-    dateStyle: "medium",
-    timeStyle: "medium",
-    timeZone: "Africa/Johannesburg",
-  }).format(new Date(value));
-}
 
 function displayValue(value: unknown) {
   if (value === null || value === undefined || value === "") return "Not recorded";
@@ -41,6 +33,7 @@ export default function BookingActivityTimelineModal({
   const [historyNotice, setHistoryNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const visibleEvents = useMemo(() => visibleTimelineEntries(events), [events]);
 
   async function load(nextPage: number) {
     setLoading(true);
@@ -123,17 +116,18 @@ export default function BookingActivityTimelineModal({
             <p className="py-12 text-center text-sm text-zinc-400">No recorded activity is available for this booking.</p>
           ) : (
             <ol className="space-y-0">
-              {events.map((event, index) => (
+              {visibleEvents.length === 0 && <li className="py-6 text-center text-sm text-zinc-400">No further activity to display.</li>}
+              {visibleEvents.map((event, index) => (
                 <li key={event.id} className="relative grid grid-cols-[18px_minmax(0,1fr)] gap-3 pb-5">
-                  {index < events.length - 1 && <span aria-hidden="true" className="absolute left-[8px] top-5 h-[calc(100%-0.5rem)] w-px bg-[#D8C36A]/25" />}
+                  {index < visibleEvents.length - 1 && <span aria-hidden="true" className="absolute left-[8px] top-5 h-[calc(100%-0.5rem)] w-px bg-[#D8C36A]/25" />}
                   <span aria-hidden="true" className={`mt-1.5 h-[17px] w-[17px] rounded-full border-2 ${event.outcome === "success" ? "border-[#D8C36A] bg-[#D8C36A]/20" : event.outcome === "blocked" ? "border-amber-300 bg-amber-300/15" : "border-red-300 bg-red-300/15"}`} />
                   <article className="min-w-0 rounded-xl border border-white/10 bg-black/25 p-3 sm:p-4">
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                       <div className="min-w-0">
                         <h3 className="text-sm font-bold text-white">{event.action}</h3>
-                        <p className="mt-1 text-xs text-zinc-400">{event.actor} · {event.source}</p>
+                        {event.actor && event.actor !== "Not recorded" && <p className="mt-1 break-words text-xs text-zinc-400">{event.actor}</p>}
                       </div>
-                      <time className="shrink-0 text-xs font-medium text-[#F2D66C]" dateTime={event.occurredAt}>{formatTimestamp(event.occurredAt)} SAST</time>
+                      <time className="shrink-0 text-xs font-medium text-[#F2D66C]" dateTime={event.occurredAt}>{formatTimelineTimestamp(event.occurredAt)}</time>
                     </div>
                     {event.reason && <p className="mt-3 text-sm leading-6 text-zinc-300">{event.reason}</p>}
                     {event.changes.length > 0 && (

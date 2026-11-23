@@ -65,7 +65,7 @@ test("all literal booking action types in existing source and migration history 
 
 test("payment expiry and late payment never imply the guest failed to authorise or was refunded", () => {
   const row = timeline.presentBookingActivityEntry(fixtureEntry({ action: "public_booking.late-payment-review-required", outcome: "blocked", reason: "ITN CAPACITY_REVIEW" }), { financial: false, privateDetails: false });
-  assert.match(row.reason || "", /Payment was received after the reservation ended/);
+  assert.match(row.reason || "", /Payment was recorded after the reservation ended/);
   assert.doesNotMatch(row.reason || "", /ITN|CAPACITY|refund|authoris/i);
   assert.doesNotMatch(row.action, /Not completed/);
 });
@@ -91,7 +91,39 @@ test("before/after values are readable, unchanged fields omitted, sensitive data
   const restricted = timeline.presentBookingActivityEntry(fixtureEntry({ changes, reason: "Paid R6160" }), { financial: false, privateDetails: true });
   assert.equal(restricted.changes.length, 0);
   assert.equal(restricted.reason, null);
-  assert.match(timeline.timelineValue("2026-11-17T05:19:44Z"), /07:19:44.*SAST/);
+  assert.equal(timeline.timelineValue("2026-11-17T05:19:44Z"), "17 Nov 2026, 07:19");
+});
+
+test("timestamps display SAST local minutes only while retaining the original evidence", () => {
+  assert.equal(timeline.formatTimelineTimestamp("2026-11-23T16:19:59Z"), "23 Nov 2026, 18:19");
+  assert.equal(timeline.formatTimelineTimestamp("2026-11-23T18:19:59+02:00"), "23 Nov 2026, 18:19");
+  assert.equal(timeline.formatTimelineTimestamp("2026-11-23T23:59:59Z"), "24 Nov 2026, 01:59");
+  assert.equal(timeline.formatTimelineTimestamp("invalid"), "Time unavailable");
+  assert.match(modal, /dateTime=\{event.occurredAt\}/);
+  assert.doesNotMatch(modal, /\} SAST|event.actor\} ·/);
+});
+
+test("technical clutter is hidden only in presentation without losing meaningful notes or failed actions", () => {
+  const present = (event: timeline.BookingActivityEntry) => timeline.presentBookingActivityEntry(event, { financial: true, privateDetails: true });
+  const events = [
+    fixtureEntry({ id: "booking:1:created", action: "Booking first recorded" }),
+    fixtureEntry({ id: "lifecycle:created", action: "Booking created" }),
+    fixtureEntry({ id: "source", action: "booking.provenance-recorded" }),
+    fixtureEntry({ id: "no-op", action: "Booking status stayed the same" }),
+    fixtureEntry({ id: "note", action: "Booking status stayed the same", reason: "Guest requested an aisle seat." }),
+    fixtureEntry({ id: "failed", action: "booking.provenance-recorded", outcome: "failed" }),
+    fixtureEntry({ id: "ticket", action: "Ticket issue date recorded", actor: "Not recorded" }),
+  ];
+  const displayed = timeline.visibleTimelineEntries(events.map(present));
+  assert.deepEqual(displayed.map((row) => row.id), ["lifecycle:created", "note", "failed", "ticket"]);
+  assert.equal(displayed.find((row) => row.id === "note")?.action, "Booking note recorded");
+  assert.equal(displayed.find((row) => row.id === "ticket")?.action, "Tickets issued");
+  assert.equal(events.length, 7);
+  const historic = present(fixtureEntry({ action: "Booking first recorded" }));
+  assert.equal(timeline.visibleTimelineEntries([historic]).length, 1);
+  const knownChanges = present(fixtureEntry({ changes: timeline.buildTimelineChanges({ guest_count: 3 }, { guest_count: 4, internal_detail: true }) }));
+  assert.equal(knownChanges.action, "Guest numbers changed");
+  assert.equal(knownChanges.changes.length, 1);
 });
 
 test("sorting keeps distinct evidence, removes only repeated IDs and preserves timestamps", () => {
@@ -113,10 +145,11 @@ test("earlier status history remains visible without duplicating equivalent stor
   assert.deepEqual(timeline.legacyTimelineStatusEvents("invalid", []), []);
 });
 
-async function routeFixture(role: AdminRole, options: { venue?: string; active?: boolean; unauthenticated?: boolean } = {}) {
+async function routeFixture(role: AdminRole, options: { venue?: string; active?: boolean; unauthenticated?: boolean; communications?: unknown[] } = {}) {
   const calls: string[] = [];
   const booking = { id: "booking", booking_reference: "DP-TEST", created_at: "2026-11-17T05:19:44Z", booking_source: "online", booking_origin: "customer_public", created_by_staff_id: null, booking_status: "confirmed", payment_status: "fully_paid", guest_count: 4, section: "Golden Circle", show: { venue: options.venue || "johannesburg" } };
   const rows: Record<string, unknown[]> = {
+    communications: options.communications || [],
     audit_events: [{ id: "audit", created_at: "2026-11-18T07:58:39Z", action: "booking.edit", actor_staff_profile_id: "charlie", actor_auth_user_id: null, actor_name: "Charlotte King", outcome: "success", source_area: "Bookings", before_values: { guest_count: 3 }, after_values: { guest_count: 4, amount_paid: 6160 }, changed_fields: ["guest_count", "amount_paid"], reason: null }],
     staff_profiles: [{ id: "charlie", user_id: "charlie-auth", full_name: "Charlie" }],
     payments: [{ id: "placeholder", amount: 0, payment_status: "pending_payment" }, { id: "payment", created_at: "2026-11-17T05:19:45Z", processed_at: "2026-11-18T07:58:39Z", amount: 6160, payment_status: "fully_paid", method: "platform", processed_by: null }],
@@ -168,6 +201,33 @@ test("timeline reads only the selected booking through bounded indexed sources",
   assert.match(route, /\.eq\("source_booking_id", booking\.id\)/);
   assert.match(route, /\.limit\(candidateLimit\)/);
   assert.doesNotMatch(route, /\.insert\(|\.update\(|\.delete\(|\.upsert\(/);
+});
+
+test("messages distinguish confirmation, payment confirmation, waiting and failed delivery without guessing actors", async () => {
+  const result = await routeFixture("venue-manager", { communications: [
+    { id: "confirmation", type: "booking_confirmation", channel: "email", status: "sent", sent_at: "2026-11-18T08:00:00Z", created_by: "charlie" },
+    { id: "payment", type: "payment_confirmation", channel: "email", status: "sent", sent_at: "2026-11-18T08:01:00Z", created_by: null },
+    { id: "failure", type: "booking_confirmation", channel: "email", status: "failed", sent_at: null, created_at: "2026-11-18T08:02:00Z", created_by: null },
+    { id: "waiting", type: "booking_confirmation", channel: "sms", status: "queued", sent_at: null, created_at: "2026-11-18T08:03:00Z", created_by: null },
+  ] });
+  const events = result.data.events as timeline.BookingActivityEntry[];
+  assert.equal(events.find((event) => event.id === "communication:confirmation")?.action, "Booking confirmation email sent");
+  assert.equal(events.find((event) => event.id === "communication:confirmation")?.actor, "Charlie");
+  assert.equal(events.find((event) => event.id === "communication:payment")?.action, "Payment confirmation email sent");
+  assert.equal(events.find((event) => event.id === "communication:payment")?.actor, "Not recorded");
+  assert.equal(events.find((event) => event.id === "communication:failure")?.action, "Booking confirmation email not sent");
+  assert.equal(events.find((event) => event.id === "communication:waiting")?.action, "Booking confirmation text message waiting to be sent");
+});
+
+test("large histories keep evidence and pagination while filtering in a memoised linear pass", () => {
+  const events = Array.from({ length: 10000 }, (_, index) => fixtureEntry({ id: `event:${index}`, action: index % 2 ? "Payment received" : "Booking source recorded" }));
+  const started = performance.now();
+  assert.equal(timeline.visibleTimelineEntries(events).length, 5000);
+  console.info(`10,000-entry display filter: ${(performance.now() - started).toFixed(2)} ms`);
+  assert.equal(events.length, 10000);
+  assert.match(modal, /useMemo\(\(\) => visibleTimelineEntries\(events\), \[events\]\)/);
+  assert.match(route, /ordered.slice\(offset, offset \+ pageSize\)/);
+  assert.match(route, /hasMore: ordered.length > offset \+ pageSize/);
 });
 
 test("normal Booking Details loading makes no timeline request", () => {

@@ -328,8 +328,12 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   for (const row of communicationResult.data ?? []) {
+    const message = row.type === "booking_confirmation" ? "Booking confirmation"
+      : row.type === "payment_confirmation" ? "Payment confirmation" : "Message";
+    const channel = row.channel === "email" ? " email" : row.channel === "sms" ? " text message" : "";
     entries.push(entry({
-      action: row.sent_at ? "Communication Sent" : "Communication Recorded",
+      action: row.status === "failed" ? `${message}${channel} not sent`
+        : row.sent_at ? `${message}${channel} sent` : `${message}${channel} waiting to be sent`,
       actor: actorName(identities, row.created_by),
       changes: buildTimelineChanges({}, {
         channel: row.channel,

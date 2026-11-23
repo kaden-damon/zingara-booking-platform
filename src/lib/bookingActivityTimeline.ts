@@ -64,12 +64,12 @@ export const bookingActivityLabels: Record<string, string> = {
   "booking.company-review-resolved": "Company details review completed",
   "booking.customer-reassigned": "Booking moved to the correct guest profile",
   "booking.financial-reconciliation": "Booking amounts checked and updated",
-  "booking.guest-count-financial-reconciliation": "Guest numbers and booking amounts updated",
+  "booking.guest-count-financial-reconciliation": "Guest numbers changed",
   "booking.guest-count-reconciliation": "Guest numbers checked and updated",
   "booking.corporate-guest-count-reconciliation": "Corporate guest numbers updated",
   "booking.legacy-guest-increase-reconciliation": "Guests added to an imported booking",
-  "booking.paid-guest-reduction": "Guest numbers reduced and paid value reassigned",
-  "booking.policy-guest-reduction": "Guest numbers reduced under the cancellation policy",
+  "booking.paid-guest-reduction": "Guest numbers reduced",
+  "booking.policy-guest-reduction": "Guest numbers reduced",
   "booking.unpaid-guest-reduction-repriced": "Guest numbers and unpaid amount reduced",
   "booking.payment-recorded": "Payment received",
   "booking.payment-edit": "Payment details updated",
@@ -83,11 +83,11 @@ export const bookingActivityLabels: Record<string, string> = {
   "booking.payfast-reversal-reconciled": "PayFast payment reversal recorded",
   "booking.payfast-total-restored": "Booking total corrected to match payment evidence",
   "booking.payment-links-invalidated": "Old payment links stopped",
-  "public_checkout.hold.expired": "Booking cancelled because the payment hold ended",
+  "public_checkout.hold.expired": "Booking cancelled: payment time ran out",
   "public_checkout.hold.superseded": "Unpaid reservation replaced by another booking",
-  "public_booking.late-payment-recovered": "Payment received after expiry; booking restored",
-  "public_booking.late-payment-restored": "Payment received after expiry; booking restored",
-  "public_booking.late-payment-review-required": "Payment received after expiry; booking needs staff review",
+  "public_booking.late-payment-recovered": "Payment recorded after expiry; booking restored",
+  "public_booking.late-payment-restored": "Payment recorded after expiry; booking restored",
+  "public_booking.late-payment-review-required": "Payment recorded after expiry; staff review needed",
   "booking.paid-checkout-queue-recovery-authorised": "Paid booking recovery approved",
   "booking.paid-checkout-queue-recovered": "Paid booking confirmed and added to the seating queue",
   "booking.show-transfer": "Booking moved to another show",
@@ -203,8 +203,31 @@ const stateLabels: Record<string, string> = {
   requires_floor_assignment: "Waiting for table assignment", online: "Online", admin: "Staff", payfast: "PayFast",
   customer_public: "Online booking", admin_staff: "Staff booking", accepted: "Accepted", rejected: "Not accepted",
   queued: "Waiting to be sent", sent: "Sent", delivered: "Delivered", failed: "Not completed",
+  booking_confirmation: "Booking confirmation", payment_confirmation: "Payment confirmation",
   golden_circle: "Golden Circle", middle_ring: "Middle Ring", royal_balcony: "Royal Balcony", royal_booths: "Private Booths",
 };
+
+const timelineDateFormat = new Intl.DateTimeFormat("en-GB", {
+  dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Johannesburg",
+});
+
+export function formatTimelineTimestamp(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Time unavailable" : timelineDateFormat.format(date);
+}
+
+// Presentation only: retain the original entries and pagination as audit evidence.
+export function visibleTimelineEntries(entries: BookingActivityEntry[]) {
+  const creationTimes = new Set(entries.filter((event) =>
+    event.outcome === "success" && event.action === "Booking created" && !event.id.startsWith("booking:"),
+  ).map((event) => Date.parse(event.occurredAt)));
+  return entries.filter((event) => {
+    if (event.outcome !== "success") return true;
+    if (event.action === "Booking source recorded") return false;
+    if (event.action === "Booking status stayed the same" && event.changes.length === 0) return false;
+    return !(event.id.startsWith("booking:") && event.action === "Booking created" && creationTimes.has(Date.parse(event.occurredAt)));
+  });
+}
 
 export function timelineValue(value: unknown, field = ""): string {
   if (value === null || value === undefined || value === "") return "Not recorded";
@@ -222,7 +245,7 @@ export function timelineValue(value: unknown, field = ""): string {
   if (field === "notes" || String(value).startsWith("__zingara_booking_meta__:")) return "Booking notes updated";
   const text = sanitizeTimelineText(String(value));
   if (/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(text) && !Number.isNaN(Date.parse(text))) {
-    return `${new Intl.DateTimeFormat("en-ZA", { dateStyle: "medium", timeStyle: "medium", timeZone: "Africa/Johannesburg" }).format(new Date(text))} SAST`;
+    return formatTimelineTimestamp(text);
   }
   return stateLabels[text.toLowerCase().replaceAll("-", "_")] || text.replaceAll("_", " ");
 }
@@ -245,15 +268,21 @@ export function presentBookingActivityEntry(
     : /refund/i.test(code) ? "Refund details updated" : /ticket|scan/i.test(code) ? "Ticket details updated"
       : /payment/i.test(code) ? "Payment details updated" : /quote|invoice|accounting|xero/i.test(code) ? "Accounting document updated"
         : /communicat|email|message/i.test(code) ? "Message details updated" : "Booking details updated");
+  if (code === "booking.edit" && entry.changes.some((change) => change.key === "guest_count")) action = "Guest numbers changed";
+  if (code === "Booking first recorded") action = "Booking created";
+  if (code === "Ticket issue date recorded") action = "Tickets issued";
+  if (code === "Ticket Replacement Recorded") action = "Replacement ticket recorded";
+  if (code === "Booking status stayed the same" && entry.reason) action = "Booking note recorded";
   // These events describe a successful protective stop, not a failed payment.
   const describesStop = ["public_booking.late-payment-review-required", "booking.write-blocked-by-lock", "booking.potential-duplicate-prevented"].includes(code);
   if (entry.outcome !== "success" && !describesStop) action = `Not completed: ${action}`;
   let reason = entry.reason;
   if (code === "public_checkout.hold.expired") reason = "No successful payment was recorded before the reservation hold ended. The seats were released.";
-  else if (code === "public_booking.late-payment-review-required") reason = "Payment was received after the reservation ended. Staff need to review the booking before it can be confirmed.";
+  else if (code === "public_booking.late-payment-review-required") reason = "Payment was recorded after the reservation ended. Staff need to review the booking before it can be confirmed.";
   else if (code === "booking.paid-checkout-queue-recovered") reason = "The existing paid booking was confirmed. Box Office still needs to arrange seating.";
   else if (code === "booking.provenance-recorded") reason = "The original booking source and recorded creator were saved.";
   else if (code === "booking.write-blocked-by-lock") reason = "Someone else was editing this booking. No changes were saved by this attempt.";
+  else if (code === "Ticket issue date recorded") reason = null;
   else if (!access.privateDetails || !access.financial || /\b[A-Z][A-Z_]{4,}\b/.test(reason || "") || /(?:\b(?:snapshot|idempotenc\w*|entitlement|atomic|hydration|RPC|ITN|server-authoritative|checkout attempt|operational capacity)\b|[a-f0-9]{8}-[a-f0-9-]{27})/i.test(reason || "")) {
     reason = null;
   }
@@ -263,7 +292,8 @@ export function presentBookingActivityEntry(
     source: /account|xero|quote|invoice/i.test(entry.source) ? "Quotes and invoices"
       : /ticket|scan/i.test(entry.source) ? "Tickets" : /payment/i.test(entry.source) ? "Payments"
         : /communicat/i.test(entry.source) ? "Messages" : "Booking history",
-    changes: entry.changes.filter((change) => access.financial || (change.field !== "Other booking details" && !financial.test(change.key || change.field)))
+    changes: entry.changes.filter((change) => change.field !== "Other booking details" && JSON.stringify(change.before) !== JSON.stringify(change.after))
+      .filter((change) => access.financial || !financial.test(change.key || change.field))
       .filter((change) => access.privateDetails || (change.field !== "Other booking details" && !/note|subject|customer|diet|request|reason/i.test(change.key || change.field)))
       .map((change) => ({ field: change.field, before: change.before === undefined ? undefined : timelineValue(change.before, change.key || change.field), after: timelineValue(change.after, change.key || change.field) })),
   };
