@@ -39303,6 +39303,15 @@ export default function AdminDashboardPage({
                       Boolean(bookingLock) && !isOwnBookingLock(bookingLock);
                     const bookingIsReadOnly =
                       isBookingReadOnly(booking.reference);
+                    const canReviewBookingPayment =
+                      canManageBookings && !bookingIsReadOnly &&
+                      isPaymentLinkEligible({
+                        archived: Boolean(booking.archivedAt),
+                        bookingStatus: booking.status,
+                        paymentStatus: financials.paymentStatus,
+                        totalAmount: financials.totalPrice,
+                        confirmedPaidAmount: financials.amountPaid,
+                      });
 	                const paymentLinkDetails =
 	                  paymentLinkDetailsState[booking.reference]?.link ?? null;
 	                const activeManagedPaymentLink =
@@ -39779,18 +39788,24 @@ export default function AdminDashboardPage({
                           <p className="mt-1 text-sm font-semibold text-white">
                             {booking.buyoutReviewReason
                               ? booking.buyoutReviewReason
+                              : booking.status === "cancelled"
+                              ? "Booking cancelled"
                               : financials.balanceDue > 0
                               ? `${formatCurrency(financials.balanceDue)} payment outstanding`
-                              : !currentTable && (booking.status ?? "confirmed") !== "cancelled"
+                              : !currentTable
                                 ? "This booking needs a table"
                                 : "No urgent action"}
                           </p>
                         </div>
-                        {booking.buyoutReviewReason ? null : financials.balanceDue > 0 ? (
-                          <a href={`#payment-controls-${booking.reference}`} className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#D8C36A] px-4 text-xs font-bold uppercase text-black transition hover:bg-[#F2D66C]">
+                        {booking.buyoutReviewReason ? null : canReviewBookingPayment ? (
+                          <button type="button" onClick={() => {
+                            const controls = document.getElementById(`payment-controls-${booking.reference}`);
+                            controls?.scrollIntoView({ block: "start" });
+                            controls?.focus({ preventScroll: true });
+                          }} className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#D8C36A] px-4 text-xs font-bold uppercase text-black transition hover:bg-[#F2D66C]">
                             Review Payment
-                          </a>
-                        ) : !currentTable && (booking.status ?? "confirmed") !== "cancelled" ? (
+                          </button>
+                        ) : financials.balanceDue <= 0 && !currentTable && (booking.status ?? "confirmed") !== "cancelled" ? (
                           <a href="/admin?section=floor" className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#D8C36A] px-4 text-xs font-bold uppercase text-black transition hover:bg-[#F2D66C]">
                             Open Floor
                           </a>
@@ -40541,7 +40556,7 @@ export default function AdminDashboardPage({
                     {canManageBookings && !bookingIsReadOnly ? (
                       <>
                         <h4 className="mt-6 text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">Payments &amp; Financials</h4>
-                        <div id={`payment-controls-${booking.reference}`} className="mt-3 min-w-0 scroll-mt-4 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
+                        <div id={`payment-controls-${booking.reference}`} tabIndex={-1} className="mt-3 min-w-0 scroll-mt-4 rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
                           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <div>
                               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
