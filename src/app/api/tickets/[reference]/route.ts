@@ -355,6 +355,10 @@ async function loadTicketPayload(reference: string, requestUrl: string) {
     bookingRow.id,
     {
       ...(metadataBooking ?? fallbackBooking),
+      // Reinstatement and transfers update the row before its embedded snapshot.
+      status: bookingRow.booking_status.replaceAll("_", "-") as DemoBooking["status"],
+      partySize: bookingRow.guest_count,
+      showId: bookingRow.show_id,
       tableId: bookingRow.table_id ?? "",
       tableNumber:
         (tableRow as { table_code?: string } | null)?.table_code ??
