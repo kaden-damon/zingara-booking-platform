@@ -166,6 +166,19 @@ test("individual PATCH retains lock, duplicate and audit paths; bulk stays on th
   assert.match(admin, /setShows\(\(current\) => current\.map/);
 });
 
+test("Manage mode is opt-in, gates selection and clears it on exit without changing bulk safeguards", () => {
+  const admin = readFileSync("src/app/admin/page.tsx", "utf8");
+  assert.match(admin, /\[isManagingShowAvailability, setIsManagingShowAvailability\] = useState\(false\)/);
+  assert.match(admin, /const selectedAvailabilityIds = isManagingShowAvailability \? visibleShowSelection/);
+  assert.match(admin, /if \(!isManagingShowAvailability \|\| !canManageShows/);
+  assert.equal((admin.match(/isManagingShowAvailability && canManageShows && !guidedTrainingModuleId &&/g) ?? []).length, 2);
+  const button = admin.slice(admin.indexOf('<button type="button" aria-expanded={isManagingShowAvailability}'));
+  assert.ok(button.indexOf('aria-controls="show-availability-management"') < button.indexOf("Manage\n"));
+  assert.match(button.slice(0, button.indexOf("Manage\n")), /setBulkAvailabilitySelection\(\[\]\)/);
+  assert.match(button.slice(0, button.indexOf("Manage\n")), /setBulkAvailabilityResults\(\[\]\)/);
+  assert.ok(admin.indexOf('aria-label="Filter calendar by venue"') < admin.indexOf('<button type="button" aria-expanded={isManagingShowAvailability}'));
+});
+
 test("single and bulk show changes share the same per-show audit and deferred Wallet behaviour", async () => {
   const audit: Array<{ action: string; changedFields: string[] }> = [];
   const deferred: Array<() => Promise<void>> = [];

@@ -5682,6 +5682,7 @@ export default function AdminDashboardPage({
     useState<ShowCalendarLocationFilter>("all");
   const [openShowFinancialPopupId, setOpenShowFinancialPopupId] = useState("");
   const [bulkAvailabilitySelection, setBulkAvailabilitySelection] = useState<string[]>([]);
+  const [isManagingShowAvailability, setIsManagingShowAvailability] = useState(false);
   const [bulkAvailabilityResults, setBulkAvailabilityResults] = useState<ShowAvailabilityResult[]>([]);
   const [isBulkAvailabilitySaving, setIsBulkAvailabilitySaving] = useState(false);
   const bulkAvailabilityInFlight = useRef(false);
@@ -22115,11 +22116,11 @@ export default function AdminDashboardPage({
     return showsByDay;
   }, [visibleShowCalendarShows]);
   const bulkSelectableShows = visibleShowCalendarShows.filter(canBulkChangeShow);
-  const selectedAvailabilityIds = visibleShowSelection(
+  const selectedAvailabilityIds = isManagingShowAvailability ? visibleShowSelection(
     bulkAvailabilitySelection, bulkSelectableShows.map((show) => show.id),
-  );
+  ) : [];
   async function applySelectedShowAvailability(action: ShowAvailabilityAction) {
-    if (!canManageShows || guidedTrainingModuleId || bulkAvailabilityInFlight.current ||
+    if (!isManagingShowAvailability || !canManageShows || guidedTrainingModuleId || bulkAvailabilityInFlight.current ||
       selectedAvailabilityIds.length < 1 || selectedAvailabilityIds.length > maxBulkAvailabilityShows) return;
     const selected = bulkSelectableShows.filter((show) => selectedAvailabilityIds.includes(show.id));
     if (!window.confirm(`${action === "open" ? "Open" : "Close"} ${selected.length} selected show${selected.length === 1 ? "" : "s"}? Only the selected shows in this month and venue view will change. Existing bookings and capacity remain unchanged.`)) return;
@@ -33316,6 +33317,7 @@ export default function AdminDashboardPage({
                     ›
                   </button>
                 </div>
+                <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
                 <div
                   role="group"
                   aria-label="Filter calendar by venue"
@@ -33350,10 +33352,26 @@ export default function AdminDashboardPage({
                     );
                   })}
                 </div>
+                {canManageShows && !guidedTrainingModuleId && (
+                  <button type="button" aria-expanded={isManagingShowAvailability}
+                    aria-controls="show-availability-management" disabled={isBulkAvailabilitySaving}
+                    onClick={() => {
+                      if (bulkAvailabilityInFlight.current) return;
+                      setIsManagingShowAvailability((active) => !active);
+                      setBulkAvailabilitySelection([]);
+                      setBulkAvailabilityResults([]);
+                    }}
+                    className={`min-h-11 rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-[0.1em] disabled:opacity-40 ${isManagingShowAvailability
+                      ? "border-[#D8C36A] bg-[#D8C36A] text-black"
+                      : "border-white/15 bg-black text-zinc-300 hover:border-[#D8C36A]/55 hover:text-white"}`}>
+                    Manage
+                  </button>
+                )}
+                </div>
               </div>
 
-              {canManageShows && !guidedTrainingModuleId && (
-                <div className="mt-4 space-y-3">
+              {isManagingShowAvailability && canManageShows && !guidedTrainingModuleId && (
+                <div id="show-availability-management" className="mt-4 space-y-3">
                   <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Selected show availability">
                     <span className="mr-1 text-sm text-zinc-300" aria-live="polite">{selectedAvailabilityIds.length} selected</span>
                     <button type="button" disabled={isBulkAvailabilitySaving || bulkSelectableShows.length === 0 || bulkSelectableShows.length > maxBulkAvailabilityShows}
@@ -33523,7 +33541,7 @@ export default function AdminDashboardPage({
                                     isDisabled ? "opacity-75" : ""
                                   }`}
                                 >
-                                  {canManageShows && !guidedTrainingModuleId && (
+                                  {isManagingShowAvailability && canManageShows && !guidedTrainingModuleId && (
                                     <label className="mb-2 flex min-h-11 w-fit items-center gap-2 pr-10 text-xs text-zinc-300"
                                       onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
                                       <input type="checkbox" aria-label={`Select ${show.label} on ${show.date} at ${getSouthAfricaShowTime(show)}`}
