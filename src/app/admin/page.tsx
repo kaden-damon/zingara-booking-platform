@@ -41,7 +41,7 @@ import type {
 } from "./academyContent";
 import type { BoxOfficeFinancialReport } from "@/lib/boxOfficeFinancialReport";
 import type { ShowCalendarFinancialSummary } from "@/lib/showCalendarFinancials";
-import { canBulkChangeShow, maxBulkAvailabilityShows, visibleShowSelection, type ShowAvailabilityAction, type ShowAvailabilityResult } from "@/lib/showBulkAvailability";
+import { canApplyShowAvailability, canBulkChangeShow, maxBulkAvailabilityShows, visibleShowSelection, type ShowAvailabilityAction, type ShowAvailabilityResult } from "@/lib/showBulkAvailability";
 import { getJohannesburgDateKey } from "@/lib/managementAnalytics";
 import { createPdfBytesFromPageContent } from "@/lib/exports/zingaraTextPdf";
 import { replaceShowScopedRows } from "@/lib/showScopedState";
@@ -22119,10 +22119,12 @@ export default function AdminDashboardPage({
   const selectedAvailabilityIds = isManagingShowAvailability ? visibleShowSelection(
     bulkAvailabilitySelection, bulkSelectableShows.map((show) => show.id),
   ) : [];
+  const selectedAvailabilityShows = bulkSelectableShows.filter((show) => selectedAvailabilityIds.includes(show.id));
   async function applySelectedShowAvailability(action: ShowAvailabilityAction) {
     if (!isManagingShowAvailability || !canManageShows || guidedTrainingModuleId || bulkAvailabilityInFlight.current ||
-      selectedAvailabilityIds.length < 1 || selectedAvailabilityIds.length > maxBulkAvailabilityShows) return;
-    const selected = bulkSelectableShows.filter((show) => selectedAvailabilityIds.includes(show.id));
+      selectedAvailabilityIds.length < 1 || selectedAvailabilityIds.length > maxBulkAvailabilityShows ||
+      !canApplyShowAvailability(action, selectedAvailabilityShows)) return;
+    const selected = selectedAvailabilityShows;
     if (!window.confirm(`${action === "open" ? "Open" : "Close"} ${selected.length} selected show${selected.length === 1 ? "" : "s"}? Only the selected shows in this month and venue view will change. Existing bookings and capacity remain unchanged.`)) return;
     bulkAvailabilityInFlight.current = true;
     setIsBulkAvailabilitySaving(true);
@@ -33382,9 +33384,9 @@ export default function AdminDashboardPage({
                       className="min-h-11 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 disabled:opacity-40">Clear Selection</button>
                     <div className="flex flex-wrap gap-2">
                     {(["open", "close"] as const).map((action) => (
-                      <button key={action} type="button" disabled={isBulkAvailabilitySaving || selectedAvailabilityIds.length === 0 || selectedAvailabilityIds.length > maxBulkAvailabilityShows}
+                      <button key={action} type="button" disabled={isBulkAvailabilitySaving || selectedAvailabilityIds.length === 0 || selectedAvailabilityIds.length > maxBulkAvailabilityShows || !canApplyShowAvailability(action, selectedAvailabilityShows)}
                         onClick={() => void applySelectedShowAvailability(action)}
-                        className="min-h-11 rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-bold uppercase text-black disabled:opacity-40">
+                        className="min-h-11 rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-bold uppercase text-black disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400 disabled:opacity-60">
                         {action === "open" ? "Open Selected" : "Close Selected"}
                       </button>
                     ))}

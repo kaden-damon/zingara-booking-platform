@@ -30,6 +30,15 @@ export function visibleShowSelection(selected: string[], visible: string[]) {
   return [...new Set(selected)].filter((id) => allowed.has(id));
 }
 
+export function canApplyShowAvailability(
+  action: ShowAvailabilityAction,
+  shows: Array<Parameters<typeof canBulkChangeShow>[0]>,
+) {
+  const changeableStatus = action === "open" ? "inactive" : "active";
+  return shows.some((show) => canBulkChangeShow(show) &&
+    (show.operationalStatus ?? "active") === changeableStatus);
+}
+
 export function parseShowAvailabilityRequest(value: unknown): ShowAvailabilityRequest {
   const body = value as Partial<ShowAvailabilityRequest> | null;
   if (!body || !["open", "close"].includes(body.action ?? "") ||

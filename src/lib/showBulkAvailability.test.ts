@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
-import { canBulkChangeShow, maxBulkAvailabilityShows, parseShowAvailabilityRequest, runShowAvailabilityBatch, visibleShowSelection } from "./showBulkAvailability.ts";
+import { canApplyShowAvailability, canBulkChangeShow, maxBulkAvailabilityShows, parseShowAvailabilityRequest, runShowAvailabilityBatch, visibleShowSelection } from "./showBulkAvailability.ts";
 
 const route = readFileSync("src/app/api/admin/shows/route.ts", "utf8");
 const ast = ts.createSourceFile("route.ts", route, ts.ScriptTarget.Latest, true);
@@ -86,6 +86,23 @@ test("filtered selection never submits hidden or duplicate references; protected
   assert.equal(canBulkChangeShow({ operationalStatus: "active", archivedAt: "date" }), false);
   assert.equal(canBulkChangeShow({ operationalStatus: "active", fullShowBuyout: {} }), false);
   assert.equal(canBulkChangeShow({ operationalStatus: "inactive" }), true);
+});
+
+test("bulk actions require a status change in the eligible selected shows", () => {
+  const open = { operationalStatus: "active" };
+  const closed = { operationalStatus: "inactive" };
+  for (const [shows, canOpen, canClose] of [
+    [[], false, false], [[open, open], false, true], [[closed, closed], true, false],
+    [[open, closed], true, true],
+    [[{ operationalStatus: "sold-out" }, { operationalStatus: "blackout" },
+      { operationalStatus: "special-event" }, { operationalStatus: "venue-closure" },
+      { ...open, archivedAt: "date" }, { ...closed, fullShowBuyout: {} }], false, false],
+    [[closed, { ...open, fullShowBuyout: {} }], true, false],
+    [[{}], false, true],
+  ] as const) {
+    assert.equal(canApplyShowAvailability("open", [...shows]), canOpen);
+    assert.equal(canApplyShowAvailability("close", [...shows]), canClose);
+  }
 });
 
 test("multiple opening and closing updates only selected statuses and reuses audit handling", async () => {
