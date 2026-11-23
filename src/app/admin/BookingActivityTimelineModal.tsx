@@ -108,7 +108,7 @@ export default function BookingActivityTimelineModal({
         <header className="flex items-start justify-between gap-4 border-b border-white/10 p-4 sm:p-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D8C36A]">Booking Details</p>
-            <h2 id="booking-activity-title" className="mt-1 text-xl font-bold sm:text-2xl">Booking Timeline</h2>
+            <h2 id="booking-activity-title" className="mt-1 text-xl font-bold sm:text-2xl">Timeline</h2>
             <p className="mt-1 text-sm text-zinc-400">{bookingReference}</p>
           </div>
           <button type="button" onClick={onClose} className="min-h-10 rounded-full border border-white/15 px-4 text-xs font-semibold text-zinc-200 transition hover:bg-white hover:text-black">Close</button>

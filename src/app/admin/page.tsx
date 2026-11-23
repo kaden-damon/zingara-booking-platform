@@ -39735,7 +39735,7 @@ export default function AdminDashboardPage({
                                   }
                                   className="rounded-full border border-[#D8C36A]/35 px-3 py-2 text-xs font-semibold text-[#F2D66C] transition hover:bg-[#D8C36A] hover:text-black sm:px-4 sm:text-sm"
                                 >
-                                  Booking Timeline
+                                  Timeline
                                 </button>
                               )}
                               <button
@@ -41421,7 +41421,7 @@ export default function AdminDashboardPage({
                             onClick={() => setBookingActivityReference(booking.reference)}
                             className="min-h-11 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-left text-sm font-semibold text-[#F2D66C] hover:border-[#D8C36A]/40"
                           >
-                            View Booking Timeline
+                            View Timeline
                           </button>
                         </div>
                       </>
