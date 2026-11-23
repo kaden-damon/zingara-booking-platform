@@ -128,6 +128,11 @@ export async function loadBookingManagementContext(
   if (bookingError) throw bookingError;
   if (!rawBooking) return null;
   const booking = rawBooking as BookingRow;
+  const { data: buyout, error: buyoutError } = await serviceClient.from("corporate_buyouts").select("id").eq("booking_id", booking.id).maybeSingle();
+  if (buyoutError) throw buyoutError;
+  if (buyout || booking.section === "Full Show Buyout" || parseMetadata(booking.notes)?.valueAllocation || booking.notes?.includes('"fixed-buyout-package"')) {
+    throw new Error("CONTRACTUAL_CANCELLATION_REVIEW_REQUIRED");
+  }
 
   const [showResult, paymentResult, refundResult, auditResult] = await Promise.all([
     serviceClient.from("shows").select("id,name,date,time,venue,status").eq("id", booking.show_id).maybeSingle(),

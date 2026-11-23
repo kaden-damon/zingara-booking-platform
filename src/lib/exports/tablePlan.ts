@@ -38,6 +38,7 @@ import {
   type TablePlanValueAllocation,
 } from "@/lib/exports/tablePlanFinance";
 import { resolveGratuityStatus } from "@/lib/gratuityTransition";
+import { readReductionAllocation, reductionAllocationSummary } from "../guestReductionPolicy.ts";
 import {
   formatGuestAllocationSummary,
   getComplimentaryGuestCounts,
@@ -947,6 +948,8 @@ function getBookingPaymentMetadata(booking: TablePlanBooking): {
       Number.isFinite(Number(allocation.barTabAmount)) &&
       ["card", "eft", "unknown"].includes(allocation.paymentMethod)
         ? {
+            policyApplied: allocation.policyApplied === true,
+            ticketPaidAmount: allocation.ticketPaidAmount,
             barTabAmount: Number(allocation.barTabAmount),
             paymentMethod: allocation.paymentMethod,
             ticketAmount: Number(allocation.ticketAmount),
@@ -1352,7 +1355,7 @@ function populateBookingDataRow(
         paymentType,
         paymentType !== complimentaryPaymentNote &&
         paymentMetadata.complimentaryCategory === null
-          ? resolveGratuityStatus({
+          ? readReductionAllocation(booking.notes) ? `Remaining allocated gratuity: R${(paymentMetadata.valueAllocation?.ticketGratuityAmount ?? 0).toFixed(2)}` : resolveGratuityStatus({
               amountPaid: booking.amount_paid,
               bookingStatus: booking.booking_status,
               gratuityPolicy: paymentMetadata.gratuityPolicy,
@@ -1369,7 +1372,7 @@ function populateBookingDataRow(
     : null;
   if (!includeBookingDetails) return;
   row.getCell(paymentBreakdownColumn).value = neutralizeSpreadsheetFormula(
-    formatOperationalPaymentBreakdown(paymentSummary, booking, operationalNotes),
+    [formatOperationalPaymentBreakdown(paymentSummary, booking, operationalNotes), reductionAllocationSummary(booking.notes)].filter(Boolean).join("\n"),
   );
   if (String(row.getCell(paymentBreakdownColumn).value ?? "").includes("\n")) {
     row.getCell(paymentBreakdownColumn).alignment = {
@@ -1402,7 +1405,7 @@ function populateBookingDataRow(
     legacyDietaryQuantities.kosher;
   row.getCell(23).numFmt = "0";
   const collectedTicketGratuity =
-    financials.ticketGratuityAmount > 0
+    paymentMetadata.valueAllocation ? financials.ticketGratuityAmount : financials.ticketGratuityAmount > 0
       ? financials.ticketGratuityAmount
       : booking.booking_origin === "corporate" &&
           booking.payment_status === "fully_paid"

@@ -106,6 +106,9 @@ export async function POST(request: Request) {
     await notifyAppleWalletBooking(auth.serviceClient, context.booking.id);
     return Response.json({ idempotent: Boolean((data as { idempotent?: boolean } | null)?.idempotent), result: data });
   } catch (error) {
+    if (error instanceof Error && error.message === "CONTRACTUAL_CANCELLATION_REVIEW_REQUIRED") {
+      return Response.json({ code: error.message, error: "This Buyout or existing financial allocation requires Accounts review under its agreed terms. No cancellation or refund has been processed." }, { status: 409 });
+    }
     console.error("[Zingara API] Managed booking action failed", error);
     return Response.json({ error: "Booking management action could not be completed. No changes were made." }, { status: 500 });
   }

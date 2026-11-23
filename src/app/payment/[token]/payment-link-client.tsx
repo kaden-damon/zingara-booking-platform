@@ -1,4 +1,5 @@
 "use client";
+import CancellationPolicyNotice from "../../components/CancellationPolicyNotice";
 
 import { useEffect, useState } from "react";
 import YourEvening from "../../components/YourEvening";
@@ -297,6 +298,7 @@ export default function PaymentLinkClient({ token }: { token: string }) {
               venue={booking.locationLabel}
             />
 
+            <CancellationPolicyNotice />
             <button
               type="button"
               onClick={processPayment}

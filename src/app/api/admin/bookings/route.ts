@@ -3079,6 +3079,13 @@ async function persistBookingStateUpdate(request: Request, body: {
       notes: serializeBookingNotes(classifiedBooking),
       updated_at: new Date().toISOString(),
     };
+    if (JSON.stringify(previousMetadata?.valueAllocation) !== JSON.stringify(classifiedBooking.valueAllocation)) {
+      return Response.json({ code: "GUEST_REDUCTION_POLICY_REVIEW_REQUIRED",
+        error: "Existing financial allocations cannot be changed through a general booking edit. Use the authorised reconciliation process." }, { status: 409 });
+    }
+    if (previousMetadata?.valueAllocation?.policyApplied && ["partySize", "serviceFeeAmount", "subtotalPrice", "discountAmount", "addonsTotal", "totalPrice", "amountPaid", "source"].some((field) => changedFieldSet.has(field))) {
+      return Response.json({ code: "GUEST_REDUCTION_MANUAL_REVIEW", error: "The existing cancellation allocation requires authorised Accounts review before further financial or guest-count changes." }, { status: 409 });
+    }
 
     if (changedFieldSet.has("addonsTotal")) {
       updatePayload.addons_total = booking.addonsTotal ?? 0;
@@ -3103,6 +3110,10 @@ async function persistBookingStateUpdate(request: Request, body: {
       updatePayload.discount_amount = booking.discountAmount ?? 0;
     }
     if (changedFieldSet.has("partySize")) {
+      if (booking.partySize < Number((beforeBooking as { guest_count?: number }).guest_count)) {
+        return Response.json({ code: "GUEST_REDUCTION_POLICY_REVIEW_REQUIRED",
+          error: "Use Edit Guest Count to review the cancellation allocation before reducing guests." }, { status: 409 });
+      }
       updatePayload.guest_count = booking.partySize;
     }
     if (changedFieldSet.has("serviceFeeAmount")) {

@@ -19,6 +19,8 @@ import {
   normalizeTwoSeaterOverrideReason,
 } from "@/lib/twoSeaterOverrideServer";
 import { getInternalShowBookingDecision } from "@/lib/internalShowBookingPolicy";
+import { loadGuestReductionBasis } from "@/lib/guestReductionServer";
+import { previewGuestReduction, type GuestReductionDisposition } from "@/lib/guestReductionPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -213,6 +215,7 @@ export async function GET(request: Request) {
         booking.booking_origin === "corporate" &&
         booking.booking_source === "corporate-direct",
       addedGuestPricingBasis,
+      reductionBasis: await loadGuestReductionBasis(auth.serviceClient, booking.id),
     });
   } catch (error) {
     console.error("[Zingara Reconciliation] Load failed", error);
@@ -245,6 +248,9 @@ export async function POST(request: Request) {
       expectedUpdatedAt?: string;
       expectedAdditionalAmount?: number;
       guestCount?: number;
+      reductionDisposition?: GuestReductionDisposition;
+      reductionOperationId?: string;
+      expectedReductionPreview?: Record<string, unknown>;
       legacyInvoiceEvidence?: {
         sourceDocument?: string;
         sourceGratuityAmount?: number;
@@ -279,7 +285,7 @@ export async function POST(request: Request) {
     }
 
     const { data: bookingContext, error: bookingContextError } =
-      body.action === "guest-count"
+      body.action === "guest-count" || body.action === "financial"
         ? await auth.serviceClient
             .from("bookings")
             .select("amount_paid,booking_origin,booking_source,id,booking_reference,show_id,guest_count,payment_status,notes,service_fee,subtotal_amount,total_amount,balance_outstanding")
@@ -287,6 +293,13 @@ export async function POST(request: Request) {
             .maybeSingle()
         : { data: null, error: null };
     if (bookingContextError) throw bookingContextError;
+    const existingAllocation = parseBookingMetadata(bookingContext?.notes ?? null)?.valueAllocation as { policyApplied?: boolean } | undefined;
+    if (existingAllocation?.policyApplied && body.action === "financial") {
+      return Response.json({ code: "GUEST_REDUCTION_MANUAL_REVIEW", error: "This retained cancellation allocation requires component-level Accounts resolution; a total-only edit would lose its forfeiture and refund evidence." }, { status: 409 });
+    }
+    if (existingAllocation?.policyApplied && Number(body.guestCount) > Number(bookingContext?.guest_count)) {
+      return Response.json({ code: "GUEST_REDUCTION_MANUAL_REVIEW", error: "Accounts must review the existing cancellation allocation before guests can be added." }, { status: 409 });
+    }
     if (
       body.action === "guest-count" &&
       bookingContext?.show_id &&
@@ -319,6 +332,27 @@ export async function POST(request: Request) {
     const isCorporateFixedTotal =
       bookingContext?.booking_origin === "corporate" &&
       bookingContext?.booking_source === "corporate-direct";
+    const isReduction = body.action === "guest-count" && bookingContext &&
+      Number(body.guestCount) < Number(bookingContext.guest_count);
+    const reductionBasis = isReduction
+      ? await loadGuestReductionBasis(auth.serviceClient, bookingContext.id) : null;
+    const isBuyoutReduction = Boolean(reductionBasis?.blockedReason?.startsWith("Buyout:"));
+    const isReductionReplay = body.action === "guest-count" && Boolean(body.reductionOperationId?.trim()) &&
+      Number(body.guestCount) === Number(bookingContext?.guest_count);
+    const policyReduction = (isReduction && !isBuyoutReduction) || isReductionReplay;
+    const reductionPreview = isReductionReplay ? body.expectedReductionPreview as ReturnType<typeof previewGuestReduction> : policyReduction && reductionBasis
+      ? previewGuestReduction(reductionBasis, Number(body.guestCount), body.reductionDisposition) : null;
+    if (policyReduction && (!reductionPreview || !body.reductionOperationId?.trim() ||
+      !["review-refund", "bar-credit"].includes(body.reductionDisposition ?? ""))) {
+      return Response.json({ code: "GUEST_REDUCTION_MANUAL_REVIEW", error:
+        reductionBasis?.blockedReason || "Review the cancellation allocation before confirming this reduction." }, { status: 409 });
+    }
+    if (policyReduction && reductionPreview && Object.entries(reductionPreview).some(
+      ([key, value]) => JSON.stringify(body.expectedReductionPreview?.[key]) !== JSON.stringify(value),
+    )) {
+      return Response.json({ code: "GUEST_REDUCTION_POLICY_REVIEW_REQUIRED",
+        error: "The cancellation allocation changed. Reload and review it before saving." }, { status: 409 });
+    }
     const hasManualFinancialBasis =
       body.manualPaymentBasis !== undefined || body.manualUnitAmount !== undefined;
     let reviewedNativeIncrease: number | undefined;
@@ -376,7 +410,9 @@ export async function POST(request: Request) {
           ? "reconcile_imported_booking_financials_atomic"
           : "reconcile_booking_financials_and_links_atomic"
         : body.action === "guest-count"
-          ? isCorporateFixedTotal
+          ? policyReduction
+            ? "reconcile_booking_guest_reduction_policy_atomic"
+            : isCorporateFixedTotal
             ? "reconcile_corporate_booking_guest_count_atomic"
             : hasRetainedValueTransfer
             ? "reconcile_paid_booking_guest_reduction_atomic"
@@ -427,7 +463,7 @@ export async function POST(request: Request) {
         return Response.json({ error: validationError }, { status: 400 });
       }
       if (
-        hasRetainedValueTransfer &&
+        !policyReduction && hasRetainedValueTransfer &&
         (!body.retainedValueTransfer?.operationId?.trim() ||
           body.retainedValueTransfer.transferReleasedValueToBarTab !== true ||
           body.retainedValueTransfer.transferGratuityToBarTab !== true)
@@ -496,6 +532,7 @@ export async function POST(request: Request) {
       p_expected_updated_at: body.expectedUpdatedAt,
       p_reason: reason,
       p_request_id:
+        body.reductionOperationId?.trim() ??
         body.retainedValueTransfer?.operationId?.trim() ??
         request.headers.get("x-vercel-id") ??
         request.headers.get("x-request-id") ??
@@ -519,6 +556,9 @@ export async function POST(request: Request) {
             p_total_amount: toMoney(Number(body.totalAmount)),
             ...(body.buyoutComponents ? { p_components: body.buyoutComponents } : {}),
           }
+        : policyReduction
+          ? { ...requestMetadata, p_guest_count: Number(body.guestCount),
+              p_disposition: body.reductionDisposition, p_expected_preview: reductionPreview }
         : hasRetainedValueTransfer
           ? {
               ...requestMetadata,
@@ -575,7 +615,7 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    if (body.action === "guest-count") {
+    if (body.action === "guest-count" && !isReductionReplay) {
       const result = data as { booking_id?: string } | null;
       if (result?.booking_id) {
         await notifyAppleWalletBooking(auth.serviceClient, result.booking_id);

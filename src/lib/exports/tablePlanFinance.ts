@@ -27,6 +27,8 @@ export type TablePlanLegacyPaymentEvidence = {
 };
 
 export type TablePlanValueAllocation = {
+  policyApplied?: boolean;
+  ticketPaidAmount?: number;
   barTabAmount: number;
   paymentMethod: "card" | "eft" | "unknown";
   ticketAmount: number;
@@ -400,6 +402,12 @@ export function calculateTablePlanFinancialBreakdown(
         breakdown.totalPaid,
         legacyEvidence,
       );
+  if (valueAllocation?.policyApplied && !isComplimentary) {
+    // Retained forfeiture/refund reserves are receipts, not extra ticket sales.
+    breakdown.fullCard = breakdown.prePaidCard = breakdown.prePaidEft = breakdown.fullEft = 0;
+    breakdown.methodUnknownPaid = toMoney(Math.max(0, authoritativePaid - breakdown.ticketGratuityAmount - breakdown.barTabPaidAmount - breakdown.barGratuityAmount - breakdown.halaalMealsAmount - breakdown.kosherMealsAmount));
+    breakdown.totalPaid = toMoney(valueAllocation.ticketPaidAmount ?? valueAllocation.ticketAmount);
+  }
   breakdown.toPay = isComplimentary
     ? 0
     : toMoney(breakdown.ticketObligation - breakdown.totalPaid);

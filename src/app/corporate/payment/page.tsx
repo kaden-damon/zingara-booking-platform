@@ -1,4 +1,5 @@
 "use client";
+import CancellationPolicyNotice from "../../components/CancellationPolicyNotice";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -189,6 +190,7 @@ export default function CorporatePaymentPage() {
                 <span>{formatCurrency(preview.providerGrossAmount)}</span>
               </div>
             </div>
+            <CancellationPolicyNotice />
             <button
               type="button"
               onClick={() => void startCheckout()}

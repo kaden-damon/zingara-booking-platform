@@ -63,6 +63,7 @@ export type CorporateOperationsBookingSnapshot = {
   packageBaseAmount?: number | null;
   vatAmount?: number | null;
   chargedGratuityAmount?: number;
+  reductionSummary?: string;
   discountAmount?: number;
   dietaryRequirements: string[];
   eventName: string;

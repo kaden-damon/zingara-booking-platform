@@ -190,7 +190,7 @@ export function resolveBookingCancellationPolicy(
   const policySummary = fullRefundWindow
     ? `${input.bookingKind === "corporate" ? "Corporate" : "Standard"} cancellation is at least ${cutoffDays} days before the performance.`
     : input.bookingKind === "corporate"
-      ? "Corporate cancellation is inside 7 days; the paid booking amount is forfeited."
+      ? "Corporate cancellation is inside 7 days; cancelled ticket value and its prepaid gratuity are forfeited, with no refund or bar credit."
       : depositAmount == null
         ? "Standard cancellation is inside 5 days, but the persisted deposit basis is unavailable. Accounts review is required."
         : "Standard cancellation is inside 5 days; the persisted deposit is forfeited and only paid value above it may be refundable.";

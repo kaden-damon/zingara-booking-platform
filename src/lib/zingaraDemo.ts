@@ -704,6 +704,8 @@ export type DemoBooking = {
   serviceFeeAmount?: number;
   gratuityPolicy?: "online-collected" | "pay-at-venue";
   gratuityCollectedAmount?: number;
+  guestReductionSummary?: string;
+  valueAllocation?: Record<string, unknown>;
   totalPrice: number;
   pricePerPerson: number;
   complimentaryCategory?: "standard" | "media" | "tradex";

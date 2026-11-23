@@ -56,23 +56,15 @@ test("the API keeps ordinary reconciliation intact and routes retained reduction
   assert.match(route, /legacyInvoiceEvidence/);
 });
 
-test("retained-value confirmation gives actionable feedback instead of silently disabling save", async () => {
+test("policy allocation replaces the mandatory all-gratuity bar transfer", async () => {
   const modal = await readFile(
     new URL("../app/admin/BookingReconciliationModal.tsx", import.meta.url),
     "utf8",
   );
 
-  assert.match(
-    modal,
-    /Confirm the retained value transfer to Bar Tab before saving\./,
-  );
-  assert.match(
-    modal,
-    /if \(requiresRetainedValueTransfer && !draft\.transferRetainedValue\)/,
-  );
-  assert.doesNotMatch(
-    modal,
-    /disabled=\{[^}]*requiresRetainedValueTransfer[^}]*transferRetainedValue/,
-  );
+  assert.match(modal, /Cancellation Allocation/);
+  assert.match(modal, /Forfeited amounts cannot become bar credit/);
+  assert.match(modal, /Gratuity forfeited/);
+  assert.doesNotMatch(modal, /Transfer Released Value \+ Gratuity to Bar Tab/);
   assert.match(modal, /onClick=\{submitGuestCount\}/);
 });

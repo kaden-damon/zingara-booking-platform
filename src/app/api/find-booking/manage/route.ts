@@ -233,6 +233,9 @@ export async function POST(request: Request) {
 
     return Response.json({ error: "Unsupported booking action." }, { status: 400 });
   } catch (error) {
+    if (error instanceof Error && error.message === "CONTRACTUAL_CANCELLATION_REVIEW_REQUIRED") {
+      return Response.json({ code: error.message, error: "Please contact Guest Services to review your booking's agreed cancellation terms." }, { status: 409 });
+    }
     console.error("[Zingara API] Find My Booking management failed", error);
     const response = publicError(error);
     return Response.json({ code: response.code, error: response.error }, { status: response.status });

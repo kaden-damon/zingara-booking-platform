@@ -85,6 +85,7 @@ export const royalDecrees: RoyalDecree[] = [
         body: [
           "By using the platform, creating a booking, submitting an enquiry or guest review, making payment or attending an experience, guests agree to these Terms & Conditions and the related Royal Decrees displayed on this site, including the Privacy Policy and Cookie Policy.",
           "If a guest does not agree with these terms, they should not continue with the booking, payment or review-submission process.",
+          "Cancellation and guest-count reduction deadlines are explained in the Booking & Cancellation Policy: five days for Standard bookings and seven days for Corporate bookings. Buyouts remain subject to their separately agreed terms; signed agreements and authorised exceptions are not replaced by this summary.",
         ],
       },
       {
@@ -239,6 +240,22 @@ export const royalDecrees: RoyalDecree[] = [
         body: [
           "Cancellation requests must be submitted to Guest Services as soon as possible. The Royal Countess will review the booking date, payment status, cancellation reason and operational impact before confirming the available options.",
           "Corporate bookings may require additional review because quotations, invoices, guest numbers, menus and supplier arrangements may already have been prepared.",
+        ],
+      },
+      {
+        heading: "Standard And Corporate Deadlines",
+        body: [
+          "Standard bookings have a cancellation deadline of five days before the performance. Corporate bookings have a deadline of seven days before the performance. The deadline is measured from the scheduled performance start in South African time; requests at or before the deadline fall within the permitted period.",
+          "Within the permitted period, cancellations and guest-count reductions are assessed under the existing eligible refund rules, verified payments and agreed booking terms. A request does not itself process a refund; approved refunds follow the existing authorised payment process.",
+          "For Standard guest-count reductions after the deadline, the R550 deposit per cancelled guest is forfeited. For Corporate cancellations or guest-count reductions after the deadline, cancelled ticket value and prepaid gratuity attributable to cancelled guests are forfeited. Gratuity for remaining guests stays allocated to gratuity and is not charged twice.",
+          "Forfeited amounts cannot be refunded or converted to bar credit. The existing authorised bar-transfer option remains available only for eligible, non-forfeited ticket value. Prepaid gratuity is not automatically transferred to the bar. Any unresolved Standard prepaid-gratuity treatment requires authorised review.",
+        ],
+      },
+      {
+        heading: "Buyouts And Agreed Exceptions",
+        body: [
+          "Exclusive Buyouts are governed by their separately agreed contractual cancellation terms and fixed-package pricing, not the Standard five-day or Corporate seven-day cutoffs. Reduced attendance does not automatically reduce an agreed fixed-package price.",
+          "Individual signed agreements and legitimate authorised exceptions remain applicable. Contact Guest Services with your booking reference so the appropriate agreed terms can be reviewed before any financial adjustment.",
         ],
       },
       {

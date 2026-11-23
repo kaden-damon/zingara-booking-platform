@@ -9,6 +9,8 @@ const ERROR_RESPONSES: Array<{
   message: string;
   status: number;
 }> = [
+  { code: "GUEST_REDUCTION_POLICY_REVIEW_REQUIRED", message: "The cancellation allocation changed or needs confirmation. Reload and review it before saving. No change has been saved.", status: 409 },
+  { code: "GUEST_REDUCTION_MANUAL_REVIEW", message: "This booking's existing financial or contractual arrangement requires authorised Accounts review before reducing guests.", status: 409 },
   { code: "BOOKING_REVISION_CHANGED", message: "This booking was changed by another staff member. Reload and review the latest values.", status: 409 },
   { code: "BOOKING_NOT_FOUND", message: "The booking could not be found.", status: 404 },
   { code: "GUEST_COUNT_UNCHANGED", message: "Enter a different guest count before confirming.", status: 400 },

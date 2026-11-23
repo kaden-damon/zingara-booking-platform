@@ -209,6 +209,7 @@ export async function loadCorporateOperationsContext(
       bookingReference: booking.booking_reference,
       companyName: text(companyResult.data?.trading_name) || text(companyResult.data?.legal_name) || text(booking.company_name) || text(request?.company_name) || "Company not linked",
       chargedGratuityAmount: money(booking.service_fee),
+      reductionSummary: financials.reductionSummary,
       discountAmount: money(booking.discount_amount),
       dietaryRequirements: Array.from(new Set(dietaryRequirements)),
       eventName: text(request?.occasion) || text(request?.other_description) || "Corporate function",

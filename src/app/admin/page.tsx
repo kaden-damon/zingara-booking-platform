@@ -19283,6 +19283,9 @@ export default function AdminDashboardPage({
 
   async function saveGuestCountReconciliation(draft: {
     guestCount: number;
+    reductionDisposition?: "review-refund" | "bar-credit";
+    reductionOperationId?: string;
+    expectedReductionPreview?: unknown;
     manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;
     expectedAdditionalAmount?: number;
     manualUnitAmount?: number;
@@ -19311,6 +19314,9 @@ export default function AdminDashboardPage({
           expectedUpdatedAt:
             guestCountReconciliation.details.booking.updatedAt,
           guestCount: draft.guestCount,
+          reductionDisposition: draft.reductionDisposition,
+          reductionOperationId: draft.reductionOperationId,
+          expectedReductionPreview: draft.expectedReductionPreview,
           manualPaymentBasis: draft.manualPaymentBasis,
           expectedAdditionalAmount: draft.expectedAdditionalAmount,
           manualUnitAmount: draft.manualUnitAmount,
@@ -39807,7 +39813,7 @@ export default function AdminDashboardPage({
                       </div>
                       {booking.paymentStatus !== "comp-vip" && (
                         <p className="mt-3 text-xs font-semibold uppercase text-[#D8C36A]">
-                          {resolveGratuityStatus({
+                          {booking.guestReductionSummary ? booking.guestReductionSummary : resolveGratuityStatus({
                             amountPaid: financials.amountPaid,
                             bookingStatus: booking.status,
                             gratuityPolicy: booking.gratuityPolicy,

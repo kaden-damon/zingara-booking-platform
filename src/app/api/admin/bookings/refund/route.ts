@@ -17,6 +17,7 @@ import {
 } from "@/lib/supabase/serverAdmin";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 import { buildRefundEligibilityRows } from "@/lib/refundReadiness";
+import { readReductionAllocation } from "@/lib/guestReductionPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ type RefundRequestBody = {
 };
 
 type BookingRefundRow = {
+  notes: string | null;
   amount_paid: number;
   balance_outstanding: number;
   booking_reference: string;
@@ -88,7 +90,7 @@ const readinessPageSize = 1000;
 const readinessBatchConcurrency = 4;
 
 const refundSelect =
-  "id,booking_reference,booking_status,payment_status,total_amount,amount_paid,balance_outstanding";
+  "id,booking_reference,booking_status,payment_status,total_amount,amount_paid,balance_outstanding,notes";
 
 function getSupabaseAuthClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -549,6 +551,9 @@ export async function POST(request: Request) {
     );
   }
 
+  if (readReductionAllocation(booking.notes)) {
+    return Response.json({ code: "GUEST_REDUCTION_MANUAL_REVIEW", error: "A full provider refund would include retained cancellation allocations. Accounts must process only the authorised eligible amount; forfeited value cannot be refunded." }, { status: 409 });
+  }
   if (
     booking.booking_status === "refunded" ||
     booking.payment_status === "refunded"

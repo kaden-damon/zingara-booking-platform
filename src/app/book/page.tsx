@@ -17,6 +17,7 @@ import YourEvening from "../components/YourEvening";
 import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEditor";
 import GuestAllocationEditor from "../components/GuestAllocationEditor";
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
+import CancellationPolicyNotice from "../components/CancellationPolicyNotice";
 import GuestBookingDisclosures from "../components/GuestBookingDisclosures";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
 import {
@@ -6525,6 +6526,7 @@ export default function BookingPage({
               </div>
               )}
 
+              <CancellationPolicyNotice />
               <AgeRestrictionNotice />
 
               {requiresPublicAgeAcknowledgement && (

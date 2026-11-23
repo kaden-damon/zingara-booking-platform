@@ -1,6 +1,7 @@
 import { serviceFeeRate } from "./bookingAddons.ts";
 import { includedBookingFeeAmount } from "./bookingFees.ts";
 import { readCorporateBuyoutAgreement } from "./corporateBuyoutAgreement.ts";
+import { reductionAllocationSummary } from "./guestReductionPolicy.ts";
 import {
   resolveGratuityStatus,
   type GratuityPolicy,
@@ -30,6 +31,7 @@ export type FunctionBriefAddon = {
 };
 
 export type CorporateFunctionBriefFinancials = {
+  reductionSummary?: string;
   addOns: FunctionBriefAddon[];
   barGratuityPaid: number;
   barTabAmount: number;
@@ -106,6 +108,7 @@ function parseMetadata(notes: string | null | undefined) {
       addons?: FinancialAddon[];
       commercialModel?: string;
       gratuityPolicy?: GratuityPolicy;
+      valueAllocation?: { ticketAmount: number; ticketGratuityAmount: number; barTabAmount: number };
     pricingProvenance?: { bookingFeeAmount?: number };
     };
   } catch {
@@ -158,6 +161,19 @@ export function resolveCorporateFunctionBriefFinancials(
   input: BookingFinancialInput,
 ): CorporateFunctionBriefFinancials {
   const metadata = parseMetadata(input.notes);
+  const allocation = metadata?.valueAllocation;
+  if (allocation && [allocation.ticketAmount, allocation.ticketGratuityAmount, allocation.barTabAmount].every(
+    (n) => typeof n === "number" && Number.isFinite(n) && n >= 0,
+  )) {
+    return {
+      addOns: getAddOns(metadata?.addons ?? [], money(input.addonsTotal), 0),
+      barGratuityPaid: money(input.evidence?.bar_gratuity_amount),
+      barTabAmount: allocation.barTabAmount, bookingFeeAmount: 0,
+      fullPaymentAmount: money(input.amountPaid),
+      ticketGratuityPaid: allocation.ticketGratuityAmount, ticketValue: allocation.ticketAmount,
+      reductionSummary: reductionAllocationSummary(input.notes) || "Existing retained-value allocation shown. Original receipts and historical gratuity evidence remain unchanged.",
+    };
+  }
   const addonsTotal = money(input.addonsTotal);
   const metadataAddons = metadata?.addons ?? [];
   const evidenceBarTabAmount = money(input.evidence?.bar_tab_paid_amount);

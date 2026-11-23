@@ -3,51 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
-  calculatePaidGuestReductionAllocation,
   getReconciledPaymentStatus,
   validateFinancialReconciliation,
   validateGuestCountReconciliation,
 } from "./bookingReconciliation.ts";
-
-test("paid guest reduction preserves retained value without double-transferring gratuity", () => {
-  assert.deepEqual(
-    calculatePaidGuestReductionAllocation({
-      currentBarTabAmount: 0,
-      currentGuestCount: 38,
-      newGuestCount: 32,
-      sourceGratuityAmount: 7_315,
-      sourceTicketAmount: 58_520,
-    }),
-    {
-      barTabAmount: 16_555,
-      gratuityTransferred: 7_315,
-      releasedTicketValue: 9_240,
-      ticketAmount: 49_280,
-      ticketUnitAmount: 1_540,
-      totalRetainedValue: 65_835,
-    },
-  );
-});
-
-test("Jane Grobler's 70-to-64 reduction retains the fully paid value", () => {
-  assert.deepEqual(
-    calculatePaidGuestReductionAllocation({
-      currentBarTabAmount: 0,
-      currentGuestCount: 70,
-      newGuestCount: 64,
-      sourceGratuityAmount: 11_550,
-      sourceTicketAmount: 92_400,
-    }),
-    {
-      barTabAmount: 19_470,
-      gratuityTransferred: 11_550,
-      releasedTicketValue: 7_920,
-      ticketAmount: 84_480,
-      ticketUnitAmount: 1_320,
-      totalRetainedValue: 103_950,
-    },
-  );
-});
 
 async function source(path: string) {
   return readFile(new URL(path, import.meta.url), "utf8");

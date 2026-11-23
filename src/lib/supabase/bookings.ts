@@ -13,6 +13,7 @@ import {
   isValidSeatingZoneId,
 } from "@/lib/zingaraDemo";
 import { getSupabaseClient } from "./client";
+import { readReductionAllocation, reductionAllocationSummary } from "../guestReductionPolicy";
 import { fetchSupabaseApi } from "./apiClient";
 import { getOrCreateCustomerIdFromInfo } from "./customers";
 import { resolveStaffDisplayName } from "@/lib/staffDisplayName";
@@ -753,7 +754,8 @@ async function toDemoBooking(row: SupabaseBookingAggregateRow): Promise<DemoBook
       corporatePaymentReminderSentAt:
         row.corporate_payment_reminder_sent_at ?? undefined,
       discountAmount: row.discount_amount,
-      gratuityCollectedAmount: Number(
+      guestReductionSummary: reductionAllocationSummary(row.notes),
+      gratuityCollectedAmount: readReductionAllocation(row.notes)?.ticketGratuityAmount ?? Number(
         (Array.isArray(row.legacy_payment_evidence)
           ? row.legacy_payment_evidence[0]?.ticket_gratuity_amount
           : row.legacy_payment_evidence?.ticket_gratuity_amount) ?? 0,

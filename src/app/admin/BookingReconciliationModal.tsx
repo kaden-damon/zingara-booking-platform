@@ -3,7 +3,6 @@
 import { useState } from "react";
 
 import {
-  calculatePaidGuestReductionAllocation,
   getReconciledPaymentStatus,
   toMoney,
   validateFinancialReconciliation,
@@ -16,6 +15,7 @@ import {
   type LegacyGuestIncreasePaymentBasis,
 } from "@/lib/addedGuestFinancials";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
+import { previewGuestReduction, type GuestReductionBasis, type GuestReductionDisposition } from "@/lib/guestReductionPolicy";
 
 export type BookingReconciliationDetails = {
   booking: {
@@ -47,6 +47,7 @@ export type BookingReconciliationDetails = {
   providerBackedAmount: number;
   corporateFixedTotal: boolean;
   addedGuestPricingBasis: AddedGuestPricingBasis;
+  reductionBasis?: GuestReductionBasis;
 };
 
 export type GuestCountReconciliationResult = {
@@ -235,6 +236,9 @@ export function GuestCountReconciliationModal(
     guestCount: number;
     onSave: (draft: {
       guestCount: number;
+      reductionDisposition?: GuestReductionDisposition;
+      reductionOperationId?: string;
+      expectedReductionPreview?: ReturnType<typeof previewGuestReduction>;
       expectedAdditionalAmount?: number;
       manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;
       manualUnitAmount?: number;
@@ -260,6 +264,7 @@ export function GuestCountReconciliationModal(
   });
   const [operationId] = useState(() => crypto.randomUUID());
   const [submissionError, setSubmissionError] = useState("");
+  const [reductionDisposition, setReductionDisposition] = useState<GuestReductionDisposition>("review-refund");
   const validation = validateGuestCountReconciliation(draft);
   const calculatedFinancials = calculateAddedGuestFinancials({
     basis: props.details.addedGuestPricingBasis,
@@ -287,19 +292,11 @@ export function GuestCountReconciliationModal(
   });
   const manualFinancialsValid =
     !requiresManualFinancialBasis || manualFinancials.additionalAmount !== null;
-  const retainedValueAllocation = props.details.retainedValueBasis
-    ? calculatePaidGuestReductionAllocation({
-        currentBarTabAmount: props.details.retainedValueBasis.barTabAmount,
-        currentGuestCount: booking.guestCount,
-        newGuestCount: draft.guestCount,
-        sourceGratuityAmount: props.details.retainedValueBasis.sourceGratuityAmount,
-        sourceTicketAmount: props.details.retainedValueBasis.sourceTicketAmount,
-      })
-    : null;
-  const requiresRetainedValueTransfer =
-    Boolean(retainedValueAllocation) &&
-    booking.amountPaid >= booking.totalAmount &&
-    booking.totalAmount > 0;
+  const isReduction = draft.guestCount < booking.guestCount;
+  const basis = props.details.reductionBasis;
+  const isBuyoutReduction = Boolean(basis?.blockedReason?.startsWith("Buyout:"));
+  const reductionPreview = basis ? previewGuestReduction(basis, draft.guestCount, reductionDisposition) : null;
+  const reductionBlocked = isReduction && !isBuyoutReduction && !reductionPreview;
   const isComplimentaryIncrease =
     financials.addedGuests > 0 &&
     booking.paymentStatus === "comp_vip" &&
@@ -349,16 +346,17 @@ export function GuestCountReconciliationModal(
   }
 
   function submitGuestCount() {
-    if (requiresRetainedValueTransfer && !draft.transferRetainedValue) {
-      setSubmissionError(
-        "Confirm the retained value transfer to Bar Tab before saving.",
-      );
+    if (reductionBlocked || (reductionDisposition === "bar-credit" && reductionPreview?.eligibleTicketAmount === 0)) {
+      setSubmissionError(basis?.blockedReason || "Review the cancellation allocation before saving.");
       return;
     }
 
     setSubmissionError("");
     props.onSave({
       guestCount: draft.guestCount,
+      reductionDisposition: isReduction && !isBuyoutReduction ? reductionDisposition : undefined,
+      reductionOperationId: isReduction && !isBuyoutReduction ? operationId : undefined,
+      expectedReductionPreview: reductionPreview,
       expectedAdditionalAmount: financials.additionalAmount ?? undefined,
       manualPaymentBasis: requiresManualFinancialBasis
         ? draft.manualPaymentBasis || undefined
@@ -367,14 +365,6 @@ export function GuestCountReconciliationModal(
         ? draft.manualUnitAmount
         : undefined,
       reason: draft.reason,
-      retainedValueTransfer:
-        requiresRetainedValueTransfer && draft.transferRetainedValue
-          ? {
-              operationId,
-              transferGratuityToBarTab: true,
-              transferReleasedValueToBarTab: true,
-            }
-          : undefined,
       twoSeaterOverrideReason: props.canOverrideTwoSeaterLimit
         ? draft.reason
         : undefined,
@@ -410,7 +400,8 @@ export function GuestCountReconciliationModal(
         <p className="mt-1 text-xs text-zinc-500">
           {isChargeableComp
             ? `The ${booking.complimentaryCategory === "media" ? "Media" : "Tradex"} COMP total will update to ${formatMoney(chargeableCompTotal ?? 0)}. Existing payments remain unchanged.`
-            : "Reducing the guest count does not change the booking price or create a refund. Update payment details separately if needed."}
+            : isBuyoutReduction ? "Fixed Buyout pricing and separately agreed terms remain unchanged."
+            : "Review the cancellation allocation below. No payment or refund is processed by this change."}
         </p>
       )}
       {requiresManualFinancialBasis && (
@@ -461,22 +452,31 @@ export function GuestCountReconciliationModal(
           <p className="mt-3 text-xs text-zinc-500">We can&apos;t confirm the original price for this booking. Check the payment details before adding guests. The price entered here applies only to the added guests.</p>
         </section>
       )}
-      {requiresRetainedValueTransfer && retainedValueAllocation && (
+      {isReduction && !isBuyoutReduction && basis?.blockedReason && <p role="alert" className="mt-4 rounded-xl border border-amber-300/30 p-4 text-sm text-amber-100">{basis.blockedReason}</p>}
+      {reductionPreview && (
         <section className="mt-4 rounded-xl border border-[#D8C36A]/30 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
-          <p className="text-xs font-semibold uppercase text-[#F2D66C]">Retained Value Allocation</p>
+          <p className="text-xs font-semibold uppercase text-[#F2D66C]">Cancellation Allocation</p>
+          <p className="mt-2 text-xs text-zinc-400">{basis?.bookingKind === "corporate" ? "Corporate · 7 days" : "Standard · 5 days"} · {reductionPreview.fullRefundWindow ? "Within permitted period" : "Late reduction"}. Forfeited amounts cannot become bar credit.</p>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <p>Guests removed<br /><strong>{booking.guestCount - draft.guestCount}</strong></p>
-            <p>Ticket rate<br /><strong>{formatMoney(retainedValueAllocation.ticketUnitAmount)} pp</strong></p>
-            <p>Released ticket value<br /><strong>{formatMoney(retainedValueAllocation.releasedTicketValue)}</strong></p>
-            <p>Gratuity transferred<br /><strong>{formatMoney(retainedValueAllocation.gratuityTransferred)}</strong></p>
-            <p>Final ticket value<br /><strong>{formatMoney(retainedValueAllocation.ticketAmount)}</strong></p>
-            <p>Final Bar Tab<br /><strong>{formatMoney(retainedValueAllocation.barTabAmount)}</strong></p>
+            <p>Remaining tickets<br /><strong>{formatMoney(reductionPreview.ticketAmount)}</strong></p>
+            <p>Tickets forfeited<br /><strong>{formatMoney(reductionPreview.forfeitedAmount)}</strong></p>
+            <p>Gratuity forfeited<br /><strong>{formatMoney(reductionPreview.gratuityForfeitedAmount)}</strong></p>
+            <p>Remaining gratuity<br /><strong>{formatMoney(reductionPreview.ticketGratuityAmount)}</strong></p>
+            <p>Bar allocation<br /><strong>{formatMoney(reductionPreview.barTabAmount)}</strong></p>
+            <p>Eligible refund · Accounts processing<br /><strong>{formatMoney(reductionPreview.refundReviewAmount)}</strong></p>
+            {reductionPreview.gratuityReviewAmount > 0 && <p>Gratuity held for authorised review<br /><strong>{formatMoney(reductionPreview.gratuityReviewAmount)}</strong></p>}
             <p>Total Amount Paid<br /><strong>{formatMoney(booking.amountPaid)}</strong></p>
-            <p>Refund<br /><strong>{formatMoney(0)}</strong></p>
+            <p>Revised retained total<br /><strong>{formatMoney(reductionPreview.totalRetainedValue)}</strong></p>
+            <p>Outstanding<br /><strong>{formatMoney(reductionPreview.newOutstanding)}</strong></p>
           </div>
-          <button type="button" aria-pressed={draft.transferRetainedValue} onClick={() => { setSubmissionError(""); setDraft((current) => ({ ...current, transferRetainedValue: !current.transferRetainedValue })); }} className={`mt-4 min-h-11 w-full rounded-full border px-4 text-xs font-semibold uppercase ${draft.transferRetainedValue ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/20 text-white"}`}>
-            {draft.transferRetainedValue ? "Transfer Confirmed" : "Transfer Released Value + Gratuity to Bar Tab"}
-          </button>
+          {reductionPreview.eligibleTicketAmount > 0 && <label className="mt-4 block text-xs text-zinc-300">Eligible ticket value only
+            <select value={reductionDisposition} onChange={(event) => setReductionDisposition(event.target.value as GuestReductionDisposition)} className="mt-2 min-h-11 w-full rounded-xl border border-white/20 bg-black px-3">
+              <option value="review-refund">Refund through existing authorised process</option>
+              <option value="bar-credit">Transfer eligible ticket value to bar</option>
+            </select>
+          </label>}
+          <p className="mt-3 text-xs text-zinc-400">Original receipts remain unchanged. Released unpaid ticket balances are removed; paid value is retained as shown pending any authorised refund. No automatic refund or additional gratuity charge. Cancelled gratuity is never transferred to bar.</p>
         </section>
       )}
       <p className="mt-2 text-xs text-zinc-500">If the table no longer fits, the booking will move safely to Needs a table.</p>
@@ -491,7 +491,7 @@ export function GuestCountReconciliationModal(
       {props.result ? (
         <div className="mt-5 rounded-xl border border-emerald-400/25 bg-emerald-950/20 p-4">
           <p className="text-sm font-semibold text-emerald-200">UPDATED ✓</p>
-          {props.result.floor_assignment_required ? (
+          {isReduction && !isBuyoutReduction ? <p className="mt-1 text-xs text-zinc-300">Guest count and cancellation allocation saved.{reductionPreview?.manualResolutionRequired ? " Review the flagged balances with Accounts." : ""}</p> : props.result.floor_assignment_required ? (
             <p className="mt-1 text-xs text-zinc-300">
               Guest count updated. The previous table no longer fits this booking, so it now needs a table.
             </p>

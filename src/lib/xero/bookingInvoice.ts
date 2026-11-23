@@ -1,5 +1,6 @@
 import type { XeroDocumentLineInput } from "./documentMath";
 import { readCorporateBuyoutAgreement } from "../corporateBuyoutAgreement.ts";
+import { readReductionAllocation } from "../guestReductionPolicy.ts";
 
 export type BookingInvoiceRevenueCategory =
   | "buyouts"
@@ -46,6 +47,9 @@ function line(
 export function buildAuthoritativeBookingInvoiceDraft(
   input: BookingInvoiceAmounts,
 ) {
+  if (readReductionAllocation(input.bookingNotes)) {
+    throw new Error("This booking has a cancellation allocation. Accounts must reconcile forfeiture, refund and gratuity components before preparing an accounting document.");
+  }
   const subtotalCents = cents(input.subtotalAmount);
   const addonsCents = cents(input.addonsTotal);
   const discountCents = cents(input.discountAmount);

@@ -144,9 +144,10 @@ function financialSummaryLines(snapshot: CorporateOperationsBookingSnapshot) {
     values.push("VAT: not separately recorded for the current agreement");
   }
   values.push(`Tickets${snapshot.vatAmount != null ? " (including VAT)" : ""}: ${money(snapshot.ticketValue)}`);
-  values.push(snapshot.chargedGratuityAmount !== undefined
+  values.push(snapshot.reductionSummary ? `Remaining allocated gratuity: ${money(snapshot.ticketGratuityAmount)}` : snapshot.chargedGratuityAmount !== undefined
     ? `Gratuity charged: ${money(snapshot.chargedGratuityAmount)} | Paid: ${money(snapshot.ticketGratuityAmount + snapshot.barGratuityAmount)}`
     : `Gratuity Paid: ${money(snapshot.ticketGratuityAmount + snapshot.barGratuityAmount)}`);
+  if (snapshot.reductionSummary) values.push(snapshot.reductionSummary);
   values.push(`Total booking obligation: ${money(snapshot.totalAmount)}`,
     `Payments received: ${money(snapshot.amountPaid)}`,
     `Outstanding balance: ${money(snapshot.outstandingAmount)}`);
