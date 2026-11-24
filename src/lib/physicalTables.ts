@@ -91,6 +91,19 @@ export function getPhysicalTableDefinition(
   return definitionsByKey.get(`${zoneId}:${tableCode.trim()}`);
 }
 
+// The approved six-seat booth baseline is not additional public capacity.
+export function getTableBookingMaximum(table: {
+  zoneId: string; tableNumber: string; physicalTable?: boolean;
+  seatCapacity: number; mergedFrom?: string[]; mergedInto?: string;
+  capacityConfigured?: boolean; isOverride?: boolean;
+}) {
+  return table.physicalTable && table.zoneId === "royal-booths" &&
+    !table.isOverride && table.capacityConfigured !== false && !table.mergedInto &&
+    !table.mergedFrom?.length && table.seatCapacity === 6 &&
+    getPhysicalTableDefinition(table.zoneId, table.tableNumber)
+    ? 8 : table.seatCapacity;
+}
+
 export function getPhysicalTableSortOrder(
   zoneId: SeatingZoneId,
   tableCode: string,

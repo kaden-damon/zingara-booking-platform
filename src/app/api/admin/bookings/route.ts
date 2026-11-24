@@ -1,4 +1,5 @@
 import { normalizeAttendingGuestName } from "@/lib/bookingGuestName";
+import { getTableBookingMaximum } from "@/lib/physicalTables";
 import {
   getAdminRoleFromName,
   getRolePermissions,
@@ -1584,7 +1585,11 @@ async function persistPhysicalTableMapping(
       !targetIsValidMergedParent) ||
     !typedTargetTable.capacity_configured ||
     typedTargetTable.capacity === null ||
-    Number(typedTargetTable.capacity) < booking.guest_count ||
+    getTableBookingMaximum({ zoneId: normalizeTableZone(typedTargetTable.section),
+      tableNumber: typedTargetTable.table_code, physicalTable: typedTargetTable.is_physical,
+      seatCapacity: Number(typedTargetTable.capacity), capacityConfigured: typedTargetTable.capacity_configured,
+      isOverride: typedTargetTable.is_override, mergedFrom: typedTargetTable.merged_from ?? [],
+      mergedInto: typedTargetTable.merged_parent_id ?? undefined }) < booking.guest_count ||
     typedTargetTable.merged_parent_id ||
     typedTargetTable.status === "disabled" ||
     (typedTargetTable.id !== booking.table_id &&

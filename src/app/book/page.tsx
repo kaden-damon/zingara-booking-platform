@@ -1,4 +1,5 @@
 "use client";
+import { getSeatingBookingLimit } from "@/lib/seatingBookingLimits";
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -161,7 +162,6 @@ import {
 } from "../../lib/corporateInvoicePayments";
 import {
   getBookingSeatingEligibility,
-  getStandardBookingZoneGuestLimits,
   supportsMultiTableBookingFulfilment,
 } from "../../lib/bookingSeatingAvailability";
 import { getCustomerExperienceTimes } from "../../lib/experienceTimes";
@@ -491,10 +491,11 @@ function isAvailableForBooking(
   isInternalCorporate = false,
   isPublicSalesOpen = true,
   authoritativeRemainingSeats?: number,
+  venue?: string | null,
 ) {
   const guestLimits = isInternalCorporate
     ? option
-    : getStandardBookingZoneGuestLimits(option.id, option);
+    : getSeatingBookingLimit(settings, venue, option.id);
 
   return getBookingSeatingEligibility({
     isInternalCorporate,
@@ -508,7 +509,7 @@ function isAvailableForBooking(
       settings,
       authoritativeRemainingSeats,
     ),
-    supportsMultiTableFulfilment: supportsMultiTableBookingFulfilment(option.id),
+    supportsMultiTableFulfilment: isInternalCorporate && supportsMultiTableBookingFulfilment(option.id),
   }).isAvailable;
 }
 
@@ -521,6 +522,7 @@ function getAvailabilityState(
   hasExplicitTableAssignment = false,
   isPublicSalesOpen = true,
   authoritativeRemainingSeats?: number,
+  venue?: string | null,
 ) {
   const remainingSeats = getRemainingSeats(
     option,
@@ -530,7 +532,7 @@ function getAvailabilityState(
   );
   const guestLimits = isInternalCorporate
     ? option
-    : getStandardBookingZoneGuestLimits(option.id, option);
+    : getSeatingBookingLimit(settings, venue, option.id);
   const baseEligibility = getBookingSeatingEligibility({
     hasExplicitTableAssignment,
     isInternalCorporate,
@@ -539,7 +541,7 @@ function getAvailabilityState(
     minGuests: guestLimits.minGuests,
     partySize: guests,
     remainingSeats,
-    supportsMultiTableFulfilment: supportsMultiTableBookingFulfilment(option.id),
+    supportsMultiTableFulfilment: isInternalCorporate && supportsMultiTableBookingFulfilment(option.id),
   });
   const isLimited =
     baseEligibility.isAvailable && remainingSeats <= Math.max(guests * 2, 6);
@@ -552,7 +554,7 @@ function getAvailabilityState(
     minGuests: guestLimits.minGuests,
     partySize: guests,
     remainingSeats,
-    supportsMultiTableFulfilment: supportsMultiTableBookingFulfilment(option.id),
+    supportsMultiTableFulfilment: isInternalCorporate && supportsMultiTableBookingFulfilment(option.id),
   });
 
   return {
@@ -1500,6 +1502,7 @@ export default function BookingPage({
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[zone.id] !== false,
         remainingSeatsByZone[zone.id],
+        selectedEntryLocation,
       ),
     );
   const canJoinWaitlist =
@@ -1559,6 +1562,7 @@ export default function BookingPage({
                 isCorporateCalendarCheckout,
                 true,
                 remainingSeatsByZone[zone.id],
+                selectedEntryLocation,
               ),
           );
         })
@@ -1572,6 +1576,7 @@ export default function BookingPage({
             manualCheckoutRole !== "none" ||
               publicSalesOpenByZone[selectedZone.id] !== false,
             remainingSeatsByZone[selectedZone.id],
+            selectedEntryLocation,
           ),
   );
   const complimentarySubmissionEligibility =
@@ -2007,6 +2012,7 @@ export default function BookingPage({
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[currentZone.id] !== false,
         remainingSeatsByZone[currentZone.id],
+        selectedEntryLocation,
       )
         ? null
         : currentZone,
@@ -2021,6 +2027,7 @@ export default function BookingPage({
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[currentZone.id] !== false,
         remainingSeatsByZone[currentZone.id],
+        selectedEntryLocation,
       )
         ? null
         : currentZone,
@@ -2826,6 +2833,7 @@ export default function BookingPage({
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
         remainingSeatsByZone[selectedZone.id],
+        selectedEntryLocation,
       )
     ) {
       return;
@@ -3158,6 +3166,7 @@ export default function BookingPage({
         isCorporateCalendarCheckout,
         manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
         remainingSeatsByZone[selectedZone.id],
+        selectedEntryLocation,
       )
     ) {
       return;
@@ -3491,6 +3500,7 @@ export default function BookingPage({
         isCorporateCalendarCheckout,
         true,
         remainingSeatsByZone[selectedZone.id],
+        selectedEntryLocation,
       )
     ) {
       return;
@@ -3697,6 +3707,7 @@ export default function BookingPage({
       Boolean(selectedTemporaryTable),
       manualCheckoutRole !== "none" || publicSalesOpenByZone[option.id] !== false,
       remainingSeatsByZone[option.id],
+      selectedEntryLocation,
     );
 
     return {
@@ -5937,6 +5948,7 @@ export default function BookingPage({
                 Boolean(selectedTemporaryTable),
                 manualCheckoutRole !== "none" || publicSalesOpenByZone[previewSeatingZone.id] !== false,
                 remainingSeatsByZone[previewSeatingZone.id],
+                selectedEntryLocation,
               );
               const staffAvailability = isStaffBookingJourney
                 ? getStaffZoneAvailability(

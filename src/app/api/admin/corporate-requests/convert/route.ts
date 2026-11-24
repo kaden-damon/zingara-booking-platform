@@ -1,4 +1,5 @@
 import { rolePermissions } from "@/lib/zingaraAccess";
+import { getTableBookingMaximum } from "@/lib/physicalTables";
 import {
   loadActiveCorporateImportDuplicates,
   loadCorporateRequestRecord,
@@ -469,6 +470,10 @@ export async function POST(request: Request) {
   }
 
   let table: {
+    is_physical: boolean;
+    is_override: boolean;
+    capacity_configured: boolean;
+    merged_from: string[] | null;
     booking_id: string | null;
     capacity: number;
     id: string;
@@ -482,7 +487,7 @@ export async function POST(request: Request) {
   if (booking.tableId) {
     const { data, error } = await auth.serviceClient
       .from("show_tables")
-      .select("id,show_id,table_code,section,capacity,status,booking_id,merged_parent_id")
+      .select("id,show_id,table_code,section,capacity,status,booking_id,merged_parent_id,is_physical,is_override,capacity_configured,merged_from")
       .eq("id", booking.tableId)
       .maybeSingle();
 
@@ -495,7 +500,10 @@ export async function POST(request: Request) {
       table.status !== "available" ||
       table.booking_id ||
       table.merged_parent_id ||
-      Number(table.capacity) < booking.partySize
+      getTableBookingMaximum({ zoneId: booking.zoneId, tableNumber: table.table_code,
+        physicalTable: table.is_physical, seatCapacity: Number(table.capacity),
+        capacityConfigured: table.capacity_configured, isOverride: table.is_override,
+        mergedFrom: table.merged_from ?? [], mergedInto: table.merged_parent_id ?? undefined }) < booking.partySize
     ) {
       return Response.json(
         { error: "The selected table is no longer available." },

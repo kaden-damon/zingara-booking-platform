@@ -3,6 +3,7 @@ import {
   resolveZoneCapacityState,
   type CapacityTable,
 } from "./capacityModel.ts";
+import { getTableBookingMaximum } from "./physicalTables";
 
 export const floorAllocatorZones = [
   "golden-circle",
@@ -212,7 +213,7 @@ function isValidAllocation(
       table.capacityConfigured &&
       table.capacity !== null &&
       booking.pax >= getMinimumOccupancy(table, operationalTablesById) &&
-      table.capacity >= booking.pax &&
+      getTableCapacity(table) >= booking.pax &&
       table.status === "booked" &&
       table.bookingId === booking.id &&
       isValidOperationalUnit(table, tablesById),
@@ -245,8 +246,11 @@ function compareTableCodes(left: MutableTable, right: MutableTable) {
   );
 }
 
-function getTableCapacity(table: MutableTable) {
-  return table.plannedCapacity ?? table.capacity ?? 0;
+function getTableCapacity(table: FloorAllocatorTable & { plannedCapacity?: number | null }) {
+  return getTableBookingMaximum({ zoneId: table.zone, tableNumber: table.tableCode,
+    physicalTable: table.isPhysical, seatCapacity: table.plannedCapacity ?? table.capacity ?? 0,
+    mergedFrom: table.mergedFrom, isOverride: table.isOverride,
+    capacityConfigured: table.capacityConfigured, mergedInto: table.mergedParentId ?? undefined });
 }
 
 function getMinimumOccupancy(

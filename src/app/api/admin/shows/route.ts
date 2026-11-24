@@ -60,6 +60,7 @@ type SupabaseShowTableRow = {
   custom_price_per_person?: number | null;
   id: string;
   is_physical?: boolean | null;
+  is_override?: boolean | null;
   merged_from?: string[] | null;
   merged_parent_id?: string | null;
   override_notes?: string | null;
@@ -307,6 +308,7 @@ function toDemoTable(
         ? Number(row.custom_price_per_person)
         : undefined,
     physicalTable: row.is_physical === true,
+    isOverride: row.is_override === true,
     mergedFrom: mergedFrom.length > 0 ? mergedFrom : undefined,
     mergedInto: row.merged_parent_id
       ? demoTableIdByAuthoritativeId.get(row.merged_parent_id)

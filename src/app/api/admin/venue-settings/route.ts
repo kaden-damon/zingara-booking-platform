@@ -7,6 +7,7 @@ import {
   type EntryLocationKey,
 } from "@/lib/zingaraDemo";
 import { isValidExperienceTimes } from "@/lib/experienceTimes";
+import { canEditSeatingBookingLimits, validateSeatingBookingLimit, type SeatingBookingLimit } from "@/lib/seatingBookingLimits";
 import {
   getServiceClient,
   isSuperAdminProfile,
@@ -263,6 +264,26 @@ export async function PUT(request: Request) {
     return auth.error;
   }
 
+  const body = await request.json().catch(() => null) as {
+    bookingLimit?: { venue: string; zone: string; limit: SeatingBookingLimit };
+    [key: string]: unknown;
+  } | null;
+  if (!body || typeof body !== "object") return Response.json({ error: "Venue settings are required." }, { status: 400 });
+  if (body.bookingLimit) {
+    const { venue, zone, limit } = body.bookingLimit;
+    if (!canEditSeatingBookingLimits(auth.staffProfile)) {
+      return Response.json({ error: "Only Kaden Damon and Fatima MB may change booking limits." }, { status: 403 });
+    }
+    if (!["cape-town", "johannesburg"].includes(venue) || !validateSeatingBookingLimit(zone, limit)) {
+      return Response.json({ error: "Enter a valid minimum and maximum booking size." }, { status: 400 });
+    }
+    const { error } = await auth.serviceClient.rpc("set_seating_booking_limits", {
+      p_venue: venue, p_zone: zone, p_minimum: limit.minGuests, p_maximum: limit.maxGuests,
+      p_actor_staff_profile_id: auth.staffProfile.id, p_actor_auth_user_id: auth.user.id,
+    });
+    if (error) return Response.json({ error: "Booking limits could not be saved. Check your access and try again." }, { status: 409 });
+    return Response.json({ settings: await loadVenueSettings() });
+  }
   if (!isSuperAdminProfile(auth.staffProfile)) {
     return Response.json(
       { error: "Super Admin access is required." },
@@ -271,7 +292,7 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as {
+    const configurationBody = body as {
       secretPasswordExperience?: {
         configuration: DemoVenueSettings["operationalSettings"]["secretPasswordExperience"][EntryLocationKey];
         venueLocation: EntryLocationKey;
@@ -279,9 +300,9 @@ export async function PUT(request: Request) {
       seatingZoneLifecycle?: { enabled: boolean; zoneId: string };
       settings?: DemoVenueSettings;
     };
-    let settings = body.settings ? normalizeVenueSettings(body.settings) : null;
-    if (!settings && body.seatingZoneLifecycle) {
-      const { enabled, zoneId } = body.seatingZoneLifecycle;
+    let settings = configurationBody.settings ? normalizeVenueSettings(configurationBody.settings) : null;
+    if (!settings && configurationBody.seatingZoneLifecycle) {
+      const { enabled, zoneId } = configurationBody.seatingZoneLifecycle;
       if (
         typeof enabled !== "boolean" ||
         !seatingZones.some((zone) => zone.id === zoneId)
@@ -303,8 +324,8 @@ export async function PUT(request: Request) {
         },
       };
     }
-    if (!settings && body.secretPasswordExperience) {
-      const { configuration, venueLocation } = body.secretPasswordExperience;
+    if (!settings && configurationBody.secretPasswordExperience) {
+      const { configuration, venueLocation } = configurationBody.secretPasswordExperience;
       if (!showLocationOptions.some((location) => location.value === venueLocation)) {
         return Response.json({ error: "Select a valid venue." }, { status: 400 });
       }
@@ -332,6 +353,8 @@ export async function PUT(request: Request) {
       return Response.json({ error: "Venue settings are required." }, { status: 400 });
     }
     const previousSettings = await loadVenueSettings(getVenueKey(settings));
+    // Booking limits have their own identity-checked, atomic Floor update path.
+    settings.bookingLimits = previousSettings?.bookingLimits;
 
     const { data: venueTables, error: inventoryError } = await auth.serviceClient
       .from("venue_tables")
@@ -382,7 +405,7 @@ export async function PUT(request: Request) {
           action: "Secret Password venue configuration updated",
           afterValues: { configuration: afterSecretExperience },
           beforeValues: { configuration: beforeSecretExperience ?? null },
-          entityLocation: body.secretPasswordExperience?.venueLocation ?? "all",
+          entityLocation: configurationBody.secretPasswordExperience?.venueLocation ?? "all",
           entityReference: getVenueKey(settings),
           entityType: "show",
           outcome: "success",

@@ -163,16 +163,16 @@ test("manual moves preserve capacity, claim, show, and merged-child safeguards",
   }
 });
 
-test("permanent Private Booth targets enforce the 4 to 6 guest range", () => {
+test("existing bookings retain their booth minimum and can use the authorised eight-guest fit", () => {
   const booth = table("12", "royal-booths", { seatCapacity: 6 });
 
-  for (const pax of [2, 3, 7]) {
+  for (const pax of [2, 3, 9]) {
     const source = booking();
     source.partySize = pax;
     assert.equal(isEligibleManualBookingMoveTarget(booth, source, [booth]), false);
   }
 
-  for (const pax of [4, 6]) {
+  for (const pax of [4, 6, 7, 8]) {
     const source = booking();
     source.partySize = pax;
     assert.equal(isEligibleManualBookingMoveTarget(booth, source, [booth]), true);

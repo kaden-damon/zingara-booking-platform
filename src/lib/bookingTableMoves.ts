@@ -5,7 +5,7 @@ import {
   type SeatingZoneId,
   getOperationalTableMinimumOccupancy,
 } from "./zingaraDemo";
-import { comparePhysicalTableCodes } from "./physicalTables";
+import { comparePhysicalTableCodes, getTableBookingMaximum } from "./physicalTables";
 
 const manualMoveZoneOrder: SeatingZoneId[] = [
   "golden-circle",
@@ -48,7 +48,7 @@ export function isEligibleManualBookingMoveTarget(
     Boolean(table.authoritativeId) &&
     table.capacityConfigured !== false &&
     booking.partySize >= minimumOccupancy &&
-    table.seatCapacity >= booking.partySize &&
+    getTableBookingMaximum(table) >= booking.partySize &&
     table.status === "available" &&
     !table.bookingReference &&
     !table.mergedInto

@@ -1,6 +1,7 @@
 import { getBookingGuestName } from "./bookingGuestName";
 import {
   getPhysicalTableDefinition,
+  getTableBookingMaximum,
   isLegacyPlaceholderTableCode,
 } from "@/lib/physicalTables";
 import type { CustomerExperienceTimes } from "@/lib/experienceTimes";
@@ -44,6 +45,7 @@ export function getIncludedBookingFeeBreakdown(ticketGrossAmount = 0) {
 }
 
 export type DemoVenueSettings = {
+  bookingLimits?: import("./seatingBookingLimits").SeatingBookingLimits;
   brandTitle: string;
   emailSender: {
     fromEmail: string;
@@ -409,7 +411,7 @@ export const seatingZones = [
     title: "Private Booths",
     subtitle: "Your Private Velvet Haven",
     description:
-      "Private booth seating is available from 4 guests. Your booking remains for the guest count selected.",
+      "Private booth seating is available for 6-8 guests. Your booking remains for the guest count selected.",
     price: 1420,
     colour: "bg-[#5B001B] border-[#A34063]",
     adminColour: "border-[#A34063] bg-[#5B001B]",
@@ -509,6 +511,7 @@ export type BookingAddon = {
   unitPrice?: number;
 };
 export type DemoTable = {
+  isOverride?: boolean;
   availabilityScope?: TableAvailabilityScope;
   authoritativeId?: string;
   capacityConfigured?: boolean;
@@ -3861,12 +3864,12 @@ export function findSuitableTableAllocations(
         partySize >= getOperationalTableMinimumOccupancy(table, tables) &&
         (!table.mergedFrom?.length ||
           isValidMergedOperationalTable(table, tables)) &&
-        table.seatCapacity >= partySize,
+        getTableBookingMaximum(table) >= partySize,
     )
     .sort(
       (firstTable, secondTable) =>
-        getAllocationScore(firstTable.seatCapacity, partySize) -
-          getAllocationScore(secondTable.seatCapacity, partySize) ||
+        getAllocationScore(getTableBookingMaximum(firstTable), partySize) -
+          getAllocationScore(getTableBookingMaximum(secondTable), partySize) ||
         firstTable.seatCapacity - secondTable.seatCapacity ||
         getTableSortValue(firstTable.tableNumber).localeCompare(
           getTableSortValue(secondTable.tableNumber),
@@ -3876,7 +3879,7 @@ export function findSuitableTableAllocations(
       isCombination: false,
       sourceTables: [table],
       table,
-      wastedSeats: table.seatCapacity - partySize,
+      wastedSeats: getTableBookingMaximum(table) - partySize,
     }));
 }
 

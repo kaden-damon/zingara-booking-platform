@@ -64,7 +64,7 @@ test("public Standard booking preserves every requested party size from one to s
 
     assert.equal(
       isStandardBookingZoneGuestCountAllowed("royal-booths", partySize),
-      partySize >= standardPrivateBoothGuestLimits.minGuests,
+      partySize >= standardPrivateBoothGuestLimits.minGuests && partySize <= standardPrivateBoothGuestLimits.maxGuests,
       `royal-booths: ${partySize} guests`,
     );
   }
@@ -108,7 +108,7 @@ test("Corporate configured minimum and Standard Private Booth minimum remain unc
     false,
   );
   assert.equal(isStandardBookingZoneGuestCountAllowed("royal-booths", 1), false);
-  assert.equal(standardPrivateBoothGuestLimits.minGuests, 4);
+  assert.equal(standardPrivateBoothGuestLimits.minGuests, 6);
 });
 
 test("internal Corporate booking uses fixed zone entitlement, not public group ceiling", () => {
@@ -170,15 +170,15 @@ test("Corporate booking creation keeps authoritative server capacity enforcement
   assert.match(route, /reserve_public_booking_entitlement/);
 });
 
-test("Standard Private Booth bookings can exceed one booth while Corporate routing remains intact", () => {
-  for (const partySize of [4, 6, 8, 12, 18]) {
+test("Standard Private Booth bookings use the authorised six-to-eight range", () => {
+  for (const partySize of [6, 7, 8]) {
     assert.equal(
       isStandardBookingZoneGuestCountAllowed("royal-booths", partySize),
       true,
     );
   }
 
-  for (const partySize of [1, 2, 3, 20, 24]) {
+  for (const partySize of [1, 2, 3, 4, 5, 9, 12, 18, 20, 24]) {
     assert.equal(
       isStandardBookingZoneGuestCountAllowed("royal-booths", partySize),
       false,
@@ -190,7 +190,7 @@ test("Standard Private Booth bookings can exceed one booth while Corporate routi
       maxGuests: 20,
       minGuests: 2,
     }),
-    { maxGuests: 8, minGuests: 4 },
+    { maxGuests: 8, minGuests: 6 },
   );
 });
 
@@ -200,7 +200,7 @@ test("public booth guidance states the actual minimum without implying six ticke
     "utf8",
   );
 
-  assert.match(demo, /Private booth seating is available from 4 guests/);
+  assert.match(demo, /Private booth seating is available for 6-8 guests/);
   assert.match(demo, /booking remains for the guest count selected/);
   assert.doesNotMatch(demo, /Private 6-seater booths/);
 });
@@ -210,7 +210,7 @@ test("Private Booth booking eligibility uses zone capacity instead of one-table 
     maxGuests: 20,
     minGuests: 2,
   });
-  for (const partySize of [4, 6, 12, 18, 24]) {
+  for (const partySize of [6, 12, 18, 24]) {
     const result = getBookingSeatingEligibility({
       ...limits,
       partySize,

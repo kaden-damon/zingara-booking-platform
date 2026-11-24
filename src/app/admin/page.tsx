@@ -1,4 +1,6 @@
 "use client";
+import { FloorBookingLimits } from "@/components/FloorBookingLimits";
+import { canEditSeatingBookingLimits, getSeatingBookingLimit } from "@/lib/seatingBookingLimits";
 
 import { createCsvFromSheet, escapeCsvValue } from "@/lib/exports/csv";
 
@@ -522,6 +524,7 @@ import {
 import {
   comparePhysicalTableCodes,
   getPhysicalTableDefinition,
+  getTableBookingMaximum,
 } from "../../lib/physicalTables";
 import {
   getFloorInventoryStats,
@@ -36521,6 +36524,14 @@ export default function AdminDashboardPage({
           activeOperationsTab === "floor" &&
           canManageTables && (
         <div className="grid grid-cols-1 gap-8">
+          {canEditSeatingBookingLimits(currentStaff ? { id: currentStaff.id, active: true } : null) && selectedShow && (
+            <FloorBookingLimits
+              key={normalizeShowLocation(selectedShow.location ?? selectedShow.venueName)}
+              venue={normalizeShowLocation(selectedShow.location ?? selectedShow.venueName) === "johannesburg" ? "johannesburg" : "cape-town"}
+              settings={venueSettings}
+              onSaved={setVenueSettings}
+            />
+          )}
           <section className="overflow-hidden rounded-[2rem] border border-[#D8C36A]/25 bg-[radial-gradient(circle_at_top,#221808_0%,#090909_48%,#030303_100%)] p-5 shadow-2xl shadow-black/35 sm:p-7">
             <div className="mb-6 rounded-[1.5rem] border border-[#D8C36A]/25 bg-black/45 p-5 shadow-[0_0_35px_rgba(216,195,106,0.08)]">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -37511,6 +37522,9 @@ export default function AdminDashboardPage({
                         table.tableNumber,
                       );
                       const isExpanded = expandedTableId === table.id;
+                      const boothBookingLimit = table.zoneId === "royal-booths" && getTableBookingMaximum(table) === 8
+                        ? getSeatingBookingLimit(venueSettings, normalizeShowLocation(selectedShow?.location ?? selectedShow?.venueName), table.zoneId)
+                        : null;
                       const hasOverride = Boolean(table.showOverride);
                       const baseSeatCapacity =
                         table.baseSeatCapacity ?? table.seatCapacity;
@@ -37618,6 +37632,7 @@ export default function AdminDashboardPage({
                               <p className="mt-1 text-sm text-zinc-400">
                                 {table.capacityConfigured === false
                                   ? "Seats not set"
+                                  : boothBookingLimit ? `${boothBookingLimit.minGuests}-${boothBookingLimit.maxGuests} guests`
                                   : `${table.seatCapacity} seats`}
                                 {hasOverride &&
                                   table.seatCapacity !==
@@ -37676,7 +37691,7 @@ export default function AdminDashboardPage({
 
                           {physicalDefinition && table.capacityConfigured !== false && (
                             <p className="mt-2 text-xs font-semibold text-zinc-300">
-                              {getTableFitLabel(physicalDefinition.minimumCapacity, physicalDefinition.maximumCapacity)}
+                              {boothBookingLimit ? getTableFitLabel(boothBookingLimit.minGuests, boothBookingLimit.maxGuests) : getTableFitLabel(physicalDefinition.minimumCapacity, physicalDefinition.maximumCapacity)}
                             </p>
                           )}
 
@@ -37716,7 +37731,9 @@ export default function AdminDashboardPage({
                             />
                           </label>
 
-                          {table.physicalTable && physicalDefinition ? (
+                          {boothBookingLimit ? (
+                            <p className="text-xs text-zinc-400">Public allocation: {table.seatCapacity} seats.</p>
+                          ) : table.physicalTable && physicalDefinition ? (
                             <div>
                               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                                 Table seats

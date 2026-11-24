@@ -1,3 +1,5 @@
+import { defaultPrivateBoothBookingLimits } from "./seatingBookingLimits";
+
 export type BookingSeatingEligibilityInput = {
   hasExplicitTableAssignment?: boolean;
   isInternalCorporate?: boolean;
@@ -21,10 +23,7 @@ export function supportsMultiTableBookingFulfilment(zoneId: string) {
   return (multiTableBookingZoneIds as readonly string[]).includes(zoneId);
 }
 
-export const standardPrivateBoothGuestLimits = {
-  maxGuests: 8,
-  minGuests: 4,
-} as const;
+export const standardPrivateBoothGuestLimits = defaultPrivateBoothBookingLimits;
 
 export const standardBookingMinimumGuests = 1;
 
@@ -40,14 +39,16 @@ export function getStandardBookingZoneGuestLimits(
 export function isStandardBookingZoneGuestCountAllowed(
   zoneId: string,
   partySize: number,
+  limits?: { minGuests: number; maxGuests: number },
 ) {
   if (!Number.isInteger(partySize) || partySize < 1 || partySize >= 20) {
     return false;
   }
 
+  if (limits) return partySize >= limits.minGuests && partySize <= limits.maxGuests;
   return (
     zoneId !== "royal-booths" ||
-    partySize >= standardPrivateBoothGuestLimits.minGuests
+    (partySize >= standardPrivateBoothGuestLimits.minGuests && partySize <= standardPrivateBoothGuestLimits.maxGuests)
   );
 }
 

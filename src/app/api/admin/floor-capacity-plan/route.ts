@@ -13,6 +13,7 @@ import {
 } from "@/lib/capacityModel";
 import {
   getPhysicalTableDefinition,
+  getTableBookingMaximum,
   getPhysicalTableSortOrder,
   physicalTableDefinitions,
 } from "@/lib/physicalTables";
@@ -381,7 +382,9 @@ async function loadPlan(
       return kind
         ? [
             {
-              capacity: Number(table.capacity),
+              capacity: getTableBookingMaximum({ zoneId, tableNumber: table.table_code,
+                physicalTable: table.is_physical, seatCapacity: Number(table.capacity), mergedFrom: table.merged_from ?? [],
+                isOverride: table.is_override, capacityConfigured: table.capacity_configured, mergedInto: table.merged_parent_id ?? undefined }),
               id: table.id,
               kind,
               minimumOccupancy: getFloorPlanningMinimumOccupancy(

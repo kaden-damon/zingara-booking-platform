@@ -56,6 +56,7 @@ import {
   normalizePhoneForComparison,
 } from "@/lib/phone";
 import { isStandardBookingZoneGuestCountAllowed } from "@/lib/bookingSeatingAvailability";
+import { getSeatingBookingLimit } from "@/lib/seatingBookingLimits";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -2092,6 +2093,7 @@ export async function POST(request: Request) {
       );
     }
 
+    show ??= await getSupabaseShowRow(supabase, booking);
     const lifecycleSettings = await loadVenueSettings(supabase);
     const requestedZoneIds = new Set([
       booking.zoneId,
@@ -2115,21 +2117,20 @@ export async function POST(request: Request) {
       isCreate &&
       booking.source !== "corporate-direct" &&
       !authoritativeGuestAllocations &&
-      !isStandardBookingZoneGuestCountAllowed(booking.zoneId, booking.partySize)
+      !isStandardBookingZoneGuestCountAllowed(booking.zoneId, booking.partySize,
+        getSeatingBookingLimit(lifecycleSettings, show?.venue, booking.zoneId))
     ) {
       return rejectPublicBooking(
         {
           error:
             booking.zoneId === "royal-booths"
-              ? "Private Booths are available for Standard bookings from 4 guests."
+              ? "Choose a guest count within the Private Booth booking limits."
               : "This seating option is not available for the selected group size.",
         },
         400,
         "booking-validation",
       );
     }
-
-    show ??= await getSupabaseShowRow(supabase, booking);
 
     if (!show) {
       return Response.json(
