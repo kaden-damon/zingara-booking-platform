@@ -1,3 +1,39 @@
+# Seating Limits Scope And UX Cleanup
+
+STATUS: VERIFIED LOCALLY; PRODUCTION RELEASE PENDING
+
+DATE: 24 NOVEMBER 2026
+
+- Recovered original rules from pre61d15649 bookingSeatingAvailability.ts and
+  approved single-guest change ce85b69. Standard creation accepts one guest and
+  rejects20+, so GC/MR/RB1–19 are correct Standard booking defaults, NOT table
+  capacities. Do not revert to old base-zone2–20 or impose largest-table limits
+  on valid bookings. No incorrect numeric defaults identified or rewritten.
+- Approved individual table bounds vary: GC/MR2–10, RB2–8. Zone public caps are
+  separate120/125/138/32. Requested PB booking defaults6–8 retained at both venues;
+  original table-seat editors and existing operational exceptions unchanged.
+- Reused FloorBookingLimits and existing audited per-zone PUT. Section now sits
+  inside existing Floor & Arrivals panel beneath the performance selector, named
+  Seating Limits, collapsed initially. Four compact equal zone cards, two columns
+  on narrow mobile/four desktop, Min/Max fields and one Save Changes button.
+  Scope reads venue name / Venue-wide / Standard bookings; redundant paragraph
+  removed. No-change saves disabled; no requests on open or for untouched zones.
+- One click saves only dirty zones using existing calls (bounded four). All
+  bounds validated before any save. Existing per-zone atomic audit retained;
+  partial failure explicitly reported, saved zones not retried and remaining
+  edits preserved. No new API, schema, migration, dependency or normal-use query.
+- Seventeen focused tests pass, including original public/table/cap distinction,
+  Kaden/Fatima visibility and actual PUT/POST permission/safeguard regressions.
+  TypeScript, component lint and optimised webpack build pass. Browser checks
+  at320/390/1280px confirm placement, initial collapse, four cards/one save,
+  dirty-only requests, invalid bounds/no writes, partial retry, venue isolation,
+  no overflow and numeric text fitting. Screenshot inspected; APIs mocked.
+- Server-side two-person restriction unchanged. No real setting, booking,
+  assignment, payment, capacity or schema changes. Frontend2.0 untouched.
+  Evidence local-evidence/seating-limits-browser-results.json and seating-limits-*.png.
+
+---
+
 # Urgent Floor Controls Regression Correction
 
 STATUS: RELEASED / READY; LIVE ASSETS, SETTINGS AND UNAUTHENTICATED DENIAL VERIFIED

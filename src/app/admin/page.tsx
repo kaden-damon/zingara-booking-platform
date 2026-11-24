@@ -36525,14 +36525,6 @@ export default function AdminDashboardPage({
           activeOperationsTab === "floor" &&
           canManageTables && (
         <div className="grid grid-cols-1 gap-8">
-          {canEditFloorCapacity && selectedShow && (
-            <FloorBookingLimits
-              key={normalizeShowLocation(selectedShow.location ?? selectedShow.venueName)}
-              venue={normalizeShowLocation(selectedShow.location ?? selectedShow.venueName) === "johannesburg" ? "johannesburg" : "cape-town"}
-              settings={venueSettings}
-              onSaved={setVenueSettings}
-            />
-          )}
           <section className="overflow-hidden rounded-[2rem] border border-[#D8C36A]/25 bg-[radial-gradient(circle_at_top,#221808_0%,#090909_48%,#030303_100%)] p-5 shadow-2xl shadow-black/35 sm:p-7">
             <div className="mb-6 rounded-[1.5rem] border border-[#D8C36A]/25 bg-black/45 p-5 shadow-[0_0_35px_rgba(216,195,106,0.08)]">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -36576,6 +36568,14 @@ export default function AdminDashboardPage({
                 </div>
               </div>
 
+              {canEditFloorCapacity && selectedShow && (
+                <FloorBookingLimits
+                  key={normalizeShowLocation(selectedShow.location ?? selectedShow.venueName)}
+                  venue={normalizeShowLocation(selectedShow.location ?? selectedShow.venueName) === "johannesburg" ? "johannesburg" : "cape-town"}
+                  settings={venueSettings}
+                  onSaved={setVenueSettings}
+                />
+              )}
               <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-zinc-300 md:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">

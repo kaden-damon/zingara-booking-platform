@@ -23,6 +23,18 @@ test("venue-specific changes apply only to that venue and zone", () => {
   for (const count of [2,13]) assert.equal(isStandardBookingZoneGuestCountAllowed("golden-circle",count,getSeatingBookingLimit(settings,"cape-town","golden-circle")),false);
 });
 
+test("Standard booking limits are not individual-table limits or public zone capacities", () => {
+  for (const [zone, tableMaximum, capacity] of [["golden-circle",10,120],["middle-ring",10,125],["royal-balcony",8,32]] as const) {
+    const limits = getSeatingBookingLimit(defaultVenueSettings,"cape-town",zone);
+    for (const guests of [1,19]) assert.equal(isStandardBookingZoneGuestCountAllowed(zone,guests,limits),true);
+    assert.equal(isStandardBookingZoneGuestCountAllowed(zone,20,limits),false);
+    const tables = physicalTableDefinitions.filter((table)=>table.zoneId===zone);
+    assert.equal(Math.min(...tables.map((table)=>table.minimumCapacity)),2);
+    assert.equal(Math.max(...tables.map((table)=>table.maximumCapacity)),tableMaximum);
+    assert.equal(tables.reduce((sum,table)=>sum+(table.defaultCapacity??0),0),capacity);
+  }
+});
+
 test("only the two active recorded staff identities can edit", () => {
   for (const id of ["e8598359-54a0-4e1f-a635-1ec8ae02cb78", "3ac09b59-fc3f-4c6d-9bb3-8dd47a077188"]) {
     assert.equal(canEditSeatingBookingLimits({ id, active: true }),true);

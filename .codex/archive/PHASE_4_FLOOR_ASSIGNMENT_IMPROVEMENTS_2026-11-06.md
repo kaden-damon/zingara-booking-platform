@@ -221,3 +221,28 @@ floor-controls-regression-browser.json and mobile/desktop screenshots. This fina
 record follow-up changes Markdown only; no further application changes. Refresh
 Admin to pick up the corrected session payload/client. No Production data writes,
 migrations, live staff mutation, physical iPhone claim or Frontend2.0 changes.
+
+## Seating Limits Scope And UX Cleanup — 24 November 2026
+
+Original single-guest Standard change ce85b69 and pre61d15649 server guard confirm
+GC/MR/RB1–19 is the Standard booking range (one allowed,20+ rejected), not physical
+table occupancy. Base seatingZones2–20 is not the current Standard override.
+Approved GC/MR individual tables vary2–10, RB2–8; public zone caps remain
+120/125/138/32. PB booking6–8 retained for both venues. No numeric default or
+Production configuration correction was justified; changing booking defaults to
+table bounds would remove existing single-guest and larger Standard functionality.
+
+Existing panel moved inside Floor & Arrivals below performance selection, renamed
+Seating Limits, initially collapsed. Four compact equal cards / one Save Changes,
+explicit venue-wide Standard scope, no redundant explanatory paragraph. Reuses
+existing audited saves only for dirty zones; bounded four calls, no requests on
+open/no-op, validation before writes, and explicit partial-failure recovery that
+retains remaining edits. No duplicated API or new database functionality.
+
+17 focused tests, TypeScript, component lint and optimised build pass. Real
+component Chromium checks320/390/1280px pass initial collapse, one save, correct
+placement/column counts, partial retry, venue isolation, no overflow and numeric
+text fit. Screenshot inspected. APIs mocked; no physical iPhone/live staff writes.
+Existing server permissions, original seat editors, all business rules, bookings,
+assignments, authorised temporary seating and Frontend2.0 preserved. Release
+pending; evidence local-evidence/seating-limits-browser-results.json/screenshots.
