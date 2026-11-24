@@ -16,6 +16,12 @@ export function canEditSeatingBookingLimits(staff: { id?: string | null; active?
   return Boolean(staff?.active && staff.id && bookingLimitEditors.has(staff.id));
 }
 
+export function canEditFloorCapacitySession(session: { staffProfileId?: string | null } | null | undefined) {
+  return canEditSeatingBookingLimits({ id: session?.staffProfileId, active: Boolean(session) });
+}
+
+export const floorCapacityAccessMessage = "Only Kaden Damon and Fatima MB may change seating capacity.";
+
 export function getSeatingBookingLimit(
   settings: { bookingLimits?: SeatingBookingLimits } | null | undefined,
   venue: string | null | undefined,

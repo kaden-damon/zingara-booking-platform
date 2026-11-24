@@ -1,7 +1,7 @@
 # BUG-000034 Booking Status Save
 
 Date: 19 November 2026
-Status: Approved for release; Production verification pending.
+Status: Released; Production read-only verification passed.
 
 ## Evidence
 
@@ -43,6 +43,21 @@ checks are required. Production verification must be read-only; a successful
 real save and notification dispatch must not be claimed without performing
 an independently authorised operation.
 
-Commit, deployment and final checks will be recorded here after release.
+Commit: `d3a0c373428f0723c052c022f0a2224a2c377182`, pushed to main.
+Production deployment: `dpl_AyE2rPo9zNGUbDEaXZyYwwNWA8za`, Ready and
+aliased to `https://book.zingara.co.za`. Twenty-three tests, TypeScript
+and whitespace checks passed; Vercel built successfully.
+
+Actual deployed Admin returned 200. Extracted the pure comparison function
+from its served JavaScript chunk and executed timestamp equivalence,
+changed-note and microsecond-distinction cases successfully. Unauthenticated
+booking and lock endpoints retained HTTP 401 protections.
+
+After-release read-only snapshot reproduction produced two hydrated events
+and zero false conflicts. The real booking remained pending_payment /
+fully_paid with R36,000 paid and R0 outstanding. No real mutation, payment,
+message, migration, backfill or Frontend 2.0 work occurred. No live-save
+verification or latency benchmark is claimed.
+
 Rollback: revert the approved code commit and redeploy; no data rollback
 or schema reversal is required. Preserve all unrelated work.

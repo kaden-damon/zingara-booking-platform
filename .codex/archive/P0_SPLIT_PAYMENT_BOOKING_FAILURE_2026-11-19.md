@@ -1,6 +1,6 @@
 # P0 - Admin Split Payment Booking Failure
 
-STATUS: VERIFIED CORRECTION - AUTHORISED RELEASE IN PROGRESS
+STATUS: RELEASED - PRODUCTION FUNCTION VERIFIED WITH ROLLBACK-ONLY TRANSACTIONS
 
 DATE: 19 NOVEMBER 2026
 
@@ -93,9 +93,29 @@ DATE: 19 NOVEMBER 2026
 
 ## Release And Remaining Work
 
-- Pending: exact approved commit/push, tracked function migration, Vercel Ready
-  deployment and deployed-function rollback verification. Do not mark released
-  until these evidence fields are updated.
+- Approved commit pushed to main:
+  `1d7b3382d95b3bd8c5384796b9580827a8c43dbb`.
+- Vercel Production: `dpl_FdxSVG9JuMozwmnJjPGE4E8Y5X3E`, READY,
+  `https://zingara-booking-platform-f5fq20nml-kaden-damons-projects.vercel.app`.
+  `https://book.zingara.co.za` resolves to this deployment. GitHub's combined
+  status for this exact SHA reports Vercel success and links this deployment.
+- Applied only migration `20261119090000` and its schema_migrations ledger
+  entry in one explicit transaction, guarded against original-function drift.
+  Deployed function MD5: `df249e05715800c5310095ab621e61a0`.
+- Ran `node scripts/verify-split-allocation-provenance.mjs --deployed` against
+  the installed function without injecting candidate DDL: all ten result groups
+  passed. Follow-up read-only checks found zero retained QA bookings, customers
+  or shows; Fatima's two failed references still have no bookings. Function
+  execution: anon false, authenticated false, service_role true.
+- Live GET checks: `/admin` 200; `/book` 200; `/api/admin/bookings` 401 without
+  authentication; POST-only `/api/bookings` 405 for GET. No real HTTP creation,
+  PayFast checkout, delivery or staff retry was performed or claimed.
+- TypeScript, targeted ESLint, 32 Node tests and whitespace checks pass. Vercel
+  build reached READY. Runtime application source and bundles are unchanged;
+  this release consists of SQL, verification files and this incident record.
+- Five approved files were committed. CURRENT_TASK, the prior BUG-000034
+  evidence and the unrelated outage archive were excluded. Final deployment
+  evidence in this record and CURRENT_TASK is updated locally after release.
 - Retain all historical rows. Box Office can retry the intended allocation
   after release; verify the intended customer rather than making duplicate
   profiles. Review any candidate customer profiles separately before cleanup.

@@ -21,6 +21,7 @@ export type Permission =
   | "waitlist:manage";
 
 export type StaffSession = {
+  staffProfileId?: string;
   email?: string;
   id: string;
   isPlatformOwner?: boolean;

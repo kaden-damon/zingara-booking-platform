@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { canEditSeatingBookingLimits, floorCapacityAccessMessage } from "@/lib/seatingBookingLimits";
 
 import {
   buildZoneFloorCapacityPlan,
@@ -501,6 +502,9 @@ export async function POST(request: Request) {
   };
   const showReference = body.showReference?.trim() ?? "";
   const zoneId = body.zoneId?.trim() as CorporateFloorZone;
+  if (body.action === "create" && !canEditSeatingBookingLimits(auth.staffProfile)) {
+    return Response.json({ error: floorCapacityAccessMessage }, { status: 403 });
+  }
 
   if (body.action === "assign-buyout-zone") {
     const bookingReference = body.bookingReference?.trim() ?? "";

@@ -1,6 +1,6 @@
 # Priority Booking And Review Issues - 035 / 036 / Missing Reviews
 
-STATUS: VERIFIED CORRECTIONS READY FOR SCOPED RELEASE; SPECIFIC MISSING-REVIEW EXAMPLE OUTSTANDING
+STATUS: CONFIRMED CORRECTIONS RELEASED / PRODUCTION VERIFIED; FINANCIAL AND SPECIFIC-REVIEW FOLLOW-UP SEPARATE
 
 DATE: 19 NOVEMBER 2026
 
@@ -117,8 +117,60 @@ DATE: 19 NOVEMBER 2026
 
 ## Release
 
-Pending scoped commit/push, guarded function migration 20261119160000, Vercel
-Production READY/live verification and unchanged financial-record evidence.
-No unresolved evidence gap prevents releasing the confirmed prospective fixes;
-the specific missing-review report and any customer financial remediation remain
-separate outstanding actions, not claimed resolved.
+- Scoped commit cbfa9892fea79bedca0ed26ad70c30a0cf45b535 pushed to main.
+  Only nine directly related code/test/migration files plus this task archive
+  committed. Accumulated CURRENT_TASK and unrelated dirty records excluded.
+- Applied migration 20261119160000 and its ledger entry atomically before the
+  application caller rollout. Reviewed-price overload MD5 exactly
+  b3c8b55125a98ac9561f48111a6b456a; original eight-argument MD5 still
+  4a04d2041ca867e849cb12acd334517d. Anonymous false, service-role execute true.
+- Vercel Production dpl_3smm6P6GimmKbpRRw1zLRTGitBQ7 READY, exact-SHA GitHub
+  Vercel status success, serving https://book.zingara.co.za. Deployment URL:
+  https://zingara-booking-platform-bgv66g74v-kaden-damons-projects.vercel.app.
+  Live alias independently inspected; /admin HTTP 200, unauthenticated
+  /api/admin/reviews HTTP 401 (permissions not bypassed).
+- Actual installed SQL pricing block reproduced in a READ ONLY transaction
+  against ZNG-RLKP77's current snapshot: R1,620 full additional obligation;
+  stale R550 preview rejected. No full amendment/save executed in Production.
+- Post-release fingerprints exactly equal before-release values:
+  bookings c04fbab6d8e4c6b54c452dba98e927be;
+  payments 494f8e4fc3bece84a53676f1d8b98317.
+  ZNG-RLKP77 remains 16 guests, total/paid R27,033, balance R0;
+  ZNG-VNS6DS remains 10 guests, total/paid R12,656, balance R0.
+- New live verification evidence supersedes earlier review-status counts:
+  still 827 records, now 745 Published and 82 Not Published; zero Needs Review.
+  The three inspected recent reviews still exist. Latest 60 moderation events
+  are attributed to Charlie: 50 needs_review -> not_published, two published,
+  one published_anonymous, seven published -> not_published. These include
+  actions through 15:18:46 SAST on 19 November. Moderation intent is not inferred.
+  Recorded status transitions explain an emptied Needs Review queue; use existing
+  Published/Not Published tabs. This release changed no review/moderation record.
+- The confirmed page-boundary defect is corrected; no claim of fresh live
+  authenticated browser QA. Charlie's particular allegedly missing record still
+  needs a name/reference to conclusively identify it. Do not automatically
+  republish or undo her moderation without case-specific evidence/authority.
+- Any historical undercharge/bar-credit/customer financial remediation remains
+  separately authorised work. No refunds, new charges, repricing, messages,
+  customer/accounting changes or Frontend 2.0 work occurred. Final task/release
+  evidence updated locally without another unnecessary deployment.
+
+## Quick Needs Review Verification - 19 November 2026
+
+- Exactly one read-only Production count query grouped moderation/publication
+  status: needs_review 0; published/named 623; published/anonymous 122;
+  not_published 82. Total 827, matching the previous final verification.
+- Existing Admin Reviews underlying PostgREST query, first page/10 rows, no
+  search or extra filters, both allowed venues, latest-reply left embed and
+  existing sorting: HTTP 200, Content-Range */0, zero rows. No pending records
+  are being excluded by this query; filters/venue restrictions cannot explain
+  a different pending count when the global authoritative count is already zero.
+- Important verification boundary: this is the endpoint's underlying query,
+  not a newly captured authenticated /api/admin/reviews HTTP response. No existing
+  logged-in Production Admin tab was available; no credentials/session were
+  created or changed, no navigation or extensive browser QA performed.
+- Previously recorded Charlie moderation events explain the emptied queue.
+  Published/Not Published remain the appropriate existing views. No review
+  recreation, republishing, data/history mutation or code defect identified.
+- Conclusion: reported Needs Review 0 is correct. Stop; no correction, tests,
+  commit, push or deployment required. Specific historical missing-review
+  identification remains separate from this verified zero-pending conclusion.

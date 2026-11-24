@@ -84,3 +84,128 @@ strict single-table automatic allocation and existing financial workflows.
 ## Final Status
 
 PHASE 4 COMPLETE - FLOOR ASSIGNMENT IMPROVEMENTS LIVE.
+
+## 23 November 2026: Booking Performance Deep Links
+
+Reported ZNG-X94SUT (Johannesburg, 2 December) Open Floor opened 24 November.
+Confirmed two UI navigation causes: the link was only /admin?section=floor,
+without booking show identity; the shared URL handler read show= but applied it
+only to the Bookings filter, never Floor selection. Existing automatic-assignment
+notifications already carry show= and were therefore affected by the same omission.
+No booking lookup, booking/seating correction or financial change needed.
+
+Open Floor now includes booking.showId; no generic shortcut when identity is
+missing. Existing shared handler resolves getShowByIdentity (ID/database alias),
+reuses selectFloorEditingShow and applies matching permitted manifest location.
+It waits for the existing show load via shows dependency and returns without
+substituting a performance for an unavailable/out-of-scope ID. No added queries.
+Existing Floor selector synchronises its date/month/venue from exact show ID.
+
+Notification clicks reset only the handled-link deduplication marker so clicking
+the same notification after browsing another show reopens its actual destination.
+Ordinary rerenders still do not continually overwrite staff choices. Shared
+selectBookingShow clears stale search, venue, specific-date and range state for
+show-filter links and calendar buyout review; normal filter controls unchanged.
+
+Other existing booking links inspected: customer history, converted Corporate
+booking, staff guidance, review/payment shortcut, Dineplan links, push/email
+booking references, ticket return paths and accounting/document links. Exact
+reference searches already bypass ordinary browsing filters in authorised data;
+accounting routing retains priority. Generic Quick Start links have no booking
+context and intentionally remain generic. No speculative unrelated modifications.
+
+Verification: 16 focused tests pass (six actual AST-handler/URL tests, five login
+return-path regressions and five Review Payment regressions). Covers both venues,
+same-date different times, identity aliases, stale dates/venue, existing hydration,
+restricted/unavailable IDs, notification reopening, reference/accounting routing,
+and no API calls. TypeScript/test ESLint/whitespace pass. Broader existing suites
+also run: navigationUx has one old Dineplan label assertion; adminNavigation has
+two old assertions omitting Communications. Failures confirmed against unchanged
+HEAD code/tests, unrelated to this correction and preserved rather than rewritten.
+
+Synthetic local Chromium at 320/1280px executes actual generated link and handler:
+stale CPT/24 November state changes to JHB/2 December/18:00 and Floor tab; no
+errors or external requests. Evidence local-evidence/booking-deep-link-browser-
+results-2026-11-23.json and retained fixture. Not physical Safari or signed-in
+Production staff QA. Only Admin page and focused test in release scope; no
+database, APIs, permissions, dependencies, business data or Frontend 2.0 changes.
+
+Release commit **75c747bb0b291183d816b812350a6d694f035de9**, pushed to main;
+Git-triggered Vercel Production **dpl_9yRVrHxPDAtziVp6UQKoSBixsyVu**, **READY**,
+exact SHA and book.zingara.co.za alias verified. Live `/admin` HTTP 200;
+`/_next/static/immutable/chunks/37f57dhpfpo_d.js` contains the booking-specific
+Floor URL and shared show-context handler. Verification 23 November 19:57:12 SAST.
+Evidence: local-evidence/booking-deep-link-production-deployment-2026-11-23.json
+and booking-deep-link-production-http-2026-11-23.json. No authenticated Production
+staff session was available; live signed-in click/booking access is not claimed.
+The actual navigation handler was exercised locally at mobile/desktop widths.
+Only Admin page and its regression test committed; Markdown/evidence stay local
+with all unrelated work and rollback checkpoints intact. No Production data writes.
+# Private Booth Controls Follow-Up — 24 November 2026
+
+Scope confirmed for both venues and exactly 23 existing booths, excluding 13.
+Existing Floor/venue-settings workflow extended with per-venue Standard booking
+minimum/maximum controls across the four zones. Only active Kaden/Fatima identities
+with existing Floor permissions and venue scope can save, enforced in the API and
+atomic audited database setter. General settings saves preserve restricted limits.
+
+Private Booth defaults are 6–8. Other Standard zone ranges remain 1–19; existing
+Corporate eligibility is unchanged. The approved layout and public caps remain
+120/125/138/32 (415). Eight-guest fit is independent of the six-seat public baseline;
+no booth, booking, table-capacity, assignment, payment or temporary seating rows are
+rewritten. Existing automatic single-unit, manual move, initial Floor plan and
+assignment compatibility paths reuse the same booth fit. No automatic splitting.
+
+48 focused tests, TypeScript and optimised build pass. Existing capacity checks
+pass except one pre-existing obsolete presentation-string assertion. Changed
+helpers/APIs lint clean (three pre-existing warnings in bookings route); unchanged
+page-effect lint errors recorded, not refactored. Mocked real-component Chromium
+320/1280px verifies PUT save, loading/error recovery, venue isolation and no overflow.
+No physical iPhone or authenticated Production staff QA claimed.
+
+Migration rollback-only checks passed identity restrictions, Kaden/Fatima writes,
+venue independence, invalid bounds, stale settings, 23 booth fits, excluded booth13,
+protected capacities and unchanged public caps. No persistent mutation during QA.
+Private rollback snapshot and screenshots retained under local-evidence/booth-*.
+Release commit **61d15649f6a39faeed631ecd2f626956876e6aba**, pushed to Main.
+Production **dpl_GqA5ViYHSe8SfiwSb13p3ZXSFn9L**, **READY**, exact SHA and
+book.zingara.co.za alias verified 24 November 2026 at 16:24 SAST. Live Admin asset
+`2l5pe09knwqhz.js` contains Floor controls; Admin/public settings HTTP200;
+unauthenticated settings PUT401. Actual settings: both venues PB6–8, other zones
+unchanged1–19. Read-only database verification confirms 23 approved booths per
+venue, excludes13, baseline138, public caps120/125/138/32, eight-guest fit on the
+23 approved identities, 12 extended fit paths and no direct anon/authenticated
+setter access. Scoped migration20261124153000 applied and recorded alone.
+
+Production evidence: local-evidence/booth-production-release.json and
+booth-production-database.json. No real booking, table, assignment, payment,
+historical data or communications mutation. Source-only scoped commit; all
+unrelated local work and Frontend 2.0 preserved. Markdown records updated locally.
+Authenticated staff save and physical iPhone QA are not claimed.
+
+## Floor Controls Regression Correction — 24 November 2026
+
+Read-only follow-up confirmed release61d15649 used the auth-user session ID in
+a staff-profile allowlist, hiding the new panel from both intended editors.
+The booth-specific JSX branch also removed the original seat editor. Previous
+live verification established deployed assets/settings and unauthenticated
+denial, not correct authenticated visibility; this limitation was material.
+
+Session now carries the existing staffProfileId separately, leaving authentication
+identity and permissions unchanged. Floor uses the correct identity and existing
+permission. Both per-venue Booking sizes and original Table seats controls render
+together. The old physical bounds, save handler/API, assigned-pax, capacity and
+concurrency safeguards are retained. No business data or database changes.
+
+Physical seat saves and temporary-capacity mutations now enforce Kaden/Fatima
+server-side. Capacity-plan creation and initial plans that configure capacity
+have the same gate; assignment-only workflows and non-capacity notes retain their
+existing access. No extra normal-usage queries, dependencies or new workflows.
+
+Seven targeted actual-serializer/handler tests, TypeScript and focused lint pass.
+Eight 320/1280px component combinations verify both editors/venues, saves and
+coexistence, unauthorised hiding/disabled seats and no overflow. Production
+permission metadata confirms no direct authenticated table write/RPC bypass.
+No real seating/configuration writes or physical iPhone verification during QA.
+Source and outstanding Markdown records will be committed as explicitly requested.
+Release verification pending; evidence retained in local-evidence/floor-controls-regression-*.

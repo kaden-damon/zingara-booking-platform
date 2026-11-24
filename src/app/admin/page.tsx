@@ -1,6 +1,6 @@
 "use client";
 import { FloorBookingLimits } from "@/components/FloorBookingLimits";
-import { canEditSeatingBookingLimits, getSeatingBookingLimit } from "@/lib/seatingBookingLimits";
+import { canEditFloorCapacitySession, getSeatingBookingLimit } from "@/lib/seatingBookingLimits";
 
 import { createCsvFromSheet, escapeCsvValue } from "@/lib/exports/csv";
 
@@ -7585,6 +7585,7 @@ export default function AdminDashboardPage({
     currentStaff,
     "tables:manage",
   );
+  const canEditFloorCapacity = canManageTables && canEditFloorCapacitySession(currentStaff);
   const canViewAnalytics = hasPermission(
     currentStaff,
     "analytics:read",
@@ -12981,7 +12982,7 @@ export default function AdminDashboardPage({
     const tableNumber = newTable.tableNumber.trim();
 
     if (
-      !canManageTables ||
+      !canEditFloorCapacity ||
       !selectedShowId ||
       !tableNumber ||
       newTable.seatCapacity < 1 ||
@@ -13040,7 +13041,7 @@ export default function AdminDashboardPage({
     );
 
     if (
-      !canManageTables ||
+      !canEditFloorCapacity ||
       !selectedShowId ||
       !authoritativeId ||
       !definition ||
@@ -36524,7 +36525,7 @@ export default function AdminDashboardPage({
           activeOperationsTab === "floor" &&
           canManageTables && (
         <div className="grid grid-cols-1 gap-8">
-          {canEditSeatingBookingLimits(currentStaff ? { id: currentStaff.id, active: true } : null) && selectedShow && (
+          {canEditFloorCapacity && selectedShow && (
             <FloorBookingLimits
               key={normalizeShowLocation(selectedShow.location ?? selectedShow.venueName)}
               venue={normalizeShowLocation(selectedShow.location ?? selectedShow.venueName) === "johannesburg" ? "johannesburg" : "cape-town"}
@@ -36997,7 +36998,7 @@ export default function AdminDashboardPage({
                           <button
                             type="button"
                             onClick={() => void createReviewedFloorCapacityPlan(zonePlan.zoneId)}
-                            disabled={Boolean(floorCapacityCreateAction?.status === "creating")}
+                            disabled={!canEditFloorCapacity || Boolean(floorCapacityCreateAction?.status === "creating")}
                             className="min-h-11 shrink-0 rounded-xl bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.06em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {isCreating ? "CREATING..." : floorCapacityCreateAction?.zoneId === zonePlan.zoneId && floorCapacityCreateAction.status === "created" ? "CREATED ✓" : "REVIEW & CREATE"}
@@ -37497,7 +37498,7 @@ export default function AdminDashboardPage({
                         type="button"
                         onClick={() => createTable(zone.id)}
                         disabled={Boolean(
-                          operationalTableAction ||
+                          !canEditFloorCapacity || operationalTableAction ||
                             completedOperationalTableAction === `create-${zone.id}`,
                         )}
                         className="rounded-full bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
@@ -37731,9 +37732,7 @@ export default function AdminDashboardPage({
                             />
                           </label>
 
-                          {boothBookingLimit ? (
-                            <p className="text-xs text-zinc-400">Public allocation: {table.seatCapacity} seats.</p>
-                          ) : table.physicalTable && physicalDefinition ? (
+                          {table.physicalTable && physicalDefinition ? (
                             <div>
                               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
                                 Table seats
@@ -37743,6 +37742,7 @@ export default function AdminDashboardPage({
                                   type="number"
                                   min={physicalDefinition.minimumCapacity}
                                   max={physicalDefinition.maximumCapacity}
+                                  disabled={!canEditFloorCapacity}
                                   value={
                                     physicalCapacityDrafts[table.id] ??
                                     (table.capacityConfigured === false
@@ -37762,7 +37762,7 @@ export default function AdminDashboardPage({
                                   type="button"
                                   onClick={() => savePhysicalTableCapacity(table)}
                                   disabled={Boolean(
-                                    operationalTableAction ||
+                                    !canEditFloorCapacity || operationalTableAction ||
                                       completedOperationalTableAction === `capacity-${table.id}`,
                                   )}
                                   className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
@@ -37777,7 +37777,7 @@ export default function AdminDashboardPage({
                                 </button>
                               </div>
                               <p className="mt-2 text-xs text-zinc-400">
-                                {getTableFitLabel(physicalDefinition.minimumCapacity, physicalDefinition.maximumCapacity)}
+                                {boothBookingLimit ? "Public allocation only. Booking limits are separate." : getTableFitLabel(physicalDefinition.minimumCapacity, physicalDefinition.maximumCapacity)}
                               </p>
                             </div>
                           ) : (
@@ -37789,6 +37789,7 @@ export default function AdminDashboardPage({
                                 type="number"
                                 min={1}
                                 value={table.seatCapacity}
+                                disabled={!canEditFloorCapacity}
                                 onChange={(event) =>
                                   updateTableShowOverride(table.id, {
                                     seatCapacity: Number(event.target.value),

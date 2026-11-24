@@ -7,6 +7,7 @@ import {
   type FloorAllocatorZone,
 } from "@/lib/floorAllocator";
 import { getPhysicalTableSortOrder } from "@/lib/physicalTables";
+import { canEditSeatingBookingLimits, floorCapacityAccessMessage } from "@/lib/seatingBookingLimits";
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
 import {
   getRolePermissions,
@@ -464,6 +465,9 @@ export async function POST(request: Request) {
       );
     }
 
+    if (result.plan.capacityProposals.length > 0 && !canEditSeatingBookingLimits(auth.staffProfile)) {
+      return Response.json({ error: floorCapacityAccessMessage }, { status: 403 });
+    }
     const { data, error: applyError } = await auth.serviceClient.rpc(
       "apply_initial_floor_plan_atomic",
       {

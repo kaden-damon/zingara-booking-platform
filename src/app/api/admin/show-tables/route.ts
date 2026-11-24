@@ -12,6 +12,7 @@ import {
 import { getPhysicalTableDefinition } from "@/lib/physicalTables";
 import { tryRecordAuditEvent } from "@/lib/supabase/serverAudit";
 import { normalizeTemporaryTableCustomPrice } from "@/lib/temporaryTablePricing";
+import { canEditSeatingBookingLimits, floorCapacityAccessMessage } from "@/lib/seatingBookingLimits";
 
 export const dynamic = "force-dynamic";
 
@@ -286,6 +287,14 @@ export async function POST(request: Request) {
     }
 
     const zoneTables = await loadZoneTables(auth.serviceClient, show.id, zoneId);
+    const currentTable = zoneTables.find((row) => row.id === body.tableId);
+    const editsCapacity = body.action === "set-capacity" || body.action === "create" ||
+      (body.action === "update" && currentTable && !currentTable.is_physical &&
+        (Math.trunc(Number(body.capacity) || 0) !== currentTable.capacity ||
+          (body.status !== undefined && body.status !== currentTable.status)));
+    if (editsCapacity && !canEditSeatingBookingLimits(auth.staffProfile)) {
+      return Response.json({ error: floorCapacityAccessMessage }, { status: 403 });
+    }
     if (body.action === "update") {
       const table = zoneTables.find((row) => row.id === body.tableId);
 

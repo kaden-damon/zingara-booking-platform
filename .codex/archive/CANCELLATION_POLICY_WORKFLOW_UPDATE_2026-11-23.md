@@ -1,7 +1,7 @@
 # Cancellation Policy And Financial Workflow Update
 
 Date: 23 November 2026. Existing task continued, no new phase.
-Status: implementation and targeted checks complete; release evidence pending.
+Status: released to Production / READY; non-mutating live verification complete.
 
 ## Authority And Scope
 
@@ -131,3 +131,165 @@ authorised settlement through the appropriate accounting/payment process. The
 release does not introduce an automatic partial PayFast refund or a new pricing
 engine, and does not reclassify settled financial history. DP-YB9HPC and DP-FNZGQC
 must remain unchanged. Production verification must be non-mutating.
+
+## Completed Production Release
+
+- Commit **a347b1f9775613c20d893f15b634651014c313af** pushed to main through the
+  existing Git-triggered release. Only 32 scoped source/test/migration/new-task
+  record files committed; pre-existing Markdown changes and evidence excluded.
+- Reviewed function-only migration applied in one transaction, without a data
+  backfill or real booking mutation. Only migration version **20261123150000**
+  was marked applied. The unrelated older history discrepancy was not changed.
+- Vercel Production **dpl_DgGs3t4zMnooYU2LzRuEpvHjw1xd** is **READY** and aliased
+  to **book.zingara.co.za**. Deployment URL:
+  https://zingara-booking-platform-hv6w41bl0-kaden-damons-projects.vercel.app
+- Cloud build compiled in 5.7s and completed in 52s, including TypeScript and
+  the existing Admin performance budget. Raw **1,306,308 / 1,320,000** bytes;
+  gzip **316,981 / 320,000**; largest gzip chunk **168,649 / 170,000**.
+- Live cancellation policy, general Terms and Admin return HTTP 200. Verified
+  five/seven-day wording, late Corporate prepaid-gratuity forfeiture, no refund/
+  bar conversion of forfeiture and separate Buyout terms in the served policy.
+  Anonymous reconciliation/refund POSTs return 401 before business actions.
+- Installed basis/atomic/legacy-rejection functions deny anonymous execution.
+  Definition hashes: basis `9cf7f5c641f61aac37511d4607c3d90c`; atomic reduction
+  `694183f1e8a35b3201fddcf11e395aa0`; superseded RPC
+  `af5b01ce3dc2a13a524c3c7d894d3271`.
+- Exact protected booking hashes match before/after: DP-YB9HPC
+  `f5ec8f28aff9dafaa21d868387a1ab4c`; DP-FNZGQC
+  `5fe54aee06695ed679a813ffea73f2c8`. Neither record was amended.
+- Generated private evidence remains local under `local-evidence/`:
+  cancellation-release-before.json, cancellation-release-db-verification.json,
+  cancellation-production-deployment.json, cancellation-production-build.log,
+  cancellation-production-http-verification.json. Existing checkpoints preserved.
+- No authenticated real Production reduction/refund or physical iPhone test was
+  performed. Financial mutation correctness was verified with isolated temporary
+  fixtures and regression tests, not by changing live customer bookings.
+- Completion evidence appended locally; no second deployment was triggered merely
+  to publish Markdown status. CURRENT_TASK and unrelated local records preserved.
+# BUG-000037 — 24 November 2026
+
+Release: b0d6576ed77e8d5ec31ff3a7ede8d9e1a4afa6fd pushed to main. Vercel
+dpl_F39UNymuj13ZRgrhpNJGPWubkh8W READY, exact SHA and Production alias verified
+24 November 12:38 SAST. Live /admin 200; unauthenticated reconciliation GET
+401. No signed-in amendment attempted. TypeScript, focused ESLint and diff
+checks pass. Release proof: local-evidence/bug37-production-release.json.
+Only guestReductionServer.ts and its new test committed; all unrelated work
+preserved. Documentation remains local alongside existing uncommitted records.
+Post-release read-only booking hash remains fe2499744ab61c60208a607cf50ba88f:
+12 guests, R19,440 total/paid, R0 outstanding; no booking changes.
+
+- Read-only Production diagnosis: ZNG-XSUC8A is Corporate/corporate-direct,
+  12 guests on 2 December 17:00 JHB, subtotal/total/paid R19,440, service fee R0.
+  Stored booking hash: fe2499744ab61c60208a607cf50ba88f.
+- No legacy invoice evidence; no Corporate request linked by database field or
+  found by metadata request ID. Operational notes say tickets R14,960, prepaid
+  bar R2,440, gratuity R2,040. These sum to total but are not verified component
+  evidence. Do not turn notes into accounting authority or infer a split.
+- The guard introduced in a347b1f9 is correctly protecting an ambiguous bundled
+  invoice. A simple deletion would allow R19,430 ticket allocation plus an
+  assumed R10 fee, contrary to recorded notes. No safe unlock established.
+- Presentation-only correction in guestReductionServer translates the old
+  quote/component error into an Accounts instruction naming ticket, gratuity
+  and prepaid bar amounts. Preview and save share this existing loader. All
+  other bases, RPC errors, request counts and monetary values preserved.
+- Sixteen tests pass: three new loader tests and thirteen existing cancellation
+  regressions including exact seven-day cutoff, late Corporate forfeiture,
+  retained gratuity, eligible bar transfers, totals, reporting and server guards.
+- Booking unchanged. No migration or financial mutation. Frontend 2.0 untouched.
+- Resolution note: cause identified; clearer recovery guidance released pending
+  release evidence below. BUG-000037 is NOT financially resolved: Accounts must
+  verify the invoice components before a safe allocation can be authorised.
+
+## BUG-000037 Actual Workflow Correction — Authorised Follow-Up
+
+The message-only release above did not meet acceptance. User explicitly
+authorised Sales to confirm the breakdown inline; no Accounts/developer handoff
+is now required to perform an eligible guest reduction and ticket-value transfer.
+
+- Existing Edit Guest Count now conditionally shows four blank money inputs
+  (tickets, prepaid ticket gratuity, prepaid bar, other/fees), invoice reference
+  and explicit reviewed confirmation. Edits reset confirmation. No default R10
+  fee or gratuity reverse-calculation is used for this confirmed basis.
+- Client/API/database require finite, nonnegative exact-cent components,
+  positive ticket value and exact reconciliation to the stored booking total.
+  Database retains priced add-ons and resolves ONLY the missing Corporate split
+  guard. Existing permission, venue, paid-state, lifecycle, refund, Buyout,
+  mixed-price, lock, revision and idempotency guards remain unchanged.
+- Uses existing preview/request/RPC; no extra database query, API request,
+  dependency or schema column. Function-only migration 20261124130000 patches
+  the existing atomic function at checked markers, failing closed if unexpected.
+- Server recomputes seven-day eligibility and all allocation figures. Late
+  Corporate ticket/gratuity forfeiture remains; remaining gratuity is preserved.
+  Before cutoff only eligible ticket value may become bar credit; eligible
+  cancelled gratuity follows the existing refund process, never bar credit.
+- Reviewed component/reference evidence is saved with actor/time in the existing
+  allocation and audit only when the actual amendment succeeds. Original totals,
+  receipts, payment rows and historical invoice evidence remain untouched.
+- Twenty focused tests pass; 24 session-temporary SQL cases pass, including Sales
+  permission fixture, early transfer, late forfeiture, invalid/mismatched money,
+  stale saves, locks, existing refunds, atomic rollback and idempotent retry.
+  Existing delegate is stubbed only in temporary fixtures: no real booking saved.
+- Actual modal isolated Chromium checks 390/1280px pass, including capture of
+  submitted preview, validation, reset confirmation and no horizontal overflow.
+  No physical iPhone or signed-in Production mutation claimed. TypeScript,
+  focused ESLint and optimised Webpack build pass.
+- Function migration applied and only version 20261124130000 recorded. Prior
+  function hash 694183f1e8a35b3201fddcf11e395aa0; installed hash
+  1468184d88e435b54b9de7d1b9cee4e0. Protected booking hash remains
+  fe2499744ab61c60208a607cf50ba88f. No booking or financial changes.
+- Rollback definition: local-evidence/bug37-component-function-rollback.json.
+  Temporary SQL/results and UI screenshots retained under local-evidence/bug37*.
+- Commit b1cead69e6d0052b4e2dd6ddb13f4e455b7aecb0 pushed to main, seven scoped
+  code/migration/test files only; unrelated Markdown and evidence not committed.
+  Frontend 2.0 and all prior checkpoints remain untouched.
+- Production dpl_9T3xxd8Nic2syNYx8kJDb1Maci57 READY, exact commit and live alias
+  verified at 12:52 SAST. /admin 200; new controls found in live lazy-loaded
+  /_next/static/immutable/chunks/3at4zlgeoc2ro.js. Unauthenticated reconciliation
+  GET remains 401. Initial immediate asset scan missed the newly promoted lazy
+  asset; final focused check confirms the released controls, not just READY.
+- Read-only permission check confirms Michael's existing role is Super Admin
+  with bookings:reconcile. Existing authorisation unchanged, no staff edits.
+  Live mutation was intentionally not performed. Real delegated seating/ticket
+  behaviour relies on unchanged established atomic workflow; isolated SQL tests
+  verify its guarded invocation and allocation, not a real customer amendment.
+- Release evidence: local-evidence/bug37-components-production-release.json and
+  local-evidence/bug37-component-production-db-verification.json.
+- Final resolution note: BUG-000037's operational block is removed through a
+  validated self-service invoice confirmation in Edit Guest Count. Authorised
+  staff can reduce guests and transfer eligible ticket value to bar without
+  Accounts/developer intervention. Seven-day forfeiture and remaining gratuity
+  rules remain. Michael's booking was not amended; no retrospective adjustments.
+
+## BUG-000037 Reuse And Duplication Review — 24 November 2026
+
+Compared a347b1f9^ (before cancellation update) to b1cead69, using actual Git
+source, not only historical notes. No parallel financial workflow requiring
+consolidation was found; no application changes or new deployment necessary.
+
+| Existing path | Before policy update | b1cead69 / review conclusion |
+| --- | --- | --- |
+| Corporate Edit Guest Count | Fixed-total atomic guest-count change; no financial split entry | Same form/endpoint and atomic delegate, now wrapped by cancellation allocation safeguards |
+| Retained Value Allocation | Read manual_invoice evidence, transfer released tickets AND all original gratuity | Existing policy preview permits eligible ticket credit only; preserving the old calculation would violate policy |
+| Imported Invoice Evidence inputs | Financial correction for imported COMP with no evidence; ticket + gratuity must equal total | Not applicable to native paid Corporate bundles or separate prepaid bar; not an interchangeable component workflow |
+| Imported Corporate enquiry reconciliation | Reconciles imported enquiry evidence before conversion | Not an amendment workflow for an existing native paid booking |
+| Confirm invoice breakdown | Absent in original guest-count form | Conditional missing-basis extension within same form; no extra API/query, no invented amounts, source/actor audited |
+
+The new field panel is not shown when the existing component basis is known.
+Financial input concepts overlap, but there is no second applicable operational
+control for Michael's booking to consolidate. Client/API/SQL validation serves
+different trust boundaries; the authoritative financial policy remains unchanged.
+The preceding task explicitly authorised staff-confirmed breakdown entry.
+
+Verification reused, not rerun: 20 targeted tests, 24 temporary SQL cases,
+390/1280px actual modal checks, installed function hash, live new asset and
+Michael-role reconciliation permission. Eligible 12-to-11 fixture preserved
+R19,440 paid, moved R1,246.67 eligible tickets to bar, retained R1,870 gratuity
+and separately held R170 eligible gratuity for the existing refund process.
+Those inputs were test evidence, not automatically approved live invoice values.
+Michael can proceed through Edit Guest Count after checking the source invoice;
+the seven-day deadline is 25 November 2026 at 17:00 SAST for this performance.
+No actual live amendment made or authenticated end-to-end save claimed.
+
+Permanent mandatory doctrine recorded in AGENTS.md and .codex/README.md; current
+task updated. Documentation-only changes remain local alongside existing records.
+No code/database changes, new release, repeated audit or Frontend 2.0 access.

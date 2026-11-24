@@ -482,6 +482,7 @@ export function staffProfileToSession(row: StaffProfileRow, user: User) {
   return {
     email: row.email,
     id: user.id,
+    staffProfileId: row.id,
     isPlatformOwner: hasPlatformOwnerBinding(row, user),
     name: row.full_name,
     permissions: getRolePermissions(role),

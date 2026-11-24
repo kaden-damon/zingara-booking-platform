@@ -424,3 +424,13 @@ Reference: https://vercel.com/kb/guide/how-to-bypass-vercel-body-size-limit-serv
   changes. No Production customer export/data change. Frontend 2.0 untouched.
   Private evidence: local-evidence/customer-export-final-ux-browser-results.json
   and customer-export-final-ux-320.png / customer-export-final-ux-1280.png.
+- Commit 5b7771596ed3a85ab267fefc8b3289fb55890eba pushed to Main. Vercel
+  dpl_FrCuYKNfgoJT3sHVRMXX38d5Qyjr READY with matching SHA and live alias,
+  verified 24 November 14:22 SAST. Live Admin 200; asset 3r7_qfy4_e_-_.js contains
+  Exporting customers status, concise consent message and circular gold styles.
+  Export POST without staff authentication remains 401. Permanent doctrine
+  included. Release proof: local-evidence/customer-export-final-ux-production-release.json.
+  320px screenshot visually inspected. Actual loading/success/error/duplicate
+  interactions tested with synthetic data, not a real Production export. Backend,
+  data, finance, consent/permissions and Frontend 2.0 remain untouched. Final
+  evidence recorded locally without a redundant documentation deployment.
