@@ -5,6 +5,7 @@ import {
   requireActiveStaff,
 } from "@/lib/supabase/serverAdmin";
 import { normalizePhoneForComparison, parseInternationalPhone } from "@/lib/phone";
+import { canExportCustomerFields, CustomerExportError, customerExportColumns, parseCustomerExportOptions } from "@/lib/customerExport";
 
 export const dynamic = "force-dynamic";
 
@@ -474,9 +475,10 @@ export async function POST(request: Request) {
   if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) return auth.error;
   if (!canManage(auth)) return Response.json({ error: "Customer management access is required." }, { status: 403 });
 
+  let exportRequested = false;
   try {
     const body = (await request.json()) as {
-      action?: "create" | "link";
+      action?: "create" | "link" | "export";
       companyId?: string;
       customerId?: string;
       email?: string;
@@ -486,6 +488,40 @@ export async function POST(request: Request) {
       mobile?: string;
       surname?: string;
     };
+    if (body.action === "export") {
+      exportRequested = true;
+      const options = parseCustomerExportOptions(body);
+      const role = Array.isArray(auth.staffProfile.roles) ? auth.staffProfile.roles[0] : auth.staffProfile.roles;
+      const permissions = getRolePermissions(role);
+      if (!canExportCustomerFields(permissions, options)) {
+        return Response.json({ error: "You do not have permission to export these customer fields." }, { status: 403 });
+      }
+      const { loadCustomerExportRows } = await import("@/lib/supabase/customerExportServer");
+      const rows = await loadCustomerExportRows(auth.serviceClient, options, auth.staffProfile.venue_scope ?? []);
+      const columns = options.columns.map(key => customerExportColumns[key]);
+      const exportedAt = new Date().toISOString();
+      let bytes: Uint8Array;
+      if (options.format === "csv") {
+        const { createCsvFromSheet } = await import("@/lib/exports/csv");
+        bytes = new TextEncoder().encode("\uFEFF" + createCsvFromSheet({ columns, rows }));
+      } else {
+        const { buildTabularWorkbook } = await import("@/lib/exports/bookingsWorkbook");
+        bytes = new Uint8Array(await buildTabularWorkbook({ columns, rows, title: "Customers", exportedAt }));
+      }
+      const { tryRecordAuditEvent } = await import("@/lib/supabase/serverAudit");
+      await tryRecordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
+        action: "customers.exported", entityType: "data-portability-export", entityReference: "customer-export",
+        outcome: "success", sourceArea: "Customers", request, reason: "Authorised customer export.",
+        afterValues: { row_count: rows.length, columns: options.columns, venue: options.venue,
+          performance_from: options.from, performance_to: options.to, kind: options.kind, format: options.format,
+          selected_count: options.selectedIds?.length ?? null, marketing: options.marketing },
+      });
+      return new Response(bytes as BodyInit, { headers: {
+        "Cache-Control": "private, no-store",
+        "Content-Type": options.format === "csv" ? "text/csv; charset=utf-8" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="Zingara_Customers_${exportedAt.slice(0, 10)}.${options.format}"`,
+      } });
+    }
     if (body.action === "link") {
       if (!body.customerId || !body.companyId) return Response.json({ error: "Customer and Company are required." }, { status: 400 });
       const { data, error } = await auth.serviceClient.rpc("link_customer_company_association_atomic", {
@@ -526,6 +562,11 @@ export async function POST(request: Request) {
     }
     return Response.json({ customer: data }, { status: 201 });
   } catch (error) {
+    if (error instanceof CustomerExportError) return Response.json({ error: error.message }, { status: error.status });
+    if (exportRequested) {
+      console.error("[Zingara API] Customer export failed", error);
+      return Response.json({ error: "The customer export could not be generated. Retry or narrow the filters." }, { status: 500 });
+    }
     console.error("[Zingara API] Customer management write failed", error);
     return Response.json({ error: "The customer could not be saved." }, { status: 500 });
   }

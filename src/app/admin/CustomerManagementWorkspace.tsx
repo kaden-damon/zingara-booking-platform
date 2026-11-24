@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import InternationalPhoneInput from "../components/InternationalPhoneInput";
-import { fetchSupabaseApi, SupabaseApiError } from "@/lib/supabase/apiClient";
+import { fetchSupabaseApi, fetchSupabaseBlob, SupabaseApiError } from "@/lib/supabase/apiClient";
+import { customerExportColumns, defaultCustomerExportColumns, type CustomerExportColumn, type CustomerExportOptions } from "@/lib/customerExport";
 import {
   operationalPauseDurations,
   operationalPauseReasons,
@@ -129,6 +130,13 @@ export default function CustomerManagementWorkspace({
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const [archived, setArchived] = useState("active");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportIds, setExportIds] = useState<string[]>([]);
+  const [exportSelected, setExportSelected] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const [exportFields, setExportFields] = useState<CustomerExportColumn[]>(defaultCustomerExportColumns);
+  const [exportFilters, setExportFilters] = useState({ venue: "all", from: "", to: "", kind: "all", marketing: false });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -513,6 +521,21 @@ export default function CustomerManagementWorkspace({
 
   const existingCompanyIds = useMemo(() => new Set(detail?.links.map((link) => link.company_id) ?? []), [detail]);
 
+  async function downloadCustomers(format: "csv" | "xlsx") {
+    if (exporting) return;
+    setExporting(true); setExportError("");
+    try {
+      const body = { action: "export", ...exportFilters, columns: exportFields, format, search, archived,
+        selectedIds: exportSelected ? exportIds : null } as CustomerExportOptions;
+      const blob = await fetchSupabaseBlob("/api/admin/customer-management", { method: "POST", body });
+      const url = URL.createObjectURL(blob), anchor = document.createElement("a");
+      anchor.href = url; anchor.download = `Zingara_Customers_${new Date().toISOString().slice(0, 10)}.${format}`;
+      document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { setExportError(error instanceof Error ? error.message : "The customer export could not be generated."); }
+    finally { setExporting(false); }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -520,14 +543,35 @@ export default function CustomerManagementWorkspace({
           <input aria-label="Search customers" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search customers" className={`${inputClass()} sm:max-w-sm`} />
           <select aria-label="Customer status" value={archived} onChange={(event) => { setArchived(event.target.value); setPage(1); }} className={`${inputClass()} sm:max-w-40`}><option value="active">Active</option><option value="archived">Archived</option><option value="all">All</option></select>
           <button className="min-h-11 rounded-lg border border-[#D8C36A]/40 px-4 text-sm font-semibold text-[#F2D66C]">Search</button>
+          {canManage && <button type="button" aria-expanded={exportOpen} aria-controls="customer-export-panel" onClick={() => { setExportOpen(v => !v); setExportError(""); }} className="min-h-11 rounded-lg border border-[#D8C36A]/40 px-4 text-sm font-semibold text-[#F2D66C]">Export</button>}
         </form>
         {canManage && <button type="button" onClick={beginCreate} className="h-10 rounded-full bg-[#D8C36A] px-5 text-xs font-bold uppercase tracking-[0.1em] text-black transition hover:bg-[#F2D66C] disabled:opacity-50">+ Add Customer</button>}
       </div>
 
+      {canManage && exportOpen && <section id="customer-export-panel" aria-label="Customer export" className="space-y-4 rounded-lg border border-[#D8C36A]/30 bg-zinc-950 p-4">
+        <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-white">Export customers</h3><button type="button" aria-label="Close customer export" disabled={exporting} onClick={() => setExportOpen(false)} className="min-h-11 rounded-full px-3 text-sm text-zinc-300">Close</button></div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <label className="text-xs text-zinc-400">Venue<select aria-label="Export venue" value={exportFilters.venue} onChange={e => setExportFilters(f => ({ ...f, venue: e.target.value }))} className={`${inputClass()} mt-1`}><option value="all">All permitted venues</option><option value="cape-town">Cape Town</option><option value="johannesburg">Johannesburg</option></select></label>
+          <label className="text-xs text-zinc-400">Performance from<input aria-label="Export performance from" type="date" value={exportFilters.from} onChange={e => setExportFilters(f => ({ ...f, from: e.target.value }))} className={`${inputClass()} mt-1`} /></label>
+          <label className="text-xs text-zinc-400">Performance to<input aria-label="Export performance to" type="date" value={exportFilters.to} onChange={e => setExportFilters(f => ({ ...f, to: e.target.value }))} className={`${inputClass()} mt-1`} /></label>
+          <label className="text-xs text-zinc-400">Booking type<select aria-label="Export booking type" value={exportFilters.kind} onChange={e => setExportFilters(f => ({ ...f, kind: e.target.value }))} className={`${inputClass()} mt-1`}><option value="all">All booking types</option><option value="standard">Standard</option><option value="corporate">Corporate</option><option value="buyout">Buyout</option><option value="comp">Complimentary</option></select></label>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-xs text-zinc-400">Customers<select aria-label="Customers to export" value={exportSelected ? "selected" : "all"} onChange={e => setExportSelected(e.target.value === "selected")} className={`${inputClass()} mt-1`}><option value="all">All matching customers</option><option value="selected">Selected customers ({exportIds.length})</option></select></label>
+          <label className="text-xs text-zinc-400">Export purpose<select aria-label="Export purpose" value={exportFilters.marketing ? "marketing" : "crm"} onChange={e => setExportFilters(f => ({ ...f, marketing: e.target.value === "marketing" }))} className={`${inputClass()} mt-1`}><option value="crm">Customer information</option><option value="marketing">Marketing — verified consent only</option></select></label>
+        </div>
+        <fieldset><legend className="mb-2 text-xs font-semibold uppercase text-zinc-400">Columns</legend><div className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-3">{Object.entries(customerExportColumns).map(([key, label]) => <label key={key} className="flex min-h-11 items-center gap-2 text-sm text-zinc-300"><input type="checkbox" checked={exportFields.includes(key as CustomerExportColumn)} onChange={e => setExportFields(fields => e.target.checked ? [...fields, key as CustomerExportColumn] : fields.filter(f => f !== key))} />{label}</label>)}</div></fieldset>
+        <p className="text-xs text-zinc-400">Uses the applied customer search/status and matching performances. Financial totals cover those performances, not payment dates. Booking value excludes cancelled/refunded bookings; payment entries and refunds are separate. Historical paid amounts without matching payment entries are shown separately.</p>
+        {exportFilters.marketing && <p className="text-xs text-amber-200">Unverified preferences are excluded. The current CRM has no verified email-marketing consent source; a marketing download may have no eligible contacts.</p>}
+        <div className="flex flex-wrap items-center gap-3"><button type="button" onClick={() => setExportIds(ids => [...new Set([...ids, ...rows.map(r => r.id)])])} className="min-h-11 rounded-lg border border-white/15 px-3 text-sm">Select visible</button><button type="button" onClick={() => setExportIds([])} disabled={!exportIds.length} className="min-h-11 rounded-lg border border-white/15 px-3 text-sm disabled:opacity-35">Clear selection</button><span className="text-sm text-zinc-400">{exportIds.length} selected</span></div>
+        {exportError && <p role="alert" className="text-sm text-red-200">{exportError}</p>}
+        <div className="flex flex-wrap gap-3">{(["xlsx", "csv"] as const).map(format => <button key={format} type="button" disabled={exporting || !exportFields.length || (exportSelected && !exportIds.length)} onClick={() => void downloadCustomers(format)} className="min-h-11 rounded-full bg-[#D8C36A] px-5 text-sm font-semibold text-black disabled:opacity-40">{exporting ? "Exporting..." : format === "xlsx" ? "Download Excel" : "Download CSV"}</button>)}</div>
+      </section>}
+
       {error && <p role="alert" className="rounded-lg border border-red-400/30 bg-red-950/30 p-3 text-sm text-red-100">{error}</p>}
       <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
         <section className="rounded-lg border border-white/10 bg-black/35 p-3">
-          {loading ? <p className="p-5 text-sm text-zinc-400">Loading customers...</p> : rows.length === 0 ? <p className="p-5 text-sm text-zinc-400">No customers match these filters.</p> : <div className="space-y-1">{rows.map((customer) => <button key={customer.id} type="button" onClick={() => void loadDetail(customer.id)} className={`w-full rounded-md border px-3 py-2.5 text-left transition ${selectedId === customer.id ? "border-[#D8C36A]/70 bg-[#211708]" : "border-white/10 bg-zinc-950 hover:border-[#D8C36A]/40"}`}><p className="font-semibold text-white">{customerName(customer)}</p></button>)}</div>}
+          {loading ? <p className="p-5 text-sm text-zinc-400">Loading customers...</p> : rows.length === 0 ? <p className="p-5 text-sm text-zinc-400">No customers match these filters.</p> : <div className="space-y-1">{rows.map((customer) => <div key={customer.id} className="flex items-center gap-2">{exportOpen && canManage && <input type="checkbox" aria-label={`Select ${customerName(customer)} for export`} checked={exportIds.includes(customer.id)} onChange={e => setExportIds(ids => e.target.checked ? [...new Set([...ids, customer.id])] : ids.filter(id => id !== customer.id))} className="h-5 w-5 shrink-0" />}<button type="button" onClick={() => void loadDetail(customer.id)} className={`min-w-0 flex-1 rounded-md border px-3 py-2.5 text-left transition ${selectedId === customer.id ? "border-[#D8C36A]/70 bg-[#211708]" : "border-white/10 bg-zinc-950 hover:border-[#D8C36A]/40"}`}><p className="font-semibold text-white">{customerName(customer)}</p></button></div>)}</div>}
           <div className="mt-3 flex items-center justify-between gap-2 text-sm"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)} className="min-h-10 rounded-lg border border-white/15 px-3 disabled:opacity-35">Previous</button><span className="text-center text-zinc-400">Page {page} of {pageCount}<br />{total} customers</span><button type="button" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)} className="min-h-10 rounded-lg border border-white/15 px-3 disabled:opacity-35">Next</button></div>
         </section>
 

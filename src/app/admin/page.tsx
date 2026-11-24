@@ -1,5 +1,7 @@
 "use client";
 
+import { createCsvFromSheet, escapeCsvValue } from "@/lib/exports/csv";
+
 import { getBookingGuestName, getBookingGuestLabel } from "../../lib/bookingGuestName";
 import {
   formatCorporateDietaryRequirement,
@@ -3229,25 +3231,6 @@ function createZingaraUserEmail(
         "staff";
 
   return `${handle || "staff"}@zingara.co.za`;
-}
-
-function escapeCsvValue(value: string | number | undefined) {
-  const stringValue = String(value ?? "");
-
-  return /[",\n]/.test(stringValue)
-    ? `"${stringValue.replaceAll('"', '""')}"`
-    : stringValue;
-}
-
-function createCsvFromSheet(sheet: ExportSheet) {
-  return [
-    sheet.columns.map(escapeCsvValue).join(","),
-    ...sheet.rows.map((row) =>
-      sheet.columns
-        .map((column) => escapeCsvValue(String(row[column] ?? "")))
-        .join(","),
-    ),
-  ].join("\n");
 }
 
 function sanitizeExportFileName(value: string) {

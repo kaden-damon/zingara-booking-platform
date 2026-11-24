@@ -8,6 +8,28 @@ const ivory = "FFF8E7";
 const currencyFormat = '"R"#,##0.00';
 const reportTimezone = "Africa/Johannesburg";
 
+export async function buildTabularWorkbook(input: {
+  columns: string[];
+  rows: Array<Record<string, string | number | null>>;
+  title: string;
+  exportedAt: string;
+}) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Zingara Booking Platform";
+  workbook.created = new Date(input.exportedAt);
+  const sheet = workbook.addWorksheet(input.title);
+  sheet.columns = input.columns.map(header => ({ header, key: header, width: 24 }));
+  sheet.getRow(1).font = { bold: true, color: { argb: warmBlack } };
+  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: gold } };
+  sheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
+  sheet.getRow(1).height = 44;
+  input.columns.forEach((header, index) => { if (header.endsWith("(ZAR)")) sheet.getColumn(index + 1).numFmt = currencyFormat; });
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  for (const row of input.rows) sheet.addRow(row);
+  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: input.rows.length + 1, column: input.columns.length } };
+  return workbook.xlsx.writeBuffer();
+}
+
 export const bookingsExportHeaders = [
   "Booking Reference",
   "Customer Name",

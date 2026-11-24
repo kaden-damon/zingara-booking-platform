@@ -52,7 +52,7 @@ export type BookingCancellationPolicy = {
   transactionFeeAmount: number;
 };
 
-const successfulPaymentStatuses = new Set(["deposit_paid", "fully_paid"]);
+export const successfulPaymentStatuses = new Set(["deposit_paid", "fully_paid"]);
 const activeRefundStatuses = new Set([
   "accepted",
   "processing",

@@ -259,3 +259,72 @@ documentation-only commit under tag codex/reuse-first-crm-audit-2026-11-24, NOT 
 or a preview branch. Repository Actions only schedule/manual-trigger database
 backup; no tag deployment workflow is configured. Main adoption remains pending
 a future authorised release or approved non-deploying main-update mechanism.
+
+## Authorised Custom Customer Export — 24 November 2026
+
+Status: implemented and targeted verification complete; release in progress.
+
+- User explicitly authorised one Export panel within Customers. Reused current
+  component, search/archive filters, customer-management POST, staff auth, venue
+  normalisation, canonical matching RPC, booking type helper, successful-payment
+  status definitions, CSV serializer and installed ExcelJS workbook infrastructure.
+  No separate screen/API, dependency, new table or customer data modification.
+- Export supports 25 allowlisted fields: ID/name/email/mobile, company/job title,
+  creation/archive state, VIP/preferences/notes/dietary, bookings/guests, first/last
+  performances, venues/types, booking value, recorded paid, successful payment
+  entries, accepted refunds, net payment entries, outstanding and unitemised paid.
+- All matching customers or explicit selected IDs intersect applied search/status
+  and venue/performance-date/type filters. Cross-page selection is supported.
+  Counts and money include matching permitted performances only, not payment-date
+  windows. Unassociated customers included only for unrestricted all-venue scope
+  without performance/type constraints; restricted staff need an eligible booking.
+- One row per canonical unmerged customer. Independent relation pagination and
+  maps prevent silent server limits and join-multiplied money. Company associations
+  aggregate separately. Receipt entries are never added again to booking amount
+  paid; manual/imported amounts without matching payment entries are explicit.
+  Cancelled/refunded booking value is excluded; original refunded payment entries
+  are retained only with accepted refund evidence, then refunds are shown separately.
+  No new VAT/gratuity/refund/pricing rules or retrospective reconciliation.
+- Marketing mode excludes all unverified consent and normalises/de-duplicates
+  eligible email addresses without merging CRM records. Current persisted CRM has
+  NO authoritative email-consent source: labels/cookies/bookings do not qualify,
+  so no marketing list can currently be downloaded. Clear error is intentional;
+  evidence capture/import is a separately approved future task, not invented here.
+- Server requires bookings:manage, venue scope and allowlisted filters/fields;
+  private notes/dietary additionally need crm:read. Marketing additionally needs
+  crm:read + communications:manage. Read-only/ticket-scanning rights do not grant
+  bulk export. Files are private/no-store; export audit stores counts/field/filter
+  metadata, not contact rows/search text. No file is publicly stored.
+- No new request/query during normal Customers usage or opening the panel. Only
+  requested exports retrieve data, in batches of 500. Complete export bound:
+  20,000 customers/100,000 matching bookings, with explicit narrow-filter errors
+  rather than truncation. Concurrent changing customer result counts/identities
+  fail with retry guidance. Empty results and missing optional values handled.
+- Shared legacy CSV functions extracted, not duplicated; special characters,
+  Unicode/BOM, quotes/newlines and spreadsheet formula injection covered. XLSX
+  uses existing workbook library with typed numeric cells, gold header, filters
+  and frozen row. Large binary dependencies remain server-side/on-demand.
+- Necessary function-only migration 20261124150000 extends existing customer
+  search ONLY for explicit p_page_size=500. Other existing caps/defaults remain.
+  Original function backup local-evidence/customer-export-search-rollback.json.
+  Rollback-only synthetic SQL verified 1,201 customers, 500/500/201 export pages
+  and byte-equal normal 10-row and capped 50-row request results. No real profile
+  data queried or exported for QA. Only function definition/migration metadata change.
+- 35 targeted tests pass: loader aggregates, all pages/limits, search/date/type,
+  selected IDs, role/venue/private fields, consent/dedup, empty/missing values,
+  CSV/XLSX encoding/security and actual POST response/authentication/audit. Existing
+  CRM and booking export regressions pass. A stale existing source assertion for
+  pre-RPC pagination was updated to the current unchanged RPC contract after
+  confirming it was already stale at HEAD; no underlying GET changes were made.
+- Actual Customers UI synthetic Chromium checks 390/1280px: no request on panel
+  open, selections across pages, all matching vs selected, CSV/Excel commands,
+  consent error and no horizontal overflow/page errors. No physical Safari claim.
+  TypeScript, focused lint and optimised Webpack build pass; final Vercel build
+  is the release gate. Existing checkpoints and Frontend 2.0 untouched.
+- Outstanding doctrine commit 251d7e1 is the release parent and will enter Main
+  with this authorised application release. No branch/configuration workaround.
+
+Staff: Customers -> apply search/status -> Export -> choose columns and performance
+filters -> All matching or select customers across pages -> Download Excel/CSV.
+Marketing export remains intentionally unavailable until real consent evidence
+can be verified. General CRM exports must not be treated as consented audiences.

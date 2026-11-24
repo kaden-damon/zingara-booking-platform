@@ -28,7 +28,8 @@ test("customer creation is bounded, explicit and audited atomically", () => {
 
 test("customer list remains server paginated and does not trigger global booking hydration", () => {
   assert.match(route, /pageSize = Math\.min\(50/);
-  assert.match(route, /\.range\(\(page - 1\) \* pageSize, page \* pageSize - 1\)/);
+  assert.match(route, /rpc\("search_customer_crm_page"/);
+  assert.match(route, /p_page: page,[\s\S]{0,60}p_page_size: pageSize/);
   assert.match(route, /count: "exact"/);
   assert.match(workspace, /const pageSize = 10/);
   assert.doesNotMatch(
