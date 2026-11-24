@@ -1,3 +1,5 @@
+import { findBookingCustomer } from "@/lib/bookingCustomerIdentity";
+import { normalizeAttendingGuestName } from "@/lib/bookingGuestName";
 import {
   type BookingLifecycleEvent,
   type BookingStatus,
@@ -46,7 +48,6 @@ import {
 } from "@/lib/bookingProvenance";
 import {
   getFirstBookingCreateError,
-  mergeCustomerContactValues,
   normalizeBookingCustomer,
   validateBookingCreate,
 } from "@/lib/bookingCreateValidation";
@@ -561,7 +562,6 @@ async function upsertCustomer(
   customer: CustomerInfo,
 ) {
   const payload = getCustomerPayload(customer);
-  const customerKey = payload.preferences.customerKey;
   const mobile = normalizePhoneForComparison(customer.phone);
 
   async function loadMatchingCustomer() {
@@ -572,6 +572,7 @@ async function upsertCustomer(
       const { data: emailMatch, error: emailLoadError } = await supabase
         .from("customers")
         .select("id,email,mobile,first_name,surname,preferences")
+        .is("merged_into_customer_id", null)
         .eq("email", payload.email)
         .maybeSingle();
 
@@ -592,41 +593,20 @@ async function upsertCustomer(
     const { data: rows, error: loadError } = await supabase
       .from("customers")
       .select("id,email,mobile,first_name,surname,preferences")
+      .is("merged_into_customer_id", null)
       .in("mobile", mobileVariants);
 
     if (loadError) {
       throw loadError;
     }
 
-    return ((rows ?? []) as SupabaseCustomerRow[]).find(
-      (row) =>
-        row.preferences?.customerKey === customerKey ||
-        (mobile && normalizePhoneForComparison(row.mobile) === mobile),
-    );
+    return findBookingCustomer((rows ?? []) as SupabaseCustomerRow[], customer);
   }
 
   const existingCustomer = await loadMatchingCustomer();
 
   if (existingCustomer) {
-    const preservedContacts = mergeCustomerContactValues(existingCustomer, {
-      email: payload.email,
-      mobile: payload.mobile,
-    });
-    const { data, error } = await supabase
-      .from("customers")
-      .update({
-        ...payload,
-        ...preservedContacts,
-      })
-      .eq("id", existingCustomer.id)
-      .select("id")
-      .maybeSingle();
-
-    if (error) {
-      throw error;
-    }
-
-    return (data as { id: string } | null)?.id ?? existingCustomer.id;
+    return existingCustomer.id;
   }
 
   const { data, error } = await supabase
@@ -640,31 +620,7 @@ async function upsertCustomer(
       const concurrentlyInsertedCustomer = await loadMatchingCustomer();
 
       if (concurrentlyInsertedCustomer) {
-        const preservedContacts = mergeCustomerContactValues(
-          concurrentlyInsertedCustomer,
-          {
-            email: payload.email,
-            mobile: payload.mobile,
-          },
-        );
-        const { data: updatedCustomer, error: updateError } = await supabase
-          .from("customers")
-          .update({
-            ...payload,
-            ...preservedContacts,
-          })
-          .eq("id", concurrentlyInsertedCustomer.id)
-          .select("id")
-          .maybeSingle();
-
-        if (updateError) {
-          throw updateError;
-        }
-
-        return (
-          (updatedCustomer as { id: string } | null)?.id ??
-          concurrentlyInsertedCustomer.id
-        );
+        return concurrentlyInsertedCustomer.id;
       }
     }
 
@@ -1867,6 +1823,11 @@ export async function POST(request: Request) {
       bookingSource: trustedBookingSource,
       staffProfileId,
     });
+    try {
+      booking.attendingGuestName = normalizeAttendingGuestName(booking.attendingGuestName);
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : "Invalid attending guest name." }, { status: 400 });
+    }
     booking = {
       ...booking,
       bookingOrigin: provenance.bookingOrigin,

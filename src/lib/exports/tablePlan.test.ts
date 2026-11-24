@@ -82,6 +82,22 @@ function cellNumber(value: ExcelJS.CellValue) {
   return 0;
 }
 
+test("gift bookings show the attendee and purchaser without changing Table Plan financial columns", async () => {
+  const buffer = await buildTablePlanWorkbook({
+    bookings: [booking("gift", "ZNG-GIFT", 2, "table-300", { notes: '__zingara_booking_meta__:{"attendingGuestName":"Leigh-Ann","customer":{"name":"Marisa"}}' })],
+    configuredZonePrices: { "golden-circle": 100, "middle-ring": 100, "private-booths": 100, "royal-balcony": 100 },
+    customers: [customer("gift", "Marisa")], payments: [],
+    show: { date: "2026-12-01", id: "show-gift", name: "Gift", time: "18:00:00", venue: "cape-town" },
+    tables: [table("table-300", "300", "gift")],
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Table Plan")!;
+  const row = Array.from({ length: sheet.rowCount }, (_, index) => sheet.getRow(index + 1)).find((row) => String(row.getCell(2).value) === "300")!;
+  assert.equal(row.getCell(6).value, "Leigh-Ann (Booked by Marisa)");
+  assert.equal(row.getCell(4).value, 2);
+});
+
 test("Table Plan keeps every permanent table in the original master-template section", async () => {
   const expectedOrder = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20,

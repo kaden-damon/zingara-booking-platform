@@ -1,3 +1,4 @@
+import { getBookingGuestName } from "./bookingGuestName";
 import {
   getPhysicalTableDefinition,
   isLegacyPlaceholderTableCode,
@@ -680,6 +681,7 @@ export type BookingLifecycleEvent = {
   createdAt: string;
 };
 export type DemoBooking = {
+  attendingGuestName?: string;
   attendanceResponse?: "confirmed" | "declined";
   attendanceRespondedAt?: string;
   buyoutReviewReason?: string;
@@ -1067,9 +1069,9 @@ export function getGuestTicketsForBooking(booking: DemoBooking) {
         existingTicket?.email ??
         (index === 1 ? booking.customer.email : ""),
       fullName:
-        existingTicket?.fullName ??
+        (index === 1 && booking.attendingGuestName ? getBookingGuestName(booking) : existingTicket?.fullName) ??
         (index === 1
-          ? booking.customer.name
+          ? getBookingGuestName(booking)
           : `Guest ${index}`),
       id: existingTicket?.id ?? `${booking.reference}-${index}`,
       index,

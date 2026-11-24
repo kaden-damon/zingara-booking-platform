@@ -1398,6 +1398,7 @@ export async function saveBookings(
 }
 
 export async function saveBookingMetadata(input: {
+  attendingGuestName?: string | null;
   addons: BookingAddon[];
   bookingId?: string;
   bookingReference: string;
@@ -1405,6 +1406,7 @@ export async function saveBookingMetadata(input: {
   operationalNotes: string;
 }) {
   return fetchSupabaseApi<{
+    attendingGuestName?: string | null;
     addons: BookingAddon[];
     addonsTotal: number;
     balanceDue: number;

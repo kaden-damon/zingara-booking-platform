@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import AttendingGuestField from "../components/AttendingGuestField";
 import {
   type ReactNode,
   use,
@@ -822,6 +823,7 @@ export default function BookingPage({
       email: "",
       phone: "",
     });
+  const [attendingGuestName, setAttendingGuestName] = useState<string | undefined>();
   const [customerNotes, setCustomerNotes] = useState("");
   const [secretGuestListShowId, setSecretGuestListShowId] = useState("");
   const [secretGuestListEnabled, setSecretGuestListEnabled] = useState(false);
@@ -1528,6 +1530,7 @@ export default function BookingPage({
   const isStaffBookingJourney = isTrustedManualCheckout;
   const requiresPublicAgeAcknowledgement = !isTrustedManualCheckout;
   const currentCustomerValidationErrors = validateBookingCreate({
+    attendingGuestName,
     bookingSource: isCorporateCalendarCheckout
       ? "corporate-direct"
       : isTrustedManualCheckout
@@ -1673,6 +1676,7 @@ export default function BookingPage({
 
   function validateCheckoutCustomerDetails() {
     const errors = validateBookingCreate({
+      attendingGuestName,
       bookingSource: isCorporateCalendarCheckout
         ? "corporate-direct"
         : isTrustedManualCheckout
@@ -1693,7 +1697,7 @@ export default function BookingPage({
 
     setPaymentRedirectStatus(firstError);
     window.requestAnimationFrame(() => {
-      const firstInvalidField = (["name", "phone", "email"] as const).find(
+      const firstInvalidField = (["name", "phone", "email", "attendingGuestName"] as const).find(
         (field) => errors[field],
       );
       const visibleInput = Array.from(
@@ -2748,6 +2752,7 @@ export default function BookingPage({
           if (returnedBooking.customer) {
             setCustomerInfo(returnedBooking.customer);
           }
+          setAttendingGuestName(returnedBooking.attendingGuestName);
           setCustomerNotes(returnedBooking.operationalNotes ?? "");
           setPaymentOption(returnedBooking.paymentOption ?? "full");
           setAllocatedTableNumber(returnedBooking.tableNumber);
@@ -3017,6 +3022,7 @@ export default function BookingPage({
       status: isSettledComplimentary || isCorporateInvoicePaid
         ? ("confirmed" as const)
         : ("pending-payment" as const),
+      attendingGuestName: attendingGuestName?.trim() || undefined,
       lifecycleHistory: isSettledComplimentary ? [] : [
         {
           id: `${reference}-created`,
@@ -5292,6 +5298,8 @@ export default function BookingPage({
                 </label>
               </div>
 
+              <AttendingGuestField value={attendingGuestName} onChange={setAttendingGuestName} />
+
               {isTrustedManualCheckout && customerMatches.length > 0 && (
                 <div className="mt-4 rounded-xl border border-[#D8C36A]/25 bg-black/35 p-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#F2D66C]">
@@ -6461,6 +6469,8 @@ export default function BookingPage({
                   )}
                 </label>
               </div>
+
+              <AttendingGuestField value={attendingGuestName} onChange={setAttendingGuestName} />
 
               {publicBookingGuidance && (
                 <p

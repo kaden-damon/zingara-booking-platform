@@ -1,6 +1,7 @@
 import type { BookingAddon } from "./zingaraDemo";
 
 export type BookingMetadataDraft = {
+  attendingGuestName?: string;
   addons: BookingAddon[];
   operationalNotes: string;
 };
@@ -8,8 +9,10 @@ export type BookingMetadataDraft = {
 export function createBookingMetadataDraft(
   operationalNotes: string | null | undefined,
   addons: BookingAddon[] = [],
+  attendingGuestName?: string,
 ): BookingMetadataDraft {
   return {
+    attendingGuestName,
     addons: addons.map((addon) => {
       const quantity = addon.quantity ?? 1;
       return {
@@ -27,6 +30,7 @@ export function isBookingMetadataDraftDirty(
   baseline: BookingMetadataDraft,
 ) {
   return (
+    draft.attendingGuestName !== baseline.attendingGuestName ||
     draft.operationalNotes !== baseline.operationalNotes ||
     JSON.stringify(draft.addons) !== JSON.stringify(baseline.addons)
   );

@@ -1,3 +1,4 @@
+import { normalizeAttendingGuestName } from "@/lib/bookingGuestName";
 import {
   getAdminRoleFromName,
   getRolePermissions,
@@ -3317,6 +3318,7 @@ async function persistBookingStateUpdate(request: Request, body: {
 async function persistBookingMetadataUpdate(
   request: Request,
   body: {
+    attendingGuestName?: string | null;
     addons?: DemoBooking["addons"];
     bookingId?: string;
     bookingReference?: string;
@@ -3435,6 +3437,15 @@ async function persistBookingMetadataUpdate(
   const previousMetadata = parseSerializedBookingNotes(
     (beforeBooking as { notes?: unknown }).notes,
   );
+  let attendingGuestName: string | undefined;
+  try {
+    attendingGuestName = body.attendingGuestName === undefined
+      ? previousMetadata?.attendingGuestName
+      : normalizeAttendingGuestName(body.attendingGuestName);
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Invalid attending guest name." }, { status: 400 });
+  }
+  const attendingGuestChanged = attendingGuestName !== previousMetadata?.attendingGuestName;
   const previousOperationalNotes = previousMetadata
     ? previousMetadata.operationalNotes ?? ""
     : String((beforeBooking as { notes?: unknown }).notes ?? "");
@@ -3513,10 +3524,12 @@ async function persistBookingMetadataUpdate(
   }
 
   if (
+    !attendingGuestChanged &&
     previousOperationalNotes === operationalNotes &&
     JSON.stringify(previousAddons) === JSON.stringify(addons)
   ) {
     return Response.json({
+      attendingGuestName: attendingGuestName ?? null,
       addons,
       addonsTotal: previousAddonsTotal,
       balanceDue: Number((beforeBooking as { balance_outstanding?: number }).balance_outstanding ?? 0),
@@ -3546,6 +3559,7 @@ async function persistBookingMetadataUpdate(
     );
   const nextNotes = serializeBookingNotes({
     ...metadataBase,
+    attendingGuestName,
     addons,
     addonsTotal: nextAddonsTotal,
     amountPaid: financials.amountPaid,
@@ -3637,6 +3651,7 @@ async function persistBookingMetadataUpdate(
     await recordAuditEvent(auth.serviceClient, auth.staffProfile, auth.user, {
       action: addonsChanged ? "booking.addons-updated" : "booking.metadata-edit",
       afterValues: {
+        attendingGuestName: attendingGuestName ?? null,
         addons: toAuditJsonValue(addons),
         addonsTotal: nextAddonsTotal,
         operationalNotes,
@@ -3648,6 +3663,7 @@ async function persistBookingMetadataUpdate(
         total: financials.totalAmount,
       },
       beforeValues: {
+        attendingGuestName: previousMetadata?.attendingGuestName ?? null,
         addons: toAuditJsonValue(previousAddons),
         addonsTotal: previousAddonsTotal,
         operationalNotes: previousOperationalNotes,
@@ -3660,6 +3676,7 @@ async function persistBookingMetadataUpdate(
         total: Number((beforeBooking as { total_amount?: number }).total_amount ?? 0),
       },
       changedFields: [
+        ...(attendingGuestChanged ? ["attendingGuestName"] : []),
         ...(previousOperationalNotes === operationalNotes ? [] : ["operationalNotes"]),
         ...(addonsChanged ? ["addons"] : []),
         ...(financialChanged
@@ -3740,6 +3757,7 @@ async function persistBookingMetadataUpdate(
   }
 
   return Response.json({
+    attendingGuestName: attendingGuestName ?? null,
     addons,
     addonsTotal: nextAddonsTotal,
     balanceDue: financials.balanceOutstanding,
@@ -3930,6 +3948,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
+    attendingGuestName?: string | null;
     action?: string;
     addons?: DemoBooking["addons"];
     booking?: DemoBooking;

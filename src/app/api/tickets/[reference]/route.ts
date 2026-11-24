@@ -1,3 +1,4 @@
+import { normalizeAttendingGuestName } from "@/lib/bookingGuestName";
 import {
   type DemoBooking,
   type DemoShow,
@@ -592,6 +593,11 @@ export async function PATCH(request: Request, context: TicketRouteContext) {
       );
     }
 
+    let attendingGuestName = payload.booking.attendingGuestName;
+    if (currentTicket.index === 1 && attendingGuestName && body.fullName !== undefined) {
+      try { attendingGuestName = normalizeAttendingGuestName(body.fullName); }
+      catch { return Response.json({ error: "Enter an attending guest name of no more than 120 characters." }, { status: 400 }); }
+    }
     const nextBooking = {
       ...payload.booking,
       guestTickets: (payload.booking.guestTickets ?? []).map((ticket) =>
@@ -604,6 +610,7 @@ export async function PATCH(request: Request, context: TicketRouteContext) {
             }
           : ticket,
       ),
+      attendingGuestName,
     };
 
     await supabase

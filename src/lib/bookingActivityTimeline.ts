@@ -191,6 +191,7 @@ const fieldLabels: Record<string, string> = {
   released_ticket_value: "Removed guests' ticket value", gratuity_transferred: "Gratuity moved to bar",
   bar_tab_amount: "Bar allocation", ticket_amount: "Ticket value", ticket_gratuity_amount: "Ticket gratuity",
   table_id: "Table assignment", show_id: "Show", notes: "Booking notes",
+  attendingGuestName: "Attending guest",
 };
 
 const stateLabels: Record<string, string> = {
@@ -294,7 +295,7 @@ export function presentBookingActivityEntry(
         : /communicat/i.test(entry.source) ? "Messages" : "Booking history",
     changes: entry.changes.filter((change) => change.field !== "Other booking details" && JSON.stringify(change.before) !== JSON.stringify(change.after))
       .filter((change) => access.financial || !financial.test(change.key || change.field))
-      .filter((change) => access.privateDetails || (change.field !== "Other booking details" && !/note|subject|customer|diet|request|reason/i.test(change.key || change.field)))
+      .filter((change) => access.privateDetails || (change.field !== "Other booking details" && !/note|subject|customer|diet|request|reason|attending.?guest/i.test(change.key || change.field)))
       .map((change) => ({ field: change.field, before: change.before === undefined ? undefined : timelineValue(change.before, change.key || change.field), after: timelineValue(change.after, change.key || change.field) })),
   };
 }

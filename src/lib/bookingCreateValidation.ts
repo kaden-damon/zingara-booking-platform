@@ -4,13 +4,14 @@ import {
   parseInternationalPhone,
 } from "@/lib/phone";
 
-export type BookingCreateField = "email" | "name" | "partySize" | "phone";
+export type BookingCreateField = "email" | "name" | "partySize" | "phone" | "attendingGuestName";
 
 export type BookingCreateFieldErrors = Partial<
   Record<BookingCreateField, string>
 >;
 
 type BookingCreateValidationInput = {
+  attendingGuestName?: string;
   bookingSource?: BookingSource;
   customer: Partial<CustomerInfo> | null | undefined;
   isCreate: boolean;
@@ -39,6 +40,9 @@ export function validateBookingCreate(
 
   const customer = normalizeBookingCustomer(input.customer);
   const errors: BookingCreateFieldErrors = {};
+  if (input.attendingGuestName !== undefined && (!input.attendingGuestName.trim() || input.attendingGuestName.trim().length > 120)) {
+    errors.attendingGuestName = "Enter the attending guest name (up to 120 characters).";
+  }
   const requiresEmail = !input.isTrustedStaff;
   const requiresMobile = !input.isTrustedStaff;
 
@@ -76,7 +80,7 @@ export function validateBookingCreate(
 export function getFirstBookingCreateError(
   errors: BookingCreateFieldErrors,
 ) {
-  return errors.name ?? errors.phone ?? errors.email ?? errors.partySize;
+  return errors.name ?? errors.phone ?? errors.email ?? errors.partySize ?? errors.attendingGuestName;
 }
 
 export function getPublicBookingGuidance(

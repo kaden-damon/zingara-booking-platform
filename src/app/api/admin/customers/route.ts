@@ -1,3 +1,4 @@
+import { findBookingCustomer } from "@/lib/bookingCustomerIdentity";
 import {
   getRequestingUser,
   getRolePermissions,
@@ -246,22 +247,15 @@ async function findCustomer(
   serviceClient: NonNullable<ReturnType<typeof getServiceClient>>,
   input: CustomerWriteInput,
 ) {
-  const customerKey =
-    input.customerKey ??
-    getCustomerKey({
-      email: input.email,
-      name: input.name,
-      phone: input.mobile,
-    });
   const email = input.email?.trim().toLowerCase();
-  const mobile = normalizePhoneForComparison(input.mobile);
   const filters = [
     email ? `email.eq.${email}` : "",
     ...getPhoneLookupVariants(input.mobile).map(
       (variant) => `mobile.eq.${variant}`,
     ),
   ].filter(Boolean);
-  let query = serviceClient.from("customers").select(customerSelect);
+  if (filters.length === 0) return undefined;
+  let query = serviceClient.from("customers").select(customerSelect).is("merged_into_customer_id", null);
 
   if (filters.length > 0) {
     query = query.or(filters.join(","));
@@ -273,14 +267,8 @@ async function findCustomer(
     throw error;
   }
 
-  return ((data ?? []) as SupabaseCustomerRow[]).find((row) => {
-    const rowMobile = normalizePhoneForComparison(row.mobile);
-
-    return (
-      row.preferences?.customerKey === customerKey ||
-      (email && row.email === email) ||
-      (mobile && rowMobile === mobile)
-    );
+  return findBookingCustomer((data ?? []) as SupabaseCustomerRow[], {
+    email: input.email, name: input.name, phone: input.mobile,
   });
 }
 
@@ -295,32 +283,7 @@ async function upsertCustomer(
   );
 
   if (existingCustomer) {
-    const mergedPayload = {
-      ...payload,
-      dietary_requirements:
-        payload.dietary_requirements ??
-        existingCustomer.dietary_requirements ??
-        null,
-      first_name: payload.first_name || existingCustomer.first_name,
-      relationship_notes:
-        payload.relationship_notes ||
-        existingCustomer.relationship_notes ||
-        "",
-      surname: payload.surname ?? existingCustomer.surname,
-      vip_status: payload.vip_status ?? existingCustomer.vip_status,
-    };
-    const { data, error } = await serviceClient
-      .from("customers")
-      .update(mergedPayload)
-      .eq("id", existingCustomer.id)
-      .select(customerSelect)
-      .maybeSingle();
-
-    if (error) {
-      throw error;
-    }
-
-    return data;
+    return { row: existingCustomer, created: false };
   }
 
   const { data, error } = await serviceClient
@@ -330,10 +293,14 @@ async function upsertCustomer(
     .maybeSingle();
 
   if (error) {
+    if (error.code === "23505") {
+      const concurrentCustomer = await findCustomer(serviceClient, input);
+      if (concurrentCustomer) return { row: concurrentCustomer, created: false };
+    }
     throw error;
   }
 
-  return data;
+  return { row: data, created: true };
 }
 
 async function fetchAllCustomers(
@@ -486,18 +453,18 @@ export async function POST(request: Request) {
       return Response.json({ error: mobileError }, { status: 400 });
     }
 
-    const existingCustomer = await findCustomer(serviceClient, body.input);
-    const row = await upsertCustomer(serviceClient, body.input);
+    const { row, created } = await upsertCustomer(serviceClient, body.input);
+    if (!created) return Response.json({ row });
     const actor = await getAuditActor(request);
     const diff = diffAuditFields(
-      existingCustomer as Record<string, unknown> | null,
+      null,
       row as Record<string, unknown> | null,
       customerAuditFields,
     );
 
     try {
       await recordAuditEvent(serviceClient, actor.staffProfile, actor.user, {
-        action: existingCustomer ? "customer.edit" : "customer.create",
+        action: "customer.create",
         afterValues: diff.afterValues,
         beforeValues: diff.beforeValues,
         changedFields:
@@ -945,17 +912,17 @@ export async function PATCH(request: Request) {
     }
 
     if (!body.id) {
-      const existingCustomer = await findCustomer(serviceClient, body.input);
-      const row = await upsertCustomer(serviceClient, body.input);
+      const { row, created } = await upsertCustomer(serviceClient, body.input);
+      if (!created) return Response.json({ row });
       const actor = await getAuditActor(request);
       const diff = diffAuditFields(
-        existingCustomer as Record<string, unknown> | null,
+        null,
         row as Record<string, unknown> | null,
         customerAuditFields,
       );
 
       await tryRecordAuditEvent(serviceClient, actor.staffProfile, actor.user, {
-        action: existingCustomer ? "customer.edit" : "customer.create",
+        action: "customer.create",
         afterValues: diff.afterValues,
         beforeValues: diff.beforeValues,
         changedFields:

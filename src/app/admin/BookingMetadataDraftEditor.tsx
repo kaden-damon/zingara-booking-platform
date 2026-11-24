@@ -13,6 +13,7 @@ import { calculateBookingAddonFinancialUpdate } from "../../lib/bookingAddons";
 import { restrictedDietaryAddonIds } from "../../lib/bookingAddons";
 import InternalBookingAddonsEditor from "../components/InternalBookingAddonsEditor";
 import AgeRestrictionNotice from "../components/AgeRestrictionNotice";
+import AttendingGuestField from "../components/AttendingGuestField";
 
 type SaveState = "idle" | "saved" | "saving";
 
@@ -24,6 +25,7 @@ export function BookingMetadataDraftEditor({
   initialAddonsTotal,
   initialAmountPaid,
   initialNotes,
+  initialAttendingGuestName,
   initialPartySize,
   initialServiceFeeAmount,
   initialSubtotalPrice,
@@ -39,6 +41,7 @@ export function BookingMetadataDraftEditor({
   initialAddonsTotal: number;
   initialAmountPaid: number;
   initialNotes?: string;
+  initialAttendingGuestName?: string;
   initialPartySize: number;
   initialServiceFeeAmount: number;
   initialSubtotalPrice: number;
@@ -46,6 +49,7 @@ export function BookingMetadataDraftEditor({
   initialUpdatedAt?: string;
   onDirtyChange: (dirty: boolean) => void;
   onSaved: (result: {
+    attendingGuestName?: string | null;
     addons: BookingAddon[];
     addonsTotal: number;
     balanceDue: number;
@@ -59,8 +63,8 @@ export function BookingMetadataDraftEditor({
   }) => void;
 }) {
   const initialDraft = useMemo(
-    () => createBookingMetadataDraft(initialNotes, initialAddons),
-    [initialAddons, initialNotes],
+    () => createBookingMetadataDraft(initialNotes, initialAddons, initialAttendingGuestName),
+    [initialAddons, initialNotes, initialAttendingGuestName],
   );
   const [baseline, setBaseline] = useState(initialDraft);
   const [draft, setDraft] = useState(initialDraft);
@@ -119,14 +123,18 @@ export function BookingMetadataDraftEditor({
     setError("");
 
     try {
+      if (draft.attendingGuestName !== undefined && !draft.attendingGuestName.trim()) {
+        throw new Error("Enter the attending guest name.");
+      }
       const result = await saveBookingMetadata({
+        attendingGuestName: draft.attendingGuestName ?? null,
         addons: draft.addons,
         bookingId,
         bookingReference,
         expectedUpdatedAt: initialUpdatedAt,
         operationalNotes: draft.operationalNotes,
       });
-      const savedDraft = createBookingMetadataDraft(result.operationalNotes, result.addons);
+      const savedDraft = createBookingMetadataDraft(result.operationalNotes, result.addons, result.attendingGuestName ?? undefined);
 
       setBaseline(savedDraft);
       setDraft(savedDraft);
@@ -148,6 +156,12 @@ export function BookingMetadataDraftEditor({
   return (
     <section className="rounded-2xl border border-white/10 bg-black/30 p-4 lg:col-span-3">
       <AgeRestrictionNotice className="mb-4" compact />
+      <div className="mb-4"><AttendingGuestField value={draft.attendingGuestName}
+        disabled={disabled || saveState === "saving"} onChange={(attendingGuestName) => {
+          setDraft((current) => ({ ...current, attendingGuestName }));
+          setSaveState("idle");
+          setError("");
+        }} /></div>
       <label>
         <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
           Booking Notes / Dietary Requirements

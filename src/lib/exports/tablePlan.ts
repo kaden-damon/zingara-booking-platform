@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import ExcelJS, { type Cell, type Row, type Worksheet } from "exceljs";
+import { getAttendingGuestNameFromNotes } from "../bookingGuestName";
 import {
   deriveCustomerNameParts,
   getCustomerDisplayName,
@@ -1335,7 +1336,10 @@ function populateBookingDataRow(
     (includeBookingDetails || repeatCompanyName) && companyName
       ? neutralizeSpreadsheetFormula(companyName)
       : null;
-  row.getCell(bookerColumn).value = neutralizeSpreadsheetFormula(getCustomerName(customer));
+  const attendingGuestName = getAttendingGuestNameFromNotes(booking.notes);
+  const bookerName = getCustomerName(customer);
+  row.getCell(bookerColumn).value = neutralizeSpreadsheetFormula(attendingGuestName
+    ? `${attendingGuestName} (Booked by ${bookerName})` : bookerName);
   row.getCell(contactColumn).value = includeBookingDetails && customer?.mobile?.trim()
     ? neutralizeSpreadsheetFormula(customer.mobile.trim())
     : null;

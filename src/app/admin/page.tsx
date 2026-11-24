@@ -1,5 +1,6 @@
 "use client";
 
+import { getBookingGuestName, getBookingGuestLabel } from "../../lib/bookingGuestName";
 import {
   formatCorporateDietaryRequirement,
   getCorporateDietarySummary,
@@ -9345,6 +9346,7 @@ export default function AdminDashboardPage({
 
     return [
       booking.reference,
+      booking.attendingGuestName,
       booking.customer.name,
       booking.customer.email,
       getPersistedBookingPromoCode(booking),
@@ -9404,7 +9406,7 @@ export default function AdminDashboardPage({
   const sortedDailyManifestBookings = [...manifestBookings].sort(
     (left, right) => {
       if (dailyManifestSort === "guest-name") {
-        return left.customer.name.localeCompare(right.customer.name);
+        return getBookingGuestName(left).localeCompare(getBookingGuestName(right));
       }
 
       if (dailyManifestSort === "section") {
@@ -14836,7 +14838,7 @@ export default function AdminDashboardPage({
           "Contact Number": booking.customer.phone || "Not recorded",
           "Deposit Paid": financials.amountPaid,
           Email: booking.customer.email || "Not recorded",
-          Booker: booking.customer.name || "Unnamed Guest",
+          Booker: getBookingGuestLabel(booking) || "Unnamed Guest",
           "Guest Notes": booking.operationalNotes || "Not recorded",
           Guests: booking.partySize,
           "Payment Status": paymentStatusLabels[financials.paymentStatus],
@@ -14918,7 +14920,7 @@ export default function AdminDashboardPage({
             Company: booking ? getBookingCompanyName(booking) : "",
             "Deposit Paid": financials?.amountPaid ?? "Not recorded",
             "Gratuity Paid": "Not recorded",
-            Booker: booking?.customer.name || "Vacant",
+            Booker: booking ? getBookingGuestLabel(booking) : "Vacant",
             "Guest Notes":
               booking?.operationalNotes || table.guestNotes || "Not recorded",
             Guests: booking && isPrimaryBookingTable ? booking.partySize : 0,
@@ -14949,7 +14951,7 @@ export default function AdminDashboardPage({
           Company: getBookingCompanyName(booking),
           "Deposit Paid": financials.amountPaid,
           "Gratuity Paid": "Not recorded",
-          Booker: booking.customer.name || "Unnamed Guest",
+          Booker: getBookingGuestLabel(booking) || "Unnamed Guest",
           "Guest Notes": booking.operationalNotes || "Not recorded",
           Guests: booking.partySize,
           "Payment Status": paymentStatusLabels[paymentStatus],
@@ -20721,6 +20723,7 @@ export default function AdminDashboardPage({
     return [
       booking.reference,
       corporateCompanyName,
+      booking.attendingGuestName,
       booking.customer.name,
       booking.customer.phone,
       booking.customer.email,
@@ -27407,7 +27410,7 @@ export default function AdminDashboardPage({
                             {booking.reference}
                           </td>
                           <td className="px-3 py-3">
-                            {booking.customer.name || "Unnamed Guest"}
+                            {getBookingGuestLabel(booking) || "Unnamed Guest"}
                           </td>
                           <td className="px-3 py-3">
                             {booking.customer.phone || "Not recorded"}
@@ -27604,7 +27607,7 @@ export default function AdminDashboardPage({
                                 {booking ? (
                                   <div className="mt-4 space-y-2 text-sm text-zinc-300 print:text-zinc-800">
                                     <p className="font-semibold text-white print:text-black">
-                                      {booking.customer.name || "Unnamed Guest"}
+                                      {getBookingGuestLabel(booking) || "Unnamed Guest"}
                                     </p>
                                     <p>
                                       {booking.partySize} guests ·{" "}
@@ -27707,7 +27710,7 @@ export default function AdminDashboardPage({
                                   </div>
                                   <div className="mt-4 space-y-2 text-sm text-zinc-300 print:text-zinc-800">
                                     <p className="font-semibold text-white print:text-black">
-                                      {booking.customer.name ||
+                                      {getBookingGuestLabel(booking) ||
                                         "Unnamed Guest"}
                                     </p>
                                     <p>
@@ -28203,7 +28206,7 @@ export default function AdminDashboardPage({
                               {booking.reference}
                             </td>
                             <td className="px-3 py-3">
-                              {booking.customer.name || "Unnamed Guest"}
+                              {getBookingGuestLabel(booking) || "Unnamed Guest"}
                             </td>
                             <td className="px-3 py-3">
                               {show
@@ -28307,7 +28310,7 @@ export default function AdminDashboardPage({
                               {booking.reference}
                             </td>
                             <td className="px-3 py-3">
-                              {booking.customer.name || "Unnamed Guest"}
+                              {getBookingGuestLabel(booking) || "Unnamed Guest"}
                             </td>
                             <td className="px-3 py-3">{booking.partySize}</td>
                             <td className="px-3 py-3">
@@ -36494,7 +36497,7 @@ export default function AdminDashboardPage({
                         </div>
 
                         <h3 className="mt-2 text-2xl font-bold">
-                          {booking.customer.name || "Unnamed Guest"}
+                          {getBookingGuestLabel(booking) || "Unnamed Guest"}
                         </h3>
                         <p className="mt-1 text-zinc-400">
                           Table {booking.tableNumber || "Unassigned"} ·{" "}
@@ -37055,7 +37058,7 @@ export default function AdminDashboardPage({
                             {booking.reference}
                           </p>
                           <h4 className="mt-1 text-lg font-semibold text-white">
-                            {booking.customer.name || "Imported Guest"}
+                            {getBookingGuestLabel(booking) || "Imported Guest"}
                           </h4>
                           <p className="mt-2 text-sm text-zinc-300">
                             <span className="text-zinc-500">Company:</span>{" "}
@@ -37063,7 +37066,7 @@ export default function AdminDashboardPage({
                           </p>
                           <p className="mt-1 text-sm text-zinc-300">
                             <span className="text-zinc-500">Booker:</span>{" "}
-                            {booking.customer.name || "Imported Guest"}
+                            {getBookingGuestLabel(booking) || "Imported Guest"}
                           </p>
                           <p className="mt-1 text-sm text-zinc-300">
                             {booking.partySize} guests · {getBookingZoneEntitlements(booking)
@@ -37214,7 +37217,7 @@ export default function AdminDashboardPage({
                             {booking.reference}
                           </p>
                           <h4 className="mt-1 text-lg font-semibold text-white">
-                            {booking.customer.name || "Imported Guest"}
+                            {getBookingGuestLabel(booking) || "Imported Guest"}
                           </h4>
                           <p className="mt-2 text-sm text-zinc-300">
                             <span className="text-zinc-500">Company:</span>{" "}
@@ -37222,7 +37225,7 @@ export default function AdminDashboardPage({
                           </p>
                           <p className="mt-1 text-sm text-zinc-300">
                             <span className="text-zinc-500">Booker:</span>{" "}
-                            {booking.customer.name || "Imported Guest"}
+                            {getBookingGuestLabel(booking) || "Imported Guest"}
                           </p>
                           <p className="mt-1 text-sm text-zinc-300">
                             {booking.partySize} guests · {booking.zoneTitle}
@@ -37681,7 +37684,7 @@ export default function AdminDashboardPage({
                               : linkedParent
                               ? `Part of merged table ${linkedParent.tableNumber}`
                               : tableOccupancy.booking
-                              ? `${tableOccupancy.booking.customer.name || "Guest"} · ${tableOccupancy.booking.partySize} guests`
+                              ? `${getBookingGuestLabel(tableOccupancy.booking) || "Guest"} · ${tableOccupancy.booking.partySize} guests`
                               : tableOccupancy.state === "available"
                                 ? "Available"
                                 : table.guestNotes ||
@@ -37939,7 +37942,7 @@ export default function AdminDashboardPage({
                           {allocatedBooking && (
                             <div className="rounded-2xl border border-amber-300/20 bg-amber-950/10 p-4 text-sm text-zinc-300">
                               <p className="font-semibold text-white">
-                                {allocatedBooking.customer.name || "Guest"}
+                                {getBookingGuestLabel(allocatedBooking) || "Guest"}
                               </p>
                               <p className="mt-2">
                                 <span className="text-zinc-500">Company:</span>{" "}
@@ -37947,7 +37950,7 @@ export default function AdminDashboardPage({
                               </p>
                               <p className="mt-1">
                                 <span className="text-zinc-500">Booker:</span>{" "}
-                                {allocatedBooking.customer.name || "Guest"}
+                                {getBookingGuestLabel(allocatedBooking) || "Guest"}
                               </p>
                               <p className="mt-1">
                                 {allocatedBooking.reference} ·{" "}
@@ -39567,7 +39570,7 @@ export default function AdminDashboardPage({
                               : "text-2xl sm:text-3xl"
                           }`}
                         >
-	                          {booking.customer.name || "Unnamed Guest"}
+	                          {getBookingGuestLabel(booking) || "Unnamed Guest"}
 	                        </h3>
 
 	                        {isCorporateBooking && corporateCompanyName && (
@@ -39708,7 +39711,7 @@ export default function AdminDashboardPage({
                                 Booking Details
                               </p>
 	                              <h3 className="mt-2 truncate text-xl font-bold sm:text-2xl">
-	                                {booking.customer.name ||
+	                                {getBookingGuestLabel(booking) ||
 	                                  "Unnamed Guest"}
 	                              </h3>
 	                              {isCorporateBooking &&
@@ -41395,6 +41398,7 @@ export default function AdminDashboardPage({
                             initialAddonsTotal={financials.addonsTotal}
                             initialAmountPaid={financials.amountPaid}
                             initialNotes={booking.operationalNotes}
+                            initialAttendingGuestName={booking.attendingGuestName}
                             initialPartySize={booking.partySize}
                             initialServiceFeeAmount={financials.serviceFeeAmount}
                             initialSubtotalPrice={financials.subtotalPrice}
@@ -41413,6 +41417,7 @@ export default function AdminDashboardPage({
                                         ...currentBooking,
                                         operationalNotes:
                                           result.operationalNotes,
+                                        attendingGuestName: result.attendingGuestName ?? undefined,
                                         addons: result.addons,
                                         addonsTotal: result.addonsTotal,
                                         balanceDue: result.balanceDue,

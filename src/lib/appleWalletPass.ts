@@ -4,6 +4,7 @@ import path from "node:path";
 import { PKPass } from "passkit-generator";
 
 import { resolveGuestVisibleTable } from "@/lib/guestTicketDisplay";
+import { getAttendingGuestNameFromNotes } from "./bookingGuestName";
 import {
   createAppleWalletAuthenticationToken,
   getAppleWalletWebServiceUrl,
@@ -333,6 +334,7 @@ async function loadAppleWalletPassSource(
   );
   const customer = customerResult.data as CustomerRow | null;
   const guestName =
+    (metadataTicket?.index === 1 || ticketRows[0]?.id === ticket?.id ? getAttendingGuestNameFromNotes(booking.notes) : undefined) ||
     metadataTicket?.fullName?.trim() ||
     formatGuestName(customer) ||
     metadata?.customer?.name?.trim() ||
