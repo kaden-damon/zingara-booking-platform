@@ -10,34 +10,62 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Mandatory Zingara Development Doctrine
 
-These rules apply to every task, session and model working in this repository,
-subject to higher-priority instructions. Read `.codex/README.md`,
-`.codex/CURRENT_TASK.md` and relevant archives before proceeding.
+These rules apply to every task, session and model, subject to higher-priority
+instructions. Detailed authority/source map and unresolved evidence are in
+`.codex/archive/DEVELOPMENT_BASELINE_RECONCILIATION_2026-10-30.md` (24 November
+superseding baseline). Read `.codex/README.md` and `.codex/CURRENT_TASK.md` first.
 
-- Locate and understand the existing functionality, controls, APIs, calculations,
-  components and business rules BEFORE coding. Record the existing path and gap.
-- Reuse, restore or extend the existing workflow FIRST. Never introduce duplicate
-  controls, APIs, calculations, components or business logic. Preserve necessary
-  server-side validation; client checks are not an authoritative safeguard.
-- Every UI change MUST reuse Zingara's existing design system and components:
-  branded buttons, calendars/date ranges, gold checkboxes, hover/pressed/loading
-  and keyboard-focus feedback, spacing and responsive layouts. Inspect existing
-  examples first; extend a shared component only when necessary. Do not introduce
-  generic browser styling or duplicate components when a Zingara equivalent exists.
-- Customer/export checkboxes must be circular with gold selected states, retaining
-  native checkbox semantics and keyboard/focus accessibility. Search fields and
-  dropdowns use fully rounded pill styling. Keep UI wording minimal: omit redundant
-  explanations and units, use concise status messages and compact single-line
-  pagination without changing underlying data, financial meaning or safeguards.
-- For a regression, compare the previous working version with the current one
-  before designing a correction. Recover previous findings and release evidence.
-- New workflows or controls require demonstrated necessity AND explicit user
-  approval before implementation. Explain why the existing functionality cannot
-  satisfy the requirement; do not substitute a new workflow for an unexamined one.
-- Make the smallest safe change. Preserve platform performance, stability,
-  permissions, financial safeguards, historical evidence and data integrity.
-- Reuse previous verification evidence and run only essential targeted checks for
-  the actual change. Do not repeat completed audits or extensive QA unnecessarily.
-- Follow the existing release and documentation workflow. Real financial/data
-  changes require their applicable separate authority. Frontend 2.0 / Phase 50.9
-  remains isolated and must not be touched or released without explicit approval.
+1. Recover relevant records, current code/configuration, Git state and release
+   evidence after every session/model change. Never rely on model memory alone.
+   Check later amendments to archives, not just their first STATUS heading.
+2. Locate the existing control, component, API, calculation and workflow BEFORE
+   coding; record the path and actual gap. Restore, reuse or extend first. Never
+   duplicate functionality. New workflows/controls need demonstrated necessity
+   AND explicit approval; client checks never replace server validation.
+3. Never invent business rules, prices, capacities, limits, defaults, identities
+   or permissions. Trace them to approval/configuration/verified behaviour. Expose
+   contradictions and resolve relevant uncertainty before implementation.
+4. Identify dependencies and affected workflows. Never remove, hide, disable or
+   replace existing functionality without explicit authority. For regressions,
+   compare the previous working implementation; preserve unrelated behaviour.
+5. Treat Production as a live commercial system. Protect bookings, payments,
+   customer data, seating, tickets, communications and immutable audit evidence.
+   No speculative live-data fixes. A GET may have side effects: inspect it first.
+6. Preserve authoritative financial evidence and booking-specific historical
+   pricing. Never invent components, force balances, duplicate transactions or
+   apply new rules retrospectively. Real financial/historical/data changes need
+   their separate applicable authority, not merely code-release approval.
+7. Reuse Zingara's gold/black components, typography, spacing and responsive
+   patterns: pill buttons/search/dropdowns, branded calendars, circular gold
+   customer/export checkboxes, accessible focus and hover/pressed/loading states.
+   Keep wording short and plain. No generic substitutes, redundant paragraphs or
+   duplicate components. Reuse existing walkthrough popups when relevant.
+8. Preserve query, pagination, cache, polling and bundle budgets. Avoid unnecessary
+   requests, dependencies, rendering and processing. Never raise a budget merely
+   to pass inefficient code; consider impact on unrelated Admin workspaces.
+9. Make the smallest safe change; no unrelated refactoring, new architecture,
+   unnecessary migrations or complexity. Preserve uncommitted work/checkpoints.
+10. Verify the requested operational outcome, including relevant authenticated
+    visibility, server permissions, retained controls, financial calculations,
+    navigation, mobile/desktop usability and performance. Use safe fixtures for
+    consequential actions. Disclose missing evidence; assets/builds alone do not
+    prove a workflow works for its intended staff.
+11. Reuse completed investigations and tests; run essential targeted checks only.
+    Avoid repeated exploratory browser sessions, temporary scripts and duplicate
+    verification. Efficiency never permits weakening integrity or safeguards.
+12. For authorised application releases: investigate -> implement -> verify ->
+    commit -> push -> deploy -> verify actual Production -> report. Confirm the
+    live alias, commit and READY deployment. Do not include unrelated changes.
+    Documentation-only tasks must not trigger an unnecessary deployment; follow
+    the README's local-commit/next-authorised-release exception.
+13. Maintain the existing Markdown structure with dated decisions, supersession,
+    source paths, release evidence, limitations and outstanding owners/actions.
+    No competing knowledge system. Future tasks recover relevant context through
+    the baseline map instead of repeating this entire reconciliation.
+14. Completion means the requested outcome is achieved and appropriately verified.
+    Better wording is not a fix for a blocked workflow. Do not mark unknown or
+    historically unresolved cases resolved merely because code was deployed.
+
+Frontend 2.0 / Phase 50.9 remains strictly isolated: do not modify, merge, deploy
+or connect it to live services without explicit approval. Staff two-factor
+authentication is deferred and is not authorised by this governance exercise.

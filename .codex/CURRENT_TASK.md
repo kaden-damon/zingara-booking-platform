@@ -1,4 +1,45 @@
-# Seating Stabilisation
+# Project Context Reconciliation And Permanent Governance
+
+STATUS: DOCUMENTATION RECONCILED; NO APPLICATION OR PRODUCTION CHANGES
+
+DATE: 24 NOVEMBER 2026
+
+- Current recovery entry point: AGENTS.md -> .codex/README.md -> this record ->
+  the24 November superseding section in
+  archive/DEVELOPMENT_BASELINE_RECONCILIATION_2026-10-30.md. Existing structure only;
+  no new development phase. Use its A-L source map and113-record archive catalogue.
+- Reconciled current booking/Admin/seating/finance/PayFast/CRM/ticketing/
+  communications/reporting/security/design/performance paths with dated records.
+  Documented current vs historical decisions, no-split seating, purchaser/attendee,
+  cancellation/gratuity rules, removed zone editor and retained table controls.
+  Archived records below are historical task snapshots, not all active work.
+- Fresh read-only baseline: remote Main and live706ed8cb07112d481a106af53c41265399fdc3b3,
+  deployment dpl_ArQDU5uikxJ2VURTVyF7AoSx77Uk READY; application29e9114. Both
+  venues PB6-8 and public120/125/138/32=415. Reused16 recent tests/40 prior
+  checkout-allocation checks and successful Vercel performance gates; no retesting
+  of unchanged code, no live customer action or authenticated mutation.
+- Important new evidence gap: migration20261112100000 appears local-only in the
+  ledger despite historical application record and both remote wrapper functions
+  existing. Explicit READ ONLY metadata query confirms presence/hashes; no full
+  function parity assertion, migration application or ledger repair. Latest recorded
+  version20261124153000. Future migration task must reconcile before db push.
+- Carry forward dated Accounts bar-credit/reversal reviews, provider dispatch/
+  ingress traces, CRM candidates, operational seating and communications follow-up,
+  Xero bulk/credit activation and missing-review identity. No case newly remediated.
+  Private config, current queue counts, signed agreements/POS and every function
+  definition were not comprehensively reverified; limits explicitly documented.
+- AGENTS now records14 permanent doctrine rules; README defines context recovery,
+  evidence/authority, actual-outcome verification and documentation-only release
+  exception. Concise operational rules, detailed source references in baseline.
+- Main auto-deploys even Markdown-only commits. Commit scoped documentation locally
+  and retain for next authorised application release; no push/preview deployment,
+  CI configuration change or unnecessary Production release. Initial tracked tree
+  clean; private untracked local-evidence/ and all checkpoints remain preserved.
+  Frontend2.0 untouched;2FA and marketing functionality are not authorised here.
+
+---
+
+# Seating Stabilisation (Completed Historical Handoff)
 
 STATUS: RELEASED / READY; LIVE ASSETS, RETAINED RULES AND PERFORMANCE VERIFIED
 
@@ -88,6 +129,8 @@ DATE: 24 NOVEMBER 2026
 # Seating Limits Scope And UX Cleanup
 
 STATUS: VERIFIED LOCALLY; PRODUCTION RELEASE PENDING
+
+HISTORICAL STATUS SUPERSEDED:29e9114 removed this editor; do not resume its release.
 
 DATE: 24 NOVEMBER 2026
 
