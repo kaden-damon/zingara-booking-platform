@@ -207,5 +207,17 @@ Eight 320/1280px component combinations verify both editors/venues, saves and
 coexistence, unauthorised hiding/disabled seats and no overflow. Production
 permission metadata confirms no direct authenticated table write/RPC bypass.
 No real seating/configuration writes or physical iPhone verification during QA.
-Source and outstanding Markdown records will be committed as explicitly requested.
-Release verification pending; evidence retained in local-evidence/floor-controls-regression-*.
+Source and all19 outstanding Markdown records committed/pushed as explicitly
+requested in **1ad9b4e6b32b285d07e50362f9aa89e9e35dd3d9**. Production
+**dpl_8xMKMxxsHRXpf3txrbigYRRRzC46**, **READY**, exact SHA and live alias
+verified24 November2026,17:15 SAST. AdminHTTP200; served controls chunk
+`1psaii18m06y2.js` includes both Booking sizes and Save table seats; shared chunk
+`0y6sws4w_j_4r.js` includes staffProfileId handling. Settings and seat-capacity
+write routes deny unauthenticated requests with401. Live caps120/125/138/32
+and both venues' PB6–8 limits unchanged. No real seating or staff save during QA.
+
+Evidence retained in local-evidence/floor-controls-regression-production-code.json,
+floor-controls-regression-browser.json and mobile/desktop screenshots. This final
+record follow-up changes Markdown only; no further application changes. Refresh
+Admin to pick up the corrected session payload/client. No Production data writes,
+migrations, live staff mutation, physical iPhone claim or Frontend2.0 changes.

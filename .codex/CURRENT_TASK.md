@@ -1,6 +1,6 @@
 # Urgent Floor Controls Regression Correction
 
-STATUS: TARGETED VERIFICATION PASSED; PRODUCTION RELEASE PENDING
+STATUS: RELEASED / READY; LIVE ASSETS, SETTINGS AND UNAUTHENTICATED DENIAL VERIFIED
 
 DATE: 24 NOVEMBER 2026
 
@@ -37,6 +37,17 @@ DATE: 24 NOVEMBER 2026
   pending task/archive records checked for credential patterns (none found);
   preserve their historical findings and all private local evidence/checkpoints.
   Frontend2.0 untouched. Evidence: local-evidence/floor-controls-regression-*.
+- Fix and all19 outstanding Markdown records committed/pushed in
+  1ad9b4e6b32b285d07e50362f9aa89e9e35dd3d9. Production deployment
+  dpl_8xMKMxxsHRXpf3txrbigYRRRzC46 READY, exact SHA and book.zingara.co.za
+  alias verified24 November2026,17:15 SAST. AdminHTTP200; live controls asset
+  1psaii18m06y2.js contains Booking sizes, Save table seats and separate-allocation
+  help; 0y6sws4w_j_4r.js contains staffProfileId identity handling. Both settings
+  write routes deny unauthenticated requests with401. Both venues retain PB6–8;
+  public caps120/125/138/32 unchanged. No real staff saves during live QA.
+- Evidence: local-evidence/floor-controls-regression-production-code.json.
+  Final verification-record commit is Markdown-only; application remains the
+  verified fix above. Refresh Admin to load the corrected client/session payload.
 
 ---
 
