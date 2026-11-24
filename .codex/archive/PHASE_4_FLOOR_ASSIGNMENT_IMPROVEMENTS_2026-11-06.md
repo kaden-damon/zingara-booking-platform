@@ -298,3 +298,14 @@ Before-state checkpoint: /private/tmp/zingara-seating-stabilisation-before-20261
 Main's failed e369c48 and pending lazy-loading work reconciled selectively through
 editor removal, not blind revert; historical records/evidence preserved. No
 Frontend2.0, bookings, payments, table claims or communication changes.
+
+Release evidence:29e9114ae2c8af271863d1e15eb8c80ff99fbbff pushed to Main;
+dpl_9fYJScCreVyCBiKkJfgP8qHmyjjo READY, exact live alias verified18:03 SAST.
+Clean Vercel npm run build passed existing budgets unchanged: raw1309326/1320000,
+gzip318165/320000, largest gzip169055/170000. Seventy-three live assets confirm
+editor absent and original table-seat controls/profile identity retained. Both
+venues' live settings PB6-8/public120/125/138/32 unchanged; public booking/list
+HTTP200 and protected unauthenticated writes401. No business-data mutations.
+Evidence: local-evidence/seating-stabilisation-production.json. Final records-only
+commit retains this exact application; no outstanding seating regression found
+within checked scope. Pre-existing legacy inventory review remains separate.

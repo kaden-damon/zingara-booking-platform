@@ -1,6 +1,6 @@
 # Seating Stabilisation
 
-STATUS: VERIFIED LOCALLY; PRODUCTION RELEASE IN PROGRESS
+STATUS: RELEASED / READY; LIVE ASSETS, RETAINED RULES AND PERFORMANCE VERIFIED
 
 DATE: 24 NOVEMBER 2026
 
@@ -26,6 +26,20 @@ DATE: 24 NOVEMBER 2026
 - Local default Turbopack remains blocked by compiler-worker port binding.
   Vercel clean npm run build and unchanged Admin budgets are the release gate.
   No real booking, payment, assignment or authenticated settings writes for QA.
+- Application commit29e9114ae2c8af271863d1e15eb8c80ff99fbbff pushed to Main;
+  deployment dpl_9fYJScCreVyCBiKkJfgP8qHmyjjo READY and exact live alias verified
+  24 November2026,18:03 SAST. Supersedes failed e369c48 without reverting rules.
+  Vercel clean npm run build passes unchanged budgets: raw1309326/1320000,
+  gzip318165/320000, largest gzip chunk169055/170000 bytes.
+- Seventy-three current live assets checked: retired editor absent, Save table
+  seats retained in2ts497skuypxo.js and staffProfileId in0v5u2479l2lqo.js.
+  Both venues' actual settings retain PB6-8 and other zones1-19, public caps
+  120/125/138/32. Public /book and /api/shows return200; unauthenticated settings
+  and table writes return401. No live staff save/real checkout claimed.
+  Evidence: local-evidence/seating-stabilisation-production.json.
+- No new stability issue identified. Prior unclaimed legacy inventory follow-up
+  remains unchanged. Tracked working tree reconciled; private evidence retained.
+  Follow-up record commit changes Markdown only; deployed application unchanged.
 
 ---
 
